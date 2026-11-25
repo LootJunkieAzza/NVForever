@@ -438,3 +438,47 @@ fn set_nth_perk_entry_value1_changes_the_entry_points_value() {
     assert!((speed(&mut g) - 1.5).abs() < 1e-6, "{}", speed(&mut g));
     assert_eq!(run(&mut g, "SetFunctionValue (GetNthPerkEntryValue1 TravelLight 0)"), fnv_script::vm::XVal::Num(1.5));
 }
+
+#[test]
+fn equal_priority_perk_entries_execute_in_lifo_add_order() {
+    let f = fixture();
+    let mut g = game(&f);
+    let mk_perk = |name: &str, function: u8, value: f32| fnv_game::data::PerkDef {
+        name: name.into(),
+        playable: true,
+        min_level: 1,
+        ranks: 1,
+        entries: vec![fnv_game::data::PerkEntry {
+            effect: fnv_game::data::PerkEffect::EntryPoint(EntryPointDef {
+                point: perks::CALCULATE_GUN_SPREAD,
+                function,
+                value: Some(value),
+                param_type: Some(1),
+                conditions: Some(vec![]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let (p_set, p_add, p_mul) = (FormId(0x7A0), FormId(0x7A1), FormId(0x7A2));
+    g.lu3.perk_edits.insert(p_set, mk_perk("SteadyTest", perks::SET_VALUE, 0.0));
+    g.lu3.perk_edits.insert(p_add, mk_perk("PenaltyTest", perks::ADD_VALUE, 1.0));
+    g.lu3.perk_edits.insert(p_mul, mk_perk("FastShotTest", perks::MULTIPLY_VALUE, 1.2));
+    // Add Penalty then Steady: LIFO runs Steady (Set 0) then Penalty (Add 1) => 1.0.
+    perks::gain_rank(&mut g, p_add);
+    perks::gain_rank(&mut g, p_set);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 1.0).abs() < 1e-6);
+    // Reverse add order (Steady then Penalty): LIFO runs Penalty (11) then Steady (Set 0) => 0.0.
+    g.player.perks.clear();
+    g.player.perk_order.clear();
+    perks::gain_rank(&mut g, p_set);
+    perks::gain_rank(&mut g, p_add);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 0.0).abs() < 1e-6);
+    // Add Penalty then FastShot: LIFO runs FastShot (10*1.2=12) then Penalty (+1) => 13.0.
+    g.player.perks.clear();
+    g.player.perk_order.clear();
+    perks::gain_rank(&mut g, p_add);
+    perks::gain_rank(&mut g, p_mul);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 13.0).abs() < 1e-6);
+}

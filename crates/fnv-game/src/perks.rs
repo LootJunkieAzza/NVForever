@@ -256,6 +256,10 @@ pub fn apply_function(function: u8, number: f64, value: f64) -> Option<f64> {
 pub fn gain_rank(g: &mut Game, perk: FormId) -> u8 {
     let rank = {
         let r = g.player.perks.entry(perk).or_default();
+        if *r == 0 {
+            g.player.perk_order.retain(|&p| p != perk);
+            g.player.perk_order.push(perk);
+        }
         *r = r.saturating_add(1);
         *r
     };
@@ -492,7 +496,17 @@ impl Game<'_> {
                 found.push((perk, e.clone()));
             }
         }
-        found.sort_by_key(|(p, e)| (e.priority, *p));
+        // Equal-priority entries execute in LIFO (reverse AddPerk) order
+        // [observed: w6d6_13_perk_mod_ep34_set_add_mul_order].
+        let order = &self.player.perk_order;
+        found.sort_by_key(|(p, e)| {
+            let pos = if actor == FormId::PLAYER_REF {
+                order.iter().rposition(|x| x == p).map_or(usize::MAX, |i| order.len() - 1 - i)
+            } else {
+                usize::MAX
+            };
+            (e.priority, pos, *p)
+        });
         found
     }
 

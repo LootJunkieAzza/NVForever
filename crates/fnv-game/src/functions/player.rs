@@ -79,6 +79,7 @@ pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if a.num_or(1, 0.0) != 0.0 {
         g.player.teammate_perks.remove(&perk);
     } else if g.player.perks.remove(&perk).is_some() {
+        g.player.perk_order.retain(|&p| p != perk);
         g.perk_event(perk, false, 0, 0);
     }
     none()

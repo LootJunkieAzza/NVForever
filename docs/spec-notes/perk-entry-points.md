@@ -503,3 +503,11 @@ condition, if any, is the record's (not looked at beyond its entry).
 
 Checks: `fnv-game` `aid::tests::better_healing_multiplies_restored_health_only` (the
 captured figures); smoke `perk-better-healing`.
+
+### Equal-priority perk entry LIFO execution order [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6_13_perk_mod_ep34_set_add_mul_order` (`tools/capture/nvse/catalogs/wave6d6_perk_entry_lifo.json`)]: Equal-priority perks execute in **LIFO (reverse `AddPerk`) order** — most recently added perk runs first, oldest added perk runs last (`penStd`: Steady Set 0 -> Penalty +1 = `1.000`; `stdPen`: Penalty +1 -> Steady Set 0 = `0.000`; `penFs+td`: TD `*0.8` -> FS `*1.2` -> Penalty `+1` = `10.600`):
+
+```text
+PROBE|w6d6_13_perk_mod_ep34_set_add_mul_order|penStd=1.000(+fs=1.000)|stdPen=0.000(+fs=0.000)|penFs=13.000(+td=10.600)
+```

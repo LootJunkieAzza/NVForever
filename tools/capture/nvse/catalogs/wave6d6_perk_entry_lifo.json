@@ -1,0 +1,84 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_perk_entry_lifo",
+  "description": "Wave 6D-6 read-only probe verifying equal-priority perk entries execute in LIFO (reverse AddPerk) order on EP 34.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_perk_entry_lifo",
+      "title": "Perk entry point LIFO equal-priority execution order",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_13_perk_mod_ep34_set_add_mul_order",
+          "bucket": "perk_entry_points",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 36,
+          "functions_tested": [
+            "GetPerkModifier",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "SD-05: Test GetPerkModifier EP 34 (Modify Weapon Spread) mixing Set (NVSteadyChemPerk 0.0), Add (NVWeaponSpreadPenalty1 +1.0), and Multiply (FastShot x1.2, TriggerDiscipline x0.8) in both add orders.",
+          "expected": "Distinguish FormID/priority order (perks.rs:495 gives 0.0) vs AddPerk insertion order vs Set->Add->Multiply operation precedence.",
+          "script_lines": [
+            "ref rStd = GetFormFromMod \"FalloutNV.esm\" \"CED89\"",
+            "ref rPen = GetFormFromMod \"FalloutNV.esm\" \"A9016\"",
+            "ref rFs = GetFormFromMod \"FalloutNV.esm\" \"135EC7\"",
+            "ref rTd = GetFormFromMod \"FalloutNV.esm\" \"135EC8\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "Player.AddPerk rPen",
+            "Player.AddPerk rStd",
+            "float fOrdA = Player.GetPerkModifier 34 10.0 r10",
+            "Player.AddPerk rFs",
+            "float fOrdAFs = Player.GetPerkModifier 34 10.0 r10",
+            "Player.RemovePerk rPen",
+            "Player.RemovePerk rStd",
+            "Player.RemovePerk rFs",
+            "Player.AddPerk rStd",
+            "Player.AddPerk rPen",
+            "float fOrdB = Player.GetPerkModifier 34 10.0 r10",
+            "Player.AddPerk rFs",
+            "float fOrdBFs = Player.GetPerkModifier 34 10.0 r10",
+            "Player.RemovePerk rStd",
+            "float fPenFs = Player.GetPerkModifier 34 10.0 r10",
+            "Player.AddPerk rTd",
+            "float fPenFsTd = Player.GetPerkModifier 34 10.0 r10",
+            "Player.RemovePerk rPen",
+            "Player.RemovePerk rFs",
+            "Player.RemovePerk rTd",
+            "PrintToConsole \"PROBE|w6d6_13_perk_mod_ep34_set_add_mul_order|penStd=%.3f(+fs=%.3f)|stdPen=%.3f(+fs=%.3f)|penFs=%.3f(+td=%.3f)\" fOrdA fOrdAFs fOrdB fOrdBFs fPenFs fPenFsTd"
+          ]
+        }
+      ]
+    }
+  ]
+}
