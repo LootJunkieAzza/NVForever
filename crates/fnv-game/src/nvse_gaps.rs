@@ -1702,9 +1702,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (rise, set) = (t("sunrise_begin"), t("sunset_end"));
             yes(rise != set && (hour < rise || hour >= set))
         }
+        // Non-RCPE returns ar_Null [observed: w6d2p2_29_lutana_list_getters_empty_and_types];
+        // returning ar_Null on an empty valid RCPE is [hypothesis].
         "getrecipeoutputforms" => {
             let Some(r) = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)) else { return Some(Ok(XVal::Array(0))) };
             let outs: Vec<XVal> = r.outputs.iter().map(|(f, _)| XVal::Ref(f.0)).collect();
+            // [hypothesis: empty valid RCPE returns ar_Null]
             if outs.is_empty() { XVal::Array(0) } else { list(g, outs) }
         }
         "getactivequest" => XVal::Ref(g.ui.active_quest.map_or(0, |q| q.0)),

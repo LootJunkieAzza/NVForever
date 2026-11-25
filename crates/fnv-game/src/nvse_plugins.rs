@@ -177,10 +177,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [observed: plugins1, Toughness's first entry].
         "getnthperkentryvalue2" | "setnthperkentryvalue2" => XVal::Num(-1.0),
         // [observed: plugins1, Recipe127mm 4 inputs, the first 00140AAA; category
-        // 00153621, subcategory 0013E44E]
+        // 00153621, subcategory 0013E44E; w6d2p2_29_lutana_list_getters_empty_and_types:
+        // non-RCPE returns ar_Null (-1)]. Returning ar_Null on an empty valid RCPE is [hypothesis].
         "getrecipeinputforms" => {
             let Some(r) = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)) else { return Some(Ok(XVal::Array(0))) };
             let ins: Vec<XVal> = r.ingredients.iter().map(|(f, _)| XVal::Ref(f.0)).collect();
+            // [hypothesis: empty valid RCPE returns ar_Null]
             if ins.is_empty() { XVal::Array(0) } else { list(g, ins) }
         }
         "getrecipecategory" | "getrecipesubcategory" => {

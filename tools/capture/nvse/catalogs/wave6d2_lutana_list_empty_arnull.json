@@ -53,7 +53,7 @@
             "GetAllItemRefs",
             "TempCloneForm"
           ],
-          "claim": "Verify empty-result return types (size 0 empty Array vs -1 ar_Null; static audit SD-10) for Lutana/JIP list getters (GetFormRecipes, GetFormRecipeOutputs, GetRecipeInputForms, GetRecipeOutputForms, GetFormMods, GetCellRefs, GetAllItemRefs) and GetFormCountType.",
+          "claim": "Verify empty-result return types (size 0 empty Array vs -1 ar_Null; static audit SD-10) for Lutana/JIP list getters (GetFormRecipes, GetFormRecipeOutputs, GetRecipeInputForms, GetRecipeOutputForms, GetFormMods, GetRefsInCell, GetAllItemRefs) and GetFormCountType.",
           "expected": "Determine exact empty return (ar_Size 0 vs -1) for each list getter and verify GetFormMods on Weap10mmPistol vs TempCloneForm and GetFormCountType counts.",
           "script_lines": [
             "ref rCaps = GetFormFromMod \"FalloutNV.esm\" \"F\"",

@@ -419,6 +419,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "getformrecipes" | "getformrecipeoutputs" => {
             let is_outputs = name == "getformrecipeoutputs";
             let (Some(item), cat) = (form(args, 0), form(args, 1)) else {
+                // [hypothesis: GetFormRecipeOutputs on null arg 0 returns ar_Null]
                 return Some(Ok(if is_outputs { XVal::Array(0) } else { list(g, std::iter::empty()) }));
             };
             let mut ids: Vec<FormId> = g.data.recipes.keys().copied().collect();
