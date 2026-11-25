@@ -298,7 +298,7 @@ fn weapon_and_armor_alt_textures() {
     assert_eq!(n(&mut g, "SetWeaponAltTexture TestWeapon 7 TestTextures1"), 1.0);
     assert_eq!(forms(&mut g, "GetWeaponAltTextures TestWeapon"), vec![TXST2, TXST2, TXST1]);
     assert_eq!(map_at(&mut g, "GetAltTexturesEx TestWeapon", 7), TXST1);
-    // Not a texture set: nothing [hypothesis].
+    // Not a texture set: nothing (see docs/spec-notes/ext-jg5.md).
     assert_eq!(n(&mut g, "SetWeaponAltTexture TestWeapon 1 TestThing"), 0.0);
     assert_eq!(forms(&mut g, "GetWeaponAltTextures TestWeapon"), vec![TXST2, TXST2, TXST1]);
     // [documented: ClearWeaponAltTexture, -1 for all; observed: w4c_b6_06_clear_weap_alt_tex].
