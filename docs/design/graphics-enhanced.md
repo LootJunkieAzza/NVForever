@@ -4277,8 +4277,16 @@ Sun shadows are off):
   under the game's plant folders or with a plant texture (nif_spawn.rs `is_foliage_shape`),
   and SpeedTree leaf cards cut their sun shadow at 42 % of their own alpha cut, at least
   0.16 (`FOLIAGE_SHADOW_PREPASS`) [engineering choice], so a crown casts a fuller shadow.
-  This part is fixed before the first pipeline: the row changes it at the next start
-  (settings.rs `grass_shadows_after_ini`); the grass follows the row at once.
+  This part is fixed at the start, before the first pipeline (settings.rs
+  `grass_shadows_after_ini`, nvf_assets `set_foliage_shadows`), and stays so for the whole
+  run, plants loaded later included: a change of the row reaches them at the next start,
+  while the grass follows the row at once [design, decided 2026-11-26 on #4193]. Turned on
+  in a game, the grass casts at once and plants keep their own, crisper cut until the next
+  start; turned off, the grass stops at once and plants keep the fuller shadow until then.
+  The switch is not part of a foliage pipeline's key, so flipping it during a run would
+  leave the pipelines Bevy has already made on the old cut and give only some new ones the
+  new cut, a mix of both; following the row at once would need the switch in that key and
+  every foliage pipeline made again, as Terrain shadows does.
 
 The original draws no grass shadows [hypothesis: none seen in its own pictures]. Cost: not
 measured yet.

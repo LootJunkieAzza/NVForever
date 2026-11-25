@@ -1076,7 +1076,9 @@ below cover them all.
   grass's fade) casts the sun's shadow, drawn with a cut-out that keeps the tuft's core
   solid and thins towards the tips. Placed plants (FLOR and TREE models, and NIF shapes
   under the game's plant folders) and SpeedTree leaf cards cast a fuller shadow from the
-  start of the next run. Greyed while Sun shadows are off. Off by default and in every
+  start of the next run: until then they keep the shadow the game started with, so turning
+  the row on in a game gives grass shadows at once and plants their fuller one after a
+  restart. Greyed while Sun shadows are off. Off by default and in every
   preset.
 - Command-line switches: `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.24
