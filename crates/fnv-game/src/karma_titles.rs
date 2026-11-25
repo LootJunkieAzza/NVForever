@@ -211,7 +211,10 @@ impl Game<'_> {
     /// ([`karma_title_with_ttw`]) now, from the player's Karma, level and the four
     /// `Karma*` globals; `None` without those globals.
     pub fn player_karma(&mut self) -> Option<(&'static str, String)> {
-        let limits = ["KarmaVeryEvil", "KarmaEvil", "KarmaGood", "KarmaVeryGood"].map(|n| self.world.forms.global_by_edid(n).map(|v| f64::from(v.1)));
+        // Read live runtime global values (matching crime::Settings::read) so scripts
+        // adjusting Karma* globals affect GetPlayerKarmaTitle immediately.
+        let limits = ["KarmaVeryEvil", "KarmaEvil", "KarmaGood", "KarmaVeryGood"]
+            .map(|n| self.world.forms.global_by_edid(n).and_then(|(id, _)| self.world.global(id).ok()).map(f64::from));
         let [Some(ve), Some(e), Some(go), Some(vg)] = limits else { return None };
         let karma = crate::functions::actor::actor_value(self, fnv_sim::FormId::PLAYER_REF, crate::actor_values::KARMA).ok()?;
         let (word, _) = karma_alignment(karma, ve, e, go, vg);
@@ -273,3 +276,7 @@ mod tests {
         assert_eq!(karma_title_with_ttw(45, "Good", &ttw, esm), "Messiah");
     }
 }
+
+#[cfg(test)]
+#[path = "w6d8_karma_titles_globals_tests.rs"]
+mod w6d8_karma_titles_globals_tests;

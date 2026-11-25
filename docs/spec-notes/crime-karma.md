@@ -55,6 +55,8 @@ Code: `crates/fnv-game/src/crime.rs` (the rules, the script functions), the reco
 
 ## 2. Records and settings
 
+- **Runtime karma globals & titles (`GetPlayerKarmaTitle`)** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_30_karma_titles_levels_and_tiers`: `PROBE|w6d8_30_karma_titles_levels_and_tiers|lvl=1 ve=Grifter/Very Evil m250=Evil n=Drifter/Neutral p250=Good vg=Samaritan/Very Good`; no DLL, PDB, or third-party source consulted]: `Game::player_karma()` reads the live runtime values of `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`, and `KarmaVeryGood` via `world.global(id)` (consistent with `crime::Settings::read`).
+
 | What | Where | Value in FalloutNV.esm |
 |---|---|---|
 | Karma | actor value 23; NPC_/CREA ACBS `karma` (f32) [documented: schema] | the player 0 |
