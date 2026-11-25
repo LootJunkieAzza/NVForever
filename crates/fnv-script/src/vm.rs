@@ -3046,9 +3046,9 @@ impl Vm<'_, '_> {
                 let x = val(self, 0)?.num()?;
                 let d = x.to_radians();
                 XVal::Num(match n {
-                    "sin" => d.sin(),
-                    "cos" => d.cos(),
-                    "tan" => d.tan(),
+                    "sin" => if opt(self, 1)?.is_some_and(|v| v.truthy()) { x.asin().to_degrees() } else { d.sin() },
+                    "cos" => if opt(self, 1)?.is_some_and(|v| v.truthy()) { x.acos().to_degrees() } else { d.cos() },
+                    "tan" => if opt(self, 1)?.is_some_and(|v| v.truthy()) { x.atan().to_degrees() } else { d.tan() },
                     "asin" => x.asin().to_degrees(),
                     "acos" => x.acos().to_degrees(),
                     "atan" => x.atan().to_degrees(),
@@ -3697,6 +3697,10 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         _ => return None,
     })
 }
+
+#[cfg(test)]
+#[path = "w6d11_trig_arc_tests.rs"]
+mod w6d11_trig_arc_tests;
 
 /// Where `Label n` stands in a statement list.
 fn label_at(stmts: &[Stmt], n: i32) -> Option<usize> {
