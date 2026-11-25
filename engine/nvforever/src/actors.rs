@@ -624,7 +624,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         // The Pip-Boy light's glow shows only with the light on, which is not built, and
         // outfits hold a left sleeve for wearing a Pip-Boy and one for not (actors.md §1.2).
         hidden_shapes.extend(part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| fnv_actor::mesh::hidden_for_pipboy(n, pipboy))));
-        uses.push((pi, PartUse { meshes, part, materials, layers, hidden_shapes, by_ancestor: false }));
+        uses.push((pi, PartUse { meshes, part, materials, layers, hidden_shapes, hidden_indices: Vec::new(), allow_partial_skin: false, by_ancestor: false }));
     }
     uses
 }
@@ -828,7 +828,7 @@ pub fn spawn_creature_body(
         }
         let materials = part.shapes.iter().map(|s| s.material.clone()).collect();
         let meshes = vec![None; part.shapes.len()];
-        uses.push(PartUse { meshes, part, materials, layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: true });
+        uses.push(PartUse { meshes, part, materials, layers: Vec::new(), hidden_shapes: Vec::new(), hidden_indices: Vec::new(), allow_partial_skin: false, by_ancestor: true });
     }
     // The creature's base scale (BNAM) on top of the reference's [hypothesis, §10.1].
     drop(parts_span);

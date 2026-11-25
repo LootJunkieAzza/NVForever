@@ -27,6 +27,13 @@
 //!   ([`is_arm_body_part`], [`arms_by_partition`]) [observed: their partitions' bones and
 //!   extents, docs/spec-notes/actors.md §1.2; hypothesis: the original draws those
 //!   sleeves in first person, as it draws a jumpsuit's].
+//! - An upper-body model with neither `Arms…` shapes nor arm partitions (such as a custom
+//!   single-shape mod outfit without dismemberment partitions, #3227) falls back to
+//!   selecting the triangles of its non-cap, non-sleeve skinned shapes weighted primarily
+//!   to arm and hand bones ([`is_arm_bone`], [`partition_arm_triangles`]) [design, #3227].
+//!   The third-person body (`--first-person-body`) splits the same arm partitions or
+//!   arm-weighted triangles out of mixed shapes so the body's own arms hide while the
+//!   first-person arms rig is up without hiding the torso [design, #3227].
 //! - A held weapon's own addons (WEAP BIPL, the hand-to-hand weapons' hand models) are
 //!   worn by the arms only when the weapon has no model of its own for the first-person
 //!   view ([`wears_weapon_addons`], #3226): the Bladed Gauntlet, the knuckles and the
@@ -91,6 +98,152 @@ pub fn arms_by_partition<'a>(mut names: impl Iterator<Item = &'a str>) -> bool {
 /// that has one and is no forearm sleeve (those go by their names).
 pub fn partition_arm_shape(name: &str, parts: impl IntoIterator<Item = u16>) -> bool {
     crate::mesh::pipboy_sleeve(name).is_none() && parts.into_iter().any(is_arm_body_part)
+}
+
+/// How an upper-body model's first-person arms were found [design, #3227].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArmsSource {
+    /// Shapes named `Arms…` (beside the worn `PipBoyOn…` / `PipBoyOff…` sleeve).
+    ByName,
+    /// Arm dismemberment partitions (`is_arm_body_part`) of non-cap, non-sleeve shapes (#2457).
+    ByPartition,
+    /// Triangles of non-cap, non-sleeve skinned shapes weighted primarily to arm/hand bones (#3227).
+    ByWeights,
+    /// Neither `Arms…` shapes, arm partitions, nor arm-weighted skinned triangles were found.
+    None,
+}
+
+impl ArmsSource {
+    /// Short label for diagnostics and logs (`"by name"`, `"by partition"`, `"by weights"`, `"none"`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ByName => "by name",
+            Self::ByPartition => "by partition",
+            Self::ByWeights => "by weights",
+            Self::None => "none",
+        }
+    }
+}
+
+/// Summary of one shape in an upper-body model for [`classify_upper_body_arms`].
+#[derive(Debug, Clone, Copy)]
+pub struct UpperBodyShape<'a> {
+    pub name: Option<&'a str>,
+    pub cap: bool,
+    /// Non-cap dismemberment partition body parts on this shape (empty if unpartitioned).
+    pub body_parts: &'a [u16],
+    /// Whether this skinned shape has at least one triangle selected by [`partition_arm_triangles`].
+    pub has_arm_weights: bool,
+}
+
+/// Whether `name` is an arm or hand bone of the human skeleton: the `Bip01 L UpperArm` and
+/// `Bip01 R UpperArm` branches (upper arm, twist bones, forearm, foretwist, hand, thumb,
+/// fingers), excluding torso, spine, clavicle, pauldron, head, leg, and weapon nodes
+/// [observed: `meshes\characters\_male\skeleton.nif` and
+/// `meshes\characters\_1stperson\skeleton.nif` node hierarchies; design, #3227].
+pub fn is_arm_bone(name: &str) -> bool {
+    let s = name.trim().to_ascii_lowercase();
+    let Some(rest) = s.strip_prefix("bip01 ") else { return false };
+    let rest = rest.trim_start();
+    let Some(after_side) = rest
+        .strip_prefix("l ")
+        .or_else(|| rest.strip_prefix("r "))
+        .or_else(|| rest.strip_prefix('l'))
+        .or_else(|| rest.strip_prefix('r'))
+    else {
+        return false;
+    };
+    let part = after_side.trim_start();
+    part.starts_with("upperarm")
+        || part.starts_with("uparm")
+        || part.starts_with("forearm")
+        || part.starts_with("foretwist")
+        || part.starts_with("hand")
+        || part.starts_with("thumb")
+        || part.starts_with("finger")
+}
+
+/// Sum `(arm_weight, total_weight)` over positive joint weights of one skinned vertex.
+pub fn vertex_arm_weight(joints: [u16; 4], weights: [f32; 4], arm_bone: &[bool]) -> (f32, f32) {
+    let mut arm = 0.0f32;
+    let mut total = 0.0f32;
+    for (j, w) in joints.into_iter().zip(weights) {
+        if w > 0.0 {
+            total += w;
+            if arm_bone.get(j as usize).copied().unwrap_or(false) {
+                arm += w;
+            }
+        }
+    }
+    (arm, total)
+}
+
+/// Whether triangle `tri` belongs to the arms by skin weights: its three vertices'
+/// combined weight on arm/hand bones is positive and at least half their combined weight
+/// [design, #3227]. Chest triangles touching one shoulder vertex stay on the torso; sleeve,
+/// upper-arm, forearm, and hand triangles go to the arms.
+pub fn triangle_is_arm(tri: [u32; 3], joints: &[[u16; 4]], weights: &[[f32; 4]], arm_bone: &[bool]) -> bool {
+    let mut arm = 0.0f32;
+    let mut total = 0.0f32;
+    for idx in tri {
+        let i = idx as usize;
+        if let (Some(&j), Some(&w)) = (joints.get(i), weights.get(i)) {
+            let (a, t) = vertex_arm_weight(j, w, arm_bone);
+            arm += a;
+            total += t;
+        }
+    }
+    arm > 0.0 && arm * 2.0 >= total
+}
+
+/// Partition triangle-list `indices` of a skinned shape into `(arm_indices, body_indices)`
+/// using [`is_arm_bone`] and [`triangle_is_arm`] [design, #3227]. Every complete triangle
+/// lands in exactly one output list, so third-person rendering draws the union with no
+/// gaps or overlap.
+pub fn partition_arm_triangles(indices: &[u32], joints: &[[u16; 4]], weights: &[[f32; 4]], bone_names: &[&str]) -> (Vec<u32>, Vec<u32>) {
+    let arm_bone: Vec<bool> = bone_names.iter().map(|n| is_arm_bone(n)).collect();
+    if !arm_bone.iter().any(|&b| b) {
+        return (Vec::new(), indices.to_vec());
+    }
+    let mut arm = Vec::new();
+    let mut body = Vec::new();
+    for tri in indices.chunks_exact(3) {
+        let t = [tri[0], tri[1], tri[2]];
+        if triangle_is_arm(t, joints, weights, &arm_bone) {
+            arm.extend_from_slice(&t);
+        } else {
+            body.extend_from_slice(&t);
+        }
+    }
+    (arm, body)
+}
+
+/// Classify how an upper-body model's first-person arms are found [design, #3227]:
+/// 1. `ByName`: at least one shape is named `Arms…`.
+/// 2. `ByPartition`: no `Arms…` shape, and at least one non-cap, non-sleeve shape has an
+///    arm dismemberment partition (`is_arm_body_part`, #2457).
+/// 3. `ByWeights`: neither of the above, and at least one non-cap, non-sleeve skinned
+///    shape has arm-weighted triangles (`partition_arm_triangles`, #3227).
+/// 4. `None`: none of the above.
+pub fn classify_upper_body_arms(shapes: &[UpperBodyShape<'_>]) -> ArmsSource {
+    if shapes.iter().any(|s| s.name.is_some_and(is_arms_shape)) {
+        return ArmsSource::ByName;
+    }
+    if shapes.iter().any(|s| {
+        !s.cap
+            && s.name.is_none_or(|n| crate::mesh::pipboy_sleeve(n).is_none())
+            && s.body_parts.iter().copied().any(is_arm_body_part)
+    }) {
+        return ArmsSource::ByPartition;
+    }
+    if shapes.iter().any(|s| {
+        !s.cap
+            && s.name.is_none_or(|n| crate::mesh::pipboy_sleeve(n).is_none())
+            && s.has_arm_weights
+    }) {
+        return ArmsSource::ByWeights;
+    }
+    ArmsSource::None
 }
 
 /// How part `p` appears in first person, if at all.
@@ -287,5 +440,104 @@ mod tests {
         ];
         let shows: Vec<_> = parts.iter().map(|p| show(&actors, p)).collect();
         assert_eq!(shows, [Some(Show::Arms), Some(Show::Whole), None, None, Some(Show::Arms), Some(Show::Whole), None, Some(Show::Whole)]);
+    }
+
+    #[test]
+    fn arm_bone_classification_matches_skeleton_arm_and_hand_branches() {
+        for bone in [
+            "Bip01 L UpperArm",
+            "Bip01 R UpperArm",
+            "Bip01 LUpArmTwistBone",
+            "Bip01 RUpArmTwistBone",
+            "Bip01 L Forearm",
+            "Bip01 R Forearm",
+            "Bip01 L ForeTwist",
+            "Bip01 R ForeTwist",
+            "Bip01 R ForeTwistDriver",
+            "Bip01 L Hand",
+            "Bip01 R Hand",
+            "Bip01 L Hand01",
+            "Bip01 R Hand04",
+            "Bip01 L Thumb1",
+            "Bip01 R Thumb12",
+            "Bip01 L Finger1",
+            "Bip01 R Finger42",
+        ] {
+            assert!(is_arm_bone(bone), "expected arm bone: {bone:?}");
+        }
+        for bone in [
+            "Bip01 Spine",
+            "Bip01 Spine1",
+            "Bip01 Spine2",
+            "Bip01 Pelvis",
+            "Bip01 Neck",
+            "Bip01 Head",
+            "Bip01 L Clavicle",
+            "Bip01 R Clavicle",
+            "Bip01 LPauldron",
+            "Bip01 RPauldron",
+            "Bip01 L Thigh",
+            "Bip01 R Calf",
+            "Bip01 L Foot",
+            "Bip01 R Toe0",
+            "Weapon",
+            "Scene Root",
+        ] {
+            assert!(!is_arm_bone(bone), "expected non-arm bone: {bone:?}");
+        }
+    }
+
+    /// Regression test for #3227: a custom outfit model with one unnamed skinned shape and
+    /// no dismemberment arm partitions selects its arm/hand-weighted triangles by weights
+    /// and cleanly separates them from the torso triangles.
+    #[test]
+    fn unnamed_single_shape_without_arm_partitions_selects_arms_by_weights() {
+        let bones = ["Bip01 Spine2", "Bip01 L Clavicle", "Bip01 L UpperArm", "Bip01 L Forearm", "Bip01 R Hand"];
+        // Vertices:
+        // 0, 1: pure torso (Spine2)
+        // 2: shoulder seam (0.6 Clavicle, 0.4 L UpperArm)
+        // 3: upper arm (1.0 L UpperArm)
+        // 4, 5: forearm / hand (1.0 L Forearm, 1.0 R Hand)
+        let joints = [
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            [1, 2, 0, 0],
+            [2, 0, 0, 0],
+            [3, 0, 0, 0],
+            [4, 0, 0, 0],
+        ];
+        let weights = [
+            [1.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.6, 0.4, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+        ];
+        // Four triangles:
+        // [0, 1, 2]: chest touching shoulder (arm 0.4 / 3.0) -> torso
+        // [0, 1, 3]: chest touching upper arm (arm 1.0 / 3.0) -> torso
+        // [2, 3, 4]: shoulder-to-forearm sleeve (arm 2.4 / 3.0) -> arm
+        // [3, 4, 5]: pure arm/hand (arm 3.0 / 3.0) -> arm
+        let indices = [0, 1, 2, 0, 1, 3, 2, 3, 4, 3, 4, 5];
+        let (arm, body) = partition_arm_triangles(&indices, &joints, &weights, &bones);
+        assert_eq!(arm, [2, 3, 4, 3, 4, 5]);
+        assert_eq!(body, [0, 1, 2, 0, 1, 3]);
+
+        // Single unnamed skinned shape with no arm partitions -> ByWeights.
+        let model = [UpperBodyShape { name: None, cap: false, body_parts: &[], has_arm_weights: !arm.is_empty() }];
+        assert_eq!(classify_upper_body_arms(&model), ArmsSource::ByWeights);
+        assert_eq!(ArmsSource::ByWeights.as_str(), "by weights");
+
+        // Precedence check: ByName > ByPartition > ByWeights > None.
+        let by_name = [
+            UpperBodyShape { name: Some("Arms:0"), cap: false, body_parts: &[3], has_arm_weights: true },
+            UpperBodyShape { name: Some("UpperBody"), cap: false, body_parts: &[0], has_arm_weights: false },
+        ];
+        assert_eq!(classify_upper_body_arms(&by_name), ArmsSource::ByName);
+        let by_partition = [UpperBodyShape { name: Some("hest:0"), cap: false, body_parts: &[0, 3000], has_arm_weights: true }];
+        assert_eq!(classify_upper_body_arms(&by_partition), ArmsSource::ByPartition);
+        let torso_only = [UpperBodyShape { name: None, cap: false, body_parts: &[0], has_arm_weights: false }];
+        assert_eq!(classify_upper_body_arms(&torso_only), ArmsSource::None);
     }
 }

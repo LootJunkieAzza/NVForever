@@ -129,6 +129,25 @@ impl PartShape {
     pub fn is_hair(&self) -> bool {
         self.props.hair
     }
+
+    /// Construct a skinned [`PartShape`] with default material properties for unit tests
+    /// in downstream crates (such as `nvforever::player_body`) [design, #3227].
+    pub fn skinned_cpu(name: Option<String>, cpu: Arc<Mesh>, bones: Vec<String>, partitions: Vec<Partition>) -> Self {
+        Self {
+            name,
+            mesh: Handle::default(),
+            material: Handle::default(),
+            props: Props::default(),
+            cpu,
+            skin: Some((Handle::default(), bones)),
+            transform: Affine3A::IDENTITY,
+            cap: false,
+            partitions: Arc::new(partitions),
+            ancestors: Vec::new(),
+            own: Affine3A::IDENTITY,
+            geometry_index: 0,
+        }
+    }
 }
 
 /// Per shape, given as (cap, skin), whether a texture given for the whole part (a race
@@ -448,6 +467,13 @@ pub struct PartUse {
     pub meshes: Vec<Option<Handle<Mesh>>>,
     /// Shape names not to draw (e.g. the hair's `Hat` shape when no headgear is worn).
     pub hidden_shapes: Vec<String>,
+    /// Shape indices not to draw (works for both named and unnamed shapes, #3227).
+    pub hidden_indices: Vec<usize>,
+    /// When true (first-person arms rig, #3227), a skinned shape that binds at least one
+    /// bone in the skeleton binds any remaining missing bones (e.g. third-person-only
+    /// pauldrons or twist drivers) to the root node instead of falling back to rigid bind
+    /// pose; callers should zero missing-bone weights via [`drop_missing_skin_bones`].
+    pub allow_partial_skin: bool,
     /// Attach unskinned shapes by their ancestors' names (creatures) instead of the
     /// part's `Prn` (NPCs).
     pub by_ancestor: bool,
@@ -1370,6 +1396,123 @@ pub fn skin_weights(m: &Mesh) -> Option<SkinWeights<'_>> {
     }
 }
 
+/// A skinned upper-body shape split into arm/hand triangles and remaining body triangles
+/// [design, #3227].
+#[derive(Debug, Clone)]
+pub struct SplitMesh {
+    /// Triangles belonging to the arms/hands (always non-empty).
+    pub arm: Mesh,
+    /// Remaining non-arm triangles, or `None` when every drawn triangle belongs to the arms.
+    pub body: Option<Mesh>,
+}
+
+/// Extract a triangle list's vertex indices as `u32` (falling back to `0..vertex_count` if
+/// unindexed).
+pub fn mesh_indices_u32(cpu: &Mesh) -> Vec<u32> {
+    match cpu.indices() {
+        Some(Indices::U32(idx)) => idx.clone(),
+        Some(Indices::U16(idx)) => idx.iter().map(|&i| u32::from(i)).collect(),
+        None => (0..cpu.count_vertices() as u32).collect(),
+    }
+}
+
+fn mesh_with_indices(cpu: &Mesh, idx: Vec<u32>) -> Mesh {
+    let mut m = cpu.clone();
+    m.insert_indices(Indices::U32(idx));
+    let _ = m.generate_skinned_mesh_bounds();
+    m
+}
+
+/// Split `cpu` by its non-cap dismemberment `partitions` into arm and non-arm meshes
+/// [design, #3227]. Returns `None` if no non-cap arm partition has triangles.
+pub fn split_mesh_by_partitions(cpu: &Mesh, partitions: &[Partition], is_arm: impl Fn(&Partition) -> bool) -> Option<SplitMesh> {
+    let mut arm_idx = Vec::new();
+    let mut body_idx = Vec::new();
+    for p in partitions {
+        if p.cap {
+            continue;
+        }
+        if is_arm(p) {
+            arm_idx.extend_from_slice(&p.indices);
+        } else {
+            body_idx.extend_from_slice(&p.indices);
+        }
+    }
+    if arm_idx.is_empty() {
+        return None;
+    }
+    let arm = mesh_with_indices(cpu, arm_idx);
+    let body = (!body_idx.is_empty()).then(|| mesh_with_indices(cpu, body_idx));
+    Some(SplitMesh { arm, body })
+}
+
+/// Split skinned `cpu` into arm and non-arm meshes using a triangle partitioner
+/// `partition(indices, joints, weights, bone_names) -> (arm_indices, body_indices)`
+/// (such as `fnv_actor::first_person::partition_arm_triangles`) [design, #3227]. Returns
+/// `None` if the mesh has no skin weights or `arm_indices` is empty.
+pub fn split_mesh_by_weights(
+    cpu: &Mesh,
+    bone_names: &[String],
+    partition: impl FnOnce(&[u32], &[[u16; 4]], &[[f32; 4]], &[&str]) -> (Vec<u32>, Vec<u32>),
+) -> Option<SplitMesh> {
+    let (joints, weights) = skin_weights(cpu)?;
+    let indices = mesh_indices_u32(cpu);
+    let names: Vec<&str> = bone_names.iter().map(String::as_str).collect();
+    let (arm_idx, body_idx) = partition(&indices, joints, weights, &names);
+    if arm_idx.is_empty() {
+        return None;
+    }
+    let arm = mesh_with_indices(cpu, arm_idx);
+    let body = (!body_idx.is_empty()).then(|| mesh_with_indices(cpu, body_idx));
+    Some(SplitMesh { arm, body })
+}
+
+/// Zero vertex skin weights targeting bones absent from a skeleton (for example
+/// third-person-only pauldrons or twist drivers when binding an outfit to
+/// `characters\_1stperson\skeleton.nif`) and re-normalise each vertex's remaining weights
+/// [design, #3227]. If a vertex had weight only on missing bones, it falls back to the
+/// first present bone matching `prefer_bone` (or the first present bone). Returns `true`
+/// if any missing bone existed and weights were updated.
+pub fn drop_missing_skin_bones(
+    mesh: &mut Mesh,
+    bone_names: &[String],
+    has_bone: impl Fn(&str) -> bool,
+    prefer_bone: impl Fn(&str) -> bool,
+) -> bool {
+    let present: Vec<bool> = bone_names.iter().map(|n| has_bone(n)).collect();
+    if present.iter().all(|&ok| ok) || !present.iter().any(|&ok| ok) {
+        return false;
+    }
+    let Some((joints, weights)) = skin_weights(mesh) else { return false };
+    let mut joints = joints.to_vec();
+    let mut weights = weights.to_vec();
+    let fallback = bone_names
+        .iter()
+        .enumerate()
+        .find(|(i, n)| present[*i] && prefer_bone(n))
+        .or_else(|| present.iter().enumerate().find(|(_, ok)| **ok).map(|(i, _)| (i, &bone_names[i])))
+        .map(|(i, _)| i as u16);
+    for (j, w) in joints.iter_mut().zip(&mut weights) {
+        let mut kept = *w;
+        for c in 0..4 {
+            if !present.get(j[c] as usize).copied().unwrap_or(false) {
+                kept[c] = 0.0;
+            }
+        }
+        let sum: f32 = kept.iter().sum();
+        if sum > 1e-4 {
+            *w = kept.map(|x| x / sum);
+        } else if let Some(f) = fallback {
+            *j = [f, 0, 0, 0];
+            *w = [1.0, 0.0, 0.0, 0.0];
+        }
+    }
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(joints));
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
+    let _ = mesh.generate_skinned_mesh_bounds();
+    true
+}
+
 /// `cpu` cut apart where severed pieces leave the body (docs/spec-notes/dismemberment.md
 /// §5): `groups` are triangles (3 indices each) with the side they go with, 0 the body
 /// and k > 0 a severed piece, and `side[j]` is the side joint j lies on. Every triangle
@@ -1455,7 +1598,9 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
         let rigid_frame = bone.filter(|_| !u.by_ancestor).map(|b| rigid_part_frame(skel, b, &u.part));
         for (i, s) in u.part.shapes.iter().enumerate() {
-            if s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))) {
+            if u.hidden_indices.contains(&i)
+                || s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n)))
+            {
                 continue;
             }
             // Caps are spawned with no triangles (`PartShape::cap`); a cap that cannot
@@ -1470,8 +1615,13 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
             let limb = LimbShape { cap: s.cap, partitions: s.partitions.clone(), cpu: s.cpu.clone(), bones, binds: s.skin.as_ref().map(|(b, _)| b.clone()) };
             let mesh = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| s.mesh.clone());
             let material = u.materials.get(i).cloned().unwrap_or_else(|| s.material.clone());
-            let joints: Option<Vec<Entity>> =
-                s.skin.as_ref().and_then(|(_, names)| names.iter().map(|n| skel.by_name.get(n).map(|&j| nodes[j])).collect());
+            let joints: Option<Vec<Entity>> = s.skin.as_ref().and_then(|(_, names)| {
+                if u.allow_partial_skin && names.iter().any(|n| skel.by_name.contains_key(n)) {
+                    Some(names.iter().map(|n| skel.by_name.get(n).map_or(nodes[0], |&j| nodes[j])).collect())
+                } else {
+                    names.iter().map(|n| skel.by_name.get(n).map(|&j| nodes[j])).collect()
+                }
+            });
             if matches!((&s.skin, &joints), (Some(_), None)) {
                 out.unbound += 1;
             }
@@ -1612,7 +1762,8 @@ mod tests {
         skinned.skin = Some((Handle::default(), vec![DEFAULT_RIGID_BONE.into()]));
         let part = PartUse {
             part: Arc::new(PreparedPart { shapes: vec![rigid, skinned], ..Default::default() }),
-            materials: Vec::new(), meshes: Vec::new(), layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: false,
+            materials: Vec::new(), meshes: Vec::new(), layers: Vec::new(), hidden_shapes: Vec::new(),
+            hidden_indices: Vec::new(), allow_partial_skin: false, by_ancestor: false,
         };
         let mut app = App::new();
         app.add_plugins(bevy::transform::TransformPlugin);
@@ -1672,7 +1823,8 @@ mod tests {
         for root in [Affine3A::IDENTITY, Affine3A::from_scale_rotation_translation(Vec3::splat(1.1), Quat::from_rotation_z(0.2), Vec3::X * 0.4)] {
             let part_use = |shapes| PartUse {
                 part: Arc::new(PreparedPart { shapes, root, ..Default::default() }),
-                materials: Vec::new(), meshes: Vec::new(), layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: false,
+                materials: Vec::new(), meshes: Vec::new(), layers: Vec::new(), hidden_shapes: Vec::new(),
+                hidden_indices: Vec::new(), allow_partial_skin: false, by_ancestor: false,
             };
             let parts = [part_use(vec![cap.clone(), badge.clone()]), part_use(vec![joined.clone()])];
             let mut app = App::new();
@@ -2100,5 +2252,129 @@ mod tests {
         assert_eq!(rigid_local(&skel, 1, &Affine3A::IDENTITY, &shape), shape);
         // A bone the skeleton does not have: the same.
         assert_eq!(rigid_local(&skel, 9, &Affine3A::IDENTITY, &shape), shape);
+    }
+
+    /// Regression test for #3227: an unnamed single-shape skinned outfit with no arm
+    /// partitions splits cleanly into arm-weighted and torso-weighted meshes, zeroes
+    /// weights on third-person-only bones when targeting the first-person skeleton, skips
+    /// unnamed shapes listed in `hidden_indices`, and binds present bones when
+    /// `allow_partial_skin` is set.
+    #[test]
+    fn split_mesh_by_weights_and_partial_skin_handle_unnamed_mod_outfit() {
+        let mut cpu = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        cpu.insert_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![
+                [0.0, 0.0, 100.0],
+                [5.0, 0.0, 100.0],
+                [2.5, 0.0, 110.0],
+                [20.0, 0.0, 105.0],
+                [30.0, 0.0, 100.0],
+                [40.0, 0.0, 95.0],
+            ],
+        );
+        // Bones: 0=Spine2, 1=L UpperArm, 2=L Forearm, 3=LPauldron (missing on 1st-person).
+        let bones = vec![
+            "Bip01 Spine2".to_string(),
+            "Bip01 L UpperArm".to_string(),
+            "Bip01 L Forearm".to_string(),
+            "Bip01 LPauldron".to_string(),
+        ];
+        cpu.insert_attribute(
+            Mesh::ATTRIBUTE_JOINT_INDEX,
+            VertexAttributeValues::Uint16x4(vec![
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 3, 0, 0],
+                [1, 3, 0, 0],
+                [1, 2, 0, 0],
+                [2, 0, 0, 0],
+            ]),
+        );
+        cpu.insert_attribute(
+            Mesh::ATTRIBUTE_JOINT_WEIGHT,
+            VertexAttributeValues::Float32x4(vec![
+                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.7, 0.3, 0.0, 0.0],
+                [0.8, 0.2, 0.0, 0.0],
+                [0.5, 0.5, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+            ]),
+        );
+        cpu.insert_indices(Indices::U32(vec![0, 1, 2, 3, 4, 5]));
+
+        let is_arm = |n: &str| n.contains("UpperArm") || n.contains("Forearm");
+        let mut split = split_mesh_by_weights(&cpu, &bones, |idx, j, w, names| {
+            let arm_bone: Vec<bool> = names.iter().map(|n| is_arm(n)).collect();
+            let (mut arm, mut body) = (Vec::new(), Vec::new());
+            for tri in idx.chunks_exact(3) {
+                let mut a = 0.0f32;
+                let mut t = 0.0f32;
+                for &v in tri {
+                    for (bi, bw) in j[v as usize].into_iter().zip(w[v as usize]) {
+                        if bw > 0.0 {
+                            t += bw;
+                            if arm_bone[bi as usize] {
+                                a += bw;
+                            }
+                        }
+                    }
+                }
+                if a > 0.0 && a * 2.0 >= t {
+                    arm.extend_from_slice(tri);
+                } else {
+                    body.extend_from_slice(tri);
+                }
+            }
+            (arm, body)
+        })
+        .expect("arm triangle found");
+        assert_eq!(mesh_indices_u32(&split.arm), vec![3, 4, 5]);
+        let body = split.body.expect("torso triangle kept");
+        assert_eq!(mesh_indices_u32(&body), vec![0, 1, 2]);
+
+        // Drop third-person-only Bip01 LPauldron and re-normalise vertex 3 (0.8 -> 1.0).
+        let first_person_skel = PreparedSkeleton {
+            names: vec![None, Some("Bip01 Spine2".into()), Some("Bip01 L UpperArm".into()), Some("Bip01 L Forearm".into())],
+            parents: vec![None, Some(0), Some(1), Some(2)],
+            locals: vec![Transform::IDENTITY; 4],
+            bind_world: vec![Affine3A::IDENTITY; 4],
+            by_name: HashMap::from([
+                ("Bip01 Spine2".into(), 1),
+                ("Bip01 L UpperArm".into(), 2),
+                ("Bip01 L Forearm".into(), 3),
+            ]),
+            bbx_half_width: None,
+        };
+        assert!(drop_missing_skin_bones(&mut split.arm, &bones, |b| first_person_skel.by_name.contains_key(b), is_arm));
+        let (_, weights) = skin_weights(&split.arm).unwrap();
+        assert!((weights[3][0] - 1.0).abs() < 1e-5 && weights[3][1] == 0.0);
+
+        // Spawn two unnamed shapes: index 0 hidden by hidden_indices, index 1 bound via allow_partial_skin.
+        let mut hidden_unnamed = head_shape(vec![[0.0, 0.0, 0.0]; 3]);
+        hidden_unnamed.name = None;
+        let mut arm_unnamed = head_shape(vec![[0.0, 0.0, 0.0]; 3]);
+        arm_unnamed.name = None;
+        arm_unnamed.skin = Some((Handle::default(), bones));
+        let part = PartUse {
+            part: Arc::new(PreparedPart { shapes: vec![hidden_unnamed, arm_unnamed], ..Default::default() }),
+            materials: Vec::new(),
+            meshes: Vec::new(),
+            layers: Vec::new(),
+            hidden_shapes: Vec::new(),
+            hidden_indices: vec![0],
+            allow_partial_skin: true,
+            by_ancestor: false,
+        };
+        let mut app = App::new();
+        let parent = app.world_mut().spawn(Transform::IDENTITY).id();
+        let spawned = spawn_actor(&mut app.world_mut().commands(), parent, Transform::IDENTITY, &first_person_skel, &[part]);
+        app.world_mut().flush();
+        assert_eq!(spawned.drawn.len(), 1, "unnamed shape 0 skipped via hidden_indices");
+        assert_eq!(spawned.shape_of, vec![1]);
+        assert_eq!(spawned.unbound, 0, "allow_partial_skin binds present bones instead of falling back to bind pose");
+        let skin = app.world().get::<SkinnedMesh>(spawned.drawn[0]).expect("skinned entity");
+        assert_eq!(skin.joints, vec![spawned.nodes[1], spawned.nodes[2], spawned.nodes[3], spawned.nodes[0]]);
     }
 }

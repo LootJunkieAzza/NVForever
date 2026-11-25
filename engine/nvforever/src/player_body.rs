@@ -75,7 +75,7 @@ use bevy::light::CascadeShadowConfigBuilder;
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
-use fnv_actor::first_person::{self, is_first_person_shape, shape_shows, Show};
+use fnv_actor::first_person::{self, is_first_person_shape, shape_shows, ArmsSource, Show};
 use fnv_actor::player_clips::{
     aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
     limping_idle_clips, limping_move_clips, limping_turn_clips, move_clips, reload_clips, reload_open_clips, toddler_idle_clips, toddler_move_clips,
@@ -84,7 +84,7 @@ use fnv_actor::player_clips::{
 use fnv_actor::weapon::AnimType;
 use fnv_actor::Appearance;
 use fnv_sim::FormId;
-use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse, PreparedSkeleton};
+use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse, PreparedPart, PreparedSkeleton, SplitMesh};
 use nvf_assets::anim_blend::{Animator, ExtraNode, Mode, DEFAULT_FADE};
 use nvf_assets::material_anim::StoredLook;
 use nvf_assets::anim_play::Clip;
@@ -96,7 +96,7 @@ use nvf_play::phys::PhysState;
 use nvf_play::player::{MoveIntent, Player, MAX_PITCH};
 use nvf_play::sim::SimState;
 use nvf_play::PlayWorld;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Layer roles ([`Animator`] tags).
@@ -2212,6 +2212,152 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
     Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), female: a.female, scale, third, first, first_addons })
 }
 
+/// Select how an upper-body part's first-person arms are found (`by name`, `by partition`,
+/// `by weights`, or `none`) and, for `ByPartition` / `ByWeights`, the per-shape arm/body
+/// triangle splits [design, #3227].
+fn select_upper_body_arms(part: &PreparedPart) -> (ArmsSource, Vec<Option<SplitMesh>>) {
+    let n = part.shapes.len();
+    if part.shapes.iter().any(|s| s.name.as_deref().is_some_and(first_person::is_arms_shape)) {
+        return (ArmsSource::ByName, vec![None; n]);
+    }
+    let mut by_part: Vec<Option<SplitMesh>> = Vec::with_capacity(n);
+    let mut any_part = false;
+    for s in &part.shapes {
+        let split = if !s.cap && s.name.as_deref().is_none_or(|nm| fnv_actor::mesh::pipboy_sleeve(nm).is_none()) {
+            nvf_assets::actor::split_mesh_by_partitions(&s.cpu, &s.partitions, |p| first_person::is_arm_body_part(p.body_part))
+        } else {
+            None
+        };
+        any_part |= split.is_some();
+        by_part.push(split);
+    }
+    if any_part {
+        return (ArmsSource::ByPartition, by_part);
+    }
+    let mut by_weights: Vec<Option<SplitMesh>> = Vec::with_capacity(n);
+    let mut any_weights = false;
+    for s in &part.shapes {
+        let split = if !s.cap && s.name.as_deref().is_none_or(|nm| fnv_actor::mesh::pipboy_sleeve(nm).is_none()) {
+            s.skin
+                .as_ref()
+                .and_then(|(_, bones)| nvf_assets::actor::split_mesh_by_weights(&s.cpu, bones, first_person::partition_arm_triangles))
+        } else {
+            None
+        };
+        any_weights |= split.is_some();
+        by_weights.push(split);
+    }
+    if any_weights {
+        return (ArmsSource::ByWeights, by_weights);
+    }
+    (ArmsSource::None, vec![None; n])
+}
+
+/// Filter a `Show::Arms` upper-body part for `View::First`: keep `Arms…` shapes (`ByName`),
+/// arm partitions (`ByPartition`, #2457), or arm/hand-weighted triangles (`ByWeights`,
+/// #3227) beside the worn Pip-Boy sleeve, hide all other shapes (including unnamed ones)
+/// by index, and drop third-person-only bone weights against `skel` [design, #3227].
+fn prepare_first_person_upper_body(u: &mut PartUse, skel: &PreparedSkeleton, meshes: &mut Assets<Mesh>) -> (ArmsSource, usize) {
+    let (source, splits) = select_upper_body_arms(&u.part);
+    u.allow_partial_skin = true;
+    u.meshes.resize(u.part.shapes.len(), None);
+    let mut kept = 0usize;
+    for (si, (s, split)) in u.part.shapes.iter().zip(splits).enumerate() {
+        let hidden_by_name = s.name.as_deref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n)));
+        let is_sleeve = s.name.as_deref().is_some_and(|n| fnv_actor::mesh::pipboy_sleeve(n).is_some());
+        let mut keep_whole = false;
+        let mut keep_split: Option<Mesh> = None;
+        match source {
+            ArmsSource::ByName => keep_whole = s.name.as_deref().is_some_and(is_first_person_shape),
+            ArmsSource::ByPartition | ArmsSource::ByWeights => {
+                if is_sleeve {
+                    keep_whole = true;
+                } else if let Some(split) = split {
+                    keep_split = Some(split.arm);
+                }
+            }
+            ArmsSource::None => keep_whole = is_sleeve,
+        }
+        if let Some(mut arm_mesh) = keep_split {
+            if let Some((_, bones)) = &s.skin {
+                nvf_assets::actor::drop_missing_skin_bones(&mut arm_mesh, bones, |b| skel.by_name.contains_key(b), first_person::is_arm_bone);
+            }
+            u.meshes[si] = Some(meshes.add(arm_mesh));
+            if !hidden_by_name {
+                kept += 1;
+            }
+        } else if keep_whole {
+            if let Some((_, bones)) = &s.skin {
+                if bones.iter().any(|b| !skel.by_name.contains_key(b)) {
+                    let mut m = (*s.cpu).clone();
+                    if nvf_assets::actor::drop_missing_skin_bones(&mut m, bones, |b| skel.by_name.contains_key(b), first_person::is_arm_bone) {
+                        u.meshes[si] = Some(meshes.add(m));
+                    }
+                }
+            }
+            if !hidden_by_name {
+                kept += 1;
+            }
+        } else if !u.hidden_indices.contains(&si) {
+            u.hidden_indices.push(si);
+        }
+    }
+    (source, kept)
+}
+
+/// Split arm partitions or arm-weighted triangles out of `Show::Arms` third-person parts so
+/// `--first-person-body` hides the body's own arms while the arms rig is up without hiding
+/// the torso [design, #3227]. Returns `(arm_only_shapes, extra_arm_part_flags)`.
+fn prepare_third_person_upper_body(
+    uses: &mut Vec<PartUse>,
+    hide: &mut Vec<bool>,
+    arms: &mut Vec<Option<Show>>,
+    part_index: &mut Vec<usize>,
+    meshes: &mut Assets<Mesh>,
+) -> (HashSet<(usize, usize)>, Vec<bool>) {
+    let orig_len = uses.len();
+    let mut arm_shapes: HashSet<(usize, usize)> = HashSet::new();
+    let mut extra_arm_part: Vec<bool> = vec![false; orig_len];
+    for p in 0..orig_len {
+        if arms[p] != Some(Show::Arms) {
+            continue;
+        }
+        let (source, splits) = select_upper_body_arms(&uses[p].part);
+        if !matches!(source, ArmsSource::ByPartition | ArmsSource::ByWeights) {
+            continue;
+        }
+        let shape_count = uses[p].part.shapes.len();
+        let mut arm_split_meshes: Vec<Option<Handle<Mesh>>> = vec![None; shape_count];
+        let mut keep_in_arm_part = vec![false; shape_count];
+        let mut has_split = false;
+        for (si, split) in splits.into_iter().enumerate() {
+            let Some(split) = split else { continue };
+            if let Some(body_mesh) = split.body {
+                uses[p].meshes.resize(shape_count, None);
+                uses[p].meshes[si] = Some(meshes.add(body_mesh));
+                arm_split_meshes[si] = Some(meshes.add(split.arm));
+                keep_in_arm_part[si] = true;
+                has_split = true;
+            } else {
+                arm_shapes.insert((p, si));
+            }
+        }
+        if has_split {
+            let mut arm_use = uses[p].clone();
+            arm_use.meshes = arm_split_meshes;
+            arm_use.hidden_indices = (0..shape_count)
+                .filter(|&si| !keep_in_arm_part[si] || uses[p].hidden_indices.contains(&si))
+                .collect();
+            uses.push(arm_use);
+            hide.push(hide[p]);
+            arms.push(arms[p]);
+            part_index.push(part_index[p]);
+            extra_arm_part.push(true);
+        }
+    }
+    (arm_shapes, extra_arm_part)
+}
+
 /// Spawn one rig of appearance `a` under `parent` (its transform set each frame).
 /// `shows` (first person): per part of `a`, how it shows.
 fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, a: &Appearance, view: View, shows: Option<&[Show]>) -> Result<Rig, String> {
@@ -2222,35 +2368,27 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         warn!("player {view:?} rig: {} parts not loaded", stats.parts_missing);
     }
     if let Some(shows) = shows {
-        // Upper-body models show their `Arms` shapes and the left forearm sleeve only
-        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears). A model with no
-        // `Arms…` shape draws the arm partitions of its skins instead
-        // (`first_person::arms_by_partition`, #2457).
+        // Upper-body models show their `Arms…` shapes and the worn Pip-Boy sleeve (`ByName`),
+        // or arm partitions (`ByPartition`, #2457), or arm/hand-weighted triangles
+        // (`ByWeights`, #3227). Log per upper-body model how its arms were found.
         for (i, u) in &mut uses {
             if shows[*i] == Show::Arms {
-                let mut cut: Vec<String> = Vec::new();
-                if first_person::arms_by_partition(u.part.shapes.iter().filter_map(|s| s.name.as_deref())) {
-                    u.meshes.resize(u.part.shapes.len(), None);
-                    for (si, s) in u.part.shapes.iter().enumerate() {
-                        let Some(name) = s.name.as_deref() else { continue };
-                        if s.cap || !first_person::partition_arm_shape(name, s.partitions.iter().map(|p| p.body_part)) {
-                            continue;
-                        }
-                        let mesh = nvf_assets::actor::dismember_mesh(&s.cpu, &s.partitions, |p| !p.cap && first_person::is_arm_body_part(p.body_part));
-                        u.meshes[si] = Some(ctx.models.meshes.add(mesh));
-                        cut.push(name.to_string());
-                    }
-                    let p = &a.parts[*i];
-                    info!("player First rig part {} {}: no Arms shape, the arm partitions of {cut:?} are drawn", p.form, p.model);
-                }
-                let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n) && !cut.contains(n)));
-                u.hidden_shapes.extend(hide);
+                let (source, kept) = prepare_first_person_upper_body(u, &skel, &mut ctx.models.meshes);
+                let p = &a.parts[*i];
+                info!("player First rig part {} {}: first-person arms {} ({kept} shapes)", p.form, p.model, source.as_str());
             }
         }
     }
     for (i, u) in &uses {
         let p = &a.parts[*i];
-        let drawn: Vec<&str> = u.part.shapes.iter().filter_map(|s| s.name.as_deref()).filter(|n| !u.hidden_shapes.iter().any(|h| h == n)).collect();
+        let drawn: Vec<&str> = u
+            .part
+            .shapes
+            .iter()
+            .enumerate()
+            .filter(|(si, s)| !u.hidden_indices.contains(si) && !s.name.as_deref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))))
+            .map(|(_, s)| s.name.as_deref().unwrap_or("(unnamed)"))
+            .collect();
         debug!("player {view:?} rig part {} {} {}: shapes {drawn:?}", p.role, p.form, p.model);
     }
     let head = skel.by_name.get("Bip01 Head").copied();
@@ -2265,11 +2403,16 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         let p = &a.parts[i];
         p.role.starts_with("head") || p.role == "hair" || world.actors.armors.get(&p.form).is_some_and(|ar| ar.slots & HEAD_SLOTS != 0)
     };
-    let hide: Vec<bool> = uses.iter().map(|(i, _)| head_part(*i)).collect();
+    let mut hide: Vec<bool> = uses.iter().map(|(i, _)| head_part(*i)).collect();
     // Third person: per part, how the first-person rig shows it.
-    let arms: Vec<Option<Show>> = uses.iter().map(|(i, _)| (view == View::Third).then(|| first_person::show(&world.actors, &a.parts[*i])).flatten()).collect();
-    let part_index: Vec<usize> = uses.iter().map(|(i, _)| *i).collect();
+    let mut arms: Vec<Option<Show>> = uses.iter().map(|(i, _)| (view == View::Third).then(|| first_person::show(&world.actors, &a.parts[*i])).flatten()).collect();
+    let mut part_index: Vec<usize> = uses.iter().map(|(i, _)| *i).collect();
     let mut uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
+    let (arm_shapes, extra_arm_part) = if view == View::Third {
+        prepare_third_person_upper_body(&mut uses, &mut hide, &mut arms, &mut part_index, &mut ctx.models.meshes)
+    } else {
+        (HashSet::new(), vec![false; uses.len()])
+    };
     if view == View::First {
         // The arms take no shadow from the unseen body they are in the middle of.
         for u in &mut uses {
@@ -2287,7 +2430,10 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let spawned = spawn_actor(commands, parent, Transform::from_scale(Vec3::splat(a.race_height as f32)), &skel, &uses);
     commands.entity(spawned.root).insert(Name::new(format!("Player body ({view:?} person)")));
     let drawn = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
-        .map(|((&entity, &p), &s)| Drawn { entity, head: hide[p], arm: shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref()) })
+        .map(|((&entity, &p), &s)| {
+            let arm = extra_arm_part[p] || arm_shapes.contains(&(p, s)) || shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref());
+            Drawn { entity, head: hide[p], arm }
+        })
         .collect();
     let mut spawned_forms: Vec<FormId> = Vec::new();
     for &p in &spawned.part_of {
@@ -5092,6 +5238,105 @@ mod tests {
         }
         app.update();
         assert_eq!(app.world().resource::<PlayerBody>().body.as_ref().unwrap().third.clips.len(), 1);
+    }
+
+    /// Regression test for #3227: an upper-body mod outfit with one unnamed skinned shape
+    /// and no arm partitions selects its arm/hand triangles by bone weights for the
+    /// first-person arms rig, and splits them into an `arm: true` companion draw on the
+    /// third-person body so `--first-person-body` hides the body's arms while keeping the
+    /// torso visible when the weapon is up.
+    #[test]
+    fn unnamed_single_shape_outfit_draws_first_person_arms_and_hides_third_person_arms() {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::mesh::{Indices, PrimitiveTopology};
+        use nvf_assets::actor::{mesh_indices_u32, PartShape};
+
+        let mut cpu = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        cpu.insert_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![
+                [0.0, 0.0, 100.0],
+                [5.0, 0.0, 100.0],
+                [2.5, 0.0, 110.0],
+                [20.0, 0.0, 105.0],
+                [30.0, 0.0, 100.0],
+                [40.0, 0.0, 95.0],
+            ],
+        );
+        let bones = vec!["Bip01 Spine2".to_string(), "Bip01 L UpperArm".to_string(), "Bip01 L Forearm".to_string()];
+        cpu.insert_attribute(
+            Mesh::ATTRIBUTE_JOINT_INDEX,
+            VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0], [1, 2, 0, 0], [2, 0, 0, 0]]),
+        );
+        cpu.insert_attribute(
+            Mesh::ATTRIBUTE_JOINT_WEIGHT,
+            VertexAttributeValues::Float32x4(vec![[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]),
+        );
+        cpu.insert_indices(Indices::U32(vec![0, 1, 2, 3, 4, 5]));
+        let shape = PartShape::skinned_cpu(None, Arc::new(cpu), bones, Vec::new());
+        let part = Arc::new(PreparedPart { shapes: vec![shape], ..Default::default() });
+        let skel = PreparedSkeleton {
+            names: vec![None, Some("Bip01 Spine2".into()), Some("Bip01 L UpperArm".into()), Some("Bip01 L Forearm".into())],
+            parents: vec![None, Some(0), Some(1), Some(2)],
+            locals: vec![Transform::IDENTITY; 4],
+            bind_world: vec![Affine3A::IDENTITY; 4],
+            by_name: HashMap::from([
+                ("Bip01 Spine2".into(), 1),
+                ("Bip01 L UpperArm".into(), 2),
+                ("Bip01 L Forearm".into(), 3),
+            ]),
+            bbx_half_width: None,
+        };
+
+        // First-person rig: extracts arm triangles by weights.
+        let mut meshes = Assets::<Mesh>::default();
+        let mut fp_use = PartUse {
+            part: part.clone(),
+            materials: Vec::new(),
+            layers: Vec::new(),
+            meshes: Vec::new(),
+            hidden_shapes: Vec::new(),
+            hidden_indices: Vec::new(),
+            allow_partial_skin: false,
+            by_ancestor: false,
+        };
+        let (source, kept) = prepare_first_person_upper_body(&mut fp_use, &skel, &mut meshes);
+        assert_eq!(source, ArmsSource::ByWeights);
+        assert_eq!(kept, 1);
+        assert!(fp_use.hidden_indices.is_empty());
+        let fp_mesh = meshes.get(fp_use.meshes[0].as_ref().expect("arm mesh handle")).expect("arm mesh");
+        assert_eq!(mesh_indices_u32(fp_mesh), vec![3, 4, 5]);
+
+        // Third-person rig: splits torso (`arm: false`) from arms (`arm: true`).
+        let mut tp_uses = vec![PartUse {
+            part,
+            materials: Vec::new(),
+            layers: Vec::new(),
+            meshes: Vec::new(),
+            hidden_shapes: Vec::new(),
+            hidden_indices: Vec::new(),
+            allow_partial_skin: false,
+            by_ancestor: false,
+        }];
+        let mut hide = vec![false];
+        let mut arms = vec![Some(Show::Arms)];
+        let mut part_index = vec![0usize];
+        let (arm_shapes, extra_arm_part) = prepare_third_person_upper_body(&mut tp_uses, &mut hide, &mut arms, &mut part_index, &mut meshes);
+        assert!(arm_shapes.is_empty());
+        assert_eq!(tp_uses.len(), 2, "companion arm PartUse created for mixed shape");
+        assert_eq!(extra_arm_part, vec![false, true]);
+        let torso_mesh = meshes.get(tp_uses[0].meshes[0].as_ref().expect("torso handle")).expect("torso mesh");
+        let arm_mesh = meshes.get(tp_uses[1].meshes[0].as_ref().expect("arm handle")).expect("arm mesh");
+        assert_eq!(mesh_indices_u32(torso_mesh), vec![0, 1, 2]);
+        assert_eq!(mesh_indices_u32(arm_mesh), vec![3, 4, 5]);
+
+        // With first-person-body on and weapon up, torso stays visible and third-person arms hide.
+        let seen = Seen::upright(true, false, false);
+        let torso_drawn = Drawn { entity: Entity::PLACEHOLDER, head: false, arm: false };
+        let arm_drawn = Drawn { entity: Entity::PLACEHOLDER, head: false, arm: true };
+        assert!(seen.part(&torso_drawn), "torso stays visible in first-person-body mode");
+        assert!(!seen.part(&arm_drawn), "third-person body arms hide while first-person arms are up");
+        assert!(Seen::upright(false, false, false).part(&arm_drawn), "third-person body arms return when holstered");
     }
 }
 
