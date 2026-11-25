@@ -259,7 +259,8 @@ original's answer and changes nothing.
   the texture read back by `GetCasinoDeckTexture` for the session [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`,
   `w6d9_44_casino_traits_chip_decks_payout_reels_and_decktex`:
   `PROBE|w6d9_44_casino_traits_chip_decks_payout_reels_and_decktex|s17(0->1)|pay(1.50->2.50)|max=9000,d=3,sh=0.20|reel(1=2->9,0=-1,8=-1)|chip(ok=1,bad=1)|tex(l=46,st=2,r=1,chg=1)`;
-  no DLL, PDB, or third-party source consulted].
+  no DLL, PDB, or third-party source consulted]. Non-`CSNO` forms and negative indices were
+  not probed and return `0` without mutating state `[design]`.
 - **GetSwitchNodeIndex** `node [flag]` (JohnnyGuitar): 0 for Doc's `Bip01 Head`, not a
   switch node [observed: rest4.switchnode; observed: jg_37_casino_deck_and_switch_node: 0]. NVForever answers 0 [hypothesis: the index of
   a switch node's shown child, 0 for any other node].

@@ -311,6 +311,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // GetCasinoDeckTexture for the session and returns 1 [observed: 2026-11-25,
         // FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
         // w6d9_44_casino_traits_chip_decks_payout_reels_and_decktex: tex(l=46,st=2,r=1,chg=1)].
+        // [design]: unprobed non-CSNO forms and negative indices return 0 without mutating state.
         "setcasinodecktexture" => {
             let Some(c) = form_arg(args, 0).filter(|c| g.data.sig(*c) == Some(*b"CSNO")) else {
                 return Some(Ok(XVal::Num(0.0)));
