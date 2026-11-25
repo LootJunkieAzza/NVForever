@@ -20,7 +20,6 @@
     "xNVSE": "6.4.9",
     "AnhNVSE": "131",
     "ShowOffNVSE": "184",
-    "hNVSE": "120",
     "lStewieAl's Tweaks": "1005",
     "SUP NVSE": "855"
   },
@@ -32,7 +31,6 @@
       "required_plugins": [
         "AnhNVSE.dll",
         "ShowOffNVSE.dll",
-        "hNVSE.dll",
         "nvse_stewie_tweaks.dll",
         "supNVSE.dll"
       ],
@@ -104,10 +102,9 @@
         {
           "id": "w6d4p6_21_stewie_sup_anh_hnvse",
           "bucket": "unlisted_showoff_edges",
-          "extender": "ShowOffNVSE / hNVSE / Stewie / SUP NVSE / AnhNVSE",
+          "extender": "ShowOffNVSE / Stewie / SUP NVSE / AnhNVSE",
           "required_plugins": [
             "ShowOffNVSE.dll",
-            "hNVSE.dll",
             "nvse_stewie_tweaks.dll",
             "supNVSE.dll",
             "AnhNVSE.dll"
@@ -125,15 +122,14 @@
             "AuxStringMapArrayGetSize",
             "AuxStringMapArrayEraseKey",
             "AuxStringMapArrayDestroy",
-            "GetCellRegions",
             "StewieGetValue",
             "StewVal",
             "RoundAlt",
             "V3CrossproductAlt",
             "ArrayToString"
           ],
-          "claim": "Verify AuxStringMapArray case/size/erase/destroy, hNVSE GetCellRegions interior/exterior, StewieGetValue/StewVal case-insensitivity, SUP RoundAlt mode 2 on 2.349, Anh V3CrossproductAlt [1,2,3]x[4,5,6] & ArrayToString on strings.",
-          "expected": "Confirm V3CrossproductAlt handedness (-3,6,-3 vs 3,-6,3), RoundAlt mode 2 behavior, StewVal case parity, and GetCellRegions interior vs exterior counts.",
+          "claim": "Verify AuxStringMapArray case/size/erase/destroy, StewieGetValue/StewVal case-insensitivity, SUP RoundAlt mode 2 on 2.349, Anh V3CrossproductAlt [1,2,3]x[4,5,6] & ArrayToString on strings.",
+          "expected": "Confirm V3CrossproductAlt handedness (-3,6,-3 vs 3,-6,3), RoundAlt mode 2 behavior, and StewVal case parity.",
           "script_lines": [
             "Player.AuxStringMapArraySetFloat \"*w6_asm\" \"Alpha\" 12.5",
             "float vf = Player.AuxStringMapArrayGetFloat \"*w6_asm\" \"alpha\"",
