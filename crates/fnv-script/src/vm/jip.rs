@@ -59,6 +59,10 @@ fn type_code(v: Option<&XVal>) -> f64 {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d11_auxvar_asarray_tests.rs"]
+mod w6d11_auxvar_asarray_tests;
+
 /// What a typed getter gives for an element: the element when its type matches, else
 /// 0, the empty string or no form [observed: aux.float.of.string].
 fn typed(v: Option<&XVal>, want: char) -> XVal {
@@ -1124,8 +1128,10 @@ impl Vm<'_, '_> {
                 XVal::Num(count as f64)
             }
             "getasarray" => {
-                let Some(o) = self.jowner_opt(c, 1)? else { return self.jlist(Vec::new()).map(Some) };
-                let l = stores(self.store()?, name).aux.get(&o).and_then(|m| m.get(name)).cloned().unwrap_or_default();
+                let Some(o) = self.jowner_opt(c, 1)? else { return Ok(Some(XVal::Array(0))) };
+                let Some(l) = stores(self.store()?, name).aux.get(&o).and_then(|m| m.get(name)).cloned() else {
+                    return Ok(Some(XVal::Array(0)));
+                };
                 self.jlist(l)?
             }
             _ => return Ok(None),

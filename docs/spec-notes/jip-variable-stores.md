@@ -100,9 +100,15 @@ applies to RefMaps too [hypothesis].
   insertion order [decision; not observed: each probe used one or two keys].
 - The not-probed setters AuxiliaryVariableSetFromArray, AuxiliaryVariableEraseAll and
   RefMapArrayErase follow their pages.
-- **No owner** (an empty ref variable as the form argument, on a script with no calling
-  reference, such as a UDF an event called): a getter gives what an unset variable
-  gives (0, an empty string, no form, size 0, an empty array) and the statement goes
+- **Undefined variable / no owner** (`AuxVarGetAsArr` on an undefined AuxVar returns
+  `ar_Null`, `ar_Size == -1` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base
+  masters, read-only `PrintToConsole` probe `w6d11_37_auxvar_asarray_and_setfromarr_edges`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `mis(sz=-1)`; no DLL or source consulted]). For an empty ref variable as the form
+  argument on a script with no calling reference (such as a UDF an event called): a getter
+  gives what an unset variable gives (0, an empty string, no form, size 0, `ar_Null`) and
+  the statement goes
   on; a setter gives 0 and keeps nothing [documented: AuxiliaryVariableGetFloat, "will
   (presumably) return 0 if the variable is not defined"; observed: Fallout: New Vegas
   1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room
