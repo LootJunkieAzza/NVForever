@@ -106,7 +106,7 @@ fn handlers_hear_the_game() {
     q(&mut g, "let TestGlobal := 0\nSetJohnnyOnLimbGoneEventHandler 1 (begin function {ref rA, int iLimb}\nlet TestGlobal := TestGlobal + iLimb\nend) 0 0 1");
     g.dismember(FormId::PLAYER_REF, &[(1, false), (3, false)], None);
     assert_eq!(global(&mut g), 1.0);
-    // [hypothesis: SetOnReputationChangeEventHandler's (reputation, axis, value)].
+    // SetOnReputationChangeEventHandler's (reputation, axis, value) (see docs/spec-notes/ext-jg8.md).
     q(&mut g, "let TestGlobal := 0\nSetOnReputationChangeEventHandler 1 (begin function {ref rR, int iAxis, float fV}\nlet TestGlobal := fV\nend) 0 TestReputation");
     fnv_game::functions::reputation_store(&mut g, FormId(REPU), 0, 5.0);
     assert_eq!(global(&mut g), 5.0);
@@ -182,6 +182,9 @@ fn arrays_colours_and_menus() {
     assert_eq!(n(&mut g, "GetSystemColor 3"), f64::from(0x21E779u32));
     q(&mut g, "SetSystemColor 4 10 20 30");
     assert_eq!(s(&mut g, "int r\nint gg\nint b\nGetSystemColorAlt 4 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "10 20 30");
+    // Invalid ids return 0 and preserve output variables unchanged [observed: w6_t1_08_jg_system_color_alt].
+    assert_eq!(s(&mut g, "int r = 111\nint gg = 222\nint b = 333\nGetSystemColorAlt 0 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "111 222 333");
+    assert_eq!(s(&mut g, "int r = 111\nint gg = 222\nint b = 333\nGetSystemColorAlt 6 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "111 222 333");
     assert_eq!(n(&mut g, "GetSystemColor 6"), 0.0);
     // [documented: GetSleepWaitMenuState 0 closed, 1 wait, 2 sleep].
     assert_eq!(n(&mut g, "GetSleepWaitMenuState"), 0.0);
