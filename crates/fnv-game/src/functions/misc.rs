@@ -886,14 +886,18 @@ impl ScriptLooks {
                 }
             }
             self.shaders.retain(|p| !same_set(p));
+            self.shaders.retain(|p| !(p.on == on && p.shader == shader));
         }
-        self.shaders.retain(|p| !(p.on == on && p.shader == shader));
         self.next_serial += 1;
         self.shaders.push(ShaderPlay { on, shader, duration, serial: self.next_serial });
         self.generation += 1;
         true
     }
 }
+
+#[cfg(test)]
+#[path = "w6d12_shader_stacking_tests.rs"]
+mod w6d12_shader_stacking_tests;
 
 /// A neutral hologram colour held back on a reference under a threat colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
