@@ -536,6 +536,16 @@ name = "Italiano"
 # [design; engine/nvforever/src/heat_haze.rs] The Heat haze row (a prototype).
 "Heat haze (experimental)" = "Tremolio del calore (sperimentale)"
 "On: the far ground near the horizon shimmers slightly on hot, clear days, by the sun and the weather. A prototype. Not in the original." = "Attivo: il terreno lontano vicino all'orizzonte tremola leggermente nelle giornate calde e serene, secondo il sole e il meteo. Un prototipo. Non presente nell'originale."
+# [design; engine/nvforever/src/volumetric_clouds.rs] The Volumetric clouds row (a prototype, #2991).
+"Volumetric clouds (experimental)" = "Nuvole volumetriche (sperimentale)"
+"The weather's clouds drawn with depth, lit by the sun: Off, or Performance, Normal or High, each finer and dearer than the last. A prototype. Not in the original." = "Le nuvole del meteo disegnate con profondità, illuminate dal sole: Disattivato, oppure Prestazioni, Normale o Alta, via via più fini e costose. Un prototipo. Non presente nell'originale."
+# [design; engine/nvforever/src/medium_air_demand.rs] The Volumetric light rows (a prototype, #3032).
+"Volumetric light (experimental)" = "Luce volumetrica (sperimentale)"
+"On: sunlight shows in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's." = "Attivo: la luce del sole si vede nell'aria come raggi e un bagliore verso il sole basso, ombreggiata da colline e nuvole. Meglio con Ombre delle nuvole e Ombre del terreno. Un'aggiunta di NVForever."
+"Volumetric light strength" = "Intensità della luce volumetrica"
+"How strongly the light in the air brightens lit air and darkens shaded air: 100% is the look as tuned, 0% none." = "Quanto la luce nell'aria schiarisce l'aria illuminata e scurisce quella in ombra: 100% è l'aspetto messo a punto, 0% nulla."
+"Needs Volumetric Light." = "Richiede Luce volumetrica."
+"Replaced by Volumetric Light." = "Sostituito da Luce volumetrica."
 # [design, #3146; engine/nvf-play/src/pause.rs] Why a settings row is greyed.
 "Greyed out: {why}" = "Disattivato: {why}"
 # [design, #3146; engine/nvf-play/src/lockpick.rs] Lockpicking: the refusals, the status line, the Force Lock button.

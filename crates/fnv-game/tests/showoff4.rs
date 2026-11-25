@@ -150,7 +150,7 @@ fn json_and_the_ini_cache_go_through_nvforevers_layer() {
     // A form is written as "@plugin:FormID" and read back as the form [documented].
     assert_eq!(n(&mut g, r#"WriteToJSON TestStatic "NVFTest\so4.json" "/form""#), 1.0);
     assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\so4.json" "/form""#), f64::from(STAT));
-    // WriteToJSON root creation vs missing intermediate segments [hypothesis]:
+    // WriteToJSON root creation vs missing intermediate segments (see docs/spec-notes/ext-showoff.md):
     // 1. Missing file + single-level "/k" creates the root object `{ "k": 42 }` and returns 1,
     //    while nested "/a/b/c" fails (returns 0) without creating missing intermediates or a file.
     assert_eq!(n(&mut g, r#"WriteToJSON 42 "NVFTest\missing_single_def.json" "/k""#), 1.0);
