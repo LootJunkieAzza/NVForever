@@ -2563,3 +2563,22 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn string_subscript_oob_returns_empty_without_error_and_clamps_negative_slice_start() {
+    let t = table();
+    let src = "string_var s\nstring_var n1\nstring_var n5\nstring_var hi\nstring_var lo\n               int teHi\nint teLo\nstring_var slNeg\nstring_var slCl\n               begin GameMode\n               let s := \"abcde\"\n               let n1 := s[-1]\n               let n5 := s[-5]\n               let hi := s[99]\n               let lo := s[-99]\n               let teHi := TestExpr (sv_Length s[99])\n               let teLo := TestExpr (sv_Length s[-99])\n               let slNeg := s[-3:-1]\n               let slCl := s[-99:2]\n               end";
+    let (c, p) = build(src);
+    let mut h = host_for(&c);
+    Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() })
+        .run(&p.blocks[0].body)
+        .expect("OOB string subscript must not error");
+    assert_eq!(h.text(2), "e");
+    assert_eq!(h.text(3), "a");
+    assert_eq!(h.text(4), "");
+    assert_eq!(h.text(5), "");
+    assert_eq!(h.0[&6], Value::Num(1.0));
+    assert_eq!(h.0[&7], Value::Num(1.0));
+    assert_eq!(h.text(8), "cde");
+    assert_eq!(h.text(9), "abc");
+}

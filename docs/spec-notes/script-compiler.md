@@ -832,3 +832,7 @@ parity; parsing this caller does not establish B42 Optics compatibility.
   scripts, recompiled in the editor).
 - What the compiler does with a line it can't read in the middle of a block: ours writes
   nothing for that line and goes on.
+
+### Wave 6D-5 observation: string subscript OOB & clamped negative-start slices
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_string_subscript_oob` (`tools/capture/nvse/catalogs/wave6d5_string_subscript_oob.json`); zero DLL, PDB, or third-party source consulted] Single-character string subscripting supports negative indices (`"abcde"[-1] == "e"`, `"abcde"[-5] == "a"`), returns `""` without erroring on out-of-bounds indices (`"abcde"[99] == ""`, `"abcde"[-99] == ""`, `TestExpr == 1`), and clamps negative slice start indices below `0` to `0` (`"abcde"[-99:2] == "abc"`, `"abcde"[-3:-1] == "cde"`): `PROBE|w6d5p4_string_subscript_oob|n1=[e]|n5=[a]|hi=[]:1|lo=[]:1|slNeg=[cde]|slCl=[abc]`.

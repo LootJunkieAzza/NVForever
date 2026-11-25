@@ -1689,19 +1689,27 @@ impl Vm<'_, '_> {
                 // Expressions, Slice]; `s[i]`: one character [documented: Subscript].
                 if let XExpr::Binary { op: XOp::Slice, l: lo, r: hi } = r.as_ref() {
                     let (a, b) = (self.xeval(lo)?.num()?, self.xeval(hi)?.num()?);
-                    // An end past the string stops at its last character [observed: probe
-                    // strings/02, "abcdef"[4:10] is "ef"].
-                    let last = chars.len().saturating_sub(1) as f64;
-                    let b = if b > last { last } else { b };
-                    match (position(a, chars.len()), position(b, chars.len())) {
-                        (Some(a), Some(b)) if a <= b => XVal::Str(chars[a..=b].iter().collect()),
-                        _ => XVal::Str(String::new()),
+                    // Both ends clamp to string bounds after negative indexing [observed:
+                    // probe strings/02 ("abcdef"[4:10] == "ef") and w6d5p4_string_subscript_oob
+                    // ("abcde"[-99:2] == "abc", "abcde"[-3:-1] == "cde")].
+                    let n = chars.len() as i64;
+                    let resolve = |x: f64| {
+                        let idx = x.trunc() as i64;
+                        if idx < 0 { n + idx } else { idx }
+                    };
+                    let (a, b) = (resolve(a), resolve(b));
+                    if n == 0 || b < 0 || a >= n {
+                        XVal::Str(String::new())
+                    } else {
+                        let a = a.max(0) as usize;
+                        let b = b.min(n - 1) as usize;
+                        if a <= b { XVal::Str(chars[a..=b].iter().collect()) } else { XVal::Str(String::new()) }
                     }
                 } else {
                     let i = self.xeval(r)?.num()?;
                     match position(i, chars.len()) {
                         Some(p) => XVal::Str(chars[p].to_string()),
-                        None => return Err(VmError::Type(format!("position {i} is outside the string"))),
+                        None => XVal::Str(String::new()),
                     }
                 }
             }

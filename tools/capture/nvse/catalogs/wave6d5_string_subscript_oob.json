@@ -1,0 +1,65 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_string_subscript_oob",
+  "description": "Wave 6D-5 read-only probe verifying negative string subscripts, OOB empty-string return, and clamped negative-start slices.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d5_string_subscript_oob",
+      "title": "String subscript OOB and clamped negative slice edges",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d5p4_string_subscript_oob",
+          "bucket": "vm_strings",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 575,
+          "functions_tested": [
+            "TestExpr",
+            "PrintToConsole"
+          ],
+          "claim": "Isolated probe for negative single-char string subscript, OOB string subscript returning empty string without error, and clamped/negative string slices.",
+          "expected": "s[-1]='e', s[-5]='a', s[99]='' (TestExpr 1), s[-99]='' (TestExpr 1), s[-3:-1]='cde', s[-99:2]='abc'.",
+          "script_lines": [
+            "string_var svStr = \"abcde\"",
+            "string_var cNeg1 = svStr[-1]",
+            "string_var cNeg5 = svStr[-5]",
+            "string_var cHi = svStr[99]",
+            "string_var cLo = svStr[-99]",
+            "int teHi = TestExpr svStr[99]",
+            "int teLo = TestExpr svStr[-99]",
+            "string_var slNeg = svStr[-3:-1]",
+            "string_var slClamp = svStr[-99:2]",
+            "PrintToConsole \"PROBE|w6d5p4_string_subscript_oob|n1=[%z]|n5=[%z]|hi=[%z]:%g|lo=[%z]:%g|slNeg=[%z]|slCl=[%z]\" cNeg1 cNeg5 cHi teHi cLo teLo slNeg slClamp"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}
