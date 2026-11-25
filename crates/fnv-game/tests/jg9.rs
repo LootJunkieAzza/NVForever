@@ -125,9 +125,14 @@ fn sounds_from_files_and_holotapes() {
     assert_eq!(n(&mut g, r#"PlaySoundFile "Data\Sound\fx\nosuch.wav""#), 1.0);
     assert_eq!(n(&mut g, r#"PlaySoundFile "..\escape.wav""#), 1.0);
     assert_eq!(g.other.jg9.path_sounds.len(), before_paths);
-    // PlaySoundFade: a SOUN at the player, faded in.
+    // StopSoundFile returns 1 even when idle; PlaySound3DFromPath bare returns 1;
+    // PlaySoundFade rejects non-SOUN forms returning 0 [observed: w6d3_39].
+    assert_eq!(n(&mut g, "StopSoundFile"), 1.0);
+    assert_eq!(n(&mut g, "StopSoundFile"), 1.0);
+    assert_eq!(n(&mut g, r#"PlaySound3DFromPath "Data\Sound\fx\test.wav""#), 1.0);
     assert_eq!(n(&mut g, "player.PlaySoundFade TestSound 2"), 1.0);
     assert_eq!(g.sound_requests.last().map(|r| (r.sound, r.at)), Some((FormId(SOUN), Some(FormId::PLAYER_REF))));
+    assert_eq!(n(&mut g, "player.PlaySoundFade TestTerminal 2"), 0.0);
     // Holotapes: a form that is no note plays nothing; StopHolotape plays its sound.
     assert_eq!(n(&mut g, "PlayHolotape TestSound"), 0.0);
     assert_eq!(n(&mut g, "StopHolotape"), 1.0);

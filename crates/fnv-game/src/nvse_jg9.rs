@@ -243,8 +243,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.play_faded(id, None, system, 0.0);
             yes(true)
         }
-        // StopSoundFile: what PlaySoundFile plays [documented].
-        "stopsoundfile" => yes(g.stop_paths(0.0, |p| p.file)),
+        // StopSoundFile: stops what PlaySoundFile plays and returns 1 even when idle
+        // [documented; observed: w6d3_39_jg9_sound_paths_fade_and_3d: st=1/1].
+        "stopsoundfile" => {
+            g.stop_paths(0.0, |p| p.file);
+            yes(true)
+        }
         // PlaySoundFromPath path [fadeTime] [isVoice] [systemSound] [shouldLoop]
         // [documented]. isVoice plays it as any script sound [hypothesis: the voice
         // channel's volume is not applied].
@@ -256,10 +260,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.play_faded(id, None, num(args, 3, 0.0) != 0.0, num(args, 1, 0.0));
             yes(true)
         }
-        // ref.PlaySound3DFromPath path [fadeTime] [isVoice] [shouldLoop] [documented]; 1
-        // as PlaySoundFromPath [hypothesis].
+        // ref.PlaySound3DFromPath path [fadeTime] [isVoice] [shouldLoop] [documented];
+        // returns 1 even on bare calls without a calling reference [observed: w6d3_39: bare=1].
         "playsound3dfrompath" => {
-            let Some(at) = subject else { return Some(Ok(yes(false))) };
+            let Some(at) = subject else { return Some(Ok(yes(true))) };
             let Some(p) = text(args, 0).as_deref().and_then(data_path).filter(|p| crate::mod_files::exists(p)) else { return Some(Ok(yes(true))) };
             let looping = num(args, 3, 0.0) != 0.0;
             let Some(id) = g.path_sound(&p, Some(at), looping, false) else { return Some(Ok(yes(true))) };
@@ -283,9 +287,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             yes(false)
         }
         // ref.PlaySoundFade sound fadeTime: at the calling reference, the player without
-        // one [documented].
+        // one [documented]; rejects non-SOUN forms returning 0 [observed: w6d3_39: fade=1/0].
         "playsoundfade" => {
-            let Some(sound) = form(args, 0) else { return Some(Ok(yes(false))) };
+            let Some(sound) = form(args, 0).filter(|&s| g.data.sig(g.unclone(s)) == Some(*b"SOUN")) else { return Some(Ok(yes(false))) };
             let at = subject.unwrap_or(FormId::PLAYER_REF);
             g.play_faded(sound, Some(at), false, num(args, 1, 0.0));
             yes(true)

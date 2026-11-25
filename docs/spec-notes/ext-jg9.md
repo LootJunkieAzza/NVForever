@@ -34,12 +34,12 @@ engine's answers work for it.
 | Function | NVForever |
 |---|---|
 | PlaySoundFile `path [forcePlay] [shouldLoop] [playInMainMenu]` | plays the file, not placed; forcePlay and playInMainMenu let it play in menu mode too [hypothesis] |
-| StopSoundFile | stops what PlaySoundFile plays [documented] |
+| StopSoundFile | stops what PlaySoundFile plays [documented]; returns `1` even when no file sound is playing [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d3_jg9_sound_path_and_fade_returns.json`, `w6d3_39_jg9_sound_paths_fade_and_3d`: `file=1,st=1/1\|path=1/0\|3d=1,1,bare=1,sPfx=0\|fade=1/0\|loop=0/0`, no DLL or source consulted] |
 | PlaySoundFromPath `path [fadeTime] [isVoice] [systemSound] [shouldLoop]` | plays the file, fading in over fadeTime seconds; isVoice changes nothing [hypothesis: the voice volume is not applied] |
-| PlaySound3DFromPath `path [fadeTime] [isVoice] [shouldLoop]` | at the calling reference [documented] |
-| StopSoundFromPath `path [fadeTime]` | stops "all instances" of the file [documented], fading out over fadeTime; 0 [observed: with the file just played, §7; hypothesis: it returns nothing] |
-| StopSound3DFromPath `path [fadeTime]` | those from the calling reference [documented] |
-| PlaySoundFade `sound fadeTime` | a SOUN at the calling reference, the player without one [documented], faded in |
+| PlaySound3DFromPath `path [fadeTime] [isVoice] [shouldLoop]` | at the calling reference [documented]; returns `1` even on a bare call without a calling reference [observed: `w6d3_39_jg9_sound_paths_fade_and_3d`: `3d=1,1,bare=1,sPfx=0`] |
+| StopSoundFromPath `path [fadeTime]` | stops "all instances" of the file [documented], fading out over fadeTime; 0 [observed: with the file just played, §7; `w6d3_39`: `path=1/0`] |
+| StopSound3DFromPath `path [fadeTime]` | those from the calling reference [documented]; returns `0` [observed: `w6d3_39`: `sPfx=0`] |
+| PlaySoundFade `sound fadeTime` | a `SOUN` at the calling reference, the player without one [documented], faded in; returns `1` for a `SOUN` and `0` for non-`SOUN` forms [observed: `w6d3_39_jg9_sound_paths_fade_and_3d`: `fade=1/0`] |
 | StopSoundLooping `sound` | the page stops it "by triggering its Loop End point"; NVForever plays no loop points, so what a script plays of it stops [hypothesis] |
 
 A fade raises or lowers the playing's volume in a straight line [hypothesis: the pages
