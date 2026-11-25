@@ -2092,7 +2092,7 @@ impl Vm<'_, '_> {
                 }
                 Ok(XVal::Array(self.store()?.new_array(kind.unwrap_or(ArrayKind::Map), es)))
             }
-            "ar_null" => num(0.0),
+            "ar_null" => Ok(XVal::Array(0)),
             "ar_badnumericindex" => num(BAD_NUMERIC_INDEX),
             "ar_badstringindex" => Ok(XVal::Str(String::new())),
             "ar_size" => {
@@ -2410,9 +2410,10 @@ impl Vm<'_, '_> {
                     XVal::Ref(_) => "Form",
                     XVal::Str(_) => "String",
                     XVal::Array(id) => match self.store()?.array(*id).map(|a| a.kind) {
+                        Some(ArrayKind::List) => "Array",
                         Some(ArrayKind::Map) => "Map",
                         Some(ArrayKind::StringMap) => "StringMap",
-                        _ => "Array",
+                        None => "<Bad Array>",
                     },
                 };
                 Ok(XVal::Str(t.into()))

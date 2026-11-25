@@ -2563,3 +2563,16 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn typeof_returns_bad_array_for_uninitialized_array_and_ar_null() {
+    let h = run(
+        "array_var aUninit\narray_var aList\narray_var aMap\narray_var aSMap\n         string_var tU\nstring_var tN\nstring_var tL\nstring_var tM\nstring_var tS\nstring_var tMiss\n         begin GameMode\n         let aList := ar_List 1\n         let aMap := ar_Map 1::2\n         let aSMap := ar_Map \"k\"::3\n         let tU := TypeOf aUninit\n         let tN := TypeOf Ar_Null\n         let tL := TypeOf aList\n         let tM := TypeOf aMap\n         let tS := TypeOf aSMap\n         let tMiss := TypeOf aSMap[\"nope\"]\n         end",
+    );
+    assert_eq!(h.text(5), "<Bad Array>");
+    assert_eq!(h.text(6), "<Bad Array>");
+    assert_eq!(h.text(7), "Array");
+    assert_eq!(h.text(8), "Map");
+    assert_eq!(h.text(9), "StringMap");
+    assert_eq!(h.text(10), "NULL");
+}

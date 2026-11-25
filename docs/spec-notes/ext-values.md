@@ -164,3 +164,7 @@ What a string_var holds under vanilla `set`; an unset string_var read as text; i
 string↔number conversion; `$` of floats and arrays; truth of a string or array under
 `eval`; case of string `==`; mixed-kind comparisons; the result of a line that raised an
 error.
+
+### Wave 6D-5 observation: `TypeOf` on uninitialized `array_var` and `Ar_Null`
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_typeof_bad_array` (`tools/capture/nvse/catalogs/wave6d5_typeof_bad_array.json`); zero DLL, PDB, or third-party source consulted] Both an uninitialized `array_var` and `Ar_Null` return `"<Bad Array>"` from `TypeOf`, while valid arrays return `"Array"`, `"Map"`, or `"StringMap"`, and a missing map key returns `"NULL"`: `PROBE|w6d5p4_typeof_bad_array|aU=<Bad Array>|aN=<Bad Array>|aL=Array|aM=Map|aS=StringMap|miss=NULL`.
