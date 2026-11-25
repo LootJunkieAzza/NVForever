@@ -2832,6 +2832,7 @@ impl App {
         match decision {
             Some(crate::fomod::Decision::Cancel) => {
                 if let Some(w) = self.wizard.take() {
+                    w.forget_images(ctx);
                     w.discard();
                 }
             }
@@ -2848,6 +2849,7 @@ impl App {
                                 self.note_install(&name, &src);
                             }
                             self.log_mod(&format!("installed {name}"));
+                            w.forget_images(ctx);
                             w.discard();
                         }
                         self.finish_import(Ok(name));

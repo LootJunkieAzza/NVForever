@@ -883,8 +883,75 @@ fn parse_wizard(text: &str, root: &Path, temp: Option<PathBuf>, fallback: &str, 
         chosen.push(groups);
     }
     let mut wizard = Wizard { title, folder_name, note, error: None, root: root.to_path_buf(), temp, steps, required, patterns, chosen, at: 0, facts, image };
+    wizard.keep_images();
     wizard.normalize();
     Ok(wizard)
+}
+
+/// The largest installer picture file read, in bytes.
+const IMAGE_MAX_BYTES: u64 = 8 * 1024 * 1024;
+
+/// The widest or tallest installer picture shown, in pixels: under the texture size every
+/// graphics card takes, which the window's drawing asserts.
+const IMAGE_MAX_SIDE: u32 = 2048;
+
+/// The memory all of one installer's pictures may take once decoded (four bytes a pixel).
+const IMAGE_MAX_DECODED: u64 = 256 * 1024 * 1024;
+
+/// Whether the picture at `path` is shown: a file of at most `IMAGE_MAX_BYTES`, at most
+/// `IMAGE_MAX_SIDE` each way by its header, and room left in `left` for its decoded size.
+/// Only the header is read here; a picture that fails is not shown.
+fn image_fits(path: &Path, left: &mut u64) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else { return false };
+    if meta.len() > IMAGE_MAX_BYTES {
+        return false;
+    }
+    let Ok((w, h)) = image::image_dimensions(path) else { return false };
+    if w > IMAGE_MAX_SIDE || h > IMAGE_MAX_SIDE {
+        return false;
+    }
+    let decoded = u64::from(w) * u64::from(h) * 4;
+    if decoded > *left {
+        return false;
+    }
+    *left -= decoded;
+    true
+}
+
+impl Wizard {
+    /// Drop the pictures that are too large, or past what all of them may take together. A
+    /// picture used twice is counted once: the window loads it once.
+    fn keep_images(&mut self) {
+        let mut left = IMAGE_MAX_DECODED;
+        let mut kept: HashSet<PathBuf> = HashSet::new();
+        let mut keep = |image: &mut Option<PathBuf>| {
+            if let Some(path) = image.clone() {
+                if !kept.contains(&path) {
+                    if image_fits(&path, &mut left) {
+                        kept.insert(path);
+                    } else {
+                        *image = None;
+                    }
+                }
+            }
+        };
+        keep(&mut self.image);
+        for step in &mut self.steps {
+            for group in &mut step.groups {
+                for plug in &mut group.plugins {
+                    keep(&mut plug.image);
+                }
+            }
+        }
+    }
+
+    /// Let the window free the installer's decoded pictures; call when the installer closes.
+    pub fn forget_images(&self, ctx: &egui::Context) {
+        let plugs = self.steps.iter().flat_map(|s| &s.groups).flat_map(|g| &g.plugins);
+        for path in self.image.iter().chain(plugs.filter_map(|p| p.image.as_ref())) {
+            ctx.forget_image(&file_uri(path));
+        }
+    }
 }
 
 fn parse_plug(el: &Elem, root: &Path) -> Plug {
@@ -2882,6 +2949,43 @@ mod tests {
         assert!(std::fs::metadata(&bomb).unwrap().len() < 256 * 1024);
         let e = stage_error(&bomb);
         assert!(e.ends_with(&too_big()), "{e}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn installer_pictures_too_large_to_draw_or_too_many_to_hold_are_not_shown() {
+        let t = std::env::temp_dir().join(format!("nvf-fomod-pictures-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let root = t.join("Pictures");
+        std::fs::create_dir_all(root.join("fomod")).unwrap();
+        std::fs::create_dir_all(root.join("img")).unwrap();
+        let png = |name: &str, w: u32, h: u32| image::RgbaImage::new(w, h).save_with_format(root.join("img").join(name), image::ImageFormat::Png).unwrap();
+        // One pixel wider than any picture shown, and a small one.
+        png("wide.png", IMAGE_MAX_SIDE + 1, 1);
+        png("small.png", 2, 2);
+        // Seventeen of the largest size: with the small one, fifteen fit in the memory all
+        // pictures may take.
+        let full = 17;
+        for i in 0..full {
+            png(&format!("full{i}.png"), IMAGE_MAX_SIDE, IMAGE_MAX_SIDE);
+        }
+        let option = |name: &str, picture: &str| format!(r#"<plugin name="{name}"><description/><image path="img/{picture}"/><typeDescriptor><type name="Optional"/></typeDescriptor></plugin>"#);
+        let mut plugins = option("Wide", "wide.png") + &option("Small", "small.png");
+        for i in 0..full {
+            plugins += &option(&format!("Full{i}"), &format!("full{i}.png"));
+        }
+        let xml = format!(
+            r#"<config><moduleName>Pictures</moduleName><moduleImage path="img/wide.png"/><installSteps><installStep name="One"><optionalFileGroups><group name="Pick" type="SelectAny"><plugins>{plugins}</plugins></group></optionalFileGroups></installStep></installSteps></config>"#
+        );
+        std::fs::write(root.join("fomod").join("ModuleConfig.xml"), xml).unwrap();
+        let facts = FactsInput { active: HashSet::new(), present: HashSet::new(), paths: HashSet::new() };
+        let Staged::Wizard(w) = stage(&root, facts).unwrap() else { panic!("an installer with a choice opens its window") };
+        let shown: Vec<bool> = w.steps[0].groups[0].plugins.iter().map(|p| p.image.is_some()).collect();
+        assert!(w.image.is_none(), "the module picture is too wide");
+        assert!(!shown[0], "too wide");
+        assert!(shown[1], "small");
+        assert_eq!(shown[2..].iter().filter(|s| **s).count(), 15, "the small one and fifteen of the largest fill the memory");
+        assert!(!shown[full + 1], "the last of the largest is past it");
         let _ = std::fs::remove_dir_all(&t);
     }
 }

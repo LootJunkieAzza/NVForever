@@ -53,6 +53,9 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
   than 16 MiB), so a file listed for many places cannot fill the disk; past that the install
   stops. Folders are copied from a list, not by a call per level, so a deep one cannot use up
   the stack [design; `copy_items`, `copy_children`].
+- An installer's pictures are shown only up to 8 MiB a file and 2048 pixels each way (by the
+  picture's header), and up to 256 MiB for all of them once decoded; a picture past that is not
+  shown. They are let go when the installer closes [design; `image_fits`, `forget_images`].
 - A C# script installer (`fomod/script.cs`) is code "that gets compiled on the user's system and
   run in the context of the mod manager" [documented: S2, "FOMOD C#"]. The launcher never
   compiles or runs one. An archive with only a script is refused; with a `ModuleConfig.xml` too,
