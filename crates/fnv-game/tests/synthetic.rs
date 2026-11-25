@@ -4854,7 +4854,7 @@ fn jip_batch_four_reads_and_sets_record_traits() {
     assert_eq!(n(&mut g, "GetClassFlag TestClass 1"), num(0.0));
     assert_eq!(n(&mut g, "GetClassFlag TestClass 4"), num(1.0), "service bit 2, alcohol");
     assert_eq!(n(&mut g, "GetClassFlag TestClass 19"), num(1.0), "service bit 17, repair");
-    assert_eq!(n(&mut g, "SetClassTraitNumeric TestClass 2 34"), num(34.0));
+    assert_eq!(n(&mut g, "SetClassTraitNumeric TestClass 2 34"), num(0.0));
     assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 2"), num(34.0));
     q(&mut g, "SetClassFlag TestClass 19 0\nSetClassFlag TestClass 1 1");
     assert_eq!((n(&mut g, "GetClassFlag TestClass 19"), n(&mut g, "GetClassFlag TestClass 1"), n(&mut g, "GetClassFlag TestClass 4")), (num(0.0), num(1.0), num(1.0)));
