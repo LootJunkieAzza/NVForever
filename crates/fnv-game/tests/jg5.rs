@@ -332,12 +332,22 @@ fn armor_facegen_flags_and_icons() {
     assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 1 0"), 0.0);
     assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 3 0"), 1.0);
     assert_eq!(n(&mut g, "GetFacegenModelFlag TestArmor 0 1"), 1.0, "the female flags unchanged");
-    // [documented: SetBipedIconPathAlt `path female form`, read by GetBipedIconPath].
+    // [documented: SetBipedIconPathAlt `path female form`, read by GetBipedIconPath;
+    // observed: w6d3p2_25 returns 1 on ARMO/clone and 0 without mutating non-ARMO].
     assert_eq!(s(&mut g, "GetBipedIconPath 1 TestArmor"), "icons\\f.dds");
-    q(&mut g, "SetBipedIconPathAlt \"icons\\new_f.dds\" 1 TestArmor");
-    q(&mut g, "SetBipedIconPathAlt \"icons\\new_m.dds\" 0 TestArmor");
+    assert_eq!(n(&mut g, "SetBipedIconPathAlt \"icons\\new_f.dds\" 1 TestArmor"), 1.0);
+    assert_eq!(n(&mut g, "SetBipedIconPathAlt \"icons\\new_m.dds\" 0 TestArmor"), 1.0);
     assert_eq!(s(&mut g, "GetBipedIconPath 1 TestArmor"), "icons\\new_f.dds");
     assert_eq!(s(&mut g, "GetBipedIconPath 0 TestArmor"), "icons\\new_m.dds");
+    assert_eq!(n(&mut g, "SetBipedIconPathAlt \"icons\\bad.dds\" 0 TestDrink"), 0.0);
+    assert_eq!(s(&mut g, "GetBipedIconPath 0 TestDrink"), "");
+    assert_eq!(
+        q(
+            &mut g,
+            "ref rCl\n             let rCl := TempCloneForm TestArmor\n             int iRet\n             let iRet := SetBipedIconPathAlt \"icons\\cl_m.dds\" 0 rCl\n             string_var sCl\n             let sCl := GetBipedIconPath 0 rCl\n             string_var sOrig\n             let sOrig := GetBipedIconPath 0 TestArmor\n             SetFunctionValue (sv_Construct \"%g|%z|%z\" iRet sCl sOrig)"
+        ),
+        XVal::Str("1|icons\\cl_m.dds|icons\\new_m.dds".into()),
+    );
 }
 
 #[test]

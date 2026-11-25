@@ -361,15 +361,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 zero
             }
         }
-        // `path female form`: the male (ICON) or female (ICO2) icon, read by
-        // GetBipedIconPath [documented: SetBipedIconPathAlt].
+        // `path female form`: the male (ICON) or female (ICO2) icon of an ARMO (including
+        // TempCloneForm), read by GetBipedIconPath; returns 1 on valid ARMO and 0 without
+        // mutating non-ARMO forms [documented: SetBipedIconPathAlt; observed: w6d3p2_25].
         "setbipediconpathalt" => {
-            let f = form(args, 2).or(subject).map(|f| base(g, f));
+            let f = form(args, 2).or(subject).map(|f| base(g, f)).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"ARMO"));
             if let (Some(path), Some(f)) = (text(args, 0), f) {
                 let sub = if num(args, 1, 0.0) != 0.0 { "ICO2" } else { "ICON" };
                 g.field_overrides.insert((f, format!("{sub}/")), XVal::Str(path));
+                XVal::Num(1.0)
+            } else {
+                zero
             }
-            zero
         }
         // ---- worldspaces ----
         // `world [path]`: the map texture (WRLD ICON), under Data\Textures [documented:
