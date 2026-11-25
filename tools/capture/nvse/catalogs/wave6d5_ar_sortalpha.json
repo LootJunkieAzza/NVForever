@@ -1,0 +1,75 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_ar_sortalpha",
+  "description": "Wave 6D-5 read-only probe verifying Ar_SortAlpha mixed-type filtering, Ar_Find/Ar_Unique case-insensitivity, and ar_Any/ar_All short-circuiting.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d5_ar_sortalpha",
+      "title": "Ar_SortAlpha mixed-type filtering and array query edges",
+      "extender": "xNVSE / JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d5p3_18b_alpha_find_unique_any_all",
+          "bucket": "vm_arrays",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 595,
+          "functions_tested": [
+            "ar_SortAlpha",
+            "ar_Find",
+            "ar_Unique",
+            "ar_Any",
+            "ar_All",
+            "PrintToConsole"
+          ],
+          "claim": "Verify Ar_SortAlpha on mixed array (size & elements), Ar_Find/Ar_Unique string case-insensitivity, and ar_Any/ar_All short-circuiting call counts.",
+          "expected": "Complete capture of w6d5_18 tail without OOB index on sAlpha.",
+          "script_lines": [
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "array_var aAlpha = ar_List 10, 2, \"b\", \"a\", rDocBase",
+            "array_var sAlpha = ar_SortAlpha aAlpha",
+            "array_var aCase = ar_List \"Abc\", \"def\", \"abc\"",
+            "int fIdx = ar_Find \"ABC\" aCase",
+            "array_var aUniq = ar_Unique aCase",
+            "int iAnyCnt = 0",
+            "int iAllCnt = 0",
+            "array_var aNums = ar_List 1, 2, 3, 4",
+            "int bAny = ar_Any aNums ({array_var it} => (iAnyCnt += 1) && (*it == 2))",
+            "int bAll = ar_All aNums ({array_var it} => (iAllCnt += 1) && (*it < 2))",
+            "PrintToConsole \"PROBE|w6d5p3_18b_alpha_find_unique_any_all|alpha(sz=%g,0=[%z],1=[%z])|case(find=%g,uniq=%g)|sc(any=%g:%g,all=%g:%g)\" (ar_Size sAlpha) ($(sAlpha[0])) ($(sAlpha[1])) fIdx (ar_Size aUniq) bAny iAnyCnt bAll iAllCnt"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

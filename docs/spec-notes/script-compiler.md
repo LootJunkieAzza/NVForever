@@ -832,3 +832,7 @@ parity; parsing this caller does not establish B42 Optics compatibility.
   scripts, recompiled in the editor).
 - What the compiler does with a line it can't read in the middle of a block: ours writes
   nothing for that line and goes on.
+
+### Wave 6D-5 observation: `Ar_SortAlpha` mixed-type filtering, `Ar_Find`/`Ar_Unique` case, and `ar_Any`/`ar_All`
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p3_18b_alpha_find_unique_any_all` (`tools/capture/nvse/catalogs/wave6d5_ar_sortalpha.json`); zero DLL, PDB, or third-party source consulted] `Ar_SortAlpha` on `[10, 2, "b", "a", rDocBase]` keeps only elements matching element 0's type (`[2, 10]`, size `2`); `Ar_Find` and `Ar_Unique` compare strings case-insensitively (`find=0, uniq=2`); `ar_Any` and `ar_All` short-circuit (`any=1:2`, `all=0:2`): `PROBE|w6d5p3_18b_alpha_find_unique_any_all|alpha(sz=2,0=[2],1=[10])|case(find=0,uniq=2)|sc(any=1:2,all=0:2)`.

@@ -2563,3 +2563,13 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn ar_sortalpha_filters_mixed_array_to_first_element_type() {
+    let h = run(
+        "array_var aMix\narray_var sAlpha\nint sz\nfloat v0\nfloat v1\n         begin GameMode\n         let aMix := ar_List 10, 2, \"b\", \"a\"\n         let sAlpha := ar_SortAlpha aMix\n         let sz := ar_Size sAlpha\n         let v0 := sAlpha[0]\n         let v1 := sAlpha[1]\n         end",
+    );
+    assert_eq!(h.0[&3], Value::Num(2.0));
+    assert_eq!(h.0[&4], Value::Num(2.0));
+    assert_eq!(h.0[&5], Value::Num(10.0));
+}

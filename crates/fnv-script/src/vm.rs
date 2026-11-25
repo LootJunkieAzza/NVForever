@@ -2309,15 +2309,11 @@ impl Vm<'_, '_> {
                 // page's "as text"; numbers first, hypothesis].
                 let mut keyed: Vec<(u8, String, f64, XVal)> = Vec::new();
                 let alpha = n == "ar_sortalpha";
-                // Ar_Sort keeps the elements of the first element's type and drops the rest
-                // ([3, "x"] → [3], ["x", 3] → ["x"]) [observed: the original game, which beats
-                // the page's "empty array"; with more elements of each type, hypothesis].
-                let vals: Vec<XVal> = if alpha {
-                    vals
-                } else {
-                    let first = vals.first().map(std::mem::discriminant);
-                    vals.into_iter().filter(|v| Some(std::mem::discriminant(v)) == first).collect()
-                };
+                // Both Ar_Sort and Ar_SortAlpha keep elements of the first element's type
+                // and drop the rest [observed: w6d5p2_18 & w6d5p3_18b, Ar_SortAlpha
+                // [10, 2, "b", "a", rDocBase] -> [2, 10] (size 2)].
+                let first = vals.first().map(std::mem::discriminant);
+                let vals: Vec<XVal> = vals.into_iter().filter(|v| Some(std::mem::discriminant(v)) == first).collect();
                 let same_kind = true;
                 if alpha || same_kind {
                     for v in vals {
