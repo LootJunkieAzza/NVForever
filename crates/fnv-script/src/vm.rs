@@ -1281,15 +1281,15 @@ fn deep_equal_in(store: &ExtStore, a: &XVal, b: &XVal, seen: &mut std::collectio
     }
 }
 
-/// A number as `$` and ToString write it: whole numbers without decimals, others with up
-/// to six [hypothesis: ext-values.md §2 leaves `$` of a float open; probes G3 strings].
+/// A number as `$` and ToString write it: C `%g` formatting (6 significant digits,
+/// scientific below `1e-4` or from `1e6`, `-0.0` as `"-0"`) [observed:
+/// `w6d5p4_tostring_dollar_float_g`, 42 -> "42", -0.0 -> "-0", 3.14159265 -> "3.14159",
+/// 1e-7 -> "1e-07", 1234567.89 -> "1.23457e+06"].
 pub fn number_text(x: f64) -> String {
-    if x.fract() == 0.0 && x.abs() < 1e15 {
-        format!("{}", x as i64)
-    } else {
-        let s = format!("{x:.6}");
-        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    if x == 0.0 && x.is_sign_negative() {
+        return "-0".to_string();
     }
+    printf_number("", 'g', x)
 }
 
 /// A string read as a number, as `#` and ToNumber read it: surrounding spaces ignored,

@@ -164,3 +164,7 @@ What a string_var holds under vanilla `set`; an unset string_var read as text; i
 string↔number conversion; `$` of floats and arrays; truth of a string or array under
 `eval`; case of string `==`; mixed-kind comparisons; the result of a line that raised an
 error.
+
+### Wave 6D-5 observation: `$` and `ToString` float formatting
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_tostring_dollar_float_g` (`tools/capture/nvse/catalogs/wave6d5_number_text_g.json`); zero DLL, PDB, or third-party source consulted] Both unary `$` and `ToString` format numbers with C `%g` (`42` -> `"42"`, `-0.0` -> `"-0"`, `3.14159265` -> `"3.14159"`, `0.0000001` -> `"1e-07"`, `1234567.89` -> `"1.23457e+06"`): `PROBE|w6d5p4_tostring_dollar_float_g|42=[42/42]|nz=[-0/-0]|pi=[3.14159/3.14159]|tiny=[1e-07/1e-07]|big=[1.23457e+06/1.23457e+06]`.

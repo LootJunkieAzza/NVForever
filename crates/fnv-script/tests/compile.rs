@@ -2563,3 +2563,16 @@ fn inline_declarations_in_if_testexpr_and_typed_colon_equals() {
     assert!(warnings(&c, "unknown_function").is_empty(), "{:?}", c.diags);
     assert!(c.variables.iter().any(|v| v.name == "iElem"), "{:?}", c.variables);
 }
+
+#[test]
+fn dollar_and_tostring_format_numbers_with_c_percent_g() {
+    let h = run(
+        "float nz\nstring_var a\nstring_var b\nstring_var c\nstring_var d\nstring_var e\nstring_var f\n         begin GameMode\n         let nz := -1.0 * 0.0\n         let a := $42.0 + \"/\" + (ToString 42.0)\n         let b := $nz + \"/\" + (ToString nz)\n         let c := $3.14159265 + \"/\" + (ToString 3.14159265)\n         let d := $0.0000001 + \"/\" + (ToString 0.0000001)\n         let e := $1234567.89 + \"/\" + (ToString 1234567.89)\n         let f := $2.5\n         end",
+    );
+    assert_eq!(h.text(2), "42/42");
+    assert_eq!(h.text(3), "-0/-0");
+    assert_eq!(h.text(4), "3.14159/3.14159");
+    assert_eq!(h.text(5), "1e-07/1e-07");
+    assert_eq!(h.text(6), "1.23457e+06/1.23457e+06");
+    assert_eq!(h.text(7), "2.5");
+}
