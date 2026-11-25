@@ -39,13 +39,16 @@ pub fn get_force_sneak(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 
 /// `actor.SetMerchantContainer container`: the caller's goods are in `container` from
 /// now on, in place of its reference's merchant container (XMRC), for the barter menu
-/// and for actors that buy from it ([`Game::merchant_container`]). Refused for a
-/// container that is not persistent [documented: catalogue notes].
+/// and for actors that buy from it ([`Game::merchant_container`]). A non-persistent
+/// container is ignored without aborting the script, keeping any prior merchant
+/// container [documented: catalogue notes; observed: 2026-11-25, FNV 1.4.0.525 + JIP LN
+/// 57.30, w6d9_35_merchant_container_get_set_persistent_vs_temp:
+/// chet=1,trudy=1,doc=1|npc(0=0,pers=1)|tmp(st=2,keepD=1,nowT=0)].
 pub fn set_merchant_container(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let me = ctx.subject()?;
     let c = a.form(0)?;
     if !g.world.placed.get(c).is_some_and(|p| p.in_persistent_group) {
-        return Err(format!("{} is not a persistent reference: SetMerchantContainer refused", g.data.name(c)));
+        return none();
     }
     g.extra.entry(me).or_default().merchant_container = Some(c);
     g.extra.entry(me).or_default().merchant_container_cleared = false;
@@ -362,3 +365,7 @@ impl Game<'_> {
         self.forms.water_remaps.get(&water).copied().unwrap_or(water)
     }
 }
+
+#[cfg(test)]
+#[path = "w6d9_merchant_container_noop_tests.rs"]
+mod w6d9_merchant_container_noop_tests;
