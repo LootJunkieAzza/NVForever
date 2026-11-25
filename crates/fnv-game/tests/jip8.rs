@@ -460,8 +460,8 @@ fn calculated_weapon_damage_and_dps_resolve_inv_and_world_refs() {
     let f = fixture();
     let mut g = game(&f);
 
-    // Stewie plugin gate promoted to 960 (#3183); 970 (#3184) remains held.
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 960.0);
+    // Stewie plugin gate promoted to 970 (#3184); higher versions (#3193) remain held.
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 970.0);
 
     // Player: Guns 50 (factor 0.75), CritChance 10 (0.10 * 30 * 2.0 = 6.0 crit contrib).
     // NPC: Guns 100 (factor 1.0), CritChance 0.

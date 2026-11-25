@@ -870,7 +870,7 @@ fn stewie_pipboy_queries_keep_unbound_fallback_and_follow_current_choices_after_
     };
     g.bind_stewie_stat_settings(&chosen);
     let version = q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")");
-    assert_eq!(version, n(960.0));
+    assert_eq!(version, n(970.0));
     for name in ["StewVal", "StewieGetValue"] {
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bDisableStealthEffectInPipboy:Tweaks\")")), n(0.0));
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bKeepPipboyLightOnCellChange:Tweaks\")")), n(1.0));
@@ -913,7 +913,7 @@ fn stewie_worn_armor_weightless_queries_follow_handoff_and_keep_item_mask_fallba
         ..Default::default()
     };
     g.bind_stewie_stat_settings(&chosen);
-    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), n(960.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), n(970.0));
     for name in ["StewVal", "StewieGetValue"] {
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bWeightlessWornArmor:Tweaks\")")), n(0.0));
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bWeightlessWornPowerArmor:Tweaks\")")), n(1.0));
@@ -968,7 +968,7 @@ bPreventSwitchWhenEmptyingCategory=9\n";
     // bRestoreLockedDoorSound always true (NVForever already plays DRSLocked on refused locks).
     let defaults = fnv_game::tweaks::Tweaks::default();
     g.bind_stewie_stat_settings(&defaults);
-    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), n(945.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")"), n(970.0));
     for name in ["StewVal", "StewieGetValue"] {
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bSynchronizeContainerCategories:Tweaks\")")), n(0.0));
         assert_eq!(q(&mut g, &format!("SetFunctionValue ({name} \"bPreventSwitchWhenEmptyingCategory:Synchronized Container Categories\")")), n(1.0));

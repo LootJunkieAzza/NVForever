@@ -1,9 +1,9 @@
 //! Clean-room end-to-end qualification tests for Stewie's Tweaks version gates
-//! #3179 (941 -> 945, promoted), #3183 (945 -> 960, promoted), and #3184 (960 -> 970, held).
+//! #3179 (941 -> 945, promoted), #3183 (945 -> 960, promoted), and #3184 (960 -> 970, promoted).
 //!
 //! Independently authored synthetic records, XML fixtures, and NVSE scripts only
 //! (no game data and no copied mod script text; `GetPluginVersion "lStewieAl's Tweaks"`
-//! reports `960` while `970` remains unpromoted).
+//! reports `970` while higher versions `#3193` remain unpromoted).
 
 use crate::common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -12,6 +12,7 @@ use fnv_game::{
     cond::{Cmp, Condition, Operand, RunOn},
     data::topic_type,
     game::{menus, Game, GameConfig, RunCtx},
+    nvse_jip12::{ItemMenuView, MenuList},
     tweaks::Tweaks,
     ui_input,
     ui_loading::{self, ALWAYS_LOADED},
@@ -312,8 +313,8 @@ fn gate_945_casino_menu_close_decimal_info_dialog_topic_and_no_casino_bans() {
     let f = fixture();
     let mut g = new_game(&f);
 
-    // Version promoted from 945 -> 960 after #3183 qualification; 970 remains held.
-    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 960.0);
+    // Version promoted from 960 -> 970 after #3184 qualification; higher gates (#3193) remain held.
+    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 970.0);
 
     // Register SetOnMenuCloseEventHandler for documented casino menu codes 1080/1081/1082
     // and SetOnDialogTopicEventHandler using an 8-digit ALL-DECIMAL bare hex FormID (`00163183`).
@@ -394,7 +395,7 @@ fn gate_945_casino_rewards_fix_contract_end_to_end() {
     let f = fixture();
     let mut g = new_game(&f);
 
-    // 1. Version guard contract: 945 and 960 pass while 970 stays blocked.
+    // 1. Version guard contract: 945, 960, and 970 pass while unpromoted 975 stays blocked.
     let guard_945 = run(
         &mut g,
         r#"
@@ -435,7 +436,18 @@ fn gate_945_casino_rewards_fix_contract_end_to_end() {
         SetFunctionValue 1
         "#,
     );
-    assert_eq!(guard_970, XVal::Num(0.0), "970 gate must remain blocked until #3184");
+    assert_eq!(guard_970, XVal::Num(1.0), "970 gate must pass after #3184 promotion");
+    let guard_975 = run(
+        &mut g,
+        r#"
+        if GetPluginVersion "lStewieAl's Tweaks" < 975
+            SetFunctionValue 0
+            return
+        endif
+        SetFunctionValue 1
+        "#,
+    );
+    assert_eq!(guard_975, XVal::Num(0.0), "975 gate must remain blocked until #3193");
 
     // 2. Register menu-close (1080/1081/1082) and dialog-topic handlers (8-digit all-decimal
     //    INFO FormID, DIAL topic, FLST INFO list, FLST DIAL list, and empty-FLST wildcard).
@@ -527,10 +539,10 @@ fn gate_945_casino_rewards_fix_contract_end_to_end() {
 fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
     let f = fixture();
     let mut g = new_game(&f);
-    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 960.0);
+    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 970.0);
 
     // 1. Clean-room Pip-Boy UI Tweaks & Quality of Life ESPless `< 960` startup gates pass
-    //    while `< 970` remains blocked (#3183 promoted; #3184 still held).
+    //    and `< 970` passes while `< 975` remains blocked (#3184 promoted; #3193 still held).
     let pipboy_ui_tweaks_guard = run(
         &mut g,
         r#"
@@ -557,10 +569,14 @@ fn gate_960_live_stewval_pipboy_mode_and_menu_search_bar_offsets() {
             SetFunctionValue 2
             return
         endif
-        SetFunctionValue 3
+        if GetPluginVersion "lStewieAl's Tweaks" < 975
+            SetFunctionValue 3
+            return
+        endif
+        SetFunctionValue 4
         "#,
     );
-    assert_eq!(qol_espless_guard, XVal::Num(2.0), "960 passes while 970 stays blocked");
+    assert_eq!(qol_espless_guard, XVal::Num(3.0), "960 and 970 pass while 975 stays blocked");
 
     // Seed a conflicting INI file to prove live bound engine settings override stale INI
     // for mapped keys (including bArmorConditionLabel) while unrepresented keys
@@ -691,7 +707,7 @@ fn gate_960_quality_of_life_espless_pipboy_light_and_menu_close_contract() {
 fn gate_970_barter_container_open_click_wildcards_and_key_button_events() {
     let f = fixture();
     let mut g = new_game(&f);
-    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 960.0);
+    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 970.0);
 
     let src = pipboy_and_trade_ui();
     let barter = g.ui_tree.load_menu(&src, "menus\\barter_menu.xml").unwrap();
@@ -779,7 +795,7 @@ fn gate_970_barter_container_open_click_wildcards_and_key_button_events() {
     assert_eq!(glob(&g, G_BTN_SUM), 12.0);
 
     // Live StewVal/StewieGetValue for Barter Categories Icons' synchronized-category keys
-    // and 9.65-9.70 settings while keeping reported version at main's 945.
+    // and 9.65-9.70 settings at the promoted 970 gate (#3184).
     let bound = Tweaks {
         sync_categories: true,
         prevent_switch_when_emptying_category: true,
@@ -787,11 +803,226 @@ fn gate_970_barter_container_open_click_wildcards_and_key_button_events() {
         ..Default::default()
     };
     g.bind_stewie_stat_settings(&bound);
-    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 945.0);
+    assert_eq!(num(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), 970.0);
     for fn_name in ["StewVal", "StewieGetValue"] {
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bSynchronizeContainerCategories:Tweaks""#)), 1.0);
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bPreventSwitchWhenEmptyingCategory:Synchronized Container Categories""#)), 1.0);
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bBarterCheckActorBuySellFlags:Tweaks""#)), 1.0);
         assert_eq!(num(&mut g, &format!(r#"{fn_name} "bRestoreLockedDoorSound:Tweaks""#)), 1.0);
     }
+}
+
+#[test]
+fn gate_970_barter_categories_icons_contract_end_to_end() {
+    let f = fixture();
+    let mut g = new_game(&f);
+
+    // 1. Clean-room Barter Categories Icons startup gate contract:
+    //    xNVSE >= 6.42, JIP LN NVSE >= 57.30, Stewie's Tweaks >= 970 pass; >= 975 stays blocked.
+    let guard = run(
+        &mut g,
+        r#"
+        if GetNVSEVersionFull < 6.42
+            SetFunctionValue 0
+            return
+        endif
+        if GetPluginVersion "JIP LN NVSE" < 57.30
+            SetFunctionValue 0
+            return
+        endif
+        if GetPluginVersion "lStewieAl's Tweaks" < 970
+            SetFunctionValue 0
+            return
+        endif
+        if GetPluginVersion "lStewieAl's Tweaks" < 975
+            SetFunctionValue 1
+            return
+        endif
+        SetFunctionValue 2
+        "#,
+    );
+    assert_eq!(guard, XVal::Num(1.0), "Barter Categories Icons >= 970 gate must pass while 975 stays blocked");
+
+    // 2. Load synthetic BarterMenu (1053) and ContainerMenu (1008) XML trees plus a synthetic
+    //    injectable category strip fragment; exercise InjectUIXML, IsComponentLoaded,
+    //    UnloadUIComponent, SetOnMenuClickEventHandler on full nested paths, GetMenuItemFilter,
+    //    ClickMenuButton multi-step clicks, and CallWhile + IsKeyPressed/IsButtonPressed.
+    let mut src = MemSource::default();
+    for (i, name) in ALWAYS_LOADED.iter().enumerate() {
+        src = src.with(
+            &format!("menus/added/{i}.xml"),
+            &format!(r#"<menu name="{name}"><class>&{name};</class></menu>"#),
+        );
+    }
+    src = src
+        .with(
+            "menus/barter_menu.xml",
+            r#"<menu name="BarterMenu">
+                <class>&BarterMenu;</class>
+                <_ActiveCategoryID>100</_ActiveCategoryID>
+                <_TitleClicks>0</_TitleClicks>
+                <rect name="NOGLOW_BRANCH">
+                    <rect name="BM_ItemsRect">
+                        <x>0</x><y>0</y><width>320</width><height>80</height>
+                        <rect name="BM_Items_LeftFilterArrow"><x>0</x><y>0</y><width>16</width><height>16</height></rect>
+                        <hotrect name="BM_ItemsTitle">
+                            <id>1</id><target>1</target>
+                            <x>20</x><y>0</y><width>120</width><height>20</height>
+                        </hotrect>
+                    </rect>
+                </rect>
+            </menu>"#,
+        )
+        .with(
+            "menus/container_menu.xml",
+            r#"<menu name="ContainerMenu">
+                <class>&ContainerMenu;</class>
+                <_ActiveCategoryID>100</_ActiveCategoryID>
+                <_TitleClicks>0</_TitleClicks>
+                <rect name="NOGLOW_BRANCH">
+                    <rect name="CM_ItemsRect">
+                        <x>0</x><y>0</y><width>320</width><height>80</height>
+                        <rect name="CM_Items_LeftFilterArrow"><x>0</x><y>0</y><width>16</width><height>16</height></rect>
+                        <hotrect name="CM_ItemsTitle">
+                            <id>1</id><target>1</target>
+                            <x>20</x><y>0</y><width>120</width><height>20</height>
+                        </hotrect>
+                    </rect>
+                </rect>
+            </menu>"#,
+        )
+        .with(
+            "menus/qual_categories/strip.xml",
+            r#"<rect name="BarterCategories">
+                <x>0</x><y>24</y><width>200</width><height>40</height>
+                <hotrect name="BC_CategoryAll">
+                    <id>100</id><target>1</target>
+                    <x>0</x><y>0</y><width>30</width><height>30</height>
+                </hotrect>
+                <hotrect name="BC_CategoryWeapons">
+                    <id>101</id><target>1</target>
+                    <x>40</x><y>0</y><width>30</width><height>30</height>
+                </hotrect>
+            </rect>"#,
+        );
+    let barter = g.ui_tree.load_menu(&src, "menus\\barter_menu.xml").expect("BarterMenu loaded");
+    let container = g.ui_tree.load_menu(&src, "menus\\container_menu.xml").expect("ContainerMenu loaded");
+    g.ui_tree.update();
+    g.ui_files = Some(Box::new(src));
+
+    // 3. Register menu-open handlers (1053 & 1008) that unload the default arrow, inject the
+    //    category strip, and update _ActiveCategoryID; register click handlers for injected
+    //    category buttons (computing steps from GetMenuItemFilter and calling ClickMenuButton)
+    //    and title clicks; register OnKeyDown (203/205/30/32) + OnButtonDown (4/8) with
+    //    CallWhile + IsKeyPressed/IsButtonPressed.
+    run(
+        &mut g,
+        r#"
+        SetOnMenuOpenEventHandler (Begin Function {int iMenu}
+            if iMenu == 1053
+                UnloadUIComponent "BarterMenu/NOGLOW_BRANCH/BM_ItemsRect/BM_Items_LeftFilterArrow"
+                InjectUIXML "BarterMenu/NOGLOW_BRANCH/BM_ItemsRect" "data/menus/qual_categories/strip.xml"
+                SetUIFloatAlt "BarterMenu/_ActiveCategoryID" 100
+            elseif iMenu == 1008
+                UnloadUIComponent "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect/CM_Items_LeftFilterArrow"
+                InjectUIXML "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect" "data/menus/qual_categories/strip.xml"
+                SetUIFloatAlt "ContainerMenu/_ActiveCategoryID" 100
+            endif
+        End) 1 1053
+        SetOnMenuOpenEventHandler (Begin Function {int iMenu}
+            if iMenu == 1008
+                UnloadUIComponent "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect/CM_Items_LeftFilterArrow"
+                InjectUIXML "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect" "data/menus/qual_categories/strip.xml"
+                SetUIFloatAlt "ContainerMenu/_ActiveCategoryID" 100
+            endif
+        End) 1 1008
+        SetOnMenuClickEventHandler (Begin Function {int iMenu, int iTile, string_var sName}
+            ModUIFloat "BarterMenu/_TitleClicks" 1
+        End) 1 "BarterMenu/NOGLOW_BRANCH/BM_ItemsRect/BM_ItemsTitle"
+        SetOnMenuClickEventHandler (Begin Function {int iMenu, int iTile, string_var sName}
+            ModUIFloat "ContainerMenu/_TitleClicks" 1
+        End) 1 "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect/CM_ItemsTitle"
+        SetOnMenuClickEventHandler (Begin Function {int iMenu, int iTile, string_var sName}
+            let int cur := GetMenuItemFilter iMenu 0
+            let int steps := 6 - cur + iTile - 100
+            if iMenu == 1053
+                ClickMenuButton "BarterMenu/NOGLOW_BRANCH/BM_ItemsRect/BM_ItemsTitle" steps
+                SetUIFloatAlt "BarterMenu/_ActiveCategoryID" iTile
+            elseif iMenu == 1008
+                ClickMenuButton "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect/CM_ItemsTitle" steps
+                SetUIFloatAlt "ContainerMenu/_ActiveCategoryID" iTile
+            endif
+        End) 1 "BarterMenu/NOGLOW_BRANCH/BM_ItemsRect/BarterCategories/BC_CategoryWeapons"
+        SetOnMenuClickEventHandler (Begin Function {int iMenu, int iTile, string_var sName}
+            let int cur := GetMenuItemFilter iMenu 0
+            let int steps := 6 - cur + iTile - 100
+            ClickMenuButton "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect/CM_ItemsTitle" steps
+            SetUIFloatAlt "ContainerMenu/_ActiveCategoryID" iTile
+        End) 1 "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect/BarterCategories/BC_CategoryWeapons"
+        let ref fnSync := (Begin Function {}
+            let int m := GetActiveMenuMode
+            if m == 1053
+                let int f := GetMenuItemFilter m
+                SetUIFloatAlt "BarterMenu/_ActiveCategoryID" (f + 100)
+            elseif m == 1008
+                let int f := GetMenuItemFilter m
+                SetUIFloatAlt "ContainerMenu/_ActiveCategoryID" (f + 100)
+            endif
+        End)
+        let ref fnHeld := (Begin Function {int iCode}
+            CallWhile fnSync ({} => IsKeyPressed iCode == 1 || IsButtonPressed iCode == 1) 1
+        End)
+        SetEventHandler "OnKeyDown:203" fnHeld
+        SetEventHandler "OnKeyDown:205" fnHeld
+        SetEventHandler "OnKeyDown:30" fnHeld
+        SetEventHandler "OnKeyDown:32" fnHeld
+        SetEventHandler "OnButtonDown:4" fnHeld
+        SetEventHandler "OnButtonDown:8" fnHeld
+        "#,
+    );
+
+    // 4. Open BarterMenu (1053): arrow unloaded, injected category tile present,
+    //    clicking BC_CategoryWeapons (id 101) with filter 0 issues 6 - 0 + 1 = 7 ClickMenuButton
+    //    clicks on BM_ItemsTitle and updates _ActiveCategoryID to 101.
+    g.open_menu(menus::BARTER);
+    g.set_item_menu_view(menus::BARTER, Some(ItemMenuView { filter: [0, 0], lists: [MenuList::default(), MenuList::default()] }));
+    assert_eq!(num(&mut g, r#"IsComponentLoaded "BarterMenu/NOGLOW_BRANCH/BM_ItemsRect/BM_Items_LeftFilterArrow""#), 0.0);
+    assert_eq!(num(&mut g, r#"IsComponentLoaded "BarterMenu/NOGLOW_BRANCH/BM_ItemsRect/BarterCategories/BC_CategoryWeapons""#), 1.0);
+    g.ui_tree.update();
+    ui_input::step(&mut g, &[barter], &Input { at: Some((55.0, 35.0)), press: true, ..Default::default() }, &no_measure);
+    ui_input::step(&mut g, &[barter], &Input::default(), &no_measure);
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_ActiveCategoryID"), Some(101.0));
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_TitleClicks"), Some(7.0), "ClickMenuButton must fire all 7 category steps");
+
+    // 5. Hold ArrowRight (205) while filter changes to 3: OnKeyDown queues CallWhile polling
+    //    IsKeyPressed 205 and updates BarterMenu/_ActiveCategoryID to 103.
+    g.set_item_menu_view(menus::BARTER, Some(ItemMenuView { filter: [3, 3], lists: [MenuList::default(), MenuList::default()] }));
+    g.input.held.insert(205);
+    g.tick();
+    g.tick();
+    assert_eq!(g.ui_tree.get_float("BarterMenu/_ActiveCategoryID"), Some(103.0));
+    g.input.held.remove(&205);
+    g.tick();
+    g.close_menu();
+
+    // 6. Open ContainerMenu (1008): arrow unloaded, injected tile clickable, and D-pad right (8)
+    //    triggers CallWhile polling IsButtonPressed 8 to update ContainerMenu/_ActiveCategoryID.
+    g.open_menu(1008);
+    g.set_item_menu_view(1008, Some(ItemMenuView { filter: [2, 2], lists: [MenuList::default(), MenuList::default()] }));
+    assert_eq!(num(&mut g, r#"IsComponentLoaded "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect/CM_Items_LeftFilterArrow""#), 0.0);
+    assert_eq!(num(&mut g, r#"IsComponentLoaded "ContainerMenu/NOGLOW_BRANCH/CM_ItemsRect/BarterCategories/BC_CategoryWeapons""#), 1.0);
+    g.ui_tree.update();
+    ui_input::step(&mut g, &[container], &Input { at: Some((55.0, 35.0)), press: true, ..Default::default() }, &no_measure);
+    ui_input::step(&mut g, &[container], &Input::default(), &no_measure);
+    assert_eq!(g.ui_tree.get_float("ContainerMenu/_ActiveCategoryID"), Some(101.0));
+    assert_eq!(g.ui_tree.get_float("ContainerMenu/_TitleClicks"), Some(5.0), "6 - 2 + 1 = 5 steps");
+
+    g.set_item_menu_view(1008, Some(ItemMenuView { filter: [4, 4], lists: [MenuList::default(), MenuList::default()] }));
+    g.jip2.told.pad.buttons = 8;
+    g.tick();
+    g.tick();
+    assert_eq!(g.ui_tree.get_float("ContainerMenu/_ActiveCategoryID"), Some(104.0));
+    g.jip2.told.pad.buttons = 0;
+    g.tick();
+    g.close_menu();
 }

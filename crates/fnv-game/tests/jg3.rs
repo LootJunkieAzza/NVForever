@@ -453,7 +453,7 @@ fn no_casino_bans_changes_real_source_reward_and_ban_branch_outputs_without_vers
         q(&mut g, "if (GetCasinoWinningsLevel TestCasino) == 4\nPlayerREF.AddItem TestChip 1\nelseif (GetCasinoWinningsLevel TestCasino) == 3\nPlayerREF.AddItem TestChip2 1\nendif");
         assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), if enabled { 0 } else { 1 });
         assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP2)).unwrap(), if enabled { 1 } else { 0 });
-        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 960.0);
+        assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 970.0);
         assert_eq!(g.player.casino_earnings[&FormId(CSNO)], 1000);
     }
 }
@@ -540,7 +540,7 @@ fn casino_menu_close_events_fire_on_documented_menu_codes_1080_1081_1082() {
     g.open_menu(fnv_game::caravan::MENU_CODE);
     assert_eq!(g.close_menu(), Some(fnv_game::caravan::MENU_CODE));
     assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(CHIP)).unwrap(), 1080 + 1081 + 1082);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 960.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 970.0);
 }
 
 #[test]

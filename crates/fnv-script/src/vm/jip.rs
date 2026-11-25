@@ -107,11 +107,13 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// [design, owner 2026-11-08: "technically the dll is present, just in engine"]:
 /// Stewie's Tweaks started at 941 (TTW 3.4's minimum), was promoted to 945 once the
 /// 9.42–9.45 changelog features and Casino Rewards Fix 1.1 consumers were verified
-/// (#3179), and was promoted to 960 once the 9.50–9.60 changelog features, live
+/// (#3179), promoted to 960 once the 9.50–9.60 changelog features, live
 /// `StewVal`/`StewieGetValue` settings, live `GetPipBoyMode`, and menu search-bar tile
-/// publication were verified (#3183, ext-version.md §5.1); ttw_nvse stays at 1, as TTW
-/// only asks whether it is there. The higher gate (970, #3184) remains unpromoted until
-/// its own step is verified.
+/// publication were verified (#3183), and promoted to 970 once the 9.65–9.70 changelog
+/// features, `bPreventSwitchWhenEmptyingCategory`, and Barter Categories Icons' menu-open,
+/// menu-click, and key/button event paths were verified (#3184, ext-version.md §5.1);
+/// ttw_nvse stays at 1, as TTW only asks whether it is there. Higher versions (#3193)
+/// remain unpromoted until a gated feature requires and verifies them.
 ///
 /// The same holds for every other plugin whose functions the engine builds: a mod that
 /// asks `IsPluginInstalled "SUP NVSE Plugin"` before calling SUP's functions got 0 and
@@ -147,7 +149,7 @@ pub const PLUGINS: [(&str, f64); 16] = [
     ("kNVSE", 37.0),
     ("JohnnyGuitarNVSE", 528.0),
     ("MCM Extensions", 1.0),
-    ("lStewieAl's Tweaks", 960.0),
+    ("lStewieAl's Tweaks", 970.0),
     ("ttw_nvse", 1.0),
     ("CUI", 120.0),
     ("hNVSE", 120.0),

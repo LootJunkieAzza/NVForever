@@ -254,7 +254,7 @@ fn condition_penalties_honor_stewie_tweaks_and_script_overrides() {
     let f = fixture();
     let mut g = game(&f);
 
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 960.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 970.0);
 
     // Equip a 20%-condition TestHat (DNAM DR 10, DT 5).
     let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();

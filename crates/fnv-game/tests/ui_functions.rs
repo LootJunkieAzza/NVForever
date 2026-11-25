@@ -675,10 +675,10 @@ fn barter_and_container_menu_click_handlers_support_wildcards_indices_and_remova
     let f = fixture();
     let mut g = game(&f);
 
-    // Keep Stewie plugin gate pinned at 960 while building #3184 menu-click consumers.
+    // Stewie plugin gate promoted to 970 (#3184) with menu-click consumers verified.
     assert_eq!(
         g.run_query("Begin Function { }\nSetFunctionValue (GetPluginVersion \"lStewieAl's Tweaks\")\nEnd\n", RunCtx::default()).unwrap(),
-        XVal::Num(960.0),
+        XVal::Num(970.0),
     );
 
     let src = MemSource::default()

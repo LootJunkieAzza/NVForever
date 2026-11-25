@@ -176,8 +176,9 @@ low.
   TTW calls from both (`TTW_*`, StewieGetValue, `fnv_game::nvse_small`). Neither plugin
   is on the owner's install, so neither version was read: 941 was the lowest TTW accepts,
   and TTW never asks ttw_nvse's. Most of Stewie's tweaks were not built initially
-  (ext-small.md); Stewie's was promoted to `945` on 2026-11-23 (#3179) and to `960` on
-  2026-11-24 after completing the 9.50–9.60 qualification step (§5.1, #3183).
+  (ext-small.md); Stewie's was promoted to `945` on 2026-11-23 (#3179), to `960` on
+  2026-11-24 (#3183), and to `970` on 2026-11-24 after completing the 9.65–9.70
+  qualification step (§5.1, #3184).
 - **The other plugins the engine builds** (2026-11-12): until then a mod asking
   `IsPluginInstalled "SUP NVSE Plugin"` got 0 and `GetPluginVersion` -1 for every plugin
   outside the list above, though all of that plugin's catalogue functions run here
@@ -227,27 +228,26 @@ rises only when its full step is verified, with a row here and tests
 (`fnv_script::vm::jip::PLUGINS`; `stewie_945_960_970_qualification`).
 
 `GetPluginVersion "lStewieAl's Tweaks"` was promoted from `941` to `945` (`#3179`,
-`#3665`), and from `945` to **`960`** (`#3183`) once all public 9.50–9.60 changelog
-features (`bVATSStopFollowingDeadTargets`, `bVATSThrowablesUseVisibility`,
-`bArmorConditionLabel` + live `StewVal`/`StewieGetValue` + weapon-column X alignment,
-`bImprovedHacking` keep-matching-characters, `bHideCrosshairWhileReloading`,
-`bReplaceHelpWithConsole` + custom label, `bHostilesPrioritizePlayer`, and
-`bRunningCostsAP` sneak options via `#3494`; `bAutoReadNotes` explicitly skipped as it
-requires Book Menu Restored), live `StewVal`/`StewieGetValue` exposure for
-`bKeepPipboyLightOnCellChange:Tweaks` and `bDisableStealthEffectInPipboy:Tweaks` (alongside
-existing critical and inventory queries), live `GetPipBoyMode` (`nvse_jip2.rs`, observed
-via `w4c_b3_06_toggle_pipboy_tab`), menu search-bar tile publication (`IM_SearchBar`,
-`SM_SearchBar`, `MM_SearchBar`, `BM_SearchBar`, `CM_SearchBar`, `RM_SearchBar` via
-`ui_search_bar::publish_for_menu`), and clean-room E2E contract tests for the Pip-Boy UI
-Tweaks and Quality of Life ESPless `< 960` gates were built and verified. The higher gate
-(`970`, `#3184`) remains unpromoted until its own verified step lands.
+`#3665`), from `945` to `960` (`#3183`, `#3810`), and from `960` to **`970`** (`#3184`)
+once all public 9.65–9.70 changelog features (`bDontOpenDoorsAfterLockpick`,
+`bNoSkipDialog`, `bBarterCheckActorBuySellFlags` Stimpak separation, `bActivateHoldsBreath`,
+`bJumpingCostsAP` 9.70 danger check and `bJumpWithoutEnoughAP`,
+`bLevelUpScrollWheelSupport` S.P.E.C.I.A.L. reallocation and Vigor Tester hover fixes,
+`bRestoreLockedDoorSound`, 9.70 `AddItem`/`AddItemHealthPercent` inventory refresh, and
+`bPreventSwitchWhenEmptyingCategory` in `MenuModel` alongside `sync_categories` with live
+`StewVal`/`StewieGetValue` bindings) and clean-room E2E contract tests for Barter Categories
+Icons (`< 970` gate, `SetOnMenuOpenEventHandler` for `1053`/`1008`, `InjectUIXML` /
+`UnloadUIComponent` / `IsComponentLoaded`, `SetOnMenuClickEventHandler` full nested tile
+paths, `GetMenuItemFilter`, `ClickMenuButton` multi-step clicks, `OnKeyDown`/`OnButtonDown`,
+and `CallWhile` + `IsKeyPressed`/`IsButtonPressed`) were built and verified. Higher gates
+(`975`–`1005`, `#3193`) remain unpromoted until a gated feature requires and verifies them.
 
 | Reported | Feature it stands for (changelog) | Status in NVForever | Mods gated (installed list) |
 |---|---|---|---|
 | 941 (superseded by 945) | TTW 3.4's minimum | Built & verified: TTW's `TTW_*` and StewieGetValue calls | Tale of Two Wastelands; gates 905/906 (Explosion Reactions, Animated Moments, Drowning Visuals, Modern Minimap's MCM list) |
 | 945 (superseded by 960) | 9.45 "No Casino Bans - make GetCasinoWinningStage not return banned" and all 9.42–9.45 items (#3179) | Built & verified: `casino::script_winnings_level` (#2878, live `bNoCasinoBans=0/1` observed in `blackjack.md` §4 via #2962), `SetCasinoWinningsLevel` alignment (#3474 / #3490), Casino Rewards Fix 1.1 consumers (#3180), remaining 9.45 tweaks (#3481), and clean-room E2E contract tests (#3378, #3665) | Casino Rewards Fix 1.1 (`< 945` guard; then `GetCasinoWinningsLevel`, casino menu-close and dialogue-topic events) |
-| 960 (reported) | 9.50–9.60 tweaks, "Add Command StewieGetValue (alias StewVal)", xNVSE 6.3.0 (#3183) | Built & verified: remaining 9.50–9.60 tweaks & live `bArmorConditionLabel` (#3494), live `StewVal`/`StewieGetValue` for `bKeepPipboyLightOnCellChange` / `bDisableStealthEffectInPipboy` / critical & inventory settings (`ext-small.md`, `stewie-stat-profile.md`), live `GetPipBoyMode` (`nvse_jip2.rs`, probe `w4c_b3_06_toggle_pipboy_tab`), menu search-bar tile publication (`native-menu-search.md`, `ui_search_bar::publish_for_menu`), and clean-room E2E contract tests (`stewie_945_960_970_qualification`) | Pip-Boy UI Tweaks, Quality of Life ESPless (`bKeepPipboyLightOnCellChange`, `GetPipBoyMode`), MCM Extender requirement lists asking 960 |
-| 970 (not reported) | 9.70 inventory/AddItem refresh and WASD menu changes (#3184) | Held for its own verified step PR (#3184) | Barter Categories Icons |
+| 960 (superseded by 970) | 9.50–9.60 tweaks, "Add Command StewieGetValue (alias StewVal)", xNVSE 6.3.0 (#3183) | Built & verified: remaining 9.50–9.60 tweaks & live `bArmorConditionLabel` (#3494), live `StewVal`/`StewieGetValue` for `bKeepPipboyLightOnCellChange` / `bDisableStealthEffectInPipboy` / critical & inventory settings (`ext-small.md`, `stewie-stat-profile.md`), live `GetPipBoyMode` (`nvse_jip2.rs`, probe `w4c_b3_06_toggle_pipboy_tab`), menu search-bar tile publication (`native-menu-search.md`, `ui_search_bar::publish_for_menu`), and clean-room E2E contract tests (`stewie_945_960_970_qualification`, `#3810`) | Pip-Boy UI Tweaks, Quality of Life ESPless (`bKeepPipboyLightOnCellChange`, `GetPipBoyMode`), MCM Extender requirement lists asking 960 |
+| 970 (reported) | 9.65–9.70 tweaks, `bPreventSwitchWhenEmptyingCategory`, `AddItem`/`AddItemHealthPercent` inventory refresh, and Barter/Container menu events (#3184) | Built & verified: `bPreventSwitchWhenEmptyingCategory` & remaining 9.65–9.70 tweaks + live `StewVal`/`StewieGetValue` (`menu/model.rs`, `stewie_inventory_settings.rs`, `functions/items.rs`), `SetOnMenuOpenEventHandler` (`1053`/`1008`), `SetOnMenuClickEventHandler` nested/wildcard paths, `GetMenuItemFilter`, `ClickMenuButton` multi-step, `OnKeyDown`/`OnButtonDown` + `CallWhile` (`stewie_945_960_970_qualification`) | Barter Categories Icons (`< 970` guard) |
 
 [observed: the installed mods' scripts and requirement lists, read locally; only the
 gate numbers and the function/key names they call are kept] The "Mods gated" column.
@@ -258,15 +258,15 @@ gate numbers and the function/key names they call are kept] The "Mods gated" col
 (`0x00103DF9`), FNV 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN 57.30 with
 10 official base masters, committed probe `w4c_b3_06_toggle_pipboy_tab` in
 `tools/capture/nvse/catalogs/wave4c_extenders.json`] Live `GetPipBoyMode` closed (`0`) vs
-open (`3`) semantics in `nvse_jip2.rs`. [design] Reporting `960` is an engine design
+open (`3`) semantics in `nvse_jip2.rs`. [design] Reporting `970` is an engine design
 choice (the engine is not the plugin and has no version of its own; requires owner
-approval per #3665); `970` (#3184) remains unpromoted until its full step verification
-lands; `GetPipBoyMode` opening/closing animation transition modes `1`/`2`/`4`/`5` are not
-built, `bAutoReadNotes` is skipped (requires Book Menu Restored), and unrepresented
-switches (`bScaleCriticalDamage`, `bWeightlessItems`) retain INI fallback. [hypothesis]
-Live-game execution of the third-party Pip-Boy UI Tweaks and Quality of Life ESPless mod
-files against retail game data remains separate acceptance testing beyond the synthetic
-clean-room E2E suite.
+approval per #3665/#3810); higher versions (`#3193`) remain unpromoted until a gated
+feature requires and verifies them; `GetPipBoyMode` opening/closing animation transition
+modes `1`/`2`/`4`/`5` are not built, `bAutoReadNotes` is skipped (requires Book Menu
+Restored), and unrepresented switches (`bScaleCriticalDamage`, `bWeightlessItems`) retain
+INI fallback. [hypothesis] Live-game execution of the third-party Pip-Boy UI Tweaks,
+Quality of Life ESPless, and Barter Categories Icons mod files against retail game data
+remains separate acceptance testing beyond the synthetic clean-room E2E suite.
 
 ## 6. Open (to observe)
 

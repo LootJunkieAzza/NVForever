@@ -154,7 +154,7 @@ fn absent_modular_folders_preserve_vanilla_and_single_ini_behavior() {
     // Single-INI StewVal / StewieGetValue lookup works identically.
     assert_eq!(eval_expr(&mut g, r#"StewVal "bJumpWhileAiming:Tweaks""#), XVal::Num(1.0));
     assert_eq!(eval_expr(&mut g, r#"StewieGetValue "fCriticalDamageMult:Critical Hits""#), XVal::Num(2.5));
-    assert_eq!(eval_expr(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), XVal::Num(945.0));
+    assert_eq!(eval_expr(&mut g, r#"GetPluginVersion "lStewieAl's Tweaks""#), XVal::Num(970.0));
 }
 
 #[test]
