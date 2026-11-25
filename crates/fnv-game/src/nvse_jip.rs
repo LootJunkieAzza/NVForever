@@ -73,7 +73,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                     .unwrap_or_default()
             })
         }
-        "clamp" => XVal::Num(num(args, 0, 0.0).clamp(num(args, 1, 0.0), num(args, 2, 0.0).max(num(args, 1, 0.0)))),
+        // Lower bound checked first, then upper bound (`inv=10.0/10.0/2.0` for x=5/1/20
+        // with lo=10, hi=2) [observed: `w6d11_43_min_max_clamp_lerp_and_inverted_bounds`].
+        "clamp" => {
+            let (x, lo, hi) = (num(args, 0, 0.0), num(args, 1, 0.0), num(args, 2, 0.0));
+            XVal::Num(if x < lo { lo } else if x > hi { hi } else { x })
+        }
         // [documented: GetDistance3D (LU); observed: Doc's door to his dresser 828.363]
         // the straight-line distance from the calling reference to another; FLT_MAX when
         // either is missing [documented].
@@ -161,3 +166,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d11_clamp_tests.rs"]
+mod w6d11_clamp_tests;
