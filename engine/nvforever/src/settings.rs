@@ -129,61 +129,7 @@ pub fn register(app: &mut App) {
         },
     );
     // The resolution first, then full screen [owner 2026-10-18].
-    add_choice_list(
-        app,
-        Setting {
-            key: "resolution",
-            group: GROUP_PICTURE,
-            label: "Resolution",
-            note: "The window's size, or in full screen the monitor's (its own size: borderless). A new one goes back after 20 seconds unless you keep it.",
-            switches: "--size",
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
-        ChoiceList {
-            names: window_mode::resolution_names,
-            chosen: window_mode::resolution_chosen,
-            pick: window_mode::resolution_pick,
-            save: window_mode::resolution_save,
-            load: window_mode::resolution_load,
-            ask_keep: true,
-        },
-    );
-    add_setting(
-        app,
-        Setting {
-            key: "borderless",
-            group: GROUP_PICTURE,
-            label: "Full screen",
-            note: "On: the game fills its monitor without a frame, at the full screen resolution above. Off: a window of the window resolution.",
-            switches: "--window",
-            get: |w| w.resource::<Args>().window == window_mode::WindowChoice::Borderless,
-            set: window_mode::set_borderless,
-            slider: None,
-        },
-    );
-    add_choice_list(
-        app,
-        Setting {
-            key: "monitor",
-            group: GROUP_PICTURE,
-            label: "Monitor",
-            note: "The display the game opens on in full screen (the main display until you pick one).",
-            switches: "--window",
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
-        ChoiceList {
-            names: window_mode::monitor_names,
-            chosen: window_mode::monitor_chosen,
-            pick: window_mode::monitor_pick,
-            save: window_mode::monitor_save,
-            load: window_mode::monitor_load,
-            ask_keep: false,
-        },
-    );
+    register_window_display(app);
     if has_body {
         add_setting(
             app,
@@ -1465,7 +1411,7 @@ pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_KEY: &str = "volumetric-light-strengt
 
 /// The Volumetric light row's note: what it does and what it looks best with (its rays are
 /// cut by the Cloud shadows image and the Terrain shadows map, medium_air_grid.rs) [design].
-pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight shows in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's.";
+pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight and moonlight show in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's.";
 
 /// The strength slider's note [design].
 pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_NOTE: &str = "How strongly the light in the air brightens lit air and darkens shaded air: 100% is the look as tuned, 0% none.";
@@ -3653,5 +3599,123 @@ mod terrain_wireframe_tests {
 
     fn row_of(app: &App, key: &str) -> usize {
         app.world().resource::<Settings>().index(key).unwrap()
+    }
+}
+
+/// Register the Display group's window rows (`resolution`, `borderless`, `monitor`).
+fn register_window_display(app: &mut App) {
+    add_choice_list(
+        app,
+        Setting {
+            key: "resolution",
+            group: GROUP_PICTURE,
+            label: "Resolution",
+            note: "The window's size, or in full screen the monitor's (its own size: borderless). A new one goes back after 20 seconds unless you keep it.",
+            switches: "--size",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: window_mode::resolution_names,
+            chosen: window_mode::resolution_chosen,
+            pick: window_mode::resolution_pick,
+            save: window_mode::resolution_save,
+            load: window_mode::resolution_load,
+            ask_keep: true,
+        },
+    );
+    add_setting(
+        app,
+        Setting {
+            key: "borderless",
+            group: GROUP_PICTURE,
+            label: "Full screen",
+            note: "On: the game fills its monitor without a frame, at the full screen resolution above. Off: a window of the window resolution.",
+            // [design, #3884] In a test run (`given_switches` win), an explicit `--size`
+            // asks for a window of that size, so a saved `borderless=1` in `NVForever.ini`
+            // does not override it into borderless full screen (which ignores `--size`).
+            switches: "--window --size",
+            get: |w| w.resource::<Args>().window == window_mode::WindowChoice::Borderless,
+            set: window_mode::set_borderless,
+            slider: None,
+        },
+    );
+    add_choice_list(
+        app,
+        Setting {
+            key: "monitor",
+            group: GROUP_PICTURE,
+            label: "Monitor",
+            note: "The display the game opens on in full screen (the main display until you pick one).",
+            switches: "--window",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: window_mode::monitor_names,
+            chosen: window_mode::monitor_chosen,
+            pick: window_mode::monitor_pick,
+            save: window_mode::monitor_save,
+            load: window_mode::monitor_load,
+            ask_keep: false,
+        },
+    );
+}
+
+#[cfg(test)]
+mod display_precedence_tests {
+    use super::*;
+    use clap::Parser;
+    use nvf_play::settings::{apply_stored, SettingsFile};
+    use window_mode::WindowChoice;
+
+    fn run_with_ini(cli: &[&str], ini_text: &str, tag: &str) -> Args {
+        let dir = std::env::temp_dir().join(format!("nvf-display-prec-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        std::fs::write(&path, ini_text).unwrap();
+        let line: Vec<String> = cli.iter().map(|s| (*s).to_string()).collect();
+        let args = Args::try_parse_from(&line).unwrap();
+        let given = given_switches(&args, &line);
+        let mut app = App::new();
+        app.insert_resource(args);
+        app.init_resource::<window_mode::FullScreenSize>();
+        app.init_resource::<window_mode::MonitorModes>();
+        app.init_resource::<window_mode::MonitorChoice>();
+        app.insert_resource(SettingsFile(Some(path)));
+        app.insert_resource(given);
+        register_window_display(&mut app);
+        apply_stored(app.world_mut());
+        let out = app.world().resource::<Args>().clone();
+        let _ = std::fs::remove_dir_all(&dir);
+        out
+    }
+
+    /// #3884: in a timed/test run (`--run-seconds`), an explicit `--size` keeps the run
+    /// windowed at that size instead of letting a saved `borderless=1` in `NVForever.ini`
+    /// switch the window to borderless full screen (which ignores `--size`). Interactive
+    /// runs without `--run-seconds` still honor the INI, and an explicit `--window
+    /// borderless` still enters borderless full screen.
+    #[test]
+    fn explicit_size_in_a_test_run_is_not_overridden_by_saved_borderless() {
+        let ini = "[Settings]\nborderless=1\nresolution=1920x1080;desktop\n";
+        let timed_sized = run_with_ini(&["nvforever", "--play", "--size", "1280x720", "--run-seconds", "16"], ini, "timed-sized");
+        assert_eq!(timed_sized.window, WindowChoice::Windowed);
+        assert_eq!(timed_sized.size, "1280x720");
+
+        let timed_borderless = run_with_ini(
+            &["nvforever", "--play", "--size", "1280x720", "--window", "borderless", "--run-seconds", "16"],
+            "[Settings]\nborderless=0\nresolution=1920x1080;desktop\n",
+            "timed-borderless",
+        );
+        assert_eq!(timed_borderless.window, WindowChoice::Borderless);
+        assert_eq!(timed_borderless.size, "1280x720");
+
+        let interactive = run_with_ini(&["nvforever", "--play"], ini, "interactive");
+        assert_eq!(interactive.window, WindowChoice::Borderless);
+        assert_eq!(interactive.size, "1920x1080");
     }
 }

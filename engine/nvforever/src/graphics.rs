@@ -1105,7 +1105,7 @@ fn apply(
         }
         // FSR already runs its own RCAS sharpening; do not sharpen the picture twice.
         if g.bloom || (g.sharpen && fsr.is_none()) {
-            e.insert(PostEffects::new(g.bloom, g.sharpen && fsr.is_none()));
+            e.insert(PostEffects::new_with_hdr_glow(g.bloom, g.sharpen && fsr.is_none(), nvf_assets::authored::physical_pbr() && g.glow));
         } else {
             e.remove::<PostEffects>();
         }
@@ -1125,12 +1125,13 @@ fn apply(
         // tonemapping (medium.rs, volumetric_clouds.rs), so its row keeps the view HDR whatever
         // the glow and the upscaler say [design, #3032 decision 10]; the light in the air of
         // stage 3 likewise.
-        if temporal || g.volumetric_clouds_run() || crate::hdr::on() || air {
+        // Physical lighting works on linear light up to the tonemapper (§3.25).
+        if temporal || g.volumetric_clouds_run() || crate::hdr::on() || air || nvf_assets::authored::physical_pbr() {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
         // its own switch.
-        if g.glow && g.eye_adaptation {
+        if (g.glow || nvf_assets::authored::physical_pbr()) && g.eye_adaptation {
             e.insert(crate::eye_adapt::auto_exposure(&eye));
         } else {
             e.remove::<bevy::post_process::auto_exposure::AutoExposure>();

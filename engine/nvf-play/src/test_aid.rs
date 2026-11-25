@@ -114,7 +114,9 @@
 //!   of the run under an explicit `NVFOREVER_HOME` and mounted over every other loose layer
 //!   for that run only; the ground pack gives every landscape texture the load order names a
 //!   height-only set (a ridged `_p` from a formula, depth 0.08) for the terrain parallax
-//!   (#3322).
+//!   (#3322), and with `=alpha` a diffuse too: one flat colour a texture, a checkerboard in
+//!   the alpha (#3789); `=alpha-height`: no sets, and a diffuse with the height map in its
+//!   alpha (#3486).
 //! - `NVF_PLAY_TEST_TERRAIN_PARALLAX_AB=<seconds>[:hold][:grazing|head-on][,...]` (nvforever
 //!   terrain_parallax_ab.rs): three screenshots at each time, the Terrain parallax switch
 //!   off, on, off (or left alone with `hold`), optionally from its own pose on a spot of

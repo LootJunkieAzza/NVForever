@@ -18,7 +18,9 @@
 //! a type forced everywhere (`TYPE`, `none` for the weather's mix), the debug view (`VIEW`), the
 //! light's ten weights (`OCTAVE`, `BACKSCATTER`, `UPPER`, `LOWER`, `GROUND`, `FORWARD`, `SUN`, `LEVEL`,
 //! `OCCLUDE`, `POWDER`; 0 to 4, 1 as designed), the sunlight's share in the direct light's colour
-//! (`SUNCOLOUR`, alias `SUNCOLOR`, 0 to 1, 0.5 as designed; volumetric_clouds_light.rs) and the wisps
+//! (`SUNCOLOUR`, alias `SUNCOLOR`, 0 to 1, 0.5 as designed; volumetric_clouds_light.rs), the night's pull
+//! toward the cloud layers' luminance (`NIGHTPULL`, 0 to 2, 0.5 as designed) and the phase's weights by
+//! moonlight (`MOONFORWARD`, `MOONBACK`, 0 to 4, the day's unless set; the same file) and the wisps
 //! (`WISP`, volumetric_clouds_wisp.rs): all of them reach the march through the uniform each frame. Start-only [design]: the domain's
 //! height (`HEIGHT`) and the horizon (`HORIZON`), which the cloud map of stage 2d may key on; the noise (its seeds, sizes and
 //! baked levels) is no aid. Names may be the short ones or the variables' full names, in any case;
@@ -28,7 +30,7 @@
 //! file, nothing that looks for one, and the values of its start.
 
 use crate::volumetric_clouds::{debug_type, debug_view, CloudAids, CloudType, CloudView, MAX_DEBUG_DENSITY, MAX_STEPS, MIN_STEPS};
-use crate::volumetric_clouds_light::{try_share, try_weight, LightWeight, LIGHT_WEIGHTS, SUN_COLOR_VAR, SUN_COLOUR_VAR};
+use crate::volumetric_clouds_light::{try_moon_cap, try_night_pull, try_share, try_weight, LightWeight, LIGHT_WEIGHTS, MOON_BACK_VAR, MOON_CAP_VAR, MOON_FORWARD_VAR, NIGHT_PULL_VAR, SUN_COLOR_VAR, SUN_COLOUR_VAR};
 use crate::volumetric_clouds_wisp::try_wisp;
 use bevy::prelude::*;
 use std::path::{Path, PathBuf};
@@ -53,6 +55,10 @@ impl CloudAids {
             light: {
                 let mut light = self.light;
                 light.sun_colour = o.sun_colour.unwrap_or(light.sun_colour);
+                light.night_pull = o.night_pull.unwrap_or(light.night_pull);
+                light.moon_forward = o.moon_forward.or(light.moon_forward);
+                light.moon_back = o.moon_back.or(light.moon_back);
+                light.moon_cap = o.moon_cap.or(light.moon_cap);
                 for (w, v) in LightWeight::ALL.into_iter().zip(o.weights) {
                     if let Some(v) = v {
                         light.weights[w.index()] = v;
@@ -90,6 +96,15 @@ pub enum TuneKey {
     /// `SUNCOLOUR` (alias `SUNCOLOR`): the sunlight's share in the direct light's colour, 0 to 1
     /// (0.5 as designed; volumetric_clouds_light.rs `direct_colour`); starts at 0.
     SunColour,
+    /// `NIGHTPULL`: how far the clouds' light is drawn toward the cloud layers' luminance by night, 0 to 2
+    /// (0.5 as designed; volumetric_clouds_light.rs `night_gain`); starts at 0.5.
+    NightPull,
+    /// `MOONFORWARD`, `MOONBACK`: the FORWARD and BACKSCATTER weights by moonlight, 0 to 4 (the day's unless
+    /// set; volumetric_clouds_light.rs `LightAids::phase_weight`); start unset.
+    MoonForward,
+    MoonBack,
+    /// `MOONCAP`: the phase's cap by moonlight, 0 to 16 (the day's unless set); starts unset.
+    MoonCap,
     /// `WISP`: the wisps' strength, 0 to 4 (#3032 stage 2h, W2); starts at 0.52.
     Wisp,
     Height,
@@ -97,7 +112,7 @@ pub enum TuneKey {
 }
 
 impl TuneKey {
-    pub const ALL: [TuneKey; 20] = [
+    pub const ALL: [TuneKey; 24] = [
         TuneKey::Shape,
         TuneKey::Erosion,
         TuneKey::Density,
@@ -115,6 +130,10 @@ impl TuneKey {
         TuneKey::Weight(LightWeight::Occlude),
         TuneKey::Weight(LightWeight::Powder),
         TuneKey::SunColour,
+        TuneKey::NightPull,
+        TuneKey::MoonForward,
+        TuneKey::MoonBack,
+        TuneKey::MoonCap,
         TuneKey::Wisp,
         TuneKey::Height,
         TuneKey::Horizon,
@@ -131,6 +150,10 @@ impl TuneKey {
             TuneKey::Erosion => "EROSION",
             TuneKey::Weight(w) => w.short(),
             TuneKey::SunColour => "SUNCOLOUR",
+            TuneKey::NightPull => "NIGHTPULL",
+            TuneKey::MoonForward => "MOONFORWARD",
+            TuneKey::MoonBack => "MOONBACK",
+            TuneKey::MoonCap => "MOONCAP",
             TuneKey::Wisp => "WISP",
             TuneKey::Height => "HEIGHT",
             TuneKey::Horizon => "HORIZON",
@@ -148,6 +171,10 @@ impl TuneKey {
             TuneKey::Erosion => "NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_EROSION",
             TuneKey::Weight(w) => w.var(),
             TuneKey::SunColour => SUN_COLOUR_VAR,
+            TuneKey::NightPull => NIGHT_PULL_VAR,
+            TuneKey::MoonForward => MOON_FORWARD_VAR,
+            TuneKey::MoonBack => MOON_BACK_VAR,
+            TuneKey::MoonCap => MOON_CAP_VAR,
             TuneKey::Wisp => "NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_WISP",
             TuneKey::Height => "NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_HEIGHT",
             TuneKey::Horizon => "NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_HORIZON",
@@ -215,6 +242,10 @@ pub struct TuneOverrides {
     /// By [`LightWeight::ALL`]'s order.
     pub weights: [Option<f32>; LIGHT_WEIGHTS],
     pub sun_colour: Option<f32>,
+    pub night_pull: Option<f32>,
+    pub moon_forward: Option<f32>,
+    pub moon_back: Option<f32>,
+    pub moon_cap: Option<f32>,
     pub wisp: Option<f32>,
 }
 
@@ -256,6 +287,10 @@ pub fn parse_tune(text: &str) -> ParsedTune {
             TuneKey::Erosion => set(&mut o.erosion, try_strength(value)),
             TuneKey::Weight(w) => set(&mut o.weights[w.index()], try_weight(value)),
             TuneKey::SunColour => set(&mut o.sun_colour, try_share(value)),
+            TuneKey::NightPull => set(&mut o.night_pull, try_night_pull(value)),
+            TuneKey::MoonForward => set(&mut o.moon_forward, try_weight(value)),
+            TuneKey::MoonBack => set(&mut o.moon_back, try_weight(value)),
+            TuneKey::MoonCap => set(&mut o.moon_cap, try_moon_cap(value)),
             TuneKey::Wisp => set(&mut o.wisp, try_wisp(value)),
             TuneKey::Height | TuneKey::Horizon => false,
         };
@@ -266,8 +301,10 @@ pub fn parse_tune(text: &str) -> ParsedTune {
                 TuneKey::Shape | TuneKey::Erosion => "a number (held to 0..4)",
                 TuneKey::View => "none, cover, vigour, count, noise, sun, ambient, depth, opacity or body-height",
                 TuneKey::Type => "none, sheet, cumulus or tower",
-                TuneKey::Weight(_) | TuneKey::Wisp => "a number (held to 0..4)",
+                TuneKey::Weight(_) | TuneKey::MoonForward | TuneKey::MoonBack | TuneKey::Wisp => "a number (held to 0..4)",
                 TuneKey::SunColour => "a number (held to 0..1)",
+                TuneKey::NightPull => "a number (held to 0..2)",
+                TuneKey::MoonCap => "a number (held to 0..16)",
                 TuneKey::Height | TuneKey::Horizon => "start-only",
             };
             p.bad.push((line.to_string(), format!("{} wants {form}", key.short())));
@@ -300,6 +337,10 @@ fn describe(start: &CloudAids, now: &CloudAids) -> String {
         (TuneKey::Type, start.forced != now.forced),
         (TuneKey::View, start.view != now.view),
         (TuneKey::SunColour, start.light.sun_colour_share() != now.light.sun_colour_share()),
+        (TuneKey::NightPull, start.light.night_pull() != now.light.night_pull()),
+        (TuneKey::MoonForward, start.light.moon_forward != now.light.moon_forward),
+        (TuneKey::MoonBack, start.light.moon_back != now.light.moon_back),
+        (TuneKey::MoonCap, start.light.moon_cap != now.light.moon_cap),
     ]
     .into_iter()
     .chain(LightWeight::ALL.into_iter().map(|w| (TuneKey::Weight(w), start.light.weight(w) != now.light.weight(w))))
@@ -666,6 +707,33 @@ mod tests {
         files.write("");
         tune.poll(ms(1_500), &files);
         assert_eq!(tune.effective().light.sun_colour, crate::volumetric_clouds_light::SUN_COLOUR_SHARE, "removed: back to the start's");
+    }
+
+    /// NIGHTPULL (0..2), MOONFORWARD and MOONBACK (0..4): live, their start variables' names, a change named and
+    /// dropped once, the uniform's inputs, a removed key back at its start value.
+    #[test]
+    fn the_night_keys_are_live() {
+        use crate::volumetric_clouds_light::{MAX_NIGHT_PULL, MOON_BACK, MOON_FORWARD, NIGHT_PULL};
+        let p = parse_tune("NIGHTPULL=9\nnightpull=0.8\nNVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_NIGHTPULL=dark\nMOONFORWARD=9\nMoonBack=0.5\nMOONBACK=none\n");
+        assert_eq!((p.overrides.night_pull, p.overrides.moon_forward, p.overrides.moon_back, p.bad.len()), (Some(0.8), Some(4.0), Some(0.5), 2));
+        assert!(p.bad[0].1.contains("NIGHTPULL wants a number (held to 0..2)") && p.bad[1].1.contains("MOONBACK wants a number (held to 0..4)"), "{:?}", p.bad);
+        assert_eq!(parse_tune("NIGHTPULL=9").overrides.night_pull, Some(MAX_NIGHT_PULL));
+        for (key, name, var) in [(TuneKey::NightPull, "nightpull", NIGHT_PULL_VAR), (TuneKey::MoonForward, "moonforward", MOON_FORWARD_VAR), (TuneKey::MoonBack, "moonback", MOON_BACK_VAR)] {
+            assert_eq!((TuneKey::named(name), TuneKey::named(var), key.var(), key.live()), (Some(key), Some(key), var, true));
+            assert_eq!(var, format!("NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_{}", key.short()));
+        }
+        let files = Fake::default();
+        files.write("NIGHTPULL=0.8\nMOONFORWARD=2\nMOONBACK=0.5\n");
+        let mut tune = CloudTune::new(start(), Some(PathBuf::from("t.txt")));
+        let lines = tune.poll(ms(0), &files);
+        let e = tune.effective();
+        assert_eq!((e.light.night_pull, e.light.moon_forward, e.light.moon_back, tune.edits()), (0.8, Some(2.0), Some(0.5), 1));
+        assert!(lines.iter().any(|l| l.contains("NIGHTPULL 0.80, MOONFORWARD x2.00, MOONBACK x0.50") && l.contains("changed from the start: NIGHTPULL, MOONFORWARD, MOONBACK")), "{lines:?}");
+        assert_eq!(e.apply(VolumeInputs::default()).light_aids, e.light);
+        files.write("");
+        tune.poll(ms(600), &files);
+        let e = tune.effective();
+        assert_eq!((e, e.light.night_pull, e.light.moon_forward, e.light.moon_back), (start(), NIGHT_PULL, MOON_FORWARD, MOON_BACK));
     }
 
     /// WISP (W2): live, 0..4, its start variable's name, a change named and dropped once, the uniform's inputs.

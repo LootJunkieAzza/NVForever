@@ -459,7 +459,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `maxDistance [flags]`: the actors within the distance; flag 1 no dead ones, 2 no
         // invisible ones (Invisibility or Chameleon above 0), 4 only ones in combat the
         // calling reference detects [documented: GetNumActorsInRangeFromRef]. The calling
-        // reference does not count itself [hypothesis].
+        // reference does not count itself [observed: `so_14_actors_in_range_excludes_self`
+        // (`wave4a_extenders.json`), see docs/spec-notes/ext-showoff.md §5].
         "getnumactorsinrangefromref" => {
             let Some(me) = subject else { return Some(Ok(zero)) };
             let max = num(args, 0, 0.0);

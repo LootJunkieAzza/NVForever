@@ -106,10 +106,26 @@ fn handlers_hear_the_game() {
     q(&mut g, "let TestGlobal := 0\nSetJohnnyOnLimbGoneEventHandler 1 (begin function {ref rA, int iLimb}\nlet TestGlobal := TestGlobal + iLimb\nend) 0 0 1");
     g.dismember(FormId::PLAYER_REF, &[(1, false), (3, false)], None);
     assert_eq!(global(&mut g), 1.0);
-    // SetOnReputationChangeEventHandler's (reputation, axis, value) (see docs/spec-notes/ext-jg8.md).
-    q(&mut g, "let TestGlobal := 0\nSetOnReputationChangeEventHandler 1 (begin function {ref rR, int iAxis, float fV}\nlet TestGlobal := fV\nend) 0 TestReputation");
-    fnv_game::functions::reputation_store(&mut g, FormId(REPU), 0, 5.0);
-    assert_eq!(global(&mut g), 5.0);
+    // [observed 2026-11-24: w6t2p3_12_rep_fame_infamy: (reputation, fame, infamy)].
+    q(
+        &mut g,
+        "let TestGlobal := 0\n\
+         SetOnReputationChangeEventHandler 1 (begin function {ref rR, float fFame, float fInf}\n\
+         PlayerREF.AuxVarSetFlt \"*rep_ok\" (rR == TestReputation)\n\
+         PlayerREF.AuxVarSetFlt \"*rep_fame\" fFame\n\
+         PlayerREF.AuxVarSetFlt \"*rep_inf\" fInf\n\
+         let TestGlobal := fFame * 10 + fInf\n\
+         end) 0 TestReputation",
+    );
+    fnv_game::functions::reputation_store(&mut g, FormId(REPU), 1, 5.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_ok""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_fame""#), 5.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_inf""#), 0.0);
+    assert_eq!(global(&mut g), 50.0);
+    fnv_game::functions::reputation_store(&mut g, FormId(REPU), 0, 3.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_fame""#), 5.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_inf""#), 3.0);
+    assert_eq!(global(&mut g), 53.0);
     // Removing it: `0 function flag filters` as set.
     q(&mut g, "let TestGlobal := 0");
     let removed = g.other.jg8.handlers.len();

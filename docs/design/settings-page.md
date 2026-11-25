@@ -165,7 +165,11 @@ world.md §3 "Smoothing"]. 4 x 4 near draws 4 × 4 near the camera and 2 × 2 fu
 surface [design, #2676]; the INI's older on/off reads as 4 x 4 and Off.
 
 The table names every row the registry can hold [documented: `settings_layout.rs::SECTIONS`],
-158 with #1966's `quality`, the overhaul's `menu-font` (#1966's `enhanced` is gone),
+matching `KNOWN` in `engine/nvf-play/src/settings_layout.rs` and the per-row entries in
+`docs/settings-reference.md` (checked without building the engine by
+`tools/smoke/tests/test_settings_count.py`, and against `SECTIONS` by
+`settings_layout.rs::the_table_names_each_key_once_in_one_of_the_tabs`). Beyond the #1953
+table above, added rows include #1966's `quality`, the overhaul's `menu-font` (#1966's `enhanced` is gone),
 #2014's nine `fps-counter-*` rows, #2242's `fps-counter-upscaling`, #2317's
 `frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling`, #3322's `terrain-parallax`, #2688's `sound-cover`, #2670's `cloud-shadows`, #2671's `terrain-shadows`, `light-shadows` (ALC shadows, once Lamp shadows, Graphics › Shadows after `terrain-shadows`; light_shadows.rs), #2910's `gore-shake`, #2149's `smooth-terrain` and `terrain-wireframe`, the Advanced Movement rows, #2843's `shadow-resolution` (under Graphics › Shadows after `shadow-filter`), #2661's `mesh-terrain-blend` (Graphics › Detail and Distance, after the terrain rows), the six `quick-loot` rows (#2933, NVF Features › Quick Loot), the heat haze prototype's `heat-haze` (Graphics › Lighting and Effects, after `light-shafts`), #2675's `desert-haze` (after `heat-haze`), #3000's `sprint` (NVF Features › Gameplay), #2993's `aerial-perspective` (after `desert-haze`), #2995's `night-sky-detail` (after `aerial-perspective`), #3032's `volumetric-clouds`, `volumetric-light` and `volumetric-light-strength` (Graphics › Lighting and Effects), #3016's `tree-distance`, #2981's
 `authored-materials` and `authored-reflections` (Graphics › Detail and Distance, the second
@@ -174,10 +178,8 @@ and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distanc
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
-(Detail and Distance, after `mesh-terrain-blend`; read at the next start), `physical-pbr`
-(Lighting and Effects, after `night-sky-detail`; read at the next start) (`KNOWN` in
-`settings_layout.rs`); a test keeps
-it so (`settings_layout.rs`, `the_table_names_each_key_once_in_one_of_the_tabs`). The
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start), and `physical-pbr`
+(Lighting and Effects, after `night-sky-detail`; read at the next start). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
 [observed: #1953], hence Interface there.
 
@@ -327,6 +329,14 @@ with the English rail as measured in the smoke runs, gets a list 1101 wide (820 
 width follows the rail's measured words, so another language's longer tab names give a
 narrower list. The list's place is logged when it changes
 (`pause menu: settings list <w> wide from <x> in a view <w> wide, band <l>-<r>`).
+
+**A view narrower than 4:3** [design: #3334]: a portrait display (9:16 is 540 units wide)
+left the list 0 wide beside the rail. Such a view gets the whole page drawn smaller, over
+the whole view rather than in the spread frame, until it is `NARROW_VIEW_W` (1280 units, the
+4:3 layout) wide (`pause::narrow_fit`, `interface::whole_view`); at 1080x1920 a unit is
+then about 0.84 pixels, near a 1080p landscape screen's 1.125. The rows, rail and note keep
+the 4:3 places, and the window has more lines (the page is taller in its units). A view 4:3
+or wider is drawn as before. Checked by smoke `settings-layout-portrait` (a 540x960 window).
 
 **A row's parts** [design: #2377]: the places in a row (a switch's state and a reason
 centred at the value's place, a slider's arrows, meter and value, a list's box, a key's

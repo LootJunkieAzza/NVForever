@@ -317,3 +317,19 @@ fn condition_penalties_honor_stewie_tweaks_and_script_overrides() {
     q(&mut g, "SetConditionDamagePenalty 3.0");
     assert_eq!(g.weapon_condition_mult(0.0), 0.0);
 }
+
+#[test]
+fn get_actor_velocity_alt_honors_get_local_flag() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Player facing East (Z = 90 deg) moving at world velocity (100, 20, 5):
+    // world mode (0) -> (100, 20, 5), local mode (1) -> (-20 right, 100 forward, 5 up).
+    q(&mut g, "player.SetAngle Z 90");
+    g.tick();
+    let pos = g.ref_pos_rot(FormId::PLAYER_REF).unwrap().0;
+    g.jip2.velocity.insert(FormId::PLAYER_REF, (pos, [100.0, 20.0, 5.0]));
+    let script_w = "float vx\nfloat vy\nfloat vz\nint ok = player.GetActorVelocityAlt vx vy vz 0\nSetFunctionValue (sv_Construct \"%g %.1f %.1f %.1f\" ok vx vy vz)";
+    let script_l = "float vx\nfloat vy\nfloat vz\nint ok = player.GetActorVelocityAlt vx vy vz 1\nSetFunctionValue (sv_Construct \"%g %.1f %.1f %.1f\" ok vx vy vz)";
+    assert_eq!(q(&mut g, script_w), XVal::Str("1 100.0 20.0 5.0".into()));
+    assert_eq!(q(&mut g, script_l), XVal::Str("1 -20.0 100.0 5.0".into()));
+}
