@@ -30,6 +30,8 @@ An exact atan misses those two goldens by 0.0002. Open question [owner review]: 
 tolerance on the arc tangents, or probe more points (a sweep of fatan over -10…10) and fit
 the approximation from the observed values alone.
 
+Vanilla/NVSE `Log x [base]` returns natural log `ln(x)` with 1 argument (`Log 10 = 2.3026`) and `log_base(x)` when optional 2nd `base` is provided (`Log 100 10 = 2.00`, `Log 8 2 = 3.00`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_41_log_exp_pow_sqrt_abs_and_anh_hyperbolic` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `log(1=0.00,10=2.3026,l10=2.00/-2.00,b=2:2.00/3.00)`; no DLL or source consulted].
+
 ## 2. Names, mods and plugins
 
 | Function | Origin | Arguments | Returns | Behaviour | Observed |

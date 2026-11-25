@@ -3055,7 +3055,10 @@ impl Vm<'_, '_> {
                     "sinh" => x.sinh(),
                     "cosh" => x.cosh(),
                     "tanh" => x.tanh(),
-                    "log" => x.ln(),
+                    "log" => match opt(self, 1)? {
+                        Some(b) => x.log(b.num()?),
+                        None => x.ln(),
+                    },
                     "log10" => x.log10(),
                     "exp" => x.exp(),
                     // A whole number as a 32-bit integer: out of its range (or not a
@@ -3716,6 +3719,10 @@ fn assign_op(op: XAssign) -> XOp {
         XAssign::Mod | XAssign::Set => XOp::Mod,
     }
 }
+
+#[cfg(test)]
+#[path = "w6d11_log_base_tests.rs"]
+mod w6d11_log_base_tests;
 
 /// A deciding operand of `&&`/`||` as their value: a number as itself, anything else as
 /// 1 or 0 [documented: NVSE Expressions].
