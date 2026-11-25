@@ -469,3 +469,7 @@ removed word.
 `dud_when_full` when attempts already meet or exceed `ATTEMPTS`, and single-line log
 clipping for compact guesses longer than 12 characters have not been observed in the
 original plugin.
+
+## Wave 6D-9 terminal `Lock` / `GetLocked` / `GetLockLevel` parity
+
+- **`Lock` on terminals** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`, `w6d9_25_terminal_lock_unlock_level_password_and_lockedout`: `PROBE|w6d9_25_terminal_lock_unlock_level_password_and_lockedout|tl=1|0(1,1)|50(2,5)|u(0,-1)|z(1,0)|lo(1=3:l2,2=3,0=3)|pw=1` and `w6d9p3_25_terminal_lock_levels`: `PROBE|w6d9p3_25_terminal_lock_levels|l1(1,1)|l4(1,4)|l5(2,5)|l50(2,5)|l0(1,0)`; no DLL, PDB, or third-party source consulted]: `Lock 0`..`Lock 4` set `GetLocked == 1` with `GetLockLevel == 0..4` (`Lock 0` sets Very Easy `0` rather than keeping the prior level), whereas `Lock 5` and `Lock 50` clamp to `5` (Requires Key) and report `GetLocked == 2`; `Unlock` clears `GetLocked == 0` and `GetLockLevel == -1`.
