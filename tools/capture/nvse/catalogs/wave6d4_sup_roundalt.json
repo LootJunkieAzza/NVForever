@@ -1,0 +1,93 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_sup_roundalt",
+  "description": "Clean-room read-only Wave 6D-4 probe proving SUP NVSE RoundAlt rounds only when mode == 1 and truncates for mode 0 and mode 2.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "SUP NVSE": "855"
+  },
+  "batches": [
+    {
+      "id": "w6d4_sup_roundalt",
+      "title": "Wave 6D-4: SUP NVSE RoundAlt exact mode == 1 rounding",
+      "extender": "SUP NVSE",
+      "required_plugins": [
+        "supNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4_27_sup1_math_words_cyrillic_actors",
+          "bucket": "sup_batch1_2_edges",
+          "extender": "SUP NVSE Plugin",
+          "required_plugins": [
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup1.md",
+          "spec_line": 14,
+          "functions_tested": [
+            "Round",
+            "RoundAlt",
+            "IsNumberNAN",
+            "GetDistanceBetweenPoints",
+            "GetHeadingAngleBetweenPoints",
+            "GetHeadingAngleAlt",
+            "NumberToWords",
+            "StringContainsCyrillic",
+            "GetSUPVersion",
+            "IsPlayerOverencumbered",
+            "FindClosestActor",
+            "FindRandomActor"
+          ],
+          "claim": "Verify SUP batches 1-2 math/string/actor edge cases: Round half-way (+/-2.5), RoundAlt modes 0/1/2, IsNumberNAN, GetHeadingAngleBetweenPoints (2 calls, crash-safe), NumberToWords (0, -42, 1000), StringContainsCyrillic, and FindClosestActor / FindRandomActor.",
+          "expected": "Confirm half-way rounding direction, negative NumberToWords formatting, and FindClosestActor returning DocMitchellREF in Doc Mitchell's house.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "float rPos = Round 2.5",
+            "float rNeg = Round -2.5",
+            "float ra0 = RoundAlt 2.345 2 0",
+            "float ra1 = RoundAlt 2.345 2 1",
+            "float ra2 = RoundAlt 2.345 2 2",
+            "int nan0 = IsNumberNAN 1.0",
+            "float dist = GetDistanceBetweenPoints 0 0 0 3 4 12",
+            "float ha1 = GetHeadingAngleBetweenPoints 0 0 0 10 0",
+            "float ha2 = GetHeadingAngleBetweenPoints 0 0 90 10 0",
+            "float haAlt = GetHeadingAngleAlt 0 0 0 rDoc",
+            "string_var w0 = NumberToWords 0",
+            "string_var wNeg = NumberToWords -42",
+            "string_var wK = NumberToWords 1000",
+            "int cyr0 = StringContainsCyrillic \"Hello\"",
+            "int ver = GetSUPVersion",
+            "int ov = IsPlayerOverencumbered",
+            "float px = Player.GetPos X",
+            "float py = Player.GetPos Y",
+            "float pz = Player.GetPos Z",
+            "ref rNear = FindClosestActor px py pz 0 1 2000",
+            "ref rRnd = FindRandomActor px py pz 0 1 2000",
+            "PrintToConsole \"PROBE|w6d4_27_sup1_math_words_cyrillic_actors|rnd(%.1f,%.1f,%.2f,%.2f,%.2f,nan=%g)|geom(d=%.1f,h=%.1f/%.1f,alt=%.1f)|w([%z],[%z],[%z])|cyr=%g,v=%g,ov=%g,near=%g,rnd=%g\" rPos rNeg ra0 ra1 ra2 nan0 dist ha1 ha2 haAlt w0 wNeg wK cyr0 ver ov (rNear == rDoc) (rRnd == rDoc)"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

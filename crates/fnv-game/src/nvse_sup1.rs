@@ -175,7 +175,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `x`: to the nearest whole number [documented: Round, 37.4 is 37, 37.8 is 38;
         // hypothesis: a half away from zero].
         "round" => XVal::Num(num(args, 0, 0.0).round()),
-        "roundalt" => XVal::Num(round_to(num(args, 0, 0.0), num(args, 1, 0.0), num(args, 2, 0.0) != 0.0)),
+        // Only mode == 1 rounds; mode 0 and mode 2 truncate [observed: 2026-11-25,
+        // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // SUP NVSE 855, `w6d4_27_sup1_math_words_cyrillic_actors` (`wave6d4_sup_roundalt.json`):
+        // `rnd(3.0,-3.0,2.34,2.35,2.34,nan=0)`; hypothesis: other non-1 mode values also truncate].
+        "roundalt" => XVal::Num(round_to(num(args, 0, 0.0), num(args, 1, 0.0), num(args, 2, 0.0).trunc() as i64 == 1)),
         // `[x]`: 1 for a NaN; with no number, a NaN [documented: IsNumberNAN's two forms].
         "isnumbernan" => match args.first() {
             Some(XVal::Num(x)) => yes(x.is_nan()),
