@@ -171,7 +171,7 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 | 12 | Action Points | `fAVDActionPointsBase` (65) + `fAVDActionPointsMult` (3) × Agility | names [documented: Settings]; values [observed: masters]; the form [hypothesis] |
 | 13 | Carry Weight | `fAVDCarryWeightsBase` (150) + `fAVDCarryWeightMult` (10) × Strength | [observed in game: 200 at Strength 5, 160 at Strength 1, simulation.md §3] |
 | 14 | Critical Chance | `fAVDCritLuckBase` (0) + `fAVDCritLuckMult` (1) × Luck | [documented: Critical Hit Chance Formula] |
-| 15 | Heal Rate | 0 | [hypothesis]; the masters hold `fAVDHealRateEndurance6Bonus` to `…10Bonus` (5, 5, 5, 10, 10) [observed], unread |
+| 15 | Heal Rate | 0 for Endurance <= 5; `fAVDHealRateEndurance6Bonus`..`10Bonus` (5, 5, 5, 10, 10) for Endurance 6..10 | [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p3_05c_healrate_and_meleedmg_clean` in `tools/capture/nvse/catalogs/wave6d7_healrate_gmsts.json`: `hr(5..10=0.0,5.0,5.0,5.0,10.0,10.0)`] |
 | 16 | Health | the maximum health of combat-rules.md §9 | as there |
 | 17 | Melee Damage | `fAVDMeleeDamageStrengthMult` (0.5) × (`fAVDMeleeDamageStrengthOffset` (0) + Strength) | [documented: Weapon Damage Formula] |
 | 56 | Unarmed Damage | `fAVDUnarmedDamageBase` (0.5) + `fAVDUnarmedDamageMult` (0.05) × Unarmed | [documented: Weapon Damage Formula] |

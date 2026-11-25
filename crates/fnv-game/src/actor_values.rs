@@ -49,6 +49,7 @@ pub const LUCK: u16 = 11;
 pub const ACTION_POINTS: u16 = 12;
 pub const CARRY_WEIGHT: u16 = 13;
 pub const CRITICAL_CHANCE: u16 = 14;
+pub const HEAL_RATE: u16 = 15;
 pub const DAMAGE_RESISTANCE: u16 = 18;
 pub const HEALTH: u16 = 16;
 pub const MELEE_DAMAGE: u16 = 17;
@@ -477,6 +478,15 @@ impl<'a> Game<'a> {
             CARRY_WEIGHT => setting(self, "fAVDCarryWeightsBase", 150.0) + setting(self, "fAVDCarryWeightMult", 10.0) * self.formula_input(r, STRENGTH),
             // [documented: GECK wiki Critical Hit Chance Formula.]
             CRITICAL_CHANCE => setting(self, "fAVDCritLuckBase", 0.0) + setting(self, "fAVDCritLuckMult", 1.0) * self.formula_input(r, LUCK),
+            // [observed 2026-11-25: w6d7p3_05c_healrate_and_meleedmg_clean, Endurance 5..10 -> 0,5,5,5,10,10.]
+            HEAL_RATE => match self.formula_input(r, ENDURANCE).floor() as i32 {
+                6 => setting(self, "fAVDHealRateEndurance6Bonus", 5.0),
+                7 => setting(self, "fAVDHealRateEndurance7Bonus", 5.0),
+                8 => setting(self, "fAVDHealRateEndurance8Bonus", 5.0),
+                9 => setting(self, "fAVDHealRateEndurance9Bonus", 10.0),
+                e if e >= 10 => setting(self, "fAVDHealRateEndurance10Bonus", 10.0),
+                _ => 0.0,
+            },
             // [documented: GECK wiki Weapon Damage Formula.]
             MELEE_DAMAGE => {
                 setting(self, "fAVDMeleeDamageStrengthMult", 0.5) * (setting(self, "fAVDMeleeDamageStrengthOffset", 0.0) + self.formula_input(r, STRENGTH))
