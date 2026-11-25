@@ -801,6 +801,9 @@ pub fn get_detected(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
 pub fn get_detection_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let detector = ctx.subject()?;
     let target = a.form(0)?;
+    if g.is_dead(detector) {
+        return Ok(Value::Num(0.0));
+    }
     let level = match g.detection.get(detector, target).map(|d| d.band) {
         None => 0.0,
         Some(Band::Hidden) => 1.0,

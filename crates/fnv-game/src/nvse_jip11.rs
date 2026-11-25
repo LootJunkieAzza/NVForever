@@ -308,7 +308,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // The actors it detects: the detection rounds' pairs in the Detected band, as
         // GetDetected [documented; hypothesis: the same test].
         "getdetectedactors" => {
-            let Some(r) = subject else { return Some(Ok(XVal::Array(0))) };
+            let Some(r) = subject.filter(|&r| !g.is_dead(r)) else { return Some(Ok(XVal::Array(0))) };
             let seen: Vec<FormId> = g.detection.pairs.iter().filter(|(&(d, t), (x, _))| d == r && t != r && x.band == crate::detection::Band::Detected).map(|(&(_, t), _)| t).collect();
             refs(g, seen)
         }
@@ -673,3 +673,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d8_dead_detector_tests.rs"]
+mod w6d8_dead_detector_tests;
