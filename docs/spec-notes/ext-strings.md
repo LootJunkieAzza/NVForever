@@ -111,7 +111,14 @@ from 0 throughout [documented: Sv Length; Sv Find].
   string; **-1** when it sorts after; **-2** when the comparison fails.
 - **Edge cases**: case is ignored unless the flag is set. `==` under `eval` is the
   newer way to compare [documented: Sv Compare]. What makes it fail: open.
-- **Evidence**: [documented: Sv Compare].
+- **Evidence**: [documented: Sv Compare]; comparing against a destructed `string_var`
+  returns `-2`, and `"apple"` vs `"banana"` returns `-1` while `"banana"` vs `"apple"`
+  returns `1` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters,
+  read-only `PrintToConsole` probe `w6d11_27_sv_compare_sign_case_format_and_invalid`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `ord(ab=-1,ba=1,eq=0)|cs(0=0,1=1,eq1=0)|etc(fmt=0,eEq=0,eLt=-1)|destr(st=2,rv=-2)`;
+  no DLL or source consulted].
 
 ### Sv_Find
 

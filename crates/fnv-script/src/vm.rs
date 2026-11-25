@@ -1292,6 +1292,10 @@ pub fn number_text(x: f64) -> String {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d11_sv_compare_tests.rs"]
+mod w6d11_sv_compare_tests;
+
 /// A string read as a number, as `#` and ToNumber read it: surrounding spaces ignored,
 /// `0x…` as hex, anything unreadable 0 [documented: ToNumber; the unreadable case
 /// hypothesis].
@@ -2809,6 +2813,14 @@ impl Vm<'_, '_> {
             // the flag is set.
             "sv_compare" => {
                 let (a, k) = self.format_arg(c, 0)?;
+                if let Some(XExpr::Var { var, .. }) = c.args.get(k) {
+                    if self.host.var_kind(var) == VarKind::String {
+                        let id = self.host.get_var(var).map_err(VmError::Host)?.num() as u32;
+                        if self.store()?.text(id).is_none() {
+                            return Ok(Some(XVal::Num(-2.0)));
+                        }
+                    }
+                }
                 let b = text(val(self, k)?).unwrap_or_default();
                 let case = opt(self, k + 1)?.is_some_and(|v| v.truthy());
                 let ord = if case { a.cmp(&b) } else { a.to_lowercase().cmp(&b.to_lowercase()) };
