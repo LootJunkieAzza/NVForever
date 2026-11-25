@@ -44,13 +44,27 @@ fn listaddreference_rejects_bad_negative_and_oob_indices_and_non_flst() {
     let rm1 = nvse_misc::call(&mut g, "listaddreference", Some(FormId(0x12)), &[XVal::Ref(0x100), XVal::Num(-1.0), XVal::Num(0.0)]).unwrap().unwrap();
     let rm3 = nvse_misc::call(&mut g, "listaddreference", Some(FormId(0x12)), &[XVal::Ref(0x100), XVal::Num(-3.0), XVal::Num(0.0)]).unwrap().unwrap();
     let rbig = nvse_misc::call(&mut g, "listaddreference", Some(FormId(0x12)), &[XVal::Ref(0x100), XVal::Num(999.0), XVal::Num(0.0)]).unwrap().unwrap();
+    let rdup = nvse_misc::call(&mut g, "listaddreference", Some(FormId(0x10)), &[XVal::Ref(0x100), XVal::Num(-2.0), XVal::Num(1.0)]).unwrap().unwrap();
     let rbad = nvse_misc::call(&mut g, "listaddreference", Some(FormId(0x10)), &[XVal::Ref(0x200), XVal::Num(0.0), XVal::Num(0.0)]).unwrap().unwrap();
+    let rm2_third = nvse_misc::call(&mut g, "listaddreference", Some(FormId(0x13)), &[XVal::Ref(0x100), XVal::Num(-2.0), XVal::Num(0.0)]).unwrap().unwrap();
 
     assert_eq!(r0, XVal::Num(0.0));
-    assert_eq!(rm2, XVal::Num(1.0));
+    assert_eq!(rm2, XVal::Num(0.0), "w6d11_02: -2 on 1-element list returns old_len.saturating_sub(1) == 0");
     assert_eq!(rm1, XVal::Num(-1.0));
     assert_eq!(rm3, XVal::Num(-1.0));
     assert_eq!(rbig, XVal::Num(-1.0));
+    assert_eq!(rdup, XVal::Num(-1.0));
     assert_eq!(rbad, XVal::Num(-1.0));
-    assert_eq!(crate::functions::list_members(&g, FormId(0x100)), vec![FormId(0x10), FormId(0x11)]);
+    assert_eq!(rm2_third, XVal::Num(1.0), "-2 on 2-element list returns old_len.saturating_sub(1) == 1");
+    assert_eq!(crate::functions::list_members(&g, FormId(0x100)), vec![FormId(0x10), FormId(0x11), FormId(0x13)]);
+
+    // TempCloneForm clone of a FLST must pass FLST validation via unclone.
+    let ctx = crate::game::RunCtx::default();
+    let cloned_flst = match crate::nvse::call(&mut g, &ctx, "tempcloneform", None, &[XVal::Ref(0x100)]).unwrap().unwrap() {
+        XVal::Ref(id) => FormId(id),
+        other => panic!("expected cloned FLST ref, got {other:?}"),
+    };
+    let rclone = nvse_misc::call(&mut g, "listaddreference", Some(FormId(0x14)), &[XVal::Ref(cloned_flst.0), XVal::Num(-2.0), XVal::Num(0.0)]).unwrap().unwrap();
+    assert_eq!(rclone, XVal::Num(0.0));
+    assert_eq!(crate::functions::list_members(&g, cloned_flst), vec![FormId(0x14)]);
 }
