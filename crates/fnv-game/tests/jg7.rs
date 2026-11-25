@@ -108,10 +108,15 @@ fn switches() {
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), -5.0);
     q(&mut g, "SetViewmodelClipDistance 0");
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), 0.0);
-    // [observed: GetNiLODLevel -1 before any SetNiLODLevel, jg7 diagnostics].
+    // [observed: GetNiLODLevel -1 before any SetNiLODLevel, jg7 diagnostics;
+    // w6d3p2_22a: float variable 1.5 truncates to 1].
     assert_eq!(n(&mut g, "GetNiLODLevel"), -1.0);
     q(&mut g, "SetNiLODLevel 2");
     assert_eq!(n(&mut g, "GetNiLODLevel"), 2.0);
+    q(&mut g, "float fLod\nlet fLod := 1.5\nSetNiLODLevel fLod");
+    assert_eq!(n(&mut g, "GetNiLODLevel"), 1.0);
+    q(&mut g, "SetNiLODLevel -1");
+    assert_eq!(n(&mut g, "GetNiLODLevel"), -1.0);
     // [documented: Get/SetYieldTimer].
     assert_eq!(n(&mut g, "GetYieldTimer"), 0.0);
     q(&mut g, "SetYieldTimer 5");
