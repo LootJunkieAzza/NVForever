@@ -48,6 +48,10 @@ fn stores<'s>(x: &'s mut ExtStore, name: &str) -> &'s mut JipStores {
     if name.starts_with('*') { &mut x.jip_temp } else { &mut x.jip }
 }
 
+#[cfg(test)]
+#[path = "w6d11_refmap_getall_tests.rs"]
+mod w6d11_refmap_getall_tests;
+
 /// The element type codes of AuxiliaryVariableGetType and RefMapArrayGetType
 /// [documented]: 0 none, 1 number, 2 form, 4 string.
 fn type_code(v: Option<&XVal>) -> f64 {
@@ -916,6 +920,9 @@ impl Vm<'_, '_> {
         if aux && op == "getall" {
             return self.aux_get_all(c).map(Some);
         }
+        if !aux && op == "getall" {
+            return self.refmap_get_all(c).map(Some);
+        }
         let name = match self.jarg(c, 0)? {
             Some(XVal::Str(s)) => s.to_lowercase(),
             _ => return Err(VmError::Type(format!("{n} without a name"))),
@@ -975,11 +982,6 @@ impl Vm<'_, '_> {
                 let keys = stores(self.store()?, &name).refmaps.get(&name).map(|m| m.iter().map(|(k, _)| XVal::Ref(*k)).collect()).unwrap_or_default();
                 self.jlist(keys)?
             }
-            "getall" => {
-                let pairs = stores(self.store()?, &name).refmaps.get(&name).cloned().unwrap_or_default();
-                let entries = pairs.into_iter().map(|(k, v)| (XKey::Num(f64::from(k)), v)).collect();
-                XVal::Array(self.store()?.new_array(ArrayKind::Map, entries))
-            }
             // [documented: RefMapArrayGetNext; observed: Next after the last pair is
             // ar_Null] a [key, value] list.
             "getfirst" | "getnext" => {
@@ -1029,6 +1031,42 @@ impl Vm<'_, '_> {
             _ => return Ok(None),
         };
         Ok(Some(v))
+    }
+
+    /// RefMapArrayGetAll class: a string map of RefMap name -> Map of key -> value for
+    /// class 0..=3 (0 permanent-private, 1 temporary-private, 2 permanent-public,
+    /// 3 temporary-public) [documented: RefMapArrayGetAll; observed:
+    /// `w6d11_39_refmap_iter_keys_getall_erase_validate`,
+    /// `ga(st=2,t=[StringMap],sz=1,has=1)`].
+    fn refmap_get_all(&mut self, c: &XCall) -> Result<XVal, VmError> {
+        let class = self.jindex(c, 0, 0)?;
+        let plugin = self.host.calling_plugin();
+        let x = self.store()?;
+        let s = if class.rem_euclid(2) == 1 { &x.jip_temp } else { &x.jip };
+        let private_class = (class & 2) == 0;
+        let maps: Vec<(String, Vec<(u32, XVal)>)> = s
+            .refmaps
+            .iter()
+            .filter_map(|(k, pairs)| {
+                let (bare, owner) = match k.split_once(PRIVATE) {
+                    Some((b, p)) => (b.to_string(), Some(p.to_string())),
+                    None => (k.clone(), None),
+                };
+                let public = bare.trim_start_matches('*').starts_with('_');
+                let shown = match &plugin {
+                    None => owner.is_none(),
+                    Some(p) if private_class => !public && owner.as_deref() == Some(p.as_str()),
+                    Some(_) => public,
+                };
+                shown.then(|| (bare, pairs.clone()))
+            })
+            .collect();
+        let mut entries = Vec::new();
+        for (k, pairs) in maps {
+            let inner = pairs.into_iter().map(|(f, v)| (XKey::Num(f64::from(f)), v)).collect();
+            entries.push((XKey::Str(k), XVal::Array(x.new_array(ArrayKind::Map, inner))));
+        }
+        Ok(XVal::Array(x.new_array(ArrayKind::StringMap, entries)))
     }
 
     /// AuxiliaryVariableSet…/Get…/GetType/GetSize/Erase/GetAsArray.
