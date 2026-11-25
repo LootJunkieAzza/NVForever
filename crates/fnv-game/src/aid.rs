@@ -513,9 +513,7 @@ impl Game<'_> {
             // Health damage can kill (a burn, a poison; hit-effects.md §4).
             self.effect_health_damage(actor, -amount, caster);
         } else if grows(code) {
-            let now = fa::actor_value(self, actor, code).unwrap_or(0.0);
-            let to = (now - amount).max(0.0);
-            let _ = fa::shift_base(self, actor, code, to - now);
+            let _ = fa::shift_growing(self, actor, code, -amount);
         } else if amount >= 0.0 {
             if parts && LIMB_CONDITIONS.contains(&code) && limb.is_some() {
                 for (l, a) in parts_restore(code, amount, limb) {

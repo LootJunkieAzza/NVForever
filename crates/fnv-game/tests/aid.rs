@@ -1137,3 +1137,28 @@ fn grab_triggers_theft_respects_min_value_and_stack_count() {
     assert!(g.grab_triggers_theft(FormId(VAL5), 2));
     assert!(g.grab_triggers_theft(FormId(VAL15), 1));
 }
+
+#[test]
+fn growing_avs_damage_restore_and_aid_keep_base_value_unchanged() {
+    let f = fixture();
+    let mut g = game(&f);
+    let run_num = |g: &mut Game, src: &str| -> f64 {
+        match g.run_query(&format!("Begin Function {{ }}\n{src}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap() {
+            fnv_script::vm::XVal::Num(v) => v,
+            other => panic!("expected num, got {other:?}"),
+        }
+    };
+    run_num(&mut g, "Player.SetAV RadiationRads 100\nPlayer.DamageAV RadiationRads 25\nSetFunctionValue 0");
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetBaseAV RadiationRads)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetPermAV RadiationRads)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetAV RadiationRads)"), 125.0);
+    run_num(&mut g, "Player.RestoreAV RadiationRads 10\nSetFunctionValue 0");
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetBaseAV RadiationRads)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetAV RadiationRads)"), 115.0);
+    run_num(&mut g, "Player.SetAV Dehydration 100\nPlayer.DamageAV Dehydration 20\nSetFunctionValue 0");
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetBaseAV Dehydration)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetAV Dehydration)"), 120.0);
+    run_num(&mut g, "Player.ModAV Dehydration 30\nSetFunctionValue 0");
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetBaseAV Dehydration)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetAV Dehydration)"), 150.0);
+}

@@ -133,12 +133,7 @@ impl Game<'_> {
 
     /// Raise (or, negative, lower) a need of the player, never below 0.
     pub(crate) fn shift_need(&mut self, code: u16, by: f64) {
-        let p = FormId::PLAYER_REF;
-        let now = fa::actor_value(self, p, code).unwrap_or(0.0);
-        let to = (now + by).max(0.0);
-        if to != now {
-            let _ = fa::shift_base(self, p, code, to - now);
-        }
+        let _ = fa::shift_growing(self, FormId::PLAYER_REF, code, by);
     }
 
     /// One frame of game-mode time for the player's needs and stages.

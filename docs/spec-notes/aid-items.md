@@ -593,3 +593,6 @@ An aid item's EFFECTS card (pipboy.md §5) is what using it would do to the play
   owner's screenshot, its record's instant effect 30, which fits a Medicine potency near
   1.33].
 - Without the scripts' game the record's effects are listed as before (no conditions).
+
+### Growing AVs pool placement (`w6d7_22`)
+- **Damage pool leaves `GetBaseAV` and `GetPermanentAV` unchanged** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_22_growing_avs_pool_and_aid_mutations` in `tools/capture/nvse/catalogs/wave6d7_growing_avs_pool.json`]: `DamageAV`, `RestoreAV`, and aid mutations on `RadiationRads` and `Dehydration` leave `GetBaseAV` and `GetPermanentAV` unchanged at `100.0` while moving the current value via the damage pool, whereas `ModAV Dehydration 30` raises the current value to `150.0` while keeping `GetBaseAV = 100.0` (`PROBE|w6d7_22_growing_avs_pool_and_aid_mutations|radDmg(b=100.0,p=100.0,c=125.0,m0=0.0,m2=0.0)|radRest(b=100.0,c=115.0)|radWat(b=100.0,c=120.0)|dehDmg(b=100.0,c=120.0,m2=0.0)|dehMod(b=100.0,c=150.0)`).
