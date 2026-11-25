@@ -692,10 +692,13 @@ All of it is in `GameSnapshot`.
   heard and subtitled where the actor stands, like a SayTo line, and it does not hold
   the actor in place: the actor goes about its package while it speaks [design, from the
   statement: the player walks away]. It is never cut: another line of the actor, the
-  actor disabled, dead or deleted, or a fight ends it as if said to the end, as a
+  actor disabled, dead or deleted, or a fight (`State::Combat`, #883) ends it as if said to the end, as a
   Goodbye greeting at the player [hypothesis: a Goodbye line's end result sets quest
   stages and must not be lost; the owner's catch-all statement of 2026-10-27 was about
-  the greeting]. Game time and GameMode scripts run while it is said, as for any line
+  the greeting]. Searching states (`State::Alert` and `State::Lost`, #3663) do not end a
+  Goodbye greeting or farewell prematurely, so a Goodbye greeting started while its
+  speaker is searching plays out instead of being discarded on the same frame
+  [hypothesis: an NPC that only searches can be talked to]. Game time and GameMode scripts run while it is said, as for any line
   said in the world. Not moved, as they are not chosen: a Goodbye greeting that opens
   a conversation (a force greet, above), a Goodbye line of a topic named by
   StartConversation, and a Goodbye follow-up; each ends its conversation when it is

@@ -3051,7 +3051,7 @@ mod tests {
     }
 
     /// In Hardcore code shows the three buttons and each need's page reads its figure, on RAD's
-    /// shape [hypothesis]; out of it a page of theirs goes back among those shown.
+    /// shape (see production Hardcore status panel above); out of it a page of theirs goes back among those shown.
     #[test]
     fn hardcore_shows_its_buttons_and_pages() {
         let (mut ui, mut v, mut t) = (tree(), view(), status_tiles());
