@@ -109,8 +109,10 @@ pub fn get_concussed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
 /// `actor.GetKnockedState`: −1 knocked out by fatigue, 0 normal, 1 knocked out
 /// (unconscious essentials, paralysis, negative fatigue), 2 knocked down [documented:
 /// GECK wiki GetKnockedState]. Here −1 for a fatigue knockout, 1 for an essential one
-/// (`crate::unconscious`), a paralysis [documented] and SetUnconscious [hypothesis for
-/// SetUnconscious], 2 for an explosion's knockdown, else 0. An actor PushActorAway laid down reads 0 until it is
+/// (`crate::unconscious`) or paralysis [documented], 2 for an explosion's knockdown, else 0.
+/// `SetUnconscious 1` alone reads 0 (`GetUnconscious == 1`, `GetLifeState == 3`) [observed:
+/// 2026-11-25, FNV 1.4.0.525, `w6d8_10_set_unconscious_knocked_lifestate_resurrect`:
+/// `u1=1 k1=0 l1=3 d1=0 u2=1 k2=0 l2=3 d2=0 u3=0 k3=0 l3=0 u4=0`]. An actor PushActorAway laid down reads 0 until it is
 /// up, also when it is knocked out meanwhile [documented: the page's notes]. Getting up
 /// reads 0 [observed: an essential RingoRef knocked out by KillActor read 1 for 10 s and 0
 /// from the sample his get-up began, AI observer campaign `functions_round` 2026-10-19,
@@ -127,11 +129,14 @@ pub fn get_knocked_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, St
             Cause::KnockedDown => 2.0,
             Cause::Pushed => 0.0,
         },
-        None if g.extra.get(&r).is_some_and(|e| e.unconscious) => 1.0,
         None => 0.0,
     };
     Ok(Value::Num(state))
 }
+
+#[cfg(test)]
+#[path = "../w6d8_unconscious_knocked_tests.rs"]
+mod w6d8_unconscious_knocked_tests;
 
 /// `source.PushActorAway target force`: knocks the target down and throws it away from
 /// the source with the force (towards it when negative; straight up without a source); no

@@ -299,10 +299,11 @@ fn set_unconscious_holds_a_pushed_actor_down_until_it_is_cleared() {
     ask(&mut g, Some(THUG_REF), SET_UNCONSCIOUS, &[num(0.0)]);
     wait(&mut g, 0.1);
     assert!(g.knockout(THUG_REF).is_some_and(|k| !k.lying()), "gets up once cleared");
-    // SetUnconscious alone (robots in pods, sleepers) lays nobody down.
+    // SetUnconscious alone (robots in pods, sleepers) lays nobody down and reads
+    // GetKnockedState 0 (observed: w6d8_10_set_unconscious_knocked_lifestate_resurrect).
     ask(&mut g, Some(HERO_REF), SET_UNCONSCIOUS, &[num(1.0)]);
     assert!(g.knockout(HERO_REF).is_none() && g.is_out_cold(HERO_REF));
-    assert_eq!(knocked_state(&mut g, HERO_REF), 1.0);
+    assert_eq!(knocked_state(&mut g, HERO_REF), 0.0);
 }
 
 /// The Revive Unconscious Companions tweak: only a companion knocked out at zero health,

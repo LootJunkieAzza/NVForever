@@ -333,7 +333,7 @@ fn knockouts_causes_of_death_armour_shots_and_styles() {
     let mut g = game(&f);
     assert_eq!(ask(&mut g, GUARD_REF, GET_KNOCKED_STATE, &[]), 0.0);
     g.extra.entry(GUARD_REF).or_default().unconscious = true;
-    assert_eq!(ask(&mut g, GUARD_REF, GET_KNOCKED_STATE, &[]), 1.0);
+    assert_eq!(ask(&mut g, GUARD_REF, GET_KNOCKED_STATE, &[]), 0.0);
     // Alive: no cause; killed by a weaponless hit: hand to hand; KillActor alone: none.
     assert_eq!(ask(&mut g, RAIDER_REF, GET_CAUSE_OF_DEATH, &[]), -1.0);
     g.hit(RAIDER_REF, 500.0, HitInfo { attacker: Some(GUARD_REF), location: 0, ..HitInfo::default() });

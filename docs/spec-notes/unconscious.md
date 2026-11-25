@@ -171,7 +171,11 @@ on screen).
    it (§3); further hits still land (health damage on a fatigue knockout; an essential
    stays at 1).
 8. **Scripts**: GetKnockedState is −1 for a fatigue knockout, 1 for an essential one or
-   SetUnconscious [hypothesis for SetUnconscious, kept from before], else 0; GetUnconscious
+   paralysis, and **0** for `SetUnconscious 1` alone (which sets `GetUnconscious == 1`,
+   `GetLifeState == 3`, clears `GetDetected`, and is cleared by `ResurrectActor 0`)
+   [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_10_set_unconscious_knocked_lifestate_resurrect`:
+   `PROBE|w6d8_10_set_unconscious_knocked_lifestate_resurrect|u0=0 k0=0 l0=0 u1=1 k1=0 l1=3 d1=0 u2=1 k2=0 l2=3 d2=0 u3=0 k3=0 l3=0 u4=0`;
+   no DLL, PDB, or third-party source consulted]; GetUnconscious
    reads only SetUnconscious; GetDead is 0 for a knocked-out essential; IsFacingUp and
    IsLeftUp read the side the engine saw the body come to rest on (§4), 1 before that
    [hypothesis]. ResurrectActor ends a knockout as well. GetOwnerLastTarget is the actor
