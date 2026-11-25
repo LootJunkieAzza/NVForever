@@ -1598,6 +1598,39 @@ impl Combat {
         Some(if self.equipped.flatten() == Some(id) && self.mods != 0 { w.modded(self.mods) } else { w.clone() })
     }
 
+    /// Effective `(speed, gravity)` in game units for a non-hitscan, gravity-affected
+    /// projectile fired by `shooter` with `weapon` (thrown weapons, lobbers) [design,
+    /// #3062]. Returns `None` for hitscan, beam, or zero-gravity shots.
+    pub fn projectile_ballistics(
+        &self,
+        world: &fnv_sim::World<'_>,
+        game: Option<&fnv_game::game::Game<'_>>,
+        shooter: FormId,
+        weapon: FormId,
+        world_gravity: f32,
+    ) -> Option<(f32, f32)> {
+        let carried = |a: FormId| world.peek(shooter).and_then(|st| st.inventory.as_ref()).is_some_and(|i| i.count(a) > 0);
+        let ammo = self.forms.ammo_for(weapon, carried);
+        let chain = self.forms.chain(weapon, ammo)?;
+        let launch = projectile_launch::resolve(&self.forms, &chain, game);
+        let p = launch.projectile.as_ref()?;
+        if p.has("Hitscan") || matches!(p.kind.as_deref(), Some("Beam") | Some("Continuous Beam")) {
+            return None;
+        }
+        let gravity = p.fall() * world_gravity;
+        if gravity <= 0.0 {
+            return None;
+        }
+        let mut speed = p.speed;
+        let mods = world.peek(shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(weapon));
+        if let Some(m) = self.forms.weapons.get(&weapon).filter(|_| mods != 0).and_then(|w| w.modded(mods).projectile_speed_mult) {
+            if m > 0.0 {
+                speed *= m;
+            }
+        }
+        (speed > 0.0).then_some((speed, gravity))
+    }
+
     /// The Fists (WEAP `Fists`), the unarmed weapon.
     pub fn fists_id(&self) -> Option<FormId> {
         self.fists
@@ -3229,6 +3262,31 @@ fn world_only() -> Filter {
 fn world_surface(phys: &mut PhysState, from: V3, dir: V3, reach: f32) -> Option<(V3, V3)> {
     let h = phys.world.queries().ray(from, dir, reach, &world_only())?;
     Some((h.point, h.normal))
+}
+
+/// For a gravity-affected `Always Hit` (`By::sure`) projectile that finished flight
+/// without hitting its target (ground/rock impact or expiry), resolve the live non-ghost
+/// target actor so thrown `Use Weapon` packages do not drop harmlessly beside a moving
+/// or partially obstructed target [design, #3062]. Zero-gravity shots, normal throws
+/// (`sure: None`), dead targets, non-actors, and ghosts are left untouched.
+fn sure_gravity_actor(
+    world: &PhysView<'_>,
+    script: Option<&ScriptState>,
+    sure: Option<FormId>,
+    gravity: f32,
+) -> Option<(ActorId, V3)> {
+    if gravity <= 0.0 {
+        return None;
+    }
+    let target = sure?;
+    if script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.extra.get(&target).is_some_and(|e| e.dead)) {
+        return None;
+    }
+    let aid = if target == FormId::PLAYER_REF { PLAYER } else { target.0 as ActorId };
+    if world.ghosts.contains(&aid) {
+        return None;
+    }
+    world.actors.iter().find(|(a, ..)| *a == aid).map(|&(a, center, _)| (a, center))
 }
 
 fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>, sim: Option<&SimState>) -> PhysView<'p> {
@@ -6004,7 +6062,20 @@ fn fly(
             }
             for e in events {
                 match e {
-                    ProjEvent::Hit { actor, part, object, point, delay, normal, material } => {
+                    ProjEvent::Hit { mut actor, mut part, mut object, mut point, mut delay, mut normal, mut material } => {
+                        if actor.is_none() {
+                            if let Some((aid, center)) = sure_gravity_actor(&world, script.as_deref(), f.by.sure, f.p.gravity) {
+                                let d = vec::sub(center, f.origin);
+                                let rev = if vec::len(d) > 1e-3 { vec::scale(d, -1.0 / vec::len(d)) } else { [0.0, 0.0, 1.0] };
+                                actor = Some(aid);
+                                part = None;
+                                object = None;
+                                point = center;
+                                delay = 0.0;
+                                normal = rev;
+                                material = None;
+                            }
+                        }
                         let from = if f.p.hitscan { f.origin } else { before };
                         let d = vec::sub(point, from);
                         let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
@@ -6035,15 +6106,32 @@ fn fly(
                     }
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
-                        f.ended_at = Some(point);
-                        if let Some(weapon) = lands {
-                            c.landed.push(LandedThrow { weapon, proj: f.proj, point, normal: None, dir: f.dir, struck: None, by: f.by.actor });
-                        }
-                        if f.tracer {
-                            c.marks.push(line(point, hold.unwrap_or(0.08)));
-                        }
-                        if at_once && f.shown {
-                            c.ghosts.push(ghost(point, false));
+                        if let Some((aid, center)) = sure_gravity_actor(&world, script.as_deref(), f.by.sure, f.p.gravity) {
+                            let d = vec::sub(center, f.origin);
+                            let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { f.dir };
+                            let normal = vec::scale(dir, -1.0);
+                            let since = c.time - f.p.age;
+                            c.pending.push(Pending { due: c.time, actor: Some(aid), part: None, object: None, point: center, dir, normal, material: None, projectiles: f.projectiles_per_shot, force: f.force, by: f.by, rref: f.rref.take(), since, speed_mult: f.speed_mult });
+                            if let Some(weapon) = lands {
+                                c.landed.push(LandedThrow { weapon, proj: f.proj, point: center, normal: Some(normal), dir: f.dir, struck: f.by.sure, by: f.by.actor });
+                            }
+                            if f.tracer {
+                                c.marks.push(line(center, hold.unwrap_or(0.08)));
+                            }
+                            if at_once && f.shown {
+                                c.ghosts.push(ghost(center, aid == PLAYER));
+                            }
+                        } else {
+                            f.ended_at = Some(point);
+                            if let Some(weapon) = lands {
+                                c.landed.push(LandedThrow { weapon, proj: f.proj, point, normal: None, dir: f.dir, struck: None, by: f.by.actor });
+                            }
+                            if f.tracer {
+                                c.marks.push(line(point, hold.unwrap_or(0.08)));
+                            }
+                            if at_once && f.shown {
+                                c.ghosts.push(ghost(point, false));
+                            }
                         }
                     }
                 }
@@ -8334,6 +8422,72 @@ mod tests {
             sim.world.equip(FormId::PLAYER_REF, PISTOL).unwrap();
             equip_sync_step(&mut combat, &mut sim, &mut anim, true);
             assert_eq!(combat.magazine_for_save(), Some((PISTOL.0, 12)));
+        }
+
+        #[test]
+        fn projectile_ballistics_identifies_gravity_projectiles_and_ignores_hitscan_or_flat() {
+            let (sim, mut combat) = make_sim_and_combat();
+            const TOMAHAWK: FormId = FormId(0x9001);
+            const TOMAHAWK_PROJ: FormId = FormId(0x9002);
+            const HITSCAN_GUN: FormId = FormId(0x9003);
+            const HITSCAN_PROJ: FormId = FormId(0x9004);
+            const FLAT_GUN: FormId = FormId(0x9005);
+            const FLAT_PROJ: FormId = FormId(0x9006);
+
+            combat.forms.weapons.insert(TOMAHAWK, WeaponStats { projectile: Some(TOMAHAWK_PROJ), ..Default::default() });
+            combat.forms.projectiles.insert(TOMAHAWK_PROJ, ProjectileStats {
+                kind: Some("Missile".into()),
+                flags: vec!["Can Be Picked Up".into()],
+                speed: 1200.0,
+                gravity: 1.0,
+                range: 5000.0,
+                ..Default::default()
+            });
+            combat.forms.weapons.insert(HITSCAN_GUN, WeaponStats { projectile: Some(HITSCAN_PROJ), ..Default::default() });
+            combat.forms.projectiles.insert(HITSCAN_PROJ, ProjectileStats {
+                kind: Some("Missile".into()),
+                flags: vec!["Hitscan".into()],
+                speed: 5000.0,
+                gravity: 1.0,
+                range: 5000.0,
+                ..Default::default()
+            });
+            combat.forms.weapons.insert(FLAT_GUN, WeaponStats { projectile: Some(FLAT_PROJ), ..Default::default() });
+            combat.forms.projectiles.insert(FLAT_PROJ, ProjectileStats {
+                kind: Some("Missile".into()),
+                speed: 4000.0,
+                gravity: 0.0,
+                range: 5000.0,
+                ..Default::default()
+            });
+
+            let g = 686.7;
+            assert_eq!(combat.projectile_ballistics(&sim.world, None, FormId::PLAYER_REF, TOMAHAWK, g), Some((1200.0, g)));
+            assert_eq!(combat.projectile_ballistics(&sim.world, None, FormId::PLAYER_REF, HITSCAN_GUN, g), None);
+            assert_eq!(combat.projectile_ballistics(&sim.world, None, FormId::PLAYER_REF, FLAT_GUN, g), None);
+        }
+
+        #[test]
+        fn sure_gravity_actor_resolves_only_live_non_ghost_actor_targets_for_gravity_shots() {
+            let mut phys = PhysState::default();
+            let guard = FormId(0x0101_0055);
+            let ghost_ref = FormId(0x0101_0056);
+            let rock_ref = FormId(0x0101_0057);
+            phys.world.set_actor_volume(guard.0, fnv_phys::HitVolume { feet: [100.0, 200.0, 50.0], radius: 24.0, height: 120.0, dead: false });
+            phys.world.set_actor_volume(ghost_ref.0, fnv_phys::HitVolume { feet: [300.0, 200.0, 50.0], radius: 24.0, height: 120.0, dead: false });
+            let mut v = view(&mut phys, None, None);
+            v.ghosts.push(ghost_ref.0 as ActorId);
+
+            // Live non-ghost actor with gravity > 0 resolves to the actor's center.
+            let got = sure_gravity_actor(&v, None, Some(guard), 686.7).expect("live actor resolved");
+            assert_eq!(got.0, guard.0 as ActorId);
+            assert!((got.1[0] - 100.0).abs() < 1e-3 && (got.1[1] - 200.0).abs() < 1e-3);
+
+            // Zero gravity, non-sure, ghost, and non-actor targets are never redirected.
+            assert_eq!(sure_gravity_actor(&v, None, Some(guard), 0.0), None);
+            assert_eq!(sure_gravity_actor(&v, None, None, 686.7), None);
+            assert_eq!(sure_gravity_actor(&v, None, Some(ghost_ref), 686.7), None);
+            assert_eq!(sure_gravity_actor(&v, None, Some(rock_ref), 686.7), None);
         }
     }
 }

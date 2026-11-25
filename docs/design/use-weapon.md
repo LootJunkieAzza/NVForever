@@ -79,7 +79,12 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
   retain their existing space handling.
   Shots at a marker count even without a collision; finite script uses end when spent,
   and Repeat Fire continues while its package holds.
-- **Always Hit**: a cone of 0 (straight at the aim point; cover between can still stop it).
+- **Always Hit**: a cone of 0 (straight at the aim point for zero-gravity/hitscan shots;
+  gravity-affected thrown/ballistic projectiles solve their low ballistic arc via
+  `fnv_combat::vats::lob_dir` and, when `Always Hit` is set, still resolve onto their
+  live non-ghost actor target if a moving target or cover would otherwise make the throw
+  hit the ground or expire [design, #3062]). Cover between can still stop straight
+  zero-gravity shots.
 - **Do No Damage**: `ActorFire::harmless` → `By::harmless`: the projectile flies, strikes,
   shows its impact and plays its sound. It runs the hit reference's OnHit/OnHitWith
   through `Game::harmless_hit`, without damage or an explosion [design: `nvf-play/src/combat.rs`].

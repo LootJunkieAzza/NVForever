@@ -82,6 +82,18 @@ mod object_tests;
 /// blows) [design]. A gun's shots have [`shot_facing`].
 pub const USE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
 
+/// Direction to launch a shot from `origin` to strike `target`: for gravity-affected
+/// projectiles (thrown weapons such as tomahawks, knives, spears, and lobbers) solve the
+/// low ballistic arc (`fnv_combat::vats::lob_dir`), falling back to 45° (`lob_far`) when
+/// out of ballistic reach; hitscan and zero-gravity shots keep the straight line
+/// [design, #3062].
+pub(crate) fn aim_dir(origin: V3, target: V3, ballistics: Option<(f32, f32)>, straight: V3) -> V3 {
+    match ballistics {
+        Some((speed, gravity)) => fnv_combat::vats::lob_dir(origin, target, speed, gravity).unwrap_or_else(|| fnv_combat::vats::lob_far(origin, target)),
+        None => straight,
+    }
+}
+
 /// How far off its heading a weapon use's shooter may have its target and fire, radians:
 /// the combat gunmen's rule (`npc_combat::fire_facing`: 3°, or the weapon's Aim Arc when
 /// above 0) [design: issue #2725. A use's shot flies from the eyes straight at the
@@ -571,8 +583,11 @@ pub(crate) fn shoot(
                         shooter.last_shot = Some(clock);
                         let muzzle = muzzle_at.get(&id).copied();
                         let to = vec::sub(tchest, eyes);
-                        let aim = vec::scale(to, 1.0 / vec::len(to).max(1.0));
-                        let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
+                        let straight = vec::scale(to, 1.0 / vec::len(to).max(1.0));
+                        let origin = vec::add(eyes, vec::scale(straight, MUZZLE_AHEAD));
+                        let world_gravity = phys.as_deref().map_or(fnv_phys::PhysParams::default().gravity, |p| p.world.params.gravity);
+                        let ballistics = c.projectile_ballistics(&g.world, Some(g), me, gun, world_gravity);
+                        let aim = aim_dir(origin, tchest, ballistics, straight);
                         let cone = if w.always_hit {
                             0.0
                         } else {
@@ -1126,6 +1141,139 @@ mod tests {
         assert!(!acts_on(&there, false), "no target position");
         assert!(!acts_on(&walking, true), "still on its way to its stand");
         assert!(!acts_on(&walking, false));
+    }
+
+    /// #3062: a thrown weapon (gravity-affected Missile such as Honest Hearts' tomahawk)
+    /// aimed straight at the target drops into the ground short of it; solving the ballistic
+    /// arc with `aim_dir` pitches the throw up so it flies straight into the target's chest.
+    #[test]
+    fn thrown_use_weapon_aim_dir_hits_target_on_ballistic_arc_instead_of_ground() {
+        use fnv_combat::data::ProjectileStats;
+        use fnv_combat::projectile::{ActorId, CombatWorld, ProjEvent, Projectile, WorldHit};
+        use fnv_combat::tuning::CombatTuning;
+
+        struct RangeWorld {
+            target_id: ActorId,
+            target_pos: V3,
+            target_radius: f32,
+            floor_z: f32,
+        }
+        impl CombatWorld for RangeWorld {
+            fn ray(&self, from: V3, to: V3, _ignore: &[ActorId]) -> Option<WorldHit> {
+                let d = vec::sub(to, from);
+                let len = vec::len(d);
+                if len < 1e-5 {
+                    return None;
+                }
+                let dir = vec::scale(d, 1.0 / len);
+                // Sphere test for target's chest hit volume.
+                let oc = vec::sub(from, self.target_pos);
+                let b = vec::dot(oc, dir);
+                let c = vec::dot(oc, oc) - self.target_radius * self.target_radius;
+                let disc = b * b - c;
+                let actor_t = if disc >= 0.0 {
+                    let t = -b - disc.sqrt();
+                    (t >= 0.0 && t <= len).then_some(t)
+                } else {
+                    None
+                };
+                // Ground plane at floor_z.
+                let floor_t = if from[2] > self.floor_z && to[2] <= self.floor_z && d[2].abs() > 1e-5 {
+                    let t = (self.floor_z - from[2]) / d[2] * len;
+                    (t >= 0.0 && t <= len).then_some(t)
+                } else {
+                    None
+                };
+                match (actor_t, floor_t) {
+                    (Some(at), Some(ft)) if at <= ft => Some(WorldHit {
+                        point: vec::add(from, vec::scale(dir, at)),
+                        normal: vec::scale(dir, -1.0),
+                        distance: at,
+                        actor: Some(self.target_id),
+                        part: None,
+                        object: None,
+                        small_transparent: false,
+                        material: None,
+                    }),
+                    (Some(at), None) => Some(WorldHit {
+                        point: vec::add(from, vec::scale(dir, at)),
+                        normal: vec::scale(dir, -1.0),
+                        distance: at,
+                        actor: Some(self.target_id),
+                        part: None,
+                        object: None,
+                        small_transparent: false,
+                        material: None,
+                    }),
+                    (_, Some(ft)) => Some(WorldHit {
+                        point: vec::add(from, vec::scale(dir, ft)),
+                        normal: [0.0, 0.0, 1.0],
+                        distance: ft,
+                        actor: None,
+                        part: None,
+                        object: None,
+                        small_transparent: false,
+                        material: None,
+                    }),
+                    (None, None) => None,
+                }
+            }
+            fn actors_near(&self, _point: V3, _radius: f32) -> Vec<(ActorId, V3)> {
+                vec![(self.target_id, self.target_pos)]
+            }
+        }
+
+        // White Leg throwing a tomahawk (1200 units/s, gravity 1.0) across 900 units.
+        let origin = [0.0, 0.0, 110.0];
+        let target = [0.0, 900.0, 80.0];
+        let gravity = 686.7;
+        let speed = 1200.0;
+        let to = vec::sub(target, origin);
+        let straight = vec::scale(to, 1.0 / vec::len(to));
+        let proj = ProjectileStats {
+            kind: Some("Missile".into()),
+            flags: vec!["Can Be Picked Up".into()],
+            speed,
+            gravity: 1.0,
+            range: 5000.0,
+            ..Default::default()
+        };
+        let world = RangeWorld { target_id: 42, target_pos: target, target_radius: 24.0, floor_z: 0.0 };
+
+        // Control: straight-line aim drops into the floor short of the guard.
+        let mut p_straight = Projectile::spawn(&proj, None, origin, straight, Some(1), gravity, &CombatTuning::default());
+        let mut straight_hit_actor = None;
+        for _ in 0..200 {
+            for ev in p_straight.step(&world, 1.0 / 60.0) {
+                if let ProjEvent::Hit { actor, .. } = ev {
+                    straight_hit_actor = Some(actor);
+                }
+            }
+            if straight_hit_actor.is_some() {
+                break;
+            }
+        }
+        assert_eq!(straight_hit_actor, Some(None), "straight aim drops into the ground without hitting the guard");
+
+        // Fixed: ballistic aim_dir pitches the throw up and strikes the guard directly.
+        let arc = aim_dir(origin, target, Some((speed, gravity)), straight);
+        assert!(arc[2] > straight[2], "ballistic aim pitches up above the straight line");
+        let mut p_arc = Projectile::spawn(&proj, None, origin, arc, Some(1), gravity, &CombatTuning::default());
+        let mut arc_hit_actor = None;
+        for _ in 0..200 {
+            for ev in p_arc.step(&world, 1.0 / 60.0) {
+                if let ProjEvent::Hit { actor, .. } = ev {
+                    arc_hit_actor = Some(actor);
+                }
+            }
+            if arc_hit_actor.is_some() {
+                break;
+            }
+        }
+        assert_eq!(arc_hit_actor, Some(Some(42)), "ballistic aim strikes the target actor directly");
+
+        // Zero-gravity shots keep the exact straight vector.
+        assert_eq!(aim_dir(origin, target, None, straight), straight);
     }
 }
 
