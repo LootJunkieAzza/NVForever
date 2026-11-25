@@ -1106,13 +1106,19 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
                 None => XVal::Num(-1.0),
             }
         }
-        // Without an index, the last form [hypothesis: the page gives the index as
-        // optional without a default].
+        // Negative index (or omitted) removes and returns the last form when non-empty
+        // [observed: `w6d11_03_listremove_and_listremoventh_edges`,
+        // `nth(n1=1,c2=2,m1=1,c3=1,m2=1,c4=2)|big=1,clr=0,emp=1,bad=0`].
         "listremoventhform" => {
             let l = as_form(args.first()).unwrap_or(FormId(0));
             let list = g.edited_list(l);
-            let n = int_of(args.get(1), list.len() as i64 - 1);
-            match usize::try_from(n).ok().filter(|&n| n < list.len()) {
+            let n = int_of(args.get(1), -1);
+            let idx = if n < 0 {
+                list.len().checked_sub(1)
+            } else {
+                usize::try_from(n).ok().filter(|&n| n < list.len())
+            };
+            match idx {
                 Some(n) => XVal::Ref(list.remove(n).0),
                 None => XVal::Ref(0),
             }
@@ -1141,3 +1147,7 @@ pub(crate) fn shown_name(g: &Game, f: FormId) -> String {
     let b = crate::functions::base_of(g, f).filter(|&b| b != f).unwrap_or(f);
     named(b).or_else(|| (g.data.sig(b) == Some(*b"STAT")).then(|| "<no name>".to_string())).unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "w6d11_listremoventh_tests.rs"]
+mod w6d11_listremoventh_tests;

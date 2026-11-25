@@ -108,3 +108,11 @@ generic.5.ref.0 and generic.5.base.0 both give Doc Mitchell's first package].
 Changes last for the session and are not saved [hypothesis, as ListAddForm's are
 documented to be]. A change to an actor's 3D (head parts) shows once its 3D reloads
 [documented: GenericAddForm, "until it reloads"].
+
+On regular FormLists, `ListRemoveNthForm` with negative indices (`-1`, `-2`) removes and
+returns the last element when non-empty (and returns `0` on out-of-range `999` or empty
+lists) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas
+1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only
+`PrintToConsole` probe `w6d11_03_listremove_and_listremoventh_edges`
+(`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+`nth(n1=1,c2=2,m1=1,c3=1,m2=1,c4=2)|big=1,clr=0,emp=1,bad=0`; no DLL or source consulted].
