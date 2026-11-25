@@ -67,9 +67,24 @@ mod attack_anims;
 mod authored_pose;
 mod cell_buffer;
 mod cell_resets;
+mod cloud_noise;
 mod cloud_shadows;
+mod medium;
+mod medium_air;
+mod medium_air_compose;
+mod medium_air_grid;
+mod medium_air_light;
+mod volumetric_clouds;
+mod volumetric_clouds_light;
+mod volumetric_clouds_lightvol;
+mod volumetric_clouds_model2;
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+mod volumetric_clouds_tune;
+mod volumetric_clouds_wisp;
+mod medium_air_demand;
 mod alert;
 mod anim_sounds;
+mod dev_aids;
 mod cpu_placement;
 mod crash;
 mod events_log;
@@ -205,10 +220,13 @@ mod sun_heightfield;
 mod imagespace;
 mod imposters;
 mod sky;
+mod solid_cores;
 mod night_sky;
 mod start_times;
 mod sun_visibility;
 mod weather_fx;
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+mod weather_preview;
 mod limping;
 mod sneaking;
 mod swimming;
@@ -340,6 +358,11 @@ struct Args {
     /// weather system's rolls, docs/spec-notes/world.md §6; the parity lab's frames pin it).
     #[arg(long)]
     weather: Option<String>,
+    /// During play, fade to this weather Editor ID, hold it briefly, then fade back to --weather
+    /// (a developer aid, dev_aids.rs: a release build does not know the option).
+    #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+    #[arg(long, requires_all = ["play", "weather"], conflicts_with = "still_sky")]
+    preview_weather: Option<String>,
     /// Seed of the weather rolls (default: a fixed one, so every run rolls the same).
     #[arg(long)]
     weather_seed: Option<u64>,
@@ -616,10 +639,11 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, volumetric-clouds, volumetric-light, aerial-perspective, night-sky-detail, distant-lights, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
-    /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
+    /// distant-objects-8 or distant-objects-12; volumetric-clouds-performance or
+    /// volumetric-clouds-high instead of volumetric-clouds, which is Normal), for comparing them one at a time.
     /// The switches on in vanilla are left on unless named off: no-glow, no-eye-adaptation,
     /// no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
@@ -1983,7 +2007,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins(night_sky::NightSkyPlugin)
-    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
+    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, volumetric_clouds::VolumetricCloudsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
+    // The volumetric medium's light in the air (#3032 stage 3; off unless its row or its debug aid asks).
+    .add_plugins((medium_air_grid::MediumAirPlugin, medium_air_light::AirLightPlugin))
+    // Its solid cores of blended shapes (only while the light is drawn).
+    .add_plugins(solid_cores::SolidCoresPlugin)
     // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
@@ -2378,7 +2406,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         }
     }
     if play.is_some() {
-        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game, sky::sync_weather_fog, sky::sync_weather_visuals).chain().before(sky::update_sky));
+        app.add_systems(Update, (script_weather, worldspace::script_sky, sky::fade_cadence, sky_follows_game, sky::sync_weather_fog, sky::sync_weather_visuals).chain().before(sky::update_sky));
+        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+        if let Some(target) = &args.preview_weather {
+            weather_preview::install(&mut app, target);
+        }
         app.add_systems(Update, settings::script_fov.before(nvf_play::PlaySet::Scripts));
         // The weather's sounds, precipitation and lightning (weather_fx.rs).
         app.add_plugins(weather_fx::WeatherFxPlugin);
@@ -2670,7 +2702,12 @@ fn start_days(day: Option<f32>, sky_day: Option<f32>, plugins: Option<f32>) -> (
 /// values, in both the `--flag value` and `--flag=value` forms), for the run that takes
 /// over a load (handoff.rs).
 fn restart_args(args: &[String]) -> Vec<String> {
-    const VALUED: [&str; 13] = ["--load", "--load-refused", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather", "--world", "--eye-height", "--size", "--window-at", "--handoff"];
+    const VALUED: &[&str] = &[
+        "--load", "--load-refused", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather",
+        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+        "--preview-weather",
+        "--world", "--eye-height", "--size", "--window-at", "--handoff",
+    ];
     let mut out = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -2739,8 +2776,9 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         bevy::core_pipeline::prepass::DepthPrepass,
         // The world, the water (which the reflection camera leaves out), the player's
         // first-person arms and seen body, the impact decals (which need this
-        // camera's prepass), and JohnnyGuitar PreIS 3D camera overlays.
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, sky::BODY_LAYER, decals::DECAL_LAYER, camera_overlay::OVERLAY_PRE_IS_LAYER]),
+        // camera's prepass), JohnnyGuitar PreIS 3D camera overlays, and the volumetric clouds
+        // (this camera alone marches them, #2991).
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, sky::BODY_LAYER, decals::DECAL_LAYER, camera_overlay::OVERLAY_PRE_IS_LAYER, volumetric_clouds::VOLUME_LAYER]),
     )).id();
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
@@ -3189,7 +3227,7 @@ mod tests {
 
     #[test]
     fn a_restart_for_a_load_drops_what_the_save_decides() {
-        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old", "--load-refused=old: why", "--size", "1600x900", "--window-at=-8,0", "--window-maximized", "--handoff", "f"].map(String::from).to_vec();
+        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--preview-weather=Rain", "--no-music", "--load", "old", "--load-refused=old: why", "--size", "1600x900", "--window-at=-8,0", "--window-maximized", "--handoff", "f"].map(String::from).to_vec();
         assert_eq!(restart_args(&a), ["--data", "D", "--play", "--no-music"]);
     }
 
