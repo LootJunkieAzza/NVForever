@@ -623,13 +623,13 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
 - **ResetQuest keeps a SetQuestDelay override** and zeroes the variables [observed: o41,
   VMQ03aTimer, layer5-captures.md §5.7]; `reset_quest` keeps it (issue #1109).
 - **ResetQuest from another script stops a non-start-enabled quest** [observed: o41,
-  `VMQ03aTimer` (`flags = 0`) called from a job script: GetQuestRunning 0 after it and no
-  GameMode run until StartQuest, layer5-captures.md §5.7; mcm976, `MCMList` (`flags = 0`)
-  stopped, menu-xml.md §10.1]; `reset_quest` stops it (issue #1232). A **Start Game
-  Enabled** quest stays running after ResetQuest even when reset from another script
-  [hypothesis, not observed: catalogue summary says ResetQuest returns state to defaults,
-  and MCM Extender's `OnPauseMenuClose.gek` resets `MCM` (`flags = 0x19`) without a
-  following `StartQuest`, issue #3916]. A reset from the quest's own script or stage
+  VMQ03aTimer called from a job script: GetQuestRunning 0 after it and no GameMode run
+  until StartQuest, layer5-captures.md §5.7; mcm976, MCMList stopped, menu-xml.md §10.1];
+  `reset_quest` stops it (issue #1232). A **Start Game Enabled** quest stays running after
+  ResetQuest even when reset from another script [hypothesis, not observed: catalogue
+  summary says ResetQuest returns state to defaults, and MCM Extender's
+  `OnPauseMenuClose.gek` resets the Start Game Enabled quest `MCM` (`docs/spec-notes/mcm.md`
+  §2.5) without a following `StartQuest`, issue #3916]. A reset from the quest's own script or stage
   result leaves it running [hypothesis, not observed: the Emergency Radio,
   VEFR01NCRGood2EmergencyRadio, resets itself in its MenuMode and goes on to set up the
   supply drop; observer check 66].

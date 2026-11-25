@@ -179,9 +179,10 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
     let ui = &mut game.ui_tree;
     let open = |ui: &Ui| ui.get_float(&format!("{MCM}/_Menu")) == Some(1.0);
     // The click is held until MCM's window is open, at most [`CLICK_FOR`] frames: MCM skips
-    // a click in the frame after it reset itself (its `_UnClick`), and its XML expression
-    // re-evaluates `_clicked` back to 0 when `_UnClick` toggles, so keep asserting `1.0`
-    // while holding [observed: MCM's script source and MCM.xml; design: issue #3916].
+    // a click in the frame after it reset itself (its `_UnClick`) [observed: MCM's script
+    // source; the original opened with `_clicked` left at 1, menu-xml.md §10.1]. Keep
+    // asserting `1.0` while holding so `_UnClick` re-evaluations do not drop the held click
+    // before MCM opens [design: issue #3916].
     let clicked = format!("{MCM_TRIGGER}/_clicked");
     if click_now(page, ui.find_tile(MCM_TRIGGER).is_some(), open(ui), listed) {
         ui.set_float(&clicked, 1.0);
