@@ -97,7 +97,10 @@ fn compiled_template_edits_reach_the_projection_at_cell_application_boundaries()
     assert_eq!(far(&a, main), 1000.0, "the cell's own clip wins when inheritance is cleared");
     set(&mut g, "SetCellFlag OwnedLightCell 15 1\nSetCellLightingTemplate OwnedLightCell 0");
     apply(&mut a, &w, Some(&g), CELL);
-    assert_eq!(far(&a, main), 1000.0, "explicitly removing the template does not resurrect the original");
+    assert_eq!(far(&a, main), OUTDOOR_FAR, "explicit null 0 is a no-op and keeps the active template");
+    set(&mut g, "SetCellLightingTemplate OwnedLightCell");
+    apply(&mut a, &w, Some(&g), CELL);
+    assert_eq!(far(&a, main), 1000.0, "omitting the template arg clears it and does not resurrect the original");
     assert_eq!(far(&a, other), 12345.0);
 }
 
