@@ -209,6 +209,30 @@ fn center_of_the_bounds() {
     assert!((n(&mut g, "BoxRef.GetCenterPos Z") - 111.5).abs() < 1e-3);
     assert!((n(&mut g, "BoxRef.GetCenterPos X") - 300.0).abs() < 1e-3);
     assert!((n(&mut g, "BoxRef.GetCenterPos Y") - 400.0).abs() < 1e-3);
+    // Asymmetric OBND with non-zero Z heading: GetCenterPos does NOT rotate OBND center
+    // [observed: w6d4_17_center_pos_rotated_and_pos_str_edges].
+    const ASYM: u32 = 0x970;
+    const ASYM_REF: u32 = 0x971;
+    let asym = edid(b"CONT", ASYM, "AsymDresser", &[sub(b"OBND", i16s(&[-35, -50, -98, 11, 47, 70]))]);
+    let mut data_bytes = [f32b(100.0), f32b(200.0), f32b(300.0), f32b(0.0), f32b(0.0), f32b(5.20_f32)].concat();
+    let asym_ref = record(b"REFR", 0, ASYM_REF, &[sub(b"EDID", z("AsymRef")), sub(b"NAME", ASYM.to_le_bytes().to_vec()), sub(b"DATA", std::mem::take(&mut data_bytes))]);
+    let cell = edid(b"CELL", 0x972, "AsymCell", &[sub(b"FULL", z("Asym")), sub(b"DATA", vec![1])]);
+    let children = group(0x972u32.to_le_bytes(), 6, &group(0x972u32.to_le_bytes(), 9, &asym_ref));
+    let raw = [plugin_bytes(), top(b"CONT", &asym), top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat())))].concat();
+    let plugins = vec![Plugin::parse(&raw, "UnlistedAsym.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f2 = Fixture { data, forms, refs };
+    let mut g2 = game(&f2);
+    assert!((n(&mut g2, "AsymRef.GetCenterPos X") - 88.0).abs() < 1e-3);
+    assert!((n(&mut g2, "AsymRef.GetCenterPos Y") - 198.5).abs() < 1e-3);
+    assert!((n(&mut g2, "AsymRef.GetCenterPos Z") - 286.0).abs() < 1e-3);
 }
 
 #[test]

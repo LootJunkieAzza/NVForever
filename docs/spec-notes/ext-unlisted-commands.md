@@ -119,11 +119,17 @@ creature's body-part data, else `NULL` [hypothesis].
 
 ### 3.1 GetCenterPos
 
-`ref.GetCenterPos X|Y|Z`: the centre of the reference's bounds. A footlocker whose OBND
-runs from 0 to 23 in z read 11.5 above its position, 0 in x and y; a crate 18; Doc Mitchell
-and the player 66.2 [observed: cmd1.centerpos.*, cmd2.crates.center]. NVForever: the
-position plus the centre of the base's OBND, its x/y part turned by the heading
-[hypothesis: the symmetric boxes probed could not show the turn].
+`ref.GetCenterPos X|Y|Z`: the reference's position plus the unrotated centre of its base's
+OBND (`pos + (min + max) / 2`), without rotating X/Y by the reference's Z heading. A
+footlocker whose OBND runs from 0 to 23 in z read 11.5 above its position, 0 in x and y;
+a crate 18; Doc Mitchell and the player 66.2 [observed: cmd1.centerpos.*, cmd2.crates.center];
+and rotated asymmetric objects in `GSDocMitchellHouse` (dresser `0x001062C6` at `rotZ=5.20 rad`,
+OBND `(-35,-50,-98..11,47,70)` -> delta `(-12.0,-1.5,-14.0)`, and chair `0x001059B0` at
+`rotZ=2.47 rad`, OBND `(-30,-31,-37..30,75,88)` -> delta `(0.0,22.0,25.5)`) confirm the
+OBND offset is not rotated by heading [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30, probe
+`w6d4_17_center_pos_rotated_and_pos_str_edges` (`tools/capture/nvse/catalogs/wave6d4_center_pos.json`):
+`PROBE|w6d4_17_center_pos_rotated_and_pos_str_edges|dr(-12.0,-1.5,-14.0)|ch(0.0,22.0,25.5)|mv(ok=0,x=2352,bad=0)|cdp(0.670,0.670,0.670)|l2a(3,-1)`].
+References whose base lacks an `OBND` return `pos` unchanged [hypothesis].
 
 ### 3.2 RefToPosStr, MoveToPosStr
 

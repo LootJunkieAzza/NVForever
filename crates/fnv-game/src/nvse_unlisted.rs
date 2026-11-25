@@ -158,16 +158,18 @@ fn parse_pos(g: &Game, s: &str) -> Option<(FormId, [f32; 3])> {
     matches!(g.data.sig(place), Some(s) if &s == b"CELL" || &s == b"WRLD").then_some((place, pos))
 }
 
-/// The centre of a reference's bounds (its base's OBND, turned by its heading) in the
-/// world [observed: cmd1.centerpos.box, a footlocker with OBND z 0-23 reads 11.5 above
-/// its position, x and y 0; hypothesis: the heading turns the x/y offset] (§3.3).
+/// The centre of a reference's bounds (`pos + obnd_center`, without rotating the OBND
+/// offset by the reference's heading) [observed: cmd1.centerpos.box; 2026-11-25,
+/// `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+/// JIP LN 57.30, `w6d4_17_center_pos_rotated_and_pos_str_edges` (`wave6d4_center_pos.json`):
+/// rotated dresser (`rotZ=5.20 rad`, `OBND (-35,-50,-98..11,47,70)`) reads `(-12.0,-1.5,-14.0)`
+/// and chair (`rotZ=2.47 rad`, `OBND (-30,-31,-37..30,75,88)`) reads `(0.0,22.0,25.5)`] (§3.1).
 fn center_pos(g: &mut Game, r: FormId) -> Option<[f32; 3]> {
-    let (p, rot) = g.ref_pos_rot(r)?;
+    let (p, _) = g.ref_pos_rot(r)?;
     let b = crate::functions::base_of(g, r).and_then(|b| g.data.object_bounds.get(&b).copied());
     let Some(b) = b else { return Some(p) };
     let c = [0, 1, 2].map(|i| (f32::from(b[i]) + f32::from(b[i + 3])) / 2.0);
-    let (s, co) = rot[2].sin_cos();
-    Some([p[0] + c[0] * co + c[1] * s, p[1] - c[0] * s + c[1] * co, p[2] + c[2]])
+    Some([p[0] + c[0], p[1] + c[1], p[2] + c[2]])
 }
 
 /// CCCLocationName's text, in our own words (§5.3): indoors the cell's name, outdoors the
