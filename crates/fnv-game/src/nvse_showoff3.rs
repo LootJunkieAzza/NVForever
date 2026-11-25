@@ -282,7 +282,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let Some(a) = subject else { return Some(Ok(zero)) };
             let threshold = num(args, 0, 0.0);
             let items = equipped(g, a, num(args, 1, 0.0) as i64 as u32);
-            let n = items.iter().filter(|(i, e)| g.data.sig(g.unclone(*i)).is_some_and(|s| &s == b"WEAP" || &s == b"ARMO") && f64::from(e.condition.unwrap_or(1.0)) * 100.0 <= threshold).count();
+            let n = items.iter().filter(|(i, e)| g.data.sig(*i).is_some_and(|s| &s == b"WEAP" || &s == b"ARMO") && f64::from(e.condition.unwrap_or(1.0)) * 100.0 <= threshold).count();
             XVal::Num(n as f64)
         }
         // `[minWeight] [mask]`: the base weights, or the weights the carrier's perks,
