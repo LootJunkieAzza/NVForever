@@ -181,7 +181,9 @@ fn markers_moves_and_told_values() {
     // The moves, for the engine.
     let _ = q(&mut g, "player.Jump");
     assert_eq!(n(&mut g, "SetAutoMove 1"), 1.0);
-    // [observed: w6d3_40: SetPlayerMovementFlags and SetVelEx return 1].
+    // [observed: w6d3_40: SetPlayerMovementFlags 0 -> 1 and rDoc.SetVelEx 0 0 0 -> 1;
+    // hypothesis: non-zero args also return 1, negative/missing SetPlayerMovementFlags and
+    // bare SetVelEx return 0].
     assert_eq!(n(&mut g, "SetPlayerMovementFlags 513"), 1.0);
     assert_eq!(n(&mut g, "player.SetVelEx 10 20 300"), 1.0);
     let st = &g.other.jg9;
@@ -209,7 +211,8 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 75.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 55.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 55.0, "first person until the engine tells");
-    // Out-of-range type 3 falls through to active camera FOV (55.0 in 1P) [observed: w6d3_40].
+    // 1P Player.GetPlayerCamFOV 3 returns 55.0 [observed: w6d3_40]; generalizing to active
+    // camera FOV in 3P and for all other OOB, negative, or omitted args is [hypothesis].
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 3"), 55.0);
     g.other.jg9.third_person = true;
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 75.0);

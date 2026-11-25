@@ -409,13 +409,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // the movement keys would; the turn, swim, fly, fall and slide flags are the
         // engine's own].
         "setplayermovementflags" => {
-            // Returns 1 on valid flags [observed: w6d3_40_jg9_engine_values_and_moves: mv=1/1,1,1].
+            // `SetPlayerMovementFlags 0` returns 1 [observed: w6d3_40_jg9_engine_values_and_moves:
+            // mv=1/1,1,1]; returning 1 for non-zero flags and 0 for negative or missing arguments
+            // is [hypothesis].
             let Some(f) = int_arg(args, 0).filter(|f| *f >= 0) else { return Some(Ok(XVal::Num(0.0))) };
             g.other.jg9.move_flags = Some(f as u32);
             XVal::Num(1.0)
         }
         // ref.SetVelEx x y z: the three axes of SetVel at once [documented], units/s;
-        // returns 1 on a calling reference [observed: w6d3_40: mv=1/1,1,1].
+        // `rDoc.SetVelEx 0 0 0` returns 1 [observed: w6d3_40_jg9_engine_values_and_moves:
+        // mv=1/1,1,1]; returning 1 for non-zero velocities and 0 on bare calls without a
+        // calling reference is [hypothesis].
         "setvelex" => {
             let Some(r) = subject else { return Some(Ok(XVal::Num(0.0))) };
             let v = [num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32, num(args, 2, 0.0) as f32];
@@ -473,8 +477,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 None => outputs(g, 0.0, &[0.0; 3]),
             }
         }
-        // ref.GetPlayerCamFOV 0/1/2: 0 world FOV, 1 first-person FOV, 2 (or other OOB
-        // values such as 3) the active camera FOV [documented; observed: w6d3_40: o3=55.0].
+        // ref.GetPlayerCamFOV 0/1/2: 0 world FOV, 1 first-person FOV, 2 active camera FOV
+        // [documented]; 1P `Player.GetPlayerCamFOV 3` returns 55.0 [observed:
+        // w6d3_40_jg9_engine_values_and_moves: o3=55.0]; generalizing to active camera FOV in
+        // 3P and for all other OOB, negative, or omitted arguments is [hypothesis].
         "getplayercamfov" => {
             let which = match int_arg(args, 0) {
                 Some(0) => 0.0,
