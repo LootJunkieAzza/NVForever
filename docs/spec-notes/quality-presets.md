@@ -155,7 +155,8 @@ offered only when that file was read. The two rows it changes are the original's
 and the two that cost a Steam Deck's GPU most besides multisampling.
 
 [design] **A Steam Deck's first start** (`quality::deck_first_start`): with no
-`NVForever.ini` yet and the machine a Deck (Linux DMI `sys_vendor` and `board_vendor` both
+settings in `NVForever.ini` yet (no `[Settings]` heading: the first start and `fnvtool setup`
+write the game folder's `[Game] Path=` before any setting) and the machine a Deck (Linux DMI `sys_vendor` and `board_vendor` both
 `Valve`; test aid `NVF_PLAY_TEST_STEAM_DECK=1|0` decides instead; `first` also treats the start as a first start, for smoke homes that keep their INI), the start takes Steam Deck
 and Anti-aliasing SMAA as picks on the page would, so the INI keeps them and later starts
 are the player's. It runs after the INI is read and before the run's smooth terrain is

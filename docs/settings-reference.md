@@ -960,8 +960,9 @@ below cover them all.
   change applies at the next start. Steam Deck [design, #3909], offered whenever high.ini
   is read: High's values with Sun shadows Off (the original casts none from the world) and
   Smooth terrain Off, the two that cost a Steam Deck's GPU most. A Steam Deck's first start
-  (no NVForever.ini yet) takes it, and Anti-aliasing SMAA (a Display row, which no preset
-  sets); rows the command line names keep its values. Custom: those rows match none of
+  (no settings in NVForever.ini yet; the game folder may be there) takes it, and
+  Anti-aliasing SMAA (a Display row, which no preset sets); rows the command line names
+  keep its values. Custom: those rows match none of
   them. A preset whose file is missing is not offered. Elsewhere a fresh install's default
   stays 4 x 4 whatever the Quality row reads. The effects, anti-aliasing and the upscaler
   keep their own rows (the Enhanced effects row is gone since the menu overhaul).

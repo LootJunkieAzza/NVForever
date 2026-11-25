@@ -35907,7 +35907,7 @@ run_seconds = 12
 expect = [
   "test aid NVF_PLAY_TEST_STEAM_DECK: first",
   "quality presets: Low, Medium, High, Very High, Steam Deck from",
-  { re = 'steam deck: first start \((no|the test aid.s, ).*NVForever\.ini( kept)?\): the Steam Deck quality preset and anti-aliasing SMAA', count = 1 },
+  { re = 'steam deck: first start \((no settings in .*NVForever\.ini yet|the test aid.s, .*NVForever\.ini kept)\): the Steam Deck quality preset and anti-aliasing SMAA', count = 1 },
   "quality presets: the Quality row reads Steam Deck",
   { re = 'terrain: .* \(smoothing off: ', count = 1, label = "the first run already draws the landscape unsmoothed" },
 ]

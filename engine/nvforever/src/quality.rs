@@ -499,7 +499,15 @@ fn given_for(world: &World, settings: &Settings, key: &str) -> bool {
     settings.list()[i].switches.split(',').map(str::trim).filter(|s| !s.is_empty()).any(|s| given.given.iter().any(|g| g == s))
 }
 
-/// A Steam Deck's first start (no `NVForever.ini` yet, [`steam_deck`]): the Steam Deck
+/// Whether the INI at `path` holds settings already (a `[Settings]` heading). The first
+/// start writes the game folder (`[Game] Path=`, fnv-install) before any setting, as
+/// `fnvtool setup` and the launcher do, so an INI with no settings in it is still a first
+/// start [design, #3909].
+fn has_settings(path: &Path) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|t| t.lines().any(|l| l.trim().eq_ignore_ascii_case("[Settings]")))
+}
+
+/// A Steam Deck's first start (no settings in `NVForever.ini` yet, [`steam_deck`]): the Steam Deck
 /// preset and [`STEAM_DECK_AA`], each taken as a pick on the page would (so written to the
 /// INI, and the next start reads them as the player's). After the INI is applied and before
 /// the run's smooth terrain is fixed, so it takes effect in this run [design, #3909]. A row
@@ -508,7 +516,8 @@ fn given_for(world: &World, settings: &Settings, key: &str) -> bool {
 pub fn deck_first_start(world: &mut World) {
     let Some(path) = world.get_resource::<settings::SettingsFile>().and_then(|f| f.0.clone()) else { return };
     let deck = world.get_resource::<SteamDeck>().copied().unwrap_or_default();
-    if !deck.0 || (path.exists() && !deck.1) {
+    let kept = has_settings(&path);
+    if !deck.0 || (kept && !deck.1) {
         return;
     }
     let Some(settings) = world.get_resource::<Settings>() else { return };
@@ -529,7 +538,7 @@ pub fn deck_first_start(world: &mut World) {
             took.push(format!("anti-aliasing {STEAM_DECK_AA}"));
         }
     }
-    let why = if path.exists() && deck.1 { format!("the test aid's, {} kept", path.display()) } else { format!("no {}", path.display()) };
+    let why = if kept { format!("the test aid's, {} kept", path.display()) } else { format!("no settings in {} yet", path.display()) };
     info!("steam deck: first start ({why}): {}", if took.is_empty() { "nothing taken".to_string() } else { took.join(" and ") });
 }
 
@@ -875,24 +884,26 @@ mod tests {
         assert!(!low_only.world_mut().resource::<QualityPresets>().presets.iter().any(|p| p.label == STEAM_DECK));
     }
 
-    /// #3909: a Steam Deck's first start (no INI) takes the preset and writes it; a start
-    /// with an INI, or on another machine, takes nothing.
+    /// #3909: a Steam Deck's first start (no settings in the INI) takes the preset and
+    /// writes it; a start with settings kept, or on another machine, takes nothing.
     #[test]
     fn a_steam_decks_first_start_takes_the_preset_once() {
         let dir = std::env::temp_dir().join(format!("nvf-quality-deck-{}", std::process::id()));
         let path = dir.join("NVForever.ini");
-        for (deck, ini, taken) in [(true, false, true), (false, false, false), (true, true, false)] {
+        // (Deck, the INI's text before the start, taken): an INI with only the game folder,
+        // as the first start and `fnvtool setup` write it, is still a first start.
+        for (deck, ini, taken) in [(true, None, true), (false, None, false), (true, Some("[Settings]\nquality=High\n"), false), (true, Some("[Game]\nPath=/games/FNV\n"), true)] {
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
-            if ini {
-                std::fs::write(&path, "[Settings]\nquality=High\n").unwrap();
+            if let Some(text) = ini {
+                std::fs::write(&path, text).unwrap();
             }
             let mut app = app(&[("Low", LOW), ("High", HIGH)]);
             app.insert_resource(settings::SettingsFile(Some(path.clone()))).init_resource::<settings::StoreAttempts>().insert_resource(SteamDeck(deck, false));
             let w = app.world_mut();
             assert_eq!(quality_reading(w), "High", "the rows start as High's");
             deck_first_start(w);
-            assert_eq!(quality_reading(w) == STEAM_DECK, taken, "deck {deck}, INI {ini}");
+            assert_eq!(quality_reading(w) == STEAM_DECK, taken, "deck {deck}, INI {ini:?}");
             let text = std::fs::read_to_string(&path).unwrap_or_default();
             assert_eq!(text.contains("quality=Steam Deck"), taken, "{text}");
         }
