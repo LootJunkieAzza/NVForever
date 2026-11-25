@@ -1471,8 +1471,11 @@ pub fn form_type_code(sig: &[u8; 4]) -> Option<u16> {
         b"ARMA", b"ECZN", b"MESG", b"RGDL", b"DOBJ", b"LGTM", b"MUSC", b"IMOD", b"REPU", b"PCBE", b"RCPE", b"RCCT", b"CHIP", b"CSNO", b"LSCT", b"MSET",
         b"ALOC", b"CHAL", b"AMEF", b"CCRD", b"CMNY", b"CDCK", b"DEHY", b"HUNG", b"SLPD",
     ];
-    // The table lists ARMA as 96 and ARMO as "armor (armor addons too)": the code table
-    // is followed here [documented: Form Type IDs; which an addon reports is open].
+    // Armor addons (`ARMA`) report `ARMO` (24), not 96 [documented: Form Type IDs;
+    // observed: w6d5p4_gettype_arma, GetType/GetObjectType on ARMA 0x1649DF -> 24/24].
+    if sig == b"ARMA" {
+        return Some(24);
+    }
     CODES.iter().position(|c| *c == sig).map(|i| i as u16)
 }
 
@@ -3827,5 +3830,19 @@ mod tests {
         assert_eq!(binary(Op::Mod, Value::Num(-1e300), Value::Num(-1.0)), Value::Num(0.0));
         assert_eq!(binary(Op::Mod, Value::Num(7.0), Value::Num(0.0)), Value::Num(0.0));
         assert_eq!(binary(Op::Mod, Value::Num(7.5), Value::Num(2.0)), Value::Num(1.0));
+    }
+}
+
+#[cfg(test)]
+mod form_type_tests {
+    use super::*;
+
+    #[test]
+    fn arma_reports_armo_form_type_code_24() {
+        assert_eq!(form_type_code(b"ARMA"), Some(24));
+        assert_eq!(form_type_code(b"ARMO"), Some(24));
+        assert_eq!(form_type_code(b"WEAP"), Some(40));
+        assert_eq!(form_type_code(b"NPC_"), Some(42));
+        assert_eq!(form_type_code(b"DOOR"), Some(28));
     }
 }

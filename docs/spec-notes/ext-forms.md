@@ -274,3 +274,7 @@ One row per function the plan lists for this task (docs/handoff/extender-core-ta
 | GetModIndex | — | plugin file name string | int | the plugin's load-order index | 255 when not loaded; name matching rules: open |
 | GetSourceModIndex | — | form? (or calling reference) | int | load-order index of the plugin the form belongs to | run-time (FF) forms: open |
 | TypeOf | — | expression | string | "Number", "Form", "String", "Array", "Map" or "StringMap"; absent string-map key: "NULL" [observed: native_typeof_missing_26] | all forms are "Form"; absent-key limits in §1 |
+
+### Wave 6D-5 observation: `GetType` / `GetObjectType` on `ARMA`
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_gettype_arma` (`tools/capture/nvse/catalogs/wave6d5_gettype_arma.json`); zero DLL, PDB, or third-party source consulted] Both `GetType` and `GetObjectType` on an `ARMA` record (`0x001649DF`) return `24` (`ARMO`), not `96` (with `WEAP = 40`, `NPC_` ref `= 42`, `DOOR` ref `= 28`, null `= 0`): `PROBE|w6d5p4_gettype_arma|arma=24/24|weap=40|doc=42|door=28|null=0`.
