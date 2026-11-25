@@ -354,9 +354,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let rec = g.world.placed.get(r).and_then(|p| p.marker_reputation);
             XVal::Ref(g.gaps.marker_reputations.get(&r).copied().unwrap_or(rec).map_or(0, |f| f.0))
         }
+        // Omitted argument clears the marker reputation; passing a valid REPU sets it;
+        // passing 0 or a non-REPU form is a no-op that preserves the prior reputation
+        // [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE
+        // 57.30 (5730), 2026-11-25, `w6d10_37_mapmarker_name_type_oob_and_reputation`:
+        // `rep(0=00104C22,nov=1,badEqNov=1,nullZ=0,omitZ=1)`].
         "setmapmarkerrep" => {
             if let Some(r) = subject {
-                g.gaps.marker_reputations.insert(r, form(args, 0));
+                if args.is_empty() {
+                    g.gaps.marker_reputations.insert(r, None);
+                } else if let Some(rep) = form(args, 0).filter(|&f| g.data.sig(f) == Some(*b"REPU")) {
+                    g.gaps.marker_reputations.insert(r, Some(rep));
+                }
             }
             zero
         }
@@ -738,3 +747,7 @@ mod tests {
         assert_eq!([f("bounce", 0), f("bounce", 1), f("bounce", 2)], [273.0, 4726.0, 1171.0]);
     }
 }
+
+#[cfg(test)]
+#[path = "w6d10_mapmarker_rep_tests.rs"]
+mod w6d10_mapmarker_rep_tests;

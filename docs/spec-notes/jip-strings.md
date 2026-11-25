@@ -86,7 +86,14 @@ SetProjectileMuzzleFlash replace the field the matching getter reads; `SetMapMar
 (`Game::map_marker_name_override`) also reaches the Pip-Boy World and Local Maps,
 discovery notices, and HUD marker names, and `SetMapMarkerRep`
 (`Game::map_marker_reputation_override`) reaches the World Map reputation line
-(clearing it when set to `0` or a non-`REPU` form) [design]. The texts of
+[design]; passing a valid `REPU` sets it, omitting the argument clears it, and passing
+`0` or a non-`REPU` form (`ALCH` Stimpak) is a no-op that preserves the prior reputation
+[observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30
+(5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+read-only console probe `w6d10_37_mapmarker_name_type_oob_and_reputation`
+(`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+`PROBE|w6d10_37_mapmarker_name_type_oob_and_reputation|nm([Goodsprings]->[W6D10 Town],docLen=0)|ty(3,14=14,20=14,-1=14)|rep(0=00104C22,nov=1,badEqNov=1,nullZ=0,omitZ=1)`;
+zero DLL, PDB, or third-party source consulted]. The texts of
 SetFormDescription and SetObjectiveText are formatted strings (up to 20 values)
 [documented: their pages]. Whether the others last past a reload is not documented
 [hypothesis: no, like base-game form changes without a save record]. Probing this needs

@@ -253,7 +253,10 @@ fn map_markers_and_radio_stations_from_their_data() {
     // Name and reputation accessors reflect SetMapMarkerName / SetMapMarkerRep.
     q(&mut g, "TestMarkerRef.SetMapMarkerName \"Owned Outpost\"");
     assert_eq!(g.map_marker_name_override(FormId(MARKER)), Some("Owned Outpost"));
+    // Passing 0 leaves the reputation untouched; omitting the arg clears it [observed: w6d10_37].
     q(&mut g, "TestMarkerRef.SetMapMarkerRep 0");
+    assert_eq!(g.map_marker_reputation_override(FormId(MARKER)), None);
+    q(&mut g, "TestMarkerRef.SetMapMarkerRep");
     assert_eq!(g.map_marker_reputation_override(FormId(MARKER)), Some(None));
     // XRDO [documented: GetRadioRadius's example reads 6000, GetRadioStatic 15].
     assert_eq!(n(&mut g, "TestRadioRef.IsRadioRef"), 1.0);
