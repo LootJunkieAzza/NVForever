@@ -359,7 +359,7 @@ commands that touch the menus, the sky or the minimap ran one per launch].
 | Answer | Commands |
 |---|---|
 | 1 | GetQuestTargetsChanged, ToggleHitEffects |
-| 0 | GetScriptBlockDisabled, SetScriptBlockDisabled, IsAttackQueued, GetRecipeMenuNumSubcategories, SetWaterTrait, ToggleDepthClear, ToggleNoMovementCombat, ToggleNoZPosReset, ToggleNodeCollision, SuppressQuestMessages, UnlockRecipeMenuQuantity, SetItemFilter, InitItemFilter, SetTextureTransformKey, ClearModelAltTextures, InitRockItLauncher, EnableImprovedRecipeMenu, SetWindSpeedMult, SwapObjectLOD, ScrollMouseWheel, InitMiniMap, UpdateMiniMap, ReloadCharController, ReloadCloudTextures, ResetClouds, ShowLevelUpMenuEx |
+| 0 | GetScriptBlockDisabled, SetScriptBlockDisabled, IsAttackQueued, GetRecipeMenuNumSubcategories, ToggleDepthClear, ToggleNoMovementCombat, ToggleNoZPosReset, ToggleNodeCollision, SuppressQuestMessages, UnlockRecipeMenuQuantity, SetItemFilter, InitItemFilter, SetTextureTransformKey, ClearModelAltTextures, InitRockItLauncher, EnableImprovedRecipeMenu, SetWindSpeedMult, SwapObjectLOD, ScrollMouseWheel, InitMiniMap, UpdateMiniMap, ReloadCharController, ReloadCloudTextures, ResetClouds, ShowLevelUpMenuEx |
 | no array | GetObjectiveTeleportLinks (quest VMS01, objective 10) |
 
 **Answers NVForever does not match**, with what the original gave:

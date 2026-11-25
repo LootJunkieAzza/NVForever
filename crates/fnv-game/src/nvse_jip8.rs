@@ -766,7 +766,57 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 },
             })
         }
+        // `water trait value`: writes ANAM (0 opacity, u8 0..=255), FNAM (1 flags, u8
+        // 0..=255), or DNAM traits 2..=50 (colours 12..=14 as RRRGGGBBB, floats for all
+        // other non-unused slots; unused 9 and 15 and out-of-range inputs are no-ops)
+        // [documented: GECK wiki SetWaterTrait; observed: Fallout: New Vegas 1.4.0.525
+        // (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+        // `w6d10_25_set_water_trait_live_roundtrip_and_bounds`:
+        // `t0(50->77:77,300:77,-5:77)|t1(2->3)|t6(50.0->25.5)|t12(33->100150200)|t50(0.25->0.75)|oob=0,bad=0`].
+        "setwatertrait" => {
+            let Some(w) = of_sig(g, form(args, 0), b"WATR") else { return Some(Ok(zero)) };
+            let t = num(args, 1, -1.0);
+            let raw = num(args, 2, f64::NAN);
+            if t.fract() != 0.0 || !(0.0..=50.0).contains(&t) || !raw.is_finite() {
+                return Some(Ok(zero));
+            }
+            match t as usize {
+                0 => {
+                    if (0.0..=255.0).contains(&raw) {
+                        g.set_field8(w, "ANAM", "", XVal::Num(raw.trunc()));
+                    }
+                }
+                1 => {
+                    if (0.0..=255.0).contains(&raw) {
+                        g.set_field8(w, "FNAM", "", XVal::Num(raw.trunc()));
+                    }
+                }
+                t => match WATER_TRAITS[t - 2] {
+                    "" => {}
+                    p if p.ends_with("_color") => {
+                        if (0.0..=255_255_255.0).contains(&raw) {
+                            let v = raw as i64;
+                            let packed = v / 1_000_000 + (v / 1000 % 1000) * 256 + (v % 1000) * 65536;
+                            let (r, gg, b) = ((packed & 255) as f64, ((packed >> 8) & 255) as f64, ((packed >> 16) & 255) as f64);
+                            g.set_field8(w, "DNAM", &format!("{p}.red"), XVal::Num(r));
+                            g.set_field8(w, "DNAM", &format!("{p}.green"), XVal::Num(gg));
+                            g.set_field8(w, "DNAM", &format!("{p}.blue"), XVal::Num(b));
+                        }
+                    }
+                    p => {
+                        if let Some(val) = field_number(raw, F32.0, F32.1) {
+                            g.set_field8(w, "DNAM", p, XVal::Num(val));
+                        }
+                    }
+                },
+            }
+            zero
+        }
         _ => return None,
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_setwatertrait_tests.rs"]
+mod w6d10_setwatertrait_tests;

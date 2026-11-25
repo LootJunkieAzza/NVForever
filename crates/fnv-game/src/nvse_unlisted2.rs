@@ -400,7 +400,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getbodypartvatstarget" => XVal::Str(String::new()),
         // The answers the original gave, effects not seen (§9).
         "getscriptblockdisabled" | "setscriptblockdisabled" | "calculateshotspersec" | "isattackqueued" | "getrecipemenunumsubcategories"
-        | "setwatertrait" | "toggledepthclear" | "togglenomovementcombat" | "togglenozposreset" | "togglenodecollision"
+        | "toggledepthclear" | "togglenomovementcombat" | "togglenozposreset" | "togglenodecollision"
         | "suppressquestmessages" | "unlockrecipemenuquantity" | "setitemfilter" | "settexturetransformkey" | "clearmodelalttextures"
         | "initrockitlauncher" | "enableimprovedrecipemenu" | "setwindspeedmult" | "swapobjectlod" | "scrollmousewheel"
         | "inititemfilter" | "initminimap" | "updateminimap" | "reloadcharcontroller" | "reloadcloudtextures"
