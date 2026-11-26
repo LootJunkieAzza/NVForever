@@ -640,7 +640,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Ref(match slot {
                 Some(EffectSlot::Added { back, at }) => g.added_effect(f, back, at).map_or(0, |e| e.effect.0),
                 Some(EffectSlot::Own(r)) => {
-                    let e = g.data.effect_items.get(&f).and_then(|l| l.get(r));
+                    let e = g.data.effect_items.get(&g.unclone(f)).and_then(|l| l.get(r));
                     e.map_or(0, |e| g.gaps.effect_bases.get(&(f, r)).copied().unwrap_or(e.effect).0)
                 }
                 None => 0,

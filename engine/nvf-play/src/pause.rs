@@ -15,11 +15,20 @@
 //! moves onto; Esc resumes; N saves, L opens the load page, S the settings, Q the quit
 //! question.
 //!
-//! **Save** (N) saves to a new slot named `Save <n>` (one more than the highest such name
-//! in the saves folder) through `crate::save::SaveRequest`; the line under the column
-//! says when it is written. **The load page** (L) shows the chosen save's thumbnail and
-//! details (player and level, place and game date, play time, when it was saved) over the
-//! saves' rows, newest first (`fnv_save::list`), left of the column. Up/Down (W/S) or the
+//! **Save** (N) opens the save page (`Page::Save`), listing "New Save" first (which
+//! saves to a new slot named `Save <n>`, one more than the highest such name in the saves
+//! folder) followed by existing manual saves newest first (`fnv_save::list`, excluding
+//! quick, auto and system slots) [design: #3758]. Picking "New Save" queues a manual
+//! `crate::save::SaveRequest` and returns to the column, where the status line says when
+//! it is written. Picking an existing manual slot shows its thumbnail and details and asks
+//! "Overwrite save?" right of the thumbnail with "Yes" and "No" (defaulting to No); Y,
+//! Enter on Yes, or a click on Yes overwrites that slot through `crate::save::SaveRequest`
+//! and returns to the column; N, Esc, Backspace, Enter on No, or a click on No cancel and
+//! leave the existing file untouched. Log `pause menu: save page: <n> manual save(s), ...`,
+//! `pause menu: overwrite <name>?`, `pause menu: overwriting save "<name>"`,
+//! `pause menu: overwrite cancelled`. **The load page** (L) shows the chosen save's
+//! thumbnail and details (player and level, place and game date, play time, when it was
+//! saved) over the saves' rows, newest first (`fnv_save::list`), left of the column. Up/Down (W/S) or the
 //! mouse wheel choose, the pointer chooses the row it moves onto, Enter, Space or a click
 //! load it through `crate::save::LoadRequest` (nvforever starts again with `--load`); Esc,
 //! Backspace or Back go back. Only the chosen save's thumbnail is read and decoded.
@@ -584,6 +593,11 @@ pub enum Page {
     Settings {
         selected: Option<RowId>,
     },
+    /// The save page; row 0 is "New Save", rows 1..=N are existing manual saves in
+    /// [`LoadList`] (#3758).
+    Save {
+        selected: usize,
+    },
     /// The load page; the chosen save (index in [`LoadList`]).
     Load {
         selected: usize,
@@ -598,7 +612,7 @@ impl Page {
     /// [`RowId::sound_id`], [`NO_ROW_SOUND`] on an empty tab).
     pub(crate) fn settings_row(self) -> Option<usize> {
         match self {
-            Page::Main | Page::Load { .. } | Page::Mods => None,
+            Page::Main | Page::Save { .. } | Page::Load { .. } | Page::Mods => None,
             Page::Settings { selected } => Some(selected.map_or(NO_ROW_SOUND, RowId::sound_id)),
         }
     }
@@ -609,6 +623,7 @@ impl Page {
         match self {
             Page::Main => false,
             Page::Settings { .. } => label.starts_with("Settings"),
+            Page::Save { .. } => label.starts_with("Save"),
             Page::Load { .. } => label.starts_with("Load"),
             Page::Mods => label.starts_with(MODS_LABEL),
         }
@@ -638,10 +653,12 @@ const MODS_LABEL: &str = "Mods";
 /// The Console entry's word [design: our own].
 const CONSOLE_LABEL: &str = "Console";
 
-/// The saves the load page lists, newest first, and the chosen one's thumbnail.
+/// The saves the load or save page lists, newest first, and the chosen one's thumbnail.
 #[derive(Resource, Default)]
 struct LoadList {
     saves: Vec<(PathBuf, SaveHeader)>,
+    /// The next numbered slot name shown on the save page's "New Save" row.
+    next_name: String,
     /// The thumbnail of the save at this index (None: it has none or it did not decode).
     thumb: Option<(usize, Option<Handle<Image>>)>,
 }
@@ -649,9 +666,27 @@ struct LoadList {
 impl LoadList {
     fn open(&mut self, dir: Option<&Path>) {
         self.saves = dir.map(fnv_save::list).unwrap_or_default();
+        self.next_name.clear();
         self.thumb = None;
         let names: Vec<String> = self.saves.iter().take(8).map(|(p, h)| format!("{:?} ({})", stem(p), kind_name(h.kind))).collect();
         info!("pause menu: load page: {} save(s), newest first: {}", self.saves.len(), names.join(", "));
+    }
+
+    /// List existing manual saves (newest first) for the save page, excluding rolling slots
+    /// (`quicksave`, `autosave`, `systemsave`), and compute the next numbered slot name once.
+    fn open_save(&mut self, cfg: &crate::save::SaveConfig) {
+        self.saves = cfg
+            .dir
+            .as_deref()
+            .map(fnv_save::list)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(p, h)| h.kind == SaveKind::Manual && fnv_save::check_manual_name(&stem(p)).is_ok())
+            .collect();
+        self.next_name = new_save_name(cfg);
+        self.thumb = None;
+        let names: Vec<String> = self.saves.iter().take(8).map(|(p, _)| format!("{:?}", stem(p))).collect();
+        info!("pause menu: save page: {} manual save(s), newest first: {}", self.saves.len(), names.join(", "));
     }
 
     /// Read and decode the thumbnail of save `i` unless it is the one held.
@@ -775,6 +810,8 @@ enum PauseButton {
     HeadingStep(i32),
     /// A save's row on the load page (its index in [`LoadList`]).
     LoadRow(usize),
+    /// A row on the save page: 0 is "New Save", 1..=N are the manual saves in [`LoadList`].
+    SaveRow(usize),
     /// A slider's arrow: its row and the steps it moves (-1 or 1).
     SliderStep(RowId, i32),
     /// A slider's meter (its row): a press or drag sets the value under the pointer.
@@ -797,6 +834,8 @@ enum PauseButton {
     Delete,
     /// An answer of the delete question: yes or no.
     DeleteAnswer(bool),
+    /// An answer of the save page's overwrite question: yes or no.
+    OverwriteAnswer(bool),
     /// "Report a Bug" under the column ([`ReportEntry`]).
     Report,
 }
@@ -1302,11 +1341,54 @@ fn take_settings_menu_scale(w: &mut World, text: &str) -> bool {
     true
 }
 
-/// Scope interface units for the pause Settings page when `scale != 1.0`.
-/// At the default `1.0` (100%), returns `None` so desktop and default Android
-/// use the untouched `menu_scale()` unit scope.
-fn settings_units(scale: f32) -> Option<crate::interface::HudUnits> {
-    (scale != 1.0).then(|| crate::interface::units_at(crate::interface::menu_scale() * scale))
+/// The narrowest view the settings page is laid out for, in interface units: 4:3 (the
+/// tests' `VIEW_WIDTHS`). A narrower view (a portrait display: 9:16 is 540 units) gets
+/// the page drawn smaller over the whole view until it is this wide, rather than a list 0
+/// wide beside the rail [design: #3334].
+const NARROW_VIEW_W: f32 = 1280.0;
+
+/// The window's width over its height, as `drawn_now` last read it (`f32` bits; 0: not
+/// known yet).
+static WINDOW_ASPECT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// How much smaller than `scale` the settings page is drawn to be [`NARROW_VIEW_W`] wide in
+/// a view `aspect` wide for 1 high, at the menus' scale `menu` (1: the view is wide enough
+/// as it is) [design: #3334].
+fn narrow_fit(aspect: f32, menu: f32, scale: f32) -> f32 {
+    let s = menu * scale;
+    if !(aspect > 0.0 && s > 0.0) {
+        return 1.0;
+    }
+    // The page's width as it would be drawn: its spread frame's room at this scale.
+    let wide = {
+        let _units = crate::interface::units_at(s);
+        960.0 * aspect * crate::interface::menu_room()
+    };
+    if wide >= NARROW_VIEW_W {
+        1.0
+    } else {
+        (960.0 * aspect / (s * NARROW_VIEW_W)).min(1.0)
+    }
+}
+
+/// The scopes the pause Settings page is drawn in ([`settings_units`]).
+struct SettingsUnits {
+    _units: Option<crate::interface::HudUnits>,
+    _whole: Option<crate::interface::WholeView>,
+}
+
+/// Scope interface units for the pause Settings page: `scale` (the Android menu scale; 1
+/// elsewhere), smaller still in a view narrower than [`NARROW_VIEW_W`] (then over the
+/// whole view, [`crate::interface::whole_view`], #3334). At 100% in a wide enough view,
+/// no scope, so desktop and default Android use the untouched `menu_scale()` units.
+fn settings_units(scale: f32) -> SettingsUnits {
+    let aspect = f32::from_bits(WINDOW_ASPECT.load(std::sync::atomic::Ordering::Relaxed));
+    let fit = narrow_fit(aspect, crate::interface::menu_scale(), scale);
+    let scale = scale * fit;
+    SettingsUnits {
+        _units: (scale != 1.0).then(|| crate::interface::units_at(crate::interface::menu_scale() * scale)),
+        _whole: (fit < 1.0).then(crate::interface::whole_view),
+    }
 }
 
 fn menu_font_chosen(w: &World) -> String {
@@ -1376,6 +1458,9 @@ pub struct PauseView {
     keep_selected: usize,
     /// The load page asks whether to delete the save at this row.
     delete_ask: Option<usize>,
+    /// The save page asks whether to overwrite the manual save at this index in
+    /// `LoadList::saves`, and whether Yes (true) or No (false, default) is focused.
+    overwrite_ask: Option<(usize, bool)>,
     /// The settings page's search: its text and what it came from.
     search: SearchState,
     /// The rows the search finds and the rows away from their default, as last worked out.
@@ -1393,7 +1478,7 @@ impl PauseView {
     /// [design, #2403] Read-only logical progress for the reports watchdog. Excludes
     /// hover, dragging and render caches; the caller hashes this without sending text.
     pub fn progress(&self) -> impl std::fmt::Debug + '_ {
-        (self.main_selected, self.confirm, self.scroll, self.scope, self.focus, self.keep_selected, self.delete_ask, self.dropdown, &self.search.query)
+        (self.main_selected, self.confirm, self.scroll, self.scope, self.focus, self.keep_selected, self.delete_ask, self.overwrite_ask, self.dropdown, &self.search.query)
     }
 
     /// The settings page's window's lines: as set this frame ([`PauseView::set_lines`]), else
@@ -1558,6 +1643,10 @@ struct Drawn {
     keep: Option<(&'static str, u32, usize)>,
     /// The load page's delete question: the row it asks about.
     delete_ask: Option<usize>,
+    /// The save page's overwrite question: the manual save index and whether Yes is focused.
+    overwrite_ask: Option<(usize, bool)>,
+    /// The next numbered slot name shown on the save page's "New Save" row.
+    new_save_name: Option<String>,
     /// The view's width in interface units (960 high), rounded.
     view_w: u32,
     /// The language's count of changes (`fnv_util::words::generation`): a new language
@@ -1639,6 +1728,7 @@ impl Drawn {
             Page::Main if self.confirm.is_some() => find("Quit"),
             Page::Main => self.main_selected,
             Page::Settings { .. } => find("Settings"),
+            Page::Save { .. } => find("Save"),
             Page::Load { .. } => find("Load"),
             Page::Mods => find(MODS_LABEL),
         }
@@ -1996,7 +2086,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         return;
     }
     let f = &look.faces;
-    let _units = matches!(d.page, Page::Settings { .. }).then(|| settings_units(d.scale())).flatten();
+    let _units = matches!(d.page, Page::Settings { .. }).then(|| settings_units(d.scale()));
     // The settings list's place, clear of the categories.
     let lb = ListBox::of(d.view_w as f32, rail_width(f, &d.rail, d.device.1));
     commands.spawn((PauseRoot, full(), GlobalZIndex(110))).with_children(|root| {
@@ -2037,7 +2127,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 }
                 // The band as far past the list's right side as past its left, the soft column
                 // over it as on the settings page [design: owner 2026-11-15, the fourth build].
-                Page::Load { .. } => {
+                Page::Save { .. } | Page::Load { .. } => {
                     let node = || tall(Node { height: Val::Percent(100.0), ..from_right(RIGHT + COLUMN - BAND_MARGIN, 0.0, LOAD_WIDTH + 2.0 * BAND_MARGIN, 0.0) });
                     band(root, look, node());
                     soft_column(root, node(), LIST_SHADE);
@@ -2087,6 +2177,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                     }
                 }
                 Page::Settings { selected } => settings_page(root, d, look, settings, selected, lb, glyphs),
+                Page::Save { selected } => save_page(root, d, look, list, selected, glyphs),
                 Page::Load { selected } => load_page(root, d, look, list, selected, glyphs),
                 Page::Mods => {}
             }
@@ -3013,6 +3104,105 @@ fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list:
     }
 }
 
+/// The save page: row 0 is "New Save" (allocating the next numbered slot), followed by
+/// existing manual saves newest first; selecting an existing manual save shows its
+/// thumbnail and details and asks to confirm overwriting it [design: #3758].
+fn save_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &LoadList, selected: usize, glyphs: &crate::pad::PadGlyphs) {
+    let f = &look.faces;
+    let panel = |top: f32, height: f32| from_right(RIGHT + COLUMN, top, LOAD_WIDTH, height);
+    let total = 1 + list.saves.len();
+    let selected = selected.min(total - 1);
+    let first = crate::menu::model::keep_in_view(d.scroll, selected, total, LOAD_ROWS);
+    let next_name = d.new_save_name.as_deref().unwrap_or(&list.next_name);
+    let frame = Node { position_type: PositionType::Absolute, right: u(RIGHT + COLUMN + LOAD_WIDTH - THUMB_DRAWN.x - 10.0), top: u(DETAILS_TOP - THUMB_DRAWN.y - 10.0), width: u(THUMB_DRAWN.x), height: u(THUMB_DRAWN.y), ..default() };
+    if let Some(save_idx) = selected.checked_sub(1) {
+        match list.thumb.as_ref().filter(|(t, _)| *t == save_idx && d.thumb.is_some_and(|t| t.1)).and_then(|(_, h)| h.clone()) {
+            Some(img) => {
+                root.spawn((frame, ImageNode::new(img).with_mode(NodeImageMode::Stretch)));
+            }
+            None => {
+                root.spawn((frame, BackgroundColor(Color::BLACK.with_alpha(0.5)))).with_children(|t| sm_text(t, &f.small, "No picture", 20.0, 40.0, color(Shade::Dim)));
+            }
+        }
+        if let Some((path, h)) = list.saves.get(save_idx) {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            let place = if h.location.is_empty() { "Unknown place".to_string() } else { h.location.clone() };
+            let lines = [
+                format!("{}, level {}", h.player_name, h.level),
+                format!("{place}, {}", crate::save::game_date(h)),
+                format!("Played {}", play_time(h.play_seconds)),
+                format!("{}: saved {} ({})", stem(path), saved_ago(h.saved_unix, now), kind_name(h.kind)),
+            ];
+            for (i, line) in lines.iter().enumerate() {
+                let face = if i == 0 { &f.entry } else { &f.small };
+                root.spawn((DetailLine, Text::new(line.clone()), Node { display: Display::None, ..default() }));
+                root.spawn(panel(DETAILS_TOP + i as f32 * DETAILS_STEP, DETAILS_STEP)).with_children(|t| sm_text(t, face, line, 10.0, 30.0, color(Shade::Bright)));
+            }
+        }
+        // Overwrite confirmation, right of the thumbnail when asked for this save.
+        if let Some((_, yes_focus)) = d.overwrite_ask.filter(|(r, _)| *r == save_idx) {
+            let side = |top: f32, height: f32| from_right(RIGHT + COLUMN, top, DELETE_WIDTH, height);
+            let top = DETAILS_TOP - THUMB_DRAWN.y - 10.0;
+            root.spawn((DetailLine, Text::new("Overwrite this save?"), Node { display: Display::None, ..default() }));
+            root.spawn(side(top, ITEM)).with_children(|t| {
+                let w = f.small.font.width("Overwrite save?");
+                sm_text(t, &f.small, "Overwrite save?", DELETE_WIDTH - w - 10.0, BASE, color(Shade::Bright));
+            });
+            let (yes, no) = (crate::pad::hint(&[KeyCode::KeyY], crate::pad::PAUSE_AT), crate::pad::hint(&[KeyCode::KeyN, KeyCode::Escape], crate::pad::PAUSE_AT));
+            right_entry(root, &f.small, &format!("Yes  {yes}"), side(top + ITEM, ITEM), DELETE_WIDTH, Shade::Bright, yes_focus, PauseButton::OverwriteAnswer(true), glyphs);
+            right_entry(root, &f.small, &format!("No  {no}"), side(top + 2.0 * ITEM, ITEM), DELETE_WIDTH, Shade::Bright, !yes_focus, PauseButton::OverwriteAnswer(false), glyphs);
+        }
+    } else {
+        root.spawn((frame, BackgroundColor(Color::BLACK.with_alpha(0.5)))).with_children(|t| sm_text(t, &f.small, "New save", 20.0, 40.0, color(Shade::Dim)));
+        let lines = ["New Save".to_string(), format!("Creates slot \"{next_name}\"")];
+        for (i, line) in lines.iter().enumerate() {
+            let face = if i == 0 { &f.entry } else { &f.small };
+            root.spawn((DetailLine, Text::new(line.clone()), Node { display: Display::None, ..default() }));
+            root.spawn(panel(DETAILS_TOP + i as f32 * DETAILS_STEP, DETAILS_STEP)).with_children(|t| sm_text(t, face, line, 10.0, 30.0, color(Shade::Bright)));
+        }
+    }
+    let bar = LOAD_WINDOW.marker(total, first).is_some();
+    let width = if bar { LOAD_WIDTH - BAR_W - BAR_GAP } else { LOAD_WIDTH };
+    window_bar(root, look, total, first, LOAD_WINDOW, from_right(RIGHT + COLUMN, LOAD_TOP, BAR_W, LOAD_WINDOW.shown as f32 * LOAD_WINDOW.row));
+    for (row, idx) in (first..total).take(LOAD_ROWS).enumerate() {
+        let node = from_right(RIGHT + COLUMN + LOAD_WIDTH - width, LOAD_TOP + row as f32 * ITEM, width, ITEM);
+        root.spawn((Button, PauseButton::SaveRow(idx), boxed(node, idx == selected))).with_children(|r| {
+            if idx == 0 {
+                sm_text(r, &f.entry, "New Save", 10.0, crate::start_menu::entry_base(&f.entry), color(Shade::Bright));
+                let w = f.small.font.width(next_name);
+                sm_text(r, &f.small, next_name, width - w - 14.0, crate::start_menu::entry_base(&f.small), color(Shade::Dim));
+            } else if let Some((path, h)) = list.saves.get(idx - 1) {
+                sm_text(r, &f.entry, &stem(path), 10.0, crate::start_menu::entry_base(&f.entry), color(Shade::Bright));
+                let date = format!("{}  {}", kind_name(h.kind), crate::save::game_date(h));
+                let w = f.small.font.width(&date);
+                sm_text(r, &f.small, &date, width - w - 14.0, crate::start_menu::entry_base(&f.small), color(Shade::Dim));
+            }
+        });
+    }
+}
+
+/// Queue a manual save through the regular save writer safeguards (`fnv_save::check_manual_name`,
+/// `SaveConfig::path_of`, and `SaveRequest` with `SaveKind::Manual`).
+fn queue_manual_save(menu: &mut SaveMenu, name: String, overwrite: bool) {
+    if let Err(e) = fnv_save::check_manual_name(&name) {
+        menu.status.line = format!("Cannot save: {e}");
+        return;
+    }
+    if overwrite {
+        info!("pause menu: overwriting save {name:?}");
+    } else {
+        info!("pause menu: saving as {name:?}");
+    }
+    match menu.cfg.path_of(&name) {
+        Ok(path) => {
+            menu.status.waiting_for = Some(path);
+            menu.status.line = format!("Saving \"{name}\"...");
+            menu.saves.write(crate::save::SaveRequest { name, kind: SaveKind::Manual });
+        }
+        Err(e) => menu.status.line = format!("Cannot save: {e}"),
+    }
+}
+
 /// A line of the details, kept as text too (tests read it).
 #[derive(Component)]
 struct DetailLine;
@@ -3050,6 +3240,7 @@ fn open(
         info!("pause menu: opened by ShowPauseMenu {mode}");
         request.0 = match mode {
             1 => Some(Page::Load { selected: 0 }),
+            2 => Some(Page::Save { selected: 0 }),
             3 => Some(Page::Settings { selected: None }),
             _ => None,
         };
@@ -3066,6 +3257,9 @@ fn open(
     *page = Page::Main;
     view.main_selected = 0;
     view.confirm = None;
+    view.delete_ask = None;
+    view.overwrite_ask = None;
+    view.scroll = 0;
     *status = PauseStatus::default();
     next.set(PlayState::Menu);
 }
@@ -3815,6 +4009,12 @@ fn choose(
     if let Some(p) = request.0.take() {
         if matches!(p, Page::Load { .. }) {
             menu.list.open(menu.cfg.dir.as_deref());
+            view.scroll = 0;
+            view.delete_ask = None;
+        } else if matches!(p, Page::Save { .. }) {
+            menu.list.open_save(&menu.cfg);
+            view.scroll = 0;
+            view.overwrite_ask = None;
         }
         info!("pause menu: {p:?} page for another menu");
         *page = p;
@@ -3839,6 +4039,7 @@ fn choose(
         view.confirm = None;
         view.dropdown = None;
         view.delete_ask = None;
+        view.overwrite_ask = None;
         if !resume.pending() {
             commands.queue(request_resume);
         }
@@ -4098,6 +4299,7 @@ fn choose(
                 Page::Main => "main",
                 Page::Settings { .. } if view.scope == SettingsScope::Tab(CONTROLS_TAB) => "controls",
                 Page::Settings { .. } => "settings",
+                Page::Save { .. } => "save",
                 Page::Load { .. } => "load",
                 Page::Mods => "mods",
             });
@@ -4237,10 +4439,13 @@ fn choose(
     // left over from the window before (or one drawn past it) never moves the window or
     // takes a press.
     let load_first = view.scroll.min(menu.list.saves.len().saturating_sub(LOAD_WINDOW.shown));
+    let save_first = view.scroll.min((1 + menu.list.saves.len()).saturating_sub(LOAD_WINDOW.shown));
     let drawn = sv::drawn_slots(&rows, view.scroll.min(rows.len().saturating_sub(lines)), lines);
     let on_settings = matches!(*page, Page::Settings { .. });
+    let on_save = matches!(*page, Page::Save { .. });
     let on_load = matches!(*page, Page::Load { .. });
     let in_window = |b: &PauseButton| match b {
+        PauseButton::SaveRow(i) => on_save && LOAD_WINDOW.holds(save_first, *i),
         PauseButton::LoadRow(i) => on_load && LOAD_WINDOW.holds(load_first, *i),
         PauseButton::Row(id) | PauseButton::Meter(id) | PauseButton::SliderStep(id, _) => on_settings && sv::slot_of(&rows, *id).is_some_and(|k| drawn.contains(&k)),
         _ => true,
@@ -4266,7 +4471,13 @@ fn choose(
                 *selected = Some(*id);
                 view.focus = SettingsFocus::Rows;
             }
-            (PointerState::Hovered, PauseButton::LoadRow(i), Page::Load { selected }) if moved => *selected = *i,
+            (PointerState::Hovered, PauseButton::SaveRow(i), Page::Save { selected }) if moved && view.overwrite_ask.is_none() => *selected = *i,
+            (PointerState::Hovered, PauseButton::OverwriteAnswer(yes), Page::Save { .. }) if moved && view.overwrite_ask.is_some() => {
+                if let Some((_, focus)) = view.overwrite_ask.as_mut() {
+                    *focus = *yes;
+                }
+            }
+            (PointerState::Hovered, PauseButton::LoadRow(i), Page::Load { selected }) if moved && view.delete_ask.is_none() => *selected = *i,
             (PointerState::Hovered, PauseButton::Column(i), Page::Main) if moved && view.confirm.is_none() && !under_main => view.main_selected = *i,
             (PointerState::Hovered, PauseButton::Confirm(i), Page::Main) if moved && view.confirm.is_some() => view.confirm = Some(*i),
             _ => {}
@@ -4418,11 +4629,14 @@ fn choose(
         Some(PauseButton::Column(i)) if !under_main && *page != Page::Main => {
             let closes = entries.get(i).is_some_and(|e| page.opened_by(e.label()));
             *page = Page::Main;
+            view.overwrite_ask = None;
+            view.delete_ask = None;
+            view.scroll = 0;
             view.main_selected = i;
             if closes {
                 info!("pause menu: {} again, back to the column", entries[i].label());
                 clicked = None;
-            } else if entries.get(i).is_some_and(|e| matches!(e, Entry::Load | Entry::Settings | Entry::Mods)) {
+            } else if entries.get(i).is_some_and(|e| matches!(e, Entry::Save | Entry::Load | Entry::Settings | Entry::Mods)) {
                 clicked = Some(PauseButton::Column(i));
             } else {
                 clicked = None;
@@ -4548,20 +4762,17 @@ fn choose(
                     view.confirm = Some(2);
                 }
                 Some(Entry::Save) => {
-                    let name = new_save_name(&menu.cfg);
-                    info!("pause menu: saving as {name:?}");
-                    match menu.cfg.path_of(&name) {
-                        Ok(path) => {
-                            menu.status.waiting_for = Some(path);
-                            menu.status.line = format!("Saving \"{name}\"...");
-                            menu.saves.write(crate::save::SaveRequest { name, kind: SaveKind::Manual });
-                        }
-                        Err(e) => menu.status.line = format!("Cannot save: {e}"),
-                    }
+                    info!("pause menu: save page");
+                    menu.list.open_save(&menu.cfg);
+                    view.scroll = 0;
+                    view.overwrite_ask = None;
+                    *page = Page::Save { selected: 0 };
                 }
                 Some(Entry::Load) => {
                     info!("pause menu: load page");
                     menu.list.open(menu.cfg.dir.as_deref());
+                    view.scroll = 0;
+                    view.delete_ask = None;
                     *page = Page::Load { selected: 0 };
                 }
                 Some(Entry::Settings) => {
@@ -4875,6 +5086,69 @@ fn choose(
                 *page = Page::Main;
             }
         }
+        Page::Save { .. } if view.overwrite_ask.is_some() => {
+            let (save_idx, mut yes_focus) = view.overwrite_ask.unwrap();
+            let pick_key = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || act("pick");
+            let yes = keys.just_pressed(KeyCode::KeyY) || clicked == Some(PauseButton::OverwriteAnswer(true)) || act("yes") || (yes_focus && pick_key);
+            let no = keys.any_just_pressed([KeyCode::KeyN, KeyCode::Escape, KeyCode::Backspace]) || tab_back || clicked == Some(PauseButton::OverwriteAnswer(false)) || clicked == Some(PauseButton::Back) || act("no") || act("back") || (!yes_focus && pick_key);
+            let toggle = keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW, KeyCode::ArrowDown, KeyCode::KeyS, KeyCode::ArrowLeft, KeyCode::ArrowRight]) || act("up") || act("down");
+            if yes {
+                view.overwrite_ask = None;
+                if let Some((path, _)) = menu.list.saves.get(save_idx).cloned() {
+                    queue_manual_save(&mut menu, stem(&path), true);
+                    sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Picked });
+                    view.scroll = 0;
+                    *page = Page::Main;
+                }
+            } else if no {
+                view.overwrite_ask = None;
+                info!("pause menu: overwrite cancelled");
+                sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Back });
+            } else if toggle {
+                yes_focus = !yes_focus;
+                view.overwrite_ask = Some((save_idx, yes_focus));
+                sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Focus });
+            }
+        }
+        Page::Save { selected } => {
+            let rows = 1 + menu.list.saves.len();
+            *selected = (*selected).min(rows - 1);
+            let mut pick = None;
+            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || tab_back || clicked == Some(PauseButton::Back) || act("back") {
+                *page = Page::Main;
+                view.scroll = 0;
+                sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Back });
+            } else if let Some(PauseButton::SaveRow(i)) = clicked {
+                if i < rows {
+                    *selected = i;
+                    pick = Some(i);
+                }
+            } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || act("up") {
+                *selected = (*selected).saturating_sub(1);
+            } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || act("down") {
+                *selected = (*selected + 1).min(rows - 1);
+            } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || act("pick") {
+                pick = Some(*selected);
+            }
+            match pick {
+                Some(0) => {
+                    let name = new_save_name(&menu.cfg);
+                    queue_manual_save(&mut menu, name, false);
+                    sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Picked });
+                    view.scroll = 0;
+                    *page = Page::Main;
+                }
+                Some(i) => {
+                    let save_idx = i - 1;
+                    if let Some((path, _)) = menu.list.saves.get(save_idx) {
+                        view.overwrite_ask = Some((save_idx, false));
+                        info!("pause menu: overwrite {}?", stem(path));
+                        sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Picked });
+                    }
+                }
+                None => {}
+            }
+        }
         Page::Load { selected } if view.delete_ask.is_some() => {
             // The delete question has the keys (module notes).
             let yes = keys.any_just_pressed([KeyCode::KeyY, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(PauseButton::DeleteAnswer(true)) || act("yes");
@@ -4935,6 +5209,11 @@ fn choose(
     // the window, so it never moves it).
     let window = match *page {
         Page::Settings { .. } => Some((rows.len(), settings_window(lines))),
+        Page::Save { .. } if view.overwrite_ask.is_none() => Some((1 + menu.list.saves.len(), LOAD_WINDOW)),
+        Page::Save { selected } => {
+            view.scroll = crate::menu::model::keep_in_view(view.scroll, selected, 1 + menu.list.saves.len(), LOAD_ROWS);
+            None
+        }
         Page::Load { .. } if view.delete_ask.is_none() => Some((menu.list.saves.len(), LOAD_WINDOW)),
         Page::Load { selected } => {
             view.scroll = crate::menu::model::keep_in_view(view.scroll, selected, menu.list.saves.len(), LOAD_ROWS);
@@ -4990,8 +5269,8 @@ fn choose(
                 first = sv::window_first(&rows, first, *selected, view.followed, w.shown);
                 view.followed = *selected;
             }
-            Page::Load { selected } if scrolled => *selected = (*selected).clamp(first, (first + w.shown).min(n) - 1),
-            Page::Load { selected } => first = crate::menu::model::keep_in_view(first, *selected, n, w.shown),
+            Page::Save { selected } | Page::Load { selected } if scrolled => *selected = (*selected).clamp(first, (first + w.shown).min(n) - 1),
+            Page::Save { selected } | Page::Load { selected } => first = crate::menu::model::keep_in_view(first, *selected, n, w.shown),
             Page::Main | Page::Mods => {}
         }
         if first != view.scroll {
@@ -5038,6 +5317,12 @@ fn choose(
         }
         if inspect {
             log_inspect(list, &view, selected, &rows, &sv::rail(layout), device == InputDevice::Controller);
+        }
+    }
+    if let Page::Save { selected } = *page {
+        if let Some(save_idx) = selected.checked_sub(1) {
+            let SaveMenu { list, images, .. } = &mut menu;
+            list.ensure_thumb(save_idx, images);
         }
     }
     if let Page::Load { selected } = *page {
@@ -5243,8 +5528,11 @@ fn settings_now(world: &mut World, list: &[Setting], selected: Option<RowId>) ->
 fn drawn_now(world: &mut World) -> Drawn {
     let settings_scale = world.get_resource::<SettingsMenuScale>().map_or(1.0, |s| s.scale());
     let on_settings = matches!(*world.resource::<Page>(), Page::Settings { .. });
-    let _units = on_settings.then(|| settings_units(settings_scale)).flatten();
-    let view_w = world.query_filtered::<&bevy::window::Window, With<bevy::window::PrimaryWindow>>().iter(world).next().filter(|w| w.height() > 0.0).map_or(VIEW_W, |w| 960.0 * w.width() / w.height()) * crate::interface::menu_room();
+    let aspect = world.query_filtered::<&bevy::window::Window, With<bevy::window::PrimaryWindow>>().iter(world).next().filter(|w| w.height() > 0.0).map_or(VIEW_W / 960.0, |w| w.width() / w.height());
+    // Kept for the settings page's scope ([`settings_units`]): a narrow view draws it smaller.
+    WINDOW_ASPECT.store(aspect.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    let _units = on_settings.then(|| settings_units(settings_scale));
+    let view_w = 960.0 * aspect * crate::interface::menu_room();
     // In the page's units: wider where a smaller menu scale leaves room (`page_h`).
     let view_w = view_w.round() as u32;
     let list = world.resource::<Settings>().list().to_vec();
@@ -5389,6 +5677,8 @@ fn drawn_now(world: &mut World) -> Drawn {
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
         keep,
         delete_ask: view.delete_ask.filter(|_| matches!(page, Page::Load { .. })),
+        overwrite_ask: view.overwrite_ask.filter(|_| matches!(page, Page::Save { .. })),
+        new_save_name: matches!(page, Page::Save { .. }).then(|| world.resource::<LoadList>().next_name.clone()),
         view_w,
         language: fnv_util::words::generation(),
         search: (matches!(page, Page::Settings { .. }) && view.scope == SettingsScope::Search).then(|| (view.search.query.clone(), view.focus == SettingsFocus::SearchText)),
@@ -5611,6 +5901,8 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     *list = LoadList::default();
     view.drawn = None;
     view.confirm = None;
+    view.delete_ask = None;
+    view.overwrite_ask = None;
     view.dragging = None;
     view.bar_dragging = false;
     view.scroll = 0;
@@ -5645,6 +5937,8 @@ pub fn close_pause(world: &mut World) {
     }
     if let Some(mut view) = world.get_resource_mut::<PauseView>() {
         view.confirm = None;
+        view.delete_ask = None;
+        view.overwrite_ask = None;
     }
     if world.contains_resource::<crate::graphics_resume::GraphicsResume>()
         && world.contains_resource::<Time<Real>>()
@@ -5862,7 +6156,7 @@ mod tests {
         use crate::graphics_resume::GraphicsResume;
         let cap = std::time::Duration::from_secs_f64(crate::loading::PIPELINE_CAP_SECS);
         // Settings, the quit question, Load, Save: each chosen on the column after Continue.
-        for (key, back) in [(KeyCode::KeyS, true), (KeyCode::KeyQ, true), (KeyCode::KeyL, true), (KeyCode::KeyN, false)] {
+        for (key, back) in [(KeyCode::KeyS, true), (KeyCode::KeyQ, true), (KeyCode::KeyL, true), (KeyCode::KeyN, true)] {
             let mut app = resume_app();
             app.world_mut().resource_mut::<GraphicsResume>().changed();
             app.world_mut().resource_mut::<GraphicsResume>().sample(1, 2, 2);
@@ -5930,6 +6224,25 @@ mod tests {
     /// The views the settings page is laid out for in the tests: 16:9 (1280x720 and 1920x1080
     /// are both 1707 units wide), 16:10, 4:3 and 3440x1440 (21:9, 2293 units).
     const VIEW_WIDTHS: [f32; 4] = [VIEW_W, 1536.0, 1280.0, 2293.0];
+
+    /// #3334: a portrait view (9:16, 540 units at 100%) draws the settings page smaller
+    /// until it is NARROW_VIEW_W wide, over the whole view; a view already that wide is left
+    /// as it was, and an unknown window changes nothing.
+    #[test]
+    fn a_narrow_view_draws_the_settings_page_smaller() {
+        for (aspect, menu) in [(9.0 / 16.0, 1.0), (9.0 / 16.0, 0.5), (3.0 / 4.0, 1.0), (1.0, 1.0)] {
+            let fit = narrow_fit(aspect, menu, 1.0);
+            assert!(fit < 1.0, "{aspect}/{menu}: {fit}");
+            let _units = crate::interface::units_at(menu * fit);
+            let _whole = crate::interface::whole_view();
+            let view_w = 960.0 * aspect * crate::interface::menu_room();
+            assert!((view_w - NARROW_VIEW_W).abs() < 0.5, "{aspect}/{menu}: a view {view_w} wide");
+        }
+        for aspect in [4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0] {
+            assert_eq!(narrow_fit(aspect, 1.0, 1.0), 1.0, "{aspect}");
+        }
+        assert_eq!(narrow_fit(0.0, 1.0, 1.0), 1.0);
+    }
 
     #[test]
     fn the_settings_page_fits_the_view() {
@@ -7357,5 +7670,190 @@ mod tests {
         assert!(!drawn.column.iter().any(|(l, _)| l == CONSOLE_LABEL), "{:?}", drawn.column);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn temp_save_dir(tag: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("nvf-pause-save-{tag}-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_test_save(dir: &Path, name: &str, kind: SaveKind, saved_unix: u64, level: u32, location: &str, body: &[u8]) -> PathBuf {
+        let path = fnv_save::path_of(dir, name).unwrap();
+        let mut h = SaveHeader::new(kind);
+        h.saved_unix = saved_unix;
+        h.player_name = "Courier".into();
+        h.level = level;
+        h.location = location.into();
+        fnv_save::write(&path, &h, b"", body, kind != SaveKind::Manual).unwrap();
+        path
+    }
+
+    #[test]
+    fn save_page_lists_new_save_and_manual_slots_only_and_creates_new_slot() {
+        let dir = temp_save_dir("list");
+        write_test_save(&dir, "Save 1", SaveKind::Manual, 100, 3, "Goodsprings", b"old1");
+        write_test_save(&dir, "Save 3", SaveKind::Manual, 200, 5, "Primm", b"old3");
+        write_test_save(&dir, fnv_save::AUTO_NAME, SaveKind::Auto, 300, 6, "Novac", b"auto");
+        write_test_save(&dir, fnv_save::QUICK_NAME, SaveKind::Quick, 400, 7, "Novac", b"quick");
+        write_test_save(&dir, fnv_save::SYSTEM_NAME, SaveKind::System, 500, 8, "Novac", b"sys");
+
+        let mut app = resume_app();
+        app.insert_resource(crate::save::SaveConfig::with_dir(Some(dir.clone())));
+        press_only(&mut app, KeyCode::KeyN);
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Save { selected: 0 });
+        let stems: Vec<String> = app.world().resource::<LoadList>().saves.iter().map(|(p, _)| stem(p)).collect();
+        assert_eq!(stems, vec!["Save 3", "Save 1"], "save page lists manual saves newest first without rolling slots");
+        assert_eq!(app.world().resource::<LoadList>().next_name, "Save 4");
+
+        // Picking row 0 ("New Save") queues a new numbered manual save and returns to Main.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Main);
+        assert_eq!(app.world().resource::<PauseStatus>().waiting_for, Some(dir.join("Save 4.nvfsave")));
+        let mut cursor = app.world().resource::<Messages<crate::save::SaveRequest>>().get_cursor();
+        let reqs: Vec<_> = cursor.read(app.world().resource::<Messages<crate::save::SaveRequest>>()).cloned().collect();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].name, "Save 4");
+        assert_eq!(reqs[0].kind, SaveKind::Manual);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_page_overwrite_cancel_preserves_existing_file_and_accept_overwrites_for_load() {
+        let dir = temp_save_dir("overwrite");
+        let save1 = write_test_save(&dir, "Save 1", SaveKind::Manual, 100, 3, "Goodsprings", b"{\"v\":1}");
+        write_test_save(&dir, "Save 2", SaveKind::Manual, 200, 5, "Primm", b"{\"v\":2}");
+        let orig_bytes = std::fs::read(&save1).unwrap();
+
+        let mut app = resume_app();
+        app.insert_resource(crate::save::SaveConfig::with_dir(Some(dir.clone())));
+        // Open Save page and move to "Save 1" (row 2: 0=New Save, 1=Save 2, 2=Save 1).
+        press_only(&mut app, KeyCode::KeyN);
+        app.update();
+        press_only(&mut app, KeyCode::ArrowDown);
+        app.update();
+        press_only(&mut app, KeyCode::ArrowDown);
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Save { selected: 2 });
+
+        // Picking an existing slot opens the confirmation defaulting to No.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().overwrite_ask, Some((1, false)));
+        assert!(app.world().resource::<Messages<crate::save::SaveRequest>>().is_empty());
+
+        // Enter while No is focused cancels safely without touching the file.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().overwrite_ask, None);
+        assert_eq!(*app.world().resource::<Page>(), Page::Save { selected: 2 });
+        assert!(app.world().resource::<Messages<crate::save::SaveRequest>>().is_empty());
+        assert_eq!(std::fs::read(&save1).unwrap(), orig_bytes);
+
+        // Open again and cancel with Esc: still untouched.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().overwrite_ask, Some((1, false)));
+        press_only(&mut app, KeyCode::Escape);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().overwrite_ask, None);
+        assert_eq!(*app.world().resource::<Page>(), Page::Save { selected: 2 });
+        assert_eq!(std::fs::read(&save1).unwrap(), orig_bytes);
+
+        // Open again, toggle focus to Yes, and press Enter: queues overwrite for Save 1.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        press_only(&mut app, KeyCode::ArrowUp);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().overwrite_ask, Some((1, true)));
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Main);
+        assert_eq!(app.world().resource::<PauseView>().overwrite_ask, None);
+        assert_eq!(app.world().resource::<PauseStatus>().waiting_for, Some(save1.clone()));
+        let mut cursor = app.world().resource::<Messages<crate::save::SaveRequest>>().get_cursor();
+        let reqs: Vec<_> = cursor.read(app.world().resource::<Messages<crate::save::SaveRequest>>()).cloned().collect();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].name, "Save 1");
+        assert_eq!(reqs[0].kind, SaveKind::Manual);
+
+        // Perform the overwrite through the regular fnv_save::write safeguard and verify
+        // the Load page lists it newest-first and loads the updated file.
+        write_test_save(&dir, &reqs[0].name, reqs[0].kind, 300, 12, "Novac", b"{\"v\":99}");
+        assert!(!save1.with_extension(format!("{}.tmp", fnv_save::EXTENSION)).exists());
+        let reread = fnv_save::read(&save1).unwrap();
+        assert_eq!(reread.header.level, 12);
+        assert_eq!(reread.header.location, "Novac");
+        assert_eq!(reread.body, b"{\"v\":99}");
+
+        press_only(&mut app, KeyCode::KeyL);
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Load { selected: 0 });
+        assert_eq!(stem(&app.world().resource::<LoadList>().saves[0].0), "Save 1");
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        let mut lcur = app.world().resource::<Messages<crate::save::LoadRequest>>().get_cursor();
+        let loads: Vec<_> = lcur.read(app.world().resource::<Messages<crate::save::LoadRequest>>()).cloned().collect();
+        assert_eq!(loads.len(), 1);
+        assert_eq!(loads[0].path, save1);
+
+        // Also verify Y shortcut accepts directly from the confirmation prompt.
+        *app.world_mut().resource_mut::<Page>() = Page::Main;
+        press_only(&mut app, KeyCode::KeyN);
+        app.update();
+        press_only(&mut app, KeyCode::ArrowDown);
+        app.update();
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().overwrite_ask, Some((0, false)));
+        press_only(&mut app, KeyCode::KeyY);
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Main);
+        assert_eq!(app.world().resource::<PauseView>().overwrite_ask, None);
+        assert_eq!(app.world().resource::<PauseStatus>().waiting_for, Some(save1));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_page_draw_shows_new_save_rows_and_overwrite_confirmation() {
+        assert!(Page::Save { selected: 0 }.opened_by("Save"));
+        assert!(!Page::Save { selected: 0 }.opened_by("Load"));
+        assert_eq!(Page::Save { selected: 0 }.settings_row(), None);
+
+        let mut view = PauseView::default();
+        let before = format!("{:?}", view.progress());
+        view.overwrite_ask = Some((0, false));
+        assert_ne!(before, format!("{:?}", view.progress()));
+
+        let mut app = settings_app(&[("difficulty", "Gameplay")], Page::Save { selected: 0 });
+        app.insert_resource(ReportEntry { shown: true, asked: false });
+        {
+            let mut list = app.world_mut().resource_mut::<LoadList>();
+            list.next_name = "Save 2".into();
+            list.saves.push((PathBuf::from("Save 1.nvfsave"), SaveHeader::new(SaveKind::Manual)));
+        }
+        app.update();
+        let buttons: Vec<PauseButton> = app.world_mut().query::<&PauseButton>().iter(app.world()).copied().collect();
+        assert!(buttons.contains(&PauseButton::SaveRow(0)));
+        assert!(buttons.contains(&PauseButton::SaveRow(1)));
+        assert!(!buttons.contains(&PauseButton::Report));
+        assert!(!buttons.contains(&PauseButton::OverwriteAnswer(true)));
+        let details: Vec<String> = app.world_mut().query_filtered::<&Text, With<DetailLine>>().iter(app.world()).map(|t| t.0.clone()).collect();
+        assert!(details.contains(&"New Save".to_string()), "{details:?}");
+        assert!(details.contains(&"Creates slot \"Save 2\"".to_string()), "{details:?}");
+
+        *app.world_mut().resource_mut::<Page>() = Page::Save { selected: 1 };
+        app.world_mut().resource_mut::<PauseView>().overwrite_ask = Some((0, false));
+        app.update();
+        let buttons: Vec<PauseButton> = app.world_mut().query::<&PauseButton>().iter(app.world()).copied().collect();
+        assert!(buttons.contains(&PauseButton::OverwriteAnswer(true)));
+        assert!(buttons.contains(&PauseButton::OverwriteAnswer(false)));
+        let details: Vec<String> = app.world_mut().query_filtered::<&Text, With<DetailLine>>().iter(app.world()).map(|t| t.0.clone()).collect();
+        assert!(details.contains(&"Overwrite this save?".to_string()), "{details:?}");
     }
 }

@@ -329,6 +329,14 @@ width follows the rail's measured words, so another language's longer tab names 
 narrower list. The list's place is logged when it changes
 (`pause menu: settings list <w> wide from <x> in a view <w> wide, band <l>-<r>`).
 
+**A view narrower than 4:3** [design: #3334]: a portrait display (9:16 is 540 units wide)
+left the list 0 wide beside the rail. Such a view gets the whole page drawn smaller, over
+the whole view rather than in the spread frame, until it is `NARROW_VIEW_W` (1280 units, the
+4:3 layout) wide (`pause::narrow_fit`, `interface::whole_view`); at 1080x1920 a unit is
+then about 0.84 pixels, near a 1080p landscape screen's 1.125. The rows, rail and note keep
+the 4:3 places, and the window has more lines (the page is taller in its units). A view 4:3
+or wider is drawn as before. Checked by smoke `settings-layout-portrait` (a 540x960 window).
+
 **A row's parts** [design: #2377]: the places in a row (a switch's state and a reason
 centred at the value's place, a slider's arrows, meter and value, a list's box, a key's
 binding) keep their distance from the row's right end that they had in the 820-unit row

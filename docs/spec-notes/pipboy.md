@@ -86,7 +86,12 @@ root's ECS `Visibility` synchronized with `Rig::shown`.
 
 - **The clip** [observed]: `pipboy.kf` is one sequence `Pipboy`, 0.7333 s, clamped, with
   text keys `start` 0, `Blend: 8` 0.033, `Hit` 0.333, `end` 0.733. It drives
-  `Camera1st` (a small move, no turn) and both arms from the spine out. Measured on the
+  `Camera1st` (a small move, no turn) and both arms from the spine out. A replacement
+  clip of another length is played on the Pip-Boy's own (vanilla) clock: the raise maps
+  onto its start..`Hit`, the lowering onto `Hit`..its end, and with no `Hit` key the
+  vanilla share of it [design, #4492: a 0.067 s replacement, `Hit` at 0.033, held at
+  0.333 s sat past its end with the arm put away, observed in FadedLight's Nuclear Sunset
+  fork]. Measured on the
   arms rig, the screen's place before the eye through the clip:
 
   | seconds | screen against the eye |
@@ -439,6 +444,15 @@ root's ECS `Visibility` synchronized with `Rig::shown`.
   boxed), 9 rows at once (51 a row in a list 468 high). A row (its box) runs from the
   scroll bar to 5 short of the list's right edge, as the DATA lists' [design: it was the
   Repair page's 393, which ran over the item's figures; owner's screenshot 2026-11-01].
+  - **Ammo the weapon cannot fire is dim** (#3442): a row of ammo the weapon in hand
+    cannot fire is drawn at half brightness; the weapon's other kinds (the slug with the
+    shotgun, the .38 with the .357) stay full, every ammo row is dim with the fists out,
+    and a dim row can still be selected [observed: observer check 288, run 2026-11-22,
+    text colour about half; results on PR #3466]. Ours: `Row::dim` from
+    `FormStore::ammo_choices` of `Combat::player_weapon`, alpha 0.5 in the hand-built list
+    and 128 in the list drawn from the menu file; only in the player's inventory, not in a
+    container's or a trade's columns [design]. Not observed: a holstered weapon (ours
+    treats it as equipped), dropping a dim row or putting it on a hotkey (ours allows both).
   - Added 2026-10-23 (owner's playtest list 7, items 5, 6, 15, 20, 33):
     - **HP** is the STATS page's health out of its whole; **DT** the threshold a hit on
       the player meets (worn armour at its condition plus the Damage Threshold actor
@@ -715,8 +729,8 @@ is the top left 85 × 92 of `head.dds`) [observed].
   The list 500 wide from 40, 100, nine rows [hypothesis: the file's height, 542 from
   100, would reach the tab line]. Reputations: those with fame or infamy [hypothesis],
   the selected one's picture (REPU ICON, zoom 150) and its title by the levels of fame
-  and infamy (Accepted, Liked, Mixed …) [documented: GECK wiki GetReputationThreshold;
-  hypothesis: "Dark Hero" with more infamy, "Soft-Hearted Devil" with more fame], and
+  and infamy, in NVForever's own words (`crate::reputation::TITLES`) [design, #2982;
+  the data holds no title setting], and
   "Fame n, Infamy n" [design]. Statistics: the 43 New Vegas names [documented: GECK wiki
   GetPCMiscStat] in the order of their codes [observed: the owner's screenshot of the
   original's list, 2026-10-14] with their counters (docs/spec-notes/misc-stats.md; "--"
@@ -725,11 +739,16 @@ is the top left 85 × 92 of `head.dds`) [observed].
   [hypothesis: alignments by the globals `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`,
   `KarmaVeryGood`; pictures `karma_evil`, `_bad`, `_neutral`, `_good`, `_saintly`].
   The karma title is the game setting `sKarmicTitle<Good|Neutral|Evil><level>` (levels
-  1–30, 30 for 30 and over) [observed: FalloutNV.esm holds 50 of the 90, e.g.
-  `sKarmicTitleNeutral1` "Drifter", `sKarmicTitleEvil29` "Demon Spawn"; the rest are
-  presumably the executable's defaults], else the owner's table (`todo 5.txt`,
-  `stats::model::KARMA_TITLES`); Good and Very Good take the good column, Evil and Very
-  Evil the evil one [hypothesis]. The reputation list (the other mode) is the hook for
+  1–30, 30 for 30 and over; levels below 10 spelled with two digits,
+  `sKarmicTitleNeutral01`) [observed: `fnvtool esm inventory`: FalloutNV.esm holds 53 of
+  the 90, levels 1, 2, 9, 11, 13, 15 and 20–30 in each column, 14 for Good and Evil, 28
+  for Neutral and Evil, 8 for Evil; the DLC masters hold none]. The original shows a
+  title at the other levels too, from text that is not in the data, which NVForever
+  does not copy (LEGAL.md; #2983): a level without a setting takes the nearest level
+  below with one in the same column, else the nearest above, and a load order with no
+  title in the column shows the alignment word [design: `fnv_game::karma_titles`]. A
+  `TTW.ini` `[Karma Titles]` entry comes first (ext-small.md). Good and Very Good take
+  the good column, Evil and Very Evil the evil one [hypothesis]. The reputation list (the other mode) is the hook for
   the reputation workstream.
 - **Keys** [design: `engine/nvf-play/src/pipboy.rs::keys`, `stats/mod.rs::keys`]:
   Up/Down choose CND, RAD, EFF; Left/Right step tabs on every view. A/D also step

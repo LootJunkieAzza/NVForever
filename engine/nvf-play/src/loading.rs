@@ -262,6 +262,10 @@ pub struct LoadPhases {
     /// time queued for an archive (`fnv_vfs::read_stats`; from its first frame counted).
     pub reads: fnv_vfs::ReadStats,
     reads_from: Option<fnv_vfs::ReadStats>,
+    /// The pipelines compiled under the screen and where their time went, summed over the
+    /// compile threads (vendored bevy_render `nvf_pipeline_time`, #2407).
+    pub pipelines: bevy::render::render_resource::NvfPipelineTime,
+    pipelines_from: Option<bevy::render::render_resource::NvfPipelineTime>,
 }
 
 impl LoadPhases {
@@ -269,6 +273,8 @@ impl LoadPhases {
     fn note(&mut self, wait: &[&'static str], at: f64, frame: f64) {
         let now = fnv_vfs::read_stats();
         self.reads = now.since(self.reads_from.get_or_insert(now));
+        let piped = bevy::render::render_resource::nvf_pipeline_time();
+        self.pipelines = piped.since(self.pipelines_from.get_or_insert(piped));
         self.frames += 1;
         self.total = self.total.max(at);
         self.longest_frame = self.longest_frame.max(frame);
@@ -280,19 +286,26 @@ impl LoadPhases {
         }
     }
 
-    /// The log line's text: `up 3.40 s; cells to draw 3.10 s, pipelines 0.40 s; longest frame 0.90 s of 41; read 812 files, 95.0 MB, 0.30 s reading, 0.10 s queued for an archive`.
+    /// The log line's text: `up 3.40 s; cells to draw 3.10 s, pipelines 0.40 s; longest frame 0.90 s of 41; read 812 files, 95.0 MB, 0.30 s reading, 0.10 s queued for an archive; 45 pipelines compiled: 1.20 s queued for a thread, 0.30 s for the shader cache, 0.10 s composing, 0.40 s making modules, 2.00 s creating`
+    /// (the pipelines' seconds are summed over the compile threads).
     pub fn text(&self) -> String {
         let waits = if self.until.is_empty() { "nothing waited for".to_string() } else { self.until.iter().map(|(n, t)| format!("{n} {t:.2} s")).collect::<Vec<_>>().join(", ") };
-        let r = &self.reads;
+        let (r, p) = (&self.reads, &self.pipelines);
         format!(
-            "up {:.2} s; {waits}; longest frame {:.2} s of {}; read {} files, {:.1} MB, {:.2} s reading, {:.2} s queued for an archive",
+            "up {:.2} s; {waits}; longest frame {:.2} s of {}; read {} files, {:.1} MB, {:.2} s reading, {:.2} s queued for an archive; {} pipelines compiled: {:.2} s queued for a thread, {:.2} s for the shader cache, {:.2} s composing, {:.2} s making modules, {:.2} s creating",
             self.total,
             self.longest_frame,
             self.frames,
             r.files,
             r.bytes as f64 / 1e6,
             r.read_ns as f64 / 1e9,
-            r.queued_ns as f64 / 1e9
+            r.queued_ns as f64 / 1e9,
+            p.pipelines,
+            p.queued_ms / 1e3,
+            p.lock_ms / 1e3,
+            p.compose_ms / 1e3,
+            p.naga_ms / 1e3,
+            p.create_ms / 1e3
         )
     }
 }

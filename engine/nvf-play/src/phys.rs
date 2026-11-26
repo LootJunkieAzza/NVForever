@@ -737,9 +737,10 @@ impl PhysState {
     ///
     /// A child worldspace (WRLD `WNAM`) takes land, water and other data from its parent
     /// by its `PNAM` flags; the world index has followed them already
-    /// (`fnv_world::WorldIndex::take_parent_data`, #2345: a cell without LAND has its
-    /// parent's, the default heights and water type are the parent's where the child has
-    /// none), so the records read here are the ones to use. Logged once per start of
+    /// (`fnv_world::WorldIndex::take_parent_data`, #2345: a cell has its parent's LAND
+    /// where the parent has one, its own too since #3755; the default heights and water
+    /// type are the parent's where the child has none), so the records read here are the
+    /// ones to use. Logged once per start of
     /// play in such a worldspace.
     ///
     /// The first time a worldspace is played its reach index is built
