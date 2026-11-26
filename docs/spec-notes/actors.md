@@ -120,7 +120,16 @@ actor meshes`]:
   this layout in other rigid hats, but asymmetric meshes can be ambiguous. Owner
   review tracks the threshold; observer check 168 asks for original-game parity.
 - A rigid part on **another bone is in that bone's own axes**: an ordinary child, node
-  transforms kept, no rotation added. Over the worn models of every ARMO in the ten
+  transforms kept, no rotation added. [design: `engine/nvf-assets/src/actor.rs::rigid_part_chain`]
+  Spawning rigid parts preserves the NIF's root `NiNode` (when named, e.g. `PipBoyArm`)
+  and named intermediate `NiNode`s (e.g. `pipboyscreen`, `RadNeedle`, `TabKnob`,
+  `ScrollKnob`, `StatsGlow`, `ItemsGlow`, `DataGlow`) under the attachment bone instead
+  of flattening all leaf shapes directly onto the bone. Preserving this hierarchy keeps
+  exact bind-pose world transforms while ensuring `GetChildBlocks "Bip01 L ForeTwist" 2`
+  sees the part root (`PipBoyArm`) rather than its first leaf mesh (`PipBoyArm:0`), so
+  scripted resets (`SetNifBlockTranslation/Rotation/Scale`) on the first child move the
+  whole Pip-Boy together instead of detaching the casing from its screen and controls.
+  Over the worn models of every ARMO in the ten
   masters (498 models, placed or not; `fnvtool actor meshes`, `armor_rigid_bones`), 61
   have unskinned shapes: 35 name `Bip01 Head`, 20 have no `Prn`, and 6 name
   `Bip01 L ForeTwist`, all of them Pip-Boys (`pipboy3000\pipboyarm.nif`,

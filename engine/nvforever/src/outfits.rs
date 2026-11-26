@@ -201,6 +201,15 @@ fn grouped(a: &Appearance, part_index: &[usize], spawned: &SpawnedActor, pipboy:
             None => out.push((key, vec![*e])),
         }
     }
+    // Append rigid part roots after their leaf shapes so despawning a removed part
+    // removes leaf shapes first and then tears down the intermediate NiNode subtree.
+    for &(pi, e) in &spawned.rigid_roots {
+        let key = part_key(a, &a.parts[part_index[pi]], pipboy);
+        match out.iter_mut().find(|(n, _)| *n == key) {
+            Some((_, v)) => v.push(e),
+            None => out.push((key, vec![e])),
+        }
+    }
     out
 }
 
@@ -319,7 +328,7 @@ fn follow_inventory(
             }
         };
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
+        let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new(), rigid_roots: Vec::new() };
         if !same_weapon {
             // The old hold goes, the weapon's or the fists' (`actors::arm`).
             for (e, _) in held.iter().filter(|(_, h)| h.reference == rig.reference) {
@@ -474,7 +483,7 @@ fn arm_creatures(
         let Some(w) = weapon else { continue };
         let mods = sim.world.peek(FormId(rig.reference)).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.mods_in_use(w));
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        let spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
+        let spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new(), rigid_roots: Vec::new() };
         let mut st = ActorStats::default();
         let name = world.actors.weapons.get(&w).and_then(|x| x.edid.clone()).unwrap_or_default();
         let kind = world.actors.weapons.get(&w).and_then(|x| x.anim_type.clone()).unwrap_or_default();
