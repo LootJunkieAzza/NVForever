@@ -85,6 +85,10 @@ pub fn toggle_collision(g: &mut Game, _: &Ctx, _: &Args) -> Result<Value, String
 /// `tai` behaves when played; the catalogue's summary speaks of the calling actor.]
 pub fn toggle_actors_ai(g: &mut Game, _: &Ctx, _: &Args) -> Result<Value, String> {
     g.toggles.actors_ai_off = !g.toggles.actors_ai_off;
+    if !g.toggles.actors_ai_off {
+        g.package_schedule.initialized = false;
+        g.package_scan_due = 0.0;
+    }
     ask(g, Toggle::ActorsAI)
 }
 

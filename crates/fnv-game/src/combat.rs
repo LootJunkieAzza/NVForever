@@ -516,6 +516,7 @@ impl Game<'_> {
         if let Some(e) = self.extra.get_mut(&r) {
             e.teammate = false;
         }
+        self.note_teammate(r, false);
     }
 
     /// The share (0–1) of a harmful effect's magnitude the target resists: its value of
@@ -1183,9 +1184,11 @@ impl Game<'_> {
             }
             let dps = s.self_damage_per_second;
             self.extra.entry(r).or_default().burning = (dps > 0).then_some(dps as f64);
+            self.note_burning(r, dps > 0);
         }
         if health > 0.0 && total >= health {
             self.extra.entry(r).or_default().burning = None;
+            self.note_burning(r, false);
         }
         // A block with a parameter (`Begin OnDestructionStageChange 3`, the Citadel's
         // vertibird wrecks for Liberty Prime's march, SCPT 0x0A096CC8 in TTW, #3112)
@@ -1205,12 +1208,23 @@ impl Game<'_> {
     /// indicator [design: docs/design/tweaks.md].
     pub fn burning_explosives(&self) -> Vec<(FormId, FormId)> {
         let mut out = Vec::new();
-        for (r, _) in self.extra.iter().filter(|(_, e)| e.burning.is_some()) {
-            let Some(def) = base_of(self, *r).and_then(|b| self.destruction(b)) else { continue };
-            let stage = crate::functions::objects_destruction_stage(self, *r);
+        let mut check = |r: FormId| {
+            let Some(def) = base_of(self, r).and_then(|b| self.destruction(b)) else { return };
+            let stage = crate::functions::objects_destruction_stage(self, r);
             let next = def.stages.iter().filter(|s| i32::from(s.index) > stage).filter_map(|s| s.explosion.map(|x| (s.index, x))).min_by_key(|(i, _)| *i);
             if let Some((_, x)) = next {
-                out.push((*r, x));
+                out.push((r, x));
+            }
+        };
+        if self.extra_index.initialized {
+            for &r in &self.extra_index.burning {
+                if self.extra.get(&r).is_some_and(|e| e.burning.is_some()) {
+                    check(r);
+                }
+            }
+        } else {
+            for (&r, _) in self.extra.iter().filter(|(_, e)| e.burning.is_some()) {
+                check(r);
             }
         }
         out
@@ -1219,7 +1233,16 @@ impl Game<'_> {
     /// Advance burning objects (a stage's self-damage per second) by `dt` seconds; the
     /// changes that reached new stages, with their references.
     pub fn destruction_tick(&mut self, dt: f64) -> Vec<(FormId, DestructionChange)> {
-        let burning: Vec<(FormId, f64)> = self.extra.iter().filter_map(|(r, e)| e.burning.map(|d| (*r, d))).collect();
+        self.ensure_extra_index();
+        if self.extra_index.burning.is_empty() {
+            return Vec::new();
+        }
+        let burning: Vec<(FormId, f64)> = self
+            .extra_index
+            .burning
+            .iter()
+            .filter_map(|&r| self.extra.get(&r).and_then(|e| e.burning).map(|d| (r, d)))
+            .collect();
         let mut out = Vec::new();
         for (r, dps) in burning {
             if let Some(c) = self.damage_object(r, dps * dt) {

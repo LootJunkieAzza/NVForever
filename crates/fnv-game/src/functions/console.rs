@@ -562,6 +562,7 @@ pub fn delete_reference(g: &mut Game, ctx: &ConsoleCtx, _a: &[String]) -> Result
     }
     let what = label(g, r);
     g.extra.entry(r).or_default().marked_for_delete = true;
+    g.note_marked_for_delete(r);
     g.world.set_deleted(r, true).map_err(|e| e.to_string())?;
     Ok(vec![format!("{what} deleted")])
 }

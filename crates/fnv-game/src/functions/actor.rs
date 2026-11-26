@@ -184,6 +184,9 @@ fn set_damage_untold(g: &mut Game, actor: FormId, code: u16, d: f64) {
     } else {
         e.av_damage.remove(&code);
     }
+    if code == crate::actor_values::FATIGUE {
+        g.note_fatigue_damaged(actor, d > 0.0);
+    }
     sync_carry(g, actor, code);
 }
 
@@ -806,7 +809,20 @@ pub fn get_ghost(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     yes(g.is_ghost(r))
 }
 
-flag!(set_restrained, get_restrained, restrained);
+pub fn set_restrained(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let flag = a.num_or(0, 1.0) != 0.0;
+    g.extra.entry(r).or_default().restrained = flag;
+    if !flag {
+        g.wake_package_actor(r);
+    }
+    none()
+}
+
+pub fn get_restrained(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).is_some_and(|e| e.restrained))
+}
 flag!(set_unconscious_flag, get_unconscious, unconscious);
 
 /// `SetUnconscious flag`. On a dead actor it brings it back first, with no get-up
@@ -825,7 +841,18 @@ pub fn set_unconscious(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     }
     Ok(done)
 }
-flag!(set_player_teammate, get_player_teammate, teammate);
+pub fn set_player_teammate(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let flag = a.num_or(0, 1.0) != 0.0;
+    g.extra.entry(r).or_default().teammate = flag;
+    g.note_teammate(r, flag);
+    none()
+}
+
+pub fn get_player_teammate(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).is_some_and(|e| e.teammate))
+}
 
 /// 1 for an actor whose race has the Child flag (RACE DATA) [documented: catalogue
 /// summary of IsChild].

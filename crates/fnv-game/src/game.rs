@@ -1364,6 +1364,34 @@ pub enum LineKind {
 /// See [`Game::ui_dialogue_hook`].
 pub type DialogueHook = Box<dyn for<'g> FnMut(&mut Game<'g>) + Send + Sync>;
 
+/// Lazy secondary indices over sparse flags in `Game::extra` so per-frame ticks
+/// (`end_timed_packages`, `tick_knockouts`, `tick_concussions`, `companions_sneak`,
+/// `destruction_tick`, `burning_explosives`, `marked_for_delete_refs`) stay `O(matching)`
+/// instead of full-scanning thousands of `RefExtra` entries every frame on long
+/// playthrough saves [design]. Never serialized.
+#[derive(Default)]
+pub(crate) struct ExtraIndex {
+    pub(crate) initialized: bool,
+    pub(crate) package_ends: BTreeSet<FormId>,
+    pub(crate) knocked_out: BTreeSet<FormId>,
+    pub(crate) fatigue_damaged: BTreeSet<FormId>,
+    pub(crate) head_crippled: BTreeSet<FormId>,
+    pub(crate) teammates: BTreeSet<FormId>,
+    pub(crate) marked_for_delete: BTreeSet<FormId>,
+    pub(crate) burning: BTreeSet<FormId>,
+}
+
+/// Incremental min-heap scheduler for `Game::tick_packages` so periodic package choice
+/// pops only due actors instead of rebuilding and scanning all package actors every
+/// `SCAN_STEP` [design]. Never serialized.
+#[derive(Default)]
+pub(crate) struct PackageSchedule {
+    pub(crate) initialized: bool,
+    pub(crate) cells: BTreeSet<FormId>,
+    pub(crate) heap: std::collections::BinaryHeap<(std::cmp::Reverse<u64>, FormId)>,
+    pub(crate) tracked: std::collections::HashSet<FormId>,
+}
+
 pub struct Game<'a> {
     pub data: &'a GameData,
     /// The script extender's strings and arrays by id (fnv_script::vm::ExtStore;
@@ -1774,6 +1802,8 @@ pub struct Game<'a> {
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
     pub(crate) placed_effect_actors: Option<crate::abilities::PlacedEffectActors<'a>>,
+    pub(crate) extra_index: ExtraIndex,
+    pub(crate) package_schedule: PackageSchedule,
     /// Scripted references a script moved (they may have left their authored cell).
     pub moved: BTreeSet<FormId>,
     /// References other than the player that a script put somewhere (MoveTo or a door) since the
@@ -2812,6 +2842,8 @@ impl<'a> Game<'a> {
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             placed_effect_actors: None,
+            extra_index: ExtraIndex::default(),
+            package_schedule: PackageSchedule::default(),
             moved: BTreeSet::new(),
             teleported: BTreeSet::new(),
             rotations: BTreeMap::new(),
@@ -7632,9 +7664,142 @@ impl<'a> Game<'a> {
         g.queue_template_onloads();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
+        g.extra_index = ExtraIndex::default();
+        g.package_schedule = PackageSchedule::default();
         Ok(g)
     }
+
+    pub(crate) fn ensure_extra_index(&mut self) {
+        if self.extra_index.initialized {
+            return;
+        }
+        let idx = &mut self.extra_index;
+        idx.package_ends.clear();
+        idx.knocked_out.clear();
+        idx.fatigue_damaged.clear();
+        idx.head_crippled.clear();
+        idx.teammates.clear();
+        idx.marked_for_delete.clear();
+        idx.burning.clear();
+        for (&r, e) in &self.extra {
+            if e.package_ends.is_some() {
+                idx.package_ends.insert(r);
+            }
+            if e.knocked_out.is_some() {
+                idx.knocked_out.insert(r);
+            }
+            if e.av_damage.contains_key(&crate::actor_values::FATIGUE) {
+                idx.fatigue_damaged.insert(r);
+            }
+            if e.head_crippled {
+                idx.head_crippled.insert(r);
+            }
+            if e.teammate && r != FormId::PLAYER_REF {
+                idx.teammates.insert(r);
+            }
+            if e.marked_for_delete {
+                idx.marked_for_delete.insert(r);
+            }
+            if e.burning.is_some() {
+                idx.burning.insert(r);
+            }
+        }
+        idx.initialized = true;
+    }
+
+    pub(crate) fn note_burning(&mut self, r: FormId, active: bool) {
+        if self.extra_index.initialized {
+            if active {
+                self.extra_index.burning.insert(r);
+            } else {
+                self.extra_index.burning.remove(&r);
+            }
+        }
+    }
+
+    pub(crate) fn note_package_ends(&mut self, r: FormId, active: bool) {
+        if self.extra_index.initialized {
+            if active {
+                self.extra_index.package_ends.insert(r);
+            } else {
+                self.extra_index.package_ends.remove(&r);
+            }
+        }
+    }
+
+    pub(crate) fn note_knocked_out(&mut self, r: FormId, active: bool) {
+        if self.extra_index.initialized {
+            if active {
+                self.extra_index.knocked_out.insert(r);
+            } else {
+                self.extra_index.knocked_out.remove(&r);
+            }
+        }
+    }
+
+    pub(crate) fn note_fatigue_damaged(&mut self, r: FormId, active: bool) {
+        if self.extra_index.initialized {
+            if active {
+                self.extra_index.fatigue_damaged.insert(r);
+            } else {
+                self.extra_index.fatigue_damaged.remove(&r);
+            }
+        }
+    }
+
+    pub(crate) fn note_head_crippled(&mut self, r: FormId, active: bool) {
+        if self.extra_index.initialized {
+            if active {
+                self.extra_index.head_crippled.insert(r);
+            } else {
+                self.extra_index.head_crippled.remove(&r);
+            }
+        }
+    }
+
+    pub(crate) fn note_teammate(&mut self, r: FormId, active: bool) {
+        if self.extra_index.initialized {
+            if active && r != FormId::PLAYER_REF {
+                self.extra_index.teammates.insert(r);
+            } else {
+                self.extra_index.teammates.remove(&r);
+            }
+        }
+    }
+
+    pub(crate) fn note_marked_for_delete(&mut self, r: FormId) {
+        if self.extra_index.initialized {
+            self.extra_index.marked_for_delete.insert(r);
+        }
+    }
+
+    /// References marked for deletion (`RefExtra::marked_for_delete`), using the lazy
+    /// `ExtraIndex` so per-frame checks stay `O(marked)` instead of scanning `self.extra`.
+    pub fn marked_for_delete_refs(&mut self) -> Vec<FormId> {
+        self.ensure_extra_index();
+        self.extra_index
+            .marked_for_delete
+            .iter()
+            .copied()
+            .filter(|r| self.extra.get(r).is_some_and(|e| e.marked_for_delete))
+            .collect()
+    }
+
+    /// Living teammates, sorted by FormID, using the lazy `ExtraIndex`.
+    pub(crate) fn teammates_indexed(&mut self) -> Vec<FormId> {
+        self.ensure_extra_index();
+        self.extra_index
+            .teammates
+            .iter()
+            .copied()
+            .filter(|r| *r != FormId::PLAYER_REF && self.extra.get(r).is_some_and(|e| e.teammate && !e.dead))
+            .collect()
+    }
 }
+
+#[cfg(test)]
+#[path = "extra_and_package_index_tests.rs"]
+mod extra_and_package_index_tests;
 
 /// Seconds of a line per response without its voice file: a base plus a time per
 /// character of the response text. The game takes the length from the voice file; these

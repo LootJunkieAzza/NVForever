@@ -320,6 +320,7 @@ pub fn set_pack_duration(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
         let e = g.extra.entry(r).or_default();
         e.package_ends = Some((p, now + minutes / (24.0 * 60.0)));
         e.package_ends_by_schedule = false;
+        g.note_package_ends(r, true);
     }
     none()
 }
@@ -333,6 +334,6 @@ pub fn set_pack_duration(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
 /// [engineering choice: no engine switch for them yet; the actor stands in its idle].
 pub fn set_actors_ai(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.extra.entry(r).or_default().ai_off = a.num(0)? == 0.0;
+    g.set_actor_ai_off(r, a.num(0)? == 0.0);
     none()
 }

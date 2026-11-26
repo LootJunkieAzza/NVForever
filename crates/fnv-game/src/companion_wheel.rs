@@ -530,7 +530,11 @@ Stimpak {}", now.max(0.0).ceil(), full, carried.map_or(0, |(_, n)| n)));
     /// FollowersStealthing, when they have a line of it and are not saying another
     /// [hypothesis: when the topic is said].
     pub(crate) fn companions_sneak(&mut self) {
-        let now: BTreeSet<FormId> = self.teammates().into_iter().filter(|&t| self.sneaks_with_player(t) && self.sneaks(t)).collect();
+        let mates = self.teammates_indexed();
+        if mates.is_empty() && self.companions.sneaking.is_empty() {
+            return;
+        }
+        let now: BTreeSet<FormId> = mates.into_iter().filter(|&t| self.sneaks_with_player(t) && self.sneaks(t)).collect();
         let started: Vec<FormId> = now.difference(&self.companions.sneaking).copied().collect();
         self.companions.sneaking = now;
         let Some(topic) = self.data.by_edid("FollowersStealthing") else { return };

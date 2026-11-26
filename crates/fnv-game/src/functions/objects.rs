@@ -30,6 +30,9 @@ pub fn note_created(g: &mut Game, r: FormId) {
     }
     g.maybe_apply_npc_weapon_mods(r);
     g.emit(EventKind::Placed { reference: r, base, cell, pos });
+    if cell.is_some_and(|c| g.loaded_cells.contains(&c)) {
+        g.wake_package_actor(r);
+    }
     if g.ref_script(r).is_some() {
         g.moved.insert(r);
         g.note_enabled(r);

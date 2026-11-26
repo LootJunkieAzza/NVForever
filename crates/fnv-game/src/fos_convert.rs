@@ -883,6 +883,9 @@ pub fn convert_fos(
                             .or_default()
                             .av_damage
                             .insert(code_u16, f64::from(-val));
+                        if code_u16 == crate::actor_values::FATIGUE {
+                            g.note_fatigue_damaged(FormId::PLAYER_REF, true);
+                        }
                         if LIMB_CONDITIONS.contains(&code_u16) {
                             inc_ok("player_limb_damage");
                         } else {
@@ -932,6 +935,7 @@ pub fn convert_fos(
                 match raw_tm.ok_or("not in save form ID array").and_then(&map_id) {
                     Ok(tid) if refs.get(tid).is_some() => {
                         g.extra.entry(tid).or_default().teammate = true;
+                        g.note_teammate(tid, true);
                         inc_ok("player_teammates");
                     }
                     Ok(_) => inc_skip("player_teammate", "not a placed reference of load order"),
@@ -2861,6 +2865,9 @@ fn apply_actor_avs(
             }
         } else if val < 0.0 {
             g.extra.entry(rid).or_default().av_damage.insert(code_u16, f64::from(-val));
+            if code_u16 == crate::actor_values::FATIGUE {
+                g.note_fatigue_damaged(rid, true);
+            }
             inc_ok("actor_av_damage");
             applied_any = true;
         }

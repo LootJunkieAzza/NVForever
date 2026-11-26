@@ -158,14 +158,19 @@ impl<'a> Game<'a> {
     ///    needs Andy to leave it once he has cut the cake; issue #2221];
     /// 5. the conditions, with the actor as the subject.
     pub fn check_package(&mut self, actor: FormId, package: FormId) -> PackageCheck {
+        let clock = self.package_clock();
+        let now = self.world.calendar().map(|c| c.days_passed).unwrap_or(0.0);
+        self.check_package_with(actor, package, clock.as_ref(), now)
+    }
+
+    fn check_package_with(&mut self, actor: FormId, package: FormId, clock: Option<&Clock>, now: f32) -> PackageCheck {
         let Some(def) = self.package_def(&package) else { return PackageCheck::Missing };
-        if self.package_clock().is_some_and(|c| !def.schedule.allows(&c)) {
+        if clock.is_some_and(|c| !def.schedule.allows(c)) {
             return PackageCheck::OutOfSchedule;
         }
         if def.uses_linked_ref() && self.linked_ref(actor).is_none() {
             return PackageCheck::NoLinkedRef;
         }
-        let now = self.world.calendar().map(|c| c.days_passed).unwrap_or(0.0);
         if self.extra.get(&actor).and_then(|e| e.package_blocked.get(&package)).is_some_and(|until| now < *until) {
             return PackageCheck::Unreachable;
         }
@@ -181,6 +186,9 @@ impl<'a> Game<'a> {
                 return PackageCheck::OncePerDay;
             }
         }
+        if def.conditions.is_empty() {
+            return PackageCheck::Valid;
+        }
         let target = self.package_target(actor, def);
         if self.conditions_pass(&def.conditions, Some(actor), target, &format!("PACK {package}")) {
             PackageCheck::Valid
@@ -192,6 +200,9 @@ impl<'a> Game<'a> {
     /// Whether `package`'s own conditions pass for `actor`, regardless of its schedule.
     fn package_conditions_pass(&mut self, actor: FormId, package: FormId) -> bool {
         let Some(def) = self.package_def(&package) else { return false };
+        if def.conditions.is_empty() {
+            return true;
+        }
         let target = self.package_target(actor, def);
         self.conditions_pass(&def.conditions, Some(actor), target, &format!("PACK {package}"))
     }
@@ -218,7 +229,13 @@ impl<'a> Game<'a> {
     ///   no package of his list applies, and Lucas Simms' script (Fallout 3's and TTW's
     ///   alike) has Burke shoot him only once Burke's GetSitting reads 0; issue #2235].
     pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
-        let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
+        let clock = self.package_clock();
+        let days = self.world.calendar().map(|c| c.days_passed).unwrap_or(0.0);
+        self.select_package_with(actor, clock.as_ref(), days)
+    }
+
+    fn select_package_with(&mut self, actor: FormId, clock: Option<&Clock>, days: f32) -> Option<FormId> {
+        let now = days as f64;
         if let Some(e) = self.extra.get_mut(&actor) {
             // A script package whose goal was met is removed at the next choice
             // [documented: GECK wiki AddScriptPackage, "takes precedence over all other
@@ -243,14 +260,14 @@ impl<'a> Game<'a> {
         // The conditions may ask for the actor's current package (GetIsCurrentPackage):
         // `current_package` answers with the one it had rather than choosing again.
         self.choosing_package.push(actor);
-        let valid = list.iter().copied().find(|&p| self.check_package(actor, p) == PackageCheck::Valid);
+        let valid = list.iter().copied().find(|&p| self.check_package_with(actor, p, clock, days) == PackageCheck::Valid);
         let kept = match valid {
             Some(_) => None,
             // Keep the current list package when no other applies and its conditions
             // pass. Check them directly because a schedule or target problem can
             // short-circuit check_package before it reaches the conditions (#3041).
             None => self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)).filter(|&c| {
-                self.check_package(actor, c) != PackageCheck::ConditionsFail
+                self.check_package_with(actor, c, clock, days) != PackageCheck::ConditionsFail
                     && self.package_conditions_pass(actor, c)
             }),
         };
@@ -289,6 +306,13 @@ impl<'a> Game<'a> {
         }
         // Before the begin script runs, so that a SetPackDuration there replaces it.
         self.start_schedule_duration(actor);
+        if package.is_some()
+            && self.package_schedule.initialized
+            && !self.package_schedule.tracked.contains(&actor)
+            && self.is_package_eligible_actor(actor)
+        {
+            self.schedule_package_actor(actor, self.extra.get(&actor).and_then(|e| e.package_due).unwrap_or(0.0));
+        }
         self.emit(EventKind::PackageChosen { actor, package });
         if self.runs_packages() {
             // Doors the old package locks or unlocks as it ends, the new one as it starts.
@@ -501,6 +525,7 @@ impl<'a> Game<'a> {
         let e = self.extra.entry(actor).or_default();
         e.package_ends = Some((p, now + def.schedule.duration as f64 / 24.0));
         e.package_ends_by_schedule = true;
+        self.note_package_ends(actor, true);
     }
 
     /// Packages whose time is up end (SetPackDuration's, or the schedule duration of
@@ -517,16 +542,33 @@ impl<'a> Game<'a> {
     /// package the actor keeps the ended one [hypothesis, as the keep rule of
     /// [`Game::select_package`]]. A package changed in the meantime drops the timer.
     pub fn end_timed_packages(&mut self) {
+        self.ensure_extra_index();
+        if self.extra_index.package_ends.is_empty() {
+            return;
+        }
         let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
-        let due: Vec<FormId> = self
-            .extra
-            .iter()
-            .filter_map(|(a, e)| e.package_ends.filter(|(p, until)| e.current_package == Some(*p) && now >= *until).map(|_| *a))
-            .collect();
-        self.extra.values_mut().filter(|e| e.package_ends.is_some_and(|(p, _)| e.current_package != Some(p))).for_each(|e| e.package_ends = None);
+        let mut due = Vec::new();
+        let mut stale = Vec::new();
+        for &a in &self.extra_index.package_ends {
+            match self.extra.get(&a).and_then(|e| e.package_ends.map(|(p, until)| (e.current_package, p, until))) {
+                Some((curr, p, until)) if curr == Some(p) => {
+                    if now >= until {
+                        due.push(a);
+                    }
+                }
+                _ => stale.push(a),
+            }
+        }
+        for a in stale {
+            if let Some(e) = self.extra.get_mut(&a) {
+                e.package_ends = None;
+            }
+            self.note_package_ends(a, false);
+        }
         for a in due {
             if self.extra.get(&a).is_some_and(|e| e.dead) || self.ai_off(a) {
                 self.extra.entry(a).or_default().package_ends = None;
+                self.note_package_ends(a, false);
                 continue;
             }
             if self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule) && self.package_held(a).is_some() {
@@ -550,6 +592,7 @@ impl<'a> Game<'a> {
             if !done_state && e.script_package == p {
                 e.script_package = None;
             }
+            self.note_package_ends(a, false);
             self.package_goal_met(a);
             if p.is_some_and(|p| self.extra.get(&a).is_some_and(|e| e.script_package != Some(p))) {
                 self.set_package(a, None);
@@ -584,6 +627,14 @@ impl<'a> Game<'a> {
             }
         }
         self.emit(EventKind::Moved { reference, cell, pos });
+        if reference != FormId::PLAYER_REF
+            && self.package_schedule.initialized
+            && cell.is_some_and(|c| self.loaded_cells.contains(&c))
+            && !self.package_schedule.tracked.contains(&reference)
+            && self.is_package_eligible_actor(reference)
+        {
+            self.schedule_package_actor(reference, 0.0);
+        }
     }
 
     /// The references a script put somewhere since the last call (MoveTo or a door; see
@@ -601,6 +652,14 @@ impl<'a> Game<'a> {
         s.rot[2] = heading;
         if self.ref_script(actor).is_some() {
             self.moved.insert(actor);
+        }
+        if actor != FormId::PLAYER_REF
+            && self.package_schedule.initialized
+            && cell.is_some_and(|c| self.loaded_cells.contains(&c))
+            && !self.package_schedule.tracked.contains(&actor)
+            && self.is_package_eligible_actor(actor)
+        {
+            self.schedule_package_actor(actor, 0.0);
         }
         Ok(())
     }
@@ -631,6 +690,73 @@ impl<'a> Game<'a> {
             return self.extra.get(&actor).and_then(|e| e.current_package);
         }
         self.evaluate_package(actor)
+    }
+
+    fn update_package_with(&mut self, actor: FormId, clock: Option<&Clock>, days: f32) -> Option<FormId> {
+        if self.package_held(actor).is_some() {
+            return self.extra.get(&actor).and_then(|e| e.current_package);
+        }
+        let p = self.select_package_with(actor, clock, days);
+        self.set_package(actor, p);
+        self.extra.get(&actor).and_then(|e| e.current_package)
+    }
+
+    pub(crate) fn is_package_eligible_actor(&self, r: FormId) -> bool {
+        if r == FormId::PLAYER_REF {
+            return false;
+        }
+        if r >= FormId::FIRST_DYNAMIC {
+            self.world.peek(r).is_some_and(|s| !s.deleted() && is_actor_base(self.world.forms, s.base))
+        } else {
+            self.world.placed.get(r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"))
+        }
+    }
+
+    fn schedule_package_actor(&mut self, actor: FormId, due: f64) {
+        let key = due.max(0.0).to_bits();
+        self.package_schedule.tracked.insert(actor);
+        self.package_schedule.heap.push((std::cmp::Reverse(key), actor));
+    }
+
+    /// Wake a package-eligible actor (or children whose enable parent is `r`) immediately
+    /// after enabling, spawning into a loaded cell, resurrecting, or unpausing AI so the
+    /// min-heap never stalls until the next full `package_interval` [design].
+    pub(crate) fn wake_package_actor(&mut self, actor: FormId) {
+        if !self.package_schedule.initialized {
+            return;
+        }
+        if self.is_package_eligible_actor(actor) {
+            let wake_due = self.extra.get(&actor).and_then(|e| e.package_due).unwrap_or(0.0);
+            self.schedule_package_actor(actor, wake_due);
+            self.package_scan_due = self.package_scan_due.min(wake_due);
+        }
+    }
+
+    /// Set an actor's per-actor AI-off flag (`SetActorsAI`) and wake its package schedule
+    /// immediately when AI is re-enabled [design].
+    pub(crate) fn set_actor_ai_off(&mut self, actor: FormId, off: bool) {
+        self.extra.entry(actor).or_default().ai_off = off;
+        if !off {
+            self.wake_package_actor(actor);
+        }
+    }
+
+    /// Wake `r` and any tracked actors that use `r` as their enable parent [design].
+    pub(crate) fn wake_package_enable_parent(&mut self, r: FormId) {
+        if !self.package_schedule.initialized {
+            return;
+        }
+        self.wake_package_actor(r);
+        let children: Vec<FormId> = self
+            .package_schedule
+            .tracked
+            .iter()
+            .copied()
+            .filter(|&a| a != r && self.world.enable_parent(a).is_some_and(|ep| ep.reference == r))
+            .collect();
+        for child in children {
+            self.wake_package_actor(child);
+        }
     }
 
     /// The actors scripts created at run time (PlaceAtMe of an NPC_, CREA or leveled
@@ -690,26 +816,103 @@ impl<'a> Game<'a> {
             return;
         }
         let now = self.time;
-        let mut next = now + interval;
-        for a in self.package_actors() {
+        let now_bits = now.max(0.0).to_bits();
+        if !self.package_schedule.initialized {
+            let actors = self.package_actors();
+            self.package_schedule.cells = self.loaded_cells.clone();
+            self.package_schedule.tracked.clear();
+            self.package_schedule.heap.clear();
+            for a in actors {
+                let due = self.extra.get(&a).and_then(|e| e.package_due).unwrap_or(0.0);
+                self.schedule_package_actor(a, due);
+            }
+            self.package_schedule.initialized = true;
+        } else {
+            if self.package_schedule.cells != self.loaded_cells {
+                let placed = self.world.placed;
+                let mut added: Vec<FormId> = Vec::new();
+                for c in self.loaded_cells.difference(&self.package_schedule.cells) {
+                    if let Some(refs) = placed.by_cell.get(c) {
+                        for &r in refs {
+                            if !self.package_schedule.tracked.contains(&r)
+                                && placed.get(r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"))
+                                && self.cell_of(r) == Some(*c)
+                            {
+                                added.push(r);
+                            }
+                        }
+                    }
+                }
+                self.package_schedule.cells = self.loaded_cells.clone();
+                for a in added {
+                    let due = self.extra.get(&a).and_then(|e| e.package_due).unwrap_or(0.0);
+                    self.schedule_package_actor(a, due);
+                }
+            }
+            let mut newly_visible: Vec<FormId> = Vec::new();
+            for r in self.created_actors() {
+                if !self.package_schedule.tracked.contains(&r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
+                    newly_visible.push(r);
+                }
+            }
+            for &r in &self.moved {
+                if !self.package_schedule.tracked.contains(&r)
+                    && self.world.placed.get(r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"))
+                    && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c))
+                {
+                    newly_visible.push(r);
+                }
+            }
+            for a in newly_visible {
+                let due = self.extra.get(&a).and_then(|e| e.package_due).unwrap_or(0.0);
+                self.schedule_package_actor(a, due);
+            }
+        }
+        let clock = self.package_clock();
+        let days = self.world.calendar().map(|c| c.days_passed).unwrap_or(0.0);
+        let mut due_actors: Vec<FormId> = Vec::new();
+        while let Some(&(std::cmp::Reverse(due_bits), a)) = self.package_schedule.heap.peek() {
+            if due_bits > now_bits {
+                break;
+            }
+            self.package_schedule.heap.pop();
+            // Skip stale heap entries superseded by a later package_due update.
+            if self.extra.get(&a).and_then(|e| e.package_due).is_some_and(|actual_due| actual_due.max(0.0).to_bits() > due_bits) {
+                continue;
+            }
+            due_actors.push(a);
+        }
+        // Preserve deterministic FormID order among actors due in the same tick.
+        due_actors.sort_unstable();
+        due_actors.dedup();
+        for a in due_actors {
+            let in_loaded = self.cell_of(a).is_some_and(|c| self.loaded_cells.contains(&c));
+            let has_pkg = self.extra.get(&a).is_some_and(|e| e.current_package.is_some());
+            if !in_loaded && !has_pkg {
+                self.package_schedule.tracked.remove(&a);
+                continue;
+            }
             if !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead) || self.ai_off(a) {
+                self.schedule_package_actor(a, now + interval);
                 continue;
             }
             // An actor walking into a loaded cell for the first time dresses as one loaded
             // there (`Game::outfit_loaded_actors`).
-            let _ = self.world.outfit(a);
-            self.maybe_apply_npc_weapon_mods(a);
+            if in_loaded {
+                let _ = self.world.outfit(a);
+                self.maybe_apply_npc_weapon_mods(a);
+            }
             let due = match self.extra.get(&a).and_then(|e| e.package_due) {
                 Some(d) => d,
                 None => {
                     // First sight: choose now, then keep to the actor's phase.
                     let phase = (a.0.wrapping_mul(2_654_435_761) >> 22) as f64 / 1024.0;
-                    self.update_package(a);
+                    self.update_package_with(a, clock.as_ref(), days);
                     now + interval * phase
                 }
             };
             let due = if now >= due {
-                self.update_package(a);
+                self.update_package_with(a, clock.as_ref(), days);
                 // Doors kept locked or unlocked while the package runs.
                 if let Some(p) = self.extra.get(&a).and_then(|e| e.current_package) {
                     self.package_doors(a, p, flags::LOCK_DOORS_AT_LOCATION, flags::UNLOCK_DOORS_AT_LOCATION);
@@ -719,8 +922,14 @@ impl<'a> Game<'a> {
                 due
             };
             self.extra.entry(a).or_default().package_due = Some(due);
-            next = next.min(due);
+            self.schedule_package_actor(a, due);
         }
+        let next = self
+            .package_schedule
+            .heap
+            .peek()
+            .map(|&(std::cmp::Reverse(b), _)| f64::from_bits(b))
+            .unwrap_or(now + interval);
         self.package_scan_due = next.max(now + SCAN_STEP);
     }
 }
