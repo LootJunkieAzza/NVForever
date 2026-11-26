@@ -1172,6 +1172,10 @@ pub struct GameData {
     pub talking_voices: HashMap<FormId, FormId>,
     /// PERK: perks and traits ([`PerkDef`]).
     pub perks: HashMap<FormId, PerkDef>,
+    /// Precomputed set of every `PerkEffect::Ability(spell)` referenced by any loaded perk
+    /// so `Game::sync_perk_abilities_of` tests stale perk abilities in O(1) instead of
+    /// scanning every perk every frame [design].
+    pub perk_ability_spells: HashSet<FormId>,
     /// AVIF: the name, short name, description and icon of each actor value
     /// ([`GameData::actor_value_info`]).
     pub actor_value_infos: HashMap<FormId, ActorValueInfo>,
@@ -2109,6 +2113,7 @@ impl GameData {
             station_flags,
             talking_voices,
             perks: HashMap::new(),
+            perk_ability_spells: HashSet::new(),
             actor_value_infos: HashMap::new(),
             recipes: HashMap::new(),
             camera_paths: HashMap::new(),
@@ -2384,8 +2389,14 @@ impl GameData {
                 if let Some(mut v) = r.perk {
                     // An entry's script (an activate choice's, `crate::activate_choices`).
                     for e in &mut v.entries {
-                        if let PerkEffect::EntryPoint(ep) = &mut e.effect {
-                            ep.unit = unit_of.get(&UnitOwner::Perk { form: id.0, entry: e.ordinal }).copied().filter(|&u| units[u].unit.has_scda);
+                        match &mut e.effect {
+                            PerkEffect::EntryPoint(ep) => {
+                                ep.unit = unit_of.get(&UnitOwner::Perk { form: id.0, entry: e.ordinal }).copied().filter(|&u| units[u].unit.has_scda);
+                            }
+                            PerkEffect::Ability(spell) => {
+                                d.perk_ability_spells.insert(*spell);
+                            }
+                            _ => {}
                         }
                     }
                     d.perks.insert(id, v);

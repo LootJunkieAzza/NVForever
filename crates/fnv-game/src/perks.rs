@@ -373,12 +373,21 @@ impl Game<'_> {
     pub fn sync_perk_abilities_of(&mut self, actor: FormId) {
         let wanted = self.perk_abilities_of(actor);
         let data = self.data;
-        let have: Vec<FormId> = self.extra.get(&actor).map(|x| x.spells.clone()).unwrap_or_default();
+        let have_slice = self.extra.get(&actor).map(|x| x.spells.as_slice()).unwrap_or(&[]);
+        // Fast steady-state check: avoid cloning `x.spells` or allocating `stale`/`new`
+        // when every wanted ability is already present and no held spell is a stale perk ability.
+        let any_stale = have_slice
+            .iter()
+            .any(|s| data.perk_ability_spells.contains(s) && !wanted.iter().any(|w| w.1 == *s));
+        let any_new = wanted.iter().any(|w| !have_slice.contains(&w.1));
+        if !any_stale && !any_new {
+            return;
+        }
+        let have: Vec<FormId> = have_slice.to_vec();
         let stale: Vec<FormId> = have
             .iter()
             .copied()
-            .filter(|s| !wanted.iter().any(|w| w.1 == *s))
-            .filter(|s| data.perks.values().any(|p| p.entries.iter().any(|e| matches!(e.effect, PerkEffect::Ability(a) if a == *s))))
+            .filter(|s| data.perk_ability_spells.contains(s) && !wanted.iter().any(|w| w.1 == *s))
             .collect();
         let new: Vec<(FormId, FormId)> = wanted.into_iter().filter(|w| !have.contains(&w.1)).collect();
         if stale.is_empty() && new.is_empty() {
