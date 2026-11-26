@@ -31,6 +31,10 @@ fn yes(b: bool) -> XVal {
 /// EDID Fists].
 const FISTS: FormId = FormId(0x1F4);
 
+#[cfg(test)]
+#[path = "w6d12_islimbcrippled_tests.rs"]
+mod w6d12_islimbcrippled_tests;
+
 /// The limbs' condition actor values in the pages' order: head, torso, left arm, right
 /// arm, left leg, right leg, brain [documented: IsLimbCrippled; GetCrippledLimbsAsBitMask].
 const LIMB_AVS: [&str; 7] = ["PerceptionCondition", "EnduranceCondition", "LeftAttackCondition", "RightAttackCondition", "LeftMobilityCondition", "RightMobilityCondition", "BrainCondition"];
@@ -76,9 +80,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let Some(a) = subject else { return Some(Ok(zero)) };
             let limb = num(args, 0, -1.0) as i64;
             let c = crippled(g, a, num(args, 1, 0.0));
-            yes(match usize::try_from(limb).ok() {
-                Some(i) => c.get(i).copied().unwrap_or(false),
-                None => c.iter().any(|&x| x),
+            yes(match limb {
+                -1 => c.iter().any(|&x| x),
+                0..=6 => c[limb as usize],
+                _ => false,
             })
         }
         "getcrippledlimbsasbitmask" | "getnumcrippledlimbs" => {
