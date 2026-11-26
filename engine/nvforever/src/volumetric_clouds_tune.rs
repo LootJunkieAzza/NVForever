@@ -482,7 +482,7 @@ impl CloudTune {
 /// `count_sky_jumps`, `follow_volume`): one look at the tune file when one is named and its time
 /// has come; nothing at all without the variable.
 pub fn poll_tune(graphics: Option<Res<crate::graphics::Graphics>>, real: Option<Res<Time<Real>>>, mut tune: ResMut<CloudTune>) {
-    if tune.path.is_none() || !graphics.is_some_and(|g| g.volumetric_clouds_run()) {
+    if tune.path.is_none() || !graphics.is_some_and(|g| g.volumetric_clouds) {
         return;
     }
     let Some(real) = real else { return };

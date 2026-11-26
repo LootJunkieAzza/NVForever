@@ -335,6 +335,31 @@ expect = [
 forbid = ["composed shaders: not saved", "pipeline cache: not saved", "pipeline list: not saved", "Caught rendering error", "Mismatched pop_error_scope"]
 
 [[scenario]]
+name = "gpu-sheds-over-budget"
+source = "#2754 (an 8 GB card at 1440p held 7,037 of its 6,844 MB budget and stalled 1-2 s at a time; #3349 a lost device over budget): over 95 % of the GPU budget at two checks in a row the game gives memory back one step at a time, at most one every 10 s (shadow maps 4096 to 2048, then multisampling 8x to 4x, then 4x to 2x), logs the use before and after each step and tells the player (engine/nvforever/src/memory_budget.rs)"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/graphics.rs"]
+# Goodsprings on foot holds about 1,070 MB at 2048 maps and 4x (2026-11-25), under 95 % of the test aid's 1,150 MB, so nothing is lowered until the settings page sets 4096 maps and 8x (anti-aliasing 0.5 is the fourth of seven choices); those take it over, and each step follows while it stays over.
+env = { NVF_PLAY_TEST_VRAM_MB = "1150", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "3:4", NVF_PLAY_TEST_SETTINGS = "3.3:shadow-resolution=4096,3.6:anti-aliasing=0.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows", "--size", "1920x1080"]
+run_seconds = 45
+expect = [
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: shadow resolution lowered to 2048 to give memory back', count = 1, label = "the shadow maps go to 2048 first" },
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: anti-aliasing lowered to 4x to give memory back', count = 1, label = "then 8x multisampling to 4x" },
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: anti-aliasing lowered to 2x to give memory back', count = 1, label = "then 4x to 2x" },
+  { re = 'memory budget: after shadow resolution lowered to 2048 this process holds \d+ of 1150 MB \(it held \d+ MB\)', label = "the use after the step is logged" },
+]
+order = [[
+  "settings: shadow-resolution 4096",
+  { text = "sun shadows: maps 4096 x 4096 texels", label = "the maps go to 4096" },
+  { re = 'shadow resolution lowered to 2048 to give memory back', label = "the shadow step" },
+  { text = "sun shadows: maps 2048 x 2048 texels", label = "the maps are 2048 again" },
+  { re = 'anti-aliasing lowered to 4x to give memory back', label = "the first multisampling step" },
+  { re = 'anti-aliasing lowered to 2x to give memory back', label = "the second" },
+]]
+forbid = ["Caught rendering error", "Mismatched pop_error_scope", "lowered to 1024", "lowered to Off"]
+
+[[scenario]]
 name = "memory-budget-capped"
 source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
 areas = ["renderer"]
@@ -4162,6 +4187,20 @@ order = [[
 ]]
 
 [[scenario]]
+name = "upright-talk-from-the-side"
+source = "#3446 (player reports, 0.8.1: NPCs lie flat for a moment as they are talked to; #2859, fixed by #2860: a turn clip's tilted accumulation root): Sunny Smiles is put 120 units to the player's side and talked to as she walks off to the saloon, the player 161° off her front, so her body turns round to face the player; a standing actor whose pelvis -> head line leans past 60° is logged (engine/nvforever/src/upright.rs) and none may"
+areas = ["dialogue", "locomotion"]
+paths = ["engine/nvforever/src/upright.rs", "engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:moveto:SunnyRef:player:120:0:0,9:activate:SunnyRef" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  "dialogue: conversation with SunnyRef started",
+  { re = 'upright: 0 tips of standing actors seen', label = "nobody standing leans over" },
+]
+forbid = [{ re = 'upright: .* leans \d+° from upright while standing', label = "a standing actor lay over" }]
+
+[[scenario]]
 name = "force-greet"
 source = "CLAUDE.md: after changes to Dialogue packages (fnv-ai goal::talk, carry talk_step; docs/design/actor-behaviour.md §5.6)"
 areas = ["ai", "dialogue-packages"]
@@ -6599,7 +6638,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:objective:
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
 run_seconds = 45
 order = [[
-  "quest message on screen: Quest added: BACK IN THE SADDLE",
+  "quest message on screen: New quest: BACK IN THE SADDLE",
   { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon." },
   { text = "quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon." },
 ]]
@@ -8254,7 +8293,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 40
 order = [[
   "fast travel: over-encumbered, but Has Fast Travel Always (Long Haul) lets the player travel",
-  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: asks "Travel to Primm?" (0x000CDF46)',
   { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference', label = "and goes" },
 ]]
 forbid = [{ re = 'fast travel: to Primm .* refused \(Encumbered\)', label = "refused for the load" }]
@@ -8568,6 +8607,21 @@ expect = [
   { re = 'process summary: .* (?P<n>\d+) fell out of the cell buffer', range = [10, 100000], label = "process summary: ten or more fell out of the cell buffer" },
   { re = 'process summary: .* (?P<n>\d+) every 120 s \(', range = [10, 1000000], label = "process summary: Low-level updates every 120 s" },
 ]
+
+[[scenario]]
+name = "creature-stored-pose-settles"
+source = "issue #3408 (TTW report: dead brahmin at Arefu stood on their heads or hung above the ground beside a fence): a creature corpse's stored pose (XRGD) read with the human skeleton's reading floats or sinks, so on a skeleton other than the human one it starts awake in that pose and settles (engine/nvforever/src/deaths.rs, ragdoll.rs, authored_pose.rs CHECKED_ROOT; dead-on-spawn.md §5)"
+note = "the base game alone: DEADCaravanBrahmin 0x000F6909 (WastelandNV, stored pose above the ground, not lifted); before the fix it was held in its stored pose ('at rest ... after 0.0 s of physics') [observed 2026-11-25]; the Arefu corpses themselves need TTW's data, which is not a smoke data dir"
+areas = ["ragdoll", "deaths"]
+paths = ["engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1" }
+args = ["--play", "--pos=-11967,45400,4250", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  "ragdoll: actor 000F6909 starts awake from the pose its reference stores, to settle",
+  { re = 'ragdoll: actor 000F6909 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone, after (?P<s>[\d.]+) s of physics', range = [-1000, 35], label = "the brahmin settles lying down" },
+]
+forbid = [{ re = 'ragdoll: actor 000F6909 at rest at .* after 0\.0 s of physics', label = "not held in the stored pose without physics" }]
 
 [[scenario]]
 name = "dead-on-spawn"
@@ -10686,10 +10740,10 @@ expect = [
   { re = 'CraigBooneREF: package FollowersBooneFollowPlayerLONG', label = "his long Follow package" },
   { re = 'companion wheel: aggressive_passive \(Aggressive\): CraigBooneREF says \S+ \(FollowersTacticsCombatAggressive\)', label = "Aggressive" },
   { re = 'companion wheel: ranged_melee \(Melee\): CraigBooneREF says \S+ \(FollowersTacticsCombatMelee\)', label = "Melee (his combat style)" },
-  { re = 'companion wheel: stimpak \(Use Stimpak\): \S+ used on CraigBooneREF', label = "a stimpak used on the hurt companion" },
-  { re = 'CraigBooneREF: backs up from the player', label = "Back Up walks him away" },
+  { re = 'companion wheel: stimpak \(Heal\): \S+ used on CraigBooneREF', label = "a stimpak used on the hurt companion" },
+  { re = 'CraigBooneREF: backs up from the player', label = "Step Back walks him away" },
   { re = 'sneaking: CraigBooneREF .*crouches and sneaks', label = "he sneaks with the player" },
-  { re = 'menu: a script opens .*inventory \(OpenTeammateContainer\)', label = "Open Inventory opens his inventory" },
+  { re = 'menu: a script opens .*inventory \(OpenTeammateContainer\)', label = "Inventory opens his inventory" },
   { re = 'menu: open Container.*\(\d+ non-playable stacks hidden\)', label = "his rifle and Magical Companion Ammo (Non-Playable) are not listed (owner, 2026-10-20)" },
   { re = 'companion wheel summary: opened 3 times', label = "the summary" },
 ]
@@ -11412,6 +11466,83 @@ expect = [
   "menu pause: the picture runs again",
   { re = 'console: open', min = 4, label = "the console opens again while the world is held" },
 ]
+
+[[scenario]]
+name = "photo-mode"
+source = "[design] photo mode opens, pauses the game, moves its camera, changes its sliders, saves a PNG and closes (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open,11:orbit=60,11.5:near=200,12:set=zoom=50,12.5:set=saturation=0.4,13:shot,16:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 19
+expect = [
+  { re = 'photo mode: open \(the game pauses\), zoom \d+°', label = "photo mode opens and the game pauses" },
+  { re = 'menu pause: the picture stands still \(photo mode\)', label = "the picture stands still" },
+  "test aid NVF_PLAY_TEST_PHOTO: orbit 60°",
+  "test aid NVF_PLAY_TEST_PHOTO: Zoom (FOV) 50",
+  "test aid NVF_PLAY_TEST_PHOTO: Saturation 40%",
+  { re = 'photo mode: captured \d+x\d+, writing .*Photos.NVForever \d{4}-\d\d-\d\d \d\d-\d\d-\d\d .+\.png', label = "the window is captured and named by date, time and place" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  { text = "photo mode: notice: Photo saved", label = "photo mode's own notice says Photo saved (the corner messages wait while it is open)" },
+  "photo mode: closed, the view is back on the player",
+  { re = 'photo mode: the field of view is back at vertical 59\.8°', label = "the close gives back the gameplay field of view (75, vertical 59.8°), not the Zoom slider's 50" },
+  "menu pause: the picture runs again",
+]
+
+
+[[scenario]]
+name = "photo-mode-lights"
+source = "[design] photo mode lights: Hue and Saturation sliders, brightness, range, point or spot, a direction and a width the player sets, shadows; a new light drops at the camera; the camera stands still while a light is edited and comes back exactly; the lights go when photo mode closes (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvf-play/src/photo_lights.rs", "engine/nvforever/src/photo_lights.rs"]
+env = { NVF_PLAY_TEST_PHOTO = "8:open,8.5:tab=3,9:light=add,9.3:light=hue=0,9.4:light=sat=1,9.5:light=width=30,9.6:light=bright=3,9.8:light-move=-40:-120:60,10:light-turn=30:-10,10.2:lift=100,11:light-done,11.5:light=add,11.7:light=type,11.8:light=hue=220,11.9:light=sat=1,12:light-move=0:150:0,12.3:light-done,12.6:shot,15:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'photo mode: open \(the game pauses\)', label = "photo mode opens" },
+  { re = 'photo mode: light 1 added at the camera \(', label = "a new light drops at the camera" },
+  { re = 'photo mode: editing light 1; the camera stands at', label = "editing it begins with the camera held" },
+  "test aid NVF_PLAY_TEST_PHOTO: light Hue 0",
+  "test aid NVF_PLAY_TEST_PHOTO: light Saturation 100%",
+  "test aid NVF_PLAY_TEST_PHOTO: light Width 30",
+  { re = 'photo lights: light 1 drawn \(Spot', label = "the first light is drawn as a spot" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: light 1 now at .* direction [+-]\d+ tilt [+-]\d+', label = "the camera's inputs move and aim the light" },
+  { text = "test aid NVF_PLAY_TEST_PHOTO: the camera stands still while a light is edited", label = "the camera does not move while a light is edited" },
+  { re = 'photo mode: light editing ends; the camera is back at', min = 2, label = "leaving editing gives the camera back" },
+  "test aid NVF_PLAY_TEST_PHOTO: light Type pressed: Point",
+  { re = 'photo lights: light 2 drawn \(Point', label = "the second light is a point light" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "photo mode: 2 photo lights removed",
+  "photo mode: closed, the view is back on the player",
+]
+
+
+[[scenario]]
+name = "photo-mode-options"
+source = "[design] photo mode's camera is free (not locked to the player) and it has the options photo modes commonly have: depth of field, warmth, vignette, grain, letterbox, grid, hide player (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/imagespace.rs", "engine/nvforever/src/imagespace.wesl", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open,11:lift=150,11.2:fly=600,11.5:face,12:set=blur=0.5,12.2:set=focus=30,12.4:set=warmth=0.4,12.6:set=vignette=0.6,12.8:set=grain=0.3,13:set=letterbox=1,13.2:set=grid=1,13.4:set=hide=1,13.6:tab=2,14:shot,17:set=camera=1,17.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 20
+expect = [
+  { re = 'photo mode: open \(the game pauses\), zoom \d+°', label = "photo mode opens" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera flies 600, now [1-9]\d{2,} from the player', label = "the free camera flies away from the player (100 units or more)" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera faces the player from [1-9]\d{2,}', label = "the free camera turns back to the player" },
+  "test aid NVF_PLAY_TEST_PHOTO: Blur 50%",
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: Focus \d+(\.\d)? m', label = "the focus reads in metres" },
+  { re = 'depth of field: lens blur \(bokeh\), aperture 0\.50, .*\(photo mode', label = "photo mode's depth of field reaches the grade (the lens blur since cf5ff970a)" },
+  "test aid NVF_PLAY_TEST_PHOTO: Warmth +40",
+  "test aid NVF_PLAY_TEST_PHOTO: Vignette 60%",
+  "test aid NVF_PLAY_TEST_PHOTO: Film Grain 30%",
+  "test aid NVF_PLAY_TEST_PHOTO: Letterbox 2.39:1",
+  "test aid NVF_PLAY_TEST_PHOTO: Grid Thirds",
+  "test aid NVF_PLAY_TEST_PHOTO: Hide Player On",
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "test aid NVF_PLAY_TEST_PHOTO: Camera Orbit",
+  "photo mode: closed, the view is back on the player",
+]
+
 
 [[scenario]]
 name = "console-toggles"
@@ -12507,7 +12638,7 @@ run_seconds = 25
 expect = [
   { re = 'pipboy items: 10mm Pistol selected: .*dps: None', label = "no DPS card on the ITEMS page" },
   { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("[^"]*weap_skill_icon_sm_arms\.dds"\), skill_req: Some\(\d+\)', label = "the Guns badge and the skill the pistol needs" },
-  { re = 'pipboy items: 10mm Pistol Mod X\)', label = "Mod X) for a weapon with mod slots" },
+  { re = 'pipboy items: 10mm Pistol Modify X\)', label = "Modify X) for a weapon with mod slots" },
   "pipboy repair: clicked row 1",
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "the click on the chosen part repairs the pistol" },
 ]
@@ -12664,11 +12795,11 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 expect = [
-  { re = 'hud: enemy health .* \(See Enemy Health: "HP:\d+ DT:\d+\.\d\d"\)', label = "Living Anatomy: the line under the name, as the original's HP:250 DT:15.00" },
+  { re = 'hud: enemy health .* \(See Enemy Health: "Health \d+  DT \d+\.\d"\)', label = "Living Anatomy: the line under the name, our own form Health 250  DT 15.0 (#2984)" },
   { re = 'combat: Meltdown: 0x[0-9A-F]{8} gives off MinePlasmaExplosion \(0x00000014.s kill with WeapLaserPistol\)', label = "a laser kill gives off the Meltdown Explosion" },
   { re = 'combat: explosion MinePlasmaExplosion at', label = "and it goes off" },
 ]
-manual = "living_anatomy_bar.png: the dog's name under the enemy bar and HP:<n> DT:<n.nn> centred under it, both red"
+manual = "living_anatomy_bar.png: the dog's name under the enemy bar and Health <n>  DT <n.n> centred under it, both red"
 
 [[scenario]]
 name = "perk-implant-y3"
@@ -12693,7 +12824,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 25
 expect = [
-  { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "Mod X) bright: the player carries a mod that fits" },
+  { re = 'pipboy items: 10mm Pistol Modify X\)(?! \(dim)', label = "Modify X) bright: the player carries a mod that fits" },
   { re = 'pipboy mod: open 10mm Pistol \(flags 0\): 10mm Pistol Extended Mags \(slot 1\)', label = "X lists the extended magazines for slot 1" },
   { text = "pipboy: menu code 1061", label = "MenuMode 1061 while the mod menu is open" },
   { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "attaching sets the slot's flag" },
@@ -12711,7 +12842,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-right-click-drop
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 21
 expect = [
-  { re = 'pipboy items: 10mm Pistol Mod X\)', label = "the pistol's Mod X) shows: a weapon with mod slots" },
+  { re = 'pipboy items: 10mm Pistol Modify X\)', label = "the pistol's Modify X) shows: a weapon with mod slots" },
   { text = "test aid: pipboy clicked the screen", label = "the right click lands on the screen" },
   { re = 'menu: Drop: Dropped 10mm Pistol x1', label = "the right click drops the pistol" },
   { text = "pipboy mod: open", count = 0, label = "the mod menu stays closed" },
@@ -13011,7 +13142,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12"]
 run_seconds = 28
 expect = [
-  { re = 'hud: sneak \[(HIDDEN|DETECTED|CAUTION|DANGER)\]', label = "a sneak word once the player sneaks" },
+  { re = 'hud: sneak \[(UNSEEN|SPOTTED|ALERT|COMBAT)\]', label = "a sneak word once the player sneaks" },
   { re = 'hud: enemy health \S.* 0x[0-9A-F]{8} \d+ %', label = "the bighorner's health on the enemy bar" },
 ]
 order = [[
@@ -13023,8 +13154,8 @@ order = [[
 
 [[scenario]]
 name = "hud-sneak-companion"
-source = "issue #1159 (docs/spec-notes/hud.md §9): sneaking with only a following companion near shows [HIDDEN], though the companion detects the player"
-note = "Boone hired by his recruit line at 3 s in his room (as follower-boone; no one else in the cell); the player sneaks at 14 s, Boone following beside: his detection of the player is measured and logged, the sneak word stays [HIDDEN]"
+source = "issue #1159 (docs/spec-notes/hud.md §9): sneaking with only a following companion near shows [UNSEEN], though the companion detects the player"
+note = "Boone hired by his recruit line at 3 s in his room (as follower-boone; no one else in the cell); the player sneaks at 14 s, Boone following beside: his detection of the player is measured and logged, the sneak word stays [UNSEEN]"
 areas = ["hud", "detection", "followers"]
 paths = ["engine/nvf-play/src/hud.rs", "crates/fnv-game/src/followers.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF", NVF_PLAY_TEST_CONTROL = "14:sneak" }
@@ -13033,17 +13164,17 @@ run_seconds = 24
 expect = [
   { re = 'CraigBooneREF: package FollowersBooneFollowPlayerDEFAULT', label = "hired: his Follow package" },
   { re = 'detection: \S*Boone\S* .*→ the player: \S+ → detected', label = "Boone detects the player" },
-  { re = 'hud: sneak \[HIDDEN\]', label = "the sneak word is [HIDDEN]" },
+  { re = 'hud: sneak \[UNSEEN\]', label = "the sneak word is [UNSEEN]" },
 ]
 forbid = [
-  { re = 'hud: sneak \[(DETECTED|CAUTION)\]', label = "Boone alone sets neither [DETECTED] nor [CAUTION]" },
+  { re = 'hud: sneak \[(SPOTTED|ALERT)\]', label = "Boone alone sets neither [SPOTTED] nor [ALERT]" },
 ]
 
 # ------------------------------------------------------------------ enemies left behind (issue #3390)
 
 [[scenario]]
 name = "hud-sneak-left-behind"
-source = "issue #3390 (docs/design/alert.md §2): an enemy whose pair with the player is measured no more (its cell unloaded) loses the player: [DANGER] goes, and it goes Lost and then Normal on the timers"
+source = "issue #3390 (docs/design/alert.md §2): an enemy whose pair with the player is measured no more (its cell unloaded) loses the player: [COMBAT] goes, and it goes Lost and then Normal on the timers"
 note = "a gecko (NVCrGecko, the first created reference, 0xFF000000) placed at the player in Goodsprings at 3 s, put 600 units away and set on the player at 6 s, the player sneaking from 7 s; at 10 s the player is moved to the XMarker in Boone's room (0x000CAEB6, NovacBoonesRoom), where no enemy is. The gecko: hidden 1 s later, Lost 15 s after it last detected the player, Normal 30 s after it was hidden. Not run yet"
 areas = ["hud", "detection", "combat"]
 paths = ["crates/fnv-game/src/awareness.rs", "engine/nvforever/src/detection.rs", "engine/nvf-play/src/hud.rs"]
@@ -13052,8 +13183,8 @@ args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--
 run_seconds = 70
 order = [[
   { re = 'alert: .*FF000000 (Normal|Alert) → Combat', label = "the gecko fights the player" },
-  { re = 'hud: sneak \[DANGER\]', label = "in the fight the sneak word is [DANGER]" },
-  { re = 'hud: sneak \[(HIDDEN|DETECTED)\]', label = "left behind, it is [DANGER] no more" },
+  { re = 'hud: sneak \[COMBAT\]', label = "in the fight the sneak word is [COMBAT]" },
+  { re = 'hud: sneak \[(UNSEEN|SPOTTED)\]', label = "left behind, it is [COMBAT] no more" },
   { re = 'alert: .*FF000000 Combat → Lost', label = "the gecko loses the player" },
   { re = 'alert: .*FF000000 Lost → Normal', label = "and gives up" },
 ]]
@@ -13475,14 +13606,14 @@ order = [[
 
 [[scenario]]
 name = "reputation-box"
-source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('You have discovered'); fame with Goodsprings opens its box at fame level 2, infamy with the Powder Gangers their boxes up to infamy level 3; the Pip-Boy's General page lists both"
+source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('Place found'); fame with Goodsprings opens its box at fame level 2, infamy with the Powder Gangers their boxes up to infamy level 3; the Pip-Boy's General page lists both"
 areas = ["hud", "pipboy"]
 paths = ["engine/nvf-play/src/reputation.rs", "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/functions/reputation.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close;17:player.addreputation 001558E6 0 5;17.2:player.addreputation 001558E6 0 5;17.4:player.addreputation 001558E6 0 5;17.6:close", NVF_PLAY_TEST_PIPBOY = "32:open,33:page=stats,34:tab=4,36:close", NVF_PLAY_TEST_SHOTS = "6,14,19,35" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--heading", "50", "--size", "1280x720"]
 run_seconds = 38
 expect = [
-  { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found" },
+  { re = 'quest message on screen: Place found: GOODSPRINGS', label = "the start's town found" },
   { re = 'compass: \d+ actors \(\d+ hostile\), [1-9]\d* map markers \([1-9]\d* found\)', label = "the found town's marker on the compass" },
   "reputation: Goodsprings Neutral -> Trusted (fame 12, infamy 0)",
   { re = 'reputation: Powder Gangers \S.* -> Reviled', label = "the Powder Gangers' last box at infamy level 3 (Reviled)" },
@@ -16182,7 +16313,7 @@ run_seconds = 45
 order = [[
   { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Script\); the box says "Fast travel is currently unavailable from this location\."', label = "refused while a script blocks it (sNoFastTravelScriptBlock, FalloutNV.esm's text)" },
   'fast travel: answered "OK"',
-  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: asks "Travel to Primm?" (0x000CDF46)',
   'fast travel: answered "Yes"',
   { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference 0x00169225', label = "the destination is the marker's linked reference" },
   "pipboy: down",
@@ -16235,7 +16366,7 @@ order = [[
   { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Place\)', label = "refused: an interior" },
   'fast travel: answered "OK"',
   { text = "script: test aid calls GetPCCanFastTravel = Num(1.0)", label = "the inverted cell allows it" },
-  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: asks "Travel to Primm?" (0x000CDF46)',
   'fast travel: answered "No"',
 ]]
 
@@ -26781,16 +26912,16 @@ order = [[
 expect = [
   { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden\s*$', label = "the messages, quest notices and subtitles are no longer kept hand-built" },
   "corner message: \"You are now Well Rested!\" for 10 s, icon default",
-  "tiles: QuestReminder banner Quest added: BACK IN THE SADDLE",
+  "tiles: QuestReminder banner New quest: BACK IN THE SADDLE",
   "tiles: QuestReminder 1 objectives: Talk to Sunny Smiles in the Prospector Saloon.",
   "tiles: QuestReminder 2 objectives: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.",
   { re = 'script: print "tiles notices 130 2 470 400"', label = "the copies at the original's observed paths: the text *:1 at x 130 depth 2, the bracket *:0 470 wide, the subtitle text at x 400" },
 ]
-manual = "tiles_hud_notices_banner.png: \"Quest added\" over BACK IN THE SADDLE at the left, \"You are now Well Rested!\" beside its icon and bracket at the top left, drawn once (no hand-built copy under them); tiles_hud_notices_objectives.png: the two objectives with a filled and an open square, the message still at the top left; compare with quest-messages' and corner-messages' frames"
+manual = "tiles_hud_notices_banner.png: \"New quest\" over BACK IN THE SADDLE at the left, \"You are now Well Rested!\" beside its icon and bracket at the top left, drawn once (no hand-built copy under them); tiles_hud_notices_objectives.png: the two objectives with a filled and an open square, the message still at the top left; compare with quest-messages' and corner-messages' frames"
 
 [[scenario]]
 name = "tiles-hud-discovered"
-source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): reputation-box's start with [UI] TileMenus=HUDMainMenu: leaving the start finds Goodsprings, and 'You have discovered' over GOODSPRINGS is drawn from QuestReminder's copies, at the place the owner's screenshot shows it (quest-messages.md); Region_Location gets the same banner's copies, hidden (drawn once) [hypothesis: hud.md §14 maps discoveries to Region_Location]"
+source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): reputation-box's start with [UI] TileMenus=HUDMainMenu: leaving the start finds Goodsprings, and 'Place found' over GOODSPRINGS is drawn from QuestReminder's copies, at the place the owner's screenshot shows it (quest-messages.md); Region_Location gets the same banner's copies, hidden (drawn once) [hypothesis: hud.md §14 maps discoveries to Region_Location]"
 note = "as reputation-box's start, without its reputation steps"
 areas = ["ui", "hud", "quest-messages"]
 paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/quest_messages.rs"]
@@ -26798,11 +26929,11 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--heading", "50", "--size", "1280x720"]
 run_seconds = 10
 expect = [
-  { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found (the hand-built queue)" },
-  { re = 'tiles: QuestReminder banner You have discovered: GOODSPRINGS', label = "the tile HUD draws the same line" },
-  { re = 'tiles: Region_Location banner You have discovered: GOODSPRINGS \(not drawn\)', label = "the tile HUD writes it under Region_Location too, not drawn there" },
+  { re = 'quest message on screen: Place found: GOODSPRINGS', label = "the start's town found (the hand-built queue)" },
+  { re = 'tiles: QuestReminder banner Place found: GOODSPRINGS', label = "the tile HUD draws the same line" },
+  { re = 'tiles: Region_Location banner Place found: GOODSPRINGS \(not drawn\)', label = "the tile HUD writes it under Region_Location too, not drawn there" },
 ]
-manual = "tiles_hud_discovered.png: \"You have discovered\" over GOODSPRINGS at the left, as on reputation-box's frame at 6 s, once"
+manual = "tiles_hud_discovered.png: \"Place found\" over GOODSPRINGS at the left, as on reputation-box's frame at 6 s, once"
 
 [[scenario]]
 name = "tiles-hud-subtitles"
@@ -27616,7 +27747,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 12
 expect = [
   { re = 'script: print "nvf ray down 1 1[0-9][0-9]"', label = "a cast straight down from 100 above the player meets the ground about 100 below its start" },
-  { re = 'script: print "nvf between 0 90"', label = "the way east: pitch 0, heading 90" },
+  { re = 'script: print "nvf between 0 -90"', label = "the way east: pitch 0, heading -90 [observed: w6_t1_01_angles_between_points]" },
 ]
 
 [[scenario]]
@@ -32083,17 +32214,17 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-items-hints-home
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
 run_seconds = 26
 expect = [
-  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Mod X\)$', label = "Weapons: Repair, then Mod, nothing else" },
+  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Modify X\)$', label = "Weapons: Repair, then Mod, nothing else" },
   { re = 'pipboy hints: items Apparel: (Repair|Maintain) R\)( \(dim\))?$', label = "Apparel: the repair hint alone" },
   { re = 'pipboy hints: items Aid: Repair R\) \(dim\)$', label = "Aid: Repair alone, dim" },
   { re = 'pipboy hints: items Misc: Repair R\) \(dim\)$', label = "Misc: Repair alone, dim" },
   { re = 'pipboy hints: items Ammo: Repair R\) \(dim\)$', label = "Ammo: Repair alone, dim" },
   { re = 'pipboy hints: items \w+: .*(Enter\)|Right Mouse\)|1-8\))', max = 0, label = "no equip, drop or hotkey hint with the keyboard" },
-  { text = "pipboy hints: mod menu: Mod Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
-  { re = 'pipboy hints: mod menu: Mod Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
-  { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "the pistol's own Mod X) line, bright" },
+  { text = "pipboy hints: mod menu: Modify Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Modify Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Modify X\)(?! \(dim)', label = "the pistol's own Modify X) line, bright" },
 ]
-order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod Enter) (dim), Exit E)"]]
+order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify Enter) (dim), Exit E)"]]
 
 [[scenario]]
 name = "pipboy-items-hints-pad"
@@ -32107,16 +32238,16 @@ run_seconds = 26
 expect = [
   { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller" },
   { text = "hints: Xbox labels", label = "the hints take the Xbox names before the Pip-Boy opens" },
-  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\), Mod LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
+  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\), Modify LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
   { re = 'pipboy hints: items Apparel: (Equip|Unequip) A\)( \(dim\))?, Drop X\)( \(dim\))?, (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\)$', label = "Apparel: the set without Mod" },
   { re = 'pipboy hints: items Aid: Use A\), Drop X\), Repair Y\) \(dim\), Hotkey RB\)$', label = "Aid: Use; Repair dim" },
   { re = 'pipboy hints: items Misc: Equip A\) \(dim\), Drop X\)( \(dim\))?, Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
   { re = 'pipboy hints: items Ammo: Equip A\) \(dim\), Drop X\), Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
-  { text = "pipboy hints: mod menu: Mod A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
-  { re = 'pipboy hints: mod menu: Mod A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
-  { re = 'pipboy items: 10mm Pistol Mod LB\)(?! \(dim)', label = "the pistol's own Mod LB) line, bright" },
+  { text = "pipboy hints: mod menu: Modify A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Modify A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Modify LB\)(?! \(dim)', label = "the pistol's own Modify LB) line, bright" },
 ]
-order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod A) (dim), Exit B)"]]
+order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify A) (dim), Exit B)"]]
 
 [[scenario]]
 name = "pipboy-data-hints"
@@ -32300,14 +32431,14 @@ expect = [
   { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
   { re = 'pipboy data: question box over the tiles \(3 answers\)', min = 1, label = "the question with a marker placed, over the tiles" },
   { text = "pipboy map: custom marker removed", count = 1, label = "the second answer removes it" },
-  { re = 'fast travel: asks "Do you want to travel to Primm\?" \(0x000CDF46\)', count = 1, label = "fast travel asks" },
+  { re = 'fast travel: asks "Travel to Primm\?" \(0x000CDF46\)', count = 1, label = "fast travel asks" },
   { text = 'fast travel: answered "No"', count = 1, label = "and is cancelled" },
   { re = 'fast travel: to Primm .*arrive', count = 0, label = "no travel" },
   { text = "MapMenu drawn by hand", count = 0, label = "no fallback was warned of (one shorter than three passes is not: the frame count below shows those)" },
   { re = 'tiles: MapMenu world map frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared, \d+ by hand as the Pip-Boy came up or went down', count = 1, label = "with the Pip-Boy up no frame of the visit to the World Map was drawn by hand, the question boxes up or not: none after a failed pass, none with nothing prepared (frames as it rises or lowers are counted apart)" },
   { re = 'tiles: MapMenu Button\(.\) on its tiles', count = 0, label = "no tile of the page acted (the boxes were answered by keys here)" },
 ]
-order = [["tiles: MapMenu draws world map from tiles", { re = 'pipboy data: question box over the tiles \(2 answers\)' }, "pipboy map: custom marker placed at", { re = 'pipboy data: question box over the tiles \(3 answers\)' }, "pipboy map: custom marker removed", { re = 'fast travel: asks "Do you want to travel to Primm' }, 'fast travel: answered "No"', { re = 'tiles: MapMenu world map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
+order = [["tiles: MapMenu draws world map from tiles", { re = 'pipboy data: question box over the tiles \(2 answers\)' }, "pipboy map: custom marker placed at", { re = 'pipboy data: question box over the tiles \(3 answers\)' }, "pipboy map: custom marker removed", { re = 'fast travel: asks "Travel to Primm' }, 'fast travel: answered "No"', { re = 'tiles: MapMenu world map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
 
 [[scenario]]
 name = "tiles-data-world-pointer"
@@ -35519,7 +35650,7 @@ name = "load-phases-goodsprings"
 source = "#2407: players' Goodsprings door and save loads took 20-37 s; a loading screen now logs, and a slow load reports, when each thing it waited for came in, its longest frame and what the game files gave under it (nvf_play::loading::LoadPhases, fnv_vfs::read_stats). Out of Doc Mitchell's house into Goodsprings, the heaviest door of a new game"
 note = "2026-11-15 on the bench (i9-14900K, RTX 4070, SATA SSD, files in the OS cache): the start 2.4 s, the door 2.5 s with 2,106 files (248 MB) read. The cap is the reports' slow-load limit (reports/anomaly.rs SLOW_LOAD_MS), far above it"
 areas = ["loading", "streaming"]
-paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs"]
+paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs", "engine/vendor/bevy_render/src/render_resource/pipeline_cache.rs"]
 env = { NVFOREVER_HOME = "load-phases-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 20
@@ -35530,6 +35661,7 @@ order = [[
 ]]
 expect = [
   { re = 'loading screen down after (?P<n>[\d.]+) s$', range = [0, 20], all = true, label = "the door's load stays under the 20 s slow-load limit" },
+  { re = 'loading screen phases: up .*; (?P<n>\d+) pipelines compiled: [\d.]+ s queued for a thread, [\d.]+ s for the shader cache, [\d.]+ s composing, [\d.]+ s making modules, [\d.]+ s creating', range = [1, 100000], label = "the start's screen says where its pipelines' time went (#2407)" },
 ]
 
 [[scenario]]
@@ -37041,14 +37173,16 @@ forbid = [
 ]
 [[scenario]]
 name = "physical-lighting"
-source = "[design, #3827 part 5] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/lights.rs `physical_patched`, physical_ibl.rs, fog/shader.rs, eye_adapt.rs): with --graphics-only physical-pbr at Goodsprings at noon, the run's switch is on, the physical light loop is installed and the sky's image-based light is made, without a pipeline or rendering error. Whether the look is right is checked in pictures by hand"
+source = "[design, #3827 part 5] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/lights.rs `physical_patched`, physical_ibl.rs, fog.rs, eye_adapt.rs): with --graphics-only physical-pbr at Goodsprings at noon, the run's switch is on, the physical light loop is installed and the sky's image-based light is made, without a pipeline or rendering error. Whether the look is right is checked in pictures by hand"
 areas = ["renderer", "graphics"]
-paths = ["engine/nvforever/src/physical_ibl.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/fog/shader.rs", "engine/nvforever/src/eye_adapt.rs"]
+paths = ["engine/nvforever/src/physical_ibl.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/eye_adapt.rs"]
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "physical-pbr"]
 run_seconds = 20
 expect = [
   { text = "physical PBR: on", count = 1, label = "the run's switch is on" },
   { text = "lights: physical PBR linear lighting installed", label = "the physical light loop is in place" },
+  { text = "lights: physical PBR, the main view keeps Tony McMapface", count = 1, label = "the main view tonemaps with Tony McMapface, not the clip" },
+  { text = "fog: the game's fog curve installed", label = "the game's fog, not a fog of Physical lighting's own" },
   { re = 'graphics: .*physical PBR lighting', label = "the graphics line names it" },
 ]
 forbid = [
@@ -37057,22 +37191,24 @@ forbid = [
   { text = "not as expected (Bevy changed?)", label = "a physical patch's anchors missing" },
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
-note = "Written 2026-11-25 without a run (the split of #3828; smoke runs to follow)."
+note = "Written 2026-11-25 (the split of #3828); first run 2026-11-26 on vanilla data: PASS."
 [[scenario]]
-name = "physical-lighting-no-volumetric"
-source = "[design, the user's decision 2026-11-25] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/graphics.rs `volumetric_clouds_run`, `volumetric_light_run`): started with --graphics-only physical-pbr,volumetric-clouds-high,volumetric-light at Goodsprings at 17:30, the volumetric rows do not run under Physical lighting: the graphics line names neither, and the light in the air is never wanted"
+name = "physical-lighting-volumetric"
+source = "[design, agreed with the volumetric work 2026-11-26] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/sky.rs `physical_cloud_light`, volumetric_clouds.rs `compose_uniform`): started with --graphics-only physical-pbr,volumetric-clouds-high,volumetric-light at Goodsprings at 17:30, the volumetric rows run under Physical lighting: the graphics line names both, the light in the air is wanted, and nothing fails to compile"
 areas = ["renderer", "graphics"]
-paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/volumetric_clouds.rs", "engine/nvforever/src/medium_air_demand.rs", "crates/nvf-settings-layout/src/lib.rs"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/volumetric_clouds.rs", "engine/nvforever/src/volumetric_clouds.wesl", "engine/nvforever/src/sky.rs", "engine/nvforever/src/medium_air_demand.rs", "engine/nvf-assets/src/tone_input.wesl", "crates/nvf-settings-layout/src/lib.rs"]
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "17.5", "--graphics-only", "physical-pbr,volumetric-clouds-high,volumetric-light"]
 run_seconds = 20
 expect = [
   { text = "physical PBR: on", count = 1, label = "the run's switch is on" },
   { re = 'graphics: .*physical PBR lighting', label = "the graphics line names Physical lighting" },
+  { re = 'graphics: .*volumetric clouds', label = "the clouds run under Physical lighting" },
+  { re = 'graphics: .*volumetric light', label = "the light in the air runs under Physical lighting" },
+  { text = "volumetric medium: light in the air wanted (the Volumetric light row)", label = "the row asks for the light" },
 ]
 forbid = [
-  { re = 'graphics: .*volumetric clouds', label = "the clouds are on under Physical lighting" },
-  { re = 'graphics: .*volumetric light', label = "the light in the air is on under Physical lighting" },
-  { text = "volumetric medium: light in the air wanted", label = "the light in the air was wanted" },
   { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the clouds' composite with the shared tonemapper input)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
 ]
-note = "Written 2026-11-25 without a run (the split of #3828; smoke runs to follow)."
+note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."

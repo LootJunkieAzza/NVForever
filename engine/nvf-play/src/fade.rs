@@ -8,6 +8,12 @@
 //!   whose alpha goes from 0 to 1 (in) or 1 to 0 (out) in a straight line over
 //!   [`FADE_SECONDS`]; at the end the mesh gets its own material back [hypothesis: the
 //!   shape and the length; capture job `tools/capture/jobs/enable_fade_timing.json`].
+//! - **Single owner with `SetActorAlpha`** (#3105): one [`Fading`] component owns the
+//!   mesh's single see-through copy whenever a presence fade, `SetActorAlpha`, or both
+//!   are active. Its drawn opacity and cut-out threshold scale the mesh's own persistent
+//!   material by `presence * actor_alpha`; either effect starting, changing, or ending
+//!   recomputes the copy in place, and the last one to end removes the copy and puts the
+//!   mesh's own material back.
 //! - **Out**: the simulation keeps the reference enabled while it fades
 //!   (`fnv_game::functions::refs::FADE_OUT_HOLD`, GetDisabled 0 [observed]); its meshes
 //!   fade to nothing and stay hidden until the hold ends and the simulation disables it
@@ -79,29 +85,222 @@ impl Fades {
     }
 }
 
-/// On a mesh drawn see-through for a fade: its own material, and the copy drawn. Another
-/// system that changes the mesh's own material while it fades (SwapTexture,
-/// nvforever `texture_swap.rs`) gives the mesh the new one and takes this away
-/// ([`Fading::copy`] to drop): the next step copies the new material.
+/// Which opacity effect writes a factor into a mesh's single [`Fading`] copy (#3105).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FadeChannel {
+    /// A presence fade (`Enable` / `Disable` / `MoveToMarkerWithFade`).
+    Presence,
+    /// An actor's scripted alpha (`SetActorAlpha`).
+    ActorAlpha,
+}
+
+/// On a mesh drawn see-through by a presence fade, `SetActorAlpha`, or both (#3105):
+/// its own persistent material, the single see-through copy drawn, and the two
+/// independent factors whose product (`presence * actor_alpha`) scales the copy's base
+/// opacity and cut-out threshold.
+///
+/// The last active factor to end removes `copy` from `Assets<NifMaterial>`, puts
+/// `original` back on the mesh, and removes this component. Systems that replace or edit
+/// the mesh's own material while it is see-through (`SwapTexture`, scripted NIF material
+/// edits) update `original` and rebuild `copy` in place via [`queue_retarget`].
 #[derive(Component)]
 pub struct Fading {
     original: Handle<NifMaterial>,
     copy: Handle<NifMaterial>,
-    /// The original's alpha and cut-out, which the fade multiplies.
+    /// The original's alpha and cut-out, which the combined factor multiplies.
     alpha: f32,
     cut: Option<f32>,
+    presence: Option<f32>,
+    actor_alpha: Option<f32>,
 }
 
 impl Fading {
-    /// The mesh's own material, which it gets back when the fade ends.
+    /// The mesh's own persistent material, which it gets back when every fade ends.
     pub fn original(&self) -> &Handle<NifMaterial> {
         &self.original
     }
 
-    /// The see-through copy drawn while it fades.
+    /// The single see-through copy drawn while any fade or actor alpha is active.
     pub fn copy(&self) -> &Handle<NifMaterial> {
         &self.copy
     }
+
+    /// The presence fade's factor while a presence fade is active on this mesh.
+    pub fn presence(&self) -> Option<f32> {
+        self.presence
+    }
+
+    /// The actor-alpha factor while `SetActorAlpha` (< 1) is active on this mesh.
+    pub fn actor_alpha(&self) -> Option<f32> {
+        self.actor_alpha
+    }
+
+    /// The combined opacity multiplier currently drawn (`presence * actor_alpha`).
+    pub fn factor(&self) -> f32 {
+        self.presence.unwrap_or(1.0) * self.actor_alpha.unwrap_or(1.0)
+    }
+}
+
+/// Resolve a mesh's own persistent material beneath both a temporary cloak override
+/// (`MaterialOverride`) and any active see-through copy (`Fading`) [design, #3105].
+pub fn persistent_material<'a>(
+    drawn: &'a Handle<NifMaterial>,
+    drawing: Option<&'a nvf_assets::nif_material::MaterialOverride>,
+    fading: Option<&'a Fading>,
+) -> &'a Handle<NifMaterial> {
+    fading.map_or_else(|| nvf_assets::nif_material::plain_material(drawn, drawing), Fading::original)
+}
+
+/// Derive the see-through copy of `source` at `factor`, preserving the cut-out rule,
+/// disabling depth writes, converting opaque/mask materials to `Blend`, and dropping
+/// authored height maps [design, #2981, #3105].
+fn make_see_through(source: &NifMaterial, factor: f32) -> (NifMaterial, f32, Option<f32>) {
+    let mut m = source.clone();
+    let base = m.base.base_color.alpha();
+    let cut = match m.base.alpha_mode {
+        AlphaMode::Mask(c) => Some(c),
+        _ => None,
+    };
+    // A cut-out keeps its cut while it blends.
+    if let Some(c) = cut {
+        m.extension.alpha_cut = c * factor;
+    }
+    // Fading hair lets what lies behind it show too.
+    m.extension.depth_write = false;
+    if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
+        m.base.alpha_mode = AlphaMode::Blend;
+    }
+    // #2981: a blended copy draws no authored height map.
+    nvf_assets::authored::recheck_height(&mut m);
+    m.base.base_color.set_alpha(base * factor);
+    (m, base, cut)
+}
+
+/// Apply one channel's factor (`Some(a)` or `None` to release) directly to `entity` on
+/// `world`. Running inside queued commands ensures presence fades and `SetActorAlpha`
+/// compose multiplicatively and hand back `original` in any start/end/system order,
+/// including both starting or ending in one update [design, #3105].
+pub fn apply_factor(world: &mut World, entity: Entity, channel: FadeChannel, value: Option<f32>) {
+    if world.get_entity(entity).is_err() {
+        return;
+    }
+    if let Some(existing) = world.get::<Fading>(entity) {
+        let original = existing.original.clone();
+        let copy = existing.copy.clone();
+        let base_alpha = existing.alpha;
+        let cut = existing.cut;
+        let (old_presence, old_actor) = (existing.presence, existing.actor_alpha);
+        let (presence, actor_alpha) = match channel {
+            FadeChannel::Presence => (value, old_actor),
+            FadeChannel::ActorAlpha => (old_presence, value),
+        };
+        if (presence, actor_alpha) == (old_presence, old_actor) {
+            return;
+        }
+        if presence.is_none() && actor_alpha.is_none() {
+            if let Some(mut materials) = world.get_resource_mut::<Assets<NifMaterial>>() {
+                materials.remove(&copy);
+            }
+            if let Ok(mut e) = world.get_entity_mut(entity) {
+                e.insert(MeshMaterial3d(original)).remove::<Fading>();
+            }
+            return;
+        }
+        let factor = presence.unwrap_or(1.0) * actor_alpha.unwrap_or(1.0);
+        if let Some(mut f) = world.get_mut::<Fading>(entity) {
+            f.presence = presence;
+            f.actor_alpha = actor_alpha;
+        }
+        if let Some(mut materials) = world.get_resource_mut::<Assets<NifMaterial>>() {
+            if let Some(mut m) = materials.get_mut(&copy) {
+                m.base.base_color.set_alpha(base_alpha * factor);
+                if let Some(c) = cut {
+                    m.extension.alpha_cut = c * factor;
+                }
+            }
+        }
+        return;
+    }
+    let Some(factor) = value else { return };
+    let original = {
+        let mat = world.get::<MeshMaterial3d<NifMaterial>>(entity);
+        let blend = world.get::<nvf_assets::nif_surface_blend::BlendShape>(entity);
+        let drawing = world.get::<nvf_assets::nif_material::MaterialOverride>(entity);
+        let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { return };
+        // [design, #2557] Both the see-through copy and its restoration handle start from
+        // the mesh's own plain material, never a temporary cloak override.
+        nvf_assets::nif_material::plain_material(mat, drawing).clone()
+    };
+    let Some(source) = world.get_resource::<Assets<NifMaterial>>().and_then(|a| a.get(&original).cloned()) else {
+        return;
+    };
+    let (m, base_alpha, cut) = make_see_through(&source, factor);
+    let copy = world.resource_mut::<Assets<NifMaterial>>().add(m);
+    let (presence, actor_alpha) = match channel {
+        FadeChannel::Presence => (Some(factor), None),
+        FadeChannel::ActorAlpha => (None, Some(factor)),
+    };
+    if let Ok(mut e) = world.get_entity_mut(entity) {
+        e.insert((MeshMaterial3d(copy.clone()), Fading { original, copy, alpha: base_alpha, cut, presence, actor_alpha }));
+    }
+}
+
+/// Replace or refresh the persistent material underneath an active [`Fading`] copy (for
+/// `SwapTexture` or scripted NIF material edits while a fade or actor alpha runs),
+/// rebuilding `copy` in place at the current combined factor [design, #3105].
+/// If `Fading` ended before this command ran, the entity gets `new_original` directly.
+pub fn apply_retarget(world: &mut World, entity: Entity, new_original: Handle<NifMaterial>) {
+    if world.get_entity(entity).is_err() {
+        return;
+    }
+    let Some((copy, factor)) = world.get::<Fading>(entity).map(|f| (f.copy.clone(), f.factor())) else {
+        if let Ok(mut e) = world.get_entity_mut(entity) {
+            e.insert(MeshMaterial3d(new_original));
+        }
+        return;
+    };
+    let Some(source) = world.get_resource::<Assets<NifMaterial>>().and_then(|a| a.get(&new_original).cloned()) else {
+        return;
+    };
+    let (rebuilt, base_alpha, cut) = make_see_through(&source, factor);
+    let mut replaced_copy = None;
+    if let Some(mut materials) = world.get_resource_mut::<Assets<NifMaterial>>() {
+        if materials.contains(copy.id()) {
+            if let Some(mut dst) = materials.get_mut(&copy) {
+                *dst = rebuilt;
+            }
+        } else {
+            replaced_copy = Some(materials.add(rebuilt));
+        }
+    }
+    if let Some(mut f) = world.get_mut::<Fading>(entity) {
+        f.original = new_original;
+        f.alpha = base_alpha;
+        f.cut = cut;
+        if let Some(new_copy) = &replaced_copy {
+            f.copy = new_copy.clone();
+        }
+    }
+    if let Some(new_copy) = replaced_copy {
+        if let Ok(mut e) = world.get_entity_mut(entity) {
+            e.insert(MeshMaterial3d(new_copy));
+        }
+    }
+}
+
+/// Queue a presence-fade factor update (`Some(a)` or `None` when the fade ends) for `entity`.
+pub fn queue_presence(commands: &mut Commands, entity: Entity, value: Option<f32>) {
+    commands.queue(move |world: &mut World| apply_factor(world, entity, FadeChannel::Presence, value));
+}
+
+/// Queue a `SetActorAlpha` factor update (`Some(a)` or `None` when released) for `entity`.
+pub fn queue_actor_alpha(commands: &mut Commands, entity: Entity, value: Option<f32>) {
+    commands.queue(move |world: &mut World| apply_factor(world, entity, FadeChannel::ActorAlpha, value));
+}
+
+/// Queue replacing or refreshing the persistent material underneath `entity`'s [`Fading`].
+pub fn queue_retarget(commands: &mut Commands, entity: Entity, new_original: Handle<NifMaterial>) {
+    commands.queue(move |world: &mut World| apply_retarget(world, entity, new_original));
 }
 
 /// The alpha of a fade `t` seconds in (1 at the end of a fade in, 0 at the end of one out).
@@ -148,8 +347,7 @@ fn step(
     script: Option<Res<ScriptState>>,
     time: Res<Time<Virtual>>,
     mut st: ResMut<Fades>,
-    mut materials: ResMut<Assets<NifMaterial>>,
-    mut meshes: Query<(Entity, &RefVisual, Option<&MeshMaterial3d<NifMaterial>>, Option<&nvf_assets::nif_surface_blend::BlendShape>, Option<&Fading>, &mut Visibility, Has<FadeHidden>, Option<&nvf_assets::nif_material::MaterialOverride>)>,
+    mut meshes: Query<(Entity, &RefVisual, Option<&MeshMaterial3d<NifMaterial>>, Option<&nvf_assets::nif_surface_blend::BlendShape>, Option<&Fading>, &mut Visibility, Has<FadeHidden>)>,
 ) {
     if st.active.is_empty() {
         return;
@@ -159,15 +357,16 @@ fn step(
     let out = |id: u32| going_out(&sim, script.as_deref(), id);
     let over = |id: u32, a: &Active| now - a.since >= FADE_SECONDS || out(id) == a.fade_in;
     let culled = |id: u32| sim.present(id) && !crate::activate::drawn(&sim, script.as_deref(), id);
-    for (e, rv, mat, blend, fading, mut vis, fade_hidden, drawing) in &mut meshes {
-        let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
+    for (e, rv, mat, blend, fading, mut vis, fade_hidden) in &mut meshes {
+        if nvf_assets::nif_surface_blend::source_material(mat, blend).is_none() {
+            continue;
+        }
         let Some(a) = st.active.get(&rv.0) else { continue };
         let t = now - a.since;
         if over(rv.0, a) {
-            if let Some(f) = fading {
+            if fading.is_some_and(|f| f.presence.is_some()) {
                 // The entity may go with its cell before this is applied (#2757).
-                commands.entity(e).try_insert(MeshMaterial3d(f.original.clone())).try_remove::<Fading>();
-                materials.remove(&f.copy);
+                queue_presence(&mut commands, e, None);
             }
             let hide = out(rv.0) || culled(rv.0);
             vis.set_if_neq(if hide { Visibility::Hidden } else { Visibility::Inherited });
@@ -191,40 +390,9 @@ fn step(
             commands.entity(e).remove::<FadeHidden>();
         }
         let alpha = fade_alpha(a.fade_in, t);
-        let copy = match fading {
-            Some(f) => {
-                if let Some(mut m) = materials.get_mut(&f.copy) {
-                    m.base.base_color.set_alpha(f.alpha * alpha);
-                    if let Some(cut) = f.cut {
-                        m.extension.alpha_cut = cut * alpha;
-                    }
-                }
-                continue;
-            }
-            // [design, #2557] The field may discard its override when we replace it.
-            // Both the fade's copy and its restoration handle start from plain material.
-            None => nvf_assets::nif_material::plain_material(mat, drawing).clone(),
-        };
-        let Some(mut m) = materials.get(&copy).cloned() else { continue };
-        let base = m.base.base_color.alpha();
-        let cut = match m.base.alpha_mode {
-            AlphaMode::Mask(c) => Some(c),
-            _ => None,
-        };
-        // A cut-out keeps its cut while it blends.
-        if let Some(c) = cut {
-            m.extension.alpha_cut = c * alpha;
+        if fading.and_then(Fading::presence) != Some(alpha) {
+            queue_presence(&mut commands, e, Some(alpha));
         }
-        // Fading hair lets what lies behind it show too.
-        m.extension.depth_write = false;
-        if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
-            m.base.alpha_mode = AlphaMode::Blend;
-        }
-        // #2981: a blended copy draws no authored height map.
-        nvf_assets::authored::recheck_height(&mut m);
-        m.base.base_color.set_alpha(base * alpha);
-        let h = materials.add(m);
-        commands.entity(e).insert((MeshMaterial3d(h.clone()), Fading { original: copy, copy: h, alpha: base, cut }));
     }
     let done: Vec<(u32, bool)> = st.active.iter().filter(|(&id, a)| over(id, a)).map(|(&id, a)| (id, a.fade_in)).collect();
     for (id, fade_in) in done {
@@ -246,5 +414,105 @@ mod tests {
         assert_eq!(fade_alpha(false, FADE_SECONDS / 4.0), 0.75);
         assert_eq!(fade_alpha(false, FADE_SECONDS), 0.0);
         assert_eq!(fade_alpha(true, -1.0), 0.0, "before its start: not yet drawn");
+    }
+
+    #[test]
+    fn presence_and_actor_alpha_compose_multiplicatively_and_restore_in_all_orders() {
+        for actor_first in [false, true] {
+            for actor_ends_first in [false, true] {
+                let mut world = World::new();
+                world.init_resource::<Assets<NifMaterial>>();
+                let own = world.resource_mut::<Assets<NifMaterial>>().add(nvf_assets::nif_material(StandardMaterial {
+                    base_color: Color::linear_rgba(1.0, 1.0, 1.0, 0.8),
+                    alpha_mode: AlphaMode::Mask(0.5),
+                    ..default()
+                }));
+                let e = world.spawn(MeshMaterial3d(own.clone())).id();
+
+                if actor_first {
+                    apply_factor(&mut world, e, FadeChannel::ActorAlpha, Some(0.5));
+                    apply_factor(&mut world, e, FadeChannel::Presence, Some(0.25));
+                } else {
+                    apply_factor(&mut world, e, FadeChannel::Presence, Some(0.25));
+                    apply_factor(&mut world, e, FadeChannel::ActorAlpha, Some(0.5));
+                }
+
+                let (copy, orig) = {
+                    let f = world.get::<Fading>(e).expect("single owner active");
+                    assert_eq!(f.original(), &own);
+                    assert!((f.factor() - 0.125).abs() < 1e-6);
+                    (f.copy().clone(), f.original().clone())
+                };
+                assert_eq!(orig, own);
+                assert_eq!(world.get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, copy);
+                {
+                    let m = world.resource::<Assets<NifMaterial>>().get(&copy).unwrap();
+                    assert!((m.base.base_color.alpha() - 0.8 * 0.125).abs() < 1e-6);
+                    assert!((m.extension.alpha_cut - 0.5 * 0.125).abs() < 1e-6);
+                    assert_eq!(m.base.alpha_mode, AlphaMode::Blend);
+                    assert!(!m.extension.depth_write);
+                }
+
+                // Changing actor alpha while presence runs updates the product in place.
+                apply_factor(&mut world, e, FadeChannel::ActorAlpha, Some(0.75));
+                {
+                    let m = world.resource::<Assets<NifMaterial>>().get(&copy).unwrap();
+                    assert!((m.base.base_color.alpha() - 0.8 * 0.75 * 0.25).abs() < 1e-6);
+                    assert!((m.extension.alpha_cut - 0.5 * 0.75 * 0.25).abs() < 1e-6);
+                }
+
+                if actor_ends_first {
+                    apply_factor(&mut world, e, FadeChannel::ActorAlpha, None);
+                    assert!(world.get::<Fading>(e).is_some());
+                    let m = world.resource::<Assets<NifMaterial>>().get(&copy).unwrap();
+                    assert!((m.base.base_color.alpha() - 0.8 * 0.25).abs() < 1e-6);
+                    apply_factor(&mut world, e, FadeChannel::Presence, None);
+                } else {
+                    apply_factor(&mut world, e, FadeChannel::Presence, None);
+                    assert!(world.get::<Fading>(e).is_some());
+                    let m = world.resource::<Assets<NifMaterial>>().get(&copy).unwrap();
+                    assert!((m.base.base_color.alpha() - 0.8 * 0.75).abs() < 1e-6);
+                    apply_factor(&mut world, e, FadeChannel::ActorAlpha, None);
+                }
+
+                assert!(world.get::<Fading>(e).is_none());
+                assert!(!world.resource::<Assets<NifMaterial>>().contains(copy.id()), "copy removed on final release");
+                assert_eq!(world.get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, own);
+                let restored = world.resource::<Assets<NifMaterial>>().get(&own).unwrap();
+                assert_eq!(restored.base.base_color.alpha(), 0.8);
+                assert_eq!(restored.base.alpha_mode, AlphaMode::Mask(0.5));
+            }
+        }
+    }
+
+    #[test]
+    fn retarget_updates_original_and_rebuilds_copy_in_place() {
+        let mut world = World::new();
+        world.init_resource::<Assets<NifMaterial>>();
+        let own = world.resource_mut::<Assets<NifMaterial>>().add(nvf_assets::nif_material(StandardMaterial::default()));
+        let edited = world.resource_mut::<Assets<NifMaterial>>().add(nvf_assets::nif_material(StandardMaterial {
+            base_color: Color::linear_rgba(0.2, 0.4, 0.6, 0.5),
+            emissive: LinearRgba::rgb(0.9, 0.1, 0.2),
+            ..default()
+        }));
+        let e = world.spawn(MeshMaterial3d(own.clone())).id();
+
+        apply_factor(&mut world, e, FadeChannel::Presence, Some(0.4));
+        apply_factor(&mut world, e, FadeChannel::ActorAlpha, Some(0.5));
+        let copy = world.get::<Fading>(e).unwrap().copy().clone();
+
+        apply_retarget(&mut world, e, edited.clone());
+        assert_eq!(world.get::<Fading>(e).unwrap().original(), &edited);
+        assert_eq!(world.get::<Fading>(e).unwrap().copy(), &copy);
+        {
+            let m = world.resource::<Assets<NifMaterial>>().get(&copy).unwrap();
+            assert!((m.base.base_color.alpha() - 0.5 * 0.4 * 0.5).abs() < 1e-6);
+            assert_eq!(m.base.emissive, LinearRgba::rgb(0.9, 0.1, 0.2));
+        }
+
+        apply_factor(&mut world, e, FadeChannel::Presence, None);
+        apply_factor(&mut world, e, FadeChannel::ActorAlpha, None);
+        assert!(world.get::<Fading>(e).is_none());
+        assert_eq!(world.get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, edited);
     }
 }

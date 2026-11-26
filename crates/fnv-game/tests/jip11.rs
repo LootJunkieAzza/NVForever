@@ -81,6 +81,7 @@ fn plugin_bytes() -> Vec<u8> {
     let enchs = [ench(PUNCH, "TestPunch"), ench(KICK, "TestKick")].concat();
     let armos = [armo(HAT, "TestHat", HAT_SLOT, 10, 5.0), armo(HELMET, "TestHelmet", HAT_SLOT | HEAD, 20, 8.0), armo(GLOVES, "TestGloves", HAND, 2, 1.0)].concat();
     let flst = record(b"FLST", 0, ARMOR_LIST, &[sub(b"EDID", z("TestArmorList")), sub(b"LNAM", HELMET.to_le_bytes().to_vec()), sub(b"LNAM", HAT.to_le_bytes().to_vec())]);
+    let dehy = record(b"DEHY", 0, 0x950, &[sub(b"EDID", z("TestDehydrationStage")), sub(b"DATA", u32s(&[200, TWO_SPELL]))]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let refs = [placed(b"ACHR", MARK, "MarkRef", NPC, [100.0, 200.0, 0.0]), placed(b"REFR", HAT_REF, "HatRef", HAT, [0.0, 50.0, 0.0])].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
@@ -93,6 +94,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NPC_", &npcs),
         top(b"ARMO", &armos),
         top(b"FLST", &flst),
+        top(b"DEHY", &dehy),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
     .concat()
@@ -197,6 +199,7 @@ fn equipped_items_and_armour() {
     let mut g = game(&f);
     q(&mut g, "player.AddItem TestHat 1\nplayer.EquipItem TestHat");
     assert_eq!(n(&mut g, "player.GetEquippedEx TestArmorList"), f64::from(HAT));
+    assert_eq!(n(&mut g, "player.TestEquippedSlots TestHat"), 1.0, "the currently equipped armor itself overlaps [observed: w6d2p3_52]");
     assert_eq!(n(&mut g, "player.TestEquippedSlots TestHelmet"), 1.0, "the hat slot is taken");
     assert_eq!(n(&mut g, "player.TestEquippedSlots TestGloves"), 0.0);
     assert_eq!((n(&mut g, "player.IsEquippedWeaponScoped"), n(&mut g, "player.IsEquippedWeaponSilenced")), (0.0, 0.0), "no weapon");
@@ -220,6 +223,17 @@ fn base_forms_factions_and_unarmed() {
     assert_eq!(n(&mut g, "SetActorUnarmedEffect TestKick TestNpc"), 1.0);
     assert_eq!(n(&mut g, "MarkRef.GetActorUnarmedEffect"), f64::from(KICK));
     assert_eq!(n(&mut g, "SetActorUnarmedEffect TestFaction TestNpc"), 0.0, "not an effect");
+    // Hardcore stage effect: non-SPEL and explicit null 0 are no-ops; omitted arg clears
+    // [observed: w6d2_30_actor_unarmed_and_hardcore_stage_effect].
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), f64::from(TWO_SPELL));
+    q(&mut g, "SetHardcoreStageEffect TestDehydrationStage TestHat");
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), f64::from(TWO_SPELL));
+    q(&mut g, "SetHardcoreStageEffect TestDehydrationStage 0");
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), f64::from(TWO_SPELL));
+    q(&mut g, "SetHardcoreStageEffect TestDehydrationStage");
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), 0.0);
+    q(&mut g, "SetHardcoreStageEffect TestDehydrationStage TwoSpell");
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), f64::from(TWO_SPELL));
 }
 
 #[test]

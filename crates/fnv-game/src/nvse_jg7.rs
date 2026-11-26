@@ -249,8 +249,13 @@ pub fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [f64; 3] {
 }
 
 /// A `key = value` of an INI file's section, case-insensitively.
-fn ini_value(path: &std::path::Path, section: &str, key: &str) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
+/// A Data text file through the merged Data: NVForever's layer, then the game's Data and
+/// the host's index (a Mod Organizer 2 merge's mod folders).
+fn data_text(rel: &str) -> Option<String> {
+    crate::mod_files::read_data_file(rel).map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+fn ini_text_value(text: &str, section: &str, key: &str) -> Option<String> {
     let mut here = false;
     for line in text.lines() {
         let l = line.trim();
@@ -530,8 +535,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 Some(8) => "bJIPFixes",
                 _ => return Some(Ok(zero)),
             };
-            let path = crate::mod_files::data_dir().map(|d| d.join("NVSE").join("Plugins").join("JohnnyGuitar.ini"));
-            let on = path.and_then(|p| ini_value(&p, "MAIN", key)).and_then(|v| v.parse::<f64>().ok()).is_some_and(|v| v != 0.0);
+            // Through the merged Data (a Mod Organizer 2 mod folder holds it) [observed:
+            // Nuclear Sunset's JohnnyGuitar.ini, `bJIPFixes = 1`, sits only in its mod
+            // folders; read from the stock Data, MCM Extender showed "Please enable the
+            // following JohnnyGuitar patches: > JIP Fixes: 0 -> 1", log
+            // nvforever-20261125-154352-15152.log].
+            let text = data_text("NVSE\\Plugins\\JohnnyGuitar.ini");
+            let on = text.and_then(|t| ini_text_value(&t, "MAIN", key)).and_then(|v| v.parse::<f64>().ok()).is_some_and(|v| v != 0.0);
             yes(on)
         }
         // DefaultHeapInitialAllocMB of Data\NVSE\nvse_config.ini [documented:
@@ -540,8 +550,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
         // `w4c_b3_05_jg7_bounds_heap`: `heap=200`].
         "getdefaultheapsize" => {
-            let path = crate::mod_files::data_dir().map(|d| d.join("NVSE").join("nvse_config.ini"));
-            let text = path.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+            let text = data_text("NVSE\\nvse_config.ini").unwrap_or_default();
             let v = text.lines().filter_map(|l| l.split_once('=')).find(|(k, _)| k.trim().eq_ignore_ascii_case("DefaultHeapInitialAllocMB")).and_then(|(_, v)| v.trim().parse::<f64>().ok());
             XVal::Num(v.unwrap_or(200.0))
         }

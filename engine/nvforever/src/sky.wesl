@@ -2,11 +2,10 @@
 // the camera's tonemapper (Tony McMapface) gives back the sky's display value.
 //
 // The weather's sky colours are display values that the game grades directly; the
-// renderer's lit surfaces go through the tonemapper first. TONY_IN / TONY_OUT sample
-// the tonemapper's response to grey (input linear, output linear), measured from
-// renders of a flat grey sky without the grade [observed: Bevy 0.19.1 Tony McMapface];
-// the inverse is piecewise linear between the samples, per channel (Tony McMapface also
-// shifts saturated colours, which this ignores).
+// renderer's lit surfaces go through the tonemapper first. The mapping is the shared
+// tonemapper input (nvf_assets tone_input.wesl `to_tonemap_input`), the curve's code in
+// sky.glow.w (lights.rs `ToneCurve`). Under Physical lighting the dome's own physical sky
+// is linear light already and skips it.
 
 import bevy_pbr::{
     render::pbr_fragment::pbr_input_from_standard_material,
@@ -16,6 +15,7 @@ import bevy_pbr::{
     render::mesh_view_bindings::{view, globals},
     render::mesh_functions::get_world_from_local,
 };
+import nvf_assets::tone_input::to_tonemap_input;
 
 // sky.rs SkyLight: daylight on the sky's colours, and the sun.
 struct SkyLight {
@@ -80,38 +80,6 @@ fn sun_texel(t: texture_2d<f32>, s: sampler, dir: vec3<f32>, half_tan: f32, disc
     return texel.rgb * texel.a;
 }
 
-const N: u32 = 24u;
-var<private> TONY_IN: array<f32, 24> = array<f32, 24>(0.0, 0.005, 0.01, 0.02, 0.04, 0.07, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0, 5.0, 8.0, 16.0, 40.0, 100.0);
-var<private> TONY_OUT: array<f32, 24> = array<f32, 24>(0.0, 0.0056, 0.0113, 0.0222, 0.0437, 0.0723, 0.0999, 0.1470, 0.1812, 0.2542, 0.3140, 0.3663, 0.4125, 0.4910, 0.5457, 0.6172, 0.6867, 0.7454, 0.8070, 0.8796, 0.9216, 0.9473, 0.9771, 0.9875);
-
-// Linear input that the tonemapper maps to the linear output `y`; `y` itself when the
-// view shows display values clipped (sky.glow.w 1, nvforever lights.rs GAME_CLIP).
-fn tony_inverse(y: f32) -> f32 {
-    if sky.glow.w > 0.5 {
-        return y;
-    }
-    for (var i = 1u; i < N; i++) {
-        if y <= TONY_OUT[i] {
-            let t = (y - TONY_OUT[i - 1u]) / max(TONY_OUT[i] - TONY_OUT[i - 1u], 1e-6);
-            return mix(TONY_IN[i - 1u], TONY_IN[i], t);
-        }
-    }
-    return TONY_IN[N - 1u];
-}
-
-// Chromaticity-preserving inverse of Tony McMapface's grey curve: scales all channels by
-// the peak channel's inverse ratio so saturated bright sky colours (sun glare, sunset
-// clouds) never have one channel hit the 100.0 asymptote alone and shift to red.
-fn tony_inverse_rgb(rgb: vec3<f32>) -> vec3<f32> {
-    if sky.glow.w > 0.5 {
-        return rgb;
-    }
-    let m = max(max(rgb.r, rgb.g), rgb.b);
-    if m <= 1e-6 {
-        return vec3(0.0);
-    }
-    return rgb * (tony_inverse(m) / m);
-}
 
 const ATMO_RE: f32 = 6360.0;
 const ATMO_RA: f32 = 6460.0;
@@ -387,7 +355,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             let dir = normalize(in.world_position.xyz - night_centre(in.instance_index));
             a *= night_twinkle(dir);
         }
-        out.color = vec4(tony_inverse_rgb(a), 1.0);
+        out.color = vec4(to_tonemap_input(a, sky.glow.w), 1.0);
     } else if sky.params.y > 0.5 {
         // Moon disc (masser_*.dds): authored with a bright background behind a faint DXT5
         // alpha halo intended for D3D9 sRGB blending (~alpha^2.2 in linear light). Convert
@@ -400,7 +368,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let moon_alpha = select(0.0, pow(a, moon_exp), a > 1e-5);
         out.color = vec4(c.rgb * moon_gain, moon_alpha);
     } else {
-        out.color = vec4(tony_inverse_rgb(c.rgb), c.a);
+        out.color = vec4(to_tonemap_input(c.rgb, sky.glow.w), c.a);
     }
     @if(PREMULTIPLY_ALPHA) out.color = premultiply_alpha(pbr_input.material.flags, out.color);
     return out;

@@ -71,9 +71,15 @@ Issue #2345. Code: `fnv_world::WorldIndex::take_parent_data`, `WorldIndex::lod_w
   parent's (GNRroofWorld's are flat at about 12,280, over ground at about 10,700).
 - **As built** [hypothesis on the observations above]:
   - Use Land Data: the default land and water heights (`DNAM` holds both) are the
-    parent's when the child has none; a cell without LAND takes the LAND of the parent's
-    cell on the same grid square; a cell with its own LAND keeps it. Which the original
-    uses where both exist and differ is not known (observer check 225).
+    parent's when the child has none; every cell takes the LAND of the parent's cell on
+    the same grid square, its own LAND too, and keeps its own only where the parent has
+    none (#3755). Drawn, ParadiseFalls's own LAND on (-9, 16) (11,704 to 13,536 against
+    the parent's 11,504 to 11,984) hung a strip of ground in the sky behind the
+    entrance, with steep stretched faces down to the parent's cells, which players of
+    the original TTW do not report [observed: NVForever, TTW data, 2026-11-25]; and
+    GNRroofWorld's own LAND, flat at about 12,280 over ground at about 10,700, would be
+    a floor at roof height over the plaza. So the parent's wins [hypothesis; observer
+    check 225 asks the original].
   - Use Water Data: the water type (`NAM2`) and the default heights are the parent's
     when the child has none. Per-cell water (`XCLW`, `XCWT`) is not taken from the
     parent's cells [not known].

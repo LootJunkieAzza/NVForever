@@ -290,6 +290,7 @@ type DrawnMaterials<'w, 's> = Query<
         Option<&'static MeshMaterial3d<NifMaterial>>,
         Option<&'static crate::mesh_terrain_blend::BlendShape>,
         Option<&'static nvf_assets::nif_material::MaterialOverride>,
+        Option<&'static nvf_play::fade::Fading>,
     ),
 >;
 
@@ -298,6 +299,9 @@ type EmitterSummary = (String, Option<String>, [f32; 21]);
 
 /// Clone-on-write a shape entity's `NifMaterial` (sharing one private copy across
 /// multiple edits in the same frame via `made_now` / `owned`) and run `mutate`.
+/// While a fade or `SetActorAlpha` owns a see-through copy (`nvf_play::fade::Fading`),
+/// edits target the mesh's own persistent material and refresh the see-through copy in
+/// place so the edit survives when the fade ends [design, #3105].
 #[allow(clippy::too_many_arguments)]
 fn mutate_shape_material(
     e: Entity,
@@ -309,21 +313,21 @@ fn mutate_shape_material(
     mutate: impl FnOnce(&mut NifMaterial),
 ) {
     let Some(assets) = assets else { return };
-    let Ok((handle, blend, drawing)) = drawn.get(e) else { return };
+    let Ok((handle, blend, drawing, fading)) = drawn.get(e) else { return };
     let Some(handle) = nvf_assets::nif_surface_blend::source_material(handle, blend) else { return };
     // A private copy made earlier in this drain is not drawn yet (deferred
     // insert): a later edit of the same shape goes to that copy, or a second
     // copy of the old material would win with the first edit lost (#2981).
     let source = match made_now.get(&e) {
         Some(h) => h.clone(),
-        None => nvf_assets::nif_material::plain_material(handle, drawing).clone(),
+        None => nvf_play::fade::persistent_material(handle, drawing, fading).clone(),
     };
-    match owned.get(&e).filter(|h| **h == source).cloned() {
+    let h = match owned.get(&e).filter(|h| **h == source).cloned() {
         Some(h) => {
             if let Some(mut m) = assets.get_mut(&h) {
                 mutate(&mut m);
             }
-            commands.entity(e).insert(MeshMaterial3d(h));
+            h
         }
         None => {
             let Some(mut m) = assets.get(&source).cloned() else { return };
@@ -331,8 +335,13 @@ fn mutate_shape_material(
             let h = assets.add(m);
             owned.insert(e, h.clone());
             made_now.insert(e, h.clone());
-            commands.entity(e).insert(MeshMaterial3d(h));
+            h
         }
+    };
+    if fading.is_some() {
+        nvf_play::fade::queue_retarget(commands, e, h);
+    } else {
+        commands.entity(e).insert(MeshMaterial3d(h));
     }
 }
 
@@ -1443,6 +1452,65 @@ mod tests {
         assert_eq!(world.get::<Transform>(third_bone).unwrap().translation, Vec3::new(30.0, 0.0, 0.0));
         assert_eq!(world.get::<Transform>(first_bone).unwrap().scale, Vec3::splat(2.0));
         assert_eq!(world.get::<Transform>(third_bone).unwrap().scale, Vec3::splat(3.0));
+    }
+
+    /// #3105: a script material edit (`mutate_shape_material`) made while a presence fade
+    /// (or overlapping `SetActorAlpha`) runs targets the mesh's own persistent material,
+    /// refreshes the see-through copy in place at the combined opacity, and survives after
+    /// the fade ends.
+    #[test]
+    fn a_script_material_edit_during_a_fade_is_kept_after_the_fade_ends() {
+        let mut world = World::new();
+        world.init_resource::<Assets<NifMaterial>>();
+        let mut mat = nvf_assets::nif_material(StandardMaterial::default());
+        mat.extension.depth_write = true;
+        let own = world.resource_mut::<Assets<NifMaterial>>().add(mat);
+        let e = world.spawn(MeshMaterial3d(own.clone())).id();
+        // Start both presence fade (0.5) and actor alpha (0.5) -> combined factor 0.25.
+        nvf_play::fade::apply_factor(&mut world, e, nvf_play::fade::FadeChannel::Presence, Some(0.5));
+        nvf_play::fade::apply_factor(&mut world, e, nvf_play::fade::FadeChannel::ActorAlpha, Some(0.5));
+        let fade_copy = world.get::<nvf_play::fade::Fading>(e).unwrap().copy().clone();
+        let mut owned = HashMap::new();
+        let mut made_now = HashMap::new();
+        // First script edit during the fade: emissive + alpha = 0.8 + glossiness.
+        let vals = [0.2, 0.3, 0.4, 0.9, 0.1, 0.2, 20.0, 0.8, 1.0];
+        let mut owned_out = std::mem::take(&mut owned);
+        let mut made_out = std::mem::take(&mut made_now);
+        world.run_system_once(move |drawn: DrawnMaterials, mut assets: ResMut<Assets<NifMaterial>>, mut commands: Commands| {
+            mutate_shape_material(e, &drawn, Some(&mut assets), &mut owned_out, &mut made_out, &mut commands, |m| {
+                set_material(m, &vals, 3);
+            });
+            // A second edit in the same frame updates the same private persistent copy.
+            let vals2 = [0.2, 0.3, 0.4, 0.9, 0.5, 0.2, 20.0, 0.8, 1.0];
+            mutate_shape_material(e, &drawn, Some(&mut assets), &mut owned_out, &mut made_out, &mut commands, |m| {
+                set_material(m, &vals2, 4);
+            });
+            assert_eq!(owned_out.len(), 1);
+        }).unwrap();
+        let edited = world.get::<nvf_play::fade::Fading>(e).expect("still fading").original().clone();
+        assert_ne!(edited, own, "edit created a private persistent material");
+        // While fading: the see-through copy shows the edited emissive and 0.8 * 0.25 alpha.
+        {
+            let mats = world.resource::<Assets<NifMaterial>>();
+            let drawn = mats.get(&fade_copy).unwrap();
+            assert_eq!(drawn.base.emissive, LinearRgba::rgb(0.9, 0.5, 0.2));
+            assert!((drawn.base.base_color.alpha() - 0.8 * 0.25).abs() < 1e-6);
+            // The persistent material itself keeps full edited alpha (0.8) and opaque mode.
+            let base = mats.get(&edited).unwrap();
+            assert_eq!(base.base.emissive, LinearRgba::rgb(0.9, 0.5, 0.2));
+            assert!((base.base.base_color.alpha() - 0.8).abs() < 1e-6);
+            assert_eq!(base.base.alpha_mode, AlphaMode::Opaque);
+            assert!(base.extension.depth_write);
+        }
+        // End both fades: the edited material is put back, not the pre-edit original.
+        nvf_play::fade::apply_factor(&mut world, e, nvf_play::fade::FadeChannel::Presence, None);
+        nvf_play::fade::apply_factor(&mut world, e, nvf_play::fade::FadeChannel::ActorAlpha, None);
+        assert!(world.get::<nvf_play::fade::Fading>(e).is_none());
+        assert_eq!(world.get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, edited);
+        let final_mat = world.resource::<Assets<NifMaterial>>().get(&edited).unwrap();
+        assert_eq!(final_mat.base.emissive, LinearRgba::rgb(0.9, 0.5, 0.2));
+        assert!((final_mat.base.base_color.alpha() - 0.8).abs() < 1e-6);
+        assert_eq!(final_mat.base.alpha_mode, AlphaMode::Opaque);
     }
 
     #[test]

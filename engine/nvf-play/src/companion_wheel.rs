@@ -8,7 +8,7 @@
 //!   picked one's slice lit and its "on" icon, the others' "off" icons; a button's
 //!   alternative icons while the companion is in its other state ([`fnv_game::companion_wheel::State::alt`]);
 //!   "Companion Commands" at the top, the picked button's words under it in a filled
-//!   bar ("Exit" there over the hub), its context lines at the bottom (Use Stimpak: the
+//!   bar ("Exit" there over the hub), its context lines at the bottom (Heal: the
 //!   companion's HP and the stimpaks carried; Open Inventory: its carry weight), Exit in the hub [observed: the owner's
 //!   screenshots of 2026-10-19 for the bar and the lines], and the companion's reply under the wheel
 //!   (`crate::script_hud`'s subtitle of the companion's line, `ScriptHud::wheel_line`).
