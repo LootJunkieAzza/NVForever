@@ -201,6 +201,28 @@ fn num(g: &mut Game<'_>, expr: &str) -> f64 {
     }
 }
 
+/// `SetClimateTraitNumeric` validates `CLMT`, caps unsigned sun times at `1430` (10-min
+/// slots `0..=143`), clamps moons to `0..=3`, and clamps phase length to `0..=63`
+/// [observed: `w6d2_16_climate_traits_and_weather_add_remove`].
+#[test]
+fn set_climate_trait_numeric_bounds_and_clmt_validation() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetClimateTraitNumeric ClimateAlpha 0 25");
+    assert_eq!(num(&mut g, "GetClimateTraitNumeric ClimateAlpha 0"), 20.0);
+    q(&mut g, "SetClimateTraitNumeric ClimateAlpha 0 1500");
+    assert_eq!(num(&mut g, "GetClimateTraitNumeric ClimateAlpha 0"), 1430.0);
+    q(&mut g, "SetClimateTraitNumeric ClimateAlpha 0 -10");
+    assert_eq!(num(&mut g, "GetClimateTraitNumeric ClimateAlpha 0"), 1430.0);
+    q(&mut g, "SetClimateTraitNumeric ClimateAlpha 5 4");
+    assert_eq!(num(&mut g, "GetClimateTraitNumeric ClimateAlpha 5"), 3.0);
+    q(&mut g, "SetClimateTraitNumeric ClimateAlpha 6 64");
+    assert_eq!(num(&mut g, "GetClimateTraitNumeric ClimateAlpha 6"), 63.0);
+    // Non-CLMT form is ignored.
+    q(&mut g, "SetClimateTraitNumeric TestStatic 0 300");
+    assert_eq!(num(&mut g, "GetClimateTraitNumeric TestStatic 0"), 0.0);
+}
+
 #[test]
 fn set_worldspace_climate_reaches_current_climate_weathers_night_moon_and_respects_precedence() {
     let f = fixture();

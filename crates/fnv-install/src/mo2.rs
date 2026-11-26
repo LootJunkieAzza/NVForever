@@ -54,8 +54,13 @@ pub const PROFILE_SETTINGS: &str = "settings.ini";
 /// The game INI files a profile keeps a copy of when its local settings are on, in the
 /// order the game reads them: `Fallout.ini`, then `FalloutPrefs.ini` (a key in both is the
 /// prefs file's) [documented: MO2 `IPluginGame::iniFiles` for the Gamebryo games; observed:
-/// both files in the owner's profiles].
-pub const PROFILE_INIS: [&str; 2] = ["Fallout.ini", "FalloutPrefs.ini"];
+/// both files in the owner's profiles]. Then `FalloutCustom.ini`, the user's overrides,
+/// read last [observed: Nuclear Sunset's profile keeps one, `[BackgroundLoad]
+/// bBackgroundLoadLipFiles=1` over Fallout.ini's 0, and TTW's start check
+/// `GetNumericIniSetting "bBackgroundLoadLipFiles:BackgroundLoad" == 0` shows
+/// TTWBadINIMessage without it, log nvforever-20261125-155959-14680.log; hypothesis: the
+/// game reads it after the other two].
+pub const PROFILE_INIS: [&str; 3] = ["Fallout.ini", "FalloutPrefs.ini", "FalloutCustom.ini"];
 
 /// The file MO2 writes the enabled mods' INI tweaks into, above the profile's own INIs
 /// [documented: MO2 `Profile::createTweakedIniFile`].
@@ -1066,6 +1071,12 @@ mod tests {
         assert_eq!(l.ini_setting("Display", "iSize H"), Some(("720".into(), l.profile.join("FalloutPrefs.ini"))));
         assert_eq!(l.ini_setting("General", "uGridsToLoad"), Some(("5".into(), l.profile.join("Fallout.ini"))));
         assert_eq!(l.ini_setting("Archive", "bInvalidateOlderFiles"), Some(("1".into(), l.profile.join("initweaks.ini"))));
+        // FalloutCustom.ini, the user's overrides, after the two INIs and under the tweaks (#4491).
+        std::fs::write(l.profile.join("FalloutCustom.ini"), "[BackgroundLoad]\r\nbBackgroundLoadLipFiles=1\r\n[Display]\r\niSize H=1080\r\n").unwrap();
+        assert_eq!(l.ini_setting("BackgroundLoad", "bBackgroundLoadLipFiles"), Some(("1".into(), l.profile.join("FalloutCustom.ini"))));
+        assert_eq!(l.ini_setting("Display", "iSize H"), Some(("1080".into(), l.profile.join("FalloutCustom.ini"))));
+        assert_eq!(l.ini_setting("Display", "iSize W"), Some(("1920".into(), l.profile.join("initweaks.ini"))));
+        std::fs::remove_file(l.profile.join("FalloutCustom.ini")).unwrap();
         // A profile with local settings off still reads the tweak file, which MO2 keeps in
         // the profile whatever the INIs' setting is.
         std::fs::write(l.profile.join("settings.ini"), "[General]\r\nLocalSettings=false\r\n").unwrap();

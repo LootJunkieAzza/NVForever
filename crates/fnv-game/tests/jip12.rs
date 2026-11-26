@@ -342,7 +342,10 @@ fn purged_references_go_with_their_cell() {
         v => panic!("{v:?}"),
     };
     assert_eq!(toggle(&mut g, ""), 0.0);
-    assert_eq!(toggle(&mut g, " 1"), 1.0);
+    assert_eq!(toggle(&mut g, " 1"), 0.0, "returns previous state [observed: w6d2_23]");
+    assert_eq!(toggle(&mut g, ""), 1.0);
+    assert_eq!(toggle(&mut g, " 0"), 1.0, "returns previous state");
+    assert_eq!(toggle(&mut g, " 1"), 0.0);
     // A placed reference is not purged [documented: dynamic references only].
     assert_eq!(n(&mut g, "TestRefOut.TogglePurgeOnUnload 1"), 0.0);
     assert!(!g.world.get(made).unwrap().deleted());

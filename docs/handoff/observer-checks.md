@@ -3305,8 +3305,8 @@ already talking takes over at once, same topic or another; nothing is queued or 
      MegatonWorld squares (-1, -7) and (1, -6), ParadiseFalls (-9, 15) and (-9, 16),
      GNRroofWorld (flat at about 12,280 over the parent's ground at about 10,700). Stand
      in each and read the player's z on the ground (`player.GetPos Z`): the child's
-     height or the parent's. NVForever keeps the child's own LAND and takes the parent's
-     only where the child has none. Also: per-cell water in ParadiseFalls (Use Water
+     height or the parent's. NVForever takes the parent's LAND on every square where the
+     parent has one, the child's own too (#3755; before, it kept the child's own). Also: per-cell water in ParadiseFalls (Use Water
      Data), which NVForever does not take from the parent's cells.
 226. **What do SetStage and the objective functions do on a quest already completed or
      failed?** (P2; #2958; `crates/fnv-game/src/game.rs` `set_stage`, `set_objective`.)
@@ -3657,6 +3657,9 @@ already talking takes over at once, same topic or another; nothing is queued or 
      square, and whether a dim row can still be selected, dropped or put on a hotkey.
      With a weapon that takes several kinds (12 gauge and its slugs, or the .357 with
      .38 Special), say whether the other kinds it can fire are at full strength.
+     **Answered 2026-11-22** (PR #3466's comments): dim at about half, the weapon's other
+     kinds full, every ammo row dim with the fists, a dim row still selectable; built in
+     pipboy.md §5 ITEMS (#3442).
 
 ## Added 2026-11-21 (placing the custom map marker with the mouse, #3324)
 

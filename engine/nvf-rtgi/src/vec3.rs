@@ -123,6 +123,15 @@ pub fn srgb_to_linear(c: f32) -> f32 {
     }
 }
 
+/// The other way round.
+pub fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
 /// The Rec. 709 weighted sum.
 pub fn luminance(c: [f32; 3]) -> f32 {
     0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]

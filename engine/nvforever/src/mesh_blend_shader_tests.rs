@@ -325,10 +325,10 @@ fn shader_detail_transcribes_the_mesh_triangles_and_the_record_layout() {
         "m.normal += t.weights[i] * vec3(detail_snorm(w1 >> 16u), detail_snorm(w2), detail_snorm(w2 >> 16u));",
         "m.tangent += t.weights[i] * vec3(detail_snorm(w3), detail_snorm(w3 >> 16u), detail_snorm(w4));",
         "let h = 9u + k;",
-        // Ordered opacities: saturate(opacity) x the diffuse alpha, folded overlays tinted by
+        // Ordered opacities (the diffuse's alpha has no part, #3789), folded overlays tinted by
         // the base material's colour, overflow ones by white.
         "let o = saturate(detail_opacity(instance_index, t, k));",
-        "let share = o * texel.a;",
+        "let share = o;",
         "colour = mix(colour, texel.rgb * a.tint * select(vec3(1.0), base_rgb, k < folded), share);",
         "normal = mix(normal, layer_n, share);",
         "return TerrainDetail(colour, normalize(normal));",
@@ -798,9 +798,10 @@ fn single_texture_capture_composes_for_base_and_layer_meshes() {
         assert_eq!(textures.len(), usize::from(uvs), "sampled where the mesh has coordinates");
     }}
     let capture = include_str!("terrain_capture.wesl");
-    // Base: alpha 1; layer: material x vertex x diffuse alpha. Missing texture: white.
+    // Base: alpha 1; layer: material x vertex alpha (the diffuse's has no part, #3789).
+    // Missing texture: white.
     assert!(capture.contains("out.color = vec4(colour.rgb, select(1.0, colour.a, surface_capture.uv_offset_flags.w > 0.5));"));
-    assert!(capture.contains("colour *= select(vec4(1.0), texel, surface_capture.uv_offset_flags.z > 0.5);"));
+    assert!(capture.contains("colour *= vec4(select(vec3(1.0), texel.rgb, surface_capture.uv_offset_flags.z > 0.5), 1.0);"));
     assert!(capture.find("colour *= in.color;").unwrap() < capture.find("out.color =").unwrap());
     // #2551: an anti-tiled source's copy reads its one texture at the taps, at the world
     // place over the repeat (as terrain_pbr.wesl `terrain_footprint`), with or without the
@@ -811,7 +812,7 @@ fn single_texture_capture_composes_for_base_and_layer_meshes() {
         assert!(source.contains("textureSampleGrad") && !source.contains("textureSample("), "the anti-tiled read only");
     }}
     assert!(capture.contains("let at_uv = mat2x2<f32>(surface_capture.uv_axes.xy, surface_capture.uv_axes.zw) * terrain_world_uv(in.world_position.xyz, surface_capture.anti_tiling.x) + surface_capture.uv_offset_flags.xy;"));
-    assert!(capture.contains("colour *= select(vec4(1.0), at_texel, surface_capture.uv_offset_flags.z > 0.5);"));
+    assert!(capture.contains("colour *= vec4(select(vec3(1.0), at_texel.rgb, surface_capture.uv_offset_flags.z > 0.5), 1.0);"));
 }
 
 /// [design] #2661 with #2550/#2551: the detail's weighted composition (nif_surface_bindings.wesl
@@ -840,8 +841,9 @@ fn shader_detail_composes_height_blending_and_anti_tiling_as_the_near_draw() {
         // terrain.wesl's walk and weights, line for line (terrain.rs `detail_mirror`).
         "if remaining == 0.0 {",
         "if o == 0.0 {",
-        "w[k + 1u] = s * remaining;",
-        "remaining *= 1.0 - s;",
+        "w[k + 1u] = o * remaining;",
+        "remaining *= 1.0 - o;",
+        "paint[k] = o;",
         "w = terrain_ordered_shares(paint, n);",
         "f = terrain_height_weights(w, height, depth);",
         "normal = select(plain, normalize(normal_sum), dot(normal_sum, normal_sum) > 1e-12);",
@@ -851,7 +853,7 @@ fn shader_detail_composes_height_blending_and_anti_tiling_as_the_near_draw() {
     ] {
         assert!(detail.contains(line), "{line}");
     }
-    for line in ["if remaining == 0.0 {", "if o == 0.0 {", "w[k + 1u] = a * remaining;", "remaining *= 1.0 - a;", "f = terrain_height_weights(w, height, anti_params.x);", "pbr_input.N = select(plain, normalize(normal_sum), dot(normal_sum, normal_sum) > 1e-12);"] {
+    for line in ["if remaining == 0.0 {", "if o == 0.0 {", "w[k + 1u] = o * remaining;", "remaining *= 1.0 - o;", "f = terrain_height_weights(w, height, anti_params.x);", "pbr_input.N = select(plain, normalize(normal_sum), dot(normal_sum, normal_sum) > 1e-12);"] {
         assert!(terrain.contains(line), "terrain.wesl still: {line}");
     }
     // The height reference is placed as terrain.wesl's `height_reference_at` places it.

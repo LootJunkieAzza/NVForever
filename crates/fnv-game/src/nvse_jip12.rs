@@ -815,10 +815,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // original and gives -439019037 [observed: jip12 hash], no common 32-bit string
         // hash we tried (FNV-1/1a, djb2, sdbm, ×31, ×131, CRC-32, Adler-32) on the text as written, lower or upper case.
         "getstringhash" => zero,
-        // Created references (FF) only [documented]; the toggle's state, or the state
-        // without an argument.
+        // Created references (FF) only [documented]; returns the previous toggle state
+        // before applying any supplied argument [observed: `w6d2_23_world_state_internal_marker_and_light`].
         "togglepurgeonunload" => {
             let Some(r) = subject.filter(|r| r.is_dynamic()) else { return Some(Ok(zero)) };
+            let was = g.other.jip12.purge.contains(&r);
             if let Some(t) = num(args, 0) {
                 if t != 0.0 {
                     g.other.jip12.purge.insert(r);
@@ -826,7 +827,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     g.other.jip12.purge.remove(&r);
                 }
             }
-            yes(g.other.jip12.purge.contains(&r))
+            yes(was)
         }
         // The form's marker state, changed when a toggle is given [documented]; the
         // engine draws the change for references placed from then on (`nvforever::world`).
