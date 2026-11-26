@@ -92,12 +92,15 @@ impl Game<'_> {
             .extra
             .iter()
             .filter_map(|(&actor, e)| {
-                if actor == leader || actor == FormId::PLAYER_REF || e.dead || !self.present(actor) {
+                if actor == leader || actor == FormId::PLAYER_REF || e.dead {
                     return None;
                 }
                 let pkg = e.current_package?;
                 let def = self.package_def(&pkg)?;
-                (matches!(def.ty, PackageType::Follow | PackageType::Accompany) && self.package_target(actor, def) == Some(leader)).then_some(actor)
+                if !matches!(def.ty, PackageType::Follow | PackageType::Accompany) {
+                    return None;
+                }
+                (self.present(actor) && self.package_target(actor, def) == Some(leader)).then_some(actor)
             })
             .collect();
         out.sort_unstable();

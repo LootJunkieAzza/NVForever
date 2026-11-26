@@ -2470,7 +2470,7 @@ struct LambdaDef<'a> {
     handle: u32,
     unit: Option<&'a Compiled>,
     key: String,
-    lambda: fnv_script::ir::XExpr,
+    lambda: std::sync::Arc<fnv_script::ir::XExpr>,
     inst: Option<InstKey>,
     /// The variables of a maker that has no instance (a function script, a result
     /// script) when the lambda was made: the lambda reads them [observed: jip-events
@@ -4020,16 +4020,22 @@ impl<'a> Game<'a> {
             Some(value) => Some(FormId(value.as_form().ok_or_else(|| VmError::NoReference("call".into()).to_string())?)),
             None => ctx.self_ref,
         };
+        enum CallableBody<'a> {
+            Script(&'a fnv_script::ir::Block),
+            Lambda(std::sync::Arc<fnv_script::ir::XExpr>),
+        }
         let lambda = self.lambda_slots.get(&id).copied();
-        let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if let Some(index) = lambda {
-            let d = self.lambdas[index].clone();
-            let (unit, l, inst) = (d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?, d.lambda, d.inst);
-            let fnv_script::ir::XExpr::Lambda { params, body, value, .. } = l else { return Err("an unknown lambda".into()) };
-            let locals = match inst {
+        let (unit, callable, locals): (&Compiled, CallableBody<'_>, Locals) = if let Some(index) = lambda {
+            let d = &self.lambdas[index];
+            let unit = d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?;
+            if !matches!(&*d.lambda, fnv_script::ir::XExpr::Lambda { .. }) {
+                return Err("an unknown lambda".into());
+            }
+            let locals = match d.inst {
                 Some(k) => Locals::Instance(k),
-                None => Locals::Temp(d.captured.unwrap_or_default()),
+                None => Locals::Temp(d.captured.clone().unwrap_or_default()),
             };
-            (unit, params, body, value.map(|v| *v), locals)
+            (unit, CallableBody::Lambda(std::sync::Arc::clone(&d.lambda)), locals)
         } else {
             let unit = self.callable_script(id).ok_or_else(|| {
                 // Preserve unresolved-handle diagnostics and their reporting frequency;
@@ -4038,8 +4044,7 @@ impl<'a> Game<'a> {
                 else { format!("{}{NOT_A_FUNCTION}", data.name(FormId(id))) }
             })?;
             let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{}{NO_FUNCTION_BLOCK}", data.name(FormId(id))))?;
-            let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
-            (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
+            (unit, CallableBody::Script(block), Locals::Temp(BTreeMap::new()))
         };
         self.udf.push(UdfFrame { value: None, caller });
         self.open_run();
@@ -4047,22 +4052,41 @@ impl<'a> Game<'a> {
         let mut ex = Exec { game: self, unit, locals, ctx, seconds };
         let mut vm = Vm::new(&data.table, &mut ex, opts);
         let mut result = Ok(());
-        for (p, a) in params.iter().zip(args) {
-            if let Err(e) = vm.bind(p, a) {
-                result = Err(e.to_string());
-                break;
-            }
-        }
         let mut lambda_value = None;
-        if result.is_ok() {
-            match &value {
-                Some(v) => match vm.xeval(v) {
-                    Ok(x) => lambda_value = Some(x),
-                    Err(e) => result = Err(e.to_string()),
-                },
-                None => {
-                    if let Err(e) = vm.run(&body) {
+        match &callable {
+            CallableBody::Script(block) => {
+                for (p, a) in block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(v) } else { None }).zip(args) {
+                    if let Err(e) = vm.bind(p, a) {
                         result = Err(e.to_string());
+                        break;
+                    }
+                }
+                if result.is_ok() {
+                    if let Err(e) = vm.run(&block.body) {
+                        result = Err(e.to_string());
+                    }
+                }
+            }
+            CallableBody::Lambda(expr) => {
+                if let fnv_script::ir::XExpr::Lambda { params, body, value, .. } = &**expr {
+                    for (p, a) in params.iter().zip(args) {
+                        if let Err(e) = vm.bind(p, a) {
+                            result = Err(e.to_string());
+                            break;
+                        }
+                    }
+                    if result.is_ok() {
+                        match value.as_deref() {
+                            Some(v) => match vm.xeval(v) {
+                                Ok(x) => lambda_value = Some(x),
+                                Err(e) => result = Err(e.to_string()),
+                            },
+                            None => {
+                                if let Err(e) = vm.run(body) {
+                                    result = Err(e.to_string());
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -4276,7 +4300,7 @@ impl<'a> Game<'a> {
         };
         if let Some(&index) = self.lambda_slots.get(&id) {
             let d = &self.lambdas[index];
-            let fnv_script::ir::XExpr::Lambda { params, .. } = &d.lambda else { return None };
+            let fnv_script::ir::XExpr::Lambda { params, .. } = &*d.lambda else { return None };
             return Some(params.len());
         }
         let unit = self.callable_script(id)?;
@@ -7402,7 +7426,7 @@ impl<'a> Game<'a> {
             retired_scene_bases,
             clone_sequence_floor,
             ext: self.ext.clone(),
-            lambdas: self.lambdas.iter().map(|d| SavedLambda { handle: Some(d.handle), unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
+            lambdas: self.lambdas.iter().map(|d| SavedLambda { handle: Some(d.handle), unit: d.key.clone(), lambda: (*d.lambda).clone(), inst: d.inst }).collect(),
             // A created reference deleted since keeps no variables: its FormID is not
             // used again, so they could never be read.
             nx: crate::nvse_nx::NxVars(self.nx.0.iter().filter(|(id, _)| !sim.deleted_created.contains_key(id)).map(|(k, v)| (*k, v.clone())).collect()),
@@ -7496,7 +7520,7 @@ impl<'a> Game<'a> {
             if let Some(u) = unit.filter(|u| unit_lambda(u, &l.lambda).is_some_and(|now| now == l.lambda)) {
                 g.lambda_ids.entry(lambda_key(u, &l.lambda, l.inst)).or_insert(handle);
             }
-            g.lambdas.push(LambdaDef { handle, unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
+            g.lambdas.push(LambdaDef { handle, unit, key: l.unit.clone(), lambda: std::sync::Arc::new(l.lambda.clone()), inst: l.inst, captured: None });
         }
         g.nx = s.nx.clone();
         g.quests = s.quests.clone();
@@ -8061,7 +8085,7 @@ impl Host for Exec<'_, '_> {
             Locals::Instance(_) => None,
         };
         self.game.lambda_slots.insert(id, self.game.lambdas.len());
-        self.game.lambdas.push(LambdaDef { handle: id, unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.2, captured });
+        self.game.lambdas.push(LambdaDef { handle: id, unit: Some(self.unit), key: self.unit.key(), lambda: std::sync::Arc::new(l.clone()), inst: key.2, captured });
         self.game.lambda_ids.insert(key, id);
         Ok(fnv_script::vm::XVal::Ref(id))
     }
@@ -8383,3 +8407,7 @@ mod effect_lookup_tests {
 #[cfg(test)]
 #[path = "game/callable_allocation_tests.rs"]
 mod callable_allocation_tests;
+
+#[cfg(test)]
+#[path = "game/udf_hot_path_tests.rs"]
+mod udf_hot_path_tests;

@@ -1079,7 +1079,9 @@ impl Ui {
     /// hud_xp_limbs all, hud_prompt2 p0-p8; menu-xml.md §5]. Unindexed lookup keeps
     /// file order [hypothesis: menu-xml.md §5].
     pub fn find_tile(&self, path: &str) -> Option<TileId> {
-        let segs = split(path);
+        let mut stack = [""; 16];
+        let mut heap = Vec::new();
+        let segs = split_slice(path, &mut stack, &mut heap);
         let (first, rest) = segs.split_first()?;
         let root = self.root_named(first)?;
         self.walk(root, rest, Count::FromLast)
@@ -1094,7 +1096,9 @@ impl Ui {
     /// [`Ui::find_trait`] with `name:N` / `*:N` counted as `count` says (the extender's
     /// GetUIFloat and SetUIFloat count from the first child, [`Count::FromFirst`]).
     pub fn find_trait_counted(&self, path: &str, count: Count) -> Option<(TileId, usize)> {
-        let segs = split(path);
+        let mut stack = [""; 16];
+        let mut heap = Vec::new();
+        let segs = split_slice(path, &mut stack, &mut heap);
         let (name, tiles) = segs.split_last()?;
         let (first, rest) = tiles.split_first()?;
         let root = self.root_named(first)?;
@@ -1118,7 +1122,9 @@ impl Ui {
     /// `at` itself when the path is one segment (SortUIListBox's keys, read on each item)
     /// [design].
     pub fn find_trait_in(&self, at: TileId, path: &str) -> Option<(TileId, usize)> {
-        let segs = split(path);
+        let mut stack = [""; 16];
+        let mut heap = Vec::new();
+        let segs = split_slice(path, &mut stack, &mut heap);
         let (name, tiles) = segs.split_last()?;
         self.walk_to_trait(at, tiles, name, Count::FromLast)
     }
@@ -1127,33 +1133,51 @@ impl Ui {
         self.roots.iter().copied().find(|&r| self.tile(r).live && self.tile(r).name.eq_ignore_ascii_case(seg))
     }
 
-    /// The children of `at` a segment matches, in order.
-    fn matching(&self, at: TileId, seg: &str, count: Count) -> Vec<TileId> {
-        let (name, index) = match seg.rsplit_once(':') {
-            Some((n, k)) if k.trim().parse::<usize>().is_ok() => (n, k.trim().parse::<usize>().ok()),
-            _ => (seg, None),
-        };
-        let all = self.tile(at).children.iter().copied();
-        let named: Vec<TileId> = all.filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name)).collect();
-        match (index, count) {
-            (Some(k), Count::FromLast) => named.iter().rev().nth(k).copied().into_iter().collect(),
+    /// The single child of `at` matching an indexed segment (`name:k` or `*:k`), without
+    /// allocating an intermediate `Vec`.
+    fn find_indexed_child(&self, at: TileId, name: &str, k: usize, count: Count) -> Option<TileId> {
+        let children = &self.tile(at).children;
+        let matches = |&c: &TileId| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name);
+        match (k, count) {
+            (k, Count::FromLast) => children.iter().rev().copied().filter(matches).nth(k),
             // 0 the last, 1 the first, N the N-th, none past the one before the last.
-            (Some(0), Count::FromFirst) => named.last().copied().into_iter().collect(),
-            (Some(k), Count::FromFirst) => named.get(k - 1).filter(|_| k < named.len()).copied().into_iter().collect(),
-            (None, _) => named,
+            (0, Count::FromFirst) => children.iter().rev().copied().find(matches),
+            (k, Count::FromFirst) => {
+                let mut it = children.iter().copied().filter(matches);
+                let pick = it.nth(k - 1)?;
+                it.next().map(|_| pick)
+            }
         }
     }
 
     fn walk(&self, at: TileId, segs: &[&str], count: Count) -> Option<TileId> {
         let Some((seg, rest)) = segs.split_first() else { return Some(at) };
-        self.matching(at, seg, count).into_iter().find_map(|c| self.walk(c, rest, count))
+        let (name, index) = parse_seg(seg);
+        if let Some(k) = index {
+            return self.find_indexed_child(at, name, k, count).and_then(|c| self.walk(c, rest, count));
+        }
+        self.tile(at)
+            .children
+            .iter()
+            .copied()
+            .filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name))
+            .find_map(|c| self.walk(c, rest, count))
     }
 
-    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str, count: Count) -> Option<(TileId, usize)> {
-        match segs.split_first() {
-            None => self.tile(at).trait_index(name).map(|k| (at, k)),
-            Some((seg, rest)) => self.matching(at, seg, count).into_iter().find_map(|c| self.walk_to_trait(c, rest, name, count)),
+    fn walk_to_trait(&self, at: TileId, segs: &[&str], trait_name: &str, count: Count) -> Option<(TileId, usize)> {
+        let Some((seg, rest)) = segs.split_first() else {
+            return self.tile(at).trait_index(trait_name).map(|k| (at, k));
+        };
+        let (name, index) = parse_seg(seg);
+        if let Some(k) = index {
+            return self.find_indexed_child(at, name, k, count).and_then(|c| self.walk_to_trait(c, rest, trait_name, count));
         }
+        self.tile(at)
+            .children
+            .iter()
+            .copied()
+            .filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name))
+            .find_map(|c| self.walk_to_trait(c, rest, trait_name, count))
     }
 
     /// The path of a tile, from its menu: `HUDMainMenu/HitPoints`.
@@ -1958,8 +1982,30 @@ fn prefab_path(file: &str) -> String {
     parts.join("\\")
 }
 
-fn split(path: &str) -> Vec<&str> {
-    path.split(['/', '\\']).map(str::trim).filter(|s| !s.is_empty()).collect()
+fn parse_seg(seg: &str) -> (&str, Option<usize>) {
+    match seg.rsplit_once(':') {
+        Some((n, k)) => match k.trim().parse::<usize>() {
+            Ok(idx) => (n, Some(idx)),
+            Err(_) => (seg, None),
+        },
+        None => (seg, None),
+    }
+}
+
+fn split_slice<'a, 'b>(path: &'a str, stack: &'b mut [&'a str; 16], heap: &'b mut Vec<&'a str>) -> &'b [&'a str] {
+    let mut len = 0usize;
+    for s in path.split(['/', '\\']).map(str::trim).filter(|s| !s.is_empty()) {
+        if heap.is_empty() && len < stack.len() {
+            stack[len] = s;
+            len += 1;
+        } else {
+            if heap.is_empty() {
+                heap.extend_from_slice(&stack[..len]);
+            }
+            heap.push(s);
+        }
+    }
+    if heap.is_empty() { &stack[..len] } else { heap.as_slice() }
 }
 
 /// Invalid/overflowing extra-operator results do not enter renderer traits [hypothesis].
