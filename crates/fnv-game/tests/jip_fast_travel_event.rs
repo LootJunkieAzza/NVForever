@@ -372,7 +372,9 @@ fn an_interior_forbids_fast_travel_unless_its_cell_inverts_it() {
     assert_eq!(can(&mut g), 1.0, "the flag set by a script");
     q(&mut g, "SetCellFlag PlainRoom 2 0");
     q(&mut g, "SetCellFlag PlainRoom 7 1");
-    assert_eq!(can(&mut g), 1.0, "an interior that behaves like an exterior");
+    assert_eq!(can(&mut g), 0.0, "Behave Like Exterior alone keeps the interior restriction");
+    q(&mut g, "SetCellFlag PlainRoom 2 1");
+    assert_eq!(can(&mut g), 1.0, "Invert Fast Travel Behavior enables travel even with bit 7 set");
     put(&mut g, INVERTED_ROOM);
     assert_eq!(can(&mut g), 1.0, "the flag in the data");
     q(&mut g, "EnableFastTravel 0");
