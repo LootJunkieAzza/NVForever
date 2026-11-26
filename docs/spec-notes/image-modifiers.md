@@ -118,7 +118,7 @@ at once), `fnv_game` (`Game::image_modifiers`, the three script functions),
   `Game::MAX_IMOD_STACK = 64` (evicting the oldest matching entry at capacity so repeated
   re-applies cannot grow unbounded), and draws **one instance per `IMAD` form** (the most
   recently applied entry) in `nvforever::imagespace::screen_effect` so unmodded visuals stay
-  unchanged [design].
+  unchanged [design]. Empty `GetActiveIMODs` returns `ar_Null` (`-1`), mixed animatable + non-animatable stacks preserve exact counts across `RemoveImageSpaceModifier`, and `IsImageSpaceActive` returns `1` while active and `0` for non-IMAD forms or after removal [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_22_imod_mixed_anim_nonanim_stack_and_inactive_remove` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `sz(n0=-1,n1=3,n2=2,n3=-1)|act(a=1,n1=1,n2=1,ca=0,aAfter=0)`; no DLL or source consulted].
 - **A modifier's time passes with the game outside menus and loading screens,
   conversations included** [hypothesis: `Game::tick` ages modifiers where it advances a
   conversation's lines]. Not known: whether an animated modifier goes on behind a
@@ -537,7 +537,7 @@ read as 0–1 alpha the whole screen turned cyan, and with 47–50 all read as 0
 looked correct.
 Fade RGB (51–53) divide by 255 like the getter; NAM3 alpha (54) keeps its normalized
 getter units (unobserved).
-Leave every unassigned component, other effect, sound, duration and track alone.
+Leave every unassigned component, other effect, sound, duration and track alone. `GetImageSpaceModTrait`/`SetImageSpaceModTrait` round-trip traits on `TempCloneForm` `IMAD` clones without mutating the original while returning `0.00` for `-1`, `68`, and non-`IMAD` forms [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, read-only `PrintToConsole` probe `w6d12_20_imod_animatable_and_imad_traits_0_to_67` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `anim(conc=1,ftb=1,blk=0,cat=0,ca=0|cl=0->1->0,orig=0)|tr(t0=1.00->4.50,t1=0.50,t67=0.00->0.00,m1=0.00,t68=0.00->0.00,ca=0.00,orig0=1.00)`; no DLL or source consulted].
 [engine design choice] Read only bounded fields of active modifiers; do not clone the
 record cache, mutate the load order or scan unrelated forms each frame. Nonfinite values
 (and finite `f64` values that overflow `f32` to infinity) which cannot be represented as

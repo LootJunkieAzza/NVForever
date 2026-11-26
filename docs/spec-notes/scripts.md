@@ -1067,7 +1067,7 @@ the ability ImplantRegenBoost, layer5-captures.md §9.3 b, `L5.quest.effect_star
 - ScriptEffectUpdate runs every frame of game time, with ScriptEffectElapsedSeconds = the
   time since the previous Update (an ability adding Elapsed / 10 health changed it in 59
   of 59 frame steps, at 0.1 HP per second of script time) [also documented: GECK wiki
-  ScriptEffectElapsedSeconds, non-zero only in the update block].
+  ScriptEffectElapsedSeconds, non-zero only in the update block]. Outside a script-effect block `ScriptEffectElapsedSeconds` returns `0.0000`, while `EquipItem` of `NukaCola` grants `+1` cap and `NVAntivenom` dispels `RadScorpion1Poison` synchronously inside the call (`nukaCapDelta=1`, `anti(p0=1,p1=0)`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_17_script_effect_elapsed_seconds_and_sync_start` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `sees=0.0000,gsp=0.0160|nukaCapDelta=1|anti(p0=1,p1=0)`; no DLL or source consulted].
 - ScriptEffectFinish comes when the duration has passed in script time (the time
   GetSecondsPassed counts): Cateye's 120 s ended 119.82–119.94 s of that time after the
   use (here 120.0 s; the game ends effects up to 0.2 s early, hypothesis on why in
