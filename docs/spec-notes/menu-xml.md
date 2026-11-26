@@ -490,6 +490,12 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   prefab's own expression, the child's width plus `_horbuf` [documented: text_box.xml])
   and `RadiationMeter/radiation_text_value` (`fnv_game::ui_hud::write_text_widths`),
   only with the game's fonts. A tile without a `string` keeps its width [design].
+- The other HUD text tiles whose file gives no `width` (the ones mods add) are measured the
+  same way, in their own font and wrap, again when their string changes; the engine marks
+  the width it wrote (`_NVFMeasured`) so it keeps measuring that tile (#4493)
+  [hypothesis: the original measures every text tile; observed in FadedLight's Nuclear
+  Sunset fork: MAPMO's clock centres itself by its own width, read 0 and ran off the right
+  edge] (`fnv_game::ui_hud::unmeasured_texts`, `nvf-play/src/tiles/draw.rs`).
 
 ### 3.1.3 The whole menu, `zoom`, `tile`, `texatlas` (T12a)
 

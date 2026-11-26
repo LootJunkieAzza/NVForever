@@ -1163,9 +1163,13 @@ pub fn prepare_lights(
     ),
     // NVForever held shadow maps: the hold, and the directional shadow texture of the last
     // frame (see where the texture is taken below).
-    (mut hold_directional, mut last_directional_texture, nvf_outdoor_sun, hold_lights, mut nvf_light_record, mut nvf_last_point_texture, mut nvf_view_cache, mut nvf_parked, mut nvf_was_on): (
+    (mut hold_directional, mut last_directional_texture, mut nvf_directional_high_water, mut nvf_last_directional_cascades, nvf_outdoor_sun, hold_lights, mut nvf_light_record, mut nvf_last_point_texture, mut nvf_view_cache, mut nvf_parked, mut nvf_was_on): (
         Option<ResMut<HoldDirectionalShadowMaps>>,
         Local<Option<TextureId>>,
+        // NVForever held shadow maps (#3779): high-water layer count for the current side.
+        Local<NvfDirectionalShadowLayerHighWater>,
+        // NVForever held shadow maps (#3779): last frame's cascade count on the texture.
+        Local<usize>,
         // NVForever sun visibility: the light marked as the outdoor sun.
         Query<(), With<NvfOutdoorSun>>,
         // NVForever held light shadow maps: the hold and the slots, and what each layer was
@@ -1509,17 +1513,31 @@ pub fn prepare_lights(
     }
 
     // NVForever held light shadow maps: room past the cascades for every spot slot.
-    let nvf_directional_layers = (num_directional_cascades_enabled + nvf_spot_layers)
+    // NVForever held shadow maps (#3779, [design]): while the directional shadow texture's
+    // side stays the same, its layer count only grows (high-water mark) so switching
+    // between third person, first person (`ArmsShade`) and the flashlight reuses the
+    // existing texture instead of allocating a new one on every transition.
+    let nvf_directional_side = (directional_light_shadow_map.size as u32)
+        .min(render_device.limits().max_texture_dimension_2d);
+    let nvf_needed_directional_layers = (num_directional_cascades_enabled + nvf_spot_layers)
         .min(max_texture_array_layers)
         .max(1);
+    let nvf_directional_layers = if hold_directional.is_some() || hold_lights.is_some() {
+        nvf_directional_high_water.layers(
+            nvf_directional_side,
+            nvf_needed_directional_layers,
+            max_texture_array_layers,
+        )
+    } else {
+        nvf_directional_high_water.reset();
+        nvf_needed_directional_layers
+    };
     let directional_light_depth_texture = texture_cache.get(
         &render_device,
         TextureDescriptor {
             size: Extent3d {
-                width: (directional_light_shadow_map.size as u32)
-                    .min(render_device.limits().max_texture_dimension_2d),
-                height: (directional_light_shadow_map.size as u32)
-                    .min(render_device.limits().max_texture_dimension_2d),
+                width: nvf_directional_side,
+                height: nvf_directional_side,
                 depth_or_array_layers: nvf_directional_layers as u32,
             },
             mip_level_count: 1,
@@ -1534,10 +1552,10 @@ pub fn prepare_lights(
 
     // NVForever held shadow maps: a held cascade samples what an earlier frame drew into
     // this texture, so it can only be held when the texture is the one the last frame drew
-    // into. The cache hands out another one whenever the descriptor changes (a shadowed spot
-    // light, such as the player's flashlight, switched on or off changes the layer count) or
-    // the old one was dropped; that frame draws every cascade, with the matrices the main
-    // world gave the held ones, which are then what the following frames hold.
+    // into. The cache hands out another one whenever the descriptor changes (the layer count
+    // grew, or the map size changed) or the old one was dropped; that frame draws every
+    // cascade, with the matrices the main world gave the held ones, which are then what the
+    // following frames hold.
     let directional_texture_id = directional_light_depth_texture.texture.id();
     if *last_directional_texture != Some(directional_texture_id) {
         // NVForever light view counts.
@@ -1554,6 +1572,17 @@ pub fn prepare_lights(
             }
         }
         *last_directional_texture = Some(directional_texture_id);
+    }
+    // NVForever held shadow maps (#3779): when the high-water texture is reused across a
+    // change in cascade count (such as `ArmsShade` toggling off or on), draw every cascade
+    // once so no held cascade samples a layer whose directional light assignment shifted.
+    if *nvf_last_directional_cascades != num_directional_cascades_enabled {
+        if let Some(hold) = hold_directional.as_deref_mut()
+            && hold.0 != 0
+        {
+            hold.0 = 0;
+        }
+        *nvf_last_directional_cascades = num_directional_cascades_enabled;
     }
 
     // NVForever held light shadow maps: the sun's cascades draw into the layers below
@@ -3720,6 +3749,40 @@ impl bevy_render::extract_resource::ExtractResource<RenderApp> for HoldDirection
     type Source = HoldDirectionalShadowMaps;
     fn extract_resource(source: &Self::Source) -> Self {
         *source
+    }
+}
+
+/// NVForever held shadow maps (#3779, [design]): high-water layer count for the directional
+/// shadow map array texture. While the shadow map's side (resolution) stays the same, the
+/// requested layer count only grows up to `max_layers` so switching between third person,
+/// first person (`ArmsShade`), and the flashlight reuses the existing texture instead of
+/// triggering a new GPU allocation on every transition. Changing the side resets the
+/// high-water mark to the newly needed layer count.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct NvfDirectionalShadowLayerHighWater {
+    side: u32,
+    layers: usize,
+}
+
+impl NvfDirectionalShadowLayerHighWater {
+    /// Returns the layer count to request for a directional shadow texture of dimension
+    /// `side x side` needing `needed` layers, capped by `max_layers` (at least 1).
+    pub fn layers(&mut self, side: u32, needed: usize, max_layers: usize) -> usize {
+        let cap = max_layers.max(1);
+        let needed = needed.min(cap).max(1);
+        if self.side != side {
+            self.side = side;
+            self.layers = needed;
+        } else {
+            self.layers = self.layers.max(needed).min(cap).max(1);
+        }
+        self.layers
+    }
+
+    /// Clears the remembered side and layer count.
+    pub fn reset(&mut self) {
+        self.side = 0;
+        self.layers = 0;
     }
 }
 

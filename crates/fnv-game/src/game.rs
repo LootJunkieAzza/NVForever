@@ -4092,7 +4092,14 @@ impl<'a> Game<'a> {
         }
         self.close_run();
         let frame = self.udf.pop();
-        self.udf_value_set = frame.as_ref().is_some_and(|f| f.value.is_some());
+        // Expression-only lambdas (`({args} => 0)`) explicitly return a value and count
+        // as setting the function value for pre-event vetoes [observed: 2026-11-24,
+        // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_pre_event_lambda_and_unreg.json` probe
+        // `w6d1_13_pre_scripted_lambda_and_unregister`: `lam0=0->0|lam1=0->1|lateRan=0`;
+        // no DLL, PDB, or third-party source consulted].
+        self.udf_value_set = lambda_value.is_some() || frame.as_ref().is_some_and(|f| f.value.is_some());
         let v = match lambda_value {
             Some(v) => v,
             None => {
@@ -4142,10 +4149,35 @@ impl<'a> Game<'a> {
                         // SetEventHandlerAlt: index 0 the calling reference, 1–15 the
                         // arguments [documented: SetEventHandlerAlt].
                         (_, XVal::Num(i)) if alt && (0.0..=15.0).contains(i) => {
-                            self.ext.retain(&v);
                             h.filters.push((*i as usize, v));
                         }
                         _ => return Ok(XVal::Num(0.0)),
+                    }
+                }
+                // Deduplicate identical (event, func, priority, filters) registrations
+                // for both SetEventHandler and SetEventHandlerAlt [observed: 2026-11-24,
+                // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30,
+                // GSDocMitchellHouse (0x00103DF9), 10 official base masters,
+                // `tools/capture/nvse/catalogs/wave6d1_set_event_handler_dedup.json`
+                // probe `w6d1_03_set_event_handler_dups_and_bounds`:
+                // `PROBE|w6d1_03_set_event_handler_dups_and_bounds|std=1,0,n=1|alt=1,0,n=1|prio=0,1,1,0,0|arr=1,n=1`;
+                // no DLL, PDB, or third-party source consulted].
+                if self.handlers.iter().any(|e| {
+                    e.event == h.event
+                        && e.func == h.func
+                        && e.priority == h.priority
+                        && e.alt == h.alt
+                        && e.filters.len() == h.filters.len()
+                        && e.filters.iter().all(|f| {
+                            e.filters.iter().filter(|x| *x == f).count()
+                                == h.filters.iter().filter(|x| *x == f).count()
+                        })
+                }) {
+                    return Ok(XVal::Num(0.0));
+                }
+                if alt {
+                    for (_, v) in &h.filters {
+                        self.ext.retain(v);
                     }
                 }
                 self.ext.retain(&h.func);
@@ -6205,13 +6237,13 @@ impl<'a> Game<'a> {
         // the extender heard that attempt before the block ran, so this `Activate` is the
         // same activation and is not heard twice [design, #2123].
         let npc_door = mode == ActMode::Default && self.in_npc_door_run(actor, target);
-        if !npc_door {
-            self.activation_heard(actor, target);
-        }
-        if !self.activation_goes_on(actor, target) {
-            return Ok(serde_json::json!({"result": "destroyed"}));
-        }
         if mode == ActMode::Hand {
+            if !npc_door {
+                self.activation_heard(actor, target);
+            }
+            if !self.activation_goes_on(actor, target) {
+                return Ok(serde_json::json!({"result": "destroyed"}));
+            }
             if !self.pre_activation_allows(actor, target) {
                 return Ok(serde_json::json!({"result": "prevented"}));
             }
@@ -6219,8 +6251,19 @@ impl<'a> Game<'a> {
                 return Ok(serde_json::json!({"result": "destroyed"}));
             }
         } else {
+            // Scripted Activate runs ShowOff:OnPreScriptedActivate BEFORE xNVSE OnActivate
+            // and before destroyed refusal; vetoing skips OnActivate [observed: 2026-11-24,
+            // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+            // (0x00103DF9), 10 official base masters,
+            // `tools/capture/nvse/catalogs/wave6d1_pre_scripted_activate_order.json` probes
+            // `w6d1p2_11_on_activate_and_pre_scripted_order`, `w6d1p3_11_on_activate_noveto`,
+            // `w6d1_14_pre_scripted_destroyed_mutation`; no DLL, PDB, or third-party source
+            // consulted].
             if !self.pre_scripted_activation_allows(actor, target, mode == ActMode::Block) {
                 return Ok(serde_json::json!({"result": "prevented"}));
+            }
+            if !npc_door {
+                self.activation_heard(actor, target);
             }
             if !self.activation_goes_on(actor, target) {
                 return Ok(serde_json::json!({"result": "destroyed"}));
@@ -6285,6 +6328,9 @@ impl<'a> Game<'a> {
         let door_run = self.npc_door_run.take();
         let mut allowed = initial_allowed;
         for handler in &handlers {
+            // Skip any later handler unregistered mid-dispatch by an earlier handler
+            // [observed: `w6d1_13_pre_scripted_lambda_and_unregister`, `lateRan=0`].
+            if !self.handlers.iter().any(|live| live.seq == handler.seq) { continue; }
             let args = build_args(allowed);
             if !self.handler_matches(handler, &args, on) { continue; }
             let ctx = RunCtx { self_ref: on, action_ref, ..RunCtx::default() };
@@ -6314,10 +6360,12 @@ impl<'a> Game<'a> {
     }
 
     /// The extender's OnActivate handlers hear `actor` activating `target` (the target
-    /// first, the action reference second) [documented: NVSE Event Handling, OnActivate
-    /// row]. Also the first step of an NPC's walk through a door (`crate::npc_doors`).
+    /// first, the action reference second, null calling reference `GetSelfAlt == 0`)
+    /// [documented: NVSE Event Handling, OnActivate row; observed:
+    /// `w6d1p3_11_on_activate_noveto`, `act(s0=1,sR=0,a1=1,a2=1)`]. Also the first step
+    /// of an NPC's walk through a door (`crate::npc_doors`).
     pub(crate) fn activation_heard(&mut self, actor: FormId, target: FormId) {
-        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
+        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], None);
     }
 
     /// [`Game::activation_begins`] after the handlers: whether the activation goes on.
@@ -6888,10 +6936,17 @@ impl<'a> Game<'a> {
     /// Active effects advance by `seconds` at once, as if that much game-mode time had
     /// passed in one frame (a wait or a sleep, `crate::needs`): each runs one
     /// ScriptEffectUpdate with those seconds, a value changed by the second changes by
-    /// the seconds inside its duration, and the effects whose duration has passed
-    /// finish [hypothesis: aid-items.md §6].
+    /// the seconds inside its duration (a regeneration by all of them), and the effects
+    /// whose duration has passed finish [hypothesis: aid-items.md §6]. The conditions are
+    /// checked first, whatever the time since the last check: the hours of a wait pass
+    /// with the game's own time standing still, and Solar Powered would heal all night.
+    /// Known limit: they are checked once, with the clock already at the end of the
+    /// step, for all its seconds. A jump of several hours (SetGameHour, fast travel) from
+    /// 17:00 to 20:00 heals nothing with Solar Powered; from 3:00 to 9:00 it heals for all
+    /// six hours. A wait steps hour by hour.
     pub fn advance_effects(&mut self, seconds: f64) {
         if seconds > 0.0 {
+            self.condition_check_due = self.time;
             self.update_effects(seconds);
         }
     }
@@ -7540,6 +7595,8 @@ impl<'a> Game<'a> {
             tracing::info!("load: the save holds the player disabled; enabled again (doors.md §6)");
             let _ = g.world.set_enabled(FormId::PLAYER_REF, true);
         }
+        // Regenerations an older save holds as one restoration go on by the second (#3471).
+        g.renew_regenerations();
         // Crime enmities an older save holds undated start their cooldown now (#2467).
         g.date_crimes();
         // Template-scripted actors' OnLoad after a load (#3228).
@@ -8110,6 +8167,14 @@ impl Host for Exec<'_, '_> {
         }
         if self.game.temp_item(f).is_some() {
             return Some(*b"REFR");
+        }
+        // A script CompileScript made, or a lambda, is a script form while it lasts
+        // [documented: CompileScript returns "a reference to the compiled script";
+        // observed in FadedLight's Nuclear Sunset fork: Scaled Recurring Challenges'
+        // `ln_addHandler.txt` checks `IsFormValid` on it and showed "There was a problem
+        // compiling" although it compiled (#4491)].
+        if self.game.compiled_slots.contains_key(&form) || self.game.lambda_slots.contains_key(&form) {
+            return Some(*b"SCPT");
         }
         let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].

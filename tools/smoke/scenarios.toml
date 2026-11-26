@@ -335,6 +335,31 @@ expect = [
 forbid = ["composed shaders: not saved", "pipeline cache: not saved", "pipeline list: not saved", "Caught rendering error", "Mismatched pop_error_scope"]
 
 [[scenario]]
+name = "gpu-sheds-over-budget"
+source = "#2754 (an 8 GB card at 1440p held 7,037 of its 6,844 MB budget and stalled 1-2 s at a time; #3349 a lost device over budget): over 95 % of the GPU budget at two checks in a row the game gives memory back one step at a time, at most one every 10 s (shadow maps 4096 to 2048, then multisampling 8x to 4x, then 4x to 2x), logs the use before and after each step and tells the player (engine/nvforever/src/memory_budget.rs)"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/graphics.rs"]
+# Goodsprings on foot holds about 1,070 MB at 2048 maps and 4x (2026-11-25), under 95 % of the test aid's 1,150 MB, so nothing is lowered until the settings page sets 4096 maps and 8x (anti-aliasing 0.5 is the fourth of seven choices); those take it over, and each step follows while it stays over.
+env = { NVF_PLAY_TEST_VRAM_MB = "1150", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "3:4", NVF_PLAY_TEST_SETTINGS = "3.3:shadow-resolution=4096,3.6:anti-aliasing=0.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows", "--size", "1920x1080"]
+run_seconds = 45
+expect = [
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: shadow resolution lowered to 2048 to give memory back', count = 1, label = "the shadow maps go to 2048 first" },
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: anti-aliasing lowered to 4x to give memory back', count = 1, label = "then 8x multisampling to 4x" },
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: anti-aliasing lowered to 2x to give memory back', count = 1, label = "then 4x to 2x" },
+  { re = 'memory budget: after shadow resolution lowered to 2048 this process holds \d+ of 1150 MB \(it held \d+ MB\)', label = "the use after the step is logged" },
+]
+order = [[
+  "settings: shadow-resolution 4096",
+  { text = "sun shadows: maps 4096 x 4096 texels", label = "the maps go to 4096" },
+  { re = 'shadow resolution lowered to 2048 to give memory back', label = "the shadow step" },
+  { text = "sun shadows: maps 2048 x 2048 texels", label = "the maps are 2048 again" },
+  { re = 'anti-aliasing lowered to 4x to give memory back', label = "the first multisampling step" },
+  { re = 'anti-aliasing lowered to 2x to give memory back', label = "the second" },
+]]
+forbid = ["Caught rendering error", "Mismatched pop_error_scope", "lowered to 1024", "lowered to Off"]
+
+[[scenario]]
 name = "memory-budget-capped"
 source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
 areas = ["renderer"]
@@ -4037,6 +4062,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "ai-goal-off-navmesh-named"
+kind = "tool"
+source = "#2756: a package place with no navmesh near it is logged with its cell or worldspace. Jean-Baptiste's VFSJeanBaptisteStandInPlacePackage goes to VFSJeanBaptisteMarkerREF, placed at (0, 0, 0) in FreesideSilverRush (the data's own, 3,000 units from that cell's navmesh); without the cell the line read as a goal looked for in Freeside, where he was"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-nav/src/path.rs"]
+commands = [
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "2", "--actor", "VFSJeanBaptisteCuttingREF", "--force", "VFSJeanBaptisteCuttingREF=VFSJeanBaptisteStandInPlacePackage"],
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "2", "--actor", "VHDPreBattleNCRTrooper3REF"],
+]
+expect = [
+  { json = "actors.?actor=VFSJeanBaptisteCuttingREF.events.?kind=unreachable.why", schema = "fnv.ai.run/1", equals = "no navmesh triangle near the goal (0, 0, 0) in FreesideSilverRush", label = "Jean-Baptiste's goal is named in the marker's interior" },
+  { json = "actors.?actor=VHDPreBattleNCRTrooper3REF.events.?kind=unreachable.why", schema = "fnv.ai.run/1", equals = "no navmesh triangle near the goal (66071, 18461, 4825) in WastelandNV", label = "trooper 3's barricade marker, off the navmesh, is named in WastelandNV" },
+]
+
+[[scenario]]
 name = "ai-no-door-out-of-sight-game"
 source = "docs/spec-notes/packages.md §11 (#2405): in the game, with the player outside the NCR safehouse's cave door (0x001593B6, WastelandNV), Gomez in the interior behind it is out of the loaded area; his Leave package (vSafehouse variable 10, GomezGoToSleep, = 1) sends him from the side room's navmesh island to GomezDoor, which no door joins: he is put there instead of logging 'cannot reach' every game hour (players' reports, build 0.7.0)"
 areas = ["ai"]
@@ -4145,6 +4185,20 @@ order = [[
   { text = "furniture: 00104C80 gets off 0010634A", label = "getting off it" },
   { text = "furniture: 00104C80 is on 00176ACE", label = "on his bed 00176ACE" },
 ]]
+
+[[scenario]]
+name = "upright-talk-from-the-side"
+source = "#3446 (player reports, 0.8.1: NPCs lie flat for a moment as they are talked to; #2859, fixed by #2860: a turn clip's tilted accumulation root): Sunny Smiles is put 120 units to the player's side and talked to as she walks off to the saloon, the player 161° off her front, so her body turns round to face the player; a standing actor whose pelvis -> head line leans past 60° is logged (engine/nvforever/src/upright.rs) and none may"
+areas = ["dialogue", "locomotion"]
+paths = ["engine/nvforever/src/upright.rs", "engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:moveto:SunnyRef:player:120:0:0,9:activate:SunnyRef" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  "dialogue: conversation with SunnyRef started",
+  { re = 'upright: 0 tips of standing actors seen', label = "nobody standing leans over" },
+]
+forbid = [{ re = 'upright: .* leans \d+° from upright while standing', label = "a standing actor lay over" }]
 
 [[scenario]]
 name = "force-greet"
@@ -5645,6 +5699,25 @@ expect = [
   { gap = ["plays LooseCheeringBothArmsUp", "001349B6) breaks out of its idle to walk"], range = [0.8, 3], label = "when his 1 s patrol wait ends, not when the 4.7 s cheer does" },
   { gap = ["001349B6) breaks out of its idle to walk", "001349B6) may walk again: its idle has gone"], range = [0, 1.5], label = "he walks once it has faded out (0.2 s), not sliding with it" },
   { re = 'idle: vNiptonSurvivorREF plays LooseMiddleFinger', label = "he walks on to marker 02" },
+]
+
+[[scenario]]
+name = "new-game-walk-off"
+source = "#3046 (players' reports 0.8.0: player_stuck at the bed (2229, 2314) and the Vigor Tester (1857, 1858) in Doc Mitchell's house, 3 installs): a full new game, the opening's menus answered; VCG01 stage 55 gives back movement, the wake-up idle lets the player go beside the bed, and the movement keys walk the player off it (a --cell start runs the opening differently, PR #3195)"
+note = "the keys are held from 100 s, after stage 55 (about 70 s into the run on the owner's machine): forward 4 s, right 4 s, back 6 s; the player ends near (1703, 1977), about 620 units from the bed spot"
+areas = ["controls", "chargen"]
+paths = ["engine/nvf-play/src/control.rs", "engine/nvforever/src/reports/mod.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_MOVE = "100:1:0,104:0:0,106:0:1,110:0:0,112:-1:0,118:0:0" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 130
+order = [[
+  "VCG01 stage 55 set",
+  { re = 'player view: a second after the idle the character stands at \((?P<n>\d+), 23\d\d, 7361\)', range = [2150, 2300], label = "let go beside the bed (the first reported spot)" },
+  "test aid: movement keys forward 1 right 0",
+]]
+expect = [
+  { re = 'physics: the player stepped up \d+ times, feet at \((?P<n>-?\d+), ', range = [-100000, 2100], label = "the player walked off the bed spot (x below 2100)" },
+  { re = "controls summary: .*held back: nothing", label = "no movement held back by the scripts" },
 ]
 
 [[scenario]]
@@ -7704,7 +7777,7 @@ expect = [
   "pipboy sound: UIPipBoyMode",
   { text = "pipboy sound: UIPipBoyScroll", label = "pipboy: the STATS lists click as ITEMS' (General's other list at 18 s, #1340)" },
   "pipboy sound: UIPipBoyStatic",
-  { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, sKarmicTitleNeutral1)" },
+  { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, FalloutNV.esm sKarmicTitleNeutral01)" },
   { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', label = "pipboy data: the local map's outline made outdoors" },
   "pipboy data: map dragged by (-100, 0)",
 ]
@@ -8534,6 +8607,21 @@ expect = [
   { re = 'process summary: .* (?P<n>\d+) fell out of the cell buffer', range = [10, 100000], label = "process summary: ten or more fell out of the cell buffer" },
   { re = 'process summary: .* (?P<n>\d+) every 120 s \(', range = [10, 1000000], label = "process summary: Low-level updates every 120 s" },
 ]
+
+[[scenario]]
+name = "creature-stored-pose-settles"
+source = "issue #3408 (TTW report: dead brahmin at Arefu stood on their heads or hung above the ground beside a fence): a creature corpse's stored pose (XRGD) read with the human skeleton's reading floats or sinks, so on a skeleton other than the human one it starts awake in that pose and settles (engine/nvforever/src/deaths.rs, ragdoll.rs, authored_pose.rs CHECKED_ROOT; dead-on-spawn.md §5)"
+note = "the base game alone: DEADCaravanBrahmin 0x000F6909 (WastelandNV, stored pose above the ground, not lifted); before the fix it was held in its stored pose ('at rest ... after 0.0 s of physics') [observed 2026-11-25]; the Arefu corpses themselves need TTW's data, which is not a smoke data dir"
+areas = ["ragdoll", "deaths"]
+paths = ["engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1" }
+args = ["--play", "--pos=-11967,45400,4250", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  "ragdoll: actor 000F6909 starts awake from the pose its reference stores, to settle",
+  { re = 'ragdoll: actor 000F6909 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone, after (?P<s>[\d.]+) s of physics', range = [-1000, 35], label = "the brahmin settles lying down" },
+]
+forbid = [{ re = 'ragdoll: actor 000F6909 at rest at .* after 0\.0 s of physics', label = "not held in the stored pose without physics" }]
 
 [[scenario]]
 name = "dead-on-spawn"
@@ -9458,6 +9546,27 @@ order = [[
   { text = "console: GetActorValue on player >> 5.00", label = "Strength 5 after Fixer" },
   { text = "console: IsSpellTarget on player >> 0.00", label = "no addiction left" },
 ]]
+
+[[scenario]]
+name = "aid-rad-child"
+source = "issue #3471 (docs/spec-notes/aid-items.md §3): Rad Child regenerates Health by the second in a stage of radiation sickness, not once when the stage starts"
+note = "Health 200 damaged by 160, rads 650 (Radiation600, magnitude 6). Without the perk two readings 3 s apart are 40. The perk is added at 17.2 s; the game stands still while the console is open, so at 21 s it has had 2.6 to 3.6 s of play (its condition is checked once a second): about 56 to 62. At 29 s 7.7 s more: about 102 to 108. Before #3471 both readings were 46 (6 once, when the condition passed), outside both ranges and not rising. The perk is taken at 29.2 s (at most a second more); the readings at 32 s and 42 s must be the same within 0.5 (going on would add 57)"
+areas = ["aid", "perks"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/abilities.rs", "crates/fnv-game/src/needs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:damage:player:Health:160,3.5:set_av:player:RadiationRads:650", NVF_PLAY_TEST_CONSOLE = "14:PrintC \"nvf rc start %.2f\", (player.GetAV Health);14.4:close;17:PrintC \"nvf rc still %.2f\", (player.GetAV Health);17.2:player.addperk RadChild;17.4:close;21:PrintC \"nvf rc first %.2f\", (player.GetAV Health);21.3:close;29:PrintC \"nvf rc second %.2f\", (player.GetAV Health);29.2:player.removeperk RadChild;29.5:close;32:PrintC \"nvf rc less %.2f\", ((player.GetAV Health) - 0.5);32.2:PrintC \"nvf rc more %.2f\", ((player.GetAV Health) + 0.5);32.5:close;42:PrintC \"nvf rc last %.2f\", (player.GetAV Health);42.3:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 46
+expect = [
+  "test aid: 0x00000014 Health damaged by 160: now 40.0",
+  { re = 'needs: .* 650[\d.]*: Radiation600', label = "Critical radiation sickness" },
+  { re = 'nvf rc start 40\.00', label = "no regeneration without the perk" },
+  { re = 'nvf rc still 40\.00', label = "still none 3 s later" },
+  { re = 'nvf rc first (?P<n>[\d.]+)', range = [52, 72], label = "Health has risen by the second (46 before #3471)" },
+  { re = 'nvf rc second (?P<n>[\d.]+)', range = [92, 125], label = "and goes on rising 8 s later (46 before #3471)" },
+  { re = 'nvf rc second (?P<n>[\d.]+)', above = 'nvf rc first (?P<n>[\d.]+)', label = "the second reading is above the first" },
+  { re = 'nvf rc last (?P<n>[\d.]+)', above = 'nvf rc less (?P<n>[\d.]+)', label = "without the perk Health does not fall" },
+  { re = 'nvf rc more (?P<n>[\d.]+)', above = 'nvf rc last (?P<n>[\d.]+)', label = "without the perk Health stops rising" },
+]
 
 [[scenario]]
 name = "aid-hardcore"
@@ -11555,7 +11664,7 @@ source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first 
 areas = ["save"]
 paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-save/", "crates/fnv-game/src/game.rs", "crates/fnv-sim/src/world.rs"]
 # The console waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
-env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:player.additem Stimpak 7;20.5:player.getitemcount Stimpak;21:0010A202.disable;21.5:player.setav luck 9;22:save smoke-roundtrip;23:saves;24:coc GSProspectorSaloonInterior;32:autosave;33:close", NVF_PLAY_TEST_PAUSE = "34:39.5", NVF_PLAY_TEST_PAUSE_MENU = "34.5:save,36:load,37:down,38:up,38.5:back" }
+env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:player.additem Stimpak 7;20.5:player.getitemcount Stimpak;21:0010A202.disable;21.5:player.setav luck 9;22:save smoke-roundtrip;23:saves;24:coc GSProspectorSaloonInterior;32:autosave;33:close", NVF_PLAY_TEST_PAUSE = "34:39.5", NVF_PLAY_TEST_PAUSE_MENU = "34.5:save,35:pick,36:load,37:down,38:up,38.5:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 41
 expect = [
@@ -13420,7 +13529,7 @@ order = [[
 
 [[scenario]]
 name = "reputation-box"
-source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('You have discovered'); fame with Goodsprings opens its 'Liked' box, infamy with the Powder Gangers their boxes up to 'Vilified'; the Pip-Boy's General page lists both"
+source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('You have discovered'); fame with Goodsprings opens its box at fame level 2, infamy with the Powder Gangers their boxes up to infamy level 3; the Pip-Boy's General page lists both"
 areas = ["hud", "pipboy"]
 paths = ["engine/nvf-play/src/reputation.rs", "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/functions/reputation.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close;17:player.addreputation 001558E6 0 5;17.2:player.addreputation 001558E6 0 5;17.4:player.addreputation 001558E6 0 5;17.6:close", NVF_PLAY_TEST_PIPBOY = "32:open,33:page=stats,34:tab=4,36:close", NVF_PLAY_TEST_SHOTS = "6,14,19,35" }
@@ -13429,8 +13538,8 @@ run_seconds = 38
 expect = [
   { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found" },
   { re = 'compass: \d+ actors \(\d+ hostile\), [1-9]\d* map markers \([1-9]\d* found\)', label = "the found town's marker on the compass" },
-  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
-  { re = 'reputation: Powder Gangers \S.* -> Vilified', label = "the Powder Gangers' last box Vilified" },
+  "reputation: Goodsprings Neutral -> Trusted (fame 12, infamy 0)",
+  { re = 'reputation: Powder Gangers \S.* -> Reviled', label = "the Powder Gangers' last box at infamy level 3 (Reviled)" },
   { re = 'pipboy stats: .* 2 reputations', label = "both reputations in the Pip-Boy's list" },
   { re = 'pipboy stats: LVL 1, .*, XP 10/', label = "the discovery's 10 XP" },
 ]
@@ -13441,17 +13550,17 @@ source = "owner request 2026-10-30 (#1050): the reputation box and the level-up 
 note = "beside Violet's camp (as music-battle), god mode: Goodsprings fame is added at 12 s while the fight is on, the five fighters are killed at 15 s; the box waits for the fight to end and then 2 s more"
 areas = ["hud"]
 paths = ["engine/nvf-play/src/after_combat.rs", "engine/nvf-play/src/reputation.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F5741,15:kill:0x0013F85F" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F573C,15:kill:0x000F573D,15:kill:0x000F573F,15:kill:0x000F5741,15:kill:0x0013F85F" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-46800,65000,4600", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 26
 order = [[
   "after combat: in a fight, boxes wait",
   "after combat: the fight is over",
   { re = 'after combat: settled, boxes may come up \(2\.0 s' },
-  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
+  "reputation: Goodsprings Neutral -> Trusted (fame 12, infamy 0)",
 ]]
 expect = [
-  { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Liked"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
+  { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Trusted"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
 ]
 forbid = [{ re = 'the player died', label = "the player dies" }]
 
@@ -14389,6 +14498,20 @@ expect = [
   { text = "pause menu: settings window of 12 lines", count = 1 },
   { re = 'pause menu: settings list 1300 wide from \d+ in a view 2293 wide, band \d+-\d+', label = "the list capped at 1300 units in a 21:9 view" },
   { re = 'pause menu: inspect: Graphics, keys on the rows, selected \S+, lines 1-1[12] of \d+', label = "twelve lines (less a heading left for the next window)" },
+]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-layout-portrait"
+source = "#3334: in a 9:16 window (540x960, a portrait display) the settings page is drawn smaller over the whole view until it is 1280 units wide (the 4:3 layout), so the list has room beside the rail instead of 0 width"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/interface.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics", NVF_PLAY_TEST_PAUSE_MENU = "13:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--size", "540x960"]
+run_seconds = 17
+expect = [
+  { re = 'pause menu: settings list [5-9]\d\d wide from \d+ in a view 1280 wide, band \d+-\d+', label = "a list 500 to 999 units wide in a view widened to 1280 units" },
+  { re = 'pause menu: inspect: Graphics, keys on the rows, selected \S+, lines 1-\d+ of \d+', label = "the Graphics rows listed" },
 ]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
 
@@ -27547,7 +27670,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 12
 expect = [
   { re = 'script: print "nvf ray down 1 1[0-9][0-9]"', label = "a cast straight down from 100 above the player meets the ground about 100 below its start" },
-  { re = 'script: print "nvf between 0 90"', label = "the way east: pitch 0, heading 90" },
+  { re = 'script: print "nvf between 0 -90"', label = "the way east: pitch 0, heading -90 [observed: w6_t1_01_angles_between_points]" },
 ]
 
 [[scenario]]
@@ -35450,7 +35573,7 @@ name = "load-phases-goodsprings"
 source = "#2407: players' Goodsprings door and save loads took 20-37 s; a loading screen now logs, and a slow load reports, when each thing it waited for came in, its longest frame and what the game files gave under it (nvf_play::loading::LoadPhases, fnv_vfs::read_stats). Out of Doc Mitchell's house into Goodsprings, the heaviest door of a new game"
 note = "2026-11-15 on the bench (i9-14900K, RTX 4070, SATA SSD, files in the OS cache): the start 2.4 s, the door 2.5 s with 2,106 files (248 MB) read. The cap is the reports' slow-load limit (reports/anomaly.rs SLOW_LOAD_MS), far above it"
 areas = ["loading", "streaming"]
-paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs"]
+paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs", "engine/vendor/bevy_render/src/render_resource/pipeline_cache.rs"]
 env = { NVFOREVER_HOME = "load-phases-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 20
@@ -35461,6 +35584,7 @@ order = [[
 ]]
 expect = [
   { re = 'loading screen down after (?P<n>[\d.]+) s$', range = [0, 20], all = true, label = "the door's load stays under the 20 s slow-load limit" },
+  { re = 'loading screen phases: up .*; (?P<n>\d+) pipelines compiled: [\d.]+ s queued for a thread, [\d.]+ s for the shader cache, [\d.]+ s composing, [\d.]+ s making modules, [\d.]+ s creating', range = [1, 100000], label = "the start's screen says where its pipelines' time went (#2407)" },
 ]
 
 [[scenario]]
@@ -36323,6 +36447,148 @@ forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error" },
 ]
 note = "The same start, spot search and poses as terrain-parallax-ground-pack (round 2, 2026-11-22), not yet checked by a run. The shots are saved as terrain-parallax-ground-pack-off-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png."
+[[scenario]]
+name = "light-shafts-msaa"
+source = "[design] docs/design/graphics-enhanced.md §3.7 (engine/nvforever/src/shafts.wesl `sky_depth_at`): with --graphics-only light-shafts and 4x multisampling (FSR off, so the INI's upscaler does not turn it off) at Goodsprings in the late afternoon, the shafts' pipelines (the source pass reading every sample of the multisampled depth) are made and used without a pipeline or validation error. Whether a silhouette's edge against the sun still leaks into the shafts is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/shafts.wesl", "engine/nvforever/src/shafts.rs"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "17", "--fsr", "off", "--msaa", "4", "--graphics-only", "light-shafts"]
+run_seconds = 20
+expect = [
+  { re = 'graphics: .*sun shafts', label = "the graphics line names the sun shafts" },
+  { re = 'pipeline \d+ ready after \d+ ms: downsample depth multisample', label = "the view is multisampled" },
+  { re = 'pipeline \d+ ready after \d+ ms: shafts_pipeline', count = 4, label = "the shafts' source and composite were made for the start's view and again for the multisampled one (the MULTISAMPLED source)" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the shafts' source shader does not compile)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+
+[[scenario]]
+name = "terrain-layer-alpha"
+source = "[observed by jojokengly, #3486; #3789] docs/spec-notes/world.md \"Landscape layers: the diffuse's alpha\", engine/nvforever/src/terrain.wesl: every landscape diffuse replaced by one flat colour with a checkerboard alpha (the test aid NVF_PLAY_TEST_PBR_GROUND_PACK=alpha, engine/nvf-assets/src/pbr_field/ground.rs), the ground where the layers lie over each other shows no board: the readback (NVF_PLAY_TEST_TERRAIN_PARALLAX_AB, its contrast at the spot it finds) stays the shading's and the painted edges' own. Measured at that spot: 12.6, and 32.4 with a blend by the alpha (the shaders before #3789 on the same pack)"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_weights.wesl",
+  "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha", NVFOREVER_HOME = "terrain-layer-alpha-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-layer-alpha-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:hold:grazing" }
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation"]
+run_seconds = 35
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha', count = 1, label = "the generated diffuses are in (terrain-layer-alpha)" },
+  { re = 'terrain parallax ab at 9 s \(hold\): .*contrast 1?\d\.\d/', count = 1, label = "contrast under 20: 12.6 measured, 32.4 with the alpha in the blend" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "no spot found, or a shot that could not be measured (terrain-layer-alpha)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-layer-alpha)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-layer-alpha)" },
+]
+manual = "Open terrain-layer-alpha-shots/terrain_parallax_ab_9s_a.png: no checkerboard on the ground."
+
+[[scenario]]
+name = "terrain-layer-alpha-parallax"
+source = "[observed by jojokengly, #3486; #3789] docs/spec-notes/world.md \"Landscape layers: the diffuse's alpha\", engine/nvforever/src/terrain.wesl: as terrain-layer-alpha with Terrain parallax and Terrain height blending on, whose weights (parallax_w) are the march's and the drawn blend's. Measured: 19.3, and 48.9 with a blend by the alpha"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_weights.wesl",
+  "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha", NVFOREVER_HOME = "terrain-layer-alpha-parallax-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-layer-alpha-parallax-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:hold:grazing" }
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation,terrain-parallax,terrain-height-blend"]
+run_seconds = 35
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha', count = 1, label = "the generated diffuses are in (terrain-layer-alpha-parallax)" },
+  { re = 'terrain parallax ab at 9 s \(hold\): .*contrast [12]?\d\.\d/', count = 1, label = "contrast under 30: 19.3 measured, 48.9 with the alpha in the weights" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "no spot found, or a shot that could not be measured (terrain-layer-alpha-parallax)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-layer-alpha-parallax)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-layer-alpha-parallax)" },
+]
+manual = "Open terrain-layer-alpha-parallax-shots/terrain_parallax_ab_9s_a.png: no checkerboard on the ground (the height blend's edges are sharp)."
+
+[[scenario]]
+name = "terrain-layer-alpha-separate"
+source = "[observed by jojokengly, #3486; #3789] docs/spec-notes/world.md \"Landscape layers: the diffuse's alpha\", engine/nvf-assets/src/nif_material.wesl TERRAIN_LAYER: as terrain-layer-alpha with every layer drawn on its own (NVF_PLAY_TEST_TERRAIN_LAYERS=blended, as on a GPU without bindless textures), at that scenario's spot and pose. Measured: 12.6, and 32.6 with the shaders before #3789 on the same pack"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl",
+  "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha", NVF_PLAY_TEST_TERRAIN_LAYERS = "blended", NVFOREVER_HOME = "terrain-layer-alpha-separate-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-layer-alpha-separate-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "6:0:-20.7", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "12:hold:view" }
+args = ["--pos=-71552,2892,8454", "--heading", "0", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation"]
+run_seconds = 30
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha', count = 1, label = "the generated diffuses are in (terrain-layer-alpha-separate)" },
+  { re = 'terrain parallax ab at 12 s: under the centre: the landscape .*no folded material', label = "every layer is drawn on its own" },
+  { re = 'terrain parallax ab at 12 s \(hold\): .*contrast 1?\d\.\d/', count = 1, label = "contrast under 20: 12.6 measured, 32.6 with the alpha in the layers' blending" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "a shot that could not be measured (terrain-layer-alpha-separate)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-layer-alpha-separate)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-layer-alpha-separate)" },
+]
+manual = "Open terrain-layer-alpha-separate-shots/terrain_parallax_ab_12s_a.png: no checkerboard on the ground."
+
+[[scenario]]
+name = "terrain-layer-alpha-separate-anti-tiling"
+source = "[observed by jojokengly, #3486; #3789] docs/spec-notes/world.md \"Landscape layers: the diffuse's alpha\", engine/nvf-assets/src/terrain_pbr.wesl terrain_pbr_standard: as terrain-layer-alpha-separate with Terrain anti-tiling on. Measured: 12.6, and 29.8 with the shaders before #3789 on the same pack"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/terrain_pbr.wesl",
+  "engine/nvf-assets/src/terrain_sampling.wesl", "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha", NVF_PLAY_TEST_TERRAIN_LAYERS = "blended", NVFOREVER_HOME = "terrain-layer-alpha-separate-anti-tiling-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-layer-alpha-separate-anti-tiling-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "6:0:-20.7", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "12:hold:view" }
+args = ["--pos=-71552,2892,8454", "--heading", "0", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation,terrain-anti-tiling"]
+run_seconds = 30
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha', count = 1, label = "the generated diffuses are in (terrain-layer-alpha-separate-anti-tiling)" },
+  { re = 'terrain parallax ab at 12 s \(hold\): .*contrast 1?\d\.\d/', count = 1, label = "contrast under 20: 12.6 measured, 29.8 with the alpha in the anti-tiled layers' blending" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "a shot that could not be measured (terrain-layer-alpha-separate-anti-tiling)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-layer-alpha-separate-anti-tiling)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-layer-alpha-separate-anti-tiling)" },
+]
+manual = "Open terrain-layer-alpha-separate-anti-tiling-shots/terrain_parallax_ab_12s_a.png: no checkerboard on the ground."
+
+[[scenario]]
+name = "terrain-alpha-height"
+source = "[design, #3486] engine/nvforever/src/terrain.rs \"Heights from a diffuse's alpha\", docs/spec-notes/pbr-materials.md \"Heights from a ground pack's diffuse alpha\": over generated DXT5 diffuses with a height map in the alpha and no authored sets (the test aid NVF_PLAY_TEST_PBR_GROUND_PACK=alpha-height) Terrain parallax takes the layers' heights from the alphas and the ground at the aid's spot changes with the switch, as with authored heights; switched off the heights are let go and the picture is the first one again"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_parallax_ab.rs",
+  "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha-height", NVFOREVER_HOME = "terrain-alpha-height-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-alpha-height-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:grazing" }
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,terrain-parallax,no-eye-adaptation"]
+run_seconds = 40
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: no sets; a diffuse for each landscape texture with the height map in its alpha', count = 1, label = "the generated alpha-height diffuses are in" },
+  { re = 'terrain: first folded material with heights from diffuse alphas: [1-6] of [1-6] layers \(depth 0\.03\)', count = 1, label = "the folded layers took the alphas" },
+  { re = 'terrain parallax ab at 9 s: under the centre: the landscape at .* shifted share (0\.[5-9]\d|1\.00)', label = "with the switch on the view's centre is on ground the march moves (alpha heights)" },
+  { re = 'terrain parallax ab at 9 s \(flip\): .*; changed$', count = 1, label = "the switch changes the ground over alpha heights and off again is as before" },
+]
+order = [[
+  { re = 'terrain: heights from diffuse alphas off: [1-9]\d* folded quadrant materials changed', label = "switched off, the materials let go of the alpha heights" },
+  { re = 'terrain: heights from diffuse alphas on: [1-9]\d* folded quadrant materials changed, [1-9]\d* textures', label = "switched on again, they ask for them" },
+]]
+forbid = [
+  { text = "terrain: first folded material with authored height maps", label = "there is no authored set in this run" },
+  { re = 'terrain parallax ab.*FAIL', label = "no spot found, or a shot that could not be measured (terrain-alpha-height)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-alpha-height)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the alpha heights" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-alpha-height)" },
+]
+manual = "Open terrain-alpha-height-shots/terrain_parallax_ab_9s_a.png and _b.png: the ridge grid in relief in b only."
 
 [[scenario]]
 name = "volumetric-light"
@@ -36552,20 +36818,28 @@ forbid = [
 
 [[scenario]]
 name = "volumetric-light-night"
-source = "[design, #3032 stage 3] docs/design/volumetric-medium.md (The near grid and the light in the air), engine/nvforever/src/medium_air.rs (gate, day_by_aim) and medium_air_light.rs (day from SkyState::sun_elevation_at(sun_light_hour())): the volumetric-light run at 01:00, where the Sun entity's light is the weather's night light from the opposite direction: the light is wanted, the gate closes with the night reason by the clock that aims the light, and the composite never draws, without a 'not drawn' reason or a shader, pipeline or rendering error"
+source = "[design, #3032 stage 3] docs/design/volumetric-medium.md (The near grid and the light in the air), engine/nvforever/src/medium_air.rs (gate, air_source) and medium_air_light.rs (the source from SkyState::sun_elevation_at(sun_light_hour()) and the climate's moon): the volumetric-light run at 01:00, where the Sun entity's light is the weather's night light from the moon's direction: the light is wanted, the gate opens by the moon, the pipelines compile, the terrain map and the cloud shadow are in use, and the grid pass and the composite draw, without a 'not drawn' reason or a shader, pipeline or rendering error. A climate without a moon (the gate closed) is a unit test's. The look is checked in pictures by hand"
 areas = ["renderer", "graphics", "weather"]
 paths = ["engine/nvforever/src/medium_air*", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/terrain_shadows.rs", "engine/nvforever/src/sun_visibility.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "crates/nvf-settings-layout/src/lib.rs", "engine/nvforever/src/shafts.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "1", "--weather", "NVWastelandClear", "--msaa", "4", "--sun-shadows", "--graphics-only", "terrain-shadows,cloud-shadows,volumetric-light"]
-run_seconds = 20
+run_seconds = 30
+note = "Made the moonlight's check on 2026-11-25 (before it the gate closed at night); run on 2026-11-25 (passed)."
 expect = [
   { text = "volumetric medium: light in the air wanted (the Volumetric light row)", label = "the row asks for the light" },
-  { text = "volumetric medium: light in the air off: night (the direct light is the night light)", label = "the gate closes at night with its reason (held 0.5 s before it is logged)" },
+  { re = 'volumetric medium: light in the air on: grid \d+x\d+x\d+ to \d+ units, lit by the moon, .*, moonlit share (0\.(0[1-9]|[1-9]\d)|1\.00), strength ', label = "the gate opens by the moon, with a share of its light" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_grid_pipeline', label = "the grid pass compiles" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_filter_pipeline', label = "the filter pass compiles" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_compose_pipeline', label = "the composite compiles" },
+  { text = "volumetric medium: light in the air: terrain map in use (", label = "the terrain map is produced for the moon's direction and valid for it" },
+  { text = "volumetric medium: light in the air: cloud shadow in use (", label = "the Cloud shadows image is published at night and read as K" },
+  { text = "volumetric medium: light in the air: grid pass drawn", label = "the grid pass drew by the moon" },
+  { text = "volumetric medium: light in the air: composite drawn (view none, multisampled depth yes)", label = "the moonlight was composed" },
 ]
 forbid = [
-  { text = "volumetric medium: light in the air: composite drawn", label = "the light composed at night (the gate must keep the composite off)" },
-  { text = "volumetric medium: light in the air: grid pass drawn", label = "the grid (and so the filter, which runs only after it) dispatched at night: medium_air_grid.rs grid_dispatched keeps both off while the gate is closed (the filter pass logs no line of its own)" },
-  { text = "volumetric medium: light in the air not drawn", label = "a reason the grid could not be drawn at night" },
+  { text = "volumetric medium: light in the air off: night", label = "the gate closed at night in a climate with a moon" },
+  { text = " units, lit by the sun, ", label = "the sun named as the source at 01:00" },
+  { text = "volumetric medium: light in the air not drawn", label = "a reason the light could not be drawn at night" },
   { text = "pipeline failed", label = "the grid or filter pipeline failed at night" },
   { re = 'pipeline \d+ failed after \d+ ms: medium_air_', label = "a pipeline of the light failed at night" },
   { re = '(?i)validation error|wgpu error', label = "a wgpu validation error with the light at night" },
