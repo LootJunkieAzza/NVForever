@@ -480,6 +480,7 @@ mod tests {
                 here: Default::default(),
                 load_ended: 0.0,
                 pre_window_reported: false,
+                away_until: 0.0,
                 detectors: Default::default(),
             })
             .add_systems(Update, detect);

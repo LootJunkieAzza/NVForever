@@ -891,17 +891,83 @@ impl Game<'_> {
 
     /// After a load: a save from before #2467 holds its crime enmities undated. Its crime
     /// enemies (actors) are dated now, so they end iCoolDownTimerSetting game days after
-    /// the load. Its faction flags are all kept as a script's, never ending by the
-    /// cooldown: such a save does not say whether a crime or a quest's SetPCEnemyOfFaction
-    /// set one, and a quest's hostility must not end [design].
+    /// the load. Its faction flags are kept as a script's, never ending by the cooldown,
+    /// when a script of the load order can set them: such a save does not say whether a
+    /// crime or a quest's SetPCEnemyOfFaction set one, and a quest's hostility must not
+    /// end [design]. A flag on a faction no script can set
+    /// ([`Game::script_flaggable_factions`]) was a crime's: it is dated now and ends
+    /// [`FACTION_FLAG_DAYS`] after the load [design, #3335].
+    ///
+    /// A save made by a build that kept every undated flag as a script's (#2467 to #3335)
+    /// holds such a crime's flag among the script's. Those on a faction no script can set
+    /// end at the load [design, #3335: the player report R-833D3F5X held
+    /// ArmorVCaesarsLegionFaction so, which no FalloutNV.esm script names to
+    /// SetPCEnemyOfFaction, and Karl, in that faction, fought the player's companion on
+    /// entering the Great Khan longhouse; the crime behind it was older than the save
+    /// it was first kept in, so by observer check 203 long over]. A flag the player set
+    /// with the console's SetPCEnemyOfFaction on such a faction ends with them.
     pub(crate) fn date_crimes(&mut self) {
         let now = self.crime_day();
         let undated: Vec<FormId> = self.player.crime_enemies.iter().copied().filter(|a| !self.player.crime_enemy_since.contains_key(a)).collect();
         for a in undated {
             self.player.crime_enemy_since.insert(a, now);
         }
+        if self.player.enemy_of.is_empty() {
+            return;
+        }
+        let flaggable = self.script_flaggable_factions();
+        let by_crime = |f: &FormId| flaggable.as_ref().is_some_and(|s| !s.contains(f));
         let undated: Vec<FormId> = self.player.enemy_of.iter().copied().filter(|f| !self.player.enemy_of_crimes.contains_key(f) && !self.player.enemy_of_script.contains(f)).collect();
-        self.player.enemy_of_script.extend(undated);
+        for f in undated {
+            if by_crime(&f) {
+                tracing::info!("load: the player's undated flag with faction {} is a crime's (no script sets it): it ends {:.2} game hours from now", self.data.name(f), FACTION_FLAG_DAYS * 24.0);
+                self.player.enemy_of_crimes.insert(f, now);
+            } else {
+                self.player.enemy_of_script.insert(f);
+            }
+        }
+        let stale: Vec<FormId> = self.player.enemy_of_script.iter().copied().filter(|f| by_crime(f) && !self.player.enemy_of_crimes.contains_key(f)).collect();
+        for &f in &stale {
+            tracing::info!("load: the player's flag with faction {} was an older save's crime, kept as a script's, and no script sets it: it ends (#3335)", self.data.name(f));
+            self.player.enemy_of_script.remove(&f);
+            if self.player.enemy_of.remove(&f) {
+                self.crimes.notes.push(Note::FactionEnemyEnded { faction: f, days: 0.0 });
+            }
+        }
+        if !stale.is_empty() {
+            crate::functions::actor::forget_relations(self);
+        }
+    }
+
+    /// The factions a script of the load order names to SetPCEnemyOfFaction as its first
+    /// parameter, a form (any unit: a script, a quest stage's, a dialogue line's, a
+    /// package's or a terminal's result script); `None` when a call passes a reference
+    /// variable or something the decoder left raw, so that any faction could be one
+    /// [design, #3335]. Calls inside extended expressions (`eval`, `let`) are not read:
+    /// none in the masters. FalloutNV.esm's 19 calls name 8 factions [observed:
+    /// `fnvtool script decompile`, 2026-11-25].
+    pub fn script_flaggable_factions(&self) -> Option<std::collections::BTreeSet<FormId>> {
+        let op = self.data.table.by_name("setpcenemyoffaction")?;
+        let mut out = std::collections::BTreeSet::new();
+        let mut unknown = false;
+        for c in &self.data.units {
+            c.program.walk(&mut |st| {
+                let fnv_script::ir::Stmt::Call { call } = st else { return };
+                if call.opcode != op {
+                    return;
+                }
+                match call.args.first() {
+                    Some(fnv_script::ir::Arg::Ref(r)) => match c.unit.slot(*r) {
+                        Some(fnv_script::unit::RefSlot::Form(f)) => {
+                            out.insert(FormId(f));
+                        }
+                        _ => unknown = true,
+                    },
+                    _ => unknown = true,
+                }
+            });
+        }
+        (!unknown).then_some(out)
     }
 
     /// The player assaulted `victim` (provocation turned it on the player): a major crime

@@ -36,6 +36,9 @@ pub enum TextureUsage {
     /// Bevy's two-channel path expects. Three-channel files (BC7, BC1-3) load as for
     /// [`TextureUsage::Normal`].
     NormalTwoChannel,
+    /// The alpha of a DXT5 file alone, as a height map ([`TextureCache::alpha_height`],
+    /// #3486): a cache key of its own, never a way to decode a picture.
+    AlphaHeight,
 }
 
 impl TextureUsage {
@@ -44,6 +47,7 @@ impl TextureUsage {
     }
 }
 
+/// The roles a file is read ahead for ([`TextureCache::offer`]; an alpha height reads its own).
 const TEXTURE_USAGES: [TextureUsage; 4] = [TextureUsage::Color, TextureUsage::Linear, TextureUsage::Normal, TextureUsage::NormalTwoChannel];
 
 /// An image and whether its source lacked a specular alpha channel. BC5 normal
@@ -876,6 +880,58 @@ impl TextureCache {
         Some((height.depth_map?, height.depth_scale))
     }
 
+    /// A landscape diffuse's alpha as a height map, for texture packs in the convention of
+    /// the original's terrain parallax shaders (#3486; docs/spec-notes/pbr-materials.md
+    /// "Heights from a ground pack's diffuse alpha") [design], and its depth
+    /// ([`ALPHA_HEIGHT_DEPTH`]): `None` without one, while the run's Authored materials state
+    /// is off, and whenever the authored index knows an active set for the diffuse
+    /// (`PbrIndex::lookup`), with a `_p` or not: the set alone decides then. The caller asks
+    /// only for landscape layers, before their picture is loaded (the file may be read ahead).
+    pub fn alpha_height(
+        &mut self,
+        raw_path: &str,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<(Handle<Image>, f32)> {
+        self.alpha_height_with(crate::authored::enabled(), raw_path, data, images, formats)
+    }
+
+    /// [`Self::alpha_height`] with the setting's state given (the tests').
+    pub(crate) fn alpha_height_with(
+        &mut self,
+        enabled: bool,
+        raw_path: &str,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<(Handle<Image>, f32)> {
+        let path = resolved_path(raw_path, |p| data.vfs.exists(p));
+        if !enabled || !crate::authored::key_eligible(&path) || data.pbr_index().lookup(&path).is_some() || formats.is_some_and(|f| !f.0.contains(CompressedImageFormats::BC)) {
+            return None;
+        }
+        let key = (path, TextureUsage::AlphaHeight);
+        if let Some(h) = self.map.get(&key) {
+            return h.clone().map(|(h, _)| (h, ALPHA_HEIGHT_DEPTH));
+        }
+        // The file may be read ahead for its picture: looked at, not taken.
+        let bytes = self.ahead.get(&key.0).map(|(b, _)| std::borrow::Cow::Borrowed(b.as_slice())).or_else(|| data.read(&key.0).map(std::borrow::Cow::Owned));
+        let found = match bytes.as_deref().map_or(Ok(None), |b| crate::guard::guarded(|| alpha_height_image(b))) {
+            Ok(image) => image.map(|mut image| {
+                image.texture_descriptor.label = Some(folder_label(&key.0));
+                (images.add(image), true)
+            }),
+            // A layout left out: said once.
+            Err(e) => {
+                bevy::log::info_once!("landscape heights: {} {e}; such textures stay flat (the only one said)", key.0);
+                None
+            }
+        };
+        self.map.insert(key, found.clone());
+        self.generation += 1;
+        found.map(|(h, _)| (h, ALPHA_HEIGHT_DEPTH))
+    }
+
     fn load(
         &mut self,
         raw_path: &str,
@@ -1017,6 +1073,62 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
     }
     let n = counts.iter().sum::<usize>().max(1) as f32;
     Some(AlphaShares { clear: counts[0] as f32 / n, opaque: counts[1] as f32 / n, partial: counts[2] as f32 / n })
+}
+
+/// The depth of a height read from a diffuse's alpha, in texture-coordinate units: one value
+/// for every pack, which none can set [design, #3486: clean at 0.03 and 0.06 and shifting too
+/// far at 0.08 on Sandstone Desert, jojokengly's measurements].
+pub const ALPHA_HEIGHT_DEPTH: f32 = 0.03;
+
+/// The least an alpha must vary by, in levels of 255, to be a height: an opaque or constant
+/// one is none [design].
+const ALPHA_HEIGHT_RANGE: u8 = 16;
+
+/// The alpha of a DXT5 file as a BC4 image of the same size and levels, its blocks copied
+/// without decoding: a DXT5 (BC3) block's first 8 bytes are laid out as a BC4 block
+/// [documented: Microsoft, "Texture Block Compression in Direct3D 11", BC3 and BC4]. `None`
+/// when the alpha does not vary, when the file has none (DXT1, a layout without alpha) and for a
+/// file that does not parse (its own load as a picture reports it); an error for a layout whose
+/// alpha is not read (the first version reads DXT5 only; a BC7 is not looked into).
+fn alpha_height_image(bytes: &[u8]) -> Result<Option<Image>, String> {
+    let Ok(dds) = Dds::parse(bytes) else { return Ok(None) };
+    let (w, h) = (dds.header.width, dds.header.height);
+    match dds.format {
+        Format::Dxt5 if dds.header.is_cubemap() || w % 4 != 0 || h % 4 != 0 => return Err(format!("is a DXT5 of {w}x{h} whose alpha is not read as a height (no cube, sides in multiples of 4)")),
+        Format::Dxt5 => {}
+        Format::Dxt3 | Format::Bc7 | Format::A8R8G8B8 | Format::A8B8G8R8 | Format::A4R4G4B4 | Format::A8L8 => {
+            if dds.alpha_opaque() || alpha_all_opaque(bytes) == Some(true) {
+                return Ok(None);
+            }
+            return Err(format!("is {:?}, whose alpha is not read as a height (DXT5 is)", dds.format));
+        }
+        _ => return Ok(None),
+    }
+    if dds.alpha_opaque() {
+        return Ok(None);
+    }
+    let levels = &dds.levels[0];
+    // Judged on the largest level of at most 256 texels a side (the smallest one if none is).
+    let at = (0..levels.len()).find(|&i| { let (lw, lh) = dds.header.level_dims(i as u32); lw.max(lh) <= 256 }).unwrap_or(levels.len() - 1);
+    let (mut least, mut most) = (255u8, 0u8);
+    for b in levels[at].as_chunks::<16>().0 {
+        for a in block_alpha(Format::Dxt5, b) {
+            least = least.min(a);
+            most = most.max(a);
+        }
+    }
+    if most.saturating_sub(least) < ALPHA_HEIGHT_RANGE {
+        return Ok(None);
+    }
+    let mut data = Vec::with_capacity(levels.iter().map(|l| l.len() / 2).sum());
+    for l in levels {
+        for b in l.as_chunks::<16>().0 {
+            data.extend_from_slice(&b[..8]);
+        }
+    }
+    let mut image = checked_image(w, h, levels.len() as u32, TextureFormat::Bc4RUnorm, data)?;
+    image.sampler = sampler();
+    Ok(Some(image))
 }
 
 /// Whether every texel of a DDS file's top level is opaque (alpha 255), all of them
@@ -1443,6 +1555,42 @@ mod tests {
         assert_eq!(m.alpha[0], 0);
         assert_eq!(m.alpha[4], 255);
         assert_eq!(m.alpha[3 * 8 + 7], 255);
+    }
+
+    /// #3486: the BC4 copy of a DXT5's alpha reads as the decoded alpha does, every level.
+    #[test]
+    fn an_alpha_height_is_the_dxt5s_alpha_blocks_as_bc4() {
+        // Every block its own endpoints (both orders) and indices; two levels.
+        let block = |k: u8| [k.wrapping_mul(37), k.wrapping_mul(91).wrapping_add(5), k, k.wrapping_mul(3), 0x92, 0x24, k ^ 0x5a, 0xc7, 0x1f, 0x2e, 0x10, 0x84, 1, 2, 3, 4];
+        let payload: Vec<u8> = (0..5).flat_map(block).collect();
+        let mut bytes = dds(b"DXT5", 8, 8, &payload);
+        bytes[28..32].copy_from_slice(&2u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&(0x1007u32 | 0x20000).to_le_bytes());
+        let image = super::alpha_height_image(&bytes).unwrap().expect("a varying alpha");
+        assert_eq!((image.texture_descriptor.format, image.texture_descriptor.mip_level_count), (TextureFormat::Bc4RUnorm, 2));
+        let copied = image.data.as_deref().unwrap();
+        assert_eq!(copied.len(), 5 * 8);
+        for (level, (side, at)) in [(8u32, 0usize), (4, 4)].into_iter().enumerate() {
+            let blocks = (side / 4 * side / 4) as usize;
+            let alpha = fnv_dds::decode_blocks(fnv_dds::Format::Dxt5, side, side, &payload[at * 16..(at + blocks) * 16]).unwrap();
+            let height = fnv_dds::decode_bc4(fnv_dds::Format::Bc4U, side, side, &copied[at * 8..(at + blocks) * 8]).unwrap();
+            for (a, h) in alpha.as_chunks::<4>().0.iter().zip(&height) {
+                assert!((f32::from(a[3]) / 255.0 - h).abs() <= 1.0 / 255.0, "level {level}: {} and {h}", a[3]);
+            }
+        }
+        // Constant, opaque and near-constant alphas are no heights; nor is a DXT1.
+        for a in [0u8, 128, 255] {
+            assert!(super::alpha_height_image(&dds(b"DXT5", 4, 4, &dxt5_block(a))).unwrap().is_none(), "{a}");
+        }
+        let two = |a: u8, b: u8| dds(b"DXT5", 8, 4, &[dxt5_block(a), dxt5_block(b)].concat());
+        assert!(super::alpha_height_image(&two(200, 215)).unwrap().is_none());
+        assert!(super::alpha_height_image(&two(200, 216)).unwrap().is_some());
+        assert!(super::alpha_height_image(&dds(b"DXT1", 4, 4, &[0; 8])).unwrap().is_none());
+        // A layout whose alpha is not read says so; an unreadable file is an error too.
+        assert!(super::alpha_height_image(&dds(b"DXT3", 4, 4, &[0; 16])).is_err());
+        assert!(super::alpha_height_image(&rgba8_dds(4, 4, 1, false, &[7; 64])).is_err());
+        assert!(super::alpha_height_image(&rgba8_dds(4, 4, 1, false, &[255; 64])).unwrap().is_none());
+        assert!(super::alpha_height_image(b"not a dds").unwrap().is_none());
     }
 
     #[test]

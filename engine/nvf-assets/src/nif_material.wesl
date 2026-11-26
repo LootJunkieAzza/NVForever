@@ -58,6 +58,10 @@
 // pbr_input_from_standard_material; the rest of the fragment is as for any opaque or
 // blended lit shape.
 //
+// TERRAIN_LAYER (the landscape's own materials, main pass; nif_material.rs "Landscape
+// layers"): the alpha is the layer's painted opacity (vertex alpha x material alpha); the
+// diffuse texture's alpha is left out, as the original leaves it (#3789).
+//
 // PIPBOY_SCREEN (the Pip-Boy's screen with the menus on it, main pass; NifSurface::
 // pipboy_screen): the texel is the menus' picture as `pipboy_picture` makes it (rolled,
 // softened, washed, with noise; NifSurface::pipboy_a, pipboy_b), red stops at a ceiling and
@@ -634,6 +638,9 @@ fn nif_fragment(
     }
     @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(vin, is_front);
     @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_standard(vin, is_front, terrain_fp);
+    // A landscape layer's alpha without its texture's (terrain_pbr_standard's is already so).
+    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING) pbr_input.material.base_color.a = standard_material(in.instance_index).base_color.a;
+    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING && VERTEX_COLORS) pbr_input.material.base_color.a *= vin.color.a;
     // An authored set's roughness is its scale (0 to 2, fnv-pbr `ROUGHNESS_SCALE_RANGE`) times
     // the ORM's green, so it can pass 1, which Bevy's sampling does not clamp: F_AB's
     // polynomial then leaves its range and the highlight terms blow up to white patches
