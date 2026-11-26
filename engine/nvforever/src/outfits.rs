@@ -1390,6 +1390,6 @@ pub(crate) mod tests {
         assert_eq!(app.world().resource::<OutfitStats>().replacements, N, "no extra reloads on frame 3");
     }
 
-    #[path = "outfits_rigid_roots_tests.rs"]
+    #[path = "../../outfits_rigid_roots_tests.rs"]
     mod rigid_roots_tests;
 }
