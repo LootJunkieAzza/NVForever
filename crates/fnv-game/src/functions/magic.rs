@@ -83,14 +83,19 @@ pub fn dispel(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let ability = g.effects.iter().any(|e| e.target == r && e.source == s && g.is_ability_effect(e));
     let worn: Vec<_> = g.effects.iter().filter(|e| e.target == r && e.source == s).filter_map(|e| e.worn).collect();
     if ability || !worn.is_empty() {
+        let mut recorded_dispel = false;
         let x = g.extra.entry(r).or_default();
         if ability && !x.dispelled.contains(&s) {
             x.dispelled.push(s);
+            recorded_dispel = true;
         }
         for i in worn {
             if !x.worn_dispelled.contains(&i) {
                 x.worn_dispelled.push(i);
             }
+        }
+        if recorded_dispel {
+            g.note_dispelled_ability(r);
         }
     }
     let drop_ids: Vec<u32> = g
