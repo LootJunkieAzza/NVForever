@@ -11,8 +11,7 @@
 //! pays on its next run) [design]. Gains a result script of a quest gives (its stages',
 //! its dialogue lines') are that quest's and wait for its completion however long it
 //! takes: Sunny Smiles pays Back in the Saddle's caps in the end script of a VCG02 line
-//! and the quest completes some seconds later, after the next lines [observed: a two-player
-//! test, caps paid 5 s before VCG02 completed; FalloutNV.esm INFO 0x0010B3DA's
+//! and the quest completes some seconds later, after the next lines [observed: buckallobill, in game, FNV 1.4.0.525; caps paid 5 s before VCG02 completed; FalloutNV.esm INFO 0x0010B3DA's
 //! end script `Player.AddItem Caps001 50`] [design]. The engine takes the rewards that are due
 //! ([`RewardLedger::due`]) and sends them to the guests, which take them with
 //! [`Game::take_coop_reward`]. Item rewards stay the host's: they are for a later
@@ -28,7 +27,7 @@
 //!
 //! **Hand-outs** are not rewards: the items a quest's or a dialogue line's result script
 //! gives the player along the way (Sunny Smiles' varmint rifle and its rounds, Ringo's
-//! Caravan deck) go to every player (a two-player test) [design]. The ledger keeps
+//! Caravan deck) go to every player (observed: buckallobill, in game, FNV 1.4.0.525) [design]. The ledger keeps
 //! them ([`RewardLedger::hand_out`], not caps), unless the same script took caps from the
 //! player (a purchase); each run of a result script is one batch, which names the quest
 //! (and stage) whose script gave it ([`Gift`]). Quest items are hand-outs too [design: a
@@ -40,7 +39,7 @@
 //! - otherwise ammo, aid and chips always (a gun's rounds come with the gun);
 //! - Caravan cards only if it had none when the batch began (one deck), into its Caravan
 //!   cards as AddCardToPlayer puts them, not its inventory (the card's own script takes the
-//!   card away on the host; a two-player test: a guest's deck builder listed none);
+//!   card away on the host; observed: buckallobill, in game, FNV 1.4.0.525: a guest's deck builder listed none);
 //! - anything else, quest items included, only if it has none of it yet (no second rifle,
 //!   no second key).
 //!
@@ -139,7 +138,7 @@ pub struct RewardLedger {
     /// and lists. Each goes at once, apart from the completion's reward, which
     /// waits for its window ([`RewardLedger::due`]) and is left out when it gives nothing:
     /// a quest that pays nothing and fails a second after it completes (VMS39 in a
-    /// a two-player test) showed neither line on the guest when the line rode the reward.
+    /// observed: buckallobill, in game, FNV 1.4.0.525) showed neither line on the guest when the line rode the reward.
     pub ended: Vec<(FormId, bool)>,
     batch: u32,
     /// The quest or object script running now outside any result script
@@ -398,7 +397,7 @@ impl Game<'_> {
         let card = kind == Some(ItemKind::CaravanCard) || self.data.caravan_cards.contains_key(&item);
         // The player's cards are its Caravan collection, not items: each card's script runs
         // AddCardToPlayer and takes the card away (docs/spec-notes/caravan.md §2). A guest
-        // owns cards when its collection holds any (a two-player test: the deck
+        // owns cards when its collection holds any (observed: buckallobill, in game, FNV 1.4.0.525: the deck
         // builder of a guest given Ringo's deck listed none).
         let had_cards = !self.player.caravan.cards.is_empty() || inv.is_some_and(|i| i.groups().any(|(it, _, _)| self.world.forms.item(it).is_some_and(|f| f.kind == ItemKind::CaravanCard)));
         let had = card.then(|| {
@@ -439,7 +438,7 @@ impl Game<'_> {
             return Ok(n);
         }
         // Stacks come whole: Doc Mitchell's 6 bobby pins (a misc item, given only when this
-        // player has none) were 1 (a two-player test). A weapon or an armour piece is one.
+        // player has none) were 1 (observed: buckallobill, in game, FNV 1.4.0.525). A weapon or an armour piece is one.
         let n = if matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor)) { 1 } else { count.max(1) };
         let added = self.world.add_item(FormId::PLAYER_REF, item, n).map_err(|e| e.to_string())?;
         for (item, count) in added {

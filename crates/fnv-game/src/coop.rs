@@ -336,7 +336,7 @@ pub const HOST_STAGES_DONE: usize = 32;
 /// opens only once a quest variable is set by talking to a guard, which the host did and
 /// the guest never does, ran the script's other branch on the guest (the guard's
 /// conversation, which no script starts with a guest), and the gate did nothing
-/// [observed: buckallobill, a two-player test].
+/// [observed: buckallobill, in game, FNV 1.4.0.525].
 ///
 /// - **What it holds.** Each quest the host's game has a state for (its stage, the
 ///   highest [`HOST_STAGES_DONE`] stages done, running, ended), and every variable of the
@@ -878,7 +878,7 @@ impl Game<'_> {
     /// host's [`Game::story_gear`]), and takes off what it no longer wears: a DLC start
     /// dresses every player alike (Dead Money's collar and jumpsuit,
     /// QUST 0x01000FBF stage 5; Old World Blues' patient gown, QUST 0x03002FCB stage 10)
-    /// [observed: `fnvtool script decompile`; design]. An item the
+    /// [observed: the ESM's script records; design]. An item the
     /// player lacks is added (as AddItem gives it, 99.9% health); a locked one is locked
     /// on here too. Taken off, an added item is taken away again, so nothing the host's
     /// story gave stays with the guest ([`Game::coop_story_gear`]). An item the guest
@@ -917,7 +917,7 @@ impl Game<'_> {
         }
         // The guest's own copy of an add-on checkpoint's gear the host's story took off
         // inside it goes too: NVDLC01MQ03 stage 100 takes the player's collar, whoever's
-        // it is (a two-player test: guest B kept its own collar from its save).
+        // it is (observed: buckallobill, in game, FNV 1.4.0.525: guest B kept its own collar from its save).
         let dropped: Vec<FormId> = self.coop_story_kept.iter().copied().filter(|i| !host.iter().any(|(h, _)| h == i)).collect();
         for item in dropped {
             self.coop_story_kept.remove(&item);
@@ -1020,11 +1020,7 @@ impl Game<'_> {
         self.coop_story_wait = Some(StoryWait { actor, far, at: self.time, since, by_npc });
         true
     }
-
-/// How near a story NPC every player must be for the host to talk to it, and how near the
-/// host a guest must be for a script's move of the host to take it along (a two-player
-/// test) [design: about the distance the HUD's compass shows].
-pub const STORY_NEAR: f32 = 2000.0;
+}
 
 /// A co-op host's talk held for the other players ([`Game::story_gate`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -1073,7 +1069,7 @@ fn dlc_main_quest(edid: &str) -> bool {
 /// StartQuest, a quest variable set or read). A unit without compiled data falls back on
 /// its source, the Editor ID after a SetStage or StartQuest [observed: Honest Hearts' Jed
 /// greeting, line 0x0100F195, starts NVDLC02MQ01 by its reference list; the source scan
-/// alone left Jed out, a two-player test].
+/// alone left Jed out, observed: buckallobill, in game, FNV 1.4.0.525].
 fn unit_quests(data: &GameData, unit: &fnv_script::unit::ScriptUnit) -> Vec<FormId> {
     if unit.has_scda {
         return unit
@@ -1128,12 +1124,12 @@ fn story_speakers(data: &GameData) -> std::collections::HashMap<FormId, Vec<Form
     out
 }
 
-/// A co-op guest at the host's checkpoint (a two-player test; `Game::coop_checked`):
+/// A co-op guest at the host's checkpoint (observed: buckallobill, in game, FNV 1.4.0.525; `Game::coop_checked`):
 /// a Strip casino's weapon check took the host's player's weapons into a container, all
 /// but those in an exception list (the guard's dialogue result, `RemoveAllTypedItems`
 /// with type 40), and the door that lets the player out gives them back (the container's
 /// `RemoveAllItems player`) [observed: FalloutNV.esm INFO 0x0012793B / 0x0012793F and
-/// the Gomorrah door script SCPT 0x00127959, fnvtool decompile]. The Fort's gate takes
+/// the Gomorrah door script SCPT 0x00127959, script records]. The Fort's gate takes
 /// them by several such calls (types 40 and 47, each with its own list) and gives them
 /// back by the container's `RemoveAllTypedItems player` [observed: SCPT 0x00164763]
 ///. A guest's own game runs
@@ -1212,7 +1208,7 @@ pub enum CheckpointGear {
 /// The containers the load order's scripts put the player's whole inventory in: a
 /// `player.RemoveAllItems <container>` call (Dead Money's bunker, SCPT 0x0100C59E into
 /// NVDLC01PlayerEquipmentContainerRef 0x0100EFCC; FalloutNV.esm SCPT 0x0015E57A and INFO
-/// 0x000E2849 into 0x000E3669) [observed: `fnvtool script decompile`].
+/// 0x000E2849 into 0x000E3669) [observed: the ESM's script records].
 pub fn strip_containers_of(data: &GameData) -> BTreeSet<FormId> {
     use fnv_script::ir::{Arg, Stmt};
     use fnv_script::unit::RefSlot;
@@ -1240,8 +1236,8 @@ pub fn strip_containers_of(data: &GameData) -> BTreeSet<FormId> {
 /// cells, QUST 0x01000FBF stage 5) [design]. In the original that gear is the
 /// player's from the bunker on, where the player's own items are taken (SCPT
 /// 0x0100C59E), to the way out, where NVDLC01MQ03 stage 100 takes the collar and the
-/// container gives the player's items back (SCPT 0x01013FB4) [observed: `fnvtool script
-/// decompile`]; nothing else on the way out takes the jumpsuit, the holorifle, the cells
+/// container gives the player's items back (SCPT 0x01013FB4) [observed: the ESM's script
+/// records]; nothing else on the way out takes the jumpsuit, the holorifle, the cells
 /// or the Sierra Madre chips (0x01011236; only dialogue lines that exchange chips take
 /// them) [observed: the same]. So a co-op guest gets that gear only while that
 /// checkpoint holds its own items (`Game::coop_check_in`), loses what the

@@ -32,7 +32,7 @@
 //! - **A guest down far from everyone: its own last save.** A guest whose health runs out
 //!   with no other player up near it (nobody to revive it; nvforever `coop` decides,
 //!   [`CoopProgress::alone_down`]) loads its last save after [`ALONE_HOLD`] seconds, as a
-//!   player alone does (a two-player test). The load restarts its game, which rejoins the
+//!   player alone does (observed: buckallobill, in game, FNV 1.4.0.525). The load restarts its game, which rejoins the
 //!   host's session as the same player. Without a save it respawns by another player.
 //!
 //! nvforever's `coop` moves the messages: it sets [`CoopProgress::role`] and
@@ -41,6 +41,7 @@
 use crate::save::{LoadRequest, SaveConfig, SaveDone, SaveRequest};
 use crate::script::ScriptState;
 use bevy::prelude::*;
+use fnv_util::words::{tr, trf};
 use fnv_save::SaveKind;
 use fnv_sim::FormId;
 use std::path::{Path, PathBuf};
@@ -125,6 +126,9 @@ pub struct CoopProgress {
     /// console's `coop.share` answer it, and nothing is claimed unanswered.
     pub joint_ask: bool,
     pub joint_answer: Option<bool>,
+    /// The host: the story hold the corner line was shown for (the NPC, when the hold began), so one
+    /// hold says it once ([`story_wait_notice`]).
+    pub wait_told: Option<(FormId, u64)>,
     /// A guest: the syncing screen is up (the world sync sets it); the question waits.
     pub syncing: bool,
     /// The host: each guest's character and choice ([`Shared::JointChoice`]), by id.
@@ -143,7 +147,7 @@ pub struct CoopProgress {
     pub unshared_told: std::collections::BTreeSet<u32>,
     /// A guest: the host's stage offers heard before this game was kept as its own
     /// (`save::SoloBase`, right after joining, when a catch-up comes), and since when.
-    /// Taken in order once it is kept, at most [`HOLD_FOR`] later (a two-player test:
+    /// Taken in order once it is kept, at most [`HOLD_FOR`] later (observed: buckallobill, in game, FNV 1.4.0.525:
     /// a returning guest's catch-up stages were lost this way).
     pub held: Vec<Shared>,
     pub held_since: Option<std::time::Instant>,
@@ -165,7 +169,7 @@ pub const HOLD_FOR: std::time::Duration = std::time::Duration::from_secs(120);
 ///   offer only when it shares quest progress this time. Its own game's checks decide
 ///   each one as they would have then, so the quest stays shared.
 /// - For [`Returns::WARN_FOR`] after a player dropped, the host is told when it moves a
-///   quest on or turns one in: a warning, never a block (a two-player test: "it should warn the host,
+///   quest on or turns one in: a warning, never a block (observed: buckallobill, in game, FNV 1.4.0.525: "it should warn the host,
 ///   not prevent").
 #[derive(Debug, Default)]
 pub struct Returns {
@@ -204,7 +208,7 @@ impl Returns {
         let mut gone = Vec::new();
         for (id, &(ch, on)) in joint {
             if here(ch).is_none() && !self.away.contains_key(&ch) {
-                let name = names.get(id).cloned().unwrap_or_else(|| format!("Player {}", id + 1));
+                let name = names.get(id).cloned().unwrap_or_else(|| trf("Player {n}", &[("n", &(id + 1))]));
                 gone.push(name.clone());
                 self.away.insert(ch, Away { name, on, since: now, backlog: Vec::new(), warned: Default::default() });
             }
@@ -247,7 +251,7 @@ impl Returns {
             let since = now.saturating_duration_since(a.since);
             if since < Self::WARN_FOR && a.warned.insert(q) {
                 if let Some(n) = quest_name(q) {
-                    warn.push(format!("{} dropped {} s ago: they get {n} when they are back", a.name, since.as_secs().max(1)));
+                    warn.push(trf("{name} dropped {secs} s ago: they get {quest} when they are back", &[("name", &a.name), ("secs", &since.as_secs().max(1)), ("quest", &n)]));
                 }
             }
         }
@@ -268,7 +272,7 @@ impl Returns {
 
 /// A guest's hand-outs taken and not yet told: their lines ([`gift_lines`]) wait until
 /// no hand-out has come for [`HandOuts::HOLD`], so a stack the host's script adds a piece
-/// at a time is one line even when the pieces arrive over several frames (a two-player test: Doc
+/// at a time is one line even when the pieces arrive over several frames (observed: buckallobill, in game, FNV 1.4.0.525: Doc
 /// Mitchell's 22 single 9mm rounds came in two frames 5 ms apart, "9mm Round (7)" then
 /// "9mm Round (15)") [design].
 #[derive(Debug, Default)]
@@ -460,22 +464,22 @@ impl Plugin for CoopProgressPlugin {
     fn build(&self, app: &mut App) {
         let mut p = CoopProgress::default();
         p.saves.last = std::env::var_os(SHARED_ENV).map(PathBuf::from).filter(|p| p.exists());
-        app.insert_resource(p).add_systems(Update, (take_inbox, joint_question, rewards, announce_saves, all_down, alone_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
+        app.insert_resource(p).add_systems(Update, (take_inbox, joint_question, rewards, announce_saves, story_wait_notice, all_down, alone_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
     }
 }
 
 /// The corner line for a quest reward the host's completion brought: the quest by its shown
 /// name, or "a quest" when it has none (an editor ID is not for the player's eyes).
 fn reward_line(host: &str, quest: Option<&str>, xp: impl std::fmt::Display, caps: u32) -> String {
-    let caps = if caps > 0 { format!(", +{caps} caps") } else { String::new() };
+    let caps = if caps > 0 { trf(", +{n} caps", &[("n", &caps)]) } else { String::new() };
     match quest {
-        Some(q) => format!("{host} completed {q}: +{xp} XP{caps}"),
-        None => format!("{host} completed a quest: +{xp} XP{caps}"),
+        Some(q) => trf("{host} completed {quest}: +{xp} XP{caps}", &[("host", &host), ("quest", &q), ("xp", &xp), ("caps", &caps)]),
+        None => trf("{host} completed a quest: +{xp} XP{caps}", &[("host", &host), ("xp", &xp), ("caps", &caps)]),
     }
 }
 
 /// The name a hand-out's line shows: the item's FULL, as the player sees it elsewhere;
-/// its Editor ID only when it has none (a two-player test showed an editor ID there).
+/// its Editor ID only when it has none (observed: buckallobill, in game, FNV 1.4.0.525 showed an editor ID there).
 fn item_label(full_names: &std::collections::HashMap<FormId, String>, item: FormId, edid: impl FnOnce() -> String) -> String {
     full_names.get(&item).filter(|n| !n.is_empty()).cloned().unwrap_or_else(edid)
 }
@@ -532,8 +536,8 @@ fn take_inbox(
         p.held_since = None;
     }
     if caught_up > 0 {
-        let host = host_name.as_deref().unwrap_or("The host");
-        say(&mut corner, format!("Back with {host}: caught up on what you missed"));
+        let host = host_name.as_deref().unwrap_or(tr("The host"));
+        say(&mut corner, trf("Back with {host}: caught up on what you missed", &[("host", &host)]));
         info!("co-op: {caught_up} catch-up messages from the host");
     }
     for (id, what) in inbox {
@@ -553,18 +557,18 @@ fn take_inbox(
                 }
                 // Into the played world (`crate::script::with_world`): outside it the
                 // runtime holds a stand-in, whose caps no menu shows (a guest's +50 caps
-                // never reached its Pip-Boy in a two-player test).
+                // never reached its Pip-Boy in observed: buckallobill, in game, FNV 1.4.0.525).
                 let taken = match sim.as_deref_mut() {
                     Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_reward(xp as f64, caps as i32)),
                     None => Err("no simulation world".to_string()),
                 };
                 match taken {
                     // Script XP no completion claimed (`fnv_game::coop_rewards::SCRIPT_XP`).
-                    Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, format!("+{gained} XP, earned with {host}")),
+                    Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, trf("+{xp} XP, earned with {host}", &[("xp", &gained), ("host", &host)])),
                     // The host by its character's name (its name in the lobby).
                     // The quest's COMPLETED line came with its own message ([`Shared::QuestEnded`]).
                     // By the quest's shown name (its FULL), never its editor ID ("VMS19" on
-                    // screen in a two-player test); a quest with none: "a quest".
+                    // screen in observed: buckallobill, in game, FNV 1.4.0.525); a quest with none: "a quest".
                     Ok(gained) => {
                         let shown = rt.game.data.quests.get(&FormId(quest)).and_then(|d| d.name.clone()).filter(|n| !n.trim().is_empty());
                         say(&mut corner, reward_line(&host, shown.as_deref(), gained, caps))
@@ -595,7 +599,7 @@ fn take_inbox(
                     Ok(0) if done_here => info!("co-op: the host's hand-out {name} ({count}): this player did {} in its own game", rt.game.data.name(FormId(quest))),
                     Ok(0) => info!("co-op: the host's hand-out {name} ({count}): this player has its own"),
                     Ok(_) if card && !first_card => {}
-                    Ok(_) if card => say(&mut corner, format!("{} handed out Caravan cards", host_name.as_deref().unwrap_or("The host's quest"))),
+                    Ok(_) if card => say(&mut corner, trf("{host} handed out Caravan cards", &[("host", &host_name.as_deref().unwrap_or(tr("The host")))])),
                     Ok(n) => {
                         debug!("co-op: the host's hand-out {name}: {n} taken (batch {batch})");
                         p.hand_outs.add(now, item, name, n);
@@ -604,7 +608,7 @@ fn take_inbox(
                 }
             }
             // The host's quest completed or failed: listed as done, and its line, in the
-            // order the host's quests ended (a two-player test: the host showed 10
+            // order the host's quests ended (observed: buckallobill, in game, FNV 1.4.0.525: the host showed 10
             // failed quests, the guest none; another: VMS39, completed and failed a second
             // apart, showed neither). Come Fly With Me, not the host's active
             // quest, showed no COMPLETED line on the guest before such lines were sent.
@@ -639,14 +643,14 @@ fn take_inbox(
             }
             Shared::Reload { .. } if p.role == Role::Guest && id == 0 => match p.saves.last.clone() {
                 Some(path) => {
-                    say(&mut corner, "Everyone is down: back to the last shared save".into());
+                    say(&mut corner, tr("Everyone is down: back to the last shared save").into());
                     // The save is this game's own spot: the new run goes beside the host
                     // (nvforever `coop::rejoin`).
                     std::env::set_var(REJOIN_ENV, "1");
                     std::env::set_var(SYNC_ENV, "1");
                     load.write(LoadRequest { path });
                 }
-                None => say(&mut corner, "Everyone is down, and this game has no shared save to go back to".into()),
+                None => say(&mut corner, tr("Everyone is down, and this game has no shared save to go back to").into()),
             },
             // Joint progression (`fnv_game::coop_joint`; coop-shared-progress.md §3).
             Shared::JointChoice { character, on } if p.role == Role::Host && id != 0 => {
@@ -686,7 +690,7 @@ fn take_inbox(
                         info!("co-op: claimed {} stage {stage} for this character's own game", rt.game.data.name(q));
                         let first = rt.game.player.claims.stages.get(&q).is_some_and(|s| s.len() == 1);
                         if let (true, Some(n)) = (first, name) {
-                            say(&mut corner, format!("Shared quest progress: {n}"));
+                            say(&mut corner, trf("Shared quest progress: {quest}", &[("quest", &n)]));
                         }
                     }
                     Err(why) => {
@@ -695,8 +699,8 @@ fn take_inbox(
                         // once per quest; rewards still come, the quest is not shared.
                         if let (fnv_game::coop_joint::TurnedDown::Missed(_), Some(n)) = (why, name) {
                             if p.unshared_told.insert(quest) {
-                                let host = host_name.as_deref().unwrap_or("The host");
-                                say(&mut corner, format!("{host} went on without you: {n} is no longer shared. You still get XP and caps"));
+                                let host = host_name.as_deref().unwrap_or(tr("The host"));
+                                say(&mut corner, trf("{host} went on without you: {quest} is no longer shared. You still get XP and caps", &[("host", &host), ("quest", &n)]));
                             }
                         }
                     }
@@ -718,7 +722,7 @@ fn take_inbox(
                 let got = rt.game.take_coop_kill_credit(&c);
                 info!("co-op: kill credit for {}: +{got} XP, karma {karma:+}{}", FormId(target), if killer { " (the kill)" } else { "" });
                 if got > 0.0 {
-                    say(&mut corner, format!("+{got} XP"));
+                    say(&mut corner, trf("+{xp} XP", &[("xp", &got)]));
                 }
             }
             Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled } if p.role == Role::Guest && id == 0 && p.my_id == Some(to) => {
@@ -737,7 +741,7 @@ fn take_inbox(
             other => debug!("co-op: dropped {other:?} from player {}", id + 1),
         }
     }
-    let host = host_name.as_deref().unwrap_or("The host's quest");
+    let host = host_name.as_deref().unwrap_or(tr("The host"));
     for line in p.hand_outs.due(host, now) {
         say(&mut corner, line);
     }
@@ -745,7 +749,7 @@ fn take_inbox(
 
 /// The corner lines of hand-outs taken together (item, name, count given; [`HandOuts`]):
 /// one per item, its counts added up, in the order the items first came. A script that adds a
-/// stack a round at a time (Doc Mitchell's 9mm rounds: 25 AddItem calls of 1 in a two-player test)
+/// stack a round at a time (Doc Mitchell's 9mm rounds: 25 AddItem calls of 1 in observed: buckallobill, in game, FNV 1.4.0.525)
 /// was one uncounted "9mm Round" line. The count in brackets after the name, as this
 /// game's own item lines have it (`script_events`) [design: the original's wording for a
 /// counted hand-out is not in the data files; observer-checks.md].
@@ -757,7 +761,7 @@ fn gift_lines(host: &str, handed: &[(u32, String, i32)]) -> Vec<String> {
             None => order.push((*item, name, *n)),
         }
     }
-    order.into_iter().map(|(_, name, n)| if n > 1 { format!("{host} handed out {name} ({n})") } else { format!("{host} handed out {name}") }).collect()
+    order.into_iter().map(|(_, name, n)| if n > 1 { trf("{host} handed out {item} ({n})", &[("host", &host), ("item", &name), ("n", &n)]) } else { trf("{host} handed out {item}", &[("host", &host), ("item", &name)]) }).collect()
 }
 
 /// `NVF_COOP_JOINT=1` / `0`: the join question answered without asking (test runs).
@@ -830,12 +834,12 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut
         let p = &mut *p;
         let (gone, back) = p.returns.track(&p.joint_peers, &p.connected, &p.peer_names, now);
         for n in gone {
-            say(&mut corner, format!("{n} dropped: what they miss reaches them when they are back"));
+            say(&mut corner, trf("{name} dropped: what they miss reaches them when they are back", &[("name", &n)]));
         }
         for b in back {
             info!("co-op: {} is back: {} catch-up messages", b.name, b.items.len());
             if !b.items.is_empty() {
-                say(&mut corner, format!("{} is back: caught up on what they missed", b.name));
+                say(&mut corner, trf("{name} is back: caught up on what they missed", &[("name", &b.name)]));
             }
             p.outbox.extend(b.items);
         }
@@ -954,6 +958,33 @@ fn follow_saves(world: &mut World) {
     }
 }
 
+/// What the host's corner says while a story NPC waits for the other players
+/// (`fnv_game::coop::StoryWait`): their names.
+fn wait_line(names: &[String]) -> String {
+    trf("Waiting for {names} to come near", &[("names", &names.join(", "))])
+}
+
+/// The host: its talk with a story NPC is held until every other player is near
+/// (`Game::story_gate`): the corner says for whom, once for each hold [design].
+fn story_wait_notice(mut p: ResMut<CoopProgress>, script: Option<Res<ScriptState>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>) {
+    if p.role != Role::Host {
+        return;
+    }
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    let hold = rt.game.coop_story_wait.as_ref().filter(|w| w.shown(rt.game.time));
+    let key = hold.map(|w| (w.actor, w.since.to_bits()));
+    if key == p.wait_told {
+        return;
+    }
+    p.wait_told = key;
+    if let Some(w) = hold {
+        let names: Vec<String> = w.far.iter().filter_map(|a| rt.game.coop_actors.get(a).cloned()).collect();
+        if !names.is_empty() {
+            say(&mut corner, wait_line(&names));
+        }
+    }
+}
+
 /// The host: everyone down for [`DOWN_HOLD`]: every game back to its last shared save.
 fn all_down(mut p: ResMut<CoopProgress>, time: Res<Time>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, mut load: MessageWriter<LoadRequest>) {
     let p = &mut *p;
@@ -963,14 +994,14 @@ fn all_down(mut p: ResMut<CoopProgress>, time: Res<Time>, mut corner: Option<Res
     match p.saves.down(p.everyone_down, time.elapsed_secs_f64()) {
         DownStep::Wait => {}
         DownStep::TellReload => {
-            say(&mut corner, "Everyone is down: back to the last shared save".into());
+            say(&mut corner, tr("Everyone is down: back to the last shared save").into());
             p.outbox.push(Shared::Reload { stamp: stamp() });
         }
         DownStep::Load(path) => {
             info!("co-op: everyone down: loading the last shared save {}", path.display());
             load.write(LoadRequest { path });
         }
-        DownStep::NoSave => say(&mut corner, "Everyone is down, and there is no shared save to go back to".into()),
+        DownStep::NoSave => say(&mut corner, tr("Everyone is down, and there is no shared save to go back to").into()),
     }
 }
 
@@ -980,12 +1011,12 @@ fn alone_down(mut p: ResMut<CoopProgress>, time: Res<Time>, mut corner: Option<R
     let alone = p.role == Role::Guest && p.alone_down;
     match p.saves.alone(alone, time.elapsed_secs_f64()) {
         DownStep::Load(path) => {
-            say(&mut corner, "Down with nobody near: back to your last save".into());
+            say(&mut corner, tr("Down with nobody near: back to your last save").into());
             info!("co-op: down far from the other players: loading this game's last save {}", path.display());
             std::env::set_var(SYNC_ENV, "1");
             load.write(LoadRequest { path });
         }
-        DownStep::NoSave => say(&mut corner, "Down with nobody near, and no save to go back to: respawn by another player".into()),
+        DownStep::NoSave => say(&mut corner, tr("Down with nobody near, and no save to go back to: respawn by another player").into()),
         _ => {}
     }
 }
@@ -1093,6 +1124,12 @@ mod tests {
         assert!(!everyone_down(true, [(true, false), (false, false)]));
         assert!(!everyone_down(false, [(true, false)]));
         assert!(!everyone_down(true, []), "alone: not a co-op wipe");
+    }
+
+    #[test]
+    fn the_waiting_line_names_the_players_to_come() {
+        assert_eq!(wait_line(&["Ann".to_string()]), "Waiting for Ann to come near");
+        assert_eq!(wait_line(&["Ann".to_string(), "Bo".to_string()]), "Waiting for Ann, Bo to come near");
     }
 
     #[test]

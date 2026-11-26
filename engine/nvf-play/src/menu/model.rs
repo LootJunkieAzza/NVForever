@@ -1026,7 +1026,7 @@ pub struct MenuModel {
     /// The container menu is picking a living actor's pocket ([`Steal`]).
     pub steal: Option<Steal>,
     /// A co-op guest's container menu: quest items are the host's (it carries the
-    /// quests) and are not listed (a two-player test).
+    /// quests) and are not listed (observed: buckallobill, in game, FNV 1.4.0.525).
     pub guest: bool,
     /// Inventory: the folder open, if any ([`Folder`]).
     pub folder: Option<Folder>,

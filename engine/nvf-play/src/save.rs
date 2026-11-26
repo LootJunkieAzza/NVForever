@@ -718,7 +718,15 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
             (header.place, header.location, header.weather) = (h.place.clone(), h.location.clone(), h.weather.clone());
             (header.game_year, header.game_month, header.game_day, header.game_hour) = (h.game_year, h.game_month, h.game_day, h.game_hour);
             info!("save: a co-op guest's save: its own game at {} with the character as it is now", h.location);
-            (solo.game.clone().with_character_of(&game), e)
+            // What the host's story gave or took is not part of the character: taken off,
+            // but for the unique rewards of the stages this character claimed
+            // (docs/design/coop-save.md §5).
+            let mut now = game;
+            let undone = story.undo_on(&mut now);
+            if !undone.is_empty() {
+                info!("save: the host's story taken off the guest's save: {}", undone.join(", "));
+            }
+            (solo.game.clone().with_character_of(&now), e)
         }
         None => (game, engine),
     };

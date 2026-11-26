@@ -1902,7 +1902,7 @@ pub struct Game<'a> {
     /// given back.
     pub coop_checkpoint_holds: BTreeSet<FormId>,
     /// A guest's: what each checkpoint holds of this player's, by container, until the
-    /// host gets its own back (a two-player test: guests kept their guns in the
+    /// host gets its own back (observed: buckallobill, in game, FNV 1.4.0.525: guests kept their guns in the
     /// casinos).
     pub coop_checked: BTreeMap<FormId, Vec<(FormId, i32, fnv_sim::inventory::Extra)>>,
     /// A co-op guest's: the references whose object script its own dialogue line set
@@ -2460,12 +2460,12 @@ pub struct GameSnapshot {
     pub jip10: crate::nvse_jip10::Jip10Saved,
     /// What scripts put on the player ([`Game::script_worn`]): a co-op host's story gear,
     /// so a host that loads (or restarts and loads) sends its guests the same as before
-    /// and they keep it on (a two-player test). Absent in older saves.
+    /// and they keep it on (observed: buckallobill, in game, FNV 1.4.0.525). Absent in older saves.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub script_worn: BTreeMap<FormId, bool>,
     /// A co-op guest's checkpoints ([`Game::coop_checked`]): what each holds of the
     /// player's, so a guest that saves inside the Sierra Madre and loads gets its own
-    /// items back at the way out (a two-player test). Absent in older saves.
+    /// items back at the way out (observed: buckallobill, in game, FNV 1.4.0.525). Absent in older saves.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub coop_checked: BTreeMap<FormId, Vec<(FormId, i32, fnv_sim::inventory::Extra)>>,
     /// A co-op host's presence record (`crate::coop_joint::SessionPresence`); absent in

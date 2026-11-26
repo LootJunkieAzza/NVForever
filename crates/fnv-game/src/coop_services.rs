@@ -1,7 +1,7 @@
 //! A co-op guest's doctor [design: the heal and the rad removal a guest pays for apply to the guest, not to nothing or to the host]. The services a guest buys
 //! act on the guest, the player in the dialogue, and are its own.
 //!
-//! **How the masters' doctors work** [observed: FalloutNV.esm, `fnvtool script decompile`]:
+//! **How the masters' doctors work** [observed: FalloutNV.esm's script records]:
 //! - Rad removal: the line's result sets a stage of a doctor quest and takes the caps
 //!   (INFO 0x000CE87F `SetStage VDoctors 30`, `player.RemoveItem Caps 100`); the stage's
 //!   result is `player.RestoreAV RadiationRads 1000` (QUST 0x000CE959 stage 30).

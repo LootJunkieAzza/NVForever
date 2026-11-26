@@ -1,6 +1,6 @@
 //! The host's story for the guests (`crate::progress::kind::STORY`): each quest's state and each
 //! quest script variable of the host's game, which a guest's world reads
-//! (`fnv_game::coop::HostStory`; a two-player test).
+//! (`fnv_game::coop::HostStory`; observed: buckallobill, in game, FNV 1.4.0.525).
 //!
 //! The host sets its whole story each frame it has one ([`StoryPager::set`]); every
 //! [`STORY_EVERY`](crate::progress::STORY_EVERY) a page of at most [`PAGE_BYTES`] goes to
@@ -18,7 +18,7 @@
 //! The textures the host's scripts swapped on references' shapes (SetSecuritronExpression,
 //! SwapTexture: [`StoryEntry::Swap`]) go the same way, so a guest draws a Securitron's face
 //! or a screen's slide as the host does at any time, not only while a scene holds the
-//! view (a two-player test: Victor's face on the guest).
+//! view (observed: buckallobill, in game, FNV 1.4.0.525: Victor's face on the guest).
 
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound::{Excluded, Included, Unbounded};

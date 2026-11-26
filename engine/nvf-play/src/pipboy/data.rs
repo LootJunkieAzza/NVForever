@@ -1621,7 +1621,7 @@ pub fn quest_seen(st: &DataState, quest: u32) -> u64 {
     st.seen.get(&quest).copied().unwrap_or(0)
 }
 
-/// A co-op guest's quest list, the host's (a two-player test run: the guest
+/// A co-op guest's quest list, the host's (observed: buckallobill, in game, FNV 1.4.0.525: the guest
 /// listed only the host's active quest): each quest of the host's story with a name and an
 /// objective shown or done, as [`listed`] has the host's own (`Game::coop_host_story`,
 /// which reaches a guest that joins later within a round of its pages); the host's active
@@ -2696,10 +2696,9 @@ fn objectives(game: &Game, q: u32) -> Vec<Row> {
 /// count in this character's own save [design: our own words].
 fn claimed_line(g: &fnv_game::game::Game, q: FormId) -> Option<String> {
     let n = g.player.claims.stages.get(&q).map_or(0, |s| s.len());
-    (g.coop_guest && n > 0).then(|| CLAIMED_LINE.to_string())
+    (g.coop_guest && n > 0).then(|| fnv_util::words::tr("Shared quest progress: also counts in your own save").to_string())
 }
 
-const CLAIMED_LINE: &str = "Shared quest progress: also counts in your own save";
 
 /// The heading's place name, kept per cell.
 fn place(st: &mut DataState, game: &Game) -> String {

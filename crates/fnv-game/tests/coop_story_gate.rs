@@ -241,7 +241,7 @@ fn a_guest_wears_what_the_hosts_story_put_on_and_gives_it_back() {
 
 #[test]
 fn a_host_keeps_its_story_gear_across_a_save_and_load() {
-    // A two-player test: Game::script_worn was not saved, so a host that loaded sent its
+    // Observed (buckallobill, in game, FNV 1.4.0.525): Game::script_worn was not saved, so a host that loaded sent its
     // guests an empty story-gear list and they took the gear off.
     let f = fixture();
     let suit = FormId(SUIT);
@@ -316,7 +316,7 @@ fn a_host_waits_for_every_player_to_talk_to_a_story_npc() {
 /// A script's `X.Activate Player` on a story NPC is the script's scene: the co-op story
 /// gate does not hold it, as it does not hold a script's StartConversation. Dead Money's
 /// fountain script activates the hologram NVDLC01ElijahTalkingActivatorREF with the
-/// player [observed: DeadMoney.esm NVDLC01FountainStartSequenceSCRIPT; a two-player test
+/// player [observed: DeadMoney.esm NVDLC01FountainStartSequenceSCRIPT; buckallobill, in game, FNV 1.4.0.525
 /// where the host's talk waited for a guest and never started]. The player's
 /// own activation is still held.
 #[test]
@@ -341,7 +341,7 @@ fn a_scripts_activate_player_on_a_story_npc_is_not_held() {
 
 /// A line of an ordinary quest whose compiled end script names a story quest makes its
 /// speaker a story NPC: Jed's greeting at Zion (NVDLC02DialogueCaravanMaster) starts
-/// NVDLC02MQ01 [observed: HonestHearts.esm INFO 0x0100F195; a two-player test,
+/// NVDLC02MQ01 [observed: HonestHearts.esm INFO 0x0100F195; buckallobill, in game, FNV 1.4.0.525,
 /// where the host was greeted with the guest in Goodsprings].
 #[test]
 fn a_line_starting_a_story_quest_makes_a_story_npc() {

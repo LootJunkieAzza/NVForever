@@ -342,7 +342,7 @@ impl Game<'_> {
             if applied > 0 {
                 let name = self.data.quests.get(&q).and_then(|d| d.name.clone().or_else(|| d.edid.clone())).unwrap_or_else(|| format!("{q}"));
                 tracing::info!("co-op: replayed {applied} claimed stage(s) of {name}");
-                lines.push(format!("From co-op: {name}"));
+                lines.push(fnv_util::words::trf("From co-op: {name}", &[("name", &name)]));
             }
         }
         // The character's own acts' reputation in claimed quests (coop-shared-progress.md §3.6).
