@@ -12,11 +12,22 @@
 use crate::game::{Game, Handler};
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 
-/// The events xNVSE knows without a script registering them: the built-in events and
-/// the session events (docs/spec-notes/ext-events.md §2.1–2.2), lower case. Another name
-/// is a user-defined event, which exists once something listens for it: with no handler
-/// it gives ar_Null [observed: nvse-sixth, OnActorEquip 0 entries, an unknown name -1].
-const KNOWN: [&str; 49] = [
+/// The events xNVSE knows without a script registering them: the built-in events, the
+/// session events (docs/spec-notes/ext-events.md §2.1–2.2), and ShowOff's registered
+/// events, lower case. Another name (including `OnCrosshairOn` before registration) is
+/// absent until something listens for it: with no handler it gives ar_Null [observed:
+/// nvse-sixth, OnActorEquip 0 entries, an unknown name -1; observed 2026-11-24: Fallout:
+/// New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184 + JIP LN 57.30, 10 official base
+/// masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging copy
+/// (read-only `PrintToConsole` probe; zero writes to game install or Saves), committed
+/// probe `w6t2_16_xnvse_get_event_handlers_filter_keys`
+/// (`tools/capture/nvse/catalogs/wave6_t2_get_event_handlers.json`):
+/// `PROBE|w6t2_16_xnvse_get_event_handlers_filter_keys|empty(cross=-1,soAdd=0)|std(first,second)|alt(0,1)`
+/// confirming `GetEventHandlers "ShowOff:OnAdd"` returns an empty Map (`ar_Size == 0`)
+/// while `GetEventHandlers "OnCrosshairOn"` returns `ar_Null` (`ar_Size == -1`); zero
+/// DLL, PDB, or third-party source consulted; hypothesis: the other 10 implemented
+/// `ShowOff:*` events are registered with xNVSE the same way as `ShowOff:OnAdd`].
+const KNOWN: [&str; 60] = [
     "onactivate", "onactorequip", "onequip", "onactorunequip", "onunequip", "onadd", "onclose", "onopen",
     "oncombatend", "ondeath", "ondrop", "onhit", "onhitwith", "onload", "onmagiceffecthit", "onmurder",
     "onpackagestart", "onpackagechange", "onpackagedone", "onreset", "onsell", "onstartcombat", "ontrigger",
@@ -24,10 +35,16 @@ const KNOWN: [&str; 49] = [
     "onlockpickbroken", "onterminalhacked", "onterminalhackfailed", "onrepair", "ondisable", "onenable",
     "loadgame", "postloadgame", "savegame", "newgame", "exitgame", "exittomainmenu", "qqq", "runtimescripterror",
     "deletegame", "renamegame", "renamenewgame", "deletegamename", "renamegamename", "renamenewgamename",
+    "showoff:onadd", "showoff:onexplosionhit", "showoff:onpreactivate", "showoff:onprescriptedactivate",
+    "showoff:onpreactivateinventoryitem", "showoff:onpreactivateinventoryitemalt", "showoff:onpovchange",
+    "showoff:oncompleteobjective", "showoff:ondisplayobjective", "showoff:onweaponunholster", "showoff:onfireweapon",
 ];
 
 /// The StringMap of a handler's filters: "first"/"second" for SetEventHandler, the
-/// argument index as text for SetEventHandlerAlt [hypothesis: the keys].
+/// argument index as text ("0"/"1"...) for SetEventHandlerAlt [observed 2026-11-24:
+/// `w6t2_16_xnvse_get_event_handlers_filter_keys`
+/// (`tools/capture/nvse/catalogs/wave6_t2_get_event_handlers.json`):
+/// `std(first,second)|alt(0,1)`; zero DLL, PDB, or third-party source consulted].
 fn filters(g: &mut Game, h: &Handler) -> XVal {
     let entries = h
         .filters

@@ -758,12 +758,14 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             }
         }
         let mut added = Vec::new();
-        // The player's tweak: weapons and armour come out at a condition of the
-        // player's Repair [design: docs/design/tweaks.md].
-        let condition = rt.game.tweaks.repair_scales_crafting.then(|| {
-            let repair = fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR) as f32;
-            fnv_game::tweaks::crafted_condition(repair)
-        });
+        // The player's tweaks: Repair-scaled condition (`bRepairScalesCraftingCondition`)
+        // or fixed crafted condition percentage (`fCraftedItemHealthPct`) [design: docs/design/tweaks.md].
+        let repair = if rt.game.tweaks.repair_scales_crafting {
+            fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR) as f32
+        } else {
+            0.0
+        };
+        let condition = fnv_game::tweaks::crafted_output_condition(&rt.game.tweaks, repair);
         for &(i, k) in &recipe.outputs {
             let count = recipe_count(k).saturating_mul(times).min(i32::MAX as u32);
             if count == 0 {
@@ -773,7 +775,7 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             match condition.filter(|c| worn && *c < 1.0) {
                 Some(c) => {
                     rt.game.world.add_item_at_condition(FormId::PLAYER_REF, i, count as i32, Some(c)).map_err(|e| format!("{e:?}"))?;
-                    info!("recipe menu: made at {:.0} % condition (Repair tweak)", c * 100.0);
+                    info!("recipe menu: made at {:.0} % condition (crafting condition tweak)", c * 100.0);
                 }
                 None => {
                     rt.game.world.add_item(FormId::PLAYER_REF, i, count as i32).map_err(|e| format!("{e:?}"))?;

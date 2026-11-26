@@ -422,7 +422,7 @@ mod tests {
 
     /// Final clipped linear diffuse colour (`lights/display_shader.rs` + `GAME_CLIP`).
     fn lit_clipped_linear(albedo: f32, ambient: f32, direct: [f32; 3]) -> [f32; 3] {
-        direct.map(|d| (albedo * (ambient + d).max(0.0).powf(2.2)).min(1.0))
+        direct.map(|d| nvf_assets::reflection_room::lit_texel(Vec3::splat(albedo), Vec3::splat(ambient + d)).x)
     }
 
     #[test]

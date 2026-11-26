@@ -1244,6 +1244,21 @@ impl Ai {
         game.unblock_packages_of(actor);
         let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
         self.script_moved.insert(actor, game.time);
+        // Keep a low-process actor from firing a far update in the brief window while a
+        // multi-frame script batch is still moving actors and updating quest flags (issue
+        // #3041: VERStalkersSouth01 moves 18 stalkers at 0.1 s intervals before clearing
+        // StalkersOn 1.8 s later) [design: matches `SCRIPT_MOVE_HOLD`].
+        if !self.coming.contains(&actor) {
+            let every = if self.far.contains(&actor) {
+                crate::process::FAR_PROCESS_SECONDS
+            } else {
+                crate::process::LOW_PROCESS_SECONDS
+            };
+            let cap = (every - crate::arrive::SCRIPT_MOVE_HOLD as f32).max(0.0);
+            if let Some(Some(owed)) = self.low.get_mut(&actor) {
+                *owed = owed.min(cap);
+            }
+        }
         self.set_using(game, actor, None);
         let Some(a) = self.agents.get_mut(&actor) else { return };
         let w = &mut a.walker;

@@ -456,6 +456,10 @@ pub fn apply_modular_tweaks_to_game(overrides: &StewieIniMap, tweaks: &mut Tweak
         tweaks.max_level = n.clamp(0, 100) as u32;
         applied += 1;
     }
+    if let Some(pct) = overrides.get_f64("Tweaks", "fCraftedItemHealthPct").filter(|v| v.is_finite() && *v >= 0.0) {
+        tweaks.crafted_item_health_pct = (pct as f32).clamp(0.0, 100.0);
+        applied += 1;
+    }
 
     // Documented sub-sections (`docs/spec-notes/stewie-stat-profile.md`,
     // `docs/spec-notes/ext-small.md`, `engine/nvf-play/src/tweaks.rs`).
