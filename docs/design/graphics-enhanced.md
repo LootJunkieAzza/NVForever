@@ -4213,10 +4213,11 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
   - Once it has been on in the run: the noise's finished bytes (2.43 MiB), the pipelines asked for (kept,
     and used again by the next activation: the pipeline cache tells no second request from a new one) and
     what is known of the cloud textures read then. Textures, buffers and bind groups go.
-- **The flat layers** move to a render layer of their own while the volume draws, which the water's
-  mirror, the scope's lens and the extra cameras (extra_camera.rs) see and the main camera does not, so
-  those keep the weather's clouds (the minimap's camera looks straight down, under the clouds' dome); they
-  give way only once the proxy's own pipeline is ready (no moment without clouds).
+- **Reflected clouds** [design]. An active water mirror traces the same cloud field from its reflected
+  eye into a small image. The sky dome composites it behind the reflected landscape and the water
+  material samples that image of the scene through its usual ripples. Looking down can reflect clouds
+  above the main camera's field of view. The mirror keeps the weather's flat layers until its own
+  trace and dome material are ready. The scope and extra cameras still see the flat layers.
 - **Switching**: the row, `--graphics-only volumetric-clouds`, `NVF_PLAY_TEST_SETTINGS=<t>:
   volumetric-clouds=<choice>`. Log lines (`volumetric clouds: ...`):
   - `noise generated: base 128x128x128 R8 with 8 levels, erosion 32x32x32 RGBA8 with 6 levels, ...` once a

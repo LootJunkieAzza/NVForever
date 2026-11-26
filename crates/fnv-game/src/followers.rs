@@ -55,6 +55,13 @@ impl Game<'_> {
         r != FormId::PLAYER_REF && self.extra.get(&r).is_some_and(|e| e.teammate && !e.dead)
     }
 
+    /// Whether `actor` resolves to an `NPC_` record (including placed `LVLN` leveled NPCs,
+    /// without following actor templates; same resolver as `nvse_nx::is_creature`).
+    pub fn is_human_npc(&self, actor: FormId) -> bool {
+        let Some(base) = crate::functions::base_of(self, actor) else { return false };
+        self.template_source(base, actor, |_| false).is_some_and(|(_, d)| &d.sig == b"NPC_")
+    }
+
     /// Companion Nerve of `actor`: for a teammate, the share its damage and armour go up
     /// by, 0.05 per point of the player's Charisma (0.25 at 5, 0.5 at 10) [documented:
     /// Fallout Wiki, Fallout: New Vegas derived statistics, "(CHA × 5)%"; Charisma (Fallout:

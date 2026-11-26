@@ -1273,6 +1273,10 @@ pub struct Speech {
     /// `Game::wheel_command`): it does not run again when the line ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub end_ran: bool,
+    /// Said in a co-op host's world, heard here ([`Game::set_remote_speech`]): the host
+    /// times it and runs its scripts; this game only says it. Never saved.
+    #[serde(skip)]
+    pub remote: bool,
     /// A Say To line an actor's Dialogue package said to another actor
     /// (`Game::say_package_line`): when it ends, after its SayToDone blocks, the two go on
     /// as a conversation between actors when the line leads on
@@ -1770,6 +1774,71 @@ pub struct Game<'a> {
     /// Players 2–4 of a co-op game, in slot order (`crate::coop`; docs/design/coop-save.md).
     /// Kept and saved; nothing plays them yet.
     pub coop: Vec<crate::coop::CoopPlayer>,
+    /// The other players of a co-op game being played, as the host's world has them: a
+    /// created actor each, drawn and moved by the network, that the world's actors
+    /// treat as they treat the player (`crate::coop`, [`Game::as_player`]), with the
+    /// player's name. Not part of the saved state: a save leaves them out.
+    pub coop_actors: BTreeMap<FormId, String>,
+    /// This game is a co-op guest's (`crate::coop`): the host runs the world and its
+    /// quests, so this player talks only to trade, to play and to change chips at a casino's
+    /// cashier ([`Game::guest_lines`]) and no script starts a conversation with it.
+    pub coop_guest: bool,
+    /// A co-op replication guest's: the host's actors hostile to the players in the
+    /// host's world (fighting one or ready to attack one), which this game's compass marks
+    /// hostile as its own would be; this game runs none of the scripts that turned them.
+    pub coop_hostile: BTreeSet<FormId>,
+    /// A co-op guest's: deaths of each base this game counts (`PlayerState::dead_count`)
+    /// that the host's world doesn't have, taken back by [`Game::coop_revive`] while in
+    /// the host's world, so GetDeadCount reads as there. Never saved: the count itself is
+    /// left as it is, and it is what goes back to the guest's own game (its character,
+    /// `coop::Character`), whose world still has them dead.
+    pub coop_deaths_taken_back: BTreeMap<FormId, u32>,
+    /// Co-op replication (docs/design/coop-replication.md): this game is a guest's that
+    /// draws the host's world and runs none of its logic. Its own player's carried-item
+    /// scripts and menus go on; the story's quests (those of the plugins in
+    /// [`Game::story_plugins`]), world references' scripts and OnLoad blocks, combat
+    /// blocks, activate children and packages do not: the host runs them and sends what
+    /// they did. Off (the default, and always solo).
+    pub world_logic_off: bool,
+    /// A replication guest's: the story quests its own scripts started (StartQuest in a
+    /// script this guest set off, as every script it runs is), whose scripts run here
+    /// until they stop: a door's script that starts a timer quest to take the player out
+    /// would otherwise never take it out [design].
+    pub guest_own_quests: BTreeSet<FormId>,
+    /// The load-order indices whose quests are the host's story ([`Game::world_logic_off`]):
+    /// the official masters. A mod's quest scripts keep running on a guest (its menus,
+    /// form-list edits a guest's looks read).
+    pub story_plugins: Vec<u8>,
+    /// Co-op replication, the host's: the cell each guest stands in, where the guests are
+    /// away from the host ([`Game::set_coop_cells`]). The cells around each load for
+    /// scripts, packages and OnLoad as the player's do, so a guest's surroundings live
+    /// while the host is elsewhere.
+    pub coop_cells: BTreeSet<FormId>,
+    /// The cells loaded around the player itself (the rest of [`Game::loaded_cells`]
+    /// comes from [`Game::coop_cells`]).
+    pub own_cells: BTreeSet<FormId>,
+    /// This is a co-op game: a lobby is hosted or joined, with or without another player
+    /// in it yet. A speaker's own next line (`Game::continue_own_line`) acts only then;
+    /// single player behaves as before it [design: co-op only].
+    pub coop_game: bool,
+    /// On a co-op host, while a guest's shot on a placed object runs its hit blocks as
+    /// the player's ([`Game::hit_object`]): the weapon it was fired with.
+    pub(crate) shot_for_player: Option<FormId>,
+    /// Co-op replication, the host's: the located script sounds, music, animations and
+    /// player moves its scripts asked for since the replication layer last took them
+    /// (`None`: not hosting) [design]. Not saved.
+    pub coop_effects: Option<Vec<crate::sound::CoopEffect>>,
+    /// A co-op guest's: the control groups the host's scripts hold on the host's player
+    /// (a scene), held on this player too ([`Game::controls_locked`]) [design]. Not saved.
+    pub coop_host_locks: [bool; 7],
+    /// The image space modifiers a script put on the screen (ApplyImageSpaceModifier),
+    /// not the engine's own (hits, chems, the kill camera): a co-op host's go on the
+    /// screens of the guests in its place [design]. Not saved.
+    pub script_image_modifiers: BTreeSet<FormId>,
+    /// The lines a guest may choose, found once ([`Game::guest_lines`]).
+    pub(crate) guest_lines: std::sync::OnceLock<BTreeSet<FormId>>,
+    /// The load order's random-encounter scripts, found once ([`Game::coop_encounters`]).
+    pub(crate) coop_encounters: std::sync::OnceLock<BTreeSet<FormId>>,
     /// Forms added to form lists at run time.
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
@@ -2809,6 +2878,22 @@ impl<'a> Game<'a> {
             extra: BTreeMap::new(),
             player: PlayerState::default(),
             coop: Vec::new(),
+            coop_actors: BTreeMap::new(),
+            coop_guest: false,
+            coop_hostile: BTreeSet::new(),
+            coop_deaths_taken_back: BTreeMap::new(),
+            world_logic_off: false,
+            guest_own_quests: BTreeSet::new(),
+            story_plugins: Vec::new(),
+            coop_cells: BTreeSet::new(),
+            own_cells: BTreeSet::new(),
+            coop_game: false,
+            shot_for_player: None,
+            coop_effects: None,
+            coop_host_locks: [false; 7],
+            script_image_modifiers: BTreeSet::new(),
+            guest_lines: std::sync::OnceLock::new(),
+            coop_encounters: std::sync::OnceLock::new(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             placed_effect_actors: None,
@@ -4229,28 +4314,41 @@ impl<'a> Game<'a> {
                 });
                 XVal::Num(if self.handlers.len() < before { 1.0 } else { 0.0 })
             }
-            // [documented: DispatchEvent] one string map: eventName and eventSender, or the
-            // info map given (eventName and eventSender added when it lacks them
-            // [hypothesis]); the handlers run at once [hypothesis].
+            // [documented: DispatchEvent; observed: 2026-11-24, Fallout: New Vegas
+            // 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, GSDocMitchellHouse (0x00103DF9),
+            // 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_dispatch_event_return_overwrite.json`
+            // probe `w6d1_04_dispatch_event_map_and_sync`:
+            // `PROBE|w6d1_04_dispatch_event_map_and_sync|def(r=1,n=1,en=W6D1_DEv,es=)|c1(r=1,mut=1/1,en=W6D1_DEv)|c2(r=1,en=W6D1_DEv,es=NewSnd)`;
+            // returns 1, runs handlers synchronously, and overwrites eventName and
+            // eventSender on a caller-supplied infoMap; no DLL, PDB, or third-party
+            // source consulted].
             EventCall::Dispatch { event, map, sender: s } => {
                 let sender = s.unwrap_or_else(|| sender.to_string());
                 let id = match map {
                     Some(XVal::Array(id)) => id,
                     _ => self.ext.new_array(fnv_script::vm::ArrayKind::StringMap, Vec::new()),
                 };
+                let mut replaced = Vec::new();
                 if let Some(a) = self.ext.array_mut(id).filter(|a| a.kind == fnv_script::vm::ArrayKind::StringMap) {
                     for (k, v) in [("eventName", event.clone()), ("eventSender", sender)] {
                         let key = XKey::Str(k.into());
-                        if a.get(&key).is_none() {
+                        if let Some((_, slot)) =
+                            a.entries.iter_mut().find(|(ek, _)| ek.cmp_key(&key) == std::cmp::Ordering::Equal)
+                        {
+                            replaced.push(std::mem::replace(slot, XVal::Str(v)));
+                        } else {
                             a.entries.push((key, XVal::Str(v)));
                         }
                     }
                     a.entries.sort_by(|x, y| x.0.cmp_key(&y.0));
                 }
+                for old in replaced {
+                    self.ext.release(&old);
+                }
                 self.ext.retain(&XVal::Array(id));
                 self.dispatch_event(&event, vec![XVal::Array(id)], None);
                 self.ext.hand_over(&XVal::Array(id));
-                XVal::Num(0.0)
+                XVal::Num(1.0)
             }
             EventCall::DispatchAlt { event, on, args } => {
                 self.dispatch_event(&event, args, on.and_then(|v| v.as_form()).map(FormId));
@@ -4625,7 +4723,20 @@ impl<'a> Game<'a> {
 
     /// [`Game::ref_event`] without the NVSE event handlers: the reference's own blocks
     /// only, for an event whose blocks take a `subject` its handlers are not given.
-    pub(crate) fn ref_blocks(&mut self, r: FormId, event: u16, subject: Option<Value>, action_ref: Option<FormId>) -> bool {
+    pub(crate) fn ref_blocks(&mut self, r: FormId, event: u16, mut subject: Option<Value>, mut action_ref: Option<FormId>) -> bool {
+        // Another player's hit, kill or step into a co-op random encounter is the
+        // player's (`crate::coop`, the encounter notes): `OnHit player`, `OnDeath player`
+        // and `OnTriggerEnter player` take it.
+        if self.coop_encounter(r) {
+            if let Some(Value::Ref(a)) = subject {
+                if self.is_coop_actor(FormId(a)) {
+                    subject = Some(Value::Ref(FormId::PLAYER_REF.0));
+                }
+            }
+            if action_ref.is_some_and(|a| self.is_coop_actor(a)) {
+                action_ref = Some(FormId::PLAYER_REF);
+            }
+        }
         if event == event::ON_LOAD {
             // An OnLoad run by the caller (a cell load, or an engine that runs it
             // itself) settles one queued by Enable: OnLoad runs once per load.
@@ -4634,7 +4745,7 @@ impl<'a> Game<'a> {
         }
         let Some(script) = self.ref_script(r) else { return false };
         let has = self.data.script(script).is_some_and(|u| u.has_block(event));
-        if !has {
+        if !has || self.host_runs_script_of(r, event) {
             return false;
         }
         let ran = self.run_event(
@@ -4863,6 +4974,9 @@ impl<'a> Game<'a> {
         if self.script_looks.fades.len() > 256 {
             self.script_looks.fades.drain(..128);
         }
+        // A replication guest runs no world logic (`Game::world_logic_off`): only its own
+        // player's.
+        let world_logic = !self.world_logic_off;
         // Those queued before this frame, each still in its list until its turn: an earlier
         // OnLoad that loads cells (a MoveTo of the player) runs a later one's OnLoad there,
         // which takes it off (`Game::ref_blocks`), so none runs twice; one queued during
@@ -4873,7 +4987,7 @@ impl<'a> Game<'a> {
                 continue;
             }
             self.pending_onload.retain(|&x| x != r);
-            if self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
+            if (world_logic || r == FormId::PLAYER_REF) && self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
                 self.ref_event(r, event::ON_LOAD, None, None);
             }
         }
@@ -4884,27 +4998,35 @@ impl<'a> Game<'a> {
                 continue;
             }
             self.restored_onload.retain(|&x| x != r);
-            if self.present(r) && !self.is_dead(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
+            if (world_logic || r == FormId::PLAYER_REF) && self.present(r) && !self.is_dead(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
                 self.ref_event(r, event::ON_LOAD, None, None);
             }
         }
         for (r, ev, by) in std::mem::take(&mut self.queued_ref_events) {
-            self.ref_event(r, ev, Some(Value::Ref(r.0)), by);
+            if world_logic || r == FormId::PLAYER_REF {
+                self.ref_event(r, ev, Some(Value::Ref(r.0)), by);
+            }
         }
-        self.combat_blocks();
-        // Activate children whose delay passed (`crate::traps`).
-        self.activate_due_children();
-        // Fighting NPCs take up the weapon their combat style allows (`crate::style_weapon`).
-        self.arm_by_style();
+        if world_logic {
+            self.combat_blocks();
+            // Activate children whose delay passed (`crate::traps`).
+            self.activate_due_children();
+            // Fighting NPCs take up the weapon their combat style allows (`crate::style_weapon`).
+            self.arm_by_style();
+        }
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.open_menu_code().map(|m| Value::Num(m as f64));
         let data = self.data;
         // ToggleScripts: no per-frame block runs (`functions::toggles`).
         let scripts = !self.toggles.scripts_off;
+        // A replication guest leaves the story's quests to the host (`Game::story_plugins`),
+        // except those its own scripts started (`Game::guest_own_quests`).
+        let story = if self.world_logic_off { self.story_plugins.clone() } else { Vec::new() };
         let due: Vec<(FormId, FormId)> = self
             .quests
             .iter_mut()
             .filter(|(_, s)| scripts && s.running)
+            .filter(|(q, _)| !story.contains(&((q.0 >> 24) as u8)) || self.guest_own_quests.contains(q))
             .filter_map(|(q, s)| {
                 let def = data.quests.get(q)?;
                 let script = def.script.filter(|s| data.scripts.contains_key(s))?;
@@ -4933,7 +5055,7 @@ impl<'a> Game<'a> {
             }
             self.run_event(key, script, ev, subject, RunCtx { quest: Some(q), ..Default::default() });
         }
-        let active = if scripts { self.active_refs() } else { Vec::new() };
+        let active = if scripts && world_logic { self.active_refs() } else { Vec::new() };
         // Doors opened or closed since the last frame, by anyone (OnOpen, OnClose).
         self.watch_doors(&active);
         for r in active {
@@ -4945,7 +5067,7 @@ impl<'a> Game<'a> {
                 continue;
             }
             let Some(script) = self.ref_script(r) else { continue };
-            if self.data.script(script).is_some_and(|u| u.has_block(ev)) {
+            if self.data.script(script).is_some_and(|u| u.has_block(ev)) && !self.host_runs_script_of(r, ev) {
                 let key = InstKey::Ref { reference: r };
                 if !in_menu {
                     self.mark_run(key, Some(script));
@@ -4994,7 +5116,9 @@ impl<'a> Game<'a> {
         // another menu on top of it (a message box) holds it.
         if self.menu.is_none() {
             self.update_dialogue(dt);
-            self.tick_packages();
+            if world_logic {
+                self.tick_packages();
+            }
             self.update_image_modifiers(dt);
         }
     }
@@ -5048,6 +5172,9 @@ impl<'a> Game<'a> {
         }
         for r in self.active_refs() {
             let Some(script) = self.ref_script(r).filter(|s| wants(*s)) else { continue };
+            if self.host_runs_script_of(r, event::MENU_MODE) {
+                continue;
+            }
             if page {
                 self.mark_page_run(InstKey::Ref { reference: r }, Some(script));
             }
@@ -5723,7 +5850,7 @@ impl<'a> Game<'a> {
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         // [design] Mark this line before callbacks can finish it or replace it.
         let immediate = def.has(crate::data::info_flag::RUN_IMMEDIATELY);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false, through });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, remote: false, leads_on: false, through });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -5736,6 +5863,50 @@ impl<'a> Game<'a> {
             self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
         }
         self.jip_dialog_topic(speaker, topic, info);
+    }
+
+    /// A co-op guest: the lines the host's world is saying now ([`Speech::remote`]), in
+    /// place of those it said before. A line of this game's own whose speaker says one of
+    /// them, or for which `hosts` holds (an actor the host's world runs), stops without
+    /// its end script: the host's world is the one heard. A Goodbye greeting or a hello
+    /// at this player is left alone.
+    pub fn set_remote_speech(&mut self, lines: Vec<Speech>, hosts: impl Fn(FormId) -> bool) {
+        let speaking: std::collections::HashSet<FormId> = lines.iter().map(|l| l.speaker).collect();
+        let own: Vec<FormId> = self
+            .speech
+            .iter()
+            .filter(|s| !s.remote && (speaking.contains(&s.speaker) || hosts(s.speaker)))
+            .filter(|s| !((s.greeting || s.hello) && s.target == Some(FormId::PLAYER_REF)))
+            .map(|s| s.speaker)
+            .collect();
+        for speaker in own {
+            if let Some(k) = self.speech.iter().position(|s| s.speaker == speaker && !s.remote) {
+                let s = self.speech.remove(k);
+                self.emit(EventKind::LineEnded { speaker, info: s.info, cut: true });
+                if let (Some(lines), Some(target)) = (s.conversation, s.target) {
+                    self.emit(EventKind::ActorConversationEnded { speaker, target, reason: crate::dialogue::ended::CUT, lines });
+                }
+            }
+        }
+        // A line already being said keeps the response it is at (the voice follows it),
+        // and its time left never rises by less than [`REMOTE_SAID_AGAIN`]: the host's
+        // updates come late by a little more or less each time, and a rise is what starts
+        // the line's sound over (`nvf_play::voice::step`) [design: without this a guest
+        // restarted the host's lines at random points]. A larger rise is the line said
+        // again.
+        let mut kept: Vec<Speech> = Vec::with_capacity(lines.len());
+        for mut l in lines {
+            l.remote = true;
+            if let Some(old) = self.speech.iter().find(|s| s.remote && s.speaker == l.speaker && s.info == l.info) {
+                l.response = old.response;
+                if l.remaining > old.remaining && l.remaining < old.remaining + REMOTE_SAID_AGAIN {
+                    l.remaining = old.remaining;
+                }
+            }
+            kept.push(l);
+        }
+        self.speech.retain(|s| !s.remote);
+        self.speech.extend(kept);
     }
 
     /// The lines being said outside a conversation move on to their next responses as
@@ -5846,7 +6017,8 @@ impl<'a> Game<'a> {
         self.speech_responses();
         // A Death line goes on after its speaker died (`crate::combat_lines`).
         let death = self.data.by_edid("Death");
-        for s in self.speech.iter_mut().filter(|s| only.is_none_or(|o| o == s.speaker)) {
+        // The host's lines (co-op) end when the host says so (`Game::set_remote_speech`).
+        for s in self.speech.iter_mut().filter(|s| !s.remote && only.is_none_or(|o| o == s.speaker)) {
             s.remaining -= dt;
             // Through a talking activator the activator must be there, the actor need not
             // be (`crate::talking_activators`); the actor's death still cuts the line.
@@ -5945,6 +6117,12 @@ impl<'a> Game<'a> {
         // between them (`Game::say_package_line`).
         if s.leads_on {
             self.next_conversation_line(&s, 1);
+        }
+        // A Conversation line whose next speaker is Self goes on with the speaker's next
+        // line of the topic (`crate::dialogue`, `Game::continue_own_line`), in a co-op
+        // game only.
+        if self.coop_game {
+            self.continue_own_line(&s);
         }
     }
 
@@ -6173,6 +6351,8 @@ impl<'a> Game<'a> {
         // (`Game::note_enabled`). References disabled through an enable parent are
         // treated the same [hypothesis: the plane was disabled by its own flag].
         let all = self.handled("onload");
+        // A replication guest runs no world reference's OnLoad (`Game::world_logic_off`).
+        let new = if self.world_logic_off { Vec::new() } else { new };
         // Chosen before any block runs: a block that moves a reference into another new
         // cell, or makes one, must not give it a second OnLoad here.
         let chosen: Vec<(Vec<FormId>, Vec<FormId>)> = new
@@ -6223,7 +6403,10 @@ impl<'a> Game<'a> {
             // exterior allows fast travel again [documented: catalogue notes of
             // EnableFastTravel].
             let placed = self.world.placed;
-            let was_interior = !self.loaded_cells.is_empty() && self.loaded_cells.iter().all(|&l| placed.world_of(l).is_none());
+            // The player's own cells: in co-op the guests' areas are loaded too
+            // ([`Game::coop_cells`]); alone they are the loaded cells.
+            let own = if self.coop_cells.is_empty() { &self.loaded_cells } else { &self.own_cells };
+            let was_interior = !own.is_empty() && own.iter().all(|&l| placed.world_of(l).is_none());
             // Only travel comes back: "the transition won't allow them to wait; this
             // will have to be manually re-enabled" [documented: GECK wiki
             // EnableFastTravel, example `0 0 0`].
@@ -6237,9 +6420,30 @@ impl<'a> Game<'a> {
                     self.other.jg6.last_exterior_world = Some(w);
                 }
             }
-            let cells = self.cells_around(c);
-            self.set_loaded(cells);
+            self.own_cells = self.cells_around(c);
+            self.load_with_coop();
         }
+    }
+
+    /// Co-op replication, the host's: the cells the guests stand in. The cells around
+    /// each are loaded with the player's ([`Game::coop_cells`]); a guest in the host's own
+    /// area adds nothing.
+    pub fn set_coop_cells(&mut self, cells: BTreeSet<FormId>) {
+        if cells != self.coop_cells {
+            self.coop_cells = cells;
+            if !self.own_cells.is_empty() {
+                self.load_with_coop();
+            }
+        }
+    }
+
+    /// [`Game::own_cells`] and the cells around each of [`Game::coop_cells`], loaded.
+    fn load_with_coop(&mut self) {
+        let mut cells = self.own_cells.clone();
+        for &c in &self.coop_cells.clone() {
+            cells.extend(self.cells_around(c));
+        }
+        self.set_loaded(cells);
     }
 
     // ---- activation and other events -------------------------------------------
@@ -7407,6 +7611,12 @@ impl<'a> Game<'a> {
 
     pub fn snapshot(&self) -> GameSnapshot {
         let mut sim = self.world.snapshot();
+        // The other players' actors belong to the game being played (`coop_actors`).
+        for r in self.coop_actors.keys() {
+            if let Some(s) = sim.refs.remove(r) {
+                sim.deleted_created.insert(*r, s.base);
+            }
+        }
         // SetOwnershipTemp's owners are not saved: the owner before it is (`nvse_showoff4`).
         let mut forms = self.forms.clone();
         for (&t, &before) in &self.showoff.temp_owners {
@@ -7643,6 +7853,12 @@ impl<'a> Game<'a> {
 /// characters 10 s from the stage before them to the stage their end script set,
 /// layer5-captures.md §10.2–10.3; the fit gives 2.9, 15.4 and 10.3 s].
 pub const LINE_BASE_SECONDS: f64 = 1.1;
+
+/// A co-op guest: how much more time left (seconds) a host's line must have than it had
+/// here to be taken as said again rather than as an update come late
+/// ([`Game::set_remote_speech`]) [design: well above the spread of a network delay, below
+/// the shortest voiced lines, about half a second].
+pub const REMOTE_SAID_AGAIN: f64 = 0.3;
 pub const LINE_SECONDS_PER_CHAR: f64 = 1.0 / 16.0;
 
 /// The fitted length of one response of `chars` characters ([`LINE_BASE_SECONDS`],

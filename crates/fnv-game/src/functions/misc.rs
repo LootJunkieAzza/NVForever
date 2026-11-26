@@ -561,13 +561,16 @@ pub fn apply_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<
         return Err(format!("{m} is not an image space modifier"));
     }
     g.apply_image_modifier(m);
+    g.script_image_modifiers.insert(m);
     none()
 }
 
 /// `RemoveImageSpaceModifier modifier`: the modifier leaves the screen [documented: GECK
 /// wiki RemoveImageSpaceModifier, owner export]; nothing happens when it is not on it.
 pub fn remove_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.remove_image_modifier(a.form(0)?);
+    let m = a.form(0)?;
+    g.remove_image_modifier(m);
+    g.script_image_modifiers.remove(&m);
     none()
 }
 
@@ -710,6 +713,17 @@ impl TextureSwaps {
         swaps.retain(|(s, _)| *s != shape);
         swaps.push((shape, texture));
         self.generation += 1;
+    }
+
+    /// A co-op guest: draw the host's swap of `on`'s `shape` (names as
+    /// [`texture_swap_names`] gives them) when this game does not have it yet. Whether it
+    /// was new.
+    pub fn follow_host(&mut self, on: fnv_sim::FormId, shape: String, texture: String) -> bool {
+        if self.by_ref.get(&on).is_some_and(|l| l.iter().any(|(s, t)| *s == shape && *t == texture)) {
+            return false;
+        }
+        self.swap(on, shape, texture);
+        true
     }
 
     /// Show `texture` (a path as [`texture_swap_names`] gives it) on the Securitron
@@ -978,6 +992,9 @@ pub fn set_actor_alpha(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 pub fn reset_3d_state(g: &mut Game, ctx: &Ctx, _: &Args) -> Result<Value, String> {
     let on = ctx.subject()?;
     g.anims.reset(on);
+    if let Some(out) = g.coop_effects.as_mut().filter(|o| o.len() < crate::sound::MAX_PENDING) {
+        out.push(crate::sound::CoopEffect::AnimReset(on));
+    }
     none()
 }
 

@@ -2147,6 +2147,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         centre: None,
         waiting: Vec::new(),
         model_overrides: Default::default(),
+        coop_areas: Vec::new(),
         travels: 0,
     })
     .insert_resource(world)
