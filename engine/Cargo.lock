@@ -4725,6 +4725,7 @@ dependencies = [
  "fnv-voice",
  "fnv-world",
  "infinitier_bik_decoder",
+ "jiff",
  "nvf-assets",
  "nvf-settings-layout",
  "png",
@@ -4739,6 +4740,13 @@ dependencies = [
 [[package]]
 name = "nvf-rtgi"
 version = "0.8.1"
+
+[[package]]
+name = "nvf-rtgi-live"
+version = "0.8.1"
+dependencies = [
+ "nvf-rtgi",
+]
 
 [[package]]
 name = "nvf-settings-layout"
@@ -4806,6 +4814,7 @@ dependencies = [
  "nvf-dlss-files",
  "nvf-play",
  "png",
+ "rapier3d",
  "rayon",
  "rfd",
  "serde_json",

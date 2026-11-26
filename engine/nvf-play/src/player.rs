@@ -593,7 +593,7 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view, creator, panel, talk, tweaks, vats): (
+    (intro, view, creator, panel, talk, tweaks, vats, photo): (
         Option<Res<crate::intro::Intro>>,
         Option<Res<ViewDriven>>,
         Option<Res<crate::creator::CreatorMenu>>,
@@ -601,6 +601,7 @@ fn grab_cursor(
         Option<Res<crate::dialogue_menu::DialogueMenu>>,
         Option<Res<crate::tweaks::TweakSettings>>,
         Option<Res<crate::vats_mode::VatsMode>>,
+        Option<Res<crate::photo_mode::PhotoMode>>,
     ),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
@@ -617,7 +618,8 @@ fn grab_cursor(
     // kept through a loading screen: the player is back in the world after it.
     // And while the console's free camera flies, also when it holds the world.
     let creating = creator.is_some_and(|c| c.is_open());
-    let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
+    // Photo mode turns its camera with the mouse, also while it holds the world.
+    let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active) || photo.is_some_and(|p| p.active));
     let film = intro.as_ref().is_some_and(|i| i.is_playing());
     let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
     // The classic VATS style's target screen has the pointer: its parts and arrows are
@@ -1049,7 +1051,7 @@ pub(crate) fn mouse_look(
     mut player: ResMut<Player>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
-    free_cam: Option<Res<crate::free_cam::FreeCam>>,
+    (free_cam, photo): (Option<Res<crate::free_cam::FreeCam>>, Option<Res<crate::photo_mode::PhotoMode>>),
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
     (talk, switches, mut mouse_guard, gyro, platform, touch_switch, controller_aim, ads): LookContext<'_, '_>,
@@ -1072,11 +1074,11 @@ pub(crate) fn mouse_look(
     if vats.is_some_and(|v| v.holds_view()) {
         return;
     }
-    // The console's free camera takes the mouse (`crate::free_cam`), and so does the
-    // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
-    // it (`crate::kill_cam`). A script's HUD cursor has the mouse too (ToggleHUDCursor,
-    // `crate::script_switches`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
+    // The console's free camera takes the mouse (`crate::free_cam`), and so do photo mode
+    // (`crate::photo_mode`) and the weapon wheel while it is open (`crate::weapon_wheel`);
+    // a playing kill camera holds it (`crate::kill_cam`). A script's HUD cursor has the
+    // mouse too (ToggleHUDCursor, `crate::script_switches`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || photo.is_some_and(|p| p.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
         return;
     }
     // The right stick's turn this frame, as mouse counts of a thousandth of a radian

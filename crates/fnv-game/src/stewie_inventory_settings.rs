@@ -9,6 +9,9 @@ impl Game<'_> {
         if !self.small.stewie_stat_settings_loaded {
             return None;
         }
+        if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("fCraftedItemHealthPct") {
+            return Some(f64::from(self.tweaks.crafted_item_health_pct));
+        }
         let chosen = if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("bHardcoreTweaks") {
             self.tweaks.hardcore_tweaks
         } else if section.eq_ignore_ascii_case("Hardcore Tweaks") && key.eq_ignore_ascii_case("bAmmoWeight") {

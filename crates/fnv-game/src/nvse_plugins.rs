@@ -624,10 +624,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.player.xp += num(args, 0, 0.0).trunc();
             zero
         }
-        // `set|remove function flag [code]` [documented: SetOnActorValueChangeEventHandler].
+        // `set|remove function flag [code]` [documented: SetOnActorValueChangeEventHandler;
+        // observed 2026-11-24: -1 is a wildcard like omitted].
         "setonactorvaluechangeeventhandler" => {
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let code = args.get(3).and_then(|v| v.num().ok()).map(|c| c as u16);
+            let code = args.get(3).and_then(|v| v.num().ok()).filter(|&c| c >= 0.0).map(|c| c as u16);
             let exact = (num(args, 2, 0.0) as i64) & 1 != 0;
             g.gaps.av_handlers.retain(|(h, c, _)| !(*h == f && *c == code));
             if num(args, 0, 1.0) != 0.0 {

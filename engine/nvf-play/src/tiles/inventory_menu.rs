@@ -1168,6 +1168,19 @@ fn send_on_row(out: &mut FeedOut<'_>, view: &MenuTiles, index: usize, on_it: boo
     }
 }
 
+/// What the tiled Drop button (click or R key) emits: with `quantity-select-short-keys`
+/// enabled (#3799), Shift drops the whole stack and Ctrl drops a single item without opening
+/// the quantity prompt [design: Shift takes precedence over Ctrl when both are held].
+pub(crate) fn tiled_drop_command(qtt_select_short_keys: bool, shift: bool, ctrl: bool) -> Command {
+    if qtt_select_short_keys && shift {
+        Command::DropStack
+    } else if qtt_select_short_keys && ctrl {
+        Command::DropSingle
+    } else {
+        Command::Drop
+    }
+}
+
 pub(crate) fn touch_target(tiles:&InventoryTiles,ui:&Ui,menu:TileId,point:Vec2,model:&crate::menu::model::MenuModel)->Option<crate::pipboy::touch_scroll::NativeTarget>{
     use crate::pipboy::touch_scroll::{NativeRow,NativeTarget};
     NativeTarget::at(ui,menu,point,|tile| {
@@ -1262,6 +1275,8 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         if let Some((touch,index))=touch.as_deref_mut().zip(index) {touch.capture_row(m,index);}
     }
     let shift = input.shift;
+    let ctrl = devices.keys.pressed(KeyCode::ControlLeft) || devices.keys.pressed(KeyCode::ControlRight);
+    let ctrl_single = m.qtt_select_short_keys && ctrl;
     let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::INVENTORY), tab: 0 };
     let physical = frame_keys(&mut input, &devices, game, pad_menu);
     let report = fnv_game::ui_input::step(game, &[menu], &input, &fnv_ui::input::no_measure);
@@ -1330,7 +1345,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
                 out.commands.write(MenuInput(Command::One));
             }
             ItemsTile::Button(Button::Drop) => {
-                out.commands.write(MenuInput(Command::Drop));
+                out.commands.write(MenuInput(tiled_drop_command(m.qtt_select_short_keys, shift, ctrl)));
             }
             ItemsTile::Button(Button::Repair) => {
                 out.repair.write(RepairInput::Open);
@@ -1380,7 +1395,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         if let Some(ItemsTile::Row(index)) = state.under.and_then(|t| items_tile(ui, &tiles.view, tabs, t)) {
             if let Some(index) = tiles.view.row_at(m, Side::Player, index) {
                 row_acted = true;
-                send_on_row(&mut out, &tiles.view, index, false, &[Command::Hover(Side::Player, index), if shift { Command::DropStack } else { Command::Drop }]);
+                send_on_row(&mut out, &tiles.view, index, false, &[Command::Hover(Side::Player, index), if shift { Command::DropStack } else if ctrl_single { Command::DropSingle } else { Command::Drop }]);
             }
         }
     }
@@ -2570,6 +2585,21 @@ mod tests {
         let mut ui = tree_changed(missing);
         assert_eq!(built(&ui, None), Tiled::No(format!("{ICON} missing")));
         assert_eq!(run(&mut ui, Some(shown(2, 0)), &mut InventoryTiles::default()), Err(format!("{ICON} missing")));
+    }
+
+    #[test]
+    fn tiled_drop_button_honors_qtt_select_short_keys() {
+        // Off by default (vanilla unchanged): Drop button always emits Command::Drop.
+        assert_eq!(tiled_drop_command(false, false, false), Command::Drop);
+        assert_eq!(tiled_drop_command(false, true, false), Command::Drop);
+        assert_eq!(tiled_drop_command(false, false, true), Command::Drop);
+        assert_eq!(tiled_drop_command(false, true, true), Command::Drop);
+
+        // Enabled (#3799): Shift drops stack, Ctrl drops single, Shift+Ctrl prefers Shift.
+        assert_eq!(tiled_drop_command(true, false, false), Command::Drop);
+        assert_eq!(tiled_drop_command(true, true, false), Command::DropStack);
+        assert_eq!(tiled_drop_command(true, false, true), Command::DropSingle);
+        assert_eq!(tiled_drop_command(true, true, true), Command::DropStack);
     }
 
     #[test]

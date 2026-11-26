@@ -2,7 +2,7 @@
 # compile Bevy (docs/adr/0001-bevy-viewer.md, docs/design/layer3.md §2.2).
 [workspace]
 resolver = "2"
-members = ["nvf-assets", "nvf-play", "nvf-rtgi", "nvf-viewer", "nvforever", "nvf-coop", "nvf-shader-tests", "nvf-android"]
+members = ["nvf-assets", "nvf-play", "nvf-rtgi", "nvf-rtgi-live", "nvf-viewer", "nvforever", "nvf-coop", "nvf-shader-tests", "nvf-android"]
 exclude = ["vendor/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx-shaders-spv"]
 
 [workspace.package]
@@ -43,6 +43,9 @@ infinitier_bik_decoder = "=0.0.14"
 fnv-voice = { path = "../crates/fnv-voice" }
 nvf-assets = { path = "nvf-assets" }
 nvf-play = { path = "nvf-play" }
+# The bounce-light solver (#3009): on the CPU, and the same on the GPU.
+nvf-rtgi = { path = "nvf-rtgi" }
+nvf-rtgi-live = { path = "nvf-rtgi-live" }
 # Co-op: the link between games.
 nvf-coop = { path = "nvf-coop" }
 clap = { version = "4", features = ["derive", "env"] }

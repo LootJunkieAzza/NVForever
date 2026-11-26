@@ -282,15 +282,19 @@ impl Game<'_> {
     }
 
     /// JohnnyGuitar's actor value change handlers on a change of one of the player's
-    /// values: (code, old value, new value), rounded to whole numbers unless the handler
-    /// was set with flag bit 0 [documented: SetOnActorValueChangeEventHandler]
-    /// (`functions::actor` tells them).
+    /// values: (code, old value, new value), truncated to whole numbers unless the
+    /// handler was set with flag bit 0 [documented: SetOnActorValueChangeEventHandler;
+    /// observed 2026-11-24: `200.0 -> 199.4` fires `200.0 -> 199.0` and `199.4 -> 198.8`
+    /// fires `199.0 -> 198.0`] (`functions::actor` tells them).
     pub(crate) fn av_event(&mut self, _actor: FormId, code: u16, old: f64, new: f64) {
         let hs: Vec<(XVal, bool)> = self.gaps.av_handlers.iter().filter(|(_, c, _)| c.is_none_or(|c| c == code)).map(|(f, _, exact)| (f.clone(), *exact)).collect();
         let was = std::mem::replace(&mut self.gaps.av_telling, true);
         for (f, exact) in hs {
-            let v = |x: f64| XVal::Num(if exact { x } else { x.round() });
-            let args = vec![XVal::Num(f64::from(code)), v(old), v(new)];
+            let (o, n) = if exact { (old, new) } else { (old.trunc(), new.trunc()) };
+            if !exact && o == n {
+                continue;
+            }
+            let args = vec![XVal::Num(f64::from(code)), XVal::Num(o), XVal::Num(n)];
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
                 self.handler_failed("JohnnyGuitar actor value handler".into(), error);
             }

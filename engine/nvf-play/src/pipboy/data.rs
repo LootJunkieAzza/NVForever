@@ -62,7 +62,7 @@
 
 pub mod marker;
 pub mod touch_map;
-mod model;
+pub(crate) mod model;
 pub(crate) mod outline;
 pub(crate) mod read;
 pub mod travel;
