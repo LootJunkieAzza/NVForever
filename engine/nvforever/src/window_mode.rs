@@ -466,8 +466,9 @@ fn apply_display(args: Res<Args>, full: Res<FullScreenSize>, modes: Res<MonitorM
     if last.as_ref() == Some(&want) && !modes.is_changed() && !retry_due {
         return;
     }
-    *last = Some(want);
+    let prev = last.replace(want);
     let Ok(mut w) = windows.single_mut() else { return };
+    let prev_mode = w.mode;
     let selection = borderless_selection(&modes, &monitor);
     let mode = match (args.window, full.0) {
         (WindowChoice::Windowed, _) => WindowMode::Windowed,
@@ -508,13 +509,29 @@ fn apply_display(args: Res<Args>, full: Res<FullScreenSize>, modes: Res<MonitorM
         }
     }
     // A window of --size (leaving full screen keeps no size of its own [observed:
-    // 800x600]). main checked --size at the start.
-    if let (WindowMode::Windowed, WindowMode::Windowed, Some(s)) = (mode, w.mode, parse_size(&args.size)) {
-        if w.resolution.physical_size() != s {
-            w.resolution.set_physical_resolution(s.x, s.y);
+    // 800x600]). main checked --size at the start. Only apply --size on initial apply,
+    // when --size itself changed, or when returning to windowed mode from full screen;
+    // a window resized or maximized by the user must not be snapped back on monitor
+    // refreshes (module doc).
+    if should_apply_windowed_size(prev.as_ref().map(|p| p.1.as_str()), &args.size, prev_mode) {
+        if let (WindowMode::Windowed, WindowMode::Windowed, Some(s)) = (mode, w.mode, parse_size(&args.size)) {
+            if w.resolution.physical_size() != s {
+                w.resolution.set_physical_resolution(s.x, s.y);
+            }
         }
     }
 }
+
+/// Whether `apply_display` should enforce `args.size` on a windowed surface: true on
+/// first apply, when the requested size changed, or when leaving a full-screen mode;
+/// false when re-running for monitor-list changes while already windowed with the same
+/// requested size [design].
+fn should_apply_windowed_size(prev_size: Option<&str>, current_size: &str, prev_mode: WindowMode) -> bool {
+    prev_size != Some(current_size) || prev_mode != WindowMode::Windowed
+}
+
+#[cfg(test)]
+mod windowed_resize_tests;
 
 /// Last physical surface reported by [`log_mode`], to log the actual physical size and
 /// scale factor on startup, mode switches, scale changes, full-screen compositor resizes,
