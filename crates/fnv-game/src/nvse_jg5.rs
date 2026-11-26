@@ -309,7 +309,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // index takes the texture set, or a new one is added for it [documented:
         // SetWeaponAltTexture, SetArmorAltTexture and their notes]; 1 when done. A new
         // entry has no shape name, and a form that is not a texture set changes nothing
-        // [hypothesis].
+        // (see docs/spec-notes/ext-jg5.md).
         "setweaponalttexture" | "setarmoralttexture" => {
             let armor = name == "setarmoralttexture";
             let f = of_sig(g, form(args, 0), if armor { b"ARMO" } else { b"WEAP" });
@@ -398,10 +398,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- regions ----
         // `region`: the map name (RDMP) [documented: GetRegionMapName]; a region without
-        // map data fails the call [observed: jg5, 0x123CE3, "script call failed";
-        // hypothesis: a form that is no region too]. `region name`: a region without map
+        // map data fails the call [observed: jg5, 0x123CE3, "script call failed"] (a non-region
+        // also fails; see docs/spec-notes/ext-jg5.md). `region name`: a region without map
         // data gains it [documented: SetRegionMapName; observed: jg5], at priority 0
-        // [hypothesis]; 1 when done [observed: jg5].
+        // (see docs/spec-notes/ext-jg5.md); 1 when done [observed: jg5].
         "getregionmapname" => match of_sig(g, form(args, 0), b"REGN").and_then(|r| region_map(g, r)) {
             Some(m) => XVal::Str(m.0),
             None => return failed(name),
@@ -477,10 +477,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             list(g, out.into_iter().map(|r| XVal::Ref(r.0)))
         }
         // `mod`: the weapons whose mod slots (WMI1-3) hold it, in FormID order
-        // [documented: GetWeaponsForMod; hypothesis: the order]; non-IMOD returns ar_Null
-        // (`ar_Size == -1`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
-        // JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official
-        // base masters, `w4c_b3_02_region_loc_weapmod`: `badModN=-1`].
+        // [documented: GetWeaponsForMod; hypothesis: the order (native `w0=00176E5B` is not
+        // ascending FormID)]; non-IMOD returns ar_Null (`ar_Size == -1`) and valid IMOD
+        // `0x129878` returns 3 weapons [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
+        // 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters, `w4c_b3_02_region_loc_weapmod` (`badModN=-1`) and
+        // `w6t2_30_jg5_get_weapons_for_mod_and_armor_alt_tex`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `wMod(n=3,w0=00176E5B,bad=-1)`].
         "getweaponsformod" => {
             let Some(m) = of_sig(g, form(args, 0), b"IMOD") else { return Some(Ok(XVal::Array(0))) };
             let mut ws: Vec<FormId> = g
@@ -526,7 +530,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // jg5, CamDefaultShoot]. The setter gives 1 when it set the trait [observed: jg5,
         // traits 1 and 6]; a code is kept as given even outside the field's table
         // [observed: jg5, location 7 reads 7], the kill camera keeping the shot's last
-        // valid one; a number that is not finite changes nothing [hypothesis].
+        // valid one; a number that is not finite changes nothing (see docs/spec-notes/ext-jg5.md).
         "getcamerashottraitnumeric" => {
             let (shot, t) = (form(args, 0), index(args, 1));
             if let Some(&code) = shot.zip(t).and_then(|k| g.other.jg5.shot_codes.get(&k)) {

@@ -334,6 +334,12 @@ pub struct RefExtra {
     /// The current package reached its goal ([`Game::package_goal_met`]).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub package_goal_met: bool,
+    /// A script relocated the actor (`MoveTo`, `MoveToMarkerWithFade`, scripted door)
+    /// while its current package was running: Must Complete and Must Reach Location no
+    /// longer hold that pre-relocation package past its schedule or failed conditions
+    /// ([`Game::package_held`], issue #3041). Cleared when a new package is chosen.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub package_relocated: bool,
     /// Once Per Day packages: GameDaysPassed when the actor last chose each.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub package_chosen_at: BTreeMap<FormId, f32>,
@@ -544,6 +550,10 @@ pub struct RefExtra {
     /// (`fnv_sim::leveled::roll_seed`).
     #[serde(skip_serializing_if = "is_zero_u32", default)]
     pub rolls: u32,
+    /// Whether the optional `npc-weapon-mods` roll (`crate::npc_weapon_mods`, #3876) has
+    /// already run for this NPC so repeated ticks never re-roll its main weapon [design].
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub npc_weapon_mods_rolled: bool,
 }
 
 fn is_zero(v: &u16) -> bool {
@@ -1288,12 +1298,12 @@ pub enum LineLook {
     Both,
     /// Nobody turns: a conversation between actors started with `headTrack` 0
     /// [documented: GECK wiki StartConversation: "Enter 0 to disable" head tracking
-    /// during the conversation], and a SayTo line with `noTargetLookFlag` 1
-    /// [hypothesis, observer check 218, #2796] (`functions::misc::say_to`). Until #2796
-    /// that flag only kept the listener still (a variant `Speaker`); a game saved while
-    /// such a line was said reads it as this one.
-    #[serde(alias = "Speaker")]
+    /// during the conversation].
     Nobody,
+    /// The speaker turns to the listener, the listener is not made to look at the
+    /// speaker: a SayTo line with `noTargetLookFlag` 1 (`functions::misc::say_to`)
+    /// [observed: observer check 218, base game 2026-11-25, #3989].
+    Speaker,
 }
 
 impl LineLook {
@@ -1640,6 +1650,10 @@ pub struct Game<'a> {
     /// Effect shaders and actor alpha scripts asked for (`crate::functions::misc::ScriptLooks`),
     /// for the engine to draw. Not part of the saved state.
     pub script_looks: crate::functions::misc::ScriptLooks,
+    /// Per-reference reentrancy guard for PRE-update `OnEnable` / `OnDisable` dispatch
+    /// [design: prevents an `OnDisable`/`OnEnable` handler calling `Disable`/`Enable` on the
+    /// same reference from recursing to `MAX_UDF_DEPTH` or emitting duplicate trace events].
+    pub(crate) enable_event_active: BTreeSet<FormId>,
     /// Animation groups scripts asked objects to play, and what the engine reports they
     /// play (`crate::anims`). Not part of the saved state.
     pub anims: crate::anims::ObjectAnims,
@@ -1772,6 +1786,10 @@ pub struct Game<'a> {
     /// References Rotate turned or SetScale resized in the latest [`Game::tick`], for the
     /// engine to draw at their new angle and size. Not saved.
     pub turned: BTreeSet<FormId>,
+    /// The NPCs the save had seated, each with its furniture reference, for the engine to
+    /// put back on at once (`Game::stand_everyone_up`, #3991). Filled by a load, taken once
+    /// by the engine; not saved.
+    pub saved_seats: BTreeMap<FormId, FormId>,
     /// Actors whose OnStartCombat block was fired and whose OnCombatEnd was not yet
     /// (`Game::combat_blocks`). Saved with the combat states, so that a load runs no block
     /// for a fight already going [documented: GECK wiki event handler table, OnStartCombat
@@ -2748,6 +2766,7 @@ impl<'a> Game<'a> {
             music_requests: Vec::new(),
             texture_swaps: Default::default(),
             script_looks: Default::default(),
+            enable_event_active: BTreeSet::new(),
             anims: Default::default(),
             barter_requests: Vec::new(),
             recipe_requests: Vec::new(),
@@ -2797,6 +2816,7 @@ impl<'a> Game<'a> {
             teleported: BTreeSet::new(),
             rotations: BTreeMap::new(),
             turned: BTreeSet::new(),
+            saved_seats: BTreeMap::new(),
             cell_resets: Vec::new(),
             level_news: Vec::new(),
             resurrections: Vec::new(),
@@ -3801,7 +3821,10 @@ impl<'a> Game<'a> {
                 return Some(id);
             }
         }
-        let bytes = crate::mod_files::read_data_file(&key)?;
+        let Some(bytes) = crate::mod_files::read_data_file(&key) else {
+            tracing::warn!("compile script: {path}: not found as {key}");
+            return None;
+        };
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;
@@ -3853,7 +3876,9 @@ impl<'a> Game<'a> {
         };
         let c = fnv_script::compile::compile_mod_runtime(&src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
-            let what = format!("{what}: {}: {}", e.kind.replace('_', " "), e.detail);
+            let what = format!("{what}: line {}: {}: {}", e.line, e.kind.replace('_', " "), e.detail);
+            // In the log too: a mod's "problem compiling" box says nothing of why.
+            tracing::warn!("compile script: {what}");
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });
             return None;
         }
@@ -3916,6 +3941,41 @@ impl<'a> Game<'a> {
     /// Exact record/owned-handle identity, shared by dispatch and arity admission.
     fn callable_script(&self, id: u32) -> Option<&'a Compiled> {
         self.data.script(FormId(id)).or_else(|| self.compiled_slots.get(&id).and_then(|&i| self.compiled_files.get(i).copied()))
+    }
+
+    /// Human-readable identifier for a script callable (FormID-backed UDF, compiled-file
+    /// UDF, or lambda) used to enrich runtime error units such as delayed calls [design].
+    /// Returns `None` when `f` does not resolve to a known script unit so unresolved
+    /// handles keep their existing error unit and deduplication key.
+    pub(crate) fn callable_label(&self, f: &fnv_script::vm::XVal) -> Option<String> {
+        let id = match f {
+            fnv_script::vm::XVal::Ref(id) => *id,
+            fnv_script::vm::XVal::Num(x) => *x as u32,
+            _ => return None,
+        };
+        if let Some(&index) = self.lambda_slots.get(&id) {
+            let key = crate::jip_provenance::Text::new(&self.lambdas[index].key).single_line();
+            return Some(format!("{key} lambda"));
+        }
+        if let Some(unit) = self.data.script(FormId(id)) {
+            let key = crate::jip_provenance::Text::new(unit.shared_key()).single_line();
+            return Some(match self.data.edid_of.get(&FormId(id)) {
+                Some(edid) if !edid.is_empty() => format!("{key} {}", crate::jip_provenance::Text::new(edid).single_line()),
+                _ => key,
+            });
+        }
+        if self.compiled_slots.contains_key(&id) {
+            let file = match self.compiled_origins.get(id) {
+                Some(crate::jip_provenance::CompiledOrigin::File(file)) => Some(file.single_line()),
+                Some(crate::jip_provenance::CompiledOrigin::Dynamic) => None,
+                None => self.compiled_paths.iter().find_map(|(path, &cid)| (cid == id).then(|| crate::jip_provenance::Text::new(path).single_line())),
+            };
+            return Some(match file {
+                Some(path) => format!("CompileScript {path} 0x{id:08X}"),
+                None => format!("CompileScript 0x{id:08X}"),
+            });
+        }
+        None
     }
 
     pub(crate) fn free_callable_handle(&self, start: u32, end: u32) -> Option<u32> {
@@ -4052,7 +4112,14 @@ impl<'a> Game<'a> {
         }
         self.close_run();
         let frame = self.udf.pop();
-        self.udf_value_set = frame.as_ref().is_some_and(|f| f.value.is_some());
+        // Expression-only lambdas (`({args} => 0)`) explicitly return a value and count
+        // as setting the function value for pre-event vetoes [observed: 2026-11-24,
+        // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_pre_event_lambda_and_unreg.json` probe
+        // `w6d1_13_pre_scripted_lambda_and_unregister`: `lam0=0->0|lam1=0->1|lateRan=0`;
+        // no DLL, PDB, or third-party source consulted].
+        self.udf_value_set = lambda_value.is_some() || frame.as_ref().is_some_and(|f| f.value.is_some());
         let v = match lambda_value {
             Some(v) => v,
             None => {
@@ -4102,10 +4169,35 @@ impl<'a> Game<'a> {
                         // SetEventHandlerAlt: index 0 the calling reference, 1–15 the
                         // arguments [documented: SetEventHandlerAlt].
                         (_, XVal::Num(i)) if alt && (0.0..=15.0).contains(i) => {
-                            self.ext.retain(&v);
                             h.filters.push((*i as usize, v));
                         }
                         _ => return Ok(XVal::Num(0.0)),
+                    }
+                }
+                // Deduplicate identical (event, func, priority, filters) registrations
+                // for both SetEventHandler and SetEventHandlerAlt [observed: 2026-11-24,
+                // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30,
+                // GSDocMitchellHouse (0x00103DF9), 10 official base masters,
+                // `tools/capture/nvse/catalogs/wave6d1_set_event_handler_dedup.json`
+                // probe `w6d1_03_set_event_handler_dups_and_bounds`:
+                // `PROBE|w6d1_03_set_event_handler_dups_and_bounds|std=1,0,n=1|alt=1,0,n=1|prio=0,1,1,0,0|arr=1,n=1`;
+                // no DLL, PDB, or third-party source consulted].
+                if self.handlers.iter().any(|e| {
+                    e.event == h.event
+                        && e.func == h.func
+                        && e.priority == h.priority
+                        && e.alt == h.alt
+                        && e.filters.len() == h.filters.len()
+                        && e.filters.iter().all(|f| {
+                            e.filters.iter().filter(|x| *x == f).count()
+                                == h.filters.iter().filter(|x| *x == f).count()
+                        })
+                }) {
+                    return Ok(XVal::Num(0.0));
+                }
+                if alt {
+                    for (_, v) in &h.filters {
+                        self.ext.retain(v);
                     }
                 }
                 self.ext.retain(&h.func);
@@ -4742,12 +4834,20 @@ impl<'a> Game<'a> {
         let ended: Vec<FormId> = self.script_looks.fading_out.iter().filter(|(_, &until)| until <= now).map(|(&r, _)| r).collect();
         for r in ended {
             self.script_looks.fading_out.remove(&r);
-            if self.world.set_enabled(r, false).is_ok() {
+            let was = self.world.get(r).is_ok_and(|s| s.enabled());
+            if was {
+                if !self.enable_event_active.insert(r) {
+                    continue;
+                }
+                // The extender's OnDisable, matching plain Disable's PRE-update timing and
+                // null calling reference [hypothesis: not separately observed for a faded
+                // disable].
+                self.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], None);
+                self.enable_event_active.remove(&r);
+            }
+            let still_enabled = self.world.get(r).is_ok_and(|s| s.enabled());
+            if self.world.set_enabled(r, false).is_ok() && still_enabled {
                 self.script_looks.disabled_after_fade.push(r);
-                // The extender's OnDisable, as a plain Disable sends it, now that the
-                // reference is disabled [hypothesis: the event follows the state
-                // GetDisabled reads; not observed for a faded disable].
-                self.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
             }
         }
         // `MoveToMarkerWithFade` moves whose fade out has ended.
@@ -5553,8 +5653,8 @@ impl<'a> Game<'a> {
     ///   "forced to look at the speaker" unless `noTargetLookFlag`]: its head only for a
     ///   SayTo line [design], head and body in a conversation between actors, where it
     ///   speaks next [design, as `fnv_ai` has turned both since it started them];
-    /// - nobody, when the line's [`LineLook`] says so (StartConversation's `headTrack` 0,
-    ///   SayTo's `noTargetLookFlag` 1).
+    /// - nobody, when the line's [`LineLook`] says so (StartConversation's `headTrack` 0);
+    ///   the speaker alone for SayTo's `noTargetLookFlag` 1.
     ///
     /// A line said to nobody (Say) turns nobody. Whether the engine can turn a body (one
     /// on furniture or on its way cannot) is the engine's. A line said through a talking
@@ -5570,6 +5670,9 @@ impl<'a> Game<'a> {
                 continue;
             }
             out.push(Facing { who: speaker, to, body: true, speaking: true, info: s.info });
+            if s.look == LineLook::Speaker {
+                continue;
+            }
             out.push(Facing { who: to, to: speaker, body: s.conversation.is_some(), speaking: false, info: s.info });
         }
         out
@@ -5712,11 +5815,14 @@ impl<'a> Game<'a> {
     /// to it, no conversation: [`Speech::greeting`]). The engine keeps it where it
     /// stands, turned to the player, until the line is over; its package goes on after
     /// [owner statement 2026-10-27, the Goodsprings settler's water line: "make her stop
-    /// and look at the player"; docs/design/dialogue-play.md §1]. Not once it is in a
-    /// combat state (Alert, Combat, Lost): the line then ends as if said to the end
-    /// (`Game::update_speech_of`) and it fights.
+    /// and look at the player"; docs/design/dialogue-play.md §1]. Not once it is fighting
+    /// (`State::Combat`, #883): the line then ends as if said to the end
+    /// (`Game::update_speech_of`) and it fights. An actor that is merely searching
+    /// (`State::Alert` or `State::Lost`, #3663) still pauses to finish its greeting
+    /// [hypothesis: a searching NPC can be talked to].
     pub fn greets_player(&self, actor: FormId) -> bool {
-        !self.awareness.state(actor).in_combat() && self.speech.iter().any(|s| s.speaker == actor && s.greeting && s.target == Some(FormId::PLAYER_REF))
+        self.awareness.state(actor) != crate::awareness::State::Combat
+            && self.speech.iter().any(|s| s.speaker == actor && s.greeting && s.target == Some(FormId::PLAYER_REF))
     }
 
     /// One frame of dialogue (game time only, like script time [hypothesis: a line does
@@ -5746,12 +5852,15 @@ impl<'a> Game<'a> {
             // be (`crate::talking_activators`); the actor's death still cuts the line.
             let place = s.place();
             let here = self.world.peek(place).is_none_or(|w| !w.deleted()) && self.world.is_enabled(place).unwrap_or(false);
-            // A Goodbye greeting at the player whose speaker is drawn into a fight ends at
-            // once as if said to the end (`Game::cut_line`, `Game::greets_player`) [owner
-            // statement 2026-10-27: "skip to the end of the line as if she finished
-            // speaking", "all the code runs"]; so does a farewell ([`Speech::farewell`])
-            // [hypothesis, as in `Game::cut_line`].
-            let fights = s.goodbye_at_player() && self.awareness.state(s.speaker).in_combat();
+            // A Goodbye greeting at the player whose speaker is drawn into a fight
+            // (`State::Combat`, #883) ends at once as if said to the end (`Game::cut_line`,
+            // `Game::greets_player`) [owner statement 2026-10-27: "skip to the end of the
+            // line as if she finished speaking", "all the code runs"]; so does a farewell
+            // ([`Speech::farewell`]) [hypothesis, as in `Game::cut_line`]. Searching states
+            // (`State::Alert` / `State::Lost`, #3663) do not end the line prematurely so a
+            // Goodbye greeting started while searching is heard rather than discarded in
+            // the same frame [hypothesis: a searching NPC can be talked to].
+            let fights = s.goodbye_at_player() && self.awareness.state(s.speaker) == crate::awareness::State::Combat;
             if !here || (self.extra.get(&s.speaker).is_some_and(|e| e.dead) && Some(s.topic) != death) {
                 cut.push(s.speaker);
             } else if s.remaining <= 1e-9 || fights {
@@ -6103,6 +6212,7 @@ impl<'a> Game<'a> {
     pub fn outfit_loaded_actors(&mut self) {
         for a in self.package_actors() {
             let _ = self.world.outfit(a);
+            self.maybe_apply_npc_weapon_mods(a);
         }
     }
 
@@ -6156,13 +6266,13 @@ impl<'a> Game<'a> {
         // the extender heard that attempt before the block ran, so this `Activate` is the
         // same activation and is not heard twice [design, #2123].
         let npc_door = mode == ActMode::Default && self.in_npc_door_run(actor, target);
-        if !npc_door {
-            self.activation_heard(actor, target);
-        }
-        if !self.activation_goes_on(actor, target) {
-            return Ok(serde_json::json!({"result": "destroyed"}));
-        }
         if mode == ActMode::Hand {
+            if !npc_door {
+                self.activation_heard(actor, target);
+            }
+            if !self.activation_goes_on(actor, target) {
+                return Ok(serde_json::json!({"result": "destroyed"}));
+            }
             if !self.pre_activation_allows(actor, target) {
                 return Ok(serde_json::json!({"result": "prevented"}));
             }
@@ -6170,8 +6280,19 @@ impl<'a> Game<'a> {
                 return Ok(serde_json::json!({"result": "destroyed"}));
             }
         } else {
+            // Scripted Activate runs ShowOff:OnPreScriptedActivate BEFORE xNVSE OnActivate
+            // and before destroyed refusal; vetoing skips OnActivate [observed: 2026-11-24,
+            // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+            // (0x00103DF9), 10 official base masters,
+            // `tools/capture/nvse/catalogs/wave6d1_pre_scripted_activate_order.json` probes
+            // `w6d1p2_11_on_activate_and_pre_scripted_order`, `w6d1p3_11_on_activate_noveto`,
+            // `w6d1_14_pre_scripted_destroyed_mutation`; no DLL, PDB, or third-party source
+            // consulted].
             if !self.pre_scripted_activation_allows(actor, target, mode == ActMode::Block) {
                 return Ok(serde_json::json!({"result": "prevented"}));
+            }
+            if !npc_door {
+                self.activation_heard(actor, target);
             }
             if !self.activation_goes_on(actor, target) {
                 return Ok(serde_json::json!({"result": "destroyed"}));
@@ -6236,6 +6357,9 @@ impl<'a> Game<'a> {
         let door_run = self.npc_door_run.take();
         let mut allowed = initial_allowed;
         for handler in &handlers {
+            // Skip any later handler unregistered mid-dispatch by an earlier handler
+            // [observed: `w6d1_13_pre_scripted_lambda_and_unregister`, `lateRan=0`].
+            if !self.handlers.iter().any(|live| live.seq == handler.seq) { continue; }
             let args = build_args(allowed);
             if !self.handler_matches(handler, &args, on) { continue; }
             let ctx = RunCtx { self_ref: on, action_ref, ..RunCtx::default() };
@@ -6265,10 +6389,12 @@ impl<'a> Game<'a> {
     }
 
     /// The extender's OnActivate handlers hear `actor` activating `target` (the target
-    /// first, the action reference second) [documented: NVSE Event Handling, OnActivate
-    /// row]. Also the first step of an NPC's walk through a door (`crate::npc_doors`).
+    /// first, the action reference second, null calling reference `GetSelfAlt == 0`)
+    /// [documented: NVSE Event Handling, OnActivate row; observed:
+    /// `w6d1p3_11_on_activate_noveto`, `act(s0=1,sR=0,a1=1,a2=1)`]. Also the first step
+    /// of an NPC's walk through a door (`crate::npc_doors`).
     pub(crate) fn activation_heard(&mut self, actor: FormId, target: FormId) {
-        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
+        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], None);
     }
 
     /// [`Game::activation_begins`] after the handlers: whether the activation goes on.
@@ -6369,7 +6495,7 @@ impl<'a> Game<'a> {
             Outcome::PickedUp { item, count, .. } => {
                 item_added_event = Some(self.events.len());
                 self.emit(EventKind::ItemAdded { to: actor, item, count, silent: false });
-                self.item_event(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)));
+                self.item_event_with(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)), Some(target));
             }
             Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
                 self.arrived_through(target, cell);
@@ -6438,6 +6564,17 @@ impl<'a> Game<'a> {
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the
     /// item's script runs in an instance per holder and item [hypothesis].
     pub fn item_event(&mut self, holder: FormId, item: FormId, ev: u16, subject: Option<Value>) -> bool {
+        self.item_event_with(holder, item, ev, subject, None)
+    }
+
+    fn item_event_with(
+        &mut self,
+        holder: FormId,
+        item: FormId,
+        ev: u16,
+        subject: Option<Value>,
+        world_ref: Option<FormId>,
+    ) -> bool {
         // The extender's OnEquip and OnUnequip (and OnActorUnequip with it): the holder and
         // the item [observed: nvse-events, (player, pistol) for all three]. Not OnAdd:
         // AddItem of a base form did not fire it [observed]; OnDrop is sent by Drop with
@@ -6446,7 +6583,7 @@ impl<'a> Game<'a> {
             self.ext_event(ev, holder, Some(Value::Ref(item.0)));
         }
         if ev == event::ON_ADD {
-            self.showoff_on_add(holder, item);
+            self.showoff_on_add(holder, item, world_ref);
         }
         if ev == event::ON_UNEQUIP {
             use fnv_script::vm::XVal;
@@ -6533,10 +6670,18 @@ impl<'a> Game<'a> {
     /// script (0 begin, 1 end, 2 change) and the actor's OnPackageStart / OnPackageDone /
     /// OnPackageChange blocks.
     pub fn package_event(&mut self, actor: FormId, package: FormId, which: usize) {
-        let data = self.data;
         if which != 1 {
             self.extra.entry(actor).or_default().current_package = Some(package);
         }
+        self.run_package_event(actor, package, which);
+    }
+
+    /// Run a package's event hooks (result script, topic, idle, and actor script block)
+    /// without mutating `current_package`. Used by [`Game::set_package`] so an outgoing
+    /// package's Change script (`which == 2`) sees the already-updated `current_package`
+    /// and cannot re-enter itself via `EvaluatePackage`.
+    pub(crate) fn run_package_event(&mut self, actor: FormId, package: FormId, which: usize) {
+        let data = self.data;
         if let Some(Some(u)) = data.packages.get(&package).map(|p| p[which]) {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
             self.run_result(u, RunCtx { self_ref: Some(actor), ..Default::default() });
@@ -6820,10 +6965,17 @@ impl<'a> Game<'a> {
     /// Active effects advance by `seconds` at once, as if that much game-mode time had
     /// passed in one frame (a wait or a sleep, `crate::needs`): each runs one
     /// ScriptEffectUpdate with those seconds, a value changed by the second changes by
-    /// the seconds inside its duration, and the effects whose duration has passed
-    /// finish [hypothesis: aid-items.md §6].
+    /// the seconds inside its duration (a regeneration by all of them), and the effects
+    /// whose duration has passed finish [hypothesis: aid-items.md §6]. The conditions are
+    /// checked first, whatever the time since the last check: the hours of a wait pass
+    /// with the game's own time standing still, and Solar Powered would heal all night.
+    /// Known limit: they are checked once, with the clock already at the end of the
+    /// step, for all its seconds. A jump of several hours (SetGameHour, fast travel) from
+    /// 17:00 to 20:00 heals nothing with Solar Powered; from 3:00 to 9:00 it heals for all
+    /// six hours. A wait steps hour by hour.
     pub fn advance_effects(&mut self, seconds: f64) {
         if seconds > 0.0 {
+            self.condition_check_due = self.time;
             self.update_effects(seconds);
         }
     }
@@ -7472,6 +7624,8 @@ impl<'a> Game<'a> {
             tracing::info!("load: the save holds the player disabled; enabled again (doors.md §6)");
             let _ = g.world.set_enabled(FormId::PLAYER_REF, true);
         }
+        // Regenerations an older save holds as one restoration go on by the second (#3471).
+        g.renew_regenerations();
         // Crime enmities an older save holds undated start their cooldown now (#2467).
         g.date_crimes();
         // Template-scripted actors' OnLoad after a load (#3228).
@@ -8043,6 +8197,14 @@ impl Host for Exec<'_, '_> {
         if self.game.temp_item(f).is_some() {
             return Some(*b"REFR");
         }
+        // A script CompileScript made, or a lambda, is a script form while it lasts
+        // [documented: CompileScript returns "a reference to the compiled script";
+        // observed in FadedLight's Nuclear Sunset fork: Scaled Recurring Challenges'
+        // `ln_addHandler.txt` checks `IsFormValid` on it and showed "There was a problem
+        // compiling" although it compiled (#4491)].
+        if self.game.compiled_slots.contains_key(&form) || self.game.lambda_slots.contains_key(&form) {
+            return Some(*b"SCPT");
+        }
         let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
         if let Some(s) = self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR")) {
@@ -8155,7 +8317,13 @@ impl Host for Exec<'_, '_> {
         // reads the calling script.
         self.game.other.plugin = self.unit_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
+        let timed = self.game.sr.is_running().then(std::time::Instant::now);
         let out = crate::nvse::call(self.game, &ctx, name, on, args);
+        if let Some(t) = timed {
+            let e = self.game.sr.call_times.entry(name.to_ascii_lowercase()).or_default();
+            e.0 += 1;
+            e.1 += t.elapsed().as_micros();
+        }
         // The host's own plugin questions (IsDLLLoaded, IsModLoaded), for the test aid.
         if self.game.plugin_questions.is_some() && crate::plugin_questions::FUNCTIONS.contains(&name) {
             if let (Some(Ok(fnv_script::vm::XVal::Num(answer))), Some(fnv_script::vm::XVal::Str(asked))) = (&out, args.first()) {

@@ -731,6 +731,9 @@ pub(crate) mod tests {
     }
 
     pub(crate) struct TestFiles(std::path::PathBuf);
+    impl TestFiles {
+        pub(crate) fn path(&self) -> &std::path::Path { &self.0 }
+    }
     impl Drop for TestFiles {
         fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
     }

@@ -22,6 +22,11 @@ cursor is inside the client area before a warp, even without a motion event. The
 query itself changes neither focus nor cursor position. Every pre-existing
 module retains `forbid`; the rest of the new cursor consumer inherits `deny`.
 
+In `bevy_winit/src/winit_windows.rs`, `attempt_grab` is a no-op returning
+`Ok(())` on `target_os = "android"`, because Android `NativeActivity` has no
+desktop cursor-grab API and winit otherwise logs `Unable to ungrab cursor` and
+`Could not set cursor grab mode` during initial `CursorOptions` sync.
+
 Source: crates.io `bevy_winit` 0.20.1, archive SHA-256
 `397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`.
 
@@ -135,7 +140,39 @@ main has the same guard.
 HDR output: `src/msaa_writeback.rs` fills `BlitPipelineKey`'s two new fields (`false`,
 `false`), as the vendored bevy_core_pipeline's key needs them.
 
+A third auto-exposure change (#3917), marked `NVForever (#3917)`, in `src/auto_exposure/`:
+
+- `auto_exposure.wesl` (`compute_average`): replaces the unclamped forward-Euler
+  exponential step `delta * exp_down` / `delta * exp_up` with exact exponential decay
+  `delta * (1.0 - exp(-exp_down))` clamped to `delta`. Upstream overshot `target_exposure`
+  whenever `speed * delta_time / exponential_transition_distance > 1.0`, and diverged into
+  a sustained `±(speed * delta_time)` EV period-2 black/bright strobe whenever that ratio
+  reached `2.0` (e.g. under slow frames or fast adaptation speeds after switching Quality
+  presets back up with Light glow re-enabled).
+- `buffers.rs` and `mod.rs`: maps `RemovedComponents<AutoExposure>` main-world entities to
+  `RenderEntity` (and prunes inactive views), removes `ViewAutoExposurePipeline` when
+  `AutoExposure` is removed, and guards `auto_exposure` with `With<AutoExposure>` and
+  `camera.hdr`. Upstream passed main-world entities into an `EntityHashMap` keyed by
+  `RenderEntity` and left `ViewAutoExposurePipeline` attached, so removing `AutoExposure`
+  (switching Light glow off via Quality Low) left the compute pass running on SDR views
+  and carried stale GPU exposure state into a later switch back up.
+
 ## bevy_pbr 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Skinning storage-buffer wrapping and normal hardening in `src/render/skinning.wesl`:
+storage `joint_matrices` and `prev_joint_matrices` are wrapped in
+`struct StorageJointMatrices`, an exactly singular skin matrix (`det == 0.0` in
+`inverse_transpose_3x3m`) uses an identity normal transform, and an exactly zero
+transformed normal in `skin_normals` uses `+Z`.
+Finite zero-scale animation and unweighted vertices can reach these cases; WGSL leaves
+runtime divide-by-zero and zero normalization indeterminate
+([WGSL floating point evaluation](https://www.w3.org/TR/WGSL/#floating-point-evaluation)).
+Nondegenerate inverse-transpose/normalization arithmetic, positions, skin weights,
+CURRENT/PREVIOUS storage layouts, buffer selection and morph gates are unchanged.
+This defines previously undefined normal directions; it does not establish a device-loss
+or Android visual-corruption cause. CPU production-WESL controls and GPU qualification
+are separate; remove/reconcile this patch when upstream provides equivalent guards.
+
 
 Bevy's 3D passes, for FSR upscaling (docs/design/fsr-upscaling.md), which draws the main
 passes at a lower resolution through `MainPassResolutionOverride`. Two changes, each marked
@@ -251,11 +288,18 @@ Sun shadows' Performance mode and staggered cascades, nvforever shadow_rate.rs),
   views, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare nothing
   for those cascades that frame.
 - `src/render/light.rs` `prepare_lights`: when the directional shadow texture the cache hands
-  out is not the one of the frame before (a shadowed spot light such as the flashlight
-  switched on or off changes its layer count, or the old one was dropped), the render
-  world's hold is cleared for that frame, so every cascade is drawn into the new texture
-  instead of a held one sampling an empty or stale layer (#2182 review). It logs
-  `held shadow maps: a new directional shadow texture`.
+  out is not the one of the frame before (the layer count grew, the map size changed, or the
+  old one was dropped), the render world's hold is cleared for that frame, so every cascade is
+  drawn into the new texture instead of a held one sampling an empty or stale layer (#2182
+  review). It logs `held shadow maps: a new directional shadow texture`.
+- `src/render/light.rs` `NvfDirectionalShadowLayerHighWater` (`#3779`, `[design]`): while
+  `HoldDirectionalShadowMaps` or `HoldLightShadowMaps` is active and the directional shadow
+  map's side stays unchanged, `prepare_lights` keeps a high-water layer count instead of
+  shrinking the descriptor back down when first-person `ArmsShade` or the flashlight turns
+  off, avoiding repeated 256–384 MB (at 4096) texture reallocations on view/flashlight
+  transitions. Changing the shadow map resolution resets the high-water count to the needed
+  layers; when the cascade count changes on a reused texture, the frame clears the directional
+  hold once so no held cascade samples a shifted layer.
 
 Bevy inserts no such resource, and without it (or with no bits set) nothing changes.
 Whoever sets it must hand the lights the held cascades as the frame that drew them had
@@ -503,11 +547,22 @@ marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
   terrain map is `Rgba32Float`, which is filterable only with the optional
   `FLOAT32_FILTERABLE` feature, so nvforever reads it with `textureLoad` and never with
   the sampler; its stand-in while no map is uploaded is nvforever's own one-texel
-  `Rgba32Float` texture, not Bevy's fallback image.
+  `Rgba32Float` texture, not Bevy's fallback image. Bindings 45 and 46 (2026-11-20,
+  #3032 stage 2i M2), under the key bit `MeshPipelineViewLayoutKey::NVF_CLOUD_VOLUME`
+  (with `NVF_SUN_VISIBILITY` only; the component's `cloud_volume`): the volumetric
+  clouds' light volume, its near and far completed front sets (`light_near`,
+  `light_far`: filterable float 2D arrays, `R16Float`, sampled with 42), which the cloud
+  shadows read from the volume (nvforever `light_volume_reader.wesl`); nvforever's own
+  one-texel, two-layer stand-in when there is none. nvforever leaves `cloud_volume` off
+  while its Volumetric clouds row is off and on an adapter whose fragment stage has too few sampled textures for two more (the
+  weather-only layout, `sun_visibility.rs` `CloudVolumeRoom`). The entries 39-46 are
+  made by the public `nvf_sun_visibility_layout_entries`, which the tests read.
 - `src/render/mesh.rs`: `MeshPipelineKey::NVF_SUN_VISIBILITY`, `NVF_CLOUD_VISIBILITY` and
   `NVF_TERRAIN_VISIBILITY` (bits 25-27; the key's bit fields above them move up by three,
-  well below the base mesh key's bits from 58), set by `check_views_need_specialization`
-  from the same component, and the shader defs of the same names. The pipelines' layout
+  well below the base mesh key's bits from 58), and `NVF_CLOUD_VOLUME_VISIBILITY` (bit 29,
+  after the ambient occlusion's 28; shader def `NVF_CLOUD_VOLUME`), set by
+  `check_views_need_specialization` from the same component, and the shader defs of the
+  same names. The pipelines' layout
   key and the view's bind group are both read from that one component in the same frame,
   so they cannot disagree; the component is inserted, changed and removed only during
   extraction.
@@ -543,6 +598,24 @@ The shader that reads the bindings is nvforever's (`ssao_lighting.wesl`, patched
 component; without it the layouts and shader defs are upstream's, and the pipeline keys are
 the same keys numbered differently (the packed fields above the new bit moved up by one).
 As for the sun visibility, a meshlet view must not get the component.
+
+Another change (the bounce light's volume, #3009, docs/design/rtgi-volume.md), each part marked
+`NVForever RTGI volume`, for nvforever's `rtgi_volume.rs`, built the same way. nvforever inserts
+the component nowhere yet:
+
+- `src/render/mesh_view_bindings.rs`: the render-world view component `NvfRtgiVolumeBindings`
+  (a uniform buffer, a filterable float 3D texture and a filtering sampler), the layout key bit
+  `MeshPipelineViewLayoutKey::NVF_RTGI_VOLUME` (20) and bindings 47-49 of the mesh view bind
+  group, present only for a view with it. The entries are made by the public
+  `nvf_rtgi_layout_entries`, which the tests read.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_RTGI_VOLUME` (bit 30; the packed fields above it
+  move up by one more and end at bit 51, still below the base mesh key's bits from 58), set by
+  `check_views_need_specialization` from the same component. No shader def follows from it:
+  nvf-assets' NIF material pushes `NVF_RTGI_VOLUME` for the pipelines that read the bindings.
+
+Bevy inserts no such component; without it the layouts and shader defs are upstream's, and the
+pipeline keys are the same keys numbered differently. A meshlet view must not get it.
+
 Graphics pass 2026-11-23, four more changes:
 
 - `src/cluster/gpu.rs`, `src/cluster/mod.rs`: bevy#25869 (GPU clustering keeps each view's
@@ -1230,3 +1303,25 @@ and prebuilt binaries.
   `MaterialBindlessSlab::get_bindless_index_table`, reversed in 0.19.1, which kept freed
   `ExtendedMaterial`s' textures in the slabs. Fixed upstream (bevyengine/bevy#25848);
   Bevy 0.20 has the fix, in `bevy_render::material_bind_groups` (#934).
+
+## winit 0.30.13 (Apache-2.0; rust-windowing contributors)
+
+Android controller admission only, marked `NVForever controller admission` in
+`src/platform/android.rs` and `src/platform_impl/android/mod.rs`: an optional
+application handler runs before the single native queue consumer translates input into
+window events. Unhandled inputs use the upstream path. NVForever copies controller
+samples into its own bounded queue, then uses Bevy's ordinary RawGamepadEvent route.
+No other platform backend changes. The upstream crate archive checksum was matched to
+Cargo.lock and its source files matched the installed registry before copying; upstream
+licences remain beside the source. Drop this patch when winit exposes equivalent native
+controller admission or provides a complete controller-event backend.
+
+## rapier3d 0.36.1 (Apache-2.0, Dimforge)
+
+Vendored at the repository root (`vendor/rapier3d/`) and wired via `[patch.crates-io]`
+in both `Cargo.toml` and `engine/Cargo.toml` so both workspaces resolve the exact same
+physics crate. Carries two bounded zero-dt collision-query refresh fixes in
+`src/pipeline/physics_pipeline/substep.rs` (deferred BVH optimization join before
+`dt <= 0.0` return) and `src/dynamics/island_manager/manager.rs`
+(`commit_sleeping_chunks` after persistent sleep bootstrap). Full baseline SHA-256,
+rationale, and test notes are in `vendor/rapier3d/README.nvforever.md`.

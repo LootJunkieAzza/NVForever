@@ -123,6 +123,9 @@ pub struct Row {
     /// The ammo the player's weapon loads: marked as equipped is (it is not equipped in
     /// the inventory's sense).
     pub loaded: bool,
+    /// Ammo the player's weapon cannot fire, in the Pip-Boy: its row is drawn at half
+    /// brightness [observed: observer check 288, #3442].
+    pub dim: bool,
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
@@ -207,7 +210,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false, ysi: None }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, dim: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false, ysi: None }
     }
 }
 
@@ -384,6 +387,14 @@ fn sort_rows_by(rows: &mut [Row], by_ysi_tag: bool) {
     }
 }
 
+/// Marks the ammo rows `firable` leaves out as dim (`Row::dim`); `None` dims nothing.
+/// Only ammo rows: a weapon or a stimpak is never dim [observed: observer check 288].
+fn mark_dim(rows: &mut [Row], firable: Option<&[FormId]>) {
+    for r in rows.iter_mut() {
+        r.dim = r.kind == Some(ItemKind::Ammo) && firable.is_some_and(|f| !f.contains(&r.item));
+    }
+}
+
 fn sort_rows(rows: &mut [Row]) {
     sort_rows_by(rows, true);
 }
@@ -431,7 +442,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false, loaded: false,
+            bartered: false, loaded: false, dim: false,
             mods: extra.mods,
             mods_value: forms.mods_value(item, extra.mods),
             folder: None,
@@ -476,7 +487,7 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false, loaded: false,
+            bartered: false, loaded: false, dim: false,
             mods: s.extra.mods,
             mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
@@ -625,6 +636,11 @@ pub enum Command {
     /// The next commands hold only if the row is still there ([`MenuModel::row_is`]);
     /// `crate::menu::apply_input` drops them otherwise.
     Expect(RowGuard),
+    /// Internal one-shot touch envelope. Only menu::apply_input may resolve it
+    /// against its exact live barter guard; the plain model treats it as a no-op.
+    CommitBarter(u64),
+    /// One-shot normal-presentation touch, resolved only by menu::apply_input.
+    CommitNormalBarter(u64),
     Up,
     Down,
     PageUp,
@@ -648,6 +664,9 @@ pub enum Command {
     /// from the container, store from the player). Barter: put one unit up, or take one
     /// back. Inventory: equip or unequip it (aid items are used).
     One,
+    /// Container and barter menus: move one unit without opening the quantity prompt
+    /// (`quantity-select-short-keys` Ctrl shortcut, #3799) [design].
+    OneSingle,
     /// Container and barter menus: the same for the whole selected stack.
     Stack,
     /// Container menu: take everything from the container.
@@ -659,6 +678,9 @@ pub enum Command {
     Accept,
     /// Inventory: drop one unit of the selected stack into the world.
     Drop,
+    /// Inventory: drop one unit without opening the quantity prompt
+    /// (`quantity-select-short-keys` Ctrl shortcut, #3799) [design].
+    DropSingle,
     /// Inventory: drop the whole selected stack.
     DropStack,
     /// Inventory: leave the open Misc folder ([`Folder`]).
@@ -889,6 +911,12 @@ pub struct MenuModel {
     confirming_take_all: bool,
     /// The player's Store All tweak: Shift with Take All stores instead.
     pub store_all: bool,
+    /// Named NVForever option `quantity-select-short-keys` (off by default; #3799):
+    /// Shift transfers/drops the full stack, Ctrl transfers/drops one unit skipping the
+    /// quantity prompt, and picking up a weightless stack (`count > 1`) from a container
+    /// opens the quantity prompt [documented: JIP LN v57.30 `jip_nvse.ini`
+    /// `bQttSelectShortKeys`; design: docs/spec-notes/quantity-select-short-keys.md].
+    pub qtt_select_short_keys: bool,
     /// The player's tweak: the barter figure shows the whole total, past what the
     /// merchant can pay [design: docs/design/tweaks.md].
     pub full_barter_total: bool,
@@ -917,6 +945,11 @@ pub struct MenuModel {
     /// Show Equipped Ammo tweak (`ammo_mark_in_containers`).
     pub current_ammo: Option<FormId>,
     pub ammo_mark_in_containers: bool,
+    /// The ammo the player's weapon can fire (`fnv_combat::data::FormStore::ammo_choices`
+    /// of `crate::combat::Combat::player_weapon`, set by `crate::tweaks` each frame):
+    /// every other ammo row of the player's inventory is dimmed (`Row::dim`). Empty
+    /// with the fists out (every ammo row dim); `None` when not known (no dimming).
+    pub firable_ammo: Option<Vec<FormId>>,
     /// What the log last said of the Ammo tab's rows ([`MenuModel::refresh`]): said again
     /// only when it changes.
     ammo_told: String,
@@ -1132,6 +1165,17 @@ impl MenuModel {
         self.refresh(world)
     }
 
+    #[cfg(test)]
+    pub(super) fn test_empty(mode: Mode) -> MenuModel {
+        Self::empty(mode, String::new())
+    }
+
+    /// Test-only empty inventory model for unit tests without a synthetic player plugin.
+    #[cfg(test)]
+    pub(crate) fn empty_inventory() -> MenuModel {
+        MenuModel::empty(Mode::Inventory, "Inventory".into())
+    }
+
     fn empty(mode: Mode, title: String) -> MenuModel {
         MenuModel {
             mode,
@@ -1155,6 +1199,7 @@ impl MenuModel {
             take_all_confirm: None,
             confirming_take_all: false,
             store_all: false,
+            qtt_select_short_keys: false,
             full_barter_total: false,
             barter_caps_change: false,
             hide_equipped_barter: false,
@@ -1166,6 +1211,7 @@ impl MenuModel {
             usable_ammo: Vec::new(),
             ysi_icons: true,
             current_ammo: None,
+            firable_ammo: None,
             ammo_mark_in_containers: false,
             ammo_told: String::new(),
             title_case_categories: false,
@@ -1261,6 +1307,12 @@ impl MenuModel {
                     for r in l.rows.iter_mut().filter(|r| r.item == a) {
                         r.loaded = true;
                     }
+                }
+                // Ammo the weapon cannot fire is dimmed in the Pip-Boy; a weapon's other
+                // kinds stay at full strength, and with the fists out every ammo row is dim
+                // [observed: observer check 288, #3442].
+                if side == Side::Player && self.mode == Mode::Inventory {
+                    mark_dim(&mut l.rows, self.firable_ammo.as_deref());
                 }
                 // The Ammo tab's rows in the log, so a report about its marks can be read
                 // (#3442): how many, and which carries the loaded mark.
@@ -1488,7 +1540,7 @@ impl MenuModel {
                                 condition: None,
                                 icon: forms.item(card).and_then(|i| i.icon.clone()),
                                 price: None,
-                                bartered: false, loaded: false,
+                                bartered: false, loaded: false, dim: false,
                                 mods: 0,
                                 mods_value: 0,
                                 folder: None,
@@ -1657,7 +1709,7 @@ impl MenuModel {
                     }
                 }
             }
-            Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
+            Command::CommitBarter(_) | Command::CommitNormalBarter(_) | Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
             _ => {
                 // The player's Take All Confirmation tweak: the first Take All asks, the next
                 // does it; anything else takes the question back [design: docs/design/tweaks.md].
@@ -1667,7 +1719,7 @@ impl MenuModel {
                     self.status = Some(format!("Take all {n} items? Take All again to confirm"));
                     return out;
                 }
-                if let Some(q) = self.asks_quantity(cmd) {
+                if let Some(q) = self.asks_quantity(world, cmd) {
                     self.quantity = Some(q);
                     self.status = None;
                     return out;
@@ -1733,8 +1785,25 @@ impl MenuModel {
         self.confirming_take_all
     }
 
-    /// The prompt asked for by `cmd` on the selected row, if its stack is large enough.
-    fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
+    /// Whether `r` is effectively weightless for the player (ammo outside Hardcore mode,
+    /// kinds marked weightless by `WeightRules`, or items with weight `<= 0` / none)
+    /// [design: docs/spec-notes/quantity-select-short-keys.md].
+    fn row_is_weightless(world: &World<'_>, r: &Row) -> bool {
+        let rules = world.weight_rules(PLAYER);
+        let ammo_has_weight = rules.ammo_weight.unwrap_or(world.config().hardcore);
+        if r.kind == Some(ItemKind::Ammo) && !ammo_has_weight {
+            return true;
+        }
+        if r.kind.is_some_and(|k| rules.weightless(k, false, false)) {
+            return true;
+        }
+        r.weight.unwrap_or(0.0) <= 0.0
+    }
+
+    /// The prompt asked for by `cmd` on the selected row, if its stack is large enough
+    /// (or, with `quantity-select-short-keys` enabled, when picking up a weightless stack
+    /// of more than one unit from a container).
+    fn asks_quantity(&self, world: &World<'_>, cmd: Command) -> Option<Quantity> {
         let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
         let r = self.selected_row(self.focus)?;
         // The player's tweak: storing with a companion, no more than it can carry (at
@@ -1743,7 +1812,12 @@ impl MenuModel {
             (Mode::Container(_), Side::Player, Some(cap)) => carry_cap(r.count, r.weight.unwrap_or(0.0), cap - self.lists[Side::Container as usize].weight as f32),
             _ => r.count,
         };
-        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && !r.live && r.kind != Some(ItemKind::CaravanCard)).then_some(Quantity {
+        let weightless_container_pickup = self.qtt_select_short_keys
+            && matches!((self.mode, self.focus, cmd), (Mode::Container(_), Side::Container, Command::One))
+            && Self::row_is_weightless(world, r)
+            && r.count > 1;
+        let threshold_met = r.count > ASK_QUANTITY_ABOVE || weightless_container_pickup;
+        (asks && self.amount.is_none() && threshold_met && r.folder.is_none() && !r.live && r.kind != Some(ItemKind::CaravanCard)).then_some(Quantity {
             cmd,
             side: self.focus,
             row: self.selected[self.focus as usize],
@@ -1816,7 +1890,7 @@ impl MenuModel {
                 out.changed = n > 0;
                 Ok(if n == 0 { "Nothing to store".into() } else { format!("Stored everything ({n} items)") })
             }
-            (Mode::Container(c), Command::One | Command::Stack) => {
+            (Mode::Container(c), Command::One | Command::OneSingle | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 let (from, to) = match self.focus {
                     Side::Container => (c, PLAYER),
@@ -1840,7 +1914,7 @@ impl MenuModel {
                         });
                     }
                 }
-                let want = self.want(cmd == Command::One, &r);
+                let want = self.want(matches!(cmd, Command::One | Command::OneSingle), &r);
                 if let Some(st) = self.steal.as_mut() {
                     let chance = st.chance(&r, want);
                     if !st.unnoticed(chance) {
@@ -1863,13 +1937,13 @@ impl MenuModel {
                 let verb = if self.focus == Side::Container { "Took" } else { "Stored" };
                 Ok(format!("{verb} {} x{n}", name(&r)))
             }
-            (Mode::Barter(_), Command::One | Command::Stack) => {
+            (Mode::Barter(_), Command::One | Command::OneSingle | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 if r.live {
                     self.amount = None;
                     return Ok(live_refusal(&r.name));
                 }
-                let want = self.want(cmd == Command::One, &r);
+                let want = self.want(matches!(cmd, Command::One | Command::OneSingle), &r);
                 let Some(t) = self.trade.as_mut() else { return Ok(String::new()) };
                 out.changed = true;
                 if r.bartered {
@@ -1940,7 +2014,7 @@ impl MenuModel {
                     (false, false) => format!("Equipped {} (took off {})", name(&r), off.join(", ")),
                 })
             }
-            (Mode::Inventory, Command::Drop | Command::DropStack) => {
+            (Mode::Inventory, Command::Drop | Command::DropSingle | Command::DropStack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 // A folder row is no item; the cards AddCardToPlayer gave are not in the
                 // inventory [design: carried CCRD items are not dropped either].
@@ -1950,7 +2024,7 @@ impl MenuModel {
                 if r.kind == Some(ItemKind::CaravanCard) {
                     return Ok(format!("{} can't be dropped", name(&r)));
                 }
-                let want = self.want(cmd == Command::Drop, &r);
+                let want = self.want(matches!(cmd, Command::Drop | Command::DropSingle), &r);
                 let created = match world.player_drop_item_at(r.item, want, r.pick()) {
                     Err(SimError::QuestItem(_)) => return Ok(format!("{} is a quest item and can't be dropped", name(&r))),
                     other => other?,
@@ -1960,8 +2034,8 @@ impl MenuModel {
                 out.created = created;
                 Ok(format!("Dropped {} x{want}", name(&r)))
             }
-            (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
-            (Mode::Inventory, Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
+            (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropSingle | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
+            (Mode::Inventory, Command::OneSingle | Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
             _ => Ok(String::new()),
         }
     }
@@ -2119,7 +2193,7 @@ pub fn report_progress_fixture(mode: Mode, step: usize) -> MenuModel {
             icon: None,
             price: None,
             bartered: false,
-            loaded: false,
+            loaded: false, dim: false,
             mods: 0,
             mods_value: 0,
             folder: None,

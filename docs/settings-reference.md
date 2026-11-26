@@ -33,6 +33,8 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md (i
 `tweak-keep-chosen-ammo` — Keep Chosen Ammo, under Tweaks › Combat › Weapons and Armour,
 off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 
+Android-specific rows and HUD compatibility are documented in [the Android settings supplement](settings-reference-android.md); they are not part of the desktop launcher's built-in table.
+
 ## Gameplay › Game
 
 ### `difficulty`: Difficulty
@@ -109,6 +111,12 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
   counts against anyone who sees you. The sneak gauges' noise bar marks the cover with a
   bright square. Off: detection is the original's. Not in the original (#2688).
 - Registered in `engine/nvf-play/src/sound_cover.rs`
+
+### `npc-weapon-mods`: NPC weapon mods
+
+- On the page: On: NPCs have a level-scaled chance (10%-60%, +2%/level) for their main weapon to spawn with random weapon mods. Off: NPC weapons have no extra mods, as in the original.
+- In full: Off by default. When on, each non-player NPC (`NPC_`, including leveled `LVLN` picks) rolls once when its main weapon is outfitted for a `Min(60, Max(10, Level * 2))`% chance to attach 1-3 random weapon mods from the weapon's valid `WMI1`-`WMI3` slots, without overwriting already-modded weapons or re-rolling across ticks. Never reads `jip_nvse.ini` (`docs/design/extender-compat.md` §8.4). Follows JIP LN NVSE Plugin `57.30` (`https://www.nexusmods.com/newvegas/mods/58277`) `jip_nvse.ini` `[GamePatches]` `bNPCWeaponMods` (`uWMChancePerLevel=2`, `uWMChanceMin=10`, `uWMChanceMax=60`; no DLL or source consulted): "When enabled, all NPCs will have a chance for their main weapon to include weapon mods. The chance is based on each NPC's level - the higher the level, the greater the chance. The type of mod(s) is selected randomly from the ones available for the particular weapon. Weapons have a chance to include multiple mods, though 2 mods is rare, and a fully-modded weapon is uncommon." NVForever's deterministic per-NPC seed, multi-mod probability curve, and single-roll tracking are NVForever's own (`[design]`, `docs/spec-notes/npc-weapon-mods.md`, #3876).
+- Registered in `engine/nvf-play/src/tweaks.rs`
 
 ## Gameplay › V.A.T.S.
 
@@ -299,6 +307,37 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
   SystemSave to the system slot, ForceSave as a new save.
 - Registered in `engine/nvf-play/src/save.rs`
 
+## Gameplay › Combat
+
+### `localized-dt-dr`: Localized armor DT/DR
+
+- On the page: On: head hits use only worn head armor DT/DR and body hits only worn body
+  armor; explosions use all worn armor and innate DT/DR still applies. Off: full worn armor
+  everywhere.
+- In full: Default Off (vanilla sums all worn armor DT/DR across head and body slots on
+  every hit). When On, head hits benefit only from worn head-slot armor DT/DR and body hits
+  benefit only from worn body-slot armor DT/DR, while explosions still apply full worn armor
+  and actor innate DT/DR (AV 76/18) still applies everywhere. Optional NVForever setting
+  following the public `bLocalizedDTDR` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/localized-dt-dr.md`, #3843).
+- Registered in `engine/nvf-play/src/combat.rs`
+
+## Gameplay › Menus
+
+### `quantity-select-short-keys`: Quantity select shortcuts
+
+- On the page: In inventory, container and barter menus, Shift transfers or drops the whole
+  stack, Ctrl acts on one item, and weightless container stacks open the quantity prompt.
+- In full: Off by default (unmodded menu behaviour unchanged). On: in Inventory, Container
+  and Barter menus, holding Shift transfers or drops the entire stack and holding Ctrl
+  transfers or drops a single item without opening the quantity prompt (Shift takes
+  precedence if both are held); picking up a stack of more than one weightless item (such
+  as ammo outside Hardcore mode) from a container opens the quantity prompt instead of
+  taking without asking. Optional NVForever setting following the public `bQttSelectShortKeys`
+  behaviour in JIP LN NVSE Plugin v57.30 (`docs/spec-notes/quantity-select-short-keys.md`,
+  #3799).
+- Registered in `engine/nvf-play/src/menu.rs`
+
 ## Gameplay › Bug Reports
 
 ### `send-reports`: Send reports to help fix NVForever
@@ -316,6 +355,16 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
   7 days) and drops the ones not sent yet; later reports, this session's too, get a new ID
 - More: docs/design/player-reports.md
 - Registered in `engine/nvforever/src/reports/delete.rs`
+
+## Gameplay › Co-op
+
+### `coop`: Co-op
+
+- On the page: On: the main menu shows Join Lobby and the pause menu a Co-op screen to open
+  a lobby. It stays on while a lobby is open or joined.
+- Off by default; kept in `NVForever.ini` `[Settings]` [design].
+- Greyed while a lobby is open or this game is a guest in one.
+- Registered in `engine/nvf-play/src/lobby.rs`
 
 ## Display › Screen
 
@@ -361,7 +410,10 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 - In full: Vertical sync: each frame waits for the display's refresh (no tearing). Variable
   refresh: for a G-Sync or FreeSync screen, vertical sync with the frame rate held a few
   frames under the screen's refresh rate, so frames are shown as soon as they are drawn
-  without tearing. Off: frames are shown as soon as they are drawn (may tear).
+  without tearing; with DLSS frame generation, vertical sync is off and the limit is kept
+  (NVIDIA's frame generation does not take the game's vsync on Vulkan; for no tearing set
+  Vertical sync On for the game in the NVIDIA Control Panel).
+  Off: frames are shown as soon as they are drawn (may tear).
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `frame-cap`: Frame rate limit
@@ -370,7 +422,9 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
   keeps the computer cooler and quieter.
 - In full: At most this many frames a second (Off: as many as the computer draws, or the
   display's refresh with vertical sync; with variable refresh the lower of this and its own
-  limit). A lower limit keeps the computer cooler and quieter.
+  limit). It counts the frames shown: with frame generation the real frames are this divided
+  by the frames shown for each. With vertical sync a limit at or above the display's refresh
+  is left to vsync. A lower limit keeps the computer cooler and quieter.
 - Shown as a list since the menu overhaul; an older slider number in the INI still loads as
   the nearest choice.
 - Registered in `engine/nvforever/src/settings.rs`
@@ -484,9 +538,9 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
   upscaling (any mode; not with DLSS) and vertical sync or variable refresh, and real frames
   are held to just under half the refresh rate. DLSS: NVIDIA DLSS Frame Generation, one to
   three frames for each real frame (Generated frames, below); needs an upscaler (FSR 3.1 or
-  DLSS), Display sync Off, an NVIDIA RTX 40 series or newer graphics card, Windows'
-  hardware-accelerated GPU scheduling and NVIDIA's frame generation files in the dlss folder
-  beside nvforever.exe; frames are generated only while the game's window is in front.
+  DLSS), Display sync Off or Variable refresh, an NVIDIA RTX 40 series or newer graphics
+  card, Windows' hardware-accelerated GPU scheduling and NVIDIA's frame generation files in
+  the dlss folder beside nvforever.exe; frames are generated only while the game's window is in front.
   Latency reduction turns on with either. The HUD and menus are not generated; menus and
   loading screens show real frames only. Best from 60 real frames a second. Not in the
   original.
@@ -554,6 +608,13 @@ off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
 - On the page: On: two bars under the sneak word show how lit you are and how much noise you
   make, as detection counts them. Not in the original.
 - Registered in `engine/nvf-play/src/sneak_gauges.rs`
+
+### `caravan-tips`: Caravan tips
+
+- On the page: On: the Caravan table says what the chosen card does and why a card can't be
+  played, and the menu has a Tips button. Off: only the game's short messages. Not in
+  the original.
+- Registered in `engine/nvf-play/src/caravan.rs`
 
 ### `dynamic-crosshair`: Dynamic crosshair
 
@@ -1098,14 +1159,41 @@ below cover them all.
 
 - On the page: Creases, corners and the ground under things darken by how enclosed they are:
   Off, Performance (cheaper, a little grainier) or Quality. Not in the original.
-- In full: Screen-space ambient occlusion from the depth, on the ambient light and the lamps
-  that cast no shadow: Off; Performance (one slice direction a pixel instead of two: half the
-  horizon march, the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4
-  steps a side at half resolution, depth-aware denoise). Quality in the enhanced look.
+- In full: Screen-space ambient occlusion from the depth, on the ambient light, on the lamps
+  that cast no shadow and by half on those that do (the flashlight, the ALC shadows row's
+  lamps), and on the lamps' highlights (a shiny surface no longer glints in a crease as in the
+  open): Off; Performance (one slice direction a pixel instead of two: half the horizon march,
+  the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4 steps a side at
+  half resolution, depth-aware denoise). Under TAA, FSR or DLSS its sample pattern moves each
+  frame, so what the denoise leaves on leaves and outlines is averaged away. Quality in the
+  enhanced look.
 - Shown as a list since 2026-11-19; an INI written while it was an on/off switch (`1`/`0`,
   true/false, on/off, yes/no) still loads as Quality or Off.
 - Command-line switches: `--graphics`, `--ambient-occlusion`
 - More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-clouds`: Volumetric clouds (experimental)
+
+- On the page: The weather's clouds drawn with depth, lit by the sun: Off, or Performance,
+  Normal or High, each finer and dearer than the last. A prototype. Not in the original.
+- In full: The weather's own cloud layers, as Cloud shadows composes them, become a
+  layer of cloud with thickness above the world, worked out per pixel: lit by the weather's
+  sunlight (by night its night light, from the moon), bright toward the sun, darker
+  underneath, coloured by the weather's cloud colours, fading into the sky toward the
+  horizon. Thick cloud hides the sun and the moon. The clouds follow the weather's cover,
+  drift and transitions, and Cloud shadows on the ground, where that row is on, are theirs while they
+  are drawn. High draws them into a buffer of two
+  fifths of the render size, Normal a third, Performance a quarter; Normal and Performance
+  also look for cloud along each ray at twice the spacing. A prototype. The water's
+  reflection, the scope's lens and a mod's extra cameras keep the weather's flat clouds while
+  it is drawn. With Cloud shadows on, switching it rebuilds the world's material pipelines.
+  Off in every preset; not in the original. Outdoors only.
+- Shown as a list since 2026-11-23; an INI written while it was an on/off switch (`1`/`0`,
+  true/false, on/off, yes/no) still loads as Normal or Off.
+- Command-line switches: `--graphics-only` (`volumetric-clouds` is Normal;
+  `volumetric-clouds-performance`, `volumetric-clouds-high`)
+- More: docs/design/graphics-enhanced.md §3.23, docs/design/volumetric-medium.md
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `light-shafts`: Sun shafts
@@ -1169,6 +1257,25 @@ below cover them all.
   not in the original.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.19
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-light`: Volumetric light (experimental)
+
+- On the page: On: sunlight and moonlight show in the air as rays and a glow toward a low
+  sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An
+  addition of NVForever's.
+- While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
+  it draws). A prototype. Outdoors only, by the sun by day and by
+  the moon at night (nothing at night in a climate without one), in the main view only. Off in every preset; not in the original.
+- Command-line switches: `--graphics-only`
+- More: docs/design/volumetric-medium.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-light-strength`: Volumetric light strength
+
+- On the page: How strongly the light in the air brightens lit air and darkens shaded air:
+  100% is the look as tuned, 0% none.
+- 0 % to 200 % in steps of 10 %, 100 % by default; greyed while Volumetric light is off.
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `bloom`: Bloom
@@ -1386,11 +1493,15 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   count as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
   collision, the mesh terrain blend and the distant landscape keep the plain surface, and
   so do layers drawn on their own (GPUs without bindless textures; a texture repeat that
-  does not divide the cell). Needs Authored materials: in the game, as this run has it
+  does not divide the cell). A layer whose texture has no set takes the height from its
+  diffuse's alpha where that is a varying DXT5 alpha, as the ground packs for the original's
+  terrain parallax shaders have it (depth 0.03; read only while the switch is on, over some
+  frames when it is switched on in a game). Needs
+  Authored materials: in the game, as this run has it
   (greyed until a restart when it was off at the start; still available after turning it
   off for the next start); in the launcher, as saved. The original draws no relief on its
   landscape [observed: the maintainer's run of observer check 268, 2026-11-22, by eye], so this
-  is an enhancement that acts only with an authored ground pack. Off by
+  is an enhancement that acts only with a ground pack. Off by
   default and in both presets until its cost is measured (the maintainer's call); switches
   at once, no restart.
 - Command-line switches: `--graphics-only` (`--graphics-only terrain-parallax`)

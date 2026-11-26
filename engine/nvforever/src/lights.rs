@@ -180,6 +180,7 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     let bevy::shader::Source::Wesl(source) = &shader.source else {
         error!("{PBR_FUNCTIONS}: not WESL; surfaces keep Bevy's linear lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
         reflection_gate_failed();
         return;
     };
@@ -187,6 +188,7 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     let Some(patched) = display_patched(&source) else {
         error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
         reflection_gate_failed();
         return;
     };
@@ -209,6 +211,16 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
             (patched, false)
         }
     };
+    // The bounce light's hook goes in after the ambient occlusion's, whose names it uses; it
+    // too acts only under its shader def (rtgi_volume.rs).
+    let (patched, rtgi_hooked) = match crate::rtgi_volume::hook_patched(&patched) {
+        Some(hooked) => (hooked, true),
+        None => {
+            error!("{PBR_FUNCTIONS}: the RTGI volume hook's anchors not found (Bevy or an earlier patch changed?); no view gets a bounce light volume");
+            crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
+            (patched, false)
+        }
+    };
     // The reflection gate last (lights/reflection_gate.rs): the view's environment map light
     // reaches only fragments that opt in. Made whether or not reflections are on in this run;
     // without the opt-in def its text compiles to what Bevy's did without a cube.
@@ -222,6 +234,7 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     if let Err(e) = shaders.insert(&state.handle, patched) {
         error!("{PBR_FUNCTIONS}: the patched shader could not be stored ({e:?}); surfaces keep Bevy's lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
         reflection_gate_failed();
         return;
     }
@@ -229,6 +242,10 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     if ao_hooked {
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Installed);
         info!("lights: ambient occlusion hook installed");
+    }
+    if rtgi_hooked {
+        crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Installed);
+        info!("lights: RTGI volume hook installed");
     }
     if gated {
         nvf_assets::reflection_cube::set_gate_state(nvf_assets::reflection_cube::GateState::Installed);
@@ -797,6 +814,11 @@ mod tests {
         assert!(at("nvf_spot_display(light_id") < at("nvf_directional_display(i,"));
         assert!(at("nvf_directional_display(i,") < at("let nvf_sum"));
         assert!(at("let nvf_sum") < at("// Total light"));
+        // The product is formed in display values and made linear by the sRGB curve, the
+        // frame's own (not a 2.2 power, which shows dark products at half and less).
+        assert!(out.contains("direct_light += nvf_display_to_linear(min(nvf_linear_to_display(diffuse_color) * nvf_sum, vec3(1.0))) / view_bindings::view.exposure;"));
+        assert!(at("fn nvf_linear_to_display(") < at("fn nvf_display_to_linear(") && at("fn nvf_display_to_linear(") < at("fn apply_pbr_lighting("));
+        assert!(!out.contains("pow(nvf_sum"));
         assert_eq!(out.matches("fn apply_pbr_lighting(").count(), 1);
         assert!(out.starts_with("head\n") && out.ends_with("tail\n"));
         // A missing anchor (Bevy changed) leaves the source alone.
@@ -1201,7 +1223,46 @@ mod tests {
         let source = unix_lines(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}")));
         let display = display_patched(&source).expect("display patch applies");
         let sun = crate::sun_visibility::hook_patched(&display).expect("sun hook applies");
-        crate::ssao_lighting::hook::hook_patched(&sun).expect("ambient occlusion hook applies")
+        let ao = crate::ssao_lighting::hook::hook_patched(&sun).expect("ambient occlusion hook applies");
+        crate::rtgi_volume::hook_patched(&ao).expect("RTGI volume hook applies")
+    }
+
+    /// The installer itself: the whole chain in its order stored and the bounce light's hook
+    /// (#3009) reported installed; with its anchor doubled (which fails no other edit), or
+    /// without the display sum, reported failed and not in the text. Run in a process of its
+    /// own, as it sets the process-wide states of three hooks.
+    #[test]
+    fn the_installer_reports_the_rtgi_hook() {
+        use crate::rtgi_volume::{hook::IMPORT_LINE, hook_state, HookState};
+        const CHILD: &str = "NVF_TEST_RTGI_INSTALLER_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["lights::tests::the_installer_reports_the_rtgi_hook", "--exact", "--nocapture", "--test-threads=1"])
+                .env(CHILD, "1")
+                .output()
+                .expect("start the test alone");
+            let text = String::from_utf8_lossy(&output.stdout);
+            assert!(output.status.success() && text.contains("1 passed"), "{text}\n{}", String::from_utf8_lossy(&output.stderr));
+            return;
+        }
+        let good = std::fs::read_to_string(format!("{}/../vendor/bevy_pbr/src/render/pbr_functions.wesl", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let doubled = unix_lines(&good).replacen(IMPORT_LINE, &IMPORT_LINE.repeat(2), 1);
+        assert_eq!(hook_state(), HookState::Pending);
+        for (source, installed) in [(&good, true), (&doubled, false), (&good, true), (&String::new(), false), (&good, true)] {
+            let mut world = World::new();
+            let mut shaders = Assets::<Shader>::default();
+            let handle = shaders.add(Shader::from_wesl(source.clone(), PBR_FUNCTIONS));
+            world.insert_resource(shaders);
+            world.insert_resource(FunctionsShader { handle: handle.clone(), patched: false });
+            world.run_system_cached(patch_display_sum).unwrap();
+            let bevy::shader::Source::Wesl(text) = &world.resource::<Assets<Shader>>().get(&handle).unwrap().source else { panic!("WESL") };
+            if installed {
+                assert_eq!(*text, reflection_gate::gate_patched(&chain_before_gate()).unwrap());
+            } else {
+                assert!(!text.contains("NVF_RTGI_VOLUME"));
+            }
+            assert_eq!(hook_state(), if installed { HookState::Installed } else { HookState::Failed });
+        }
     }
 
     /// The gate applies after the other edits, leaves no plain `@if(ENVIRONMENT_MAP)` block

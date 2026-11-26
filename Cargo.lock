@@ -2523,6 +2523,7 @@ dependencies = [
 name = "nvf-relay"
 version = "0.8.1"
 dependencies = [
+ "getrandom 0.3.4",
  "nvf-nat",
 ]
 
@@ -2541,6 +2542,7 @@ dependencies = [
  "nvf-nat",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -3355,8 +3357,6 @@ dependencies = [
 [[package]]
 name = "rapier3d"
 version = "0.36.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "033e2edc815d61ab97bd74ed5d1cbea5ebe575218774a7cfedbd3551f0033317"
 dependencies = [
  "approx",
  "arrayvec",

@@ -21,7 +21,7 @@
 //!   list 5 item 12 asked for a range by Perception (Perception × 2048 until #2348); the
 //!   fixed range follows the original instead (docs/owner-review.md).
 //! - **Discovery**: the Pip-Boy's DATA page notes the markers the player comes within the
-//!   radius of (`crate::pipboy::data`); each new one shows "You have discovered" over its
+//!   radius of (`crate::pipboy::data`); each new one shows "Place found" over its
 //!   name where quests are announced (`crate::quest_messages`), and gives the player
 //!   `iXPRewardDiscoverMapMarker` experience [observed: 10 in FalloutNV.esm, and "+10 XP"
 //!   on the owner's screenshot]. A save keeps the markers found.
@@ -320,7 +320,7 @@ impl Plugin for CompassPlugin {
             .init_resource::<CompassRise>()
             .init_resource::<CompassNear>()
             .add_systems(Update, place.after(PlaySet::Physics).before(PlaySet::Activation))
-            .add_systems(Update, (discover, crate::challenges::notices, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet))
+            .add_systems(Update, (discover, crate::challenges::notices, crate::game_start::notice, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet))
             .add_systems(Update, crate::pipboy::data::refresh_quest_targets.in_set(PlaySet::Ui));
         crate::save::add_save_hook(app, SAVE_HOOK);
     }

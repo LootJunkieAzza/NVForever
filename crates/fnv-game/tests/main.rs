@@ -124,6 +124,7 @@ mod set_class;
 mod showoff4;
 mod showoff5;
 mod showoff_combat_events;
+mod showoff_on_add;
 mod showoff_quest_imod_events;
 mod softlock;
 mod spawn_placeholders;
