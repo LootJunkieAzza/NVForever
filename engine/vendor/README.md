@@ -205,21 +205,21 @@ docs/design/graphics-enhanced.md §3.17), each part marked `NVForever (main pass
 Without the override the scale and offset are (1, 1) and (0, 0), upstream's march. Bevy's
 screen-space reflections (`ssr.wesl`) keep the defaults.
 
-No directional shadows for one lighting call (the NIF shader's shade light,
-nvf_assets `nif_material.wesl` `with_shade_light`), each part marked `NVForever (no
-directional shadows)`:
+First-person shade light shadow override (nvf_assets `nif_material.wesl`
+`apply_shade_light`), each part marked `NVForever (first-person shade light)`:
 
-- `src/render/mesh_types.wesl`: `NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT` (bit 26 of a
-  `PbrInput`'s flags, which bevy_pbr leaves unused; set by shaders only, never by the CPU).
-- `src/render/pbr_functions.wesl` `apply_pbr_lighting`: the directional loop's shadow-map,
-  transmitted-lobe and contact-shadow conditions skip the light's shadow while the bit is
-  set; point and spot lights keep theirs. `with_shade_light` relit with the receiver bit
-  cleared before, which also dropped the lamps' shadows and changed the ambient occlusion's
-  factor on lamps; its extrapolation (by up to 1/share) turned that difference into a glow
-  on the first-person arms, weapon and Pip-Boy [observed 2026-11-19, Prospector Saloon at
-  22:00, ALC shadows Quality with ambient occlusion; gone after the change].
+- `src/render/pbr_types.wesl`: under `@if(SHADE_LIGHT)`, adds `nvf_shade_shadow: f32`
+  (default `-1.0`), `nvf_shade_sun: u32`, and `nvf_shade_aux: u32` to `PbrInput`.
+- `src/render/pbr_functions.wesl` `apply_pbr_lighting`: under `@if(SHADE_LIGHT)`, when
+  `in.nvf_shade_shadow >= 0.0`, substitutes `in.nvf_shade_shadow` directly as the sun's
+  cascade shadow value (before `NVF_SUN_VISIBILITY` applies cloud/terrain visibility) and
+  zeroes the auxiliary `ArmsShade` light (`shadow = 0.0`), skipping their cascade fetches
+  in the single lighting pass. This replaces the earlier two-pass `with_shade_light`
+  extrapolation (and its `NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT` workaround), which
+  broke whenever `GAME_CLIP` (nvforever `lights/display_shader.rs`) clamped bright sunlit
+  channels independently and amplified channel differences by `1 / ARMS_SHADE_SHARE = 1024`.
 
-Without the bit set the lighting is upstream's.
+Without the `SHADE_LIGHT` shader def the lighting is upstream's.
 
 Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/transmission/`,
 each part marked `NVForever one resolve`, with `ViewTarget::set_resolve_deferred` in

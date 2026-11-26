@@ -15,7 +15,6 @@ import package::{
             MESH_FLAGS_SHADOW_RECEIVER_BIT,
             MESH_FLAGS_SIGN_DETERMINANT_MODEL_3X3_BIT,
             MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT,
-            NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT,
         },
     },
     ssr::raymarch,
@@ -635,10 +634,23 @@ fn apply_pbr_lighting(
         @else
         let nvf_faces = dot(in.N, (*light).direction_to_light) > 0.0;
         var shadow: f32 = 1.0;
-        if ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u
-                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u
-                // NVForever (no directional shadows): mesh_types.wesl.
-                && (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u) {
+        // NVForever (first-person shade light, nvf_assets nif_material.wesl): take the
+        // shade light + past-body shadow directly on the sun and zero the auxiliary shade
+        // light inside this single lighting pass, avoiding two-pass extrapolation across
+        // GAME_CLIP.
+        var nvf_shade_override = false;
+        @if(SHADE_LIGHT)
+        if in.nvf_shade_shadow >= 0.0 && (i == in.nvf_shade_sun || i == in.nvf_shade_aux) {
+            nvf_shade_override = true;
+            if i == in.nvf_shade_sun {
+                shadow = select(0.0, in.nvf_shade_shadow * in.directional_shadow_factor, nvf_faces);
+            } else {
+                shadow = 0.0;
+            }
+        }
+        if (!nvf_shade_override
+                && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u
+                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             if nvf_faces {
                 shadow = shadows::fetch_directional_shadow(i, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
             } else {
@@ -655,8 +667,7 @@ fn apply_pbr_lighting(
         // else in the way.
         @if(NVF_CROWN_SHADOW)
         if in.nvf_crown.w > 0.0
-                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u
-                && (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u {
+                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u {
             let nvf_l = view_bindings::lights.directional_lights[i].direction_to_light;
             let nvf_oc = in.world_position.xyz - in.nvf_crown.xyz;
             let nvf_b = dot(nvf_oc, nvf_l);
@@ -667,7 +678,6 @@ fn apply_pbr_lighting(
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
         if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && shadow > 0.0 &&
-                (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u &&
                 (view_bindings::lights.directional_lights[i].flags &
                     mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_CONTACT_SHADOWS_ENABLED_BIT) != 0u {
             let L = view_bindings::lights.directional_lights[i].direction_to_light;
@@ -692,9 +702,7 @@ fn apply_pbr_lighting(
         // F0 = vec3<f32>(0.0)
         var transmitted_shadow: f32 = 1.0;
         if ((in.flags & (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)) == (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)
-                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u
-                // NVForever (no directional shadows): mesh_types.wesl.
-                && (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u) {
+                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             transmitted_shadow = shadows::fetch_directional_shadow(i, diffuse_transmissive_lobe_world_position, -in.world_normal, view_z, in.frag_coord.xy);
         }
 
