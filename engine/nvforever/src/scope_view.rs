@@ -69,10 +69,10 @@ use std::sync::Arc;
 pub const SCOPE_LAYER: usize = 13;
 /// The render layer of the scope's multiply-blended shapes (tinted filters/vignettes/reticles)
 /// rendered onto opaque white before multiplying the zoomed world [design, #3225].
-pub const SCOPE_MULTIPLY_LAYER: usize = 22;
+pub const SCOPE_MULTIPLY_LAYER: usize = 23;
 /// The render layer of the scope's additive shapes (lens glare, OWB colour filters) rendered
 /// onto black before adding to the zoomed world [design, #3225].
-pub const SCOPE_ADD_LAYER: usize = 23;
+pub const SCOPE_ADD_LAYER: usize = 24;
 /// Where the picture is put, far from the world and the other menus' models (Bevy space)
 /// [design].
 const PLACE: Vec3 = Vec3::new(0.0, -220_000.0, 0.0);
