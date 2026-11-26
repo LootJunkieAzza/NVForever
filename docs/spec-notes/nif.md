@@ -1197,6 +1197,33 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   1,173 vertices, about −3e38 on 476, denormals on 129 and 1.0 on 464; drawn with them its trim boards came out flat
   pale blue (owner's fly-cam screenshot). The renderers use vertex alpha only with the
   flag, clamp colours to 0..1 and replace non-finite values by 1 [hypothesis].
+  One kind of shape takes its vertex alpha without the flag: a **baked shadow patch**, the
+  dark polygon a piece of furniture carries on the floor under it. `CardTable01:1` of
+  `meshes\clutter\casino\cardtable01.nif` [observed, decoded with `fnvtool nif decode`]:
+  a BSShaderNoLightingProperty with no texture and shader flags 0x82000000 (no
+  Vertex_Alpha), NiAlphaProperty 0x10ED (blending, SRC_ALPHA / INV_SRC_ALPHA), 20 vertices
+  1.09 units above the floor, every colour 0 0 0, alpha 0 along the outline and 0.7 inside.
+  With the alpha taken as 1 it was an opaque black octagon with a hard outline; the stored
+  alpha is the picture of a shadow, which only shows if it is drawn [hypothesis: the
+  original draws it; no frame of the original was compared, playtest 2026-11-25]. The
+  renderers take the vertex alpha of an unlit shape with no texture, that blend, and
+  vertex colours all black with an alpha that varies (nvf-assets nif_spawn.rs
+  `baked_shadow_patch`) and do not fade it where
+  it meets the floor (§6 "Soft intersections": the fade's test that a shape lies along the
+  surface behind it failed from a few metres away, so the patch came and went as the
+  camera moved).
+  Census [observed 2026-11-25, `crates/fnv-nif/examples/baked_shadow_survey.rs` over the
+  base game's and the add-ons' mesh archives]: 1,314 visible shapes meet the rule, 1,125 of
+  them with Vertex_Alpha set and 189 without. 812 lie flat (nine tenths or more of their
+  area faces up or down: floors under furniture, ceilings round recessed lights), 502 do
+  not (the shade painted behind posters, paintings and signs, in doorways and stairwells,
+  on walls). 196 reach an alpha of 0.95 or more somewhere: recessed ceiling lights, the
+  dark of tunnel mouths, doorways and wall holes, the shading of whole buildings
+  (`novac_motel.nif`, 1,208 vertices): darkness rather than a shadow, which is why the
+  patches are drawn as stored and not by a strength of their own (tried for a day,
+  2026-11-25: at 75% a tunnel mouth's black let a quarter of what lies behind it through).
+  37 more shapes are black with a varying alpha but have no such blend (9 flat, 28 not; 14
+  with Vertex_Alpha, drawn by "Unlit shapes faded by vertex alpha alone" below).
 - **Normal maps** use DirectX-style green: +G points *down* the image (towards
   increasing v), +R to the right [observed]. Seven texture sets in `Fallout -
   Textures.bsa` ship a parallax height map (`_p`) beside the normal map (`_n`): McCarran

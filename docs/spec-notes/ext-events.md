@@ -42,11 +42,11 @@ order (and the targets of the `"first"`/`"second"` filters, §3).
 | OnActivate | the activated reference | the activating reference | **Does not block activation**, unlike an OnActivate block; runs **before** the object's OnActivate block, and even when activation will be refused (a locked or inaccessible door); runs with `GetSelfAlt == 0` and after `ShowOff:OnPreScriptedActivate` on scripted `Activate` (suppressed when pre-scripted vetoes) [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_pre_scripted_activate_order.json` probes `w6d1p2_11_on_activate_and_pre_scripted_order` (`ord=S:PRE,\|caps=0->0`) and `w6d1p3_11_on_activate_noveto` (`ord0=S:PRE,ACT,\|ord1=S:PRE,ACT,\|act(s0=1,sR=0,a1=1,a2=1)`); no DLL, PDB, or third-party source consulted] |
 | OnActorEquip (alias OnEquip) | the actor | the item (base form) | runs before the item counts as equipped, just after whatever held the same slots is unequipped |
 | OnActorUnequip (alias OnUnequip) | the actor | the item (base form) | not when equipped ammo is dropped |
-| OnAdd | the item (world reference) | the container | only when picking up from the world |
+| OnAdd | the item (world reference) | the container | only when picking up from the world (silent on scripted `AddItem`) [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_showoff_xnvse_events_observed.json` probe `w6d1_09_on_drop_and_xnvse_on_add`: `ai(add=0,so=1,soS0=1)\|pick(add=1,a1W=1,a2P=1,so=2,soSW=1,soS0=0)`; no DLL, PDB, or third-party source consulted] |
 | OnClose, OnOpen | the reference | the same reference | |
 | OnCombatEnd | target (actor) | ender (actor) | |
 | OnDeath | killed (actor) | killer (actor) | |
-| OnDrop | dropper | the dropped world reference | not when moving items between containers in the inventory menu, unlike the OnDrop block |
+| OnDrop | dropper | the dropped world reference | fires with `GetSelfAlt == 0`, `(dropper, worldRef)` [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_showoff_xnvse_events_observed.json` probe `w6d1_09_on_drop_and_xnvse_on_add`: `drp(n=1,a1P=1,a2Ref=1,sP=0,s0=1)`; no DLL, PDB, or third-party source consulted]; not when moving items between containers in the inventory menu, unlike the OnDrop block |
 | OnHit | target (any reference) | attacker: an actor, or the projectile when the target is not an actor and the weapon is not melee/unarmed | runs **before damage**, unlike the OnHit block |
 | OnHitWith | target | weapon (base form) | runs before damage |
 | OnLoad | the reference | the same | |
@@ -62,7 +62,7 @@ order (and the targets of the `"first"`/`"second"` filters, §3).
 | OnLockBroken, OnLockpickSuccess, OnLockpickBroken | — | the object | |
 | OnTerminalHacked, OnTerminalHackFailed | — | the terminal | |
 | OnRepair | — | the repaired inventory item; then the repairer and the repair kind (0 normal, 1 vendor) | four arguments |
-| OnDisable, OnEnable | — | the reference | |
+| OnDisable, OnEnable | the reference | `0` | both fire PRE-update (`GetDisabled == 0` inside `OnDisable`, `GetDisabled == 1` inside `OnEnable`) with `(ref, 0)`; `OnEnable` runs with `GetSelfAlt == 0` (`s0=1,sR=0`) and `OnDisable` runs with `GetSelfAlt != ref` (`sOk=0`) [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, ShowOffNVSE 184, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_on_enable_disable_pre_update.json` probes `w6d1_07_on_enable_on_disable_args` (`dis(n1=1,n2=1,sOk=0,a1Ok=1,a2z=1,inDis=0)`) and `w6d1p2_07_on_enable_tick` (`en(n1=1,n2=1,s0=1,sR=0,a1R=1,a2z=1,inDis=1)`); no DLL, PDB, or third-party source consulted]; `OnDisable` `GetSelfAlt == 0` [hypothesis: by parity with `OnEnable`] |
 
 "—" means the table gives no first argument; how many arguments those handlers take:
 open.
@@ -180,11 +180,19 @@ form, string, array), and an optional calling reference the handlers run on. Ret
 success flag. A handler may take **fewer** parameters than the event sends, so an event
 can add arguments later without breaking older handlers. SetEventHandlerAlt suits it
 best, since it can filter each argument by index [documented: DispatchEventAlt, pasted by the owner from geckwiki.com, 2026-10-25].
-Whether a handler may take more parameters than are sent: open.
+Returns `1`, runs handlers declaring fewer or more parameters than sent, matches `0::baseForm` against a placed calling reference, matches string filters case-insensitively, and reflects live `ar_Append` mutations to an array filter [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_showoff_xnvse_events_observed.json` probe `w6d1_05_dispatch_event_alt_arity_and_filters`: `PROBE|w6d1_05_dispatch_event_alt_arity_and_filters|ret=1/1|arity(0=1,3=1,selfDoc=1)|flt=1,1,2`; no binary, DLL, PDB, or third-party source consulted]; extra declared parameters default to 0 [hypothesis].
 
 **GetCurrentEventName** (returns a string): inside a SetEventHandler-style handler, the
 name of the event being handled, so one function can serve several events
-[documented: GetCurrentEventName, pasted by the owner from geckwiki.com, 2026-10-25]. Called outside a handler: open.
+[documented: GetCurrentEventName, pasted by the owner from geckwiki.com, 2026-10-25].
+Returns `""` outside any handler and inside JIP `SetOn*EventHandler` callbacks, and the
+registered event name inside `SetEventHandler`, `SetEventHandlerAlt`, and ShowOff
+handlers [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN
+57.30, ShowOffNVSE 184, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+`tools/capture/nvse/catalogs/wave6d1_showoff_xnvse_events_observed.json` probe
+`w6d1_06_get_current_event_name_contexts`:
+`PROBE|w6d1_06_get_current_event_name_contexts|out=[]|std=[w6d1_evstd]|alt=[w6d1_evalt]|add=[ShowOff:OnAdd]|jip=[]`;
+no binary, DLL, PDB, or third-party source consulted].
 
 ## 6. Inspecting handlers (xNVSE 6.2.9)
 
@@ -193,7 +201,19 @@ name of the event being handled, so one function can serve several events
   priority is a map from priority to handler arrays; with a priority filter, that level
   is skipped. Each handler entry is an array: [0] the script (or, for a plugin handler,
   a string map with "Plugin" and "Handler", possibly empty), [1] a string map of its
-  filters [documented: GetEventHandlers].
+  filters [documented: GetEventHandlers]. With no handlers registered, `"ShowOff:OnAdd"`
+  returns an empty Map (`ar_Size == 0`), whereas `"OnCrosshairOn"` returns `ar_Null`
+  (`ar_Size == -1`); filter StringMap keys are `"first"` / `"second"` for
+  `SetEventHandler` and `"0"` / `"1"` (stringified argument indices) for
+  `SetEventHandlerAlt` [observed: 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184 + JIP LN 57.30 with the
+  10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole`
+  probe; zero writes to game install or Saves), committed probe
+  `w6t2_16_xnvse_get_event_handlers_filter_keys`
+  (`tools/capture/nvse/catalogs/wave6_t2_get_event_handlers.json`):
+  `PROBE|w6t2_16_xnvse_get_event_handlers_filter_keys|empty(cross=-1,soAdd=0)|std(first,second)|alt(0,1)`;
+  zero DLL, PDB, or third-party source consulted; hypothesis: the other 10 implemented
+  `ShowOff:*` events in `nvse_handler_lists::KNOWN` behave like `ShowOff:OnAdd`].
 - **DumpEventHandlers** (same filters): prints them by event and priority, plugin
   handlers included [documented: DumpEventHandlers].
 - **GetHigherPriorityEventHandlers / GetLowerPriorityEventHandlers** `event, handler,

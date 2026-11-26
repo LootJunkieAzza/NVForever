@@ -1079,6 +1079,8 @@ struct Flying {
     ended_at: Option<V3>,
     /// The gas clouds it has passed through, each hit once (`crate::gas_traps`, #2687).
     gassed: Vec<FormId>,
+    /// The Projectile Zone primitives (`XTRI 23`) it has crossed, each hit once (#3662).
+    proj_zones_hit: Vec<FormId>,
 }
 
 /// A hit waiting for its delivery time (hitscan: distance ÷ speed).
@@ -4160,7 +4162,7 @@ pub(crate) fn fire(
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
                     let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, sure: None, vats: vats_shot.is_some(), sneaking: control.sneak };
                     let vats_aim = vats_shot.filter(|_| p.explosion.is_some() && !p.mine);
-                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new() });
+                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new(), proj_zones_hit: Vec::new() });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
                 // The flash itself is the renderer's (`ShotFired`); the test aid marks
@@ -5365,6 +5367,26 @@ fn gas_hit(c: &Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: 
     );
 }
 
+/// A scripted Projectile Zone primitive (`XTRI 23`) crossed by a shot (#3662): runs its
+/// `OnHit` / `OnHitWith` blocks via `Game::hit_object` without stopping the shot.
+/// Re-checks `Game::present` in case an earlier crossed zone on the same shot disabled
+/// this one (e.g. `MS01TriggerJunkyard1Ref` disabling both triggers in `OnHit`).
+fn projectile_zone_hit(sim: &mut SimState, script: Option<&mut ScriptState>, r: FormId, by: By, projectile: Option<FormId>) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    let attacker = (by.actor != FormId(0)).then_some(by.actor);
+    let weapon = (by.weapon != FormId(0)).then_some(by.weapon);
+    let ran = with_world(rt, sim, |rt| {
+        if !rt.game.present(r) {
+            return false;
+        }
+        let info = HitInfo { attacker, weapon, projectile, location: -1, ..HitInfo::default() };
+        rt.game.hit_object(r, info)
+    });
+    if ran {
+        info!("combat: shot crosses Projectile Zone {r}: its hit blocks ran");
+    }
+}
+
 /// Destructible references whose collision overlaps a sphere, with their distance.
 fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&ScriptState>, at: V3, radius: f32) -> Vec<(FormId, f32)> {
     let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
@@ -5495,7 +5517,7 @@ fn actor_attacks(
             let tracer = rolled || (shown && instant(&p));
             let dir = vec::normalize(p.vel);
             c.next_visual += 1;
-            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new() });
+            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new(), proj_zones_hit: Vec::new() });
             if let Some(flying) = c.flying.last() {
                 grenade_probe.accepted(probe_request, s, &flying.p, flying.proj, flying.id);
                 if let Some(probe) = launch_probe.as_deref_mut() { probe.inserted(s, scripted, flying, &sim.world); }
@@ -5932,11 +5954,16 @@ fn fly(
     }
     // Shots whose flight ended this frame without a hit to deliver: their references go.
     let mut over: Vec<(FormId, f32)> = Vec::new();
-    // The gas clouds the shots pass through or leave from this frame (#2687): the
-    // cloud, the shot's source, whether the gun was fired inside it.
+    // The gas clouds (#2687) and scripted Projectile Zone primitives (XTRI 23, #3662)
+    // shots can cross this frame.
     // Read with the world in the runtime (`with_world`): outside it, nothing is present.
-    let gas = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, &mut sim, |rt| crate::gas_traps::volumes(rt))).unwrap_or_default();
+    let (gas, proj_zones) = script
+        .as_deref_mut()
+        .and_then(|s| s.rt.as_mut())
+        .map(|rt| with_world(rt, &mut sim, |rt| (crate::gas_traps::volumes(rt), crate::script_trigger::projectile_zones(rt))))
+        .unwrap_or_default();
     let mut gas_hits: Vec<(FormId, By, bool)> = Vec::new();
+    let mut proj_zone_hits: Vec<(FormId, By, Option<FormId>)> = Vec::new();
     {
         let world = view(&mut phys, script.as_deref(), Some(&sim));
         let hold = c.tracer_hold;
@@ -6012,7 +6039,7 @@ fn fly(
                 }
             }
             // Its way this frame, from the muzzle on the first, to where it stopped.
-            if !gas.is_empty() && !f.by.harmless {
+            let shot_segment = || {
                 let to = events
                     .iter()
                     .find_map(|e| match e {
@@ -6021,11 +6048,27 @@ fn fly(
                     })
                     .unwrap_or(f.p.pos);
                 let from = if first { f.origin } else { before };
+                (from, to)
+            };
+            if !gas.is_empty() && !f.by.harmless {
+                let (from, to) = shot_segment();
                 let inside = if first { crate::gas_traps::around(&gas, f.origin) } else { Vec::new() };
                 for r in crate::gas_traps::crossed(&gas, from, to) {
                     if !f.gassed.contains(&r) {
                         f.gassed.push(r);
                         gas_hits.push((r, f.by, inside.contains(&r)));
+                    }
+                }
+            }
+            // Scripted Projectile Zone primitives (XTRI 23) crossed by this shot segment
+            // (#3662): each projectile triggers each volume at most once without stopping
+            // the shot.
+            if !proj_zones.is_empty() {
+                let (from, to) = shot_segment();
+                for r in crate::script_trigger::crossed_projectile_zones(&proj_zones, from, to) {
+                    if !f.proj_zones_hit.contains(&r) {
+                        f.proj_zones_hit.push(r);
+                        proj_zone_hits.push((r, f.by, f.rref));
                     }
                 }
             }
@@ -6148,6 +6191,9 @@ fn fly(
     for (r, by, inside) in gas_hits {
         let what = if inside { "a shot fired inside it" } else { "a shot through it" };
         gas_hit(c, &mut sim, script.as_deref_mut(), r, Some(by.actor), Some(by.weapon), inside, what);
+    }
+    for (r, by, rref) in proj_zone_hits {
+        projectile_zone_hit(&mut sim, script.as_deref_mut(), r, by, rref);
     }
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_| !over.is_empty()) {
         with_world(rt, &mut sim, |rt| {

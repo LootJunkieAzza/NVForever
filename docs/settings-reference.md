@@ -322,6 +322,22 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   (`docs/spec-notes/localized-dt-dr.md`, #3843).
 - Registered in `engine/nvf-play/src/combat.rs`
 
+## Gameplay › Menus
+
+### `quantity-select-short-keys`: Quantity select shortcuts
+
+- On the page: In inventory, container and barter menus, Shift transfers or drops the whole
+  stack, Ctrl acts on one item, and weightless container stacks open the quantity prompt.
+- In full: Off by default (unmodded menu behaviour unchanged). On: in Inventory, Container
+  and Barter menus, holding Shift transfers or drops the entire stack and holding Ctrl
+  transfers or drops a single item without opening the quantity prompt (Shift takes
+  precedence if both are held); picking up a stack of more than one weightless item (such
+  as ammo outside Hardcore mode) from a container opens the quantity prompt instead of
+  taking without asking. Optional NVForever setting following the public `bQttSelectShortKeys`
+  behaviour in JIP LN NVSE Plugin v57.30 (`docs/spec-notes/quantity-select-short-keys.md`,
+  #3799).
+- Registered in `engine/nvf-play/src/menu.rs`
+
 ## Gameplay › Bug Reports
 
 ### `send-reports`: Send reports to help fix NVForever
@@ -592,6 +608,13 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
 - On the page: On: two bars under the sneak word show how lit you are and how much noise you
   make, as detection counts them. Not in the original.
 - Registered in `engine/nvf-play/src/sneak_gauges.rs`
+
+### `caravan-tips`: Caravan tips
+
+- On the page: On: the Caravan table says what the chosen card does and why a card can't be
+  played, and the menu has a Tips button. Off: only the game's short messages. Not in
+  the original.
+- Registered in `engine/nvf-play/src/caravan.rs`
 
 ### `dynamic-crosshair`: Dynamic crosshair
 
@@ -1136,10 +1159,14 @@ below cover them all.
 
 - On the page: Creases, corners and the ground under things darken by how enclosed they are:
   Off, Performance (cheaper, a little grainier) or Quality. Not in the original.
-- In full: Screen-space ambient occlusion from the depth, on the ambient light and the lamps
-  that cast no shadow: Off; Performance (one slice direction a pixel instead of two: half the
-  horizon march, the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4
-  steps a side at half resolution, depth-aware denoise). Quality in the enhanced look.
+- In full: Screen-space ambient occlusion from the depth, on the ambient light, on the lamps
+  that cast no shadow and by half on those that do (the flashlight, the ALC shadows row's
+  lamps), and on the lamps' highlights (a shiny surface no longer glints in a crease as in the
+  open): Off; Performance (one slice direction a pixel instead of two: half the horizon march,
+  the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4 steps a side at
+  half resolution, depth-aware denoise). Under TAA, FSR or DLSS its sample pattern moves each
+  frame, so what the denoise leaves on leaves and outlines is averaged away. Quality in the
+  enhanced look.
 - Shown as a list since 2026-11-19; an INI written while it was an on/off switch (`1`/`0`,
   true/false, on/off, yes/no) still loads as Quality or Off.
 - Command-line switches: `--graphics`, `--ambient-occlusion`

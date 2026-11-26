@@ -43,6 +43,10 @@ pub fn point(at: Place, space: f32) -> V3 {
     V3(at.map(|c| c as f32 * space))
 }
 
+/// What the rays of each of some candidates met, in their order: its hits and, of them, the hidden sides
+/// ([`Probe::hits`], [`Probe::backs`]). It is given their places and the points there.
+pub type Classify<'c> = dyn FnMut(&[Place], &[V3]) -> Result<Vec<[u32; 2]>, Failed> + 'c;
+
 /// The places `from`..=`to` beside the lower corner of `p`'s box, of a grid `space` apart.
 fn block(p: V3, space: f32, from: i32, to: i32) -> Vec<Place> {
     if !(0..3).all(|k| (p[k] / space).abs() < FAR) {
@@ -146,6 +150,12 @@ impl<'a> Grid<'a> {
 
     /// Gather those that are not there yet, reached or not.
     pub fn make(&mut self, places: impl Iterator<Item = Place>) -> Result<(), Failed> {
+        self.make_by(places, None)
+    }
+
+    /// [`Grid::make`]; with `by`, what it says of their rays in place of gathering them: such a point has its hits and
+    /// backs alone. A count that cannot be, or a wrong number of them, is the crate's fault.
+    fn make_by(&mut self, places: impl Iterator<Item = Place>, by: Option<&mut Classify>) -> Result<(), Failed> {
         let room = self.work.limit.saturating_sub(self.made.len());
         let mut asked = BTreeSet::new();
         for at in places {
@@ -155,7 +165,20 @@ impl<'a> Grid<'a> {
         }
         let asked: Vec<Place> = asked.into_iter().collect();
         let w = &self.work;
-        let made = cancellable(asked.len(), w.threads, w.cancel, |i| probe(w.world, w.lights, self.point(asked[i]), &self.directions, w.emission))?;
+        let made = match by {
+            None => cancellable(asked.len(), w.threads, w.cancel, |i| probe(w.world, w.lights, self.point(asked[i]), &self.directions, w.emission))?,
+            Some(_) if asked.is_empty() => Vec::new(),
+            Some(classify) => {
+                go_on(w.cancel)?;
+                let points: Vec<V3> = asked.iter().map(|at| self.point(*at)).collect();
+                let met = classify(&asked, &points)?;
+                let sound = |[hits, backs]: &[u32; 2]| backs <= hits && *hits as usize <= w.rays;
+                if met.len() != asked.len() || !met.iter().all(sound) {
+                    return Err(Failed::Internal);
+                }
+                met.into_iter().map(|[hits, backs]| Probe { hits, backs, ..Probe::default() }).collect()
+            }
+        };
         self.made.extend(asked.into_iter().zip(made));
         Ok(())
     }
@@ -196,11 +219,11 @@ impl<'a> Grid<'a> {
 
     /// Of each seed, the valid points among the [`block`] of it that it sees, added to what is reached; those
     /// seeds that see none.
-    fn start(&mut self, seeds: &[V3], (from, to): (i32, i32), out: &mut Flood) -> Result<Vec<V3>, Failed> {
+    fn start(&mut self, seeds: &[V3], (from, to): (i32, i32), out: &mut Flood, mut by: Option<&mut Classify>) -> Result<Vec<V3>, Failed> {
         let mut lost = Vec::new();
         for some in seeds.chunks(SEEDS) {
             let seen = self.in_sight(some, |i| block(some[i], self.work.space, from, to))?;
-            self.make(seen.iter().flatten().copied())?;
+            self.make_by(seen.iter().flatten().copied(), by.as_deref_mut())?;
             for (seed, there) in some.iter().zip(&seen) {
                 let mut there = there.iter().filter(|at| self.valid(at));
                 let Some(first) = there.next() else {
@@ -218,16 +241,22 @@ impl<'a> Grid<'a> {
     }
 
     /// What the seeds reach.
+    #[cfg(test)]
     pub fn flood(&mut self, seeds: &[V3]) -> Result<(BTreeSet<Place>, Coverage), Failed> {
+        self.flood_by(seeds, None)
+    }
+
+    /// What the seeds reach; with `by`, its points made by what that says ([`Grid::make_by`]).
+    pub fn flood_by(&mut self, seeds: &[V3], mut by: Option<&mut Classify>) -> Result<(BTreeSet<Place>, Coverage), Failed> {
         let space = self.work.space;
         let mut out = Flood::default();
-        let lost = self.start(seeds, (0, 1), &mut out)?;
-        let failed = self.start(&lost, (-1, 2), &mut out)?.len();
+        let lost = self.start(seeds, (0, 1), &mut out, by.as_deref_mut())?;
+        let failed = self.start(&lost, (-1, 2), &mut out, by.as_deref_mut())?.len();
         while !out.edge.is_empty() {
             let edge = std::mem::take(&mut out.edge);
             let from: Vec<V3> = edge.iter().map(|at| self.point(*at)).collect();
             let next = self.in_sight(&from, |i| neighbours(edge[i]).to_vec())?;
-            self.make(next.iter().flatten().copied())?;
+            self.make_by(next.iter().flatten().copied(), by.as_deref_mut())?;
             for (at, next) in edge.iter().zip(&next) {
                 for to in next.iter().filter(|to| self.valid(to)) {
                     out.links.insert([*at, *to]);
