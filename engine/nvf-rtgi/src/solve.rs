@@ -1,6 +1,7 @@
 //! From a prepared scene, its light and the seeds to a volume.
 
 use crate::failed::{unavailable, Cancel, Failed, Reason};
+use crate::floor::Floor;
 use crate::grid::{tree, Coverage, Grid, Place};
 use crate::light::LightState;
 use crate::reach::GatherConfig;
@@ -15,11 +16,20 @@ use std::collections::BTreeSet;
 pub struct Seeds {
     /// Places in the air. Their order does not matter.
     pub points: Vec<V3>,
+    /// What a fit looks from, where the points are a floor's. `None`: they are places of their own, such as
+    /// that of an arrival, and a fit looks from the points of the grid. A solve does not look at it.
+    pub floor: Option<Floor>,
 }
 
 impl Seeds {
+    /// The eye above the middle of each triangle of a floor.
+    pub fn of(floor: Floor) -> Seeds {
+        Seeds { points: floor.eyes(), floor: Some(floor) }
+    }
+
+    /// Without a floor.
     pub fn at(points: Vec<V3>) -> Seeds {
-        Seeds { points }
+        Seeds { points, floor: None }
     }
 }
 

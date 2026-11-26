@@ -210,6 +210,7 @@ fn bake_copy(material: &mut TerrainMaterial) {
     for height in [&mut e.height0, &mut e.height1, &mut e.height2, &mut e.height3, &mut e.height4, &mut e.height5] { *height = None; }
     e.parallax = false;
     e.parallax_depths = [0.0; crate::terrain::FOLDED_LAYERS];
+    e.alpha_heights = 0;
     material.base.fog_enabled = false;
     material.base.normal_map_texture = None;
 }

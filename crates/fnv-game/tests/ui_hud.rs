@@ -993,3 +993,24 @@ fn limb_timeline_restarts_all_broken_limbs_and_healing_starts_nothing() {
     assert_eq!(ui.get_string("HUDMainMenu/crippled_limb_indicator/Head/filename").as_deref(), Some("Interface\\Stats\\head_broken.dds"));
     assert!(ui.get_float("HUDMainMenu/crippled_limb_indicator/Head/alpha").unwrap() < 0.0);
 }
+
+/// A mod's HUD text with no `width` of its own is left to the engine to measure, and stays
+/// so once the engine wrote one; a text whose file gives a width, and the vanilla pieces the
+/// engine measures on their own path, are not (#4493).
+#[test]
+fn mod_texts_without_a_width_are_measured_by_the_engine() {
+    let xml = r#"<menu name="HUDMainMenu"><rect name="ModClock"><text name="Clock"><string>12:00</string></text><text name="Sized"><width>50</width><string>x</string></text></rect><rect name="XPMeter"><text name="XPLabel"><string>XP</string></text></rect></menu>"#;
+    let mut ui = Ui::new();
+    ui.load_menu(&MemSource::default().with("hud.xml", xml), "hud.xml").unwrap();
+    let clock = ui.find_tile("HUDMainMenu/ModClock/Clock").unwrap();
+    let sized = ui.find_tile("HUDMainMenu/ModClock/Sized").unwrap();
+    let known = ui_hud::measured_texts(&ui);
+    let got = ui_hud::unmeasured_texts(&ui);
+    assert!(got.contains(&clock), "{got:?}");
+    assert!(!got.contains(&sized));
+    assert!(got.iter().all(|t| !known.contains(t)), "the vanilla pieces keep their own measure");
+    // Once the engine wrote its width (and marked it), it is still the engine's to measure.
+    ui.set_trait(clock, "width", Value::Num(40.0));
+    ui.set_trait(clock, ui_hud::MEASURED_MARK, Value::Num(1.0));
+    assert!(ui_hud::unmeasured_texts(&ui).contains(&clock));
+}
