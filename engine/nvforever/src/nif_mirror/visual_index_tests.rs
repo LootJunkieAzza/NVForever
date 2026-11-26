@@ -1,12 +1,14 @@
 //! Unit tests for [`VisualRootCache`] and [`MirrorIndex::build_from_cache`]:
-//! incremental spawn, despawn, respawn, reparenting, `RefVisual` mutation,
-//! `DrawOnly`/`PointLight` transitions, and zero-stale-entity parity with [`root_of`].
+//! incremental spawn, despawn, respawn, reparenting, `RefVisual` mutation with child
+//! promotion, `DrawOnly`/`PointLight`/`SpotLight`/`SessionLight` add/remove transitions,
+//! `ScriptState.rt == None` frame gaps, and zero-stale-entity parity with [`root_of`].
 
 use super::*;
 
 #[derive(Resource, Default)]
 struct TestCache {
     cache: VisualRootCache,
+    rt_active: bool,
     wanted: HashSet<u32>,
     results: HashMap<u32, Option<Entity>>,
     oracle: HashMap<u32, Option<Entity>>,
@@ -17,10 +19,13 @@ fn sync_and_query(
     rigs: Rigs,
     visuals: Visuals,
     mut changes: VisualChanges,
-    nodes: NodeQuery,
     dropped: Dropped,
 ) {
-    state.cache.sync(&visuals, &mut changes, &nodes);
+    // Mirrors `mirror()`: always sync change-detection deltas before gating on `rt`.
+    state.cache.sync(&visuals, &mut changes);
+    if !state.rt_active {
+        return;
+    }
     let wanted = state.wanted.clone();
     let index = MirrorIndex::build_from_cache(&wanted, &rigs, &visuals, &dropped, &mut state.cache);
     state.results.clear();
@@ -32,7 +37,11 @@ fn sync_and_query(
 }
 
 fn run_step(app: &mut App, refs: &[u32]) {
-    app.world_mut().resource_mut::<TestCache>().wanted = refs.iter().copied().collect();
+    {
+        let mut state = app.world_mut().resource_mut::<TestCache>();
+        state.rt_active = true;
+        state.wanted = refs.iter().copied().collect();
+    }
     app.update();
     let state = app.world().resource::<TestCache>();
     for &r in refs {
@@ -89,7 +98,7 @@ fn visual_root_cache_tracks_add_remove_respawn_reparent_and_filter_changes() {
     assert_eq!(app.world().resource::<TestCache>().results[&R_C], Some(c_respawn));
     assert_ne!(c_respawn, c_real);
 
-    // Frame 4 (reparent + RefVisual mutation): spawn D root, reparent c_respawn under a new C parent, mutate R_B -> R_D.
+    // Frame 4 (reparent + RefVisual mutation): reparent c_respawn under a new C parent, mutate R_B -> R_D.
     let c_new_parent = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_C))).id();
     app.world_mut().entity_mut(c_respawn).insert(ChildOf(c_new_parent));
     app.world_mut().entity_mut(b_draw_only).insert(RefVisual(R_D));
@@ -99,13 +108,186 @@ fn visual_root_cache_tracks_add_remove_respawn_reparent_and_filter_changes() {
     assert_eq!(app.world().resource::<TestCache>().results[&R_B], None);
     assert_eq!(app.world().resource::<TestCache>().results[&R_D], Some(b_draw_only));
 
-    // Frame 5 (filter addition): adding DrawOnly or PointLight invalidates cached entry lazily with zero stale return.
+    // Frame 5 (filter addition): adding DrawOnly or PointLight invalidates cached entry with zero stale return.
     app.world_mut().entity_mut(b_draw_only).insert(nvf_play::DrawOnly);
     app.world_mut().entity_mut(a_child).insert(PointLight::default());
 
     run_step(&mut app, &tracked);
     assert_eq!(app.world().resource::<TestCache>().results[&R_D], None);
     assert_eq!(app.world().resource::<TestCache>().results[&R_A], None);
+}
+
+#[test]
+fn visual_root_cache_promotes_children_on_parent_mutation_and_exclusion_and_tracks_session_light() {
+    const R_MUT_OLD: u32 = 0x6001;
+    const R_MUT_NEW: u32 = 0x6002;
+    const R_PLAYER_MUT: u32 = 0x6003;
+    const R_DRAW: u32 = 0x6004;
+    const R_POINT: u32 = 0x6005;
+    const R_SPOT: u32 = 0x6006;
+    const R_SESSION: u32 = 0x6007;
+    const R_SESSION_REMOVE: u32 = 0x6008;
+    const R_CHAIN: u32 = 0x6009;
+    let tracked_single_root = [
+        R_MUT_OLD,
+        R_MUT_NEW,
+        R_PLAYER_MUT,
+        R_DRAW,
+        R_POINT,
+        R_SPOT,
+        R_SESSION,
+        R_SESSION_REMOVE,
+    ];
+    let tracked_all = [
+        R_MUT_OLD,
+        R_MUT_NEW,
+        R_PLAYER_MUT,
+        R_DRAW,
+        R_POINT,
+        R_SPOT,
+        R_SESSION,
+        R_SESSION_REMOVE,
+        R_CHAIN,
+    ];
+
+    let mut app = App::new();
+    app.init_resource::<TestCache>();
+    app.add_systems(Update, sync_and_query);
+
+    // Parent/child pairs (include a bare parent without Transform on R_DRAW to prove Children query works without NodeQuery).
+    let mut_parent = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_MUT_OLD))).id();
+    let mut_child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_MUT_OLD), ChildOf(mut_parent))).id();
+
+    let player_mut_parent = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_PLAYER_MUT))).id();
+    let player_mut_child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_PLAYER_MUT), ChildOf(player_mut_parent))).id();
+
+    let draw_parent = app.world_mut().spawn(RefVisual(R_DRAW)).id();
+    let draw_child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_DRAW), ChildOf(draw_parent))).id();
+
+    let point_parent = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_POINT))).id();
+    let point_child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_POINT), ChildOf(point_parent))).id();
+
+    let spot_parent = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_SPOT))).id();
+    let spot_child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_SPOT), ChildOf(spot_parent))).id();
+
+    let session_parent = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_SESSION))).id();
+    let session_child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_SESSION), ChildOf(session_parent))).id();
+
+    let session_only = app
+        .world_mut()
+        .spawn((Transform::IDENTITY, RefVisual(R_SESSION_REMOVE), crate::lights::SessionLight::test_stub()))
+        .id();
+
+    let chain_gp = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_CHAIN))).id();
+    let chain_mid = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_CHAIN), ChildOf(chain_gp))).id();
+    let chain_leaf = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_CHAIN), ChildOf(chain_mid))).id();
+
+    run_step(&mut app, &tracked_all);
+    let r = &app.world().resource::<TestCache>().results;
+    assert_eq!(r[&R_MUT_OLD], Some(mut_parent));
+    assert_eq!(r[&R_MUT_NEW], None);
+    assert_eq!(r[&R_PLAYER_MUT], Some(player_mut_parent));
+    assert_eq!(r[&R_DRAW], Some(draw_parent));
+    assert_eq!(r[&R_POINT], Some(point_parent));
+    assert_eq!(r[&R_SPOT], Some(spot_parent));
+    assert_eq!(r[&R_SESSION], Some(session_parent));
+    assert_eq!(r[&R_SESSION_REMOVE], None);
+    assert_eq!(r[&R_CHAIN], Some(chain_gp));
+
+    // Mutate parent RefVisuals, add all four exclusion components to parents, remove SessionLight on session_only,
+    // and exclude chain_mid in the 3-level chain (which makes both chain_gp and chain_leaf valid roots simultaneously).
+    app.world_mut().entity_mut(mut_parent).insert(RefVisual(R_MUT_NEW));
+    app.world_mut().entity_mut(player_mut_parent).insert(RefVisual(FormId::PLAYER_REF.0));
+    app.world_mut().entity_mut(draw_parent).insert(nvf_play::DrawOnly);
+    app.world_mut().entity_mut(point_parent).insert(PointLight::default());
+    app.world_mut().entity_mut(spot_parent).insert(SpotLight::default());
+    app.world_mut().entity_mut(session_parent).insert(crate::lights::SessionLight::test_stub());
+    app.world_mut().entity_mut(session_only).remove::<crate::lights::SessionLight>();
+    app.world_mut().entity_mut(chain_mid).insert(crate::lights::SessionLight::test_stub());
+
+    run_step(&mut app, &tracked_single_root);
+    let r = &app.world().resource::<TestCache>().results;
+    assert_eq!(r[&R_MUT_OLD], Some(mut_child));
+    assert_eq!(r[&R_MUT_NEW], Some(mut_parent));
+    assert_eq!(r[&R_PLAYER_MUT], Some(player_mut_child));
+    assert_eq!(r[&R_DRAW], Some(draw_child));
+    assert_eq!(r[&R_POINT], Some(point_child));
+    assert_eq!(r[&R_SPOT], Some(spot_child));
+    assert_eq!(r[&R_SESSION], Some(session_child));
+    assert_eq!(r[&R_SESSION_REMOVE], Some(session_only));
+
+    // Removing SessionLight from session_parent restores it as root and re-shadows session_child;
+    // removing RefVisual from chain_gp while chain_mid is still excluded leaves chain_leaf as the unique root.
+    app.world_mut().entity_mut(session_parent).remove::<crate::lights::SessionLight>();
+    app.world_mut().entity_mut(chain_gp).remove::<RefVisual>();
+    run_step(&mut app, &tracked_all);
+    let r = &app.world().resource::<TestCache>().results;
+    assert_eq!(r[&R_SESSION], Some(session_parent));
+    assert_eq!(r[&R_CHAIN], Some(chain_leaf));
+
+    // Removing SessionLight from chain_mid re-shadows chain_leaf and promotes chain_mid as sole root.
+    app.world_mut().entity_mut(chain_mid).remove::<crate::lights::SessionLight>();
+    run_step(&mut app, &tracked_all);
+    assert_eq!(app.world().resource::<TestCache>().results[&R_CHAIN], Some(chain_mid));
+
+    // Recursive despawn of chain_gp removes chain_mid and chain_leaf cleanly -> None.
+    app.world_mut().despawn(chain_gp);
+    run_step(&mut app, &tracked_all);
+    assert_eq!(app.world().resource::<TestCache>().results[&R_CHAIN], None);
+}
+
+#[test]
+fn visual_root_cache_does_not_drop_deltas_while_script_runtime_is_none() {
+    const R_BEFORE: u32 = 0x7001;
+    const R_DURING: u32 = 0x7002;
+    const R_SESSION: u32 = 0x7003;
+    const R_PROMOTE: u32 = 0x7004;
+    let tracked = [R_BEFORE, R_DURING, R_SESSION, R_PROMOTE];
+
+    let mut app = App::new();
+    app.init_resource::<TestCache>();
+    app.add_systems(Update, sync_and_query);
+
+    // Frame 1: rt active, cache initialized.
+    let before = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_BEFORE))).id();
+    let sess = app
+        .world_mut()
+        .spawn((Transform::IDENTITY, RefVisual(R_SESSION), crate::lights::SessionLight::test_stub()))
+        .id();
+    let p_parent = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_PROMOTE))).id();
+    let p_child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_PROMOTE), ChildOf(p_parent))).id();
+    run_step(&mut app, &tracked);
+    assert_eq!(app.world().resource::<TestCache>().results[&R_BEFORE], Some(before));
+    assert_eq!(app.world().resource::<TestCache>().results[&R_DURING], None);
+    assert_eq!(app.world().resource::<TestCache>().results[&R_SESSION], None);
+    assert_eq!(app.world().resource::<TestCache>().results[&R_PROMOTE], Some(p_parent));
+
+    // Frames 2-3: rt becomes None (e.g. menu / load transition); perform spawns, despawns,
+    // SessionLight removal, and parent exclusion while rt is None.
+    app.world_mut().resource_mut::<TestCache>().rt_active = false;
+    app.world_mut().despawn(before);
+    let during = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_DURING))).id();
+    app.update();
+
+    app.world_mut().entity_mut(sess).remove::<crate::lights::SessionLight>();
+    app.world_mut().entity_mut(p_parent).insert(nvf_play::DrawOnly);
+    app.update();
+
+    // Frame 4: rt returns; cache must reflect every delta that occurred while rt was None.
+    run_step(&mut app, &tracked);
+    let r = &app.world().resource::<TestCache>().results;
+    assert_eq!(r[&R_BEFORE], None);
+    assert_eq!(r[&R_DURING], Some(during));
+    assert_eq!(r[&R_SESSION], Some(sess));
+    assert_eq!(r[&R_PROMOTE], Some(p_child));
+
+    // Also verify the real `mirror` system runs cleanly with no `ScriptState` resource across spawns/removals.
+    let mut mirror_app = App::new();
+    mirror_app.add_systems(PostUpdate, mirror);
+    let e = mirror_app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_DURING))).id();
+    mirror_app.update();
+    mirror_app.world_mut().despawn(e);
+    mirror_app.update();
 }
 
 #[test]

@@ -88,23 +88,44 @@ struct VisualRootCache {
     entity_ref: HashMap<Entity, u32>,
 }
 
-type VisualChanges<'w, 's> = (
-    Query<
-        'w,
-        's,
-        (Entity, &'static RefVisual, Option<&'static ChildOf>),
-        (
-            crate::lights::NotLightSource,
-            Without<nvf_play::DrawOnly>,
-            Or<(Added<RefVisual>, Changed<RefVisual>, Added<ChildOf>, Changed<ChildOf>)>,
-        ),
-    >,
-    RemovedComponents<'w, 's, RefVisual>,
-    RemovedComponents<'w, 's, ChildOf>,
-    RemovedComponents<'w, 's, nvf_play::DrawOnly>,
-    RemovedComponents<'w, 's, PointLight>,
-    RemovedComponents<'w, 's, SpotLight>,
-);
+type VisualChangedQuery<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static RefVisual, Option<&'static ChildOf>),
+    (
+        crate::lights::NotLightSource,
+        Without<nvf_play::DrawOnly>,
+        Or<(Added<RefVisual>, Changed<RefVisual>, Added<ChildOf>, Changed<ChildOf>)>,
+    ),
+>;
+
+type VisualExcludedAddedQuery<'w, 's> = Query<
+    'w,
+    's,
+    Entity,
+    (
+        With<RefVisual>,
+        Or<(
+            Added<nvf_play::DrawOnly>,
+            Added<PointLight>,
+            Added<SpotLight>,
+            Added<crate::lights::SessionLight>,
+        )>,
+    ),
+>;
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct VisualChanges<'w, 's> {
+    changed: VisualChangedQuery<'w, 's>,
+    excluded_added: VisualExcludedAddedQuery<'w, 's>,
+    children: Query<'w, 's, &'static Children>,
+    removed_visual: RemovedComponents<'w, 's, RefVisual>,
+    removed_parent: RemovedComponents<'w, 's, ChildOf>,
+    removed_draw_only: RemovedComponents<'w, 's, nvf_play::DrawOnly>,
+    removed_point_light: RemovedComponents<'w, 's, PointLight>,
+    removed_spot_light: RemovedComponents<'w, 's, SpotLight>,
+    removed_session_light: RemovedComponents<'w, 's, crate::lights::SessionLight>,
+}
 
 impl VisualRootCache {
     fn is_root(v: u32, p: Option<&ChildOf>, visuals: &Visuals) -> bool {
@@ -155,8 +176,12 @@ impl VisualRootCache {
 
     fn refresh_entity(&mut self, e: Entity, visuals: &Visuals) {
         match visuals.get(e) {
-            Ok((_, v, p)) if v.0 != FormId::PLAYER_REF.0 && Self::is_root(v.0, p, visuals) => {
-                self.insert_root(v.0, e);
+            Ok((_, v, p)) if v.0 != FormId::PLAYER_REF.0 => {
+                if Self::is_root(v.0, p, visuals) {
+                    self.insert_root(v.0, e);
+                } else {
+                    self.remove_entity(e);
+                }
                 self.revalidate_ref(v.0, visuals);
             }
             _ => {
@@ -165,14 +190,27 @@ impl VisualRootCache {
         }
     }
 
-    fn sync(&mut self, visuals: &Visuals, changes: &mut VisualChanges, nodes: &NodeQuery) {
+    /// Re-evaluate direct children of `parent` whenever `parent` loses `RefVisual`, gains an
+    /// exclusion component (`DrawOnly`/`PointLight`/`SpotLight`/`SessionLight`), or mutates
+    /// its `RefVisual` so any direct child carrying the old reference is promoted to root.
+    fn promote_children(&mut self, parent: Entity, visuals: &Visuals, children: &Query<&Children>) {
+        let Ok(kids) = children.get(parent) else { return };
+        for child in kids.iter() {
+            if visuals.get(child).is_ok() {
+                self.refresh_entity(child, visuals);
+            }
+        }
+    }
+
+    fn sync(&mut self, visuals: &Visuals, changes: &mut VisualChanges) {
         if !self.initialized {
             // Drain any initial deltas before doing the one-time full scan.
-            for _ in changes.1.read() {}
-            for _ in changes.2.read() {}
-            for _ in changes.3.read() {}
-            for _ in changes.4.read() {}
-            for _ in changes.5.read() {}
+            for _ in changes.removed_visual.read() {}
+            for _ in changes.removed_parent.read() {}
+            for _ in changes.removed_draw_only.read() {}
+            for _ in changes.removed_point_light.read() {}
+            for _ in changes.removed_spot_light.read() {}
+            for _ in changes.removed_session_light.read() {}
             self.roots.clear();
             self.entity_ref.clear();
             for (e, v, p) in visuals.iter() {
@@ -185,55 +223,54 @@ impl VisualRootCache {
         }
 
         // 1. Removals / despawns of `RefVisual`: evict and promote any direct children
-        //    that kept `RefVisual(old_r)` if the parent entity itself survived.
-        let mut promoted: Vec<Entity> = Vec::new();
-        for e in changes.1.read() {
-            if let Some(old_r) = self.remove_entity(e) {
-                if let Ok((_, _, Some(children), _, _, _)) = nodes.get(e) {
-                    for child in children.iter() {
-                        if visuals.get(child).ok().is_some_and(|(_, cv, _)| cv.0 == old_r) {
-                            promoted.push(child);
-                        }
-                    }
-                }
-            }
-        }
-        for child in promoted {
-            self.refresh_entity(child, visuals);
+        //    that kept `RefVisual` if the parent entity itself survived.
+        for e in changes.removed_visual.read() {
+            self.remove_entity(e);
+            self.promote_children(e, visuals, &changes.children);
         }
 
-        // 2. Removals of `ChildOf`, `DrawOnly`, `PointLight`, `SpotLight` can make an
-        //    existing `RefVisual` entity become a valid root.
-        for e in changes.2.read() {
+        // 2. Added exclusion components (`DrawOnly`, `PointLight`, `SpotLight`, `SessionLight`):
+        //    evict the excluded entity and promote any direct `RefVisual` children.
+        for e in changes.excluded_added.iter() {
+            self.remove_entity(e);
+            self.promote_children(e, visuals, &changes.children);
+        }
+
+        // 3. Removals of `ChildOf`, `DrawOnly`, `PointLight`, `SpotLight`, `SessionLight`
+        //    can make an existing `RefVisual` entity become a valid root (or shadow a child).
+        for e in changes.removed_parent.read() {
             self.refresh_entity(e, visuals);
         }
-        for e in changes.3.read() {
+        for e in changes.removed_draw_only.read() {
             self.refresh_entity(e, visuals);
         }
-        for e in changes.4.read() {
+        for e in changes.removed_point_light.read() {
             self.refresh_entity(e, visuals);
         }
-        for e in changes.5.read() {
+        for e in changes.removed_spot_light.read() {
+            self.refresh_entity(e, visuals);
+        }
+        for e in changes.removed_session_light.read() {
             self.refresh_entity(e, visuals);
         }
 
-        // 3. Added or mutated `RefVisual` / `ChildOf`.
-        for (e, v, p) in changes.0.iter() {
+        // 4. Added or mutated `RefVisual` / `ChildOf`: update the entity and promote direct
+        //    children in case `RefVisual` changed from `old_r` to `new_r` or `PLAYER_REF`.
+        for (e, v, p) in changes.changed.iter() {
             if v.0 == FormId::PLAYER_REF.0 {
                 self.remove_entity(e);
-                continue;
-            }
-            if Self::is_root(v.0, p, visuals) {
+            } else if Self::is_root(v.0, p, visuals) {
                 self.insert_root(v.0, e);
                 self.revalidate_ref(v.0, visuals);
             } else {
                 self.remove_entity(e);
+                self.revalidate_ref(v.0, visuals);
             }
+            self.promote_children(e, visuals, &changes.children);
         }
     }
 
-    /// Look up the live root entity for `r`, lazily pruning any entry invalidated by an
-    /// added `DrawOnly`, `PointLight`, or `SpotLight` component.
+    /// Look up the live root entity for `r`, defensively pruning any stale entry.
     fn get_live(&mut self, r: u32, visuals: &Visuals) -> Option<Entity> {
         let list = self.roots.get_mut(&r)?;
         while let Some(&e) = list.first() {
@@ -935,8 +972,8 @@ fn mirror(
     extra: Extra,
     dropped: Dropped,
 ) {
+    mem.visual_cache.sync(&visuals, &mut visual_changes);
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    mem.visual_cache.sync(&visuals, &mut visual_changes, &nodes);
     mirror_game_impl(&mut rt.game, rigs, visuals, parents, nodes, commands, &mut mem, materials, shapes, extra, dropped, true);
 }
 
