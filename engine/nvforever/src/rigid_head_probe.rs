@@ -41,13 +41,28 @@ pub fn install(app: &mut App) {
         .add_systems(Last, report);
 }
 
+/// Whether `entity` hangs under `ancestor` through one or more `ChildOf` hops
+/// (direct bone child, or `Bip01 Head -> part root NiNode -> ... -> leaf`).
+fn is_descendant_of(mut entity: Entity, ancestor: Entity, parents: &Query<&ChildOf>) -> bool {
+    for _ in 0..64 {
+        let Ok(parent) = parents.get(entity) else { return false };
+        let p = parent.parent();
+        if p == ancestor {
+            return true;
+        }
+        entity = p;
+    }
+    false
+}
+
 fn sample(
     mut probe: ResMut<Probe>,
     time: Res<Time<Real>>,
     script: Option<Res<ScriptState>>,
     actors: Query<(&ActorRig, &Dressed)>,
     nodes: Query<(&Transform, &GlobalTransform)>,
-    shapes: Query<(&ShapeName, &LimbShape, &ChildOf, &GlobalTransform), Without<SkinnedMesh>>,
+    parents: Query<&ChildOf>,
+    shapes: Query<(&ShapeName, &LimbShape, &GlobalTransform), Without<SkinnedMesh>>,
 ) {
     for (rig, dressed) in &actors {
         if rig.base != probe.base { continue; }
@@ -55,7 +70,7 @@ fn sample(
         let head_entity = rig.nodes[index];
         let Ok((head_local, head)) = nodes.get(head_entity) else { continue };
         for &entity in dressed.parts.iter().flat_map(|(_, entities)| entities) {
-            let Ok((name, limb, parent, mesh)) = shapes.get(entity) else { continue };
+            let Ok((name, limb, mesh)) = shapes.get(entity) else { continue };
             if name.0 != probe.shape { continue; }
             let Some(VertexAttributeValues::Float32x3(vertices)) = limb.cpu.attribute(Mesh::ATTRIBUTE_POSITION) else { continue };
             if vertices.is_empty() { continue; }
@@ -83,8 +98,9 @@ fn sample(
             let phase = if talking { "talking" } else if probe.talked { "after" } else { "idle" };
             if time.elapsed_secs_f64() >= probe.next_report || probe.phase != phase {
                 let h = head.translation();
-                info!("rigid head check: actor={:08X} phase={phase} parent_head={} world=({:.3},{:.3},{:.3}) head=({:.3},{:.3},{:.3}) relative=({:.3},{:.3},{:.3}) error={error:.5} frame_error={frame_error:.5} turn_deg={:.2}",
-                    rig.reference, parent.parent() == head_entity, world.x, world.y, world.z,
+                let parent_head = is_descendant_of(entity, head_entity, &parents);
+                info!("rigid head check: actor={:08X} phase={phase} parent_head={parent_head} world=({:.3},{:.3},{:.3}) head=({:.3},{:.3},{:.3}) relative=({:.3},{:.3},{:.3}) error={error:.5} frame_error={frame_error:.5} turn_deg={:.2}",
+                    rig.reference, world.x, world.y, world.z,
                     h.x, h.y, h.z, relative.x, relative.y, relative.z, probe.max_turn);
                 probe.next_report = time.elapsed_secs_f64() + 1.0;
                 probe.phase = phase;
@@ -97,5 +113,39 @@ fn report(mut exit: MessageReader<AppExit>, probe: Res<Probe>) {
     if exit.read().next().is_some() {
         info!("rigid head check summary: samples={} max_error={:.5} max_frame_error={:.5} turn_deg={:.2}",
             probe.samples, probe.max_error, probe.max_frame_error, probe.max_turn);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn descendant_check_walks_through_rigid_part_root_and_intermediate_nodes() {
+        let mut world = World::new();
+        let head = world.spawn_empty().id();
+        let other_bone = world.spawn_empty().id();
+        let direct_leaf = world.spawn(ChildOf(head)).id();
+        let part_root = world.spawn((Name::new("GenOliverCap"), ChildOf(head))).id();
+        let nested_leaf = world.spawn(ChildOf(part_root)).id();
+        let sub_node = world.spawn((Name::new("CapSub"), ChildOf(part_root))).id();
+        let deep_leaf = world.spawn(ChildOf(sub_node)).id();
+        let unrelated_leaf = world.spawn(ChildOf(other_bone)).id();
+
+        let (a, b, c, d) = world
+            .run_system_once(move |parents: Query<&ChildOf>| {
+                (
+                    is_descendant_of(direct_leaf, head, &parents),
+                    is_descendant_of(nested_leaf, head, &parents),
+                    is_descendant_of(deep_leaf, head, &parents),
+                    is_descendant_of(unrelated_leaf, head, &parents),
+                )
+            })
+            .unwrap();
+        assert!(a, "direct child of Bip01 Head must resolve parent_head=true");
+        assert!(b, "Bip01 Head -> root NiNode -> leaf must resolve parent_head=true");
+        assert!(c, "multi-hop Bip01 Head -> root -> sub -> leaf must resolve parent_head=true");
+        assert!(!d, "leaf under another bone must resolve parent_head=false");
     }
 }

@@ -78,8 +78,12 @@ pub struct Dressed {
     pub weapon: Option<FormId>,
     /// The held weapon's mod flags (`Appearance::weapon_mods`).
     pub weapon_mods: u8,
-    /// Each drawn part's key ([`part_key`]) and its shape entities.
+    /// Each drawn part's key ([`part_key`]) and its mesh shape entities.
     pub parts: Vec<(String, Vec<Entity>)>,
+    /// Each drawn part's key ([`part_key`]) and its top-level spawned rigid `NiNode` roots
+    /// (`SpawnedActor::rigid_roots`), tracked separately from [`Self::parts`] so `parts`
+    /// holds strictly mesh shapes while removed rigid subtrees are torn down cleanly.
+    pub rigid_roots: Vec<(String, Vec<Entity>)>,
 }
 
 /// The simulation's drawable equipment, shared by spawning, prefetch and reconciliation.
@@ -186,11 +190,18 @@ impl Dressed {
     /// The record of an actor just spawned from `a`: `drawn` and `part_of` as
     /// `spawn_actor` gave them, `part_index` the index in `a.parts` of each part spawned.
     pub fn new(world: &ActorWorld, a: &Appearance, part_index: &[usize], spawned: &SpawnedActor) -> Dressed {
-        Dressed { worn: a.worn.clone(), weapon: a.weapon, weapon_mods: a.weapon_mods, parts: grouped(a, part_index, spawned, pipboy_of(world, a)) }
+        let pipboy = pipboy_of(world, a);
+        Dressed {
+            worn: a.worn.clone(),
+            weapon: a.weapon,
+            weapon_mods: a.weapon_mods,
+            parts: grouped(a, part_index, spawned, pipboy),
+            rigid_roots: grouped_rigid_roots(a, part_index, spawned, pipboy),
+        }
     }
 }
 
-/// The drawn shapes of `spawned` grouped by part (`part_index`: the index in `a.parts`
+/// The drawn mesh shapes of `spawned` grouped by part (`part_index`: the index in `a.parts`
 /// of each part given to the spawn).
 fn grouped(a: &Appearance, part_index: &[usize], spawned: &SpawnedActor, pipboy: bool) -> Vec<(String, Vec<Entity>)> {
     let mut out: Vec<(String, Vec<Entity>)> = Vec::new();
@@ -201,8 +212,13 @@ fn grouped(a: &Appearance, part_index: &[usize], spawned: &SpawnedActor, pipboy:
             None => out.push((key, vec![*e])),
         }
     }
-    // Append rigid part roots after their leaf shapes so despawning a removed part
-    // removes leaf shapes first and then tears down the intermediate NiNode subtree.
+    out
+}
+
+/// Top-level rigid `NiNode` roots of `spawned` grouped by part key so outfit replacement
+/// despawns removed subtrees without mixing non-mesh nodes into [`Dressed::parts`].
+fn grouped_rigid_roots(a: &Appearance, part_index: &[usize], spawned: &SpawnedActor, pipboy: bool) -> Vec<(String, Vec<Entity>)> {
+    let mut out: Vec<(String, Vec<Entity>)> = Vec::new();
     for &(pi, e) in &spawned.rigid_roots {
         let key = part_key(a, &a.parts[part_index[pi]], pipboy);
         match out.iter_mut().find(|(n, _)| *n == key) {
@@ -382,6 +398,18 @@ fn follow_inventory(
                 }
             }
         }
+        // Despawn removed rigid NiNode subtrees after their leaf shapes so no empty
+        // NiNode entities remain under the bone and no entity is despawned twice.
+        let mut kept_roots = Vec::new();
+        for (key, roots) in std::mem::take(&mut dressed.rigid_roots) {
+            if !force_worn && new_keys.contains(&key) {
+                kept_roots.push((key, roots));
+            } else {
+                for e in roots {
+                    commands.entity(e).despawn();
+                }
+            }
+        }
         // Parts drawn now that were not: on the same skeleton.
         let have: Vec<String> = kept.iter().map(|(k, _)| k.clone()).collect();
         let mut put_on = new.clone();
@@ -393,9 +421,12 @@ fn follow_inventory(
             commands.entity(*e).insert(RefVisual(rig.reference));
         }
         let added = grouped(&put_on, &part_index, &spawned, pipboy);
+        let added_roots = grouped_rigid_roots(&put_on, &part_index, &spawned, pipboy);
         stats.parts_on += added.len();
         kept.extend(added);
+        kept_roots.extend(added_roots);
         dressed.parts = kept;
+        dressed.rigid_roots = kept_roots;
         let off: Vec<FormId> = dressed.worn.iter().copied().filter(|a| !worn.contains(a)).collect();
         let on: Vec<FormId> = worn.iter().copied().filter(|a| !dressed.worn.contains(a)).collect();
         stats.armour_off += off.len();
@@ -1358,4 +1389,7 @@ pub(crate) mod tests {
         app.update();
         assert_eq!(app.world().resource::<OutfitStats>().replacements, N, "no extra reloads on frame 3");
     }
+
+    #[path = "outfits_rigid_roots_tests.rs"]
+    mod rigid_roots_tests;
 }

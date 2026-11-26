@@ -1283,12 +1283,13 @@ pub fn creature_rigid_chain(skel: &PreparedSkeleton, part: &PreparedPart, s: &Pa
 /// under its attachment bone, preserving the NIF's root and intermediate named `NiNode`s
 /// so `GetChildBlocks` and scripted `SetNifBlock*` transforms on the part root (such as
 /// `"PipBoyArm"` under `"Bip01 L ForeTwist"`) move the entire part together rather than
-/// detaching the first leaf shape (`PipBoyArm:0`) from its siblings [documented:
-/// `pipboy3000\pipboyarm.nif` scene tree (`PipBoyArm` root, direct leaf `PipBoyArm:0`,
-/// child nodes `pipboyscreen`, `RadNeedle`, `TabKnob`, `ScrollKnob`, `StatsGlow`,
-/// `ItemsGlow`, `DataGlow`); design: unnamed intermediate nodes fold into the child node
-/// or leaf below them, and parts with no `root_name` and no named ancestors keep an empty
-/// chain].
+/// detaching the first leaf shape (`PipBoyArm:0`) from its siblings [observed: `fnvtool
+/// nif decode` on `Fallout - Meshes.bsa`, `pipboy3000\pipboyarm.nif` has identity root
+/// `PipBoyArm`, direct leaves `PipBoyArm:0` / `PipBoyArm:1`, and named child `NiNode`s
+/// `pipboyscreen`, `RadNeedle`, `TabKnob`, `ScrollKnob`, `StatsGlow`, `ItemsGlow`,
+/// `DataGlow` (`docs/spec-notes/actors.md` §1.2); design: unnamed intermediate nodes fold
+/// into the child node or leaf below them, and parts with no `root_name` and no named
+/// ancestors keep an empty chain].
 ///
 /// The product of `chain` transforms followed by the returned shape-local transform equals
 /// `frame * s.transform`.

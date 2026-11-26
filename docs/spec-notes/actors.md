@@ -120,12 +120,15 @@ actor meshes`]:
   this layout in other rigid hats, but asymmetric meshes can be ambiguous. Owner
   review tracks the threshold; observer check 168 asks for original-game parity.
 - A rigid part on **another bone is in that bone's own axes**: an ordinary child, node
-  transforms kept, no rotation added. [design: `engine/nvf-assets/src/actor.rs::rigid_part_chain`]
-  Spawning rigid parts preserves the NIF's root `NiNode` (when named, e.g. `PipBoyArm`)
-  and named intermediate `NiNode`s (e.g. `pipboyscreen`, `RadNeedle`, `TabKnob`,
-  `ScrollKnob`, `StatsGlow`, `ItemsGlow`, `DataGlow`) under the attachment bone instead
-  of flattening all leaf shapes directly onto the bone. Preserving this hierarchy keeps
-  exact bind-pose world transforms while ensuring `GetChildBlocks "Bip01 L ForeTwist" 2`
+  transforms kept, no rotation added. In `pipboy3000\pipboyarm.nif`, the root `NiNode` is
+  `PipBoyArm` (`Prn = Bip01 L ForeTwist`), `PipBoyArm:0` and `PipBoyArm:1` sit directly
+  under it, and named child `NiNode`s (`pipboyscreen`, `RadNeedle`, `TabKnob`,
+  `ScrollKnob`, `StatsGlow`, `ItemsGlow`, `DataGlow`, `PipBoyButton01`..`03`) own their
+  leaf shapes [observed: `fnvtool nif decode` on `Fallout - Meshes.bsa`]. [design:
+  `engine/nvf-assets/src/actor.rs::rigid_part_chain`] Spawning rigid parts preserves the
+  NIF's named root `NiNode` and named intermediate `NiNode`s under the attachment bone
+  instead of flattening all leaf shapes directly onto the bone. Preserving this hierarchy
+  keeps exact bind-pose world transforms while ensuring `GetChildBlocks "Bip01 L ForeTwist" 2`
   sees the part root (`PipBoyArm`) rather than its first leaf mesh (`PipBoyArm:0`), so
   scripted resets (`SetNifBlockTranslation/Rotation/Scale`) on the first child move the
   whole Pip-Boy together instead of detaching the casing from its screen and controls.
