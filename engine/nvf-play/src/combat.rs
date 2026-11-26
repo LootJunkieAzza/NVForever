@@ -909,9 +909,39 @@ pub struct NpcWeaponWear {
     pub last: f32,
 }
 
+/// A co-op guest's hit on an actor, for the host, whose world it is, to apply
+/// ([`CombatStats::relay`], [`RemoteHit`]).
+#[derive(Debug, Clone, Copy)]
+pub struct RelayedHit {
+    pub target: FormId,
+    pub dealt: f32,
+    pub weapon: Option<FormId>,
+    pub location: i32,
+    pub critical: bool,
+    pub limb: Option<fnv_game::combat::LimbHit>,
+}
+
+/// [`RelayedHit::location`] of a shot on a placed object that is not an actor (a hit
+/// location is -1 or a body part's index): its hit blocks run on the host.
+pub const OBJECT_LOCATION: i32 = -1000;
+
+/// A hit from another game (a co-op guest's, [`RelayedHit`]) to apply here as `by`'s.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct RemoteHit {
+    pub by: FormId,
+    pub hit: RelayedHit,
+}
+
 /// Counts for the exit report.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct CombatStats {
+    /// A co-op guest's: the host runs the world, so hits on actors other than the player
+    /// are not applied here. The player's own are kept here for the host; others (none
+    /// should land, the guest's NPCs not fighting) are dropped. `None` in any other game.
+    pub relay: Option<Vec<RelayedHit>>,
+    /// A co-op host's: hits on the other players' actors (`fnv_game::Game::coop_actors`),
+    /// each with who dealt it, for their own games to take; they do nothing here.
+    pub coop_hits: Vec<(Option<FormId>, RelayedHit)>,
     /// The player's shots that rolled for their ammo's spent item (a case, hull or
     /// drained cell), and the items given, by item.
     pub spent_rolls: u32,
@@ -2024,6 +2054,7 @@ impl Plugin for CombatPlugin {
             .init_resource::<HitMarks>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
+            .add_message::<RemoteHit>()
             .add_message::<ForcedHitReaction>()
             .add_message::<ActorPush>()
             .add_message::<Knockback>()
@@ -2038,6 +2069,12 @@ impl Plugin for CombatPlugin {
                 Update,
                 (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, (actor_attacks, sync_player_anim_events).chain(), fly, crate::dismember::resolve, (crate::mines::tick, crate::grass_fire::tick).chain(), crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
+            // Another player's hits land while this player talks, too: the world stands
+            // still behind a conversation, and a guest's hit that came then would be
+            // dropped, so nobody could kill an NPC the host was talking to. Its death ends
+            // the conversation (`fnv_game::Game::update_dialogue`). Without co-op no
+            // [`RemoteHit`] is ever written, so this does nothing [design].
+            .add_systems(Update, remote_hits.in_set(PlaySet::Activation).after(fly).before(crate::dismember::resolve).run_if(remote_hits_land).run_if(resource_exists::<Combat>))
             .add_systems(Update, (draw_marks, watch_hit_effects, leave_space_shots).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
@@ -2530,7 +2567,9 @@ struct DeathDrops {
 /// picks the one reference up (`RefState::dropped_by`; #1032) [hypothesis: the
 /// original's corpses list the weapon lying beside them; owner's report]. Only deaths seen in play count: an actor dead when it
 /// is drawn was never seen holding a weapon, so a corpse laid out by the game keeps its
-/// own (`Game::starts_dead`).
+/// own (`Game::starts_dead`). Another co-op player's actor drops nothing: its weapon is
+/// that player's, in its own game, and it lies only while it is down (a dropped copy
+/// could be picked up here) [design].
 ///
 /// Under the player's NPCs Drop Live Grenades tweak, one that dies holding a grenade (a
 /// thrown weapon that explodes, as `npc_grenades` throws) lets it fall live at its feet
@@ -2548,7 +2587,7 @@ fn death_drops(
 ) {
     let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
     for (&id, p) in &parts.by_ref {
-        if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) {
+        if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) || rt.game.coop_actors.contains_key(&FormId(id)) {
             continue;
         }
         // The player's tweak: a weapon put away is dropped too [design: docs/design/tweaks.md].
@@ -4661,6 +4700,79 @@ pub(crate) fn crit_effect(c: &Combat, weapon: Option<FormId>) -> Option<(FormId,
     Some((w.crit_effect?, w.crit_on_death))
 }
 
+/// When [`remote_hits`] runs: in play, and behind this player's own conversation.
+fn remote_hits_land(state: Res<State<PlayState>>) -> bool {
+    matches!(state.get(), PlayState::Playing | PlayState::Dialogue)
+}
+
+/// Hits from another game ([`RemoteHit`]: a co-op guest's on this host's actors), applied
+/// as this game's own are. Only co-op writes a [`RemoteHit`].
+fn remote_hits(
+    mut remote: MessageReader<RemoteHit>,
+    mut sim: ResMut<SimState>,
+    mut stats: ResMut<CombatStats>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut feedback: ResMut<HitFeedback>,
+    mut messages: MessageWriter<ActorHit>,
+    (mut combat, mut phys): (Option<ResMut<Combat>>, Option<ResMut<PhysState>>),
+) {
+    for RemoteHit { by, hit } in remote.read().copied() {
+        // A shot on a placed object (not an actor): its hit blocks run, as `by`'s, and it
+        // takes the damage, as a shot of this game's own does (the projectile branch).
+        if hit.location == OBJECT_LOCATION && !sim.is_actor(hit.target.0) {
+            let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: -1, ..HitInfo::default() };
+            let r = hit.target;
+            let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
+            if let Some(c) = combat.as_deref_mut() {
+                damage_destructible(c, &mut sim, script.as_deref_mut(), r, hit.dealt, None);
+            }
+            // Knocked here too: the other players' copies of a loose object follow this
+            // world's (a guest's physics does not write back what the host moves), so
+            // without it a bottle the guest shot stayed put on every screen
+            // [observed: buckallobill, in game, NVForever co-op].
+            let pushed = match (phys.as_deref_mut(), combat.as_deref()) {
+                (Some(p), Some(c)) => remote_push(p, c, &sim, by, r, hit.weapon),
+                _ => false,
+            };
+            stats.object_scripts += ran as u32;
+            stats.objects_pushed += pushed as u32;
+            info!("combat: {by}'s shot (another game's) hits {}{}{}", r, if ran { ", its hit blocks ran" } else { "" }, if pushed { ", knocked away" } else { "" });
+            continue;
+        }
+        let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: hit.location, critical: hit.critical, limb: hit.limb, ..HitInfo::default() };
+        let mut dealt = hit.dealt;
+        // A hit on this player in the host's world, dealt against an actor that wears
+        // nothing there: this player's armour takes its part here, as an explosion's
+        // damage meets it (`fly`).
+        if let (FormId::PLAYER_REF, Some(c)) = (hit.target, combat.as_deref()) {
+            let (dt, dr) = target_armor(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF);
+            dealt = (dealt - dt).max(dealt * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
+        }
+        apply_hit(script.as_deref_mut(), &mut sim, hit.target, dealt, info, &mut stats, &mut feedback, None, &mut messages, &[], false, None);
+    }
+}
+
+/// The height above a shooter's feet a remote shot is taken to leave from, for its push
+/// ([`remote_push`]): about a standing actor's eyes [design].
+const REMOTE_SHOT_EYE: f32 = 110.0;
+
+/// A remote shot's push on a loose object (another game's hit, [`remote_hits`]): the
+/// weapon's projectile's impact force, from the shooter's eyes towards the object's
+/// centre, as this game's own shot on it pushes. The hit's own point and direction are
+/// not in the message, so they are taken from where the shooter stands here [design].
+/// Returns whether it moved.
+fn remote_push(phys: &mut PhysState, c: &Combat, sim: &SimState, by: FormId, r: FormId, weapon: Option<FormId>) -> bool {
+    let force = weapon.and_then(|w| c.forms.chain(w, None)).and_then(|ch| ch.projectile).and_then(|p| c.forms.projectiles.get(&p)).map_or(0.0, |p| p.impact_force);
+    if force <= 0.0 {
+        return false;
+    }
+    let Some(at) = phys.world.ref_center(r.0) else { return false };
+    let Some(feet) = phys.world.actor_volume(by.0).map(|v| v.feet).or_else(|| sim.world.peek(by).map(|s| s.pos)) else { return false };
+    let dir = vec::normalize(vec::sub(at, [feet[0], feet[1], feet[2] + REMOTE_SHOT_EYE]));
+    let impulse = vec::scale(dir, force * OBJECT_PUSH * phys.world.params.units_per_metre);
+    phys.world.push_ref(r.0, at, impulse, OBJECT_PUSH_MAX_SPEED).is_some()
+}
+
 /// Where a shot or a blow struck `target`, for the scripts (JohnnyGuitar's
 /// Get3DDistanceFromHitToNiNode, `fnv_game::nvse_jg_nif`).
 fn note_hit_point(script: Option<&mut ScriptState>, target: FormId, at: [f32; 3]) {
@@ -4716,6 +4828,16 @@ fn hit_actor(
     blast: &[LimbHit],
 ) -> Option<(HitResult, Option<ActorHit>)> {
     let mine = info.attacker == Some(FormId::PLAYER_REF);
+    // A co-op guest's ([`CombatStats::relay`]): the player's hits on others go to the
+    // host, whose world takes them; nothing is applied here.
+    if target != FormId::PLAYER_REF {
+        if let Some(out) = stats.relay.as_mut() {
+            if mine {
+                out.push(RelayedHit { target, dealt, weapon: info.weapon, location: info.location, critical: info.critical, limb: info.limb });
+            }
+            return None;
+        }
+    }
     let rt = script.and_then(|s| s.rt.as_mut())?;
     if target == FormId::PLAYER_REF {
         // While the classic VATS style plays its queued attacks the player takes a share
@@ -4729,6 +4851,11 @@ fn hit_actor(
             None => dealt,
         };
         return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback, blast).map(|r| (r, None));
+    }
+    // Another co-op player's: their game takes it, with their own armour (`remote_hits`).
+    if rt.game.is_coop_actor(target) {
+        stats.coop_hits.push((info.attacker, RelayedHit { target, dealt, weapon: info.weapon, location: info.location, critical: info.critical, limb: info.limb }));
+        return Some((HitResult { dealt: dealt as f64, immune: true, ..HitResult::default() }, None));
     }
     // The hit's effects go on before its damage (`hit_effects`).
     let span = info_span!("combat::hit_effects").entered();
@@ -6630,7 +6757,8 @@ fn fly(
         if p.by.harmless {
             stats.harmless_hits += 1;
             let hit = p.actor.map(|a| if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) }).or(p.object.map(|o| FormId(o as u32)));
-            if let Some(target) = hit {
+            // (A co-op guest's world is the host's: its hit blocks run there.)
+            if let Some(target) = hit.filter(|_| stats.relay.is_none()) {
                 let info = HitInfo { attacker: Some(shooter), weapon: Some(id), projectile: p.rref, location: -1, ..HitInfo::default() };
                 let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.harmless_hit(target, info)));
                 stats.harmless_scripts += u32::from(ran);
@@ -6662,6 +6790,22 @@ fn fly(
             debug!("combat: shot lands at ({:.0}, {:.0}, {:.0}) on {}", p.point[0], p.point[1], p.point[2], p.object.map_or("no object".to_string(), |o| format!("{:08X}", o as u32)));
             if let Some(obj) = p.object {
                 let r = FormId(obj as u32);
+                // A co-op guest's shot on a placed object goes to the host, whose world
+                // runs the object's hit blocks and takes its damage as this player's
+                // ([`remote_hits`]; Sunny's bottles count for the host's quest
+                // [observed: buckallobill, in game, NVForever co-op]); what that changes
+                // comes back as the host's world does. The object is still knocked here,
+                // where it is seen.
+                if shooter == FormId::PLAYER_REF && !r.is_dynamic() {
+                    if let Some(out) = stats.relay.as_mut() {
+                        let (ap, _) = hit_perks(script.as_deref_mut(), &mut sim, shooter, id, None);
+                        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
+                        out.push(RelayedHit { target: r, dealt: d.dealt, weapon: Some(id), location: OBJECT_LOCATION, critical: false, limb: None });
+                        let impulse = vec::scale(p.dir, p.force * OBJECT_PUSH * phys.world.params.units_per_metre);
+                        phys.world.push_ref(obj as u32, p.point, impulse, OBJECT_PUSH_MAX_SPEED);
+                        continue;
+                    }
+                }
                 // The object's OnHit and OnHitWith blocks, before any damage
                 // [documented: GECK wiki Event Handling] (combat-rules.md §14).
                 let info = HitInfo { attacker: Some(shooter), weapon: Some(id), projectile: p.rref, location: -1, ..HitInfo::default() };
@@ -7489,7 +7633,8 @@ mod tests {
         let mut phys = PhysState::default();
         let id = 0x1234;
         let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
-        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+        let standing_height = ch.params.height;
+        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
         phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [0.0, 0.0, 30.0], radius: 8.0, height: 30.0, dead: false });
         phys
     }
@@ -7517,7 +7662,8 @@ mod tests {
                 phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet, radius: 15.0, height: 30.0, dead: false });
                 if walking {
                     let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), feet);
-                    phys.npcs.insert(id, NpcBody { prev_feet: feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+                    let standing_height = ch.params.height;
+                    phys.npcs.insert(id, NpcBody { prev_feet: feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
                 }
                 for forward in [[1.0, 0.0, 0.0], vec::normalize([1.0, 0.0, -1.0])] {
                     let mut world = view(&mut phys, None, None).for_melee();

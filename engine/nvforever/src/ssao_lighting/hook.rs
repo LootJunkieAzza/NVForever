@@ -235,15 +235,15 @@ pub const PHYSICAL_IBL_AO_HOOKED: &str = "    @if(!NVF_AMBIENT_OCCLUSION)
 
 /// The fallback linear ambient line of lights/display_shader.rs `PHYSICAL_EDITS` (a view
 /// without the sky's environment map).
-pub const PHYSICAL_AMBIENT_LINE: &str = "            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient\n";
+pub const PHYSICAL_AMBIENT_LINE: &str = "            let nvf_ambient_lin = lighting::nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient\n";
 
 /// The same kept without the def, and its twin with the occlusion as on the sky's light.
 pub const PHYSICAL_AMBIENT_LINE_HOOKED: &str = "            // NVForever ambient occlusion (nvforever ssao_lighting.rs): on the fallback linear
             // ambient alone, never on the directional lights nor on Bevy's ambient highlight.
             @if(!NVF_AMBIENT_OCCLUSION)
-            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient
+            let nvf_ambient_lin = lighting::nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient
             @if(NVF_AMBIENT_OCCLUSION)
-            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient * mix(0.28, 1.0, clamp(nvf_sky_vis, 0.0, 1.0)), diffuse_color);
+            let nvf_ambient_lin = lighting::nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient * mix(0.28, 1.0, clamp(nvf_sky_vis, 0.0, 1.0)), diffuse_color);
 ";
 
 /// The hook for Physical lighting's light loop (lights/display_shader.rs `physical_patched`,

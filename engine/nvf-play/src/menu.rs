@@ -962,8 +962,8 @@ fn quantity_mouse(
 
 /// The inventory's Caravan cards follow the player's (`fnv_game::caravan`; kept by the
 /// scripts' game, not in the inventory): the Misc tab's card folder
-/// (`model::Folder::Cards`).
-fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script: Option<Res<crate::script::ScriptState>>) {
+/// (`model::Folder::Cards`, or ySI's Caravan Deck category when `bEnableCategories` is on).
+fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, mut script: Option<ResMut<crate::script::ScriptState>>) {
     let Some(cards) = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.player.caravan.cards) else { return };
     if !active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory && m.cards != *cards) {
         return;
@@ -972,19 +972,28 @@ fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script:
     if let Some(m) = active.0.as_mut() {
         if let Err(e) = m.set_cards(&mut sim.world, cards) {
             warn!("menu: the Caravan cards: {e}");
+        } else if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            sync_ysi_model(m, &mut rt.game);
         }
     }
 }
 
-/// Attach resolved ySI sorting tags and row icons to `m` when ySI is active in `game`,
-/// honoring `yUI.ini` `[Sorting and Icons]` `bSortInventory` and `bAddInventoryIcons`
-/// (zero-cost no-op in vanilla sessions without ySI) [design:
-/// `docs/spec-notes/ysi-filename.md`, `docs/spec-notes/yui-ini.md`].
-fn sync_ysi_model(m: &mut MenuModel, game: &mut fnv_game::Game<'_>) {
+/// Attach resolved ySI sorting tags, row icons, and Pip-Boy category folders to `m` when
+/// ySI is active in `game`, honoring `yUI.ini` `[Sorting and Icons]` `bSortInventory`,
+/// `bAddInventoryIcons`, and `bEnableCategories` (zero-cost no-op in vanilla sessions
+/// without ySI) [design: `docs/spec-notes/ysi-filename.md`, `docs/spec-notes/yui-ini.md`].
+pub(crate) fn sync_ysi_model(m: &mut MenuModel, game: &mut fnv_game::Game<'_>) {
     let sort_by_tag = game.ysi_sort_inventory();
     let add_icons = game.ysi_add_inventory_icons();
+    let categories = if m.mode == Mode::Inventory {
+        game.ysi_categories()
+    } else {
+        None
+    };
+    let has_categories = categories.is_some();
+    m.set_ysi_categories(categories);
     m.ysi_icons = add_icons;
-    if sort_by_tag || add_icons {
+    if sort_by_tag || add_icons || has_categories {
         m.apply_ysi_options(sort_by_tag, add_icons, |item| game.ysi_item_display(item));
     }
 }
@@ -1192,7 +1201,9 @@ fn apply_input(
                     let allowed = crate::script::with_world(rt, &mut sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, row.item, 0, !row.equipped));
                     if !allowed {
                         info!("menu: {cmd:?}: {} activation prevented by script", row.name);
-                        let _ = m.refresh(&mut sim.world);
+                        if m.refresh(&mut sim.world).is_ok() {
+                            sync_ysi_model(m, &mut rt.game);
+                        }
                         continue;
                     }
                 }
@@ -1226,8 +1237,10 @@ fn apply_input(
             let before = crate::ui_sounds::MenuBefore::of(m);
             let asking = m.quantity.is_some();
             let quantity_before=m.quantity;
+            let folder_before = m.folder;
             let a = m.apply(&mut sim.world, cmd);
             let refreshed_rows = a.changed
+                || m.folder != folder_before
                 || matches!(
                     cmd,
                     Command::Category(..)

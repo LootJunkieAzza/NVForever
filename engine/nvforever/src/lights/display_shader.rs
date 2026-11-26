@@ -57,13 +57,14 @@ fn getDistanceAttenuation(",
 const PHYSICAL_SPECULAR_EDITS: [(&str, &str); 2] = [
     (
         "fn getDistanceAttenuation(",
-        "// NVForever (nvforever lights.rs PHYSICAL_SPECULAR_EDITS): exact IEC 61966-2-1 HDR-preserving sRGB decode.
-fn nvf_light_srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+        "// NVForever (nvforever lights.rs PHYSICAL_SPECULAR_EDITS): the sRGB decode, kept above 1.
+// nvf_display_to_linear is the display-value sum's own (DISPLAY_HELPERS), put here by
+// `lighting_patched`; pbr_functions' physical helpers read nvf_srgb_to_linear_hdr from here.
+NVF_DISPLAY_TO_LINEAR
+fn nvf_srgb_to_linear_hdr(c: vec3<f32>) -> vec3<f32> {
     let x = max(c, vec3(0.0));
     let m = max(max(x.r, max(x.g, x.b)), 1.0);
-    let n = x / m;
-    let lin = select(pow((n + vec3(0.055)) / 1.055, vec3(2.4)), n / 12.92, n <= vec3(0.04045));
-    return lin * m;
+    return nvf_display_to_linear(x / m) * m;
 }
 
 fn nvf_light_colour(c: vec3<f32>) -> vec3<f32> {
@@ -71,7 +72,7 @@ fn nvf_light_colour(c: vec3<f32>) -> vec3<f32> {
         return c;
     }
     let k = view_bindings::view.exposure / PI;
-    return nvf_light_srgb_to_linear(c * k) / k;
+    return nvf_srgb_to_linear_hdr(c * k) / k;
 }
 
 fn getDistanceAttenuation(",
@@ -163,6 +164,15 @@ pub(crate) fn oren_nayar_patched(source: &str) -> Option<String> {
     Some(out.replace(BURLEY_CALL, OREN_NAYAR_CALL))
 }
 
+/// The display-value sum's `nvf_display_to_linear` ([`DISPLAY_HELPERS`]), one copy of the
+/// sRGB decode for both looks: Physical lighting's light colours and ambient read it from
+/// `pbr_lighting` (prepass shaders included, so without its `PREPASS_FRAGMENT` gate).
+fn display_to_linear_fn() -> Option<String> {
+    let start = DISPLAY_HELPERS.find("fn nvf_display_to_linear(")?;
+    let end = start + DISPLAY_HELPERS[start..].find("\n}\n")? + 3;
+    Some(DISPLAY_HELPERS[start..end].to_string())
+}
+
 /// Patches `bevy_pbr/render/pbr_lighting.wesl` for either physical PBR (`physical = true`)
 /// or display-value lighting (`physical = false`). Shared by `lights::tests` and
 /// `nvf-shader-tests`.
@@ -182,6 +192,7 @@ pub(crate) fn lighting_patched(source: &str, physical: bool) -> Option<String> {
         patched = patched.replace(from, to);
     }
     if physical {
+        patched = patched.replace("NVF_DISPLAY_TO_LINEAR\n", &display_to_linear_fn()?);
         if patched.matches(ROUGHNESS_FLOOR_EDIT.0).count() != 1 {
             return None;
         }
@@ -364,21 +375,12 @@ fn nvf_display_lighting() -> bool {
     return view_bindings::lights.ambient_color.a < 0.0;
 }
 
-@if(!PREPASS_FRAGMENT)
-fn nvf_srgb_to_linear_hdr(c: vec3<f32>) -> vec3<f32> {
-    let x = max(c, vec3(0.0));
-    let m = max(max(x.r, max(x.g, x.b)), 1.0);
-    let n = x / m;
-    let lin = select(pow((n + vec3(0.055)) / 1.055, vec3(2.4)), n / 12.92, n <= vec3(0.04045));
-    return lin * m;
-}
-
 // What is left of Bevy's ambient light in a fallback view without an environment cubemap,
 // taking the ambient colour as exact IEC sRGB linear light.
 @if(!PREPASS_FRAGMENT)
 fn nvf_ambient_ratio() -> vec3<f32> {
     let scaled = max(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure, vec3(1e-6));
-    return nvf_srgb_to_linear_hdr(scaled) / scaled;
+    return lighting::nvf_srgb_to_linear_hdr(scaled) / scaled;
 }
 
 // Lagarde & de Rousiers (2014) Frostbite roughness-dependent specular AO.
@@ -452,12 +454,12 @@ const PHYSICAL_EDITS: [(&str, &str); 8] = [
         @if(ENVIRONMENT_MAP) {
             indirect_light *= nvf_w.x;
             if (view_bindings::light_probes.view_cubemap_index < 0) {
-                let nvf_env_fallback_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion;
+                let nvf_env_fallback_lin = lighting::nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion;
                 indirect_light += diffuse_color * nvf_env_fallback_lin * nvf_w.x / max(view_bindings::view.exposure, 1e-6);
             }
         }
         @if(!ENVIRONMENT_MAP) {
-            let nvf_ambient_lin = nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient
+            let nvf_ambient_lin = lighting::nvf_srgb_to_linear_hdr(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure) * diffuse_occlusion; // nvf_physical_fallback_ambient
             indirect_light = indirect_light * nvf_w.x + diffuse_color * nvf_ambient_lin * nvf_w.x / max(view_bindings::view.exposure, 1e-6);
         }
     }

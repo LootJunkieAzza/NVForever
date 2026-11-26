@@ -128,10 +128,16 @@ pub struct Prompt {
     pub key: String,
     /// A line under the name: [`EMPTY`] for a container or body with nothing in it.
     pub note: Option<String>,
+    /// Drawn greyed: E would do nothing (a co-op revive with nothing to revive with).
+    pub grey: bool,
 }
 
 /// Under the name of an empty container or body [owner 2026-10-27].
 const EMPTY: &str = "[Empty]";
+/// Under the name of a downed co-op player one has nothing to revive with [design].
+const NOTHING_TO_REVIVE_WITH: &str = "[No Stimpak]";
+/// A greyed prompt's strength [design].
+const GREY: f32 = 0.45;
 
 /// The player's tweak: a stack's weight and value are the whole stack's [design: docs/design/tweaks.md].
 static STACK_FIGURES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -176,7 +182,7 @@ impl Prompt {
         // An Activation Prompt (XATO) of the reference, else of its activator base, in
         // place of the action word; not over a lock or an inaccessible door
         // (docs/spec-notes/cells-refs.md §3) [hypothesis: which states it replaces].
-        if !matches!(t.action, Action::Locked { .. } | Action::UsePassword | Action::Unlock | Action::Name | Action::Hostile | Action::Inaccessible) {
+        if !matches!(t.action, Action::Locked { .. } | Action::UsePassword | Action::Unlock | Action::Name | Action::Hostile | Action::Inaccessible | Action::Revive { .. }) {
             if let Some(p) = activation_prompt(sim, t.form_id) {
                 action = p;
             }
@@ -193,8 +199,14 @@ impl Prompt {
             BaseData::Item(i) => Some([weight_text(i.weight.map(|w| w * n as f32)), value_text(i.worth().map(|v| v.saturating_mul(n)))]),
             _ => None,
         });
-        let note = t.empty.then(|| EMPTY.to_string());
-        Prompt { action, name, figures, crime: t.crime, key: String::new(), note }
+        let mut note = t.empty.then(|| EMPTY.to_string());
+        // A co-op revive with nothing to revive with says so, greyed [design: as the game
+        // shows a missing key].
+        let grey = matches!(t.action, Action::Revive { with: None });
+        if grey {
+            note = Some(NOTHING_TO_REVIVE_WITH.into());
+        }
+        Prompt { action, name, figures, crime: t.crime, key: String::new(), note, grey }
     }
 }
 
@@ -517,6 +529,7 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 
 fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
     let color = if prompt.crime { crime_colour() } else { amber(255.0) };
+    let color = if prompt.grey { color.with_alpha(GREY) } else { color };
     let l = layout(prompt, &kit.face.font);
     if let (Some(corner), Some(picture)) = (l.divider, kit.divider.clone()) {
         p.spawn((at(corner.x, corner.y, DIVIDER_SIZE.x, DIVIDER_SIZE.y), picture_node(picture, color)));
@@ -541,7 +554,7 @@ fn draw(
     (combat, hostile, bar, camera, time, dynamic, control): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>, Option<Res<crate::control::PlayerControl>>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
-    (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks, anim, vats): (
+    (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks, vats): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
         Option<Res<crate::creator::CreatorMenu>>,
@@ -550,7 +563,6 @@ fn draw(
         Option<Res<crate::player::ViewDriven>>,
         Option<Res<crate::kill_cam::KillCam>>,
         Option<Res<crate::tweaks::TweakSettings>>,
-        Option<Res<crate::combat::WeaponAnim>>,
         Option<Res<crate::vats_mode::VatsMode>>,
     ),
     data: Option<Res<GameData>>,
@@ -607,13 +619,16 @@ fn draw(
     // (docs/spec-notes/weapon-scopes.md §2): no crosshair.
     let scoped = scope.is_some_and(|s| s.on);
     // The player's tweak hides it while reloading too [design: docs/design/tweaks.md].
-    let reloading = tweaks.as_ref().is_some_and(|t| t.hide_crosshair_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
+    // Reloading now (a reload or a jam's clearing), not `WeaponAnim::reload`, which names the
+    // weapon's reload clip and is set for every weapon held: read as "reloading" it hid the
+    // crosshair and every prompt for good with this tweak on (#4611).
+    let reloading = tweaks.as_ref().is_some_and(|t| t.hide_crosshair_reloading) && combat.as_deref().is_some_and(crate::combat::Combat::player_reloading);
     // The player's tweak keeps it down the iron sights (a scope still hides it) [design: docs/design/tweaks.md].
     let keep = tweaks.as_ref().is_some_and(|t| t.crosshair_when_aiming);
     let sights = (sights.is_some_and(|s| s.0) && !keep) || scoped || reloading;
     if sights != logged.2 {
         logged.2 = sights;
-        info!("crosshair: {}", if !sights { "shown again" } else if scoped { "hidden by the scope" } else { "hidden down the true iron sights" });
+        info!("crosshair: {}", if !sights { "shown again" } else if scoped { "hidden by the scope" } else if reloading { "hidden while reloading" } else { "hidden down the true iron sights" });
     }
     for mut v in &mut root {
         // The Tweaks tab's crosshair key hides it [design: docs/design/tweaks.md].
@@ -723,7 +738,7 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None, grey: false }
     }
 
     #[test]
