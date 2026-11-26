@@ -94,8 +94,8 @@ const EFFECT_IN: f32 = 15.0;
 pub fn menu_hints(s: &Session) -> [Hint; 2] {
     let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i)).is_some();
     [
-        Hint::new(super::labels::label("sInventoryMod", "Mod"), crate::pad::hint(&[KeyCode::Enter], items_at()), !chosen),
-        Hint::new(super::labels::label("sExit", "Exit"), crate::pad::hint(&[KeyCode::KeyE, KeyCode::Escape], items_at()), false),
+        Hint::new(super::labels::built_in_label("sInventoryMod"), crate::pad::hint(&[KeyCode::Enter], items_at()), !chosen),
+        Hint::new(super::labels::built_in_label("sExit"), crate::pad::hint(&[KeyCode::KeyE, KeyCode::Escape], items_at()), false),
     ]
 }
 
@@ -466,10 +466,10 @@ pub fn detach(inv: &mut fnv_sim::inventory::Inventory, weapon: FormId, unit: Ext
 pub fn figure(effect: Option<&str>, w: &WeaponStats, condition: f32) -> Option<(&'static str, String, Option<f32>)> {
     let n = |title, v: f32, decimals: bool| Some((title, if decimals { format!("{v:.2}") } else { format!("{v:.0}") }, Some(v)));
     match effect? {
-        "Increase Weapon Damage" => n(super::labels::label("sInventoryDamage", "DAM"), w.base_damage as f32, false),
+        "Increase Weapon Damage" => n(super::labels::built_in_label("sInventoryDamage"), w.base_damage as f32, false),
         "Increase Clip Capacity" => n("Clip", w.clip_size as f32, false),
         "Decrease Spread" => n("Spread", w.min_spread, true),
-        "Decrease Weight" => n(super::labels::label("sInventoryWeightUpper", "WG"), w.weight, true),
+        "Decrease Weight" => n(super::labels::built_in_label("sInventoryWeightUpper"), w.weight, true),
         "Increase Max. Condition" => n("Max CND", w.health as f32, false),
         "Increase Rate of Fire" => n("DPS", super::items::weapon_dps(w, condition), false),
         "Increase Zoom" => n("Zoom", w.sight_fov, false),
@@ -565,7 +565,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let cr = Rect::from_corners(MAIN.min + COMPARE.min, MAIN.min + COMPARE.max);
     let half = cr.width() / 2.0;
     let cards = |p: &mut ChildSpawnerCommands, c: &mut Ctx, y: f32, stat: &Option<(&'static str, String)>| {
-        frame::card(p, c, cr.min.x, y, half - 5.0, super::labels::label("sInventoryCondition", "CND"), "");
+        frame::card(p, c, cr.min.x, y, half - 5.0, super::labels::built_in_label("sInventoryCondition"), "");
         let m = Rect::new(cr.min.x + half - 5.0 - METER.x - 15.0, y + 17.0, cr.min.x + half - 5.0 - 15.0, y + 17.0 + METER.y);
         bar(p, m, cmp.condition, bright);
         let (t, v) = stat.as_ref().map_or(("", ""), |(t, v)| (*t, v.as_str()));
@@ -607,7 +607,7 @@ pub fn compare(s: &Session, w: &WeaponStats) -> Compare {
         if effect.is_some() {
             figure(effect.as_deref(), ws, condition).map(|(t, v, _)| (t, v))
         } else {
-            (ws.base_damage > 0).then(|| (super::labels::label("sInventoryDamage", "DAM"), ws.base_damage.to_string()))
+            (ws.base_damage > 0).then(|| (super::labels::built_in_label("sInventoryDamage"), ws.base_damage.to_string()))
         }
     };
     let after = chosen.map(|ch| w.modded(o.extra.mods ^ mod_flag(ch.slot)));
@@ -682,7 +682,7 @@ mod tests {
         assert_eq!(offer(&bare, &forms, &WeaponStats::default(), GUN, Some(1.0), 0, true), None);
     }
 
-    /// The menu's two hints (#1896): "Mod Enter)" over "Exit E)", the Mod hint dim on the
+    /// The menu's two hints (#1896): "Modify Enter)" over "Exit E)", the Mod hint dim on the
     /// weapon's own row and bright on a mod; with a controller A and B.
     #[test]
     fn the_menu_shows_its_mod_and_exit_hints() {
@@ -691,9 +691,9 @@ mod tests {
         let groups = vec![(GUN, on, 1), (MAGS, Extra::default(), 1)];
         let mut s = Session { offer: offer(&groups, &forms, &pistol(), GUN, Some(1.0), 0, true).unwrap(), first: 0, selected: 0 };
         let shown = |s: &Session| menu_hints(s).iter().map(|h| (h.text(), h.dim)).collect::<Vec<_>>();
-        assert_eq!(shown(&s), [("Mod Enter)".to_string(), true), ("Exit E)".to_string(), false)]);
+        assert_eq!(shown(&s), [("Modify Enter)".to_string(), true), ("Exit E)".to_string(), false)]);
         s.selected = 1;
-        assert_eq!(shown(&s), [("Mod Enter)".to_string(), false), ("Exit E)".to_string(), false)]);
+        assert_eq!(shown(&s), [("Modify Enter)".to_string(), false), ("Exit E)".to_string(), false)]);
         crate::pad::set_labels(crate::pad::Labels::Xbox);
         let keys: Vec<String> = menu_hints(&s).iter().map(|h| h.key.clone()).collect();
         crate::pad::set_labels(crate::pad::Labels::Keys);

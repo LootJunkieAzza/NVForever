@@ -112,6 +112,12 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   bright square. Off: detection is the original's. Not in the original (#2688).
 - Registered in `engine/nvf-play/src/sound_cover.rs`
 
+### `npc-weapon-mods`: NPC weapon mods
+
+- On the page: On: NPCs have a level-scaled chance (10%-60%, +2%/level) for their main weapon to spawn with random weapon mods. Off: NPC weapons have no extra mods, as in the original.
+- In full: Off by default. When on, each non-player NPC (`NPC_`, including leveled `LVLN` picks) rolls once when its main weapon is outfitted for a `Min(60, Max(10, Level * 2))`% chance to attach 1-3 random weapon mods from the weapon's valid `WMI1`-`WMI3` slots, without overwriting already-modded weapons or re-rolling across ticks. Never reads `jip_nvse.ini` (`docs/design/extender-compat.md` §8.4). Follows JIP LN NVSE Plugin `57.30` (`https://www.nexusmods.com/newvegas/mods/58277`) `jip_nvse.ini` `[GamePatches]` `bNPCWeaponMods` (`uWMChancePerLevel=2`, `uWMChanceMin=10`, `uWMChanceMax=60`; no DLL or source consulted): "When enabled, all NPCs will have a chance for their main weapon to include weapon mods. The chance is based on each NPC's level - the higher the level, the greater the chance. The type of mod(s) is selected randomly from the ones available for the particular weapon. Weapons have a chance to include multiple mods, though 2 mods is rare, and a fully-modded weapon is uncommon." NVForever's deterministic per-NPC seed, multi-mod probability curve, and single-roll tracking are NVForever's own (`[design]`, `docs/spec-notes/npc-weapon-mods.md`, #3876).
+- Registered in `engine/nvf-play/src/tweaks.rs`
+
 ## Gameplay › V.A.T.S.
 
 ### `vats-style`: V.A.T.S. style
@@ -301,6 +307,21 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   SystemSave to the system slot, ForceSave as a new save.
 - Registered in `engine/nvf-play/src/save.rs`
 
+## Gameplay › Combat
+
+### `localized-dt-dr`: Localized armor DT/DR
+
+- On the page: On: head hits use only worn head armor DT/DR and body hits only worn body
+  armor; explosions use all worn armor and innate DT/DR still applies. Off: full worn armor
+  everywhere.
+- In full: Default Off (vanilla sums all worn armor DT/DR across head and body slots on
+  every hit). When On, head hits benefit only from worn head-slot armor DT/DR and body hits
+  benefit only from worn body-slot armor DT/DR, while explosions still apply full worn armor
+  and actor innate DT/DR (AV 76/18) still applies everywhere. Optional NVForever setting
+  following the public `bLocalizedDTDR` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/localized-dt-dr.md`, #3843).
+- Registered in `engine/nvf-play/src/combat.rs`
+
 ## Gameplay › Bug Reports
 
 ### `send-reports`: Send reports to help fix NVForever
@@ -318,6 +339,16 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   7 days) and drops the ones not sent yet; later reports, this session's too, get a new ID
 - More: docs/design/player-reports.md
 - Registered in `engine/nvforever/src/reports/delete.rs`
+
+## Gameplay › Co-op
+
+### `coop`: Co-op
+
+- On the page: On: the main menu shows Join Lobby and the pause menu a Co-op screen to open
+  a lobby. It stays on while a lobby is open or joined.
+- Off by default; kept in `NVForever.ini` `[Settings]` [design].
+- Greyed while a lobby is open or this game is a guest in one.
+- Registered in `engine/nvf-play/src/lobby.rs`
 
 ## Display › Screen
 
@@ -1105,10 +1136,14 @@ below cover them all.
 
 - On the page: Creases, corners and the ground under things darken by how enclosed they are:
   Off, Performance (cheaper, a little grainier) or Quality. Not in the original.
-- In full: Screen-space ambient occlusion from the depth, on the ambient light and the lamps
-  that cast no shadow: Off; Performance (one slice direction a pixel instead of two: half the
-  horizon march, the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4
-  steps a side at half resolution, depth-aware denoise). Quality in the enhanced look.
+- In full: Screen-space ambient occlusion from the depth, on the ambient light, on the lamps
+  that cast no shadow and by half on those that do (the flashlight, the ALC shadows row's
+  lamps), and on the lamps' highlights (a shiny surface no longer glints in a crease as in the
+  open): Off; Performance (one slice direction a pixel instead of two: half the horizon march,
+  the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4 steps a side at
+  half resolution, depth-aware denoise). Under TAA, FSR or DLSS its sample pattern moves each
+  frame, so what the denoise leaves on leaves and outlines is averaged away. Quality in the
+  enhanced look.
 - Shown as a list since 2026-11-19; an INI written while it was an on/off switch (`1`/`0`,
   true/false, on/off, yes/no) still loads as Quality or Off.
 - Command-line switches: `--graphics`, `--ambient-occlusion`
@@ -1435,11 +1470,15 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   count as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
   collision, the mesh terrain blend and the distant landscape keep the plain surface, and
   so do layers drawn on their own (GPUs without bindless textures; a texture repeat that
-  does not divide the cell). Needs Authored materials: in the game, as this run has it
+  does not divide the cell). A layer whose texture has no set takes the height from its
+  diffuse's alpha where that is a varying DXT5 alpha, as the ground packs for the original's
+  terrain parallax shaders have it (depth 0.03; read only while the switch is on, over some
+  frames when it is switched on in a game). Needs
+  Authored materials: in the game, as this run has it
   (greyed until a restart when it was off at the start; still available after turning it
   off for the next start); in the launcher, as saved. The original draws no relief on its
   landscape [observed: the maintainer's run of observer check 268, 2026-11-22, by eye], so this
-  is an enhancement that acts only with an authored ground pack. Off by
+  is an enhancement that acts only with a ground pack. Off by
   default and in both presets until its cost is measured (the maintainer's call); switches
   at once, no restart.
 - Command-line switches: `--graphics-only` (`--graphics-only terrain-parallax`)

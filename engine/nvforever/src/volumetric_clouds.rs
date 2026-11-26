@@ -1230,14 +1230,15 @@ pub fn place_width(rel: Vec3, dir: Vec3, width: f32, r: f32) -> f32 {
     width / dir.dot(n).abs().max(1e-3)
 }
 
-/// Isotropic footprint for filtering the placement (march `vc_place_width`). Fair banks use the area of
-/// the projected footprint.
+/// Isotropic footprint for filtering placement (march `vc_place_width`). Fair banks use the
+/// projected area. An isolated mixed bank resolves the reconstructed texel across that area.
 /// As coverage becomes a continuous deck the horizontal base dominates again.
 fn cloud_place_width(rel: Vec3, dir: Vec3, width: f32, u: &CloudVolumeUniform) -> f32 {
     let projected = place_width(rel, dir, width, u.reach.y);
     if u.scale.w < 0.72 {
         let deck = smoothstep(0.55, 0.72, u.scale.w);
-        let fair = (width * projected).sqrt();
+        let texel = 1.0 + (u.dshape.w - 1.0) * crate::volumetric_clouds_model2::mixed_sheet(u);
+        let fair = (width * projected).sqrt() * texel;
         fair + (projected - fair) * deck
     } else {
         projected

@@ -46,6 +46,8 @@ pub struct RowShown {
     /// loads now ([`Row::loaded`]; #3442: the list drawn from tiles left that out, so the
     /// Ammo tab marked nothing).
     pub equipped: bool,
+    /// Ammo the weapon cannot fire: the row's text at half alpha ([`Row::dim`], #3442).
+    pub dim: bool,
     /// Resolved ySI tag/icon/template for this row when ySI is active (`None` otherwise).
     pub ysi: Option<fnv_game::ui_ysi::YsiItemDisplay>,
 }
@@ -98,7 +100,7 @@ pub fn rows_shown(rows: &[Row]) -> Vec<RowShown> {
     let mut out: Vec<RowShown> = Vec::with_capacity(rows.len());
     for (index, r) in rows.iter().enumerate() {
         let Some(key) = RowKey::at(rows, index) else { continue };
-        out.push(RowShown { key, name: r.name.clone(), text: look::row_text(r), equipped: r.equipped || r.loaded, ysi: r.ysi.clone() });
+        out.push(RowShown { key, name: r.name.clone(), text: look::row_text(r), equipped: r.equipped || r.loaded, dim: r.dim, ysi: r.ysi.clone() });
     }
     out
 }
@@ -177,7 +179,7 @@ pub fn write_lists(ui: &mut Ui, s: &Snapshot, st: &mut MenuTiles) {
         for (row, shown) in st.rows[i].iter().zip(&s.lists[i].rows) {
             if let Some(t) = list::child(ui, row.tile, st.paths.row_text) {
                 ui.set_trait(t, "string", Value::Str(shown.text.clone()));
-                ui.set_trait(t, "alpha", Value::Num(255.0));
+                ui.set_trait(t, "alpha", Value::Num(if shown.dim { 128.0 } else { 255.0 }));
             }
             if let Some(t) = list::child(ui, row.tile, st.paths.row_mark) {
                 ui.set_trait(t, "visible", on(shown.equipped));
@@ -445,6 +447,7 @@ mod tests {
             price: None,
             bartered: false,
             loaded,
+            dim: false,
             mods: 0,
             mods_value: 0,
             folder: None,

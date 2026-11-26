@@ -2456,11 +2456,12 @@ pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<Fl
 /// [design: docs/design/tweaks.md].
 const NO_FOG_FAR: f32 = 1_000_000.0;
 
-/// The sky's colours now, for GetCurrentSkyColor (`fnv_game::nvse_jg9`); none in an
-/// interior, which shows no sky.
+/// The sky's colours now, for GetCurrentSkyColor (`fnv_game::nvse_jg9`); populated in
+/// interiors as well as exteriors [observed: `w6_t1_09_jg_sky_color_interior`,
+/// `docs/spec-notes/ext-jg9.md` §6].
 pub fn tell_sky_colors(sky: Res<SkyState>, mut script: Option<ResMut<nvf_play::script::ScriptState>>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    rt.game.other.jg9.sky_colors = sky.interior.is_none().then(|| sky.all_color_bytes());
+    rt.game.other.jg9.sky_colors = Some(sky.all_color_bytes());
 }
 
 /// Whether an interior cell's fog range is active.

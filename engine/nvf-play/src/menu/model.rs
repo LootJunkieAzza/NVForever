@@ -123,6 +123,9 @@ pub struct Row {
     /// The ammo the player's weapon loads: marked as equipped is (it is not equipped in
     /// the inventory's sense).
     pub loaded: bool,
+    /// Ammo the player's weapon cannot fire, in the Pip-Boy: its row is drawn at half
+    /// brightness [observed: observer check 288, #3442].
+    pub dim: bool,
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
@@ -207,7 +210,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false, ysi: None }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, dim: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false, ysi: None }
     }
 }
 
@@ -384,6 +387,14 @@ fn sort_rows_by(rows: &mut [Row], by_ysi_tag: bool) {
     }
 }
 
+/// Marks the ammo rows `firable` leaves out as dim (`Row::dim`); `None` dims nothing.
+/// Only ammo rows: a weapon or a stimpak is never dim [observed: observer check 288].
+fn mark_dim(rows: &mut [Row], firable: Option<&[FormId]>) {
+    for r in rows.iter_mut() {
+        r.dim = r.kind == Some(ItemKind::Ammo) && firable.is_some_and(|f| !f.contains(&r.item));
+    }
+}
+
 fn sort_rows(rows: &mut [Row]) {
     sort_rows_by(rows, true);
 }
@@ -431,7 +442,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false, loaded: false,
+            bartered: false, loaded: false, dim: false,
             mods: extra.mods,
             mods_value: forms.mods_value(item, extra.mods),
             folder: None,
@@ -476,7 +487,7 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false, loaded: false,
+            bartered: false, loaded: false, dim: false,
             mods: s.extra.mods,
             mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
@@ -922,6 +933,11 @@ pub struct MenuModel {
     /// Show Equipped Ammo tweak (`ammo_mark_in_containers`).
     pub current_ammo: Option<FormId>,
     pub ammo_mark_in_containers: bool,
+    /// The ammo the player's weapon can fire (`fnv_combat::data::FormStore::ammo_choices`
+    /// of `crate::combat::Combat::player_weapon`, set by `crate::tweaks` each frame):
+    /// every other ammo row of the player's inventory is dimmed (`Row::dim`). Empty
+    /// with the fists out (every ammo row dim); `None` when not known (no dimming).
+    pub firable_ammo: Option<Vec<FormId>>,
     /// What the log last said of the Ammo tab's rows ([`MenuModel::refresh`]): said again
     /// only when it changes.
     ammo_told: String,
@@ -1137,6 +1153,11 @@ impl MenuModel {
         self.refresh(world)
     }
 
+    #[cfg(test)]
+    pub(super) fn test_empty(mode: Mode) -> MenuModel {
+        Self::empty(mode, String::new())
+    }
+
     /// Test-only empty inventory model for unit tests without a synthetic player plugin.
     #[cfg(test)]
     pub(crate) fn empty_inventory() -> MenuModel {
@@ -1177,6 +1198,7 @@ impl MenuModel {
             usable_ammo: Vec::new(),
             ysi_icons: true,
             current_ammo: None,
+            firable_ammo: None,
             ammo_mark_in_containers: false,
             ammo_told: String::new(),
             title_case_categories: false,
@@ -1272,6 +1294,12 @@ impl MenuModel {
                     for r in l.rows.iter_mut().filter(|r| r.item == a) {
                         r.loaded = true;
                     }
+                }
+                // Ammo the weapon cannot fire is dimmed in the Pip-Boy; a weapon's other
+                // kinds stay at full strength, and with the fists out every ammo row is dim
+                // [observed: observer check 288, #3442].
+                if side == Side::Player && self.mode == Mode::Inventory {
+                    mark_dim(&mut l.rows, self.firable_ammo.as_deref());
                 }
                 // The Ammo tab's rows in the log, so a report about its marks can be read
                 // (#3442): how many, and which carries the loaded mark.
@@ -1499,7 +1527,7 @@ impl MenuModel {
                                 condition: None,
                                 icon: forms.item(card).and_then(|i| i.icon.clone()),
                                 price: None,
-                                bartered: false, loaded: false,
+                                bartered: false, loaded: false, dim: false,
                                 mods: 0,
                                 mods_value: 0,
                                 folder: None,
@@ -2130,7 +2158,7 @@ pub fn report_progress_fixture(mode: Mode, step: usize) -> MenuModel {
             icon: None,
             price: None,
             bartered: false,
-            loaded: false,
+            loaded: false, dim: false,
             mods: 0,
             mods_value: 0,
             folder: None,

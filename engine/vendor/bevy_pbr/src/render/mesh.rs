@@ -391,6 +391,8 @@ pub fn check_views_need_specialization(
             Option<&NvfSunVisibilityBindings>,
             // NVForever ambient occlusion.
             Has<NvfAmbientOcclusionBindings>,
+            // NVForever RTGI volume.
+            Has<NvfRtgiVolumeBindings>,
         ),
     )>,
     mut seen_views: Local<HashSet<RetainedViewEntity>>,
@@ -417,6 +419,7 @@ pub fn check_views_need_specialization(
             has_contact_shadows,
             nvf_sun_visibility,
             nvf_ambient_occlusion,
+            nvf_rtgi_volume,
         ),
     ) in views.iter_mut()
     {
@@ -488,6 +491,11 @@ pub fn check_views_need_specialization(
         // the view's bind group.
         if nvf_ambient_occlusion {
             view_key |= MeshPipelineKey::NVF_AMBIENT_OCCLUSION;
+        }
+
+        // NVForever RTGI volume: as the two above. No shader def follows from the bit.
+        if nvf_rtgi_volume {
+            view_key |= MeshPipelineKey::NVF_RTGI_VOLUME;
         }
 
         if view.invert_culling {
@@ -3171,7 +3179,11 @@ bitflags::bitflags! {
         // NVForever sun visibility's light volume (engine/vendor/README.md): the view's
         // `NvfSunVisibilityBindings` has `cloud_volume` (bindings 45-46).
         const NVF_CLOUD_VOLUME_VISIBILITY       = 1 << 29;
-        const LAST_FLAG                         = Self::NVF_CLOUD_VOLUME_VISIBILITY.bits();
+        // NVForever RTGI volume (engine/vendor/README.md): the view has
+        // `NvfRtgiVolumeBindings` (bindings 47-49). Sets no shader def: a material that reads
+        // them pushes its own.
+        const NVF_RTGI_VOLUME                   = 1 << 30;
+        const LAST_FLAG                         = Self::NVF_RTGI_VOLUME.bits();
 
         const ALL_PREPASS_BITS                  = Self::DEPTH_PREPASS.bits()
                                                 | Self::NORMAL_PREPASS.bits()

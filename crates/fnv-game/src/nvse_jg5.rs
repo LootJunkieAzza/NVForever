@@ -477,10 +477,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             list(g, out.into_iter().map(|r| XVal::Ref(r.0)))
         }
         // `mod`: the weapons whose mod slots (WMI1-3) hold it, in FormID order
-        // [documented: GetWeaponsForMod; hypothesis: the order]; non-IMOD returns ar_Null
-        // (`ar_Size == -1`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
-        // JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official
-        // base masters, `w4c_b3_02_region_loc_weapmod`: `badModN=-1`].
+        // [documented: GetWeaponsForMod; hypothesis: the order (native `w0=00176E5B` is not
+        // ascending FormID)]; non-IMOD returns ar_Null (`ar_Size == -1`) and valid IMOD
+        // `0x129878` returns 3 weapons [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
+        // 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters, `w4c_b3_02_region_loc_weapmod` (`badModN=-1`) and
+        // `w6t2_30_jg5_get_weapons_for_mod_and_armor_alt_tex`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `wMod(n=3,w0=00176E5B,bad=-1)`].
         "getweaponsformod" => {
             let Some(m) = of_sig(g, form(args, 0), b"IMOD") else { return Some(Ok(XVal::Array(0))) };
             let mut ws: Vec<FormId> = g
