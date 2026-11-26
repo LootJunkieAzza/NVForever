@@ -359,6 +359,12 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   child cannot override a hidden parent.
 - [hypothesis] True `clips` crops children to this tile's rectangle. Nested ancestor
   clips intersect; a disjoint intersection is empty. The tile's own box is unchanged.
+  [observed: #4685, a player's screenshot of the original's World Map] Not for the map's
+  dotted line: `PathLineTemplate`'s line is a child of a `WaypointTemplate` node (about 17
+  units, `clips` true) and is drawn from the arrow to the far marker, far outside the
+  node's box. As with list rows (pipboy.md, "List-row `<clips>`"), NVForever marks the
+  lines `OUTSIDE_CLIP`, so the map's window above the node cuts them and the node does
+  not [design]. Whether `clips` crops children anywhere in the original is still open.
 - [observed] True `clipwindow` crops a tile's descendants to its rectangle in the
   drawing: the tutorial menu's scrolled text stops part way through a line at the column's
   top and bottom edges (private capture hud_tutorial_more, 1280 x 720, shots
@@ -532,6 +538,13 @@ stands unchanged: every picture stretched, the shared atlas only.
   `template_meter`]. Zoom as a multiplier of the picture's size [documented: GECK wiki
   Zoom]; no vanilla tiled picture has a zoom; T12c's condition fill is given one
   (`vanilla::CONDITION_FILL_ZOOM`, hud.md §14.7) [design].
+  [observed: #4685, a player's screenshot of the original's World Map] `tile` `&scale;`
+  (only `PathLineTemplate`'s dotted line; `&scale;` is the number 0, so not a true
+  `tile`) repeats the picture along the box at the box's height, its shape kept: the
+  original's line is a row of whole dots. Read as a false `tile`, the 64 x 16 picture
+  stood once at its texels' size and the 5.8-high line showed a sliver of one dot
+  (`draw::Fit::TiledToHeight`) [design: the repeat at the box's height, as the hand-built
+  line's `PATH_TILE`].
   [design, T12d] The repeats are drawn as one image: the picture's texels (its atlas
   piece's or its own file's, decoded on the CPU) repeated into an RGBA image the box's
   size in whole texels, stretched over the box (cut to it) and sampled linearly

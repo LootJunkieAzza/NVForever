@@ -11,7 +11,7 @@
 //! Shadows are the caller's. The engine's ambient occlusion is not in it. The engine adds its terms in another
 //! order, so the last bits can differ.
 
-use crate::failed::{go_on, unavailable, Cancel, Failed, Reason};
+use crate::failed::{go_on, guarded, unavailable, Cancel, Failed, Reason};
 use crate::vec3::V3;
 
 /// The display gamma of the sum.
@@ -59,6 +59,13 @@ impl Cone {
         let width = inner.cos() - outer.cos();
         let scale = 1.0 / if width.is_nan() { width } else { width.max(1e-4) };
         Cone { direction: direction.unit().unwrap_or(V3([f32::NAN; 3])), scale, offset: -outer.cos() * scale }
+    }
+
+    /// What it is held as: where it shines, then the scale and the offset that make the cosine from there its
+    /// factor, clamped to 0..1 and squared.
+    pub fn numbers(&self) -> [f32; 5] {
+        let [x, y, z] = self.direction.0;
+        [x, y, z, self.scale, self.offset]
     }
 
     /// The factor at a point `toward` from the lamp (unit).
@@ -161,6 +168,29 @@ impl Grid {
             i = i * self.cells[k] + (c as usize).min(self.cells[k] - 1);
         }
         &self.lamps[self.start[i] as usize..self.start[i + 1] as usize]
+    }
+}
+
+/// The lamps that may reach a place, as the solver looks them up, for another tracer that makes the same sum. With
+/// c = (p - min) / side on each axis: outside of 0..=cells nothing reaches p; else its cell is c rounded down, and
+/// one at `cells` (a point rounded onto the far edge) is the last. The lamps of cell i = (z cells.y + y) cells.x + x
+/// are `lamps[start[i]..start[i + 1]]`, in the order they are summed. Each cell's lamps were found against a box a
+/// little wider than the cell, for what rounding does to a point's cell.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LampTable {
+    pub min: V3,
+    pub side: f32,
+    pub cells: [u32; 3],
+    pub start: Vec<u32>,
+    /// Of [`LightState::lamps`].
+    pub lamps: Vec<u32>,
+}
+
+impl LampTable {
+    /// The table of a solve in this light; what a solve refuses is refused.
+    pub fn of(light: &LightState, cancel: Cancel) -> Result<LampTable, Failed> {
+        let Grid { min, size, cells, start, lamps } = guarded(|| Lights::new(light, cancel))?.grid;
+        Ok(LampTable { min, side: size[0], cells: cells.map(|c| c as u32), start, lamps })
     }
 }
 
@@ -326,6 +356,46 @@ pub mod tests {
         let lights = Lights::new(&state, &|| false).unwrap();
         assert_eq!(lights.grid.cells, [32; 3]);
         assert_eq!(lights.near(at(1)).count(), MOST_LAMPS / 2);
+    }
+
+    /// The table as it is handed out names the lamps that the solver's lookup names, by the rule of its doc, at the
+    /// grid's edges too; what a solve refuses is refused.
+    #[test]
+    fn the_table_handed_out() {
+        let named = |t: &LampTable, p: V3| -> Vec<u32> {
+            let c: [f32; 3] = std::array::from_fn(|k| (p[k] - t.min[k]) / t.side);
+            if !(0..3).all(|k| (0.0..=t.cells[k] as f32).contains(&c[k])) {
+                return Vec::new();
+            }
+            let [x, y, z]: [usize; 3] = std::array::from_fn(|k| (c[k] as usize).min(t.cells[k] as usize - 1));
+            let i = (z * t.cells[1] as usize + y) * t.cells[0] as usize + x;
+            t.lamps[t.start[i] as usize..t.start[i + 1] as usize].to_vec()
+        };
+        let mut rng = Rng(5);
+        let mut place = |s: f32| V3(std::array::from_fn(|_| rng.draw() * s - 100.0));
+        let state = |l: Vec<(f32, f32)>| LightState { lamps: l.into_iter().map(|(x, range)| lamp(V3::new(x, 0.0, 0.0), range)).collect(), ..LightState::default() };
+        let many = LightState { lamps: (0..300).map(|i| lamp(place(6000.0), 20.0 + (i * 7 % 400) as f32)).collect(), ..LightState::default() };
+        let (rooms, worlds) = (state(vec![(-2900.3, 100.0), (-100.0, 100.0)]), state(vec![(-FURTHEST, 1.0), (-786_491.0 - 0.8125, 60.01), (0.0, 1.0)]));
+        let edges = [(-1e-5, 0.0), (-100.0, -99.9), (0.99, 0.0), (-786_431.0 - 0.8125, 0.0), (-FURTHEST, 0.5), (200.0, 0.0), (-3200.0, 0.0), (f32::NAN, 0.0)];
+        for state in [&many, &rooms, &worlds] {
+            let (t, lights) = (LampTable::of(state, &|| false).unwrap(), lights_of(state));
+            let mut points: Vec<V3> = (0..3000).map(|_| place(6200.0)).chain(edges.map(|(x, y)| V3::new(x, y, 0.0))).collect();
+            points.extend([t.min, t.min + V3(t.cells.map(|c| c as f32 * t.side))]);
+            for p in points {
+                let index = |l: &Lamp| state.lamps.iter().position(|m| std::ptr::eq(m, l)).unwrap() as u32;
+                assert_eq!(lights.near(p).map(index).collect::<Vec<_>>(), named(&t, p), "{p:?}");
+            }
+        }
+        let refused = |l: Lamp| LampTable::of(&LightState { lamps: vec![l], ..LightState::default() }, &|| false).err();
+        let above = f32::from_bits(FURTHEST.to_bits() + 1);
+        assert_eq!(refused(lamp(V3([FURTHEST; 3]), FURTHEST)), None);
+        for l in [lamp(V3::new(0.0, above, 0.0), 9.0), lamp(UP, above), Lamp { cone: Some(Cone::new(V3::ZERO, 0.3, 0.6)), ..lamp(UP, 9.0) }] {
+            assert_eq!(refused(l), Some(Failed::Unavailable(Reason::Input("light"))), "{l:?}");
+        }
+        assert_eq!(LampTable::of(&many, &|| true), Err(Failed::Cancelled));
+        let c = Cone::new(V3::new(0.0, -2.0, 0.0), 0.3, 0.6).numbers();
+        let scale = 1.0 / (0.3f32.cos() - 0.6f32.cos());
+        assert_eq!(c, [0.0, -1.0, 0.0, scale, -0.6f32.cos() * scale]);
     }
 
     #[test]

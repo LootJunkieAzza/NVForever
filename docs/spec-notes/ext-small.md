@@ -103,6 +103,7 @@ override NVForever tweak settings at startup beneath `NVForever.ini` (maintainer
 | `bArmorConditionLabel:Tweaks` | `Tweaks::armor_condition`; shows the worn body armour's condition bar on the HUD |
 | `bFasterSleepWait:Tweaks` | `Tweaks::faster_sleep_wait`; shortens the Sleep/Wait hour countdown interval (`wait::FASTER_HOUR_SECONDS`) |
 | `bUseWASDAsArrowKeys:Tweaks` | `Tweaks::wasd_as_arrow_keys`; adds WASD as arrow keys and Space as accept across Barter, Quantity, Sleep/Wait, and Recipe menus |
+| `fCraftedItemHealthPct:Tweaks` | `Tweaks::crafted_item_health_pct`; sets crafted weapon/armour condition percentage (`0` leaves vanilla crafting unchanged) |
 
 [hypothesis] The ammo query retains the child choice while its parent is disabled,
 as the plugin's own file keeps both keys; not observed in the original game. Its answer

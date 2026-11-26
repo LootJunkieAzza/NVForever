@@ -99,12 +99,22 @@ third-party source consulted]. The activated reference is the calling reference
 bRunOnActivateBlock, bIsActivationNotPrevented)`: `Activate Player 0` passes
 `(Player, 0, 1)` and `Activate Player 1` passes `(Player, 1, 1)`, while returning
 `SetFunctionValue 0` vetoes pickup (`caps=0->0` vs `caps=0->1` without veto).
-[hypothesis] Regular hand activation (`ActMode::Hand`) continues to dispatch
-`ShowOff:OnPreActivate` and never fires `ShowOff:OnPreScriptedActivate`; dynamic filter
-matching on `bIsActivationNotPrevented` (`3::`), priority/registration order, snapshot
-array-filter retention, sticky explicit-zero veto across multiple handlers, and
-post-handler destroyed re-check follow `ShowOff:OnPreActivate` via shared
-`Game::dispatch_pre_event`.
+[observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184,
+`GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+`tools/capture/nvse/catalogs/wave6d1_showoff_xnvse_events_observed.json` probes
+`w6d1p2_12_pre_scripted_multi_handler_veto_prio` (`ord=S:V20(1),Z15(1),F0(0),U5(0),|caps=0->0`),
+`w6d1p3_14_cap_destroyed_mutation` (`afterMut=0,afterPre=0`), and
+`w6d1_16_showoff_on_pre_activate_vs_scripted` (`bypass(pre=0,scr=1)|known=0,0,0,0,0,0,0,0`);
+no binary, DLL, PDB, or third-party source consulted]
+For `ShowOff:OnPreScriptedActivate`: scripted `Activate` bypasses `ShowOff:OnPreActivate`
+(`bypass(pre=0,scr=1)`); multiple handlers execute in descending priority order, void
+callbacks keep `allowed = 1`, explicit `SetFunctionValue 0` sets a sticky veto that later
+`SetFunctionValue 1` cannot undo, dynamic `3::` filter matching re-evaluates against the
+updated `allowed` value (`F0(0)` runs while `F1` is skipped), and `SetDestroyed 1` inside
+a void callback prevents pickup (`afterMut=0,afterPre=0`). [hypothesis] Regular hand
+activation (`ActMode::Hand`) continues to dispatch `ShowOff:OnPreActivate` and never
+fires `ShowOff:OnPreScriptedActivate`; snapshot array-filter retention follows
+`ShowOff:OnPreActivate` via shared `Game::dispatch_pre_event`.
 
 ### `ShowOff:OnPreActivateInventoryItem` and `ShowOff:OnPreActivateInventoryItemAlt`
 

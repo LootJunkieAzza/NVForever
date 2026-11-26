@@ -1276,6 +1276,25 @@ impl Plugin for TweaksPlugin {
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         sound_list!(app, "discovered-sound", "Location Discovered Sound", "The sound a newly discovered place plays: the game's own, or another of its interface sounds. (Stewie's Tweaks bCustomLocationDiscoveredSound)", discovered_sound);
+        // Named off-by-default NVForever option (#3876, Gameplay > Game, docs/spec-notes/npc-weapon-mods.md;
+        // follows JIP LN NVSE Plugin 57.30 jip_nvse.ini [GamePatches] bNPCWeaponMods, never reads jip_nvse.ini).
+        add_setting(
+            app,
+            Setting {
+                key: "npc-weapon-mods",
+                group: crate::pause::GROUP_MENUS,
+                label: "NPC weapon mods",
+                note: "On: NPCs have a level-scaled chance (10%-60%, +2%/level) for their main weapon to spawn with random weapon mods. Off: NPC weapons have no extra mods, as in the original.",
+                switches: "",
+                get: |w| w.get_resource::<TweakSettings>().is_some_and(|t| t.game.npc_weapon_mods),
+                set: |w, on| {
+                    if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                        t.game.npc_weapon_mods = on;
+                    }
+                },
+                slider: None,
+            },
+        );
         amount!(app, "level-sound-every-a", "Level-Up Sound A: Every N Levels", "Every this many levels the level-up plays Sound A instead of its own; 0 never. (Stewie's Tweaks bAlternateLevelupSounds, iLevelA)", 50.0, f32, level_sound_every_a);
         sound_list!(app, "level-sound-a", "Level-Up Sound A", "The sound for those levels. (Stewie's Tweaks bAlternateLevelupSounds, sSoundA)", level_sound_a);
         amount!(app, "level-sound-every-b", "Level-Up Sound B: Every N Levels", "Every this many levels the level-up plays Sound B; where both fall on one level, the larger number wins. 0 never. (Stewie's Tweaks bAlternateLevelupSounds, iLevelB)", 50.0, f32, level_sound_every_b);
@@ -1914,6 +1933,7 @@ impl Plugin for TweaksPlugin {
             ),
         );
         switch!(app, "repair-scales-crafting", "Crafting Uses Repair", "Weapons and armour made at a workbench come out at a condition set by Repair: half at 0, whole at 100. (Stewie's Tweaks bRepairScalesCraftingCondition)", game.repair_scales_crafting);
+        amount!(app, "crafted-item-health-pct", "Crafted Item Condition", "Percent condition of weapons and armour made at a workbench; 0 leaves it unchanged. (Stewie's Tweaks fCraftedItemHealthPct)", 100.0, f32, game.crafted_item_health_pct);
         switch!(app, "no-healing-in-combat", "No Healing In Combat", "Aid that restores health or a limb cannot be used from the Pip-Boy while something fights the player. (Stewie's Tweaks bNoHealingInCombat)", game.no_healing_in_combat);
         switch!(app, "power-attack-if-blocking", "Power Attack From a Block", "While blocking with a melee weapon, a press of attack is a power attack at once, with no hold. (Stewie's Tweaks bPowerAttackIfBlocking)", power_attack_if_blocking);
         amount!(app, "breath-regain", "Slow Breath Regen", "Seconds of breath each second at the surface gives back; the meter stays up until it is whole. 0 refills it at once. (Stewie's Tweaks bSlowBreathRegen)", 20.0, f32, game.breath_regain);
@@ -3486,6 +3506,7 @@ mod tests {
     fn every_tweak_is_off_by_default() {
         let t = TweakSettings::default();
         assert_eq!(t.game, Tweaks::default());
+        assert!(!t.game.npc_weapon_mods);
         assert_eq!(t.game.xp_multiplier, 1.0);
         assert!(!t.no_karma_messages && !t.disable_fast_travel && !t.keep_chosen_ammo);
         assert!(!t.breath_activate && !t.jump_ap_danger_only && !t.jump_without_enough_ap);
@@ -3493,6 +3514,7 @@ mod tests {
         assert!(!t.game.no_lock_encounter_zone_levels);
         assert!(!t.game.faster_sleep_wait);
         assert!(!t.game.wasd_as_arrow_keys);
+        assert_eq!(t.game.crafted_item_health_pct, 0.0);
         assert_eq!(t.sneak_run_ap_base, 0.0);
         assert_eq!(t.sneak_run_ap_endurance_mult, 0.0);
         assert_eq!(t.console_label(), "Console");
@@ -3617,6 +3639,7 @@ mod tests {
              bNoLockEncounterZoneLevels = 1\n\
              bFasterSleepWait = 1\n\
              bUseWASDAsArrowKeys = 1\n\
+             fCraftedItemHealthPct = 80.0\n\
              iDateFormat = 2\n\
              [Critical Hits]\n\
              fCriticalDamageMult = 1.5\n",
@@ -3651,6 +3674,7 @@ mod tests {
             assert!(settings.game.no_lock_encounter_zone_levels);
             assert!(settings.game.faster_sleep_wait);
             assert!(settings.game.wasd_as_arrow_keys);
+            assert_eq!(settings.game.crafted_item_health_pct, 80.0);
             assert_eq!(settings.date_style, 2);
             assert_eq!(settings.game.crit_damage_scale, 2.0);
         }
@@ -3665,6 +3689,7 @@ mod tests {
         assert!(final_settings.game.no_lock_encounter_zone_levels, "unmentioned modular key stays enabled");
         assert!(final_settings.game.faster_sleep_wait, "unmentioned modular key stays enabled");
         assert!(final_settings.game.wasd_as_arrow_keys, "unmentioned modular key stays enabled");
+        assert_eq!(final_settings.game.crafted_item_health_pct, 80.0, "unmentioned modular key stays applied");
         assert_eq!(final_settings.date_style, 2);
         // Toggling the registered switch in NVForever.ini overrides the modular INI back to off.
         let idx = app.world().resource::<crate::settings::Settings>().index("tweak-no-lock-encounter-zone-levels").unwrap();
@@ -3676,6 +3701,9 @@ mod tests {
         let wasd_idx = app.world().resource::<crate::settings::Settings>().index("tweak-wasd-as-arrow-keys").unwrap();
         crate::settings::flip(app.world_mut(), wasd_idx);
         assert!(!app.world().resource::<TweakSettings>().game.wasd_as_arrow_keys, "UI switch toggles off");
+        let craft_idx = app.world().resource::<crate::settings::Settings>().index("tweak-crafted-item-health-pct").unwrap();
+        crate::settings::set_slider(app.world_mut(), craft_idx, 0.5);
+        assert_eq!(app.world().resource::<TweakSettings>().game.crafted_item_health_pct, 50.0, "UI slider updates condition pct");
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -3807,6 +3835,56 @@ mod tests {
         assert!(!forms.settings.contains_key("funknowngmst"));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn npc_weapon_mods_setting_defaults_off_persists_and_syncs_to_game_tweaks() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("nvf-npc-weapon-mods-{}-{stamp}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let make_app = |ini: &std::path::Path| {
+            let mut app = App::new();
+            app.add_plugins(TweaksPlugin);
+            app.insert_resource(crate::settings::SettingsFile(Some(ini.to_path_buf())));
+            app.insert_resource(crate::script::ScriptState::over_no_plugins());
+            crate::settings::apply_stored(app.world_mut());
+            app.world_mut().run_system_cached(sync).unwrap();
+            app
+        };
+
+        // 1. Off by default, registered in Gameplay, note within budget, synced false to Game::tweaks.
+        let mut app = make_app(&path);
+        assert!(!app.world().resource::<TweakSettings>().game.npc_weapon_mods);
+        assert!(!app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.tweaks.npc_weapon_mods);
+        let idx = app.world().resource::<crate::settings::Settings>().index("npc-weapon-mods").expect("npc-weapon-mods registered");
+        let row = &app.world().resource::<crate::settings::Settings>().list()[idx];
+        assert_eq!(row.group, crate::pause::GROUP_MENUS);
+        assert_eq!(crate::settings::note_over_budget(row.note), None);
+
+        // 2. Flipping ON persists npc-weapon-mods=1 and syncs true into live Game::tweaks.
+        assert_eq!(crate::settings::flip(app.world_mut(), idx), Some(true));
+        app.world_mut().run_system_cached(sync).unwrap();
+        assert!(app.world().resource::<TweakSettings>().game.npc_weapon_mods);
+        assert!(app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.tweaks.npc_weapon_mods);
+        let ini_on = std::fs::read_to_string(&path).unwrap();
+        assert!(ini_on.contains("npc-weapon-mods=1"), "persisted ON: {ini_on}");
+
+        // 3. Reloading restores ON and syncs true to live Game::tweaks.
+        let mut reloaded = make_app(&path);
+        assert!(reloaded.world().resource::<TweakSettings>().game.npc_weapon_mods);
+        assert!(reloaded.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.tweaks.npc_weapon_mods);
+
+        // 4. Flipping OFF persists npc-weapon-mods=0 and syncs false to live Game::tweaks.
+        let idx2 = reloaded.world().resource::<crate::settings::Settings>().index("npc-weapon-mods").unwrap();
+        assert_eq!(crate::settings::flip(reloaded.world_mut(), idx2), Some(false));
+        reloaded.world_mut().run_system_cached(sync).unwrap();
+        assert!(!reloaded.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.tweaks.npc_weapon_mods);
+        let ini_off = std::fs::read_to_string(&path).unwrap();
+        assert!(ini_off.contains("npc-weapon-mods=0"), "persisted OFF: {ini_off}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
