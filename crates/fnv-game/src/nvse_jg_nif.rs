@@ -183,11 +183,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             crate::nif_blocks::node_world(g, r, &text(args, 0)).map_or(zero, |p| XVal::Num(dist(p, hit)))
         }
         // `[block] [pc]`: the bounding sphere in the world, [x, y, z, radius]; the
-        // reference's root without a block [documented]. A missing block name returns a
-        // 4-element array with radius 0.0 [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
-        // 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
-        // 10 official base masters, `w4c_b3_11b_jgnif_nodes_bounds`: `bndRoot=4(r=72.1),bndMiss=4(r=0.0)`;
-        // hypothesis: center elements are `[0.0, 0.0, 0.0]`, and empty array before 3D tree].
+        // reference's root without a block [documented]. A missing block name returns the
+        // exact 4-element zero bound `[0.0, 0.0, 0.0, 0.0]` [observed: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), 10 official base masters, `w4c_b3_11b_jgnif_nodes_bounds`
+        // (`bndRoot=4(r=72.1),bndMiss=4(r=0.0)`) and
+        // `w6t2_23_jg_dds_texture_format_and_bounds`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `bndMiss(sz=4,0.0,0.0,0.0,0.0)`; hypothesis: empty array before 3D tree].
         "getnibound" => {
             let Some(r) = on else { return Some(Ok(XVal::Array(0))) };
             let block = text(args, 0);

@@ -725,6 +725,15 @@ pub struct Tweaks {
     /// NVForever's `wait::FASTER_HOUR_SECONDS` pace while keeping `wait::HOUR_SECONDS`
     /// unchanged when off].
     pub faster_sleep_wait: bool,
+    /// `bUseWASDAsArrowKeys`: add WASD as arrow keys and Space to accept across menus
+    /// where letter bindings otherwise take precedence (Barter columns/accept, Quantity
+    /// slider, Sleep/Wait accept, Recipe filters/accept) while keeping arrow keys intact
+    /// [documented: lStewieAl's Tweaks 10.05
+    /// (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini`
+    /// `[Tweaks]`: `; allow use of WASD keys as arrows in menus, and space to accept` /
+    /// `bUseWASDAsArrowKeys = 1`; no DLL or source consulted; design: NVForever's own
+    /// per-menu key routing while keeping vanilla bindings unchanged when off].
+    pub wasd_as_arrow_keys: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -1132,6 +1141,7 @@ impl Default for Tweaks {
             armor_condition: false,
             no_lock_encounter_zone_levels: false,
             faster_sleep_wait: false,
+            wasd_as_arrow_keys: false,
         }
     }
 }

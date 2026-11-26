@@ -1153,6 +1153,11 @@ impl MenuModel {
         self.refresh(world)
     }
 
+    #[cfg(test)]
+    pub(super) fn test_empty(mode: Mode) -> MenuModel {
+        Self::empty(mode, String::new())
+    }
+
     /// Test-only empty inventory model for unit tests without a synthetic player plugin.
     #[cfg(test)]
     pub(crate) fn empty_inventory() -> MenuModel {
