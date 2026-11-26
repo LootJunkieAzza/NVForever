@@ -829,14 +829,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             yes(was)
         }
-        // The form's marker state, changed when a toggle is given [documented]; the
+        // The form's marker state: 1-arg returns current state, 2-arg updates the state
+        // and returns 0 [documented; observed: `w6d2p4_53_micro_precision_bounds`]; the
         // engine draws the change for references placed from then on (`nvforever::world`).
         "setinternalmarker" => {
             let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
             if let Some(t) = num(args, 1) {
                 g.other.jip12.internal.insert(f, t != 0.0);
+                zero
+            } else {
+                yes(g.internal_marker(f))
             }
-            yes(g.internal_marker(f))
         }
         // ---- the barter menu ----
         "getbartergoldalt" => XVal::Num(g.other.jip12.barter.as_ref().map_or(0.0, |b| f64::from(b.merchant_caps))),

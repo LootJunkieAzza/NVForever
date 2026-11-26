@@ -266,7 +266,13 @@ impl Game<'_> {
     /// before, rank after) on a gain, (perk) on a loss [observed: plugins3, Toughness
     /// gave (Toughness, 0, 1) and then Toughness].
     pub(crate) fn perk_event(&mut self, perk: FormId, gained: bool, before: u8, after: u8) {
-        let hs: Vec<XVal> = self.gaps.perk_handlers.iter().filter(|(add, _, p)| *add == gained && p.is_none_or(|p| p == perk)).map(|(_, f, _)| f.clone()).collect();
+        let hs: Vec<XVal> = self
+            .gaps
+            .perk_handlers
+            .iter()
+            .filter(|(add, _, p)| *add == gained && p.is_none_or(|p| p == perk || crate::functions::list_members(self, p).contains(&perk)))
+            .map(|(_, f, _)| f.clone())
+            .collect();
         for f in hs {
             let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
@@ -295,7 +301,13 @@ impl Game<'_> {
     /// JohnnyGuitar's quest handlers on a quest starting or stopping: (quest)
     /// [documented: SetJohnnyOnStartQuestEventHandler; hypothesis: the arguments].
     pub(crate) fn quest_event(&mut self, quest: FormId, started: bool) {
-        let hs: Vec<XVal> = self.gaps.quest_handlers.iter().filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest)).map(|(_, f, _)| f.clone()).collect();
+        let hs: Vec<XVal> = self
+            .gaps
+            .quest_handlers
+            .iter()
+            .filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest || crate::functions::list_members(self, q).contains(&quest)))
+            .map(|(_, f, _)| f.clone())
+            .collect();
         for f in hs {
             if let Err(error) = self.run_function(&f, None, vec![XVal::Ref(quest.0)], None, RunCtx::default()) {
                 self.handler_failed("JohnnyGuitar quest handler".into(), error);
@@ -651,6 +663,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "setntheffectbase" => {
             use crate::nvse_jip14::EffectSlot;
             let (Some(f), Some(b)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            if g.data.sig(g.unclone(b)) != Some(*b"MGEF") {
+                return Some(Ok(XVal::Ref(0)));
+            }
             match usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| g.effect_slot(f, i)) {
                 Some(EffectSlot::Own(r)) => {
                     g.gaps.effect_bases.insert((f, r), b);
@@ -722,7 +737,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "setjohnnyonaddperkeventhandler" | "setjohnnyonremoveperkeventhandler" => {
             let add = name == "setjohnnyonaddperkeventhandler";
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let perk = form(args, 3);
+            let perk = form(args, 3).filter(|&id| id != FormId(0x0000_003B));
             g.gaps.perk_handlers.retain(|(a, h, p)| !(*a == add && *h == f && *p == perk));
             if num(args, 0, 1.0) != 0.0 {
                 g.gaps.perk_handlers.push((add, f, perk));

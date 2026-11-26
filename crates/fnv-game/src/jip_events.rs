@@ -845,7 +845,12 @@ impl Game<'_> {
     /// When `dedup_same_frame` is true (`Game::projectile_fired`), skip if
     /// `(self.frame, actor, weapon)` already fired this frame so a player shot
     /// (`weapon_fired` followed by `projectile_fired`) or a multi-pellet shotgun burst
-    /// fires once per round [hypothesis].
+    /// fires once per round [hypothesis]. Player normal firing (`so=1,jp=1`) and player
+    /// god-mode suppression (`so=1,jp=0`) are [observed 2026-11-24: Fallout: New Vegas
+    /// 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + ShowOffNVSE 184, 10 official base masters,
+    /// `GSDocMitchellHouse`, committed probe `w6t2p3_04_fire_god_melee`
+    /// (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+    /// `norm(so=1,jp=1)|god(so=1,jp=0)|melee(so=1,jp=1)`].
     pub(crate) fn fire_weapon_jip_event(&mut self, actor: FormId, weapon: FormId, dedup_same_frame: bool) -> usize {
         let is_actor = actor == FormId::PLAYER_REF
             || matches!(

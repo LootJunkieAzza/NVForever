@@ -533,7 +533,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let n = text(args, 0).unwrap_or_default();
             yes(!n.is_empty() && crate::mod_files::archives().iter().any(|a| a.eq_ignore_ascii_case(&n)))
         }
-        // `path`, under Data\Textures [documented: GetTexture…]; 0 without the file.
+        // `path`, under Data\Textures [documented: GetTexture…]; 0 without the file
+        // [observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // JohnnyGuitarNVSE 528, 10 official base masters, `GSDocMitchellHouse`, committed
+        // probe `w6t2_23_jg_dds_texture_format_and_bounds`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `dds(w=64,h=64,m=0,fmt=5,miss=0)` confirming DXT5 = 5 and missing file = 0].
         // GetTextureFormat: 1-5 for DXT1-DXT5 [documented], 0 for another format
         // [hypothesis].
         "gettexturewidth" | "gettextureheight" | "gettexturemipmapcount" | "gettextureformat" => {

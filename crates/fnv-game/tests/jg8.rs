@@ -14,13 +14,17 @@ use fnv_script::FunctionTable;
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use serde_json::Value as Json;
 
+const XMARKER: u32 = 0x3B;
 const GLOB: u32 = 0x900;
 const QUST: u32 = 0x901;
 const REPU: u32 = 0x902;
 const MISC_A: u32 = 0x903;
 const MISC_B: u32 = 0x904;
-const XMARKER: u32 = 0x3B;
 const ACTI_TRAP: u32 = 0x905;
+const QUST_OTHER: u32 = 0x906;
+const PERK_A: u32 = 0x907;
+const PERK_B: u32 = 0x908;
+const FLST_QP: u32 = 0x909;
 const CELL_A: u32 = 0x200;
 const TRAP_REF: FormId = FormId(0x305);
 const MISC_REF: FormId = FormId(0x306);
@@ -36,6 +40,16 @@ fn placed_obj(id: FormId, edid: &str, base: u32) -> Vec<u8> {
 
 fn plugin_bytes() -> Vec<u8> {
     let glob = record(b"GLOB", 0, GLOB, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let flst_qp = record(
+        b"FLST",
+        0,
+        FLST_QP,
+        &[
+            sub(b"EDID", z("QuestPerkList")),
+            sub(b"LNAM", QUST.to_le_bytes().to_vec()),
+            sub(b"LNAM", PERK_A.to_le_bytes().to_vec()),
+        ],
+    );
     let refs = [placed_obj(TRAP_REF, "TrapRef", ACTI_TRAP), placed_obj(MISC_REF, "MiscRef", MISC_A)].concat();
     let cell = [
         record(b"CELL", 0, CELL_A, &[sub(b"EDID", z("TestCellA"))]),
@@ -48,7 +62,9 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"STAT", &edid(b"STAT", XMARKER, "XMarker")),
         top(b"ACTI", &edid(b"ACTI", ACTI_TRAP, "TestTrap")),
         top(b"GLOB", &glob),
-        top(b"QUST", &edid(b"QUST", QUST, "TestQuest")),
+        top(b"QUST", &[edid(b"QUST", QUST, "TestQuest"), edid(b"QUST", QUST_OTHER, "OtherQuest")].concat()),
+        top(b"PERK", &[edid(b"PERK", PERK_A, "TestPerk"), edid(b"PERK", PERK_B, "OtherPerk")].concat()),
+        top(b"FLST", &flst_qp),
         top(b"REPU", &edid(b"REPU", REPU, "TestReputation")),
         top(b"MISC", &[edid(b"MISC", MISC_A, "ZuluThing"), edid(b"MISC", MISC_B, "AlphaThing")].concat()),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
@@ -234,6 +250,73 @@ fn arrays_colours_and_menus() {
     assert_eq!(g.other.jg8.custom_marker, None);
     assert_eq!(n(&mut g, "ClearCustomMapMarker"), 1.0);
     assert_eq!(n(&mut g, "IsBSALoaded \"Fallout - Meshes.bsa\""), 0.0);
+}
+
+#[test]
+fn quest_and_perk_handlers_support_formlist_and_xmarker_filters() {
+    let f = fixture();
+    let mut g = game(&f);
+    // [observed 2026-11-24: w6t2p3_09_11_flst_real, FNV 1.4.0.525 + JG 528:
+    // qStart(u=2,d=1,fl=1,xm=2)|qStopFl=1|pAdd(u=1,d=1,fl=1,xm=1)|pRemFl=1]
+    q(
+        &mut g,
+        r#"
+SetJohnnyOnStartQuestEventHandler 1 (begin function {ref rQ}
+PlayerREF.AuxVarSetFlt "*qs_fl" ((PlayerREF.AuxVarGetFlt "*qs_fl") + 1)
+end) 0 QuestPerkList
+SetJohnnyOnStartQuestEventHandler 1 (begin function {ref rQ}
+PlayerREF.AuxVarSetFlt "*qs_xm" ((PlayerREF.AuxVarGetFlt "*qs_xm") + 1)
+end) 0 XMarker
+SetJohnnyOnStartQuestEventHandler 1 (begin function {ref rQ}
+PlayerREF.AuxVarSetFlt "*qs_other" ((PlayerREF.AuxVarGetFlt "*qs_other") + 1)
+end) 0 OtherQuest
+SetJohnnyOnStopQuestEventHandler 1 (begin function {ref rQ}
+PlayerREF.AuxVarSetFlt "*qstop_fl" ((PlayerREF.AuxVarGetFlt "*qstop_fl") + 1)
+end) 0 QuestPerkList
+SetJohnnyOnStopQuestEventHandler 1 (begin function {ref rQ}
+PlayerREF.AuxVarSetFlt "*qstop_xm" ((PlayerREF.AuxVarGetFlt "*qstop_xm") + 1)
+end) 0 XMarker
+SetJohnnyOnAddPerkEventHandler 1 (begin function {ref rP, int iO, int iN}
+PlayerREF.AuxVarSetFlt "*pa_fl" ((PlayerREF.AuxVarGetFlt "*pa_fl") + 1)
+end) 0 QuestPerkList
+SetJohnnyOnAddPerkEventHandler 1 (begin function {ref rP, int iO, int iN}
+PlayerREF.AuxVarSetFlt "*pa_xm" ((PlayerREF.AuxVarGetFlt "*pa_xm") + 1)
+end) 0 XMarker
+SetJohnnyOnAddPerkEventHandler 1 (begin function {ref rP, int iO, int iN}
+PlayerREF.AuxVarSetFlt "*pa_other" ((PlayerREF.AuxVarGetFlt "*pa_other") + 1)
+end) 0 OtherPerk
+SetJohnnyOnRemovePerkEventHandler 1 (begin function {ref rP}
+PlayerREF.AuxVarSetFlt "*pr_fl" ((PlayerREF.AuxVarGetFlt "*pr_fl") + 1)
+end) 0 QuestPerkList
+SetJohnnyOnRemovePerkEventHandler 1 (begin function {ref rP}
+PlayerREF.AuxVarSetFlt "*pr_xm" ((PlayerREF.AuxVarGetFlt "*pr_xm") + 1)
+end) 0 XMarker
+
+StartQuest TestQuest
+StopQuest TestQuest
+PlayerREF.AddPerk TestPerk
+PlayerREF.RemovePerk TestPerk
+"#,
+    );
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*qs_fl""#), 1.0, "StartQuest FormList matches");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*qs_xm""#), 1.0, "StartQuest XMarker wildcard matches");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*qs_other""#), 0.0, "StartQuest unrelated filter does not match");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*qstop_fl""#), 1.0, "StopQuest FormList matches");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*qstop_xm""#), 1.0, "StopQuest XMarker wildcard matches");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*pa_fl""#), 1.0, "AddPerk FormList matches");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*pa_xm""#), 1.0, "AddPerk XMarker wildcard matches");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*pa_other""#), 0.0, "AddPerk unrelated filter does not match");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*pr_fl""#), 1.0, "RemovePerk FormList matches");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*pr_xm""#), 1.0, "RemovePerk XMarker wildcard matches");
+
+    // Non-member quest/perk triggers XMarker wildcard but not QuestPerkList.
+    q(&mut g, "StartQuest OtherQuest\nPlayerREF.AddPerk OtherPerk");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*qs_fl""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*qs_xm""#), 2.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*qs_other""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*pa_fl""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*pa_xm""#), 2.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*pa_other""#), 1.0);
 }
 
 #[test]

@@ -3823,7 +3823,10 @@ impl<'a> Game<'a> {
                 return Some(id);
             }
         }
-        let bytes = crate::mod_files::read_data_file(&key)?;
+        let Some(bytes) = crate::mod_files::read_data_file(&key) else {
+            tracing::warn!("compile script: {path}: not found as {key}");
+            return None;
+        };
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;
@@ -3875,7 +3878,9 @@ impl<'a> Game<'a> {
         };
         let c = fnv_script::compile::compile_mod_runtime(&src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
-            let what = format!("{what}: {}: {}", e.kind.replace('_', " "), e.detail);
+            let what = format!("{what}: line {}: {}: {}", e.line, e.kind.replace('_', " "), e.detail);
+            // In the log too: a mod's "problem compiling" box says nothing of why.
+            tracing::warn!("compile script: {what}");
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });
             return None;
         }
@@ -8314,7 +8319,13 @@ impl Host for Exec<'_, '_> {
         // reads the calling script.
         self.game.other.plugin = self.unit_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
+        let timed = self.game.sr.is_running().then(std::time::Instant::now);
         let out = crate::nvse::call(self.game, &ctx, name, on, args);
+        if let Some(t) = timed {
+            let e = self.game.sr.call_times.entry(name.to_ascii_lowercase()).or_default();
+            e.0 += 1;
+            e.1 += t.elapsed().as_micros();
+        }
         // The host's own plugin questions (IsDLLLoaded, IsModLoaded), for the test aid.
         if self.game.plugin_questions.is_some() && crate::plugin_questions::FUNCTIONS.contains(&name) {
             if let (Some(Ok(fnv_script::vm::XVal::Num(answer))), Some(fnv_script::vm::XVal::Str(asked))) = (&out, args.first()) {
