@@ -111,6 +111,10 @@ fn temp_effects(g: &Game, a: FormId) -> Vec<usize> {
     g.effects.iter().enumerate().filter(|(_, e)| e.target == a && !e.permanent && e.duration > 0.0).map(|(i, _)| i).collect()
 }
 
+#[cfg(test)]
+#[path = "w6d12_mod_temp_time_tests.rs"]
+mod w6d12_mod_temp_time_tests;
+
 /// The JohnnyGuitar batch-6 functions; `None` for any other name.
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let zero = XVal::Num(0.0);
@@ -251,6 +255,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             match (k >= 0.0 && k.fract() == 0.0).then(|| list.get(k as usize)).flatten() {
                 Some(&i) => {
                     g.effects[i].elapsed -= num(args, 1, 0.0);
+                    if g.effects[i].elapsed >= g.effects[i].duration {
+                        let id = g.effects[i].id;
+                        g.dispel(a, None, |e| e.id == id);
+                    }
                     XVal::Num(1.0)
                 }
                 None => zero,
