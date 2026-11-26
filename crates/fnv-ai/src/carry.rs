@@ -86,9 +86,17 @@ const RADIATION_SEARCH: f32 = 20000.0;
 /// each with its lock as the game holds it), or that no door at all joins the two places
 /// (`NavGraph::joined_by_doors`) [design, #2405: "0 triangles searched" alone was read as
 /// a missing navmesh, for a locked door in the same room and for a sealed scene cell
-/// alike]. With the doors named.
+/// alike]. With the doors named. A place with no navmesh near it is named with its cell
+/// or worldspace [design, #2756: Jean-Baptiste's "(0, 0, 0)", logged while he was in
+/// Freeside, read as a goal looked for in his own worldspace; it is his marker's place in
+/// FreesideSilverRush, the data's own].
 fn why_unreachable(game: &Game, nav: &NavGraph, from: Place, to: Place, params: &PathParams, e: &PathError) -> (String, Vec<u32>) {
     let mut why = e.to_string();
+    if let PathError::NoTriangle { which, .. } = e {
+        let space = if *which == "start" { from.space } else { to.space };
+        let (fnv_nav::Space::World(f) | fnv_nav::Space::Interior(f)) = space;
+        why.push_str(&format!(" in {}", game.data.name(FormId(f))));
+    }
     if !matches!(e, PathError::Unreachable { .. }) {
         return (why, Vec::new());
     }
@@ -2978,7 +2986,8 @@ impl Ai {
     #[allow(clippy::too_many_arguments)]
     fn no_way(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place, patrol_point: Option<FormId>, e: PathError, params: &PathParams) {
         if !matches!(e, PathError::Unreachable { .. }) {
-            return self.unreachable(game, actor, package, e.to_string());
+            let (why, _) = why_unreachable(game, nav, from, to, params, &e);
+            return self.unreachable(game, actor, package, why);
         }
         if !params.opens_doors && nav.can_reach(from, to, &PathParams { opens_doors: true, ..params.clone() }) {
             self.log(game, actor, AiEvent::DoorsClosedToIt { package });

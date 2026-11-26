@@ -11,6 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The spacings there may be: their reciprocals and a room's coordinates over them are numbers.
 pub(crate) const SPACINGS: std::ops::RangeInclusive<f32> = 1e-3..=1e6;
+/// The shares of the unlit surfaces' own light there may be.
+pub(crate) const EMISSIONS: std::ops::RangeInclusive<f32> = 0.0..=1.0;
 /// The most rays of a point.
 pub const MOST_RAYS: usize = 4096;
 
@@ -53,7 +55,7 @@ impl GatherConfig {
         let fine = [
             ("spacing", SPACINGS.contains(&self.spacing)),
             ("rays", (1..=MOST_RAYS).contains(&self.rays)),
-            ("emission", (0.0..=1.0).contains(&self.emission)),
+            ("emission", EMISSIONS.contains(&self.emission)),
             ("threads", (1..=MOST_THREADS).contains(&self.threads)),
         ];
         match fine.iter().find(|f| !f.1) {
