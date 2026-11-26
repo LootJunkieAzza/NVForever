@@ -93,11 +93,7 @@ fn rigid_part_roots_stay_out_of_dressed_parts_and_despawn_without_orphans_on_swa
 
     // Unequip armour: old leaf shape and old rigid root NiNode both despawn; bare body
     // takes their place with zero orphan NiNodes left under Bip01 Head.
-    {
-        let mut sim = app.world_mut().resource_mut::<SimState>();
-        let inv = sim.world.get(id).unwrap().inventory.as_mut().unwrap();
-        inv.unequip(ARMOUR);
-    }
+    app.world_mut().resource_mut::<SimState>().world.get(id).unwrap().inventory = Some(Inventory::new());
     app.world_mut().run_system_once(follow_inventory).unwrap();
 
     for &e in &initial_shapes {
@@ -126,11 +122,7 @@ fn rigid_part_roots_stay_out_of_dressed_parts_and_despawn_without_orphans_on_swa
     );
 
     // Re-equip armour: bare body leaf and rigid root both despawn cleanly.
-    {
-        let mut sim = app.world_mut().resource_mut::<SimState>();
-        let inv = sim.world.get(id).unwrap().inventory.as_mut().unwrap();
-        inv.equip(ARMOUR);
-    }
+    app.world_mut().resource_mut::<SimState>().world.get(id).unwrap().inventory = Some(equipped());
     app.world_mut().run_system_once(follow_inventory).unwrap();
 
     for &e in &bare_shapes {
