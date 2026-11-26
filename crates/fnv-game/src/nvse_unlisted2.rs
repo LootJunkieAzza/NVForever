@@ -213,8 +213,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // then prio.after -1, copyprio, removetextkey, queue then queued.after 0].
         "setaniminterppriority" | "copyanimpriorities" | "removeanimtextkey" | "queuenextanim" | "setanimadditiveinterpsweightmult"
         | "registercustomanimgroup" | "ejectweapon" => XVal::Num(0.0),
-        // 1 for an animation file of the game [observed: knv2.cycletype, destframe;
-        // hypothesis: 0 for none].
+        // 1 for an existing animation file of the game and 0 for a missing file
+        // [observed: knv2.cycletype, destframe; `b3_knv_02_anim_cycle_dest_frame`
+        // (`wave4b_extenders.json`) and `knv_02_set_anim_cycle_dest_missing_file`
+        // (`wave4a_extenders.json`), see docs/spec-notes/ext-unlisted-rest.md §7].
         "setanimcycletype" | "setanimdestframe" => {
             let p = match args.first() {
                 Some(XVal::Str(s)) => s.clone(),
@@ -406,8 +408,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         | "inititemfilter" | "initminimap" | "updateminimap" | "reloadcharcontroller" | "reloadcloudtextures"
         | "resetclouds" | "executescript" | "showlevelupmenuex" | "ccctaskpackageflags" | "gettranslatedpos" | "getworldmapposmults"
         | "transformworldtolocal" => XVal::Num(0.0),
-        // 1 in a game started from the New Game menu until a save is loaded [observed:
-        // rest1.isnewgame 0 in a loaded save; hypothesis: the rest] (§5).
+        // 1 in a fresh New Game session and 0 in a loaded save [observed: rest1.isnewgame 0
+        // in a loaded save; `sup_12_is_new_game` (`wave4a_extenders.json`), see
+        // docs/spec-notes/ext-unlisted-rest.md §5]; clearing from 1 to 0 when a save is
+        // loaded mid-session ("until a save is loaded") remains [hypothesis] (§5).
         "isnewgame" => XVal::Num(f64::from(u8::from(g.other.unlisted2.new_game))),
         _ => return None,
     };

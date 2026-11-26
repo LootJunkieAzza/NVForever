@@ -714,6 +714,8 @@ impl MaterialExtension for NifSurfaceBlend {
     fn specialize(pipeline: &MaterialExtensionPipeline, descriptor: &mut RenderPipelineDescriptor, layout: &MeshVertexBufferLayoutRef, key: MaterialExtensionKey<Self>) -> Result<(), SpecializedMeshPipelineError> {
         NifSurface::specialize(pipeline, descriptor, layout, MaterialExtensionKey::<NifSurface> { mesh_key: key.mesh_key, bind_group_data: key.bind_group_data.0 })?;
         blend_interface(descriptor, key.bind_group_data.1);
+        // The landscape takes no bounce light, and this surface is partly the landscape's.
+        rtgi_volume_opt_out(descriptor);
         Ok(())
     }
 }

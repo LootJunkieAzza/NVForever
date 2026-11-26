@@ -107,7 +107,7 @@ Group (rows) › category (rows): row labels in the page's order.
 - **Prompts and Subtitles** (6): Hide Unknown Names; Mark Unvisited Doors; Show Use Password; Subtitles Name the Speaker; Water Sources Show H2O; Subtitle Distance
 - **Other** (3): Date Format; Facial Hair for Women; No Hotkey Wheel
 
-### Menus (99)
+### Menus (100)
 
 - **Pip-Boy Items** (13): Clicking the Tab Sorts; Compare Armor; Compare Weapons; Mark Other Ammo; No Figures for Quest Items; No Right-Click Drop; One Item's Figures; Q Drops Items; Remember Item List Places; Rounds per Shot; Show Weapon Poison Effects; Skill Book Effects; Usable Ammo First
 - **Pip-Boy Stats and Data** (15): 12-Hour Pip-Boy Clock; Detailed Stats; Effect Time Left; Experience as a Percentage; Hide an Empty Reputation List; Hide Finished Quests; Hide Read Notes; Mark Notes Unread; Mark Repeating Challenges; No Show Location; Notes of Every Quest; Quest Text Over the Pip-Boy; Show Fame and Infamy; Sorted Statistics; Tag Skills in Bold
@@ -118,7 +118,7 @@ Group (rows) › category (rows): row labels in the page's order.
 - **Terminals and Minigames** (8): Blackjack Hand Total; Dim Read Terminal Entries; Lockpicking Follows the Time Speed; Lockpicking With the Movement Keys; Mouse Turns the Lock; No Leaving a Hack; Number Keys on Terminals; Tab Closes Terminals
 - **Messages and Conversations** (4): Custom Popup Icons; Keep Acting Notes; No Pointer in Conversations; No Pointer Over Message Boxes
 - **Main and Pause Menus** (4): Continue Shows Its Save; No Loading Tips; Quick Load From the Menus; Tab Goes Back in the Pause Menu
-- **Keys and Mouse** (6): Key Repeat Acceleration; ↳ Key Repeat Acceleration: First Delay; ↳ Key Repeat Acceleration: First Speed; ↳ Key Repeat Acceleration: Second Delay; ↳ Key Repeat Acceleration: Second Speed; Horizontal Look Speed
+- **Keys and Mouse** (7): Key Repeat Acceleration; ↳ Key Repeat Acceleration: First Delay; ↳ Key Repeat Acceleration: First Speed; ↳ Key Repeat Acceleration: Second Delay; ↳ Key Repeat Acceleration: Second Speed; WASD as Arrow Keys in Menus; Horizontal Look Speed
 
 ### Hotkeys (9)
 

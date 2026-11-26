@@ -288,11 +288,18 @@ Sun shadows' Performance mode and staggered cascades, nvforever shadow_rate.rs),
   views, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare nothing
   for those cascades that frame.
 - `src/render/light.rs` `prepare_lights`: when the directional shadow texture the cache hands
-  out is not the one of the frame before (a shadowed spot light such as the flashlight
-  switched on or off changes its layer count, or the old one was dropped), the render
-  world's hold is cleared for that frame, so every cascade is drawn into the new texture
-  instead of a held one sampling an empty or stale layer (#2182 review). It logs
-  `held shadow maps: a new directional shadow texture`.
+  out is not the one of the frame before (the layer count grew, the map size changed, or the
+  old one was dropped), the render world's hold is cleared for that frame, so every cascade is
+  drawn into the new texture instead of a held one sampling an empty or stale layer (#2182
+  review). It logs `held shadow maps: a new directional shadow texture`.
+- `src/render/light.rs` `NvfDirectionalShadowLayerHighWater` (`#3779`, `[design]`): while
+  `HoldDirectionalShadowMaps` or `HoldLightShadowMaps` is active and the directional shadow
+  map's side stays unchanged, `prepare_lights` keeps a high-water layer count instead of
+  shrinking the descriptor back down when first-person `ArmsShade` or the flashlight turns
+  off, avoiding repeated 256–384 MB (at 4096) texture reallocations on view/flashlight
+  transitions. Changing the shadow map resolution resets the high-water count to the needed
+  layers; when the cascade count changes on a reused texture, the frame clears the directional
+  hold once so no held cascade samples a shifted layer.
 
 Bevy inserts no such resource, and without it (or with no bits set) nothing changes.
 Whoever sets it must hand the lights the held cascades as the frame that drew them had
@@ -591,6 +598,24 @@ The shader that reads the bindings is nvforever's (`ssao_lighting.wesl`, patched
 component; without it the layouts and shader defs are upstream's, and the pipeline keys are
 the same keys numbered differently (the packed fields above the new bit moved up by one).
 As for the sun visibility, a meshlet view must not get the component.
+
+Another change (the bounce light's volume, #3009, docs/design/rtgi-volume.md), each part marked
+`NVForever RTGI volume`, for nvforever's `rtgi_volume.rs`, built the same way. nvforever inserts
+the component nowhere yet:
+
+- `src/render/mesh_view_bindings.rs`: the render-world view component `NvfRtgiVolumeBindings`
+  (a uniform buffer, a filterable float 3D texture and a filtering sampler), the layout key bit
+  `MeshPipelineViewLayoutKey::NVF_RTGI_VOLUME` (20) and bindings 47-49 of the mesh view bind
+  group, present only for a view with it. The entries are made by the public
+  `nvf_rtgi_layout_entries`, which the tests read.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_RTGI_VOLUME` (bit 30; the packed fields above it
+  move up by one more and end at bit 51, still below the base mesh key's bits from 58), set by
+  `check_views_need_specialization` from the same component. No shader def follows from it:
+  nvf-assets' NIF material pushes `NVF_RTGI_VOLUME` for the pipelines that read the bindings.
+
+Bevy inserts no such component; without it the layouts and shader defs are upstream's, and the
+pipeline keys are the same keys numbered differently. A meshlet view must not get it.
+
 Graphics pass 2026-11-23, four more changes:
 
 - `src/cluster/gpu.rs`, `src/cluster/mod.rs`: bevy#25869 (GPU clustering keeps each view's

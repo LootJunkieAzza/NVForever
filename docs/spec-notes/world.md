@@ -71,9 +71,15 @@ Issue #2345. Code: `fnv_world::WorldIndex::take_parent_data`, `WorldIndex::lod_w
   parent's (GNRroofWorld's are flat at about 12,280, over ground at about 10,700).
 - **As built** [hypothesis on the observations above]:
   - Use Land Data: the default land and water heights (`DNAM` holds both) are the
-    parent's when the child has none; a cell without LAND takes the LAND of the parent's
-    cell on the same grid square; a cell with its own LAND keeps it. Which the original
-    uses where both exist and differ is not known (observer check 225).
+    parent's when the child has none; every cell takes the LAND of the parent's cell on
+    the same grid square, its own LAND too, and keeps its own only where the parent has
+    none (#3755). Drawn, ParadiseFalls's own LAND on (-9, 16) (11,704 to 13,536 against
+    the parent's 11,504 to 11,984) hung a strip of ground in the sky behind the
+    entrance, with steep stretched faces down to the parent's cells, which players of
+    the original TTW do not report [observed: NVForever, TTW data, 2026-11-25]; and
+    GNRroofWorld's own LAND, flat at about 12,280 over ground at about 10,700, would be
+    a floor at roof height over the plaza. So the parent's wins [hypothesis; observer
+    check 225 asks the original].
   - Use Water Data: the water type (`NAM2`) and the default heights are the parent's
     when the child has none. Per-cell water (`XCLW`, `XCWT`) is not taken from the
     parent's cells [not known].
@@ -166,6 +172,28 @@ apart and the last row/column coincides with the neighbour's first.
   [engine rule, `nvf_assets::nif_material::sort_first`]: a blended mesh has no depth,
   so a layer drawn after one would paint the ground behind it over it (seen on the
   Goodsprings corn rows, docs/spec-notes/nif.md §6 "Alpha").
+- **Landscape layers: the diffuse's alpha** (#3789). A layer covers by its painted opacity
+  alone; its diffuse texture's alpha has no part in it. [observed: FalloutNV.exe 1.4.0.525,
+  native 1920 x 1080 pictures of its window, Goodsprings (-71552, 2892) heading 0 at noon,
+  pitch 25 and 50 down, the lower half, mean absolute difference of 255] The 61 DXT1 files of
+  `textures\landscape` in `Fallout - Textures.bsa` and `Fallout - Textures2.bsa` that are no
+  normal map or LOD, as DXT5 with the same colour blocks and a 40/255 checkerboard of
+  16 texels in the alpha draw as without it: 0.002 and 0.013, where two runs with the game's
+  own differ by 0.002 and 0.002; solid magenta in their place (the control) differs by 66.6
+  and 91.1. The test was jojokengly's first [observed: jojokengly, #3486,
+  FalloutNV.exe 1.4.0.525, unmodified shader packages, Goodsprings (-71552, 2892) at noon, the
+  game's 512 x 288 save-header picture, mean absolute difference of the ground half] The
+  game's own ground textures with a 40/255 checkerboard put in their alpha draw as without it
+  (0.11 of 255, plants moving), and Sandstone Desert 3.00 as shipped (DXT5, alpha about 0.41)
+  as the same colours in opaque DXT1 (0.05); Sandstone Desert against the game's own is 14.4.
+  All 69 landscape diffuses the base game ships that FalloutNV.esm's LTEX records name are
+  opaque DXT1 [observed: jojokengly, the same comment], so only texture packs show the
+  difference: several keep a height map in that alpha. Until #3789 `nvforever` multiplied the
+  opacity by it. Now none of its landscape draws read it: the folded layers with or without
+  height blending, anti-tiling and parallax, the layers drawn on their own, the mesh terrain
+  blend's copies of both, and the generated LOD (which never did). Road strips and other NIF
+  shapes keep their alpha. Smoke: `terrain-layer-alpha`, `terrain-layer-alpha-parallax` and
+  `terrain-layer-alpha-separate`.
 - **Alpha grid orientation** [observed]: VTXT position = row × 17 + column, rows south →
   north, columns west → east. Neighbouring quadrants share an edge of the grid; for a
   texture layered on both sides, the edge opacities agree (within 1/255) for 38,039 of

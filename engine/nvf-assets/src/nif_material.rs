@@ -141,6 +141,11 @@
 //! (`terrain_sampling::anti_tiling_defs`), and nif_material.wesl sets the surface up with
 //! terrain_pbr.wesl's anti-tiled reads instead of Bevy's `pbr_input_from_standard_material`.
 //! Every other shape (repeat 0) keeps the call there always was.
+//!
+//! Landscape layers (#3789; docs/spec-notes/world.md "Landscape layers"): the main pass of
+//! the same materials gets `TERRAIN_LAYER` ([`terrain_layer_def`]), and a layer drawn blended
+//! covers by its painted opacity alone: its diffuse texture's alpha, which a ground pack may
+//! use for a height map, has no part in it. Road strips and other NIF shapes keep theirs.
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -429,6 +434,44 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
     }
     if !descriptor.vertex.shader_defs.contains(&def) {
         descriptor.vertex.shader_defs.push(def);
+    }
+}
+
+/// The shader def under which the lighting takes the bounce light of a probe volume
+/// (nvforever rtgi_volume.rs, #3009). Nothing in bevy_pbr pushes it: a NIF surface's pipeline
+/// takes it by [`reads_rtgi_volume`].
+pub const RTGI_VOLUME_DEF: &str = "NVF_RTGI_VOLUME";
+
+/// Whether the main-pass pipeline of a NIF surface reads the probe volume of a view that has
+/// one ([`MeshPipelineKey::NVF_RTGI_VOLUME`]): every opaque or alpha-tested shape of the world,
+/// solid decals and actors among them. Told by the material and the blend bits, not by the
+/// depth write, which the prepass coverage changes ([`prepass_coverage`]). Not blended, added
+/// or multiplied shapes (a cut-out drawn blended, [`NifSurface::depth_write`], among them),
+/// refracting ones, the first-person arms, weapon and Pip-Boy, or the landscape. Unlit shapes
+/// are in no lighting.
+pub fn reads_rtgi_volume(surface: &NifSurfaceKey, mesh_key: MeshPipelineKey) -> bool {
+    let blend = mesh_key.intersection(MeshPipelineKey::BLEND_RESERVED_BITS);
+    mesh_key.contains(MeshPipelineKey::NVF_RTGI_VOLUME)
+        && (blend == MeshPipelineKey::BLEND_OPAQUE || blend == MeshPipelineKey::BLEND_ALPHA_TO_COVERAGE)
+        && !(surface.refract || surface.first_person || surface.pipboy_screen || surface.add_linear || surface.depth_write || surface.terrain_layer)
+}
+
+/// Give a pipeline [`RTGI_VOLUME_DEF`] where [`reads_rtgi_volume`]; never in a prepass or a
+/// shadow pass.
+fn rtgi_volume_opt_in(descriptor: &mut RenderPipelineDescriptor, surface: &NifSurfaceKey, mesh_key: MeshPipelineKey) {
+    if !reads_rtgi_volume(surface, mesh_key) || descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        return;
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.push(RTGI_VOLUME_DEF.into());
+    }
+}
+
+/// Take [`RTGI_VOLUME_DEF`] from a pipeline again (the mesh terrain blend's, whose surface is
+/// partly the landscape's: nif_surface_blend.rs).
+pub(crate) fn rtgi_volume_opt_out(descriptor: &mut RenderPipelineDescriptor) {
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.retain(|d| *d != ShaderDefVal::from(RTGI_VOLUME_DEF));
     }
 }
 
@@ -785,6 +828,18 @@ impl NifSurfaceKey {
     }
 }
 
+/// The main-pass fragment definition of a landscape material (module notes, "Landscape
+/// layers"). The blended layers are in no prepass and cast no shadows; an opaque base is
+/// opaque in both whatever its texture's alpha.
+fn terrain_layer_def(descriptor: &mut RenderPipelineDescriptor) {
+    if descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        return;
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.push("TERRAIN_LAYER".into());
+    }
+}
+
 impl MaterialExtension for NifSurface {
     fn fragment_shader() -> ShaderRef {
         "embedded://nvf_assets/nif_material.wesl".into()
@@ -845,6 +900,9 @@ impl MaterialExtension for NifSurface {
         if key.bind_group_data.anti_tiling {
             crate::terrain_sampling::anti_tiling_defs(descriptor, true);
         }
+        if key.bind_group_data.terrain_layer {
+            terrain_layer_def(descriptor);
+        }
         // The ambient occlusion in the lighting (module notes of nvforever ssao_lighting.rs):
         // a refracting shape is in no prepass, so the texels under it are the surface behind;
         // the landscape's blended layers lie on the prepass's surface.
@@ -853,6 +911,7 @@ impl MaterialExtension for NifSurface {
         } else if key.bind_group_data.terrain_layer {
             ambient_occlusion_opt_in(descriptor, key.mesh_key);
         }
+        rtgi_volume_opt_in(descriptor, &key.bind_group_data, key.mesh_key);
         if key.bind_group_data.refract {
             refraction_pipeline(descriptor);
         } else if key.bind_group_data.depth_write && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
@@ -1453,6 +1512,33 @@ mod tests {
     const UPSTREAM_DEPTH: (Option<bool>, Option<CompareFunction>) = (Some(true), Some(CompareFunction::GreaterEqual));
     const EQUAL_DEPTH: (Option<bool>, Option<CompareFunction>) = (Some(false), Some(CompareFunction::Equal));
 
+    /// #3009: the bounce light's def goes to the fragment of a main-pass pipeline that reads the
+    /// volume, once, and to nothing else; the blend's opt-out leaves the descriptor as it was.
+    #[test]
+    fn the_rtgi_def_is_the_main_pass_fragments_alone() {
+        let key = NifSurfaceKey::with_hdr(&NifSurface::default(), false);
+        let bound = MeshPipelineKey::NVF_RTGI_VOLUME;
+        let opted = |d: &RenderPipelineDescriptor, key: &NifSurfaceKey, mesh_key| {
+            let mut d = d.clone();
+            rtgi_volume_opt_in(&mut d, key, mesh_key);
+            d
+        };
+        let main = main_pipeline(1, None);
+        let d = opted(&main, &key, bound);
+        assert_eq!(d.fragment.as_ref().unwrap().shader_defs, vec![ShaderDefVal::from(RTGI_VOLUME_DEF)]);
+        assert!(d.vertex.shader_defs.is_empty());
+        let mut back = d;
+        rtgi_volume_opt_out(&mut back);
+        assert_eq!(back, main);
+        assert_eq!(opted(&main, &key, MeshPipelineKey::NONE), main, "a view without the bindings");
+        assert_eq!(opted(&main, &NifSurfaceKey { refract: true, ..key }, bound), main);
+        // A prepass or a shadow pass, whatever the key, with a fragment or without.
+        let mut prepass = prepass_pipeline(1);
+        assert_eq!(opted(&prepass, &key, bound), prepass);
+        prepass.fragment = main.fragment.clone();
+        assert_eq!(opted(&prepass, &key, bound), prepass);
+    }
+
     #[test]
     fn depth_equal_only_in_the_main_pass_of_a_view_with_a_prepass() {
         // An opaque shape in a view with a depth prepass.
@@ -1764,6 +1850,21 @@ mod tests {
         assert!(NifSurfaceKey::from(&NifSurface { terrain_repeat: 256.0, ..default() }).terrain_layer);
         assert!(!NifSurfaceKey::from(&NifSurface::default()).terrain_layer);
         assert!(!NifSurfaceKey::from(&NifSurface { terrain_repeat: -1.0, ..default() }).terrain_layer);
+        // #3789: its main pass, and no other, leaves the diffuse texture's alpha out.
+        let mut d = RenderPipelineDescriptor { fragment: Some(FragmentState::default()), ..default() };
+        terrain_layer_def(&mut d);
+        assert_eq!(d.fragment.unwrap().shader_defs, vec![ShaderDefVal::from("TERRAIN_LAYER")]);
+        let mut prepass = RenderPipelineDescriptor { fragment: Some(FragmentState::default()), ..default() };
+        prepass.vertex.shader_defs.push("PREPASS_PIPELINE".into());
+        terrain_layer_def(&mut prepass);
+        assert!(prepass.fragment.unwrap().shader_defs.is_empty());
+        for line in [
+            "    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING) pbr_input.material.base_color.a = standard_material(in.instance_index).base_color.a;",
+            "    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING && VERTEX_COLORS) pbr_input.material.base_color.a *= vin.color.a;",
+        ] {
+            assert!(include_str!("nif_material.wesl").contains(line), "{line}");
+        }
+        assert!(crate::terrain_sampling::PBR_SOURCE.contains("p.material.base_color = vec4(p.material.base_color.rgb * terrain_base_diffuse(in.instance_index, standard.flags, taps, fp).rgb, p.material.base_color.a);"), "anti-tiled too");
         assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: 300.0, ..default() }).terrain, Vec4::new(300.0, 0.0, 0.0, 0.0));
         assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).terrain, Vec4::ZERO);
         assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: -1.0, anti_tiling: true, ..default() }).terrain, Vec4::ZERO);

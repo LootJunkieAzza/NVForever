@@ -97,6 +97,7 @@ mod decals;
 mod dismember;
 mod distant_lights;
 mod knockouts;
+mod coop;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -117,6 +118,7 @@ mod hdr_calibrate;
 mod aerial;
 mod fly;
 mod foot_ik;
+mod upright;
 mod anti_lag;
 mod dlss;
 mod dlss_download;
@@ -142,6 +144,7 @@ mod lights;
 mod limbs;
 mod lips;
 mod memory_budget;
+mod wine;
 mod gpu_poll;
 mod pilot;
 mod pipeline_gate;
@@ -195,6 +198,7 @@ mod talk_clips;
 mod readahead;
 mod reflection;
 mod reflection_sky;
+mod rtgi_volume;
 mod minimap_render;
 mod refraction;
 mod residents;
@@ -269,6 +273,7 @@ mod water;
 mod weapon_models;
 mod window_icon;
 mod window_mode;
+mod keep_awake;
 mod world;
 mod worldspace;
 mod zones;
@@ -1410,13 +1415,18 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     };
     let opened = world::open_plugins(args.data(), &mods, &args.plugins);
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
-    // No setting names the code page: the plugins' own text says it (#1443).
-    if !code_page_named {
-        setup::guess_code_page(&opened.plugins);
+    // No setting names the code page: the plugins' own text says it, else the language
+    // Steam installed the game in (a translation mod on an English install keeps its
+    // Cyrillic text) (#1443).
+    let steam = setup::steam_language(args.data());
+    if !code_page_named && !setup::guess_code_page(&opened.plugins) {
+        if let Some((page, _)) = steam {
+            setup::use_code_page(page);
+        }
     }
-    // NVForever's own words in the language of the game's text, when the code page names
-    // one and a file of it was read (#1948); a `language=` in NVForever.ini still wins.
-    setup::follow_text_language();
+    // NVForever's own words in the language Steam installed the game in or of the game's
+    // text, when a file of it was read (#1948); a `language=` in NVForever.ini still wins.
+    setup::follow_text_language(steam);
     // `--load`: the save's place decides where the world starts (its worldspace before
     // the world is opened); its body waits for the scripts (nvf_play::save). It is read
     // in full now, remapped to the plugins opened and checked as the restore will
@@ -1492,10 +1502,15 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // NVFOREVER_HOME, every file created new, then mounted over every other loose layer for
     // this run only (nvf_assets pbr_field/ground.rs `seed_ground_pack`, terrain.rs
     // `ground_pack_diffuses`). No mods folder is written.
-    let ground_pack: Option<PathBuf> = if nvf_assets::ground_pack_requested() {
-        match terrain::ground_pack_diffuses(&opened.plugins, &args.esm_schema).and_then(|d| nvf_assets::seed_ground_pack(&d)) {
+    let ground_pack: Option<PathBuf> = if let Some(kind) = nvf_assets::ground_pack_requested() {
+        match terrain::ground_pack_diffuses(&opened.plugins, &args.esm_schema).and_then(|d| nvf_assets::seed_ground_pack(kind, &d)) {
             Ok((dir, sets, files)) => {
                 eprintln!("pbr ground pack: {sets} height-only sets for the landscape textures ({files} generated files, depth {}) written under {} (this run's own folder, mounted over every other loose layer)", nvf_assets::GROUND_DEPTH, dir.display());
+                match kind {
+                    nvf_assets::GroundPack::Heights => {}
+                    nvf_assets::GroundPack::Alpha => eprintln!("pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha, and a flat normal map"),
+                    nvf_assets::GroundPack::AlphaHeight => eprintln!("pbr ground pack: no sets; a diffuse for each landscape texture with the height map in its alpha, and a flat normal map"),
+                }
                 Some(dir)
             }
             Err(e) => {
@@ -1925,6 +1940,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref(), upscaler::platform_supports_dlss(), dlss::bundle_present);
     app.insert_resource(startup);
     app.add_systems(Startup, move || info!("upscaler: {}", startup.describe()));
+    // A Windows build under Wine or Proton says so (#3493).
+    if let Some(v) = wine::version() {
+        app.add_systems(Startup, move || info!("{}", wine::describe(&v)));
+    }
     // The Frame generation choice this run starts with, by the row's rule (command line, then the
     // INI): DLSS Frame Generation stays loaded from the start only for a DLSS choice (dlss/).
     let start_frame_generation = {
@@ -2003,7 +2022,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     #[cfg(target_os = "android")]
     let default_plugins = default_plugins.disable::<bevy::gilrs::GilrsPlugin>();
     app.add_plugins(default_plugins)
-    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, hdr::HdrPlugin))
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, keep_awake::KeepAwakePlugin, hdr::HdrPlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins(night_sky::NightSkyPlugin)
@@ -2016,6 +2035,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    // The bounce light volume's shader for the lighting (imported only under its def, which no view gives yet).
+    .add_plugins(rtgi_volume::RtgiVolumePlugin)
     // Shadows of placed lights, the ALC shadows row (off by default).
     .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))
     .add_plugins(light_shadow_detail::LightShadowDetailPlugin)
@@ -2305,6 +2326,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(turret_aim::TurretAimPlugin);
         // Also with --no-foot-ik: the settings page can switch it on.
         app.add_plugins(foot_ik::FootIkPlugin { enabled: !args.no_foot_ik });
+        app.add_plugins(upright::UprightPlugin);
         // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the
         // --npc-travel walkers' too, without --play.
         app.add_plugins(actor_jumps::ActorJumpsPlugin { physics: play.is_some() });
@@ -2327,6 +2349,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.insert_resource(inertia);
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
+            // Co-op: idle until a lobby is opened or joined.
+            app.add_plugins(coop::CoopPlugin(coop::Config { host: None, join: None, name: "Courier".to_string() }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).

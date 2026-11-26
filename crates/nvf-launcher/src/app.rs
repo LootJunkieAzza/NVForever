@@ -172,6 +172,9 @@ pub struct App {
     game_edit: String,
     /// The Mods page's new-game start fields (src/start.rs), as typed.
     start_edit: crate::start::Fields,
+    /// The start card's Custom… window, open while `Some`: the quest and film as typed there,
+    /// put into `start_edit` by its OK (#4288).
+    start_custom: Option<crate::start::Fields>,
     // Mods.
     mods: Option<plugins::PluginList>,
     mods_dirty: bool,
@@ -239,6 +242,7 @@ impl App {
             edits: BTreeMap::new(),
             game_edit: String::new(),
             start_edit: crate::start::Fields::default(),
+            start_custom: None,
             mods: None,
             mods_dirty: false,
             mods_drag: None,
@@ -1721,39 +1725,34 @@ impl App {
         ui.add_space(4.0);
         card(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("New game start").strong());
-            ui.label(
-                RichText::new("For mods that start somewhere else (their install guide gives the values). TTW off is the New Vegas opening and its film. Saved to NVForever.ini's [General].")
-                    .small()
-                    .color(WEAK),
-            );
-            let w = (ui.available_width() - 120.0).max(120.0);
-            egui::Grid::new("start_fields").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                ui.label("Start quest");
-                ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("VCG00 (New Vegas opening); TTW: 001FFFF8").desired_width(w));
-                ui.end_row();
-                ui.label("Intro film");
-                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text(r"fnvintro.bik (a file in Data\Video)").desired_width(w));
-                ui.end_row();
-                ui.label("");
-                ui.checkbox(&mut self.start_edit.no_film, "No intro film");
-                ui.end_row();
-            });
-            ui.horizontal(|ui| {
-                save = ui.add_enabled(self.start_edit != saved, egui::Button::new("Save start")).clicked();
+            // One line, so the load order below keeps the room (#4288).
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("New game start").strong()).on_hover_text("For mods that start somewhere else (their install guide gives the values). TTW off is the New Vegas opening and its film. Saved to NVForever.ini's [General].");
                 let mut ttw_on = self.start_edit.is_ttw();
                 let label = if ttw_on { "TTW on" } else { "TTW off" };
                 if ui.checkbox(&mut ttw_on, label).on_hover_text("On: quest 001FFFF8 and no intro film. Off: the base game, quest 00102037 and FNVIntro.bik. Save to keep it.").changed() {
                     self.start_edit = if ttw_on { start::Fields::ttw() } else { start::Fields::original() };
                 }
-                if self.start_edit != saved && ui.button("Undo").clicked() {
-                    self.start_edit = saved.clone();
+                if self.start_edit.is_custom() {
+                    ui.label(RichText::new("custom").small().color(GOLD)).on_hover_text("Another mod's start quest or intro film, set with Custom…");
                 }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.small_button("Custom…").on_hover_text("Another mod's start quest or intro film (.bik)").clicked() {
+                        self.start_custom = Some(self.start_edit.clone());
+                    }
+                    if self.start_edit != saved {
+                        if ui.small_button("Undo").clicked() {
+                            self.start_edit = saved.clone();
+                        }
+                        save = ui.add(gold_button("Save start", true)).clicked();
+                    }
+                });
             });
             if let Some(why) = start::ttw_missing(&self.start_edit, ttw) {
                 ui.label(RichText::new(why).small().color(BAD));
             }
         });
+        self.start_custom_window(ui.ctx());
         if save {
             let fields = self.start_edit.clone();
             // Only the INI's text is read again: unsaved changes on the Settings page stay.
@@ -1766,6 +1765,48 @@ impl App {
                 }
                 Err(e) => self.message = Some((e, true)),
             }
+        }
+    }
+
+    /// The start card's Custom… window (#4288): a mod's own start quest and intro film, for a
+    /// start that is neither TTW's nor the base game's. OK puts them on the card, whose Save
+    /// start writes them; Cancel, Escape or a click outside leaves the card as it was.
+    fn start_custom_window(&mut self, ctx: &egui::Context) {
+        let Some(draft) = self.start_custom.as_mut() else { return };
+        let mut done = None;
+        let modal = egui::Modal::new(egui::Id::unique("start-custom")).frame(Frame::window(&ctx.global_style()).inner_margin(Margin::symmetric(24, 20))).show(ctx, |ui| {
+            ui.set_width(420.0);
+            ui.label(RichText::new("Custom start").size(20.0).strong().color(GOLD));
+            ui.label(RichText::new("For a mod whose install guide gives its own start quest or intro film.").small().color(WEAK));
+            ui.add_space(8.0);
+            egui::Grid::new("start_custom_fields").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                ui.label("Start quest");
+                ui.add(egui::TextEdit::singleline(&mut draft.quest).hint_text("FormID or editor ID; 00102037 is New Vegas").desired_width(300.0));
+                ui.end_row();
+                ui.label("Intro film");
+                ui.add_enabled(!draft.no_film, egui::TextEdit::singleline(&mut draft.film).hint_text(r"a .bik file in Data\Video").desired_width(300.0));
+                ui.end_row();
+                ui.label("");
+                ui.checkbox(&mut draft.no_film, "No intro film");
+                ui.end_row();
+            });
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if ui.add(gold_button("OK", true)).clicked() {
+                    done = Some(true);
+                }
+                if ui.button("Cancel").clicked() {
+                    done = Some(false);
+                }
+            });
+        });
+        if modal.should_close() && done.is_none() {
+            done = Some(false);
+        }
+        match done {
+            Some(true) => self.start_edit = self.start_custom.take().unwrap_or_default(),
+            Some(false) => self.start_custom = None,
+            None => {}
         }
     }
 

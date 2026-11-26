@@ -58,6 +58,10 @@
 // pbr_input_from_standard_material; the rest of the fragment is as for any opaque or
 // blended lit shape.
 //
+// TERRAIN_LAYER (the landscape's own materials, main pass; nif_material.rs "Landscape
+// layers"): the alpha is the layer's painted opacity (vertex alpha x material alpha); the
+// diffuse texture's alpha is left out, as the original leaves it (#3789).
+//
 // PIPBOY_SCREEN (the Pip-Boy's screen with the menus on it, main pass; NifSurface::
 // pipboy_screen): the texel is the menus' picture as `pipboy_picture` makes it (rolled,
 // softened, washed, with noise; NifSurface::pipboy_a, pipboy_b), red stops at a ceiling and
@@ -97,6 +101,9 @@ import bevy_pbr::{
 // while the view has the plumbing (the shader def then exists: bevy_pbr mesh.rs).
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
+// The probe volume's bounce light (nvforever rtgi_volume.rs), only in the pipelines that read
+// it (nif_material.rs `reads_rtgi_volume`).
+@if(!PREPASS_PIPELINE && NVF_RTGI_VOLUME) import nvforever::rtgi_volume::nvf_rtgi_face;
 
 import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
 @if(NVF_PBR_VIEW_OCCLUSION && !PREPASS_PIPELINE) import nvf_assets::nif_surface_bindings::occlusion_texel;
@@ -604,6 +611,9 @@ fn nif_fragment(
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_wdy = dpdy(in.world_position.xyz);
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dx = vec2(terrain_wdx.x, -terrain_wdx.z);
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dy = vec2(terrain_wdy.x, -terrain_wdy.z);
+    // The probe volume's reads are moved off the surface along its geometric normal, taken
+    // here for the same reason.
+    @if(NVF_RTGI_VOLUME && !PREPASS_PIPELINE) nvf_rtgi_face(in.world_position.xyz);
     // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
     @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
@@ -634,6 +644,9 @@ fn nif_fragment(
     }
     @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(vin, is_front);
     @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_standard(vin, is_front, terrain_fp);
+    // A landscape layer's alpha without its texture's (terrain_pbr_standard's is already so).
+    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING) pbr_input.material.base_color.a = standard_material(in.instance_index).base_color.a;
+    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING && VERTEX_COLORS) pbr_input.material.base_color.a *= vin.color.a;
     // An authored set's roughness is its scale (0 to 2, fnv-pbr `ROUGHNESS_SCALE_RANGE`) times
     // the ORM's green, so it can pass 1, which Bevy's sampling does not clamp: F_AB's
     // polynomial then leaves its range and the highlight terms blow up to white patches
