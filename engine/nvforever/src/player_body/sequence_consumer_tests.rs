@@ -182,6 +182,7 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
         attached: None,
         weapon_model: None,
         weapon_emitter: None,
+        weapon_materials: None,
         weapon_parts: vec![],
         idle_logged: false,
         sights_turned: None,
