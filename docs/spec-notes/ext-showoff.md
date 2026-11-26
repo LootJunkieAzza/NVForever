@@ -29,15 +29,31 @@ ran.
 
 ## 2. ShowOff:OnExplosionHit and the explosion's damage
 
-- The event fires when an explosion's blast reaches an actor, before the damage lands. A
-  MineFragExplosion (FalloutNV.esm 07078B) placed at the player gave a two-argument handler
-  the player first and none second [observed].
+- The event fires when an explosion's blast reaches an actor, before the damage lands.
+  - Earlier capture (`showoff1`): a MineFragExplosion (`FalloutNV.esm` `0x0007078B`)
+    placed at the player gave a two-argument handler the player first and none second
+    [observed: showoff1].
+  - Clean-room probe `[observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+    ShowOffNVSE 184 + JIP LN 57.30, 10 official base masters, GSDocMitchellHouse
+    (0x00103DF9), isolated staging copy, committed probe w6t2_01_showoff_on_explosion_hit
+    (tools/capture/nvse/catalogs/wave6c_showoff_on_explosion_hit.json):
+    Player.PlaceAtMe 0x0007078B 1 ->
+    PROBE|w6t2_01_showoff_on_explosion_hit|reg=1,n=1,selfIsP=0,tSelf=81,tBase=81,base=0007078B,hitIsP=1,src=00000014,dmg=100.0;
+    no DLL or source consulted]`: the calling reference (`GetSelfAlt`) is the live
+    explosion reference (type 81 `EXPL`, `GetBaseObject` = `0x0007078B`, not the hit
+    actor), argument 1 is the hit actor (`Player`), and argument 2 is the source actor
+    (`Player` `0x00000014` when placed on the player; `0` when there is no source actor
+    [observed: showoff1]).
 - `GetExplosionHitDamage` read 100 inside the handler; after `SetExplosionHitDamage 5` the
   player lost 5 Health [observed]. Both are unusable outside the event [documented]; outside
   it NVForever reads 0 and ignores a set.
-- NVForever asks for the damage in the engine's blast loop, before armour is taken off, and
-  deals what the handlers leave [hypothesis: whether the original's value is before or after
-  armour is not measured; the player in nvfairport took exactly the set value].
+- NVForever asks for the damage in the engine's blast loop (`Game::explosion_hit_with_context`,
+  passing the live `expl_ref` as calling reference and `cause.map(|c| c.actor).or(source)` as
+  the source actor argument, including the caller ref forwarded by `PlaceAtMe` via
+  `CombatRequest::Explode { source }` without fabricating a weapon `Cause`), before armour is
+  taken off, and deals what the handlers leave
+  [hypothesis: whether the original's value is before or after armour is not measured; the
+  player in nvfairport took exactly the set value].
 
 ## 3. SetOnAuxTimerStopHandler
 
@@ -48,6 +64,17 @@ ran.
   left read -1 (gone) and the handler had run once, with the player as owner [observed]. It
   runs again on `AuxTimerStop name 1` [observed]; AuxTimerStop fires the event only when its
   fireEvent argument is non-0 [documented].
+- Registration and removal via `SetOnAuxTimerStopHandler` take effect on the next frame
+  (stopping in the same frame as registration does not fire; stopping on the next frame
+  fires; stopping in the same frame as removal still fires), and both Start and Stop
+  handlers execute with null calling reference (`GetSelfAlt == 0`) [observed: 2026-11-24,
+  Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters,
+  `tools/capture/nvse/catalogs/wave6d1_aux_timer_stop_deferred_and_self.json` probes
+  `w6d1p3_27_aux_timer_stop` (`same=0,noev=0,next=1,remSame=1|nm=[sNm],ownP=1,s0=1,sP=0`)
+  and `w6d1p3_28_aux_timer_start_and_clear` (`st(n=1,nm=[sNm],s0=1,sP=0)`); no binary,
+  DLL, PDB, or third-party source consulted]. Update handlers likewise pass `None` as the
+  calling reference [hypothesis].
 - NVForever checks the running timers each frame and erases and reports the ones whose time
   is up. Before this, a timer whose time was up stayed with 0 seconds left.
 
@@ -90,10 +117,19 @@ ran.
   (`Game::take_force_jam_requests`). For the player, `nvf_play::combat::fire` interrupts
   any active reload or attack phase via `Cycle::jam` and increments `WeaponAnim::jams`
   (which `nvforever::player_body` plays on the reload layer, interrupting any active reload
-  clip) while reporting `AnimAction::Jam` (code `9` for `GetAnimAction`, while
-  `IsAnimPlayingEx 4` remains `0` and `SetOnReloadWeaponEventHandler` does not fire;
-  generalizing `Phase::Jammed -> AnimAction::Jam` (`9` instead of `13`) to natural vanilla
-  weapon-condition jams is [hypothesis]).
+  clip) while reporting `AnimAction::Jam` (code `9` for `GetAnimAction`, `IsAnimPlayingEx 4`
+  remains `0`, `GetSequenceAnimGroup 4` reads `200` `JamA`, and JIP's
+  `SetOnReloadWeaponEventHandler` fires on jam entry [observed 2026-11-24: Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528 + ShowOffNVSE 184,
+  10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room
+  staging copy, committed probe `w6t2_14_jip_on_reload_and_seq_anim_group`
+  (`tools/capture/nvse/catalogs/wave6c_jip_on_reload_and_seq_group.json`):
+  `PROBE|w6t2_14_jip_on_reload_and_seq_anim_group|fj=1,relHit=1,s0=0,s4(pre=24,t0=200,t1=200,cb=200)`;
+  no DLL or source consulted]; generalizing `Phase::Jammed -> AnimAction::Jam` (`9` instead
+  of `13`) to natural vanilla weapon-condition jams is [hypothesis]).
+  `ForceWeaponJamAnim` also enters `AnimAction::Jam` synchronously so immediate script
+  queries (`t0=200`) and the `SetOnReloadWeaponEventHandler` callback (`cb=200`) see the
+  jam state without double-firing when `nvf-play` syncs `AnimAction::Jam` [design].
   Repeated calls while `Cycle::jammed` is already true return `1` without restarting the
   active jam timer [design]. NPC jam animation playback remains [not built] (`nvf-play`
   models `Cycle` for the player only). No ShowOff DLL or source code was consulted.
@@ -162,12 +198,12 @@ on 000E8911 gives the three texts the page's example lists, the first one word f
 | ConditionPrint | 1, and a console line naming the reference in NVForever's own words [documented] |
 | IsAnimPlayingExCond `category [subType]` | IsAnimPlayingEx [documented] |
 | IsJumping | IsInAir: the page marks it broken, it "functions equivalently to IsInAir" [documented]. `rP.IsJumping` did not compile in the original's runtime compiler [observed: showoff3 so3.jumping]: not registered under that name or no calling reference, the one row cannot tell. NVForever keeps compiling it [decision: #2037, the owner's 2026-11-10 ruling to refuse what the original refuses needs a rule the data gives; ext-syntax.md §11] |
-| GetNumActorsInRangeFromRef `maxDistance [flags]` | the loaded actors within the distance (3-D, same space); 1 no dead, 2 no Invisibility or Chameleon above 0, 4 only actors in combat the caller detects [documented]. The caller does not count itself [hypothesis] |
+| GetNumActorsInRangeFromRef `maxDistance [flags]` | the loaded actors within the distance (3-D, same space); 1 no dead, 2 no Invisibility or Chameleon above 0, 4 only actors in combat the caller detects [documented]. The caller does not count itself [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_14_actors_in_range_excludes_self` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, calling `Player.GetNumActorsInRangeFromRef` at radius `1.0`, `5000.0` flag `0`, and `5000.0` flag `1`): `PROBE\|so_14_actors_in_range_excludes_self\|0,1,1`; no DLL or source consulted] |
 | SetIsPCAMurderer `0/1` | the flag IsPCAMurderer reads [documented] |
 | GetPCHasSleepWaitOverride, SetPCHasSleepWaitOverride `0/1` | EnableFastTravel's can-wait flag, which the wait menu checks [documented: EnableFastTravel "can modify this canSleepWait override flag"] |
 | GetChallengeProgress `challenge` | the progress the challenge system keeps: a non-recurring challenge done stays at its threshold, a recurring one counts again from 0 [documented] |
 | GetCalculatedSkillPoints, GetCalculatedPerkPoints `[levelOverride]` (…EarnedPerLevel) | the points of the next level (`level + 1`), or of this one while the level-up menu is open: levelup.md's skill rate with Adjust Gained Skill Points; 1 at a level iLevelsPerPerk divides, else 0 [documented: "can only return 1 or 0"]. A nonzero `levelOverride` likewise evaluates `levelOverride + 1` while the level-up menu is closed: `GetCalculatedPerkPoints 1/2/3/4` returns `1/0/1/0` [observed: Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, 10 official base masters, `b3_so_05_calc_skill_perk_points_and_ini` in Doc Mitchell's house, no DLL or source consulted] |
-| SetAllyTemp (SetAllyShowOff), SetEnemyTemp (SetEnemyShowOff) `f1 f2 [flag12 flag21]` | SetAlly's and SetEnemy's reactions, not saved [documented]; they win over the saved ones until SetAlly or SetEnemy is called on the pair [hypothesis] |
+| SetAllyTemp (SetAllyShowOff), SetEnemyTemp (SetEnemyShowOff) `f1 f2 [flag12 flag21]` | SetAlly's and SetEnemy's reactions, not saved [documented]; they override saved SetAlly / SetEnemy reactions until SetAlly or SetEnemy is called on the pair [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probes `w4c_a05b_faction_combat_reaction` and `w4c_a05c_temp_reaction_flags` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679, toggling `SetEnemyTemp`/`SetAllyTemp` vs `SetEnemy`/`SetAlly` on factions `0x1B2A4` and `0x104C6E` and polling `GetFactionCombatReaction`): `PROBE\|w4c_a05b_faction_combat_reaction\|c0=3,enT=0,alT=3,enP=1,alT_over_enP=3,alP=2,enT_over_alP=0` and `PROBE\|w4c_a05c_temp_reaction_flags\|c0=0,en00=1,al00=2,en11=0,al11=3`; no DLL or source consulted] |
 | AuxTimerTimeToCountdown `name [owner]` | the time AuxTimerStart gave, -1 when the timer is not running [documented], the name in any case [observed: showoff3 so3.aux.countdown]. The owner argument is a base form: a reference named there stands for its base, so a reference's running timer reads -1 that way and its time when called on the reference [observed: so3.aux.countdown] |
 | SetOnAuxTimerStartHandler (SetOnTimerStartHandler), SetOnAuxTimerUpdateHandler (SetOnTimerUpdateHandler) `1/0 handler name [owner]` | the start handlers get the name and the owner on each AuxTimerStart; the update ones, each frame, the name, the owner and the time since the last update (1 for a timer without flag 4), only for timers started with flag 256 [documented; observed: showoff3 so3.aux.update.counts, .frames, a frames timer's time 1]. A handler set or removed takes effect at the next frame: a start in the step that set it runs nothing, a restart a frame later runs it at once, and a restart in the step that removed it still runs it [observed: so3.aux.start.reg, .restart, .remove, .after]. NVForever's aux timers still count seconds whatever the flags say [not built: frames, the menu-mode flags] |
 | GetRadiationExtraData, SetRadiationExtraData `rads` | XRAD; round-trips on a placed reference (`0.000 -> 12.500`, setter returning `1`) [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `so_16_radiation_extradata_roundtrip` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3678 / PR #3679), calling `GetRadiationExtraData`, `SetRadiationExtraData 12.5`, `GetRadiationExtraData`, and restoring on `0x00104C0F`: `0.000,1,12.500`; no DLL or source consulted]; a set level reaches all radiation consumers (`Game::radiation_markers_in`, using `SetRadius` if set; a reference with no positive XRDS radius gives nothing) [documented]; carried across same-run loads in `Game::Session` and not saved [hypothesis; not built: saving] |
@@ -226,13 +262,13 @@ ShowOff function left. GetHitLocationLingering on the unhurt player crashed the 
 | GetProjectileRefIsStuck | a shot that hit something and stays (`ProjState`) [hypothesis: the isStuck flag] |
 | SpawnTracingProjectile | 0 [not built: the engine has no request to fire a bare projectile; follow-up] |
 | SetForceDrawHitscanProjectiles `[forceDraw]`, SetProjectileTracerChanceOverride `[chance]` | whether before / the override before; the engine draws hitscan shots, never or always rolls tracers by them (`nvf_play::combat::shot_switches`) [documented] |
-| GetPCHasScriptedFastTravelOverride, GetPCCanFastTravel | EnableFastTravel 0's bar [hypothesis: that is the override]; the Pip-Boy's checks but the marker's: the bar, an interior or the world's flag (fast-travel.md §2; lifted by the player's Fast Travel From Anywhere, the map's other travel tweaks not built here), in the air, in combat, hostiles within fHostileActor…Distance, over-encumbered without Long Haul [documented: "the same check"; hypothesis: combat as the player's combat state] |
+| GetPCHasScriptedFastTravelOverride, GetPCCanFastTravel | EnableFastTravel 0's bar [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_17_fast_travel_override_and_can` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, polling before `EnableFastTravel 0`, after `EnableFastTravel 0`, and after `EnableFastTravel 1`): `PROBE\|so_17_fast_travel_override_and_can\|0,0,1,0,0`; no DLL or source consulted]; the Pip-Boy's checks but the marker's: the bar, an interior or the world's flag (fast-travel.md §2; lifted by the player's Fast Travel From Anywhere, the map's other travel tweaks not built here), in the air, in combat, hostiles within fHostileActor…Distance, over-encumbered without Long Haul [documented: "the same check"; hypothesis: combat as the player's combat state] |
 | IsActorInvisibleToPlayer, HighlightAdditionalReferenceAlt `[check] [flash]` | Invisibility or Chameleon above 0 and no Improved Detection [documented]; the highlight list is kept, the engine's VATS highlight does not draw it yet [not built: follow-up] |
 | GetNumCombatActorsFromActor `[maxDistance] [flags]` | the caller's combat targets (2) and allies (1), 0 meaning 3; 4 no invisible ones, 8 only detected ones [documented]; an ally fights one of the caller's targets and would not attack the caller [hypothesis] |
 | ForceHitStaggerReaction (ForceHitReaction), ForceRecoilAnim | stagger: 1 when the actor has a hit location (and, when asked, no Ignore Crippled Limbs) [documented; observed: 0 on unhurt Player and Doc Mitchell in `w4d_38_showoff_perk_stagger_fade` (`stag(0,0)`)]; recoil: 1 for a living actor unarmed or with a melee weapon equipped (`Baseball Bat`, `DNAM/animation_type == 2`), and 0 with a ranged gun equipped (`10mm Pistol`, `DNAM/animation_type == 3`) [documented: ForceRecoilAnim, "typically only works for melee/unarmed weapons"; observed 2026-11-08: recoil.player 1; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `so_33_force_recoil_unarmed_vs_gun` (unarmed `1`, holstered 10mm Pistol `0`, ForceHitReaction `0` -> `1,0,0`) and `w4d_38_showoff_perk_stagger_fade` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679): `stag(0,0)|rec(1,1,0)` (stagger on Player/Doc Mitchell; recoil unarmed, Baseball Bat, 10mm Pistol); no DLL or source consulted]; remaining unprobed weapon animation types classified by `DNAM/animation_type <= 2` (`1` returning `1`, `4..=10` returning `0`) [hypothesis]; the engine does not play the animations [not built, as ForceWeaponJamAnim §4] |
 | KillAllHostiles `[killer]` | KillActor on each loaded actor hostile to the player [documented; hypothesis: "within range" is the loaded area] |
 | GetCalculatedItemValue `[barter]` | the value at the item's condition (fItemConditionValue…, as the barter menu) plus attached weapon mods' IMOD values, which condition does not lower (`FormStore::mods_value`) [observed: o26_value, weapon-mods.md §6]; honours `SetItemValue` overrides; with the flag while bartering, multiplies by the active trade's `SetBarterPriceMult` override or live `BarterView` buy/sell multiplier [hypothesis], falling back to the Barter skill GMST formula headless; -1 for no item [documented]; Calculate Buy Price perks outside a live `BarterView` not counted [hypothesis]. An item with a health is at full condition when it has none of its own and the formula holds there too, rounded to the nearest whole number: a fresh 10mm pistol (Value 750) 749 [observed 2026-11-08: itemvalue.pistol "749 749"; 750 · 0.0316 · 10^1.5 = 749.46] and a Varmint Rifle (Value 75) 75 at full condition / 49 at 75 % [observed: o26_value, weapon-mods.md §6; 74.946 → 75, 48.679 → 49] |
-| GetCalculatedAPCost (GetCalculatedWeaponAttackAPCost) `attack [weapon]` | 0 the weapon's override or its animation type's fActionPointsAttack… setting [documented]: the 10mm pistol 17, its override [observed 2026-11-08: ap.pistol]; Fists 22, fActionPointsAttackUnarmed, their override AP 18 not used [observed: ap.fists; hypothesis: Fists only, other unarmed weapons keep theirs]. 1 and 2 give 0 for the pistol and for Fists [observed: "17 0 0", "22 0 0"; the page's uppercut and cross settings not read], a melee weapon's 1 its VATS attack's AP [documented, not observed]; applies `Action Point Cost` (EP 40) perks on positive AP costs and returns the unrounded float [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `w6d6_20_calc_ap_cost_with_perks` (`tools/capture/nvse/catalogs/wave6d6_calc_ap_cost_perks.json`): `PROBE|w6d6_20_calc_ap_cost_with_perks|10(0,mw,mwfs,mwtd)=17.00,15.30,12.24,18.36|pl(0,ps)=30.00,24.00|gr(0,lc)=24.00,16.80`; zero DLL, PDB, or third-party source consulted]; clamps negative post-perk results at `0.0` [design] |
+| GetCalculatedAPCost (GetCalculatedWeaponAttackAPCost) `attack [weapon]` | 0 the weapon's override or its animation type's fActionPointsAttack… setting [documented]: the 10mm pistol 17, its override [observed 2026-11-08: ap.pistol]; Fists 22, fActionPointsAttackUnarmed, their override AP 18 not used [observed: ap.fists], while other unarmed weapons such as Brass Knuckles (`0x4324`) keep their override AP (`18`), alongside Combat Knife `17` and Sledgehammer `38` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_20_calculated_ap_cost_melee_unarmed` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_20_calculated_ap_cost_melee_unarmed\|18,0,17,0,38,0,22`; no DLL or source consulted]. 1 and 2 give 0 for the pistol and for Fists [observed: "17 0 0", "22 0 0"; the page's uppercut and cross settings not read], a melee weapon's 1 its VATS attack's AP [documented, not observed]; applies `Action Point Cost` (EP 40) perks on positive AP costs and returns the unrounded float [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `w6d6_20_calc_ap_cost_with_perks` (`tools/capture/nvse/catalogs/wave6d6_calc_ap_cost_perks.json`): `PROBE|w6d6_20_calc_ap_cost_with_perks|10(0,mw,mwfs,mwtd)=17.00,15.30,12.24,18.36|pl(0,ps)=30.00,24.00|gr(0,lc)=24.00,16.80`; zero DLL, PDB, or third-party source consulted]; clamps negative post-perk results at `0.0` [design] |
 | GetVATSMaxEngageDistance, GetVATSTargetable | fVATSMaxEngageDistance [documented], 5000 when no plugin sets it [observed 2026-11-08: vats.engage, base game and DLCs]; enabled and present, a living actor or a reference VATS may mark (`Game::vats_targetable`) [documented]. The player is targetable [observed: vats.target.player 1]; Doc Mitchell, in his house while the player stood at the airport, was not [observed: vats.target.doc 0; hypothesis: an actor out of the loaded cells is not] |
 | ToANSIChar | "" [decision: the keyboard layout is the user's system's, which no game→engine channel carries; owner's 2026-11-08 rule; follow-up]. On the owner's machine scan code 16 gave "q" and 2 gave "1" [observed 2026-11-08: ansi.16, ansi.2; machine-dependent, the lab rows stay apart] |
 | GetHitLocationLingering | GetHitLocation's last hit, which NVForever keeps already [documented] |
@@ -259,17 +295,17 @@ their titles have a space where the name has an underscore).
 
 | Function (aliases) | NVForever |
 |---|---|
-| Matrix_IsMatrix (Mat_IsMat) `array` | a list of numbers (one row) or a list of lists of numbers, all of one length; empty, mixed or ragged arrays are none [documented: the page's seven examples]. Only lists count [hypothesis: every example builds with ar_List] |
+| Matrix_IsMatrix (Mat_IsMat) `array` | a list of numbers (one row) or a list of lists of numbers, all of one length; empty, mixed or ragged arrays are none [documented: the page's seven examples]. Only list arrays count (stringmaps and numeric maps return 0) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_01_mat_is_stringmap` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, testing `ar_List 1 2 3`, stringmap, and numeric map): `PROBE\|so_01_mat_is_stringmap\|1,0,0`; no DLL or source consulted] |
 | Matrix_ApplyOperationWithMatrix (Mat_ApplyOpWithMat) `A op B` | `+ - / %` element by element (`%` the Schur product), `*` the matrix product when A's columns are B's rows; anything else no array [documented: the table and examples, e.g. (3 4; 5 6)·(7 8; 9 10) = (57 64; 89 100), 1×3 · 1×3 undefined] |
-| Matrix_ApplyOperationWithScalar (Mat_ApplyOpWithScal) `A op s` | `+ - * /` on each element, `%` no array [documented]; division by 0 the floating-point infinity [hypothesis]. The catalogue row was named "Matrix" (the template's name has a space); fixed in `script_functions.py` NAME_FIXES |
+| Matrix_ApplyOperationWithScalar (Mat_ApplyOpWithScal) `A op s` | `+ - * /` on each element, `%` no array [documented]; division by 0 returns floating-point infinity (`inf`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probes `so_02_mat_scalar_div0` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_02_mat_scalar_div0\|2,inf` and `w4c_b6_08_matrix_div0_and_1d_trans` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679): `PROBE\|w4c_b6_08_matrix_div0_and_1d_trans\|transN=3(t0=Array)\|div0N=3\|modN=-1`; no DLL or source consulted]. The catalogue row was named "Matrix" (the template's name has a space); fixed in `script_functions.py` NAME_FIXES |
 | Matrix_Transpose (Mat_T), Matrix_Dump (Mat_Dump) | the transpose [documented]; the dump prints a heading and each row with four decimals to the console, the heading in NVForever's own words |
-| Quaternion_GetMatrix (Quat_GetMat) `[w x y z]`, Matrix3x3_GetQuaternion (Mat_GetQuat) | the layout [w, x, y, z] [documented]. Quat_GetMat does not normalise and gives the transpose of the usual right-handed matrix, in single precision: diagonal 2(w²+a²)−1, (2 0 0 0) gives 7 7 7 [observed 2026-11-08: quat.unnormal]; (0.7071 0 0 0.7071) gives m[0][0] −5.96046e-08, m[0][1] 1, m[1][0] −1, m[2][2] 1 [observed: quat.z90; the x and y terms transposed alike, hypothesis]. Mat_GetQuat reads the usual right-handed form, by the largest of trace and diagonal with w not negative [observed: quat.back, quat.back.270 equal], so the two are not inverses |
-| Results' shape | a one-row result of a one-dimensional input stays one-dimensional; a 1-D row transposed is a column of one-element lists [hypothesis; probe schur.flat.size, transpose.flat.size] |
+| Quaternion_GetMatrix (Quat_GetMat) `[w x y z]`, Matrix3x3_GetQuaternion (Mat_GetQuat) | the layout [w, x, y, z] [documented]. Quat_GetMat does not normalise and gives the transpose of the usual right-handed matrix, in single precision: diagonal 2(w²+a²)−1, (2 0 0 0) gives 7 7 7 [observed 2026-11-08: quat.unnormal]; (0.7071 0 0 0.7071) gives m[0][0] −5.96046e-08, m[0][1] 1, m[1][0] −1, m[2][2] 1 [observed: quat.z90], and the x and y 90° rotations transpose alike (`m_x[1][2]=1, m_x[2][1]=-1, m_y[0][2]=-1, m_y[2][0]=1`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_03_quat_getmat_xy_transpose` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_03_quat_getmat_xy_transpose\|1.0000,-1.0000,-1.0000,1.0000`; no DLL or source consulted]. Mat_GetQuat reads the usual right-handed form, by the largest of trace and diagonal with w not negative [observed: quat.back, quat.back.270 equal], so the two are not inverses |
+| Results' shape | a 1-D row stays 1-D under scalar operations and transposes to a column of one-element lists [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probes `so_04_mat_transpose_1d_shape` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_04_mat_transpose_1d_shape\|3,1,3,Number` and `w4c_b6_08_matrix_div0_and_1d_trans` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679): `PROBE\|w4c_b6_08_matrix_div0_and_1d_trans\|transN=3(t0=Array)\|div0N=3\|modN=-1`; no DLL or source consulted]; keeping 1-D shape for element-wise matrix-with-matrix operations remains [hypothesis; probe schur.flat.size] |
 | SayTo_GetTopic, SayTo_GetTopicInfo | the topic and response of the actor's running SayTo line (`Game::speech`), none without one [documented] |
 | Get/SetItemHotkeyIconPath `item [onlyOverride]`, `item path` | the override, else GetTexturePath's icon; onlyOverride 1 the override or ""; "" resets [documented: GetItemHotkeyIconPath, SetItemHotkeyIconPath]. Wired into the engine's hotkey pictures (`Game::item_hotkey_icon_path`, `nvf_play::hotkeys::icon_override`, `weapon_wheel::draw`, `pipboy::hotkey_panel`) for both assigned slots (excluding Ammo Swap slot 2) and the Pip-Boy hotkey panel's pointed-at centre icon; override paths are normalised to lowercase backslashes relative to `textures\` (stripping any leading separator or `data\textures\` / `textures\` prefix, ignoring whitespace-only values) before `interface::Pictures` lookup [design]. Unmodded vanilla icon resolution is unchanged when no override is set |
 | Get/SetPlayerCanPickpocketEquippedItems (Get/SetPCCanStealEqItems) | off by default; on, the pickpocket menu lists the victim's equipped items, never a child's (`Game::pickpocket_worn`, `nvf_play::menu::model::Steal::worn`) [documented] |
 | ClearCinematicTextQueue (ClearQuestMessageQueue) | the quest lines waiting are dropped, as KillQuestUpdates [documented: "Clears the quest message queue"; hypothesis: the line on screen finishes] |
-| ToggleQuestMessages `[bOn]` | 0 hides every quest line (`UiRequests::quest_messages_off`, read by `nvf_play::script`), 1 shows them; 1 when that changed; -1 or nothing reads 1 while they are on [documented; hypothesis: what the read means, the page's wording leaves it open] |
+| ToggleQuestMessages `[bOn]` | 0 hides every quest line (`UiRequests::quest_messages_off`, read by `nvf_play::script`), 1 shows them; 1 when that changed, 0 when unchanged; -1 or nothing reads 1 while they are on and 0 while off [documented; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_07_toggle_quest_messages` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, calling `ToggleQuestMessages`, `-1`, `0`, `0`, no-arg, `1`, no-arg): `PROBE\|so_07_toggle_quest_messages\|1,1,1,0,0,1,1`; no DLL or source consulted] |
 | SetShowOffOnCornerMessageEventHandler (SetOnCornerMessageEventHandler) `1/0 handler [flag]` | each corner message queued (ShowMessage, MessageEx…) reaches the handlers with its text, icon type 0, icon path, sound path and seconds, an empty string as "<void>" [documented]; run on the next frame, and the sound always "<void>" [hypothesis] |
 | FreezeAmmoRegen `[toggle]` | whether it was frozen; while frozen no regenerating weapon gains rounds (`fnv_combat::attack::Cycle::regen_frozen`) [documented] |
 | PatchFreezeTime | nothing to do: NVForever never stops loading cells while FreezeTime holds the clock [documented: the patch's only effect] |
@@ -305,13 +341,21 @@ RemoveAllItemsShowOff.
 ## 9. `ShowOff:OnPOVChange` and preactivation events
 
 - **`ShowOff:OnPOVChange`** [documented: GECK wiki,
-  [ShowOff:OnPOVChange](https://geckwiki.com/index.php?title=ShowOff%3AOnPOVChange)]:
-  fires when the player's camera perspective switches between first-person and
-  third-person, passing one integer argument (`1` = first-person, `0` = third-person).
-  NVForever dispatches it from `Game::set_first_person` (fed every frame by
-  `nvf_play::control::tell_scripts`) only when `senses.first_person` actually changes,
-  with `IsPC1stPerson` already reflecting the new perspective and no calling reference
-  [hypothesis: calling reference and getter visibility during callback unobserved].
+  [ShowOff:OnPOVChange](https://geckwiki.com/index.php?title=ShowOff%3AOnPOVChange);
+  observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 +
+  ShowOffNVSE Plugin 184, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`),
+  isolated clean-room staging copy, committed probe
+  `w6t2p2_03_showoff_on_pov_change_toggle`
+  (`tools/capture/nvse/catalogs/wave6c_showoff_on_pov_change_thisalt.json`):
+  `PROBE|w6t2p2_03_showoff_on_pov_change_toggle|init=1|to3p(n=1,arg=0,inCb=1,aft=0,s0=0,sP=1)|to1p(n=2,arg=1,inCb=1,aft=1)`;
+  no DLL or source consulted]: fires when the player's camera perspective switches
+  between first-person and third-person, with calling reference `Player` (`0x00000014`,
+  `GetSelfAlt == Player`, `0::Player` filterable) and one integer argument (`1` =
+  first-person, `0` = third-person). NVForever dispatches it from
+  `Game::set_first_person` (fed every frame by `nvf_play::control::tell_scripts`) only
+  when `senses.first_person` actually changes; on 1P -> 3P (`0`) it fires before
+  clearing `senses.first_person` so `IsPC1stPerson` still reads `1` inside the callback
+  and `0` afterward, while on 3P -> 1P (`1`) `IsPC1stPerson` reads `1` inside and after.
   Save restore syncs `senses.first_person` directly to the restored camera POV without
   emitting a spurious transition [design]. Free when no handler is registered.
 - **`ShowOff:OnPreScriptedActivate`**, **`ShowOff:OnPreActivateInventoryItem`**, and

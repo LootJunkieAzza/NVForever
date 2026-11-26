@@ -320,12 +320,24 @@ fn climate_trait(g: &Game, c: FormId, t: i64) -> f64 {
 
 fn set_climate_trait(g: &mut Game, c: FormId, t: i64, v: f64) {
     const SUN: [&str; 4] = ["sunrise_begin", "sunrise_end", "sunset_begin", "sunset_end"];
+    if g.data.sig(g.unclone(c)) != Some(*b"CLMT") || !v.is_finite() {
+        return;
+    }
     match t {
-        0..=3 => set(g, c, "TNAM", SUN[t as usize], XVal::Num((v / 10.0).trunc().clamp(0.0, 255.0))),
+        0..=3 => {
+            let units = ((v.trunc() as i64 as u32) / 10).min(143);
+            set(g, c, "TNAM", SUN[t as usize], XVal::Num(f64::from(units)));
+        }
         4 => set(g, c, "TNAM", "volatility", XVal::Num(v.trunc().clamp(0.0, 255.0))),
         5 | 6 => {
             let now = get_num(g, c, "TNAM", "moons_phase_length") as u64;
-            let new = if t == 5 { (now & 0x3F) | (((v as u64) & 3) << 6) } else { (now & 0xC0) | ((v as u64) & 0x3F) };
+            let new = if t == 5 {
+                let moons = (v.trunc() as i64).clamp(0, 3) as u64;
+                (now & 0x3F) | (moons << 6)
+            } else {
+                let phase = (v.trunc() as i64).clamp(0, 63) as u64;
+                (now & 0xC0) | phase
+            };
             set(g, c, "TNAM", "moons_phase_length", XVal::Num(new as f64));
         }
         _ => {}

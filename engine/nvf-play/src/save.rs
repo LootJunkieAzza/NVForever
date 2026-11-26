@@ -49,6 +49,7 @@
 //! 512x288 (<bytes> bytes PNG) in <ms> ms (snapshot <ms> ms)` (`no thumbnail` without one),
 //! `save: not now: <why>`, `load: restored <path>: …`.
 
+use fnv_util::words::{tr, trf};
 use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::{Location, PlaySet, PlayState, PlayWorld};
@@ -421,7 +422,7 @@ fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, 
                 info!("load: QuickLoad key: {}", p.display());
                 load.write(LoadRequest { path: p });
             }
-            Ok(_) => log.0.push("No quicksave yet".into()),
+            Ok(_) => log.0.push(tr("No quicksave yet").into()),
             Err(e) => log.0.push(e),
         }
     }
@@ -698,9 +699,9 @@ fn start_writer(w: &mut SaveWrites, batch: Vec<Unwritten>, shot: Option<Shot>) {
 /// error's first line, cut at [`REASON_CHARS`] characters (the log has all of it).
 fn failed_note(kind: SaveKind, error: &str) -> String {
     let what = match kind {
-        SaveKind::Auto => "Autosave failed",
-        SaveKind::Quick => "Quicksave failed",
-        SaveKind::Manual | SaveKind::System => "Save failed",
+        SaveKind::Auto => tr("Autosave failed"),
+        SaveKind::Quick => tr("Quicksave failed"),
+        SaveKind::Manual | SaveKind::System => tr("Save failed"),
     };
     let line = error.lines().next().unwrap_or("").trim();
     let mut reason: String = line.chars().take(REASON_CHARS).collect();
@@ -744,7 +745,7 @@ fn report_written(world: &mut World) {
                     rt.game.save_files.saved = Some(fnv_game::nvse_sup4::SaveFile { name, bytes: *bytes as u64 });
                 }
                 if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
-                    c.push(if d.kind == SaveKind::Auto { "Autosaved".to_string() } else { "Game saved".to_string() }.into());
+                    c.push(tr(if d.kind == SaveKind::Auto { "Autosaved" } else { "Game saved" }).to_string().into());
                 }
                 format!("Saved {}", d.path.display())
             }
@@ -972,7 +973,7 @@ fn apply_engine(world: &mut World) {
 
 /// What the player is told when a save's plugins are missing (design §4.1).
 pub fn missing_content_text(missing: &[String]) -> String {
-    format!("This save relies on content that is no longer present: {}. What came from it was removed.", missing.join(", "))
+    trf("This save relies on content that is no longer present: {missing}. What came from it was removed.", &[("missing", &missing.join(", "))])
 }
 
 /// Read a save for `--load`: its header (to start the world at its place) and its body,

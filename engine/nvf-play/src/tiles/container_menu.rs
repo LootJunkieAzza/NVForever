@@ -302,7 +302,7 @@ mod tests {
     }
 
     fn row(item: u32, text: &str) -> RowShown {
-        RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: false, ysi: None }
+        RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: false, dim: false, ysi: None }
     }
 
     fn snapshot(left: &[(u32, &str)], right: &[(u32, &str)], focus: Side, selected: usize) -> Snapshot {
