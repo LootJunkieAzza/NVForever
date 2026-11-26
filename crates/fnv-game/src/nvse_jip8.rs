@@ -776,3 +776,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d12_splo_sync_tests.rs"]
+mod w6d12_splo_sync_tests;

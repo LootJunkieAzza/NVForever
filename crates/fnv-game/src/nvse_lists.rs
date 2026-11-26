@@ -22,10 +22,6 @@ fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
     }
 }
 
-#[cfg(test)]
-#[path = "w6d12_splo_sync_tests.rs"]
-mod w6d12_splo_sync_tests;
-
 fn ids(v: Option<&serde_json::Value>) -> Vec<FormId> {
     let one = |x: &serde_json::Value| x.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).map(FormId);
     match v {
@@ -116,10 +112,6 @@ impl Game<'_> {
             }
             13 => {
                 *self.edited_list(target) = list;
-            }
-            6 => {
-                self.other.jip8.actor_effects.insert(target, list.clone());
-                self.other.generic.insert((code, target), list);
             }
             _ => {
                 self.other.generic.insert((code, target), list);
