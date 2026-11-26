@@ -336,7 +336,13 @@ fn children_context(tile: &Tile, mut context: Context, above: Context) -> Contex
 /// keeps its unturned box in `rect` and its turn in `turn` ([`Turn`]).
 /// `t15` is `tiles::interface_screen`'s switch gate for the hotrect-alpha hypothesis.
 pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
-    layout_in(ui, root, measure, Context { t15, ..Default::default() })
+    layout_in(ui, root, measure, Context { t15, ..Default::default() }, false)
+}
+
+/// [`layout`] pruning hidden subtrees (`visible == false`) before measuring hidden text
+/// or walking hidden descendants [design: `visible` is strictly monotonic downward].
+pub fn layout_visible(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
+    layout_in(ui, root, measure, Context { t15, ..Default::default() }, true)
 }
 
 /// [`layout`] with the `locus` rule: a tile's `x` and `y` count from the nearest tile
@@ -348,7 +354,12 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
 /// (`super::mods`); the HUD and the other tile menus keep [`layout`]'s rule until they are
 /// checked against it (a follow-up) [design].
 pub fn layout_by_locus(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
-    layout_in(ui, root, measure, Context { t15, by_locus: true, ..Default::default() })
+    layout_in(ui, root, measure, Context { t15, by_locus: true, ..Default::default() }, false)
+}
+
+/// [`layout_by_locus`] pruning hidden subtrees (`visible == false`) [design].
+pub fn layout_by_locus_visible(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
+    layout_in(ui, root, measure, Context { t15, by_locus: true, ..Default::default() }, true)
 }
 
 /// [design] Lay out an isolated live subtree rooted at `root` without inheriting ancestor
@@ -358,7 +369,7 @@ pub fn layout_isolated(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) 
     if !ui.is_live(root) {
         return Vec::new();
     }
-    walk_subtree(ui, root, Context { t15, ..Default::default() }, measure)
+    walk_subtree(ui, root, Context { t15, ..Default::default() }, measure, true)
 }
 
 /// [design] A single tile's laid-out rectangle, inherited clip window and visibility,
@@ -401,19 +412,25 @@ fn ancestor_context(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context
     Some(context)
 }
 
-fn layout_in(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context) -> Vec<DrawItem> {
+fn layout_in(ui: &Ui, root: TileId, measure: &Measure<'_>, start: Context, visible_only: bool) -> Vec<DrawItem> {
     let Some(context) = ancestor_context(ui, root, measure, start) else {
         return Vec::new();
     };
-    walk_subtree(ui, root, context, measure)
+    if visible_only && !context.visible {
+        return Vec::new();
+    }
+    walk_subtree(ui, root, context, measure, visible_only)
 }
 
-fn walk_subtree(ui: &Ui, root: TileId, context: Context, measure: &Measure<'_>) -> Vec<DrawItem> {
+fn walk_subtree(ui: &Ui, root: TileId, context: Context, measure: &Measure<'_>, visible_only: bool) -> Vec<DrawItem> {
     let mut out = Vec::new();
     let mut stack = vec![(root, context)];
     while let Some((id, parent)) = stack.pop() {
         let tile = ui.tile(id);
         if !tile.live {
+            continue;
+        }
+        if visible_only && (!parent.visible || tile.get("visible").is_some_and(|v| !v.truthy())) {
             continue;
         }
         let kind = kind(tile);

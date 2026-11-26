@@ -11,8 +11,12 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::panic::Location;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
+
+/// Monotonic per-`Ui` instance counter so renderer caches never alias across save loads
+/// or recreated `Ui` trees that start back at `shape == 0, value_gen == 0` [design].
+static NEXT_UI_INSTANCE: AtomicU64 = AtomicU64::new(1);
 
 /// The tile kinds, the tags that make a tile [observed: the tags with a `name`
 /// attribute in the vanilla files; `window` is in no vanilla file but in older Gamebryo
@@ -340,6 +344,10 @@ pub struct Tile {
     /// The tag in lower case: one of [`TILE_KINDS`].
     pub kind: String,
     pub name: String,
+    /// Lower-case `/`-separated path from the menu root, computed once at creation (tiles
+    /// are never reparented or renamed), so `mod_tile_drawn` checks in O(1) without
+    /// allocating [design].
+    path_lower: String,
     pub parent: Option<TileId>,
     /// The root menu (or pseudo-tile) owning this tile, fixed at creation [design].
     root: TileId,
@@ -366,6 +374,10 @@ pub struct Tile {
     pub live: bool,
 }
 
+#[cfg(test)]
+#[path = "perf_index_tests.rs"]
+mod perf_index_tests;
+
 /// What [`Ui::tile`] answers for an unloaded tile's id.
 static DEAD: Tile = Tile::dead();
 
@@ -375,6 +387,7 @@ impl Tile {
             origin: Origin::Code,
             kind: String::new(),
             name: String::new(),
+            path_lower: String::new(),
             parent: None,
             root: DEAD_ID,
             children: Vec::new(),
@@ -432,6 +445,21 @@ pub struct Ui {
     /// One up whenever tiles are made, unloaded, renamed, or given/stripped of traits or
     /// templates [design].
     shape: u64,
+    /// Shape-versioned trait-path lookup caches (`Count::FromLast` and `Count::FromFirst`),
+    /// cleared in [`Ui::bump_shape`] so repeated `SetUIFloatAlt` / `SetUIStringAlt` /
+    /// `GetUIFloatAlt` calls on unchanged tree shapes avoid repeated full-tree walks [design].
+    trait_path_cache_last: HashMap<String, Option<(TileId, usize)>>,
+    trait_path_cache_first: HashMap<String, Option<(TileId, usize)>>,
+    /// Reverse dependency map for incremental [`Ui::update`]: maps a source
+    /// `(tile_slot, trait_idx)` to the expression `(tile_slot, trait_idx)` entries that
+    /// read it, rebuilt on structural changes (`dirty_all`) [design].
+    dependents: HashMap<(u32, u32), Vec<(u32, u32)>>,
+    /// Expression `(tile_slot, trait_idx)` entries queued for incremental [`Ui::update`]
+    /// when a plain trait value changes without a structural shape change [design].
+    dirty_exprs: Vec<(u32, u32)>,
+    /// True when the next [`Ui::update`] must scan all live expression traits and rebuild
+    /// [`Ui::dependents`] (after any structural change, expression replacement, or load) [design].
+    dirty_all: bool,
     /// Bumped whenever a root tile is added, unloaded, or renamed; fast-path guard for
     /// cross-menu [`StructDep::RootName`] checks [design].
     roots_shape: u64,
@@ -446,6 +474,9 @@ pub struct Ui {
     root_names: HashMap<TileId, OnceLock<HashMap<String, TileId>>>,
     /// This tree's number, in every [`TileId`] it makes ([`Ui::new`]).
     tree: u32,
+    /// Monotonic per-instance identity assigned in [`Ui::new`] so external caches keyed by
+    /// `(shape, value_gen)` never alias across save loads or recreated trees [design].
+    instance_id: u64,
     /// The shape when [`Ui::update`] last ran, the updates in a row that found it changed,
     /// whether that was told ([`Ui::take_reshape_warning`]), and the last change of shape
     /// made from outside the tree: what did it and from where.
@@ -463,6 +494,9 @@ pub struct Ui {
     /// Counts value changes: a trait whose sources changed after it was last worked out
     /// is worked out again.
     gen: u64,
+    /// Monotonic counter bumped only when a trait value actually changes or tree shape
+    /// changes (unlike `gen`, unaffected by no-op writes of the same value) [design].
+    value_gen: u64,
     /// A tile, a file trait or a value changed since [`Ui::update`] last finished: with
     /// none, it has nothing to work out [design: writes of the same value, as the
     /// engine's every frame, leave the tree clean].
@@ -506,7 +540,11 @@ impl Ui {
     /// An empty tree with the three pseudo-tiles `screen()`, `strings()` and (until
     /// [`Ui::load_globals`]) an empty `globals()`.
     pub fn new() -> Ui {
-        let mut ui = Ui { tree: NEXT_TREE.fetch_add(1, Ordering::Relaxed), ..Ui::default() };
+        let mut ui = Ui {
+            tree: NEXT_TREE.fetch_add(1, Ordering::Relaxed),
+            instance_id: NEXT_UI_INSTANCE.fetch_add(1, Ordering::Relaxed),
+            ..Ui::default()
+        };
         let screen = ui.new_tile("rect", "screen()", None, Origin::Code);
         let strings = ui.new_tile("rect", "strings()", None, Origin::Code);
         let globals = ui.new_tile("rect", "globals()", None, Origin::Code);
@@ -515,6 +553,11 @@ impl Ui {
         ui.strings = Some(strings);
         ui.globals = Some(globals);
         ui
+    }
+
+    /// Monotonic identity unique to this [`Ui`] instance (`0` only for `Ui::default()`) [design].
+    pub fn instance_id(&self) -> u64 {
+        self.instance_id
     }
 
     /// Sets a trait as the game's code does for a value it writes only when the value
@@ -588,7 +631,17 @@ impl Ui {
     /// tile rename) without invalidating unrelated menus [design].
     fn bump_shape(&mut self) {
         self.shape += 1;
+        self.value_gen += 1;
         self.reshaped_by = self.op;
+        self.trait_path_cache_last.clear();
+        self.trait_path_cache_first.clear();
+        self.dirty_all = true;
+    }
+
+    /// Monotonic counter bumped only when a trait value actually changes or tree shape
+    /// changes [design].
+    pub fn value_gen(&self) -> u64 {
+        self.value_gen
     }
 
     fn root_name_version(&self, key: u64) -> u64 {
@@ -656,7 +709,24 @@ impl Ui {
     fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>, origin: Origin) -> TileId {
         self.dirty = true;
         self.bump_shape();
-        let tile = Tile { origin, kind: kind.to_ascii_lowercase(), name: name.to_string(), parent, live: true, ..Tile::dead() };
+        let path_lower = match parent {
+            Some(p) => {
+                let p_path = &self.tile(p).path_lower;
+                let mut s = String::with_capacity(p_path.len() + 1 + name.len());
+                s.push_str(p_path);
+                s.push('/');
+                for b in name.bytes() {
+                    s.push(b.to_ascii_lowercase() as char);
+                }
+                if !name.is_ascii() {
+                    s.truncate(p_path.len() + 1);
+                    s.push_str(&name.to_ascii_lowercase());
+                }
+                s
+            }
+            None => name.to_ascii_lowercase(),
+        };
+        let tile = Tile { origin, kind: kind.to_ascii_lowercase(), name: name.to_string(), path_lower, parent, live: true, ..Tile::dead() };
         let id = match self.free.pop() {
             Some(Reverse(index)) => {
                 self.tiles[index as usize] = tile;
@@ -969,6 +1039,7 @@ impl Ui {
                     old.value = Value::default();
                     old.expr = Some(ops);
                     old.changed = gen;
+                    self.value_gen += 1;
                     old.write_serial = write_serial;
                     old.evaluated = 0;
                     old.built_in_label = built_in_label;
@@ -976,8 +1047,10 @@ impl Ui {
                     old.struct_deps.clear();
                     old.seen_valid = false;
                     self.dirty = true;
+                    self.dirty_all = true;
                 }
                 None => {
+                    let had_expr = self.tiles[slot].traits[k].expr.is_some();
                     let differs = value.differs(&self.tiles[slot].traits[k].value);
                     let old = &mut self.tiles[slot].traits[k];
                     old.name = e.name.clone();
@@ -993,7 +1066,11 @@ impl Ui {
                         self.gen += 1;
                         let gen = self.gen;
                         self.tiles[slot].traits[k].changed = gen;
+                        self.value_gen += 1;
                         self.dirty = true;
+                        self.dirty_all = true;
+                    } else if had_expr {
+                        self.dirty_all = true;
                     }
                 }
             },
@@ -1094,11 +1171,41 @@ impl Ui {
     /// [`Ui::find_trait`] with `name:N` / `*:N` counted as `count` says (the extender's
     /// GetUIFloat and SetUIFloat count from the first child, [`Count::FromFirst`]).
     pub fn find_trait_counted(&self, path: &str, count: Count) -> Option<(TileId, usize)> {
+        let cache = match count {
+            Count::FromLast => &self.trait_path_cache_last,
+            Count::FromFirst => &self.trait_path_cache_first,
+        };
+        if let Some(&hit) = cache.get(path) {
+            return hit;
+        }
+        self.find_trait_counted_uncached(path, count)
+    }
+
+    fn find_trait_counted_uncached(&self, path: &str, count: Count) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
         let (first, rest) = tiles.split_first()?;
         let root = self.root_named(first)?;
         self.walk_to_trait(root, rest, name, count)
+    }
+
+    fn find_trait_counted_cached(&mut self, path: &str, count: Count) -> Option<(TileId, usize)> {
+        let cache = match count {
+            Count::FromLast => &self.trait_path_cache_last,
+            Count::FromFirst => &self.trait_path_cache_first,
+        };
+        if let Some(&hit) = cache.get(path) {
+            return hit;
+        }
+        let found = self.find_trait_counted_uncached(path, count);
+        let cache = match count {
+            Count::FromLast => &mut self.trait_path_cache_last,
+            Count::FromFirst => &mut self.trait_path_cache_first,
+        };
+        if cache.len() < 4096 {
+            cache.insert(path.to_string(), found);
+        }
+        found
     }
 
     /// A trait's value by a path counted as `count` says ([`Ui::find_trait_counted`]).
@@ -1109,7 +1216,7 @@ impl Ui {
 
     /// Sets a trait by a path counted as `count` says, as [`Ui::set`] does.
     pub fn set_counted(&mut self, path: &str, count: Count, v: Value) -> bool {
-        let Some((t, k)) = self.find_trait_counted(path, count) else { return false };
+        let Some((t, k)) = self.find_trait_counted_cached(path, count) else { return false };
         self.set_at(t, k, v);
         true
     }
@@ -1233,7 +1340,7 @@ impl Ui {
     /// trait [hypothesis: the setters make no trait that is not there, AddTraitToTile
     /// exists for that]. The value holds until what the trait's expression reads changes.
     pub fn set(&mut self, path: &str, v: Value) -> bool {
-        let Some((t, k)) = self.find_trait(path) else { return false };
+        let Some((t, k)) = self.find_trait_counted_cached(path, Count::FromLast) else { return false };
         self.set_at(t, k, v);
         true
     }
@@ -1243,7 +1350,24 @@ impl Ui {
     }
 
     pub fn set_string(&mut self, path: &str, s: &str) -> bool {
-        self.set(path, Value::Str(s.to_string()))
+        let Some((t, k)) = self.find_trait_counted_cached(path, Count::FromLast) else { return false };
+        if matches!(&self.tiles[t.index as usize].traits[k].value, Value::Str(cur) if cur == s) {
+            self.gen += 1;
+            self.trait_writes += 1;
+            let gen = self.gen;
+            let write_serial = self.next_write_serial();
+            let tr = &mut self.tiles[t.index as usize].traits[k];
+            tr.write_serial = write_serial;
+            tr.built_in_label = None;
+            tr.evaluated = gen;
+            tr.seen_valid = false;
+            if tr.expr.is_some() && !self.dirty_all {
+                self.dirty_exprs.push((t.index, k as u32));
+            }
+            return true;
+        }
+        self.set_at(t, k, Value::Str(s.to_string()));
+        true
     }
 
     /// Sets a tile's trait by name as [`Ui::set`] does by path: false, and nothing made,
@@ -1259,7 +1383,7 @@ impl Ui {
 
     /// Adds to a trait by path (`ModUIFloat`).
     pub fn mod_float(&mut self, path: &str, by: f64) -> bool {
-        let Some((t, k)) = self.find_trait(path) else { return false };
+        let Some((t, k)) = self.find_trait_counted_cached(path, Count::FromLast) else { return false };
         let v = self.tile(t).traits[k].value.num() + by;
         self.set_at(t, k, Value::Num(v));
         true
@@ -1363,8 +1487,10 @@ impl Ui {
         let write_serial = self.next_write_serial();
         let tr = &mut self.tiles[t.index as usize].traits[k];
         tr.write_serial = write_serial;
-        if v.differs(&tr.value) {
+        let differs = v.differs(&tr.value);
+        if differs {
             tr.changed = gen;
+            self.value_gen += 1;
             self.dirty = true;
             self.trait_changes += 1;
         }
@@ -1375,6 +1501,17 @@ impl Ui {
         // to learn its sources again.
         tr.evaluated = gen;
         tr.seen_valid = false;
+        let has_expr = tr.expr.is_some();
+        if !self.dirty_all {
+            if differs {
+                if let Some(deps) = self.dependents.get(&(t.index, k as u32)) {
+                    self.dirty_exprs.extend_from_slice(deps);
+                }
+            }
+            if has_expr {
+                self.dirty_exprs.push((t.index, k as u32));
+            }
+        }
     }
 
     /// Takes a trait off a tile, as if it had never had it (an engine's own write undone
@@ -1573,12 +1710,136 @@ impl Ui {
             Origin::File { .. } => {
                 // [design] A loose UIO file is an explicit addition, even when no
                 // archived comparison exists or a vanilla tile has the same name.
-                self.uio_tiles.contains(&id) || vanilla.is_some_and(|names| !names.contains(&self.path_of(id).to_ascii_lowercase()))
+                if self.uio_tiles.contains(&id) {
+                    return true;
+                }
+                vanilla.is_some_and(|names| !names.contains(self.tile(id).path_lower.as_str()))
             }
         }
     }
 
     // ---- working traits out -----------------------------------------------------------
+
+    /// Rebuild reverse dependency edges from all live expression traits' recorded `sources`.
+    fn rebuild_dependents(&mut self) {
+        self.dependents.clear();
+        for id in 0..self.tiles.len() {
+            if !self.tiles[id].live {
+                continue;
+            }
+            for k in 0..self.tiles[id].traits.len() {
+                let tr = &self.tiles[id].traits[k];
+                if tr.expr.is_none() || tr.sources.is_empty() {
+                    continue;
+                }
+                let dst = (id as u32, k as u32);
+                for &(src_tile, src_k) in &tr.sources {
+                    let list = self.dependents.entry((src_tile.index, src_k)).or_default();
+                    if list.last().copied() != Some(dst) {
+                        list.push(dst);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Register any new reverse dependency edges for expression `(id, k)` after evaluation.
+    fn register_expr_dependents(&mut self, id: u32, k: u32, sources: &[(TileId, u32)]) {
+        let dst = (id, k);
+        for &(src_tile, src_k) in sources {
+            let list = self.dependents.entry((src_tile.index, src_k)).or_default();
+            if !list.contains(&dst) {
+                list.push(dst);
+            }
+        }
+    }
+
+    /// Evaluate a single expression trait `(id, k)` if not skipped; returns `true` if its
+    /// value changed.
+    fn eval_trait_slot(
+        &mut self,
+        id: usize,
+        k: usize,
+        roots_shape: u64,
+        sources: &mut Vec<(TileId, u32)>,
+        struct_deps: &mut Vec<StructDep>,
+        register_deps: bool,
+    ) -> bool {
+        if !self.tiles.get(id).is_some_and(|t| t.live) {
+            return false;
+        }
+        let Some(tr) = self.tiles[id].traits.get(k) else {
+            return false;
+        };
+        if tr.expr.is_none() {
+            return false;
+        }
+        let tid = self.id_at(id);
+        let root = self.tiles[id].root;
+        let root_slot = self.slot(root);
+        let root_shape = root_slot.map_or(0, |r| self.tiles[r].root_shape);
+        let root_unchanged = tr.seen_root_shape == root_shape;
+        let roots_unchanged = tr.seen_roots_shape == roots_shape;
+        let skip = tr.evaluated != 0
+            && tr.seen_valid
+            && tr.struct_deps.iter().all(|&dep| self.struct_dep_holds(dep, tr.evaluated, root_unchanged, roots_unchanged))
+            && tr.sources.iter().all(|&(t, j)| {
+                self.slot(t).is_some_and(|i| self.tiles[i].traits.get(j as usize).is_some_and(|st| st.changed <= tr.evaluated))
+            });
+        #[cfg(test)]
+        let skip = skip && !self.never_skip;
+        if skip {
+            if !root_unchanged || !roots_unchanged {
+                let tr = &mut self.tiles[id].traits[k];
+                tr.seen_root_shape = root_shape;
+                tr.seen_roots_shape = roots_shape;
+            }
+            return false;
+        }
+        #[cfg(test)]
+        {
+            self.evaluations += 1;
+        }
+        let mut deps = 0;
+        sources.clear();
+        struct_deps.clear();
+        let v = {
+            let ops = self.tiles[id].traits[k].expr.as_deref().expect("checked expr.is_some()");
+            self.eval_reading(tid, ops, &mut deps, sources, Some(struct_deps))
+        };
+        if let Some(r) = root_slot {
+            self.tiles[r].root_evaluated = true;
+        }
+        let sources_changed = self.tiles[id].traits[k].sources != *sources;
+        let tr = &mut self.tiles[id].traits[k];
+        if sources_changed {
+            tr.sources.clone_from(sources);
+        }
+        tr.struct_deps.clone_from(struct_deps);
+        tr.seen_valid = true;
+        tr.seen_root_shape = root_shape;
+        tr.seen_roots_shape = roots_shape;
+        let evaluated_before = tr.evaluated;
+        if register_deps && sources_changed {
+            self.register_expr_dependents(id as u32, k as u32, sources);
+        }
+        if evaluated_before != 0 && deps <= evaluated_before {
+            return false;
+        }
+        let differs = v.differs(&self.tiles[id].traits[k].value);
+        self.gen += 1;
+        let gen = self.gen;
+        let tr = &mut self.tiles[id].traits[k];
+        tr.evaluated = gen;
+        if differs {
+            tr.value = v;
+            tr.changed = gen;
+            self.value_gen += 1;
+            true
+        } else {
+            false
+        }
+    }
 
     /// Works out every trait with an expression whose sources changed since it was last
     /// worked out (all of them the first time), again and again until nothing changes.
@@ -1601,6 +1862,55 @@ impl Ui {
         {
             self.passes = 0;
         }
+        #[cfg(test)]
+        let full_scan = self.dirty_all || self.never_skip;
+        #[cfg(not(test))]
+        let full_scan = self.dirty_all;
+
+        if !full_scan {
+            let mut next_wave = std::mem::take(&mut self.dirty_exprs);
+            let mut current: BinaryHeap<Reverse<(u32, u32)>> = BinaryHeap::new();
+            let roots_shape = self.roots_shape;
+            for _ in 0..MAX_PASSES {
+                #[cfg(test)]
+                {
+                    self.passes += 1;
+                }
+                for item in next_wave.drain(..) {
+                    current.push(Reverse(item));
+                }
+                let mut this_pass = 0;
+                let mut last: Option<(u32, u32)> = None;
+                while let Some(Reverse((id, k))) = current.pop() {
+                    if last == Some((id, k)) {
+                        continue;
+                    }
+                    last = Some((id, k));
+                    if self.eval_trait_slot(id as usize, k as usize, roots_shape, &mut sources, &mut struct_deps, true) {
+                        this_pass += 1;
+                        if let Some(deps) = self.dependents.get(&(id, k)) {
+                            for &(d_id, d_k) in deps {
+                                if (d_id, d_k) > (id, k) {
+                                    current.push(Reverse((d_id, d_k)));
+                                } else {
+                                    next_wave.push((d_id, d_k));
+                                }
+                            }
+                        }
+                    }
+                }
+                changed += this_pass;
+                if this_pass == 0 {
+                    self.dirty = false;
+                    return changed;
+                }
+            }
+            self.dirty_exprs = next_wave;
+            self.warnings.push(format!("update: traits still changing after {MAX_PASSES} passes (a loop?)"));
+            return changed;
+        }
+
+        self.dirty_exprs.clear();
         for _ in 0..MAX_PASSES {
             #[cfg(test)]
             {
@@ -1612,66 +1922,8 @@ impl Ui {
                 if !self.tiles[id].live {
                     continue;
                 }
-                let tid = self.id_at(id);
-                let root = self.tiles[id].root;
-                let root_slot = self.slot(root);
-                let root_shape = root_slot.map_or(0, |r| self.tiles[r].root_shape);
                 for k in 0..self.tiles[id].traits.len() {
-                    let tr = &self.tiles[id].traits[k];
-                    if tr.expr.is_none() {
-                        continue;
-                    }
-                    let root_unchanged = tr.seen_root_shape == root_shape;
-                    let roots_unchanged = tr.seen_roots_shape == roots_shape;
-                    // What it read last (trait sources and structural resolution deps),
-                    // unchanged since: working it out would find the same and skip it.
-                    let skip = tr.evaluated != 0
-                        && tr.seen_valid
-                        && tr.struct_deps.iter().all(|&dep| self.struct_dep_holds(dep, tr.evaluated, root_unchanged, roots_unchanged))
-                        && tr.sources.iter().all(|&(t, j)| {
-                            self.slot(t).is_some_and(|i| self.tiles[i].traits.get(j as usize).is_some_and(|st| st.changed <= tr.evaluated))
-                        });
-                    #[cfg(test)]
-                    let skip = skip && !self.never_skip;
-                    if skip {
-                        if !root_unchanged || !roots_unchanged {
-                            let tr = &mut self.tiles[id].traits[k];
-                            tr.seen_root_shape = root_shape;
-                            tr.seen_roots_shape = roots_shape;
-                        }
-                        continue;
-                    }
-                    #[cfg(test)]
-                    {
-                        self.evaluations += 1;
-                    }
-                    let mut deps = 0;
-                    sources.clear();
-                    struct_deps.clear();
-                    let v = {
-                        let ops = self.tiles[id].traits[k].expr.as_deref().expect("checked expr.is_some()");
-                        self.eval_reading(tid, ops, &mut deps, &mut sources, Some(&mut struct_deps))
-                    };
-                    if let Some(r) = root_slot {
-                        self.tiles[r].root_evaluated = true;
-                    }
-                    let tr = &mut self.tiles[id].traits[k];
-                    tr.sources.clone_from(&sources);
-                    tr.struct_deps.clone_from(&struct_deps);
-                    tr.seen_valid = true;
-                    tr.seen_root_shape = root_shape;
-                    tr.seen_roots_shape = roots_shape;
-                    if tr.evaluated != 0 && deps <= tr.evaluated {
-                        continue;
-                    }
-                    let differs = v.differs(&tr.value);
-                    self.gen += 1;
-                    let gen = self.gen;
-                    let tr = &mut self.tiles[id].traits[k];
-                    tr.evaluated = gen;
-                    if differs {
-                        tr.value = v;
-                        tr.changed = gen;
+                    if self.eval_trait_slot(id, k, roots_shape, &mut sources, &mut struct_deps, false) {
                         this_pass += 1;
                     }
                 }
@@ -1679,8 +1931,15 @@ impl Ui {
             changed += this_pass;
             if this_pass == 0 {
                 self.dirty = false;
+                if self.reshaped_run == 0 {
+                    self.dirty_all = false;
+                    self.rebuild_dependents();
+                }
                 return changed;
             }
+        }
+        if self.reshaped_run == 0 {
+            self.rebuild_dependents();
         }
         self.warnings.push(format!("update: traits still changing after {MAX_PASSES} passes (a loop?)"));
         changed

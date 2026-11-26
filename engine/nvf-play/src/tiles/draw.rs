@@ -201,6 +201,12 @@ pub struct TileFonts {
     /// What each mod-added HUD text's width was last measured from: its string and wrap
     /// ([`FontKit::write_mod_widths`]).
     mod_widths: HashMap<TileId, (String, f64)>,
+    /// Cached `(ui_instance_id, ui_shape, ui_value_gen, faces_len)` from the last
+    /// `write_widths` pass, plus cached `unmeasured_texts` list keyed by `(ui_instance_id,
+    /// ui_shape)` so unchanged frames avoid walking `HUDMainMenu` and save loads never alias
+    /// stale `TileId`s [design].
+    widths_last_gen: Option<(u64, u64, u64, usize)>,
+    unmeasured_cache: Option<(u64, u64, Vec<TileId>)>,
 }
 
 #[derive(SystemParam)]
@@ -327,10 +333,15 @@ impl FontKit<'_> {
 
     /// Write the HUD text tiles' measured widths into the tree ([`FontKit::widths`]).
     pub(crate) fn write_widths(&mut self, ui: &mut Ui) {
+        let key = (ui.instance_id(), ui.shape(), ui.value_gen(), self.fonts.faces.len());
+        if self.fonts.widths_last_gen == Some(key) {
+            return;
+        }
         if let Some(measure) = self.widths(ui) {
             fnv_game::ui_hud::write_text_widths(ui, &*measure);
         }
         self.write_mod_widths(ui);
+        self.fonts.widths_last_gen = Some((ui.instance_id(), ui.shape(), ui.value_gen(), self.fonts.faces.len()));
     }
 
     /// The widths of the text tiles mods add to the HUD (`fnv_game::ui_hud::unmeasured_texts`),
@@ -340,11 +351,20 @@ impl FontKit<'_> {
     /// width − text width) / 2 from its place) ran off the right edge of the view
     /// [observed 2026-11-21 in FadedLight's Nuclear Sunset fork, #4493].
     fn write_mod_widths(&mut self, ui: &mut Ui) {
-        // The notices' copies have their own measure (`write_notice_widths`).
-        let notices: std::collections::HashSet<TileId> = super::notices::texts(ui).into_iter().collect();
-        let tiles: Vec<TileId> = fnv_game::ui_hud::unmeasured_texts(ui).into_iter().filter(|t| !notices.contains(t)).collect();
-        let present: std::collections::HashSet<TileId> = tiles.iter().copied().collect();
-        self.fonts.mod_widths.retain(|id, _| present.contains(id));
+        let instance_id = ui.instance_id();
+        let shape = ui.shape();
+        let tiles = match self.fonts.unmeasured_cache.as_ref() {
+            Some((id, s, cached)) if *id == instance_id && *s == shape => cached.clone(),
+            _ => {
+                // The notices' copies have their own measure (`write_notice_widths`).
+                let notices: std::collections::HashSet<TileId> = super::notices::texts(ui).into_iter().collect();
+                let list: Vec<TileId> = fnv_game::ui_hud::unmeasured_texts(ui).into_iter().filter(|t| !notices.contains(t)).collect();
+                let present: std::collections::HashSet<TileId> = list.iter().copied().collect();
+                self.fonts.mod_widths.retain(|id, _| present.contains(id));
+                self.fonts.unmeasured_cache = Some((instance_id, shape, list.clone()));
+                list
+            }
+        };
         for tile in tiles {
             let t = ui.tile(tile);
             let Some(string) = t.get("string").map(Value::text) else { continue };
@@ -847,9 +867,9 @@ pub fn pieces_with_fonts(
     let items: Vec<(Option<TileId>, layout::DrawItem)> = match select {
         Select::Mods { by_locus, .. } => roots
             .iter()
-            .flat_map(|&r| if by_locus { layout::layout_by_locus(ui, r, measure, t15) } else { layout::layout(ui, r, measure, t15) }.into_iter().map(move |i| (Some(r), i)))
+            .flat_map(|&r| if by_locus { layout::layout_by_locus_visible(ui, r, measure, t15) } else { layout::layout_visible(ui, r, measure, t15) }.into_iter().map(move |i| (Some(r), i)))
             .collect(),
-        Select::Whole { .. } => layout::layout(ui, menu, measure, t15).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
+        Select::Whole { .. } => layout::layout_visible(ui, menu, measure, t15).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
     };
     let whole = matches!(select, Select::Whole { .. });
     let mut out = Vec::new();
@@ -1018,6 +1038,7 @@ struct Slot {
     wrapper: Option<Entity>,
     outer: Option<Entity>,
     hud_size: Option<crate::hud_readability::Part>,
+    hud_size_shape: (u64, u64),
 }
 
 /// A piece by its tile and its count among that tile's pieces, as slots are kept.
@@ -1035,6 +1056,55 @@ fn keys(pieces: &[Piece]) -> Vec<Key> {
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HudCacheKey {
+    ui_instance: u64,
+    menu: TileId,
+    whole: bool,
+    t15: bool,
+    shape: u64,
+    value_gen: u64,
+    fonts_len: usize,
+    font_revision: u32,
+    runtime_rev: u64,
+    runtime_presentation_rev: u64,
+    itr_rev: u64,
+    glyphs_key: u64,
+    scale_bits: u32,
+}
+
+impl HudCacheKey {
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        ui: &Ui,
+        menu: TileId,
+        whole: bool,
+        t15: bool,
+        itr_rev: u64,
+        fonts_len: usize,
+        font_revision: u32,
+        runtime: Option<&super::runtime_images::RuntimeImages>,
+        glyphs_key: u64,
+        scale: f32,
+    ) -> Self {
+        Self {
+            ui_instance: ui.instance_id(),
+            menu,
+            whole,
+            t15,
+            shape: ui.shape(),
+            value_gen: ui.value_gen(),
+            fonts_len,
+            font_revision,
+            runtime_rev: runtime.map_or(0, super::runtime_images::RuntimeImages::revision),
+            runtime_presentation_rev: runtime.map_or(0, super::runtime_images::RuntimeImages::presentation_revision),
+            itr_rev,
+            glyphs_key,
+            scale_bits: scale.to_bits(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Drawn {
     root: Option<Entity>,
@@ -1044,6 +1114,13 @@ pub(crate) struct Drawn {
     target: Option<Target>,
     counts: (usize, usize),
     font_revision: u32,
+    /// Fast-path cache key for `hud()` when UI tree values/shape, fonts, runtime images,
+    /// ITR texture transforms, and scale are all unchanged (compass strip heading updates
+    /// separately via `scroll()`) [design].
+    hud_cache: Option<HudCacheKey>,
+    /// True when the last `paint()` deferred a `texmod::shift_in_place` bake to the next
+    /// frame, preventing `hud()` from skipping the retry [design].
+    tex_waiting: bool,
     /// The whole menu's start line is written (T12a).
     told: bool,
     pictures: Option<Pictures>,
@@ -1808,15 +1885,26 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
     let files = script.rt.as_ref().and_then(|rt| rt.game.ui_files.as_deref());
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.and_then(|ui| ui.menu(HUD_MENU).map(|m| (ui, m)));
+    let itr_rev = script.rt.as_ref().map_or(0, |rt| rt.game.other.itr.tile_tex_revision());
+    let glyphs_key = glyphs.state_key();
+    let hud_key = menu.map(|(ui, m)| {
+        HudCacheKey::build(ui, m, whole, t15, itr_rev, kit.fonts.faces.len(), crate::cjk_font::revision(), kit.runtime.as_deref(), glyphs_key, scale)
+    });
+    if hud_key.is_some() && !drawn.tex_waiting && drawn.hud_cache == hud_key {
+        return;
+    }
     // With the tile HUD off and no mod tiles in the HUD (the default game), nothing to
     // walk or lay out (`fnv_ui::Ui::has_mod_added_tiles`, a kept count) [design: #938].
     let (pieces, roots) = match menu {
         Some((ui, menu)) if whole || ui.has_mod_added_tiles(menu) => {
             kit.ensure_xfonts();
-            // The fonts of the text tiles drawn, read before measuring.
+            // The fonts of the visible text tiles drawn, read before measuring.
             let mut stack = if whole { vec![menu] } else { ui.mod_added_tiles(menu) };
             while let Some(t) = stack.pop() {
                 let tile = ui.tile(t);
+                if !tile.live || tile.get("visible").is_some_and(|v| !v.truthy()) {
+                    continue;
+                }
                 if tile.kind == "text" {
                     kit.load(tile.get("font").map_or(0.0, Value::num));
                 }
@@ -1853,7 +1941,12 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
     // The HUD keeps the view's own frame: its places are written for the scaled view.
     paint(commands, drawn, pieces, Target::window(scale, TILES_Z), Brightness::File, heading, ui, kit, nodes, glyphs);
     if let Some(ui) = ui {
+        let shape_key = (ui.instance_id(), ui.shape());
         for ((tile, _), slot) in &mut drawn.slots {
+            if slot.hud_size_shape == shape_key {
+                continue;
+            }
+            slot.hud_size_shape = shape_key;
             let wanted = crate::hud_readability::tile_part(&ui.path_of(*tile));
             if wanted != slot.hud_size {
                 if let Some(part) = wanted {
@@ -1866,6 +1959,9 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
             }
         }
     }
+    drawn.hud_cache = menu.map(|(ui, m)| {
+        HudCacheKey::build(ui, m, whole, t15, itr_rev, kit.fonts.faces.len(), crate::cjk_font::revision(), kit.runtime.as_deref(), glyphs_key, scale)
+    });
 }
 
 /// How bright a menu's pieces are painted ([`paint`]), chosen by the caller.
@@ -1932,6 +2028,8 @@ pub(crate) fn clear(commands: &mut Commands, drawn: &mut Drawn) {
     drawn.slots.clear();
     drawn.pieces.clear();
     drawn.target = None;
+    drawn.hud_cache = None;
+    drawn.tex_waiting = false;
 }
 
 /// Bring one menu's drawn nodes in line with its `pieces` on `target`: nothing when they and
@@ -1941,6 +2039,14 @@ pub(crate) fn clear(commands: &mut Commands, drawn: &mut Drawn) {
 /// device and the screen menu is recoloured.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, brightness: Brightness, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+    // Fast path for closed menus with nothing currently drawn and nothing to draw: skip
+    // per-frame texmod/runtime-image marking and cache pruning on all inactive menu slots [design].
+    if pieces.is_empty() && drawn.pieces.is_empty() && drawn.root.is_none() {
+        drawn.target = Some(target);
+        drawn.font_revision = crate::cjk_font::revision();
+        drawn.tex_waiting = false;
+        return;
+    }
     device_brightness(&mut pieces, ui, brightness);
     let scale = target.scale;
     // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
@@ -2177,18 +2283,23 @@ pub(crate) fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<
                     commands.entity(root).with_children(|r| {
                         let mut nodes = (None, None);
                         let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip, model)).id();
-                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1, hud_size: None });
+                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1, hud_size: None, hud_size_shape: (0, 0) });
                     });
                     drawn.slots.extend(slot.map(|s| (key, s)));
                 }
             }
         }
     }
+    drawn.tex_waiting = !waiting.is_empty();
     for (i, shown) in waiting {
         pieces[i].tex = shown;
     }
     drawn.pieces = pieces;
 }
+
+#[cfg(test)]
+#[path = "hud_cache_tests.rs"]
+mod hud_cache_tests;
 
 /// A piece in its slot, in a clip wrapper when it has a clip: the wrapper and the piece's
 /// own outer node.

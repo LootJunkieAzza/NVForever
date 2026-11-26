@@ -126,8 +126,17 @@ pub struct ItrState {
     /// ([`Game::itr_drop_gone_tile_textures`]) [design: #1833].
     pub alpha_maps: BTreeMap<TileId, String>,
     pub tex_offsets: BTreeMap<TileId, (f64, f64)>,
+    /// Monotonic counter bumped when `alpha_maps` or `tex_offsets` changes so the tile
+    /// HUD cache can stay active even when mods attach texture transforms [design].
+    pub(crate) tile_tex_gen: u64,
     /// SetWeaponEmissiveColor's red, green, blue and multiplier while it holds.
     pub emissive: Option<[f64; 4]>,
+}
+
+impl ItrState {
+    pub fn tile_tex_revision(&self) -> u64 {
+        self.tile_tex_gen
+    }
 }
 
 /// The injected queue's size [documented: QueueRadioTrack, "up to 8 tracks"].
@@ -261,9 +270,14 @@ impl Game<'_> {
         if s.alpha_maps.is_empty() && s.tex_offsets.is_empty() {
             return;
         }
+        let before_a = s.alpha_maps.len();
+        let before_o = s.tex_offsets.len();
         let ui = &self.ui_tree;
         s.alpha_maps.retain(|t, _| ui.is_live(*t));
         s.tex_offsets.retain(|t, _| ui.is_live(*t));
+        if s.alpha_maps.len() != before_a || s.tex_offsets.len() != before_o {
+            s.tile_tex_gen = s.tile_tex_gen.wrapping_add(1);
+        }
     }
 
     /// Once a frame: SetAlertNS timers that ran out (kept while the actor still fights
@@ -816,7 +830,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             if crate::mod_files::knows_archives() && !crate::mod_files::exists(&alpha_map_path(&tex)) {
                 return Some(Ok(zero));
             }
-            g.other.itr.alpha_maps.insert(t, tex);
+            if g.other.itr.alpha_maps.get(&t) != Some(&tex) {
+                g.other.itr.alpha_maps.insert(t, tex);
+                g.other.itr.tile_tex_gen = g.other.itr.tile_tex_gen.wrapping_add(1);
+            }
             one
         }
         // `tile x y`: wrapped into 0-1; image and radial tiles only [documented:
@@ -832,7 +849,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             if !matches!(g.ui_tree.tile(t).kind.as_str(), "image" | "radial") {
                 return Some(Ok(zero));
             }
-            g.other.itr.tex_offsets.insert(t, (wrap(x), wrap(y)));
+            let next = (wrap(x), wrap(y));
+            if g.other.itr.tex_offsets.get(&t) != Some(&next) {
+                g.other.itr.tex_offsets.insert(t, next);
+                g.other.itr.tile_tex_gen = g.other.itr.tile_tex_gen.wrapping_add(1);
+            }
             one
         }
         // ---- item mods ----
