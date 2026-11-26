@@ -408,15 +408,19 @@ impl Game<'_> {
         }
     }
 
-    /// Whether the actor has an active poison or hostile+detrimental timed magic effect
+    /// Whether the actor has an active poison or hostile+detrimental timed SPEL magic effect
     /// (covering poison SPELs, ALCH poisons, and hostile+detrimental SPEL effects such as
-    /// SpellFlamerEffect while excluding beneficial ingestibles) [documented: GetIsPoisoned;
-    /// observed: w6d12_38_getispoisoned_all_sources_and_antivenom_clear].
+    /// SpellFlamerEffect while excluding beneficial or mixed non-poison ALCH ingestibles)
+    /// [documented: GetIsPoisoned; observed:
+    /// w6d12_38_getispoisoned_all_sources_and_antivenom_clear; design: ignoring inactive
+    /// (`!e.inactive`) and permanent (`!e.permanent`) effects and scoping the non-`is_poison`
+    /// Hostile+Detrimental branch to `SPEL` sources].
     fn jip4_poisoned(&self, a: FormId) -> bool {
         use crate::data::MagicEffectDef;
         self.effects.iter().filter(|e| e.target == a && !e.inactive).any(|e| {
             self.is_poison(e.source)
                 || (!e.permanent
+                    && self.data.sig(self.unclone(e.source)) == Some(*b"SPEL")
                     && self
                         .magic_effect_def(e.effect)
                         .is_some_and(|m| m.has(MagicEffectDef::HOSTILE) && m.has(MagicEffectDef::DETRIMENTAL)))
