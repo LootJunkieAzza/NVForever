@@ -5161,14 +5161,19 @@ pub(crate) mod tests {
             "stable = interior && previous_sigma > 0.0 && abs(sigma - previous_sigma) <= 0.22 * max(sigma, previous_sigma);",
             "let fold_weather = deck * mix(0.70, 0.85, deck) * vc_front_weather(v.scale.w, v.mix.z);",
             "allow_reuse && vc_reuse_incident(cache, d, t, v.march.w, fold_weather, column.col, yb - v.slab.x);",
-            "let weight = fold_weather * vc_front_underside(col, above / max(col.local, 1.0));",
-            "return weight * abs(vc_front_fold(d.w) - vc_front_fold(cache.height)) <= 0.25;",
             "cache = VcIncidentCache(emitted, t, d.x * d.y, d.w, sampled && d.x > 2.0 * v.march.w);",
             "if c_to < n { cache.valid = false; }",
             "let taken = m.trans * (1.0 - kept);",
             "if m.trans * ahead < v.reach.z {",
         ] {
             assert!(flat.contains(line), "the flat refined march no longer has `{line}`: its mirror must follow");
+        }
+        let reuse = body("\nfn vc_reuse_incident(");
+        for line in [
+            "let weight = fold_weather * vc_front_underside(col, above / max(col.local, 1.0));",
+            "return weight * abs(vc_front_fold(d.w) - vc_front_fold(cache.height)) <= 0.25;",
+        ] {
+            assert!(reuse.contains(line), "the incident-light reuse check no longer has `{line}`: its mirror must follow");
         }
         for line in [
             "const VC_BLOCK_MOST: u32 = 16u;",
