@@ -132,6 +132,34 @@ fn added_effects_in_the_list_and_applied() {
     assert_eq!(applied.iter().map(|e| (e.effect.0, e.magnitude)).collect::<Vec<_>>(), vec![(MGEF1, 5), (MGEF2, 7), (MGEF2, 9)]);
 }
 
+/// `TempCloneForm` clones of magic items inherit effects (and pre-clone session edits)
+/// and isolate post-clone `AddNewEffect` / trait / base edits from the original
+/// [observed: `w6d2_06_magic_effects_tempclone_isolation`].
+#[test]
+fn tempclone_magic_effects_inherit_and_isolate() {
+    let f = fixture();
+    let mut g = game(&f);
+    let XVal::Ref(cl) = q(&mut g, "SetFunctionValue (TempCloneForm TestDrink 0)") else { panic!("clone ref") };
+    assert_ne!(cl, 0);
+    let cl_id = FormId(cl);
+    assert_eq!(g.effect_count(cl_id), 1);
+    assert_eq!(n(&mut g, &format!("GetNumEffects (StringToRef \"{cl:08X}\")")), 1.0);
+    assert_eq!(n(&mut g, &format!("GetNthEffectBase (StringToRef \"{cl:08X}\") 0")), f64::from(MGEF1));
+    assert_eq!(n(&mut g, &format!("GetNthEffectTraitNumeric (StringToRef \"{cl:08X}\") 0 0")), 5.0);
+
+    // AddNewEffect on the clone appends cleanly without mutating the original.
+    assert_eq!(n(&mut g, &format!("AddNewEffect (StringToRef \"{cl:08X}\") TestEffectTwo 10 3 0 0 1")), 1.0);
+    assert_eq!(n(&mut g, &format!("GetNumEffects (StringToRef \"{cl:08X}\")")), 2.0);
+    assert_eq!(n(&mut g, "GetNumEffects TestDrink"), 1.0);
+
+    // Pre-clone edit on original carries to a new clone while later edits stay isolated.
+    q(&mut g, "SetNthEffectTraitNumeric TestDrink 0 0 12");
+    let XVal::Ref(cl2) = q(&mut g, "SetFunctionValue (TempCloneForm TestDrink 0)") else { panic!("clone2 ref") };
+    q(&mut g, "SetNthEffectTraitNumeric TestDrink 0 0 20");
+    assert_eq!(n(&mut g, &format!("GetNthEffectTraitNumeric (StringToRef \"{cl2:08X}\") 0 0")), 12.0);
+    assert_eq!(n(&mut g, "GetNthEffectTraitNumeric TestDrink 0 0"), 20.0);
+}
+
 /// Every Nth-effect function indexes one list: AddNewEffect's at the top, the record's
 /// RemoveNthEffect left, AddNewEffect's appended (#2016).
 #[test]

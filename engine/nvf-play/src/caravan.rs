@@ -33,6 +33,7 @@
 
 pub mod screen;
 
+use fnv_util::words::{tr, trf};
 use crate::lockpick::Help;
 use crate::pause::{AidTime, Paused};
 use crate::script::{with_world, ScriptState};
@@ -233,7 +234,7 @@ impl Session {
     pub fn hint_line(&self) -> String {
         use KeyCode::*;
         let parts: Vec<String> = match self.stage {
-            Stage::Deck => [("Randomize Caravan Deck", KeyS), ("Add", KeyW), ("Remove", KeyA), ("Play Caravan", KeyF)].iter().map(|(l, k)| format!("{l} {}", self.hint(&[*k]))).collect(),
+            Stage::Deck => [(tr("Randomize Caravan Deck"), KeyS), (tr("Add"), KeyW), (tr("Remove"), KeyA), (tr("Play Caravan"), KeyF)].iter().map(|(l, k)| format!("{l} {}", self.hint(&[*k]))).collect(),
             _ => self.buttons().into_iter().map(|(l, h, _, _)| format!("{l} {h}")).collect(),
         };
         let mut line = parts.join(", ");
@@ -249,10 +250,10 @@ impl Session {
         use KeyCode::*;
         match self.stage {
             Stage::Bet => vec![
-                ("Auto Match", self.hint(&[KeyW]), CaravanInput::AutoMatch, self.bet.can_match()),
-                ("Raise", self.hint(&[KeyA]), CaravanInput::Raise, self.bet.can_raise()),
-                ("Accept", self.hint(&[KeyF]), CaravanInput::Accept, self.bet.can_accept()),
-                ("Exit", self.hint(&[KeyR, Escape]), CaravanInput::Exit, true),
+                (tr("Auto Match"), self.hint(&[KeyW]), CaravanInput::AutoMatch, self.bet.can_match()),
+                (tr("Raise"), self.hint(&[KeyA]), CaravanInput::Raise, self.bet.can_raise()),
+                (tr("Accept"), self.hint(&[KeyF]), CaravanInput::Accept, self.bet.can_accept()),
+                (tr("Exit"), self.hint(&[KeyR, Escape]), CaravanInput::Exit, true),
             ],
             Stage::Play => {
                 let mine = self.players_turn();
@@ -262,10 +263,10 @@ impl Session {
                 let discard = mine && !matches!(self.pick, Pick::Track { .. });
                 let track = mine && !opening && g.is_some_and(|g| g.sides[PLAYER].caravans.iter().any(|c| !c.is_empty()));
                 vec![
-                    ("Select Card", self.hint(&[KeyW]), CaravanInput::Select, select),
-                    ("Discard Card", self.hint(&[KeyQ]), CaravanInput::Discard, discard),
-                    ("Discard Track", self.hint(&[KeyE]), CaravanInput::DiscardTrack, track),
-                    ("Cancel", self.hint(&[KeyR]), CaravanInput::Cancel, mine || self.game.as_ref().is_some_and(|g| g.phase != Phase::Over)),
+                    (tr("Select Card"), self.hint(&[KeyW]), CaravanInput::Select, select),
+                    (tr("Discard Card"), self.hint(&[KeyQ]), CaravanInput::Discard, discard),
+                    (tr("Discard Track"), self.hint(&[KeyE]), CaravanInput::DiscardTrack, track),
+                    (tr("Cancel"), self.hint(&[KeyR]), CaravanInput::Cancel, mine || self.game.as_ref().is_some_and(|g| g.phase != Phase::Over)),
                 ]
             }
             _ => Vec::new(),
@@ -627,7 +628,7 @@ fn caps_of(sim: &mut SimState, actor: FormId) -> (u32, Option<FormId>) {
 
 /// The line shown when the menu does not open [hypothesis: the words are NVForever's].
 pub fn refusal_line(owned: usize) -> String {
-    format!("You need at least {MIN_DECK} Caravan cards to play (you have {owned}).")
+    trf("You need at least {n} Caravan cards to play (you have {owned}).", &[("n", &MIN_DECK), ("owned", &owned)])
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -676,7 +677,7 @@ fn open(
     // The opponent's name as shown everywhere (`SimState::ref_name`: SetActorFullName,
     // the template's name).
     let base = sim.world.get(r.opponent).map(|s| s.base).unwrap_or(r.opponent);
-    let opponent_name = sim.ref_name(Some(&rt.game), r.opponent.0).or_else(|| sim.name(base)).or_else(|| sim.name(r.opponent)).unwrap_or("Opponent").to_string();
+    let opponent_name = sim.ref_name(Some(&rt.game), r.opponent.0).or_else(|| sim.name(base)).or_else(|| sim.name(r.opponent)).unwrap_or(tr("Opponent")).to_string();
     let forms = sim.forms;
     let purse = purse_of(&mut sim.world, forms, &[FormId::PLAYER_REF]);
     let funds = purse.worth();
@@ -967,7 +968,7 @@ fn apply(
             }
             (Stage::Deck, CaravanInput::PlayDeck) => {
                 if s.deck.len() < MIN_DECK {
-                    s.status = Some(format!("Your Caravan deck needs at least {MIN_DECK} cards."));
+                    s.status = Some(trf("Your Caravan deck needs at least {n} cards.", &[("n", &MIN_DECK)]));
                     sound(&mut sounds, UiEvent::Refused);
                     continue;
                 }
@@ -986,7 +987,7 @@ fn apply(
                         forfeit(s, rt, &mut sim, now, &mut stats, &mut sounds);
                     } else {
                         s.forfeit_armed = true;
-                        s.status = Some("Press R) again to forfeit the game.".into());
+                        s.status = Some(trf("Press {key} again to forfeit the game.", &[("key", &s.hint(&[KeyCode::KeyR]))]));
                     }
                 }
                 _ => {}
@@ -1082,7 +1083,7 @@ fn player_input(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimS
     let choose_card = |s: &mut Session, i: usize, sounds: &mut MessageWriter<UiSound>| {
         let moves: Vec<Move> = s.hand_moves(i).collect();
         if moves.is_empty() {
-            s.status = Some("That card cannot be played now.".into());
+            s.status = Some(tr("That card cannot be played now.").into());
             sound(sounds, UiEvent::Refused);
         } else {
             s.status = None;
@@ -1288,15 +1289,16 @@ fn settle(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, 
     }
     rt.game.player.caravan.records.insert(opponent, record);
     s.record = record;
-    let words = match (winner, end) {
-        (PLAYER, End::Sold) => "You sold two of three caravans and win",
-        (PLAYER, End::OutOfCards) => "Your opponent is out of cards. You win",
-        (PLAYER, End::Forfeit) => "Your opponent gives up. You win",
-        (_, End::Sold) => "Your opponent sold two of three caravans. You lose",
-        (_, End::OutOfCards) => "You are out of cards. You lose",
-        (_, End::Forfeit) => "You forfeit. You lose",
+    // Each result one whole text, so a translation need not join pieces (#3146).
+    let with: &[(&str, &dyn std::fmt::Display)] = &[("ante", &ante)];
+    let line = match (winner, end) {
+        (PLAYER, End::Sold) => trf("You sold two of three caravans and win {ante} caps.", with),
+        (PLAYER, End::OutOfCards) => trf("Your opponent is out of cards. You win {ante} caps.", with),
+        (PLAYER, End::Forfeit) => trf("Your opponent gives up. You win {ante} caps.", with),
+        (_, End::Sold) => trf("Your opponent sold two of three caravans. You lose {ante} caps.", with),
+        (_, End::OutOfCards) => trf("You are out of cards. You lose {ante} caps.", with),
+        (_, End::Forfeit) => trf("You forfeit. You lose {ante} caps.", with),
     };
-    let line = format!("{words} {ante} caps.");
     info!("caravan: game over: {} wins ({end:?}); ante {ante}; record {}/{} against {}, net {}; on screen: {line:?}", side_name(winner), s.record.won, s.record.lost, s.opponent_name, s.record.net());
     s.status = Some(line);
     s.pick = Pick::Hand;
