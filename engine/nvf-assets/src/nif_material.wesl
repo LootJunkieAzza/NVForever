@@ -492,6 +492,18 @@ const BODY_CLEARANCE: f32 = 24.0;
     return cascade;
 }
 
+// The sRGB transfer both ways, held at 0 below, as the display-value sum uses it
+// (nvforever lights/display_shader.rs `nvf_linear_to_display`, `nvf_display_to_linear`).
+@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn shade_display(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
+}
+
+@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn shade_linear(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
+}
+
 @if(!PREPASS_PIPELINE && SHADE_LIGHT) fn with_shade_light(in: PbrInput, shadowed: vec4<f32>) -> vec4<f32> {
     if (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) == 0u {
         return shadowed;
@@ -552,11 +564,12 @@ const BODY_CLEARANCE: f32 = 24.0;
     @if(!NVF_PHYSICAL_PBR)
     if lights.ambient_color.a < 0.0 {
         // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
-        // texture × sum^2.2, so its display value (^(1/2.2)) is linear in the shadow
-        // values; the same algebra there (the specular part is taken along).
-        let lit_d = pow(max(lit.rgb, vec3(0.0)), vec3(1.0 / 2.2));
-        let shadowed_d = pow(max(shadowed.rgb, vec3(0.0)), vec3(1.0 / 2.2));
-        return vec4(pow(max(lit_d - (lit_d - shadowed_d) * k, vec3(0.0)), vec3(2.2)), shadowed.a);
+        // the linear colour of the texture's display value × the sum (sRGB curve), so its
+        // display value is linear in the shadow values; the same algebra there (the
+        // specular part is taken along).
+        let lit_d = shade_display(lit.rgb);
+        let shadowed_d = shade_display(shadowed.rgb);
+        return vec4(shade_linear(lit_d - (lit_d - shadowed_d) * k), shadowed.a);
     }
     // Physical lighting: linear light, never below black, with the shadowed alpha.
     @if(NVF_PHYSICAL_PBR) return vec4(max(lit.rgb - (lit.rgb - shadowed.rgb) * k, vec3(0.0)), shadowed.a);

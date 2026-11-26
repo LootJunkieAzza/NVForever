@@ -210,6 +210,9 @@ pub(crate) struct CloudDaylight {
     pub sun: [f32; 3],
     pub upper: [f32; 3],
     pub horizon: [f32; 3],
+    /// The sky light the ground under the clouds takes (their light from below): the dome's
+    /// mean of overhead and horizon, in place of the weather's Ambient.
+    pub ground: [f32; 3],
 }
 
 /// How far south of the east-west line the sun's path runs, in radians (9°) [hypothesis,
@@ -1534,6 +1537,11 @@ impl SkyState {
     /// day level, blended toward `eval_physical_sky` by the clearness, as physical_ibl.rs does
     /// too). The sky colours are divided by the sky's display scale, which the clouds apply
     /// themselves, so the product is the dome's [design].
+    ///
+    /// The sun carries the surfaces' physical gain (`PHYSICAL_SUN_GAIN`, by night
+    /// `PHYSICAL_MOON_GAIN`, as [`aim_sun`] gives the ground): without it the clouds were lit by
+    /// about a seventh of the ground's sun and came out grey against the sky behind them, once
+    /// the exposure followed the brighter ground [observed: Goodsprings at 17:30, 2026-11-26].
     pub(crate) fn physical_cloud_light(&self) -> CloudDaylight {
         let sun_dir = self.sun_dir().normalize_or(Vec3::Y);
         let clearness = self.physical_sky_clearness();
@@ -1547,10 +1555,14 @@ impl SkyState {
             let weather = Vec3::from_array(weather) * level;
             weather.lerp(eval_physical_sky(dir, sun_dir, clearness) / scale, phys_weight).to_array()
         };
+        let gain = if sun_dir.y >= 0.0 { PHYSICAL_SUN_GAIN } else { PHYSICAL_MOON_GAIN };
+        let upper = dome(self.color(ColorType::SkyUpper), Vec3::Y);
+        let horizon = dome(self.color(ColorType::Horizon), horizon_ray);
         CloudDaylight {
-            sun: self.physical_sun_color(),
-            upper: dome(self.color(ColorType::SkyUpper), Vec3::Y),
-            horizon: dome(self.color(ColorType::Horizon), horizon_ray),
+            sun: (Vec3::from_array(self.physical_sun_color()) * gain).to_array(),
+            upper,
+            horizon,
+            ground: ((Vec3::from_array(upper) + Vec3::from_array(horizon)) * 0.5).to_array(),
         }
     }
 
@@ -4050,7 +4062,9 @@ mod tests {
         let level = 0.45 + 0.9 * smoothstep(-0.04, 0.25, sun.y);
         let want = (Vec3::from_array(s.color(ColorType::SkyUpper)) * level).lerp(eval_physical_sky(Vec3::Y, sun, s.physical_sky_clearness()) / s.sky_scale(), w);
         assert!(w > 0.9 && near(clear.upper, want), "{:?} {want}", clear.upper);
-        assert_eq!(clear.sun, s.physical_sun_color());
+        let gained = (Vec3::from_array(s.physical_sun_color()) * PHYSICAL_SUN_GAIN).to_array();
+        assert_eq!(clear.sun, gained, "the ground's sun gain, so clouds and land are lit alike");
+        assert!(near(clear.ground, (Vec3::from_array(clear.upper) + Vec3::from_array(clear.horizon)) * 0.5));
 
         s.weather.classification = 4;
         s.weather.rainy = true;

@@ -2227,7 +2227,7 @@ fn prepare_medium(
         // With the light volume (#3032 stage 2g) its block for this camera (else as it came).
         let mut lv_clouds = crate::volumetric_clouds_lightvol::gpu::lv_prepare(&mut lv, &trace.clouds, &crate::volumetric_clouds_lightvol::gpu::LvPrepare { device: &device, queue: &queue, cache: &cache, assets: &assets, fullscreen: &fullscreen, entry: trace_entry(mode), cam: uniform.origin.truncate() });
         // A cast covers the tile this frame, but the history reconstructs its individual texels.
-        // Only the view material needs the texel width. Reference mode casts every texel.
+        // The view filters cloud placement and material at that width. Reference mode casts every texel.
         lv_clouds.dshape.w = uniform.tiles.z.max(1.0).recip();
         let clouds = gpu.clouds.get_or_insert_with(|| {
             let mut b = UniformBuffer::from(lv_clouds);

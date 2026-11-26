@@ -524,8 +524,13 @@ pub fn keys(
         send(Command::Drop);
     }
     // The player's tweak: Q drops the selected item too [design: docs/design/tweaks.md].
+    // With `quantity-select-short-keys` enabled (#3799), Shift drops the whole stack and
+    // Ctrl drops a single item without opening the quantity prompt [design].
     if !asking && drop_key && keys.just_pressed(KeyCode::KeyQ) {
-        send(Command::Drop);
+        let short_keys = active.0.as_ref().is_some_and(|m| m.qtt_select_short_keys);
+        let shift = short_keys && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        let ctrl = short_keys && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+        send(if shift { Command::DropStack } else if ctrl { Command::DropSingle } else { Command::Drop });
     }
     for w in wheel.read() {
         *lines += match w.unit {
@@ -588,8 +593,9 @@ fn on_row_click(
     if click.button == PointerButton::Secondary && !no_right_drop {
         if hold.slot.is_none() {
             let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+            let ctrl = active.0.as_ref().is_some_and(|m| m.qtt_select_short_keys) && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
             out.write(MenuInput(Command::Hover(Side::Player, r.0)));
-            out.write(MenuInput(if shift { Command::DropStack } else { Command::Drop }));
+            out.write(MenuInput(if shift { Command::DropStack } else if ctrl { Command::DropSingle } else { Command::Drop }));
         }
         return;
     }

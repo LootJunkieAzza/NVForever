@@ -996,6 +996,12 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
                 let (len, angle) = path_line(from, to, s.usable);
                 ui.write_changed(row.tile, "user0", num_of(len));
                 ui.write_changed(row.tile, "rotateangle", num_of(angle));
+                // The start node's `clips` does not crop its line to the node's box: the
+                // original's line runs from the arrow to the far end, far past the node
+                // [observed: #4685's screenshot of the original's World Map]. The line is cut
+                // by the map's window above the node, as a list row's children are
+                // (`super::list::unclip_row_children`).
+                ui.write_changed(row.tile, fnv_ui::input::OUTSIDE_CLIP, Value::Num(1.0));
             }
         }
         _ => {
@@ -3452,6 +3458,11 @@ mod tests {
         assert!((trait_of(&ui, lines[0].tile, "user0") - 100.0).abs() < 1e-3);
         assert!((trait_of(&ui, lines[0].tile, "rotateangle") - std::f64::consts::PI).abs() < 1e-6);
         assert!(trait_of(&ui, lines[1].tile, "rotateangle").abs() < 1e-6);
+        // #4685: each line is cut by the map's window, not by its 6-wide start node's box.
+        for l in lines {
+            let clip = super::super::layout::layout(&ui, l.tile, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == l.tile).unwrap().clip.expect("cut by the window");
+            assert!(clip.width > 100.0 && clip.height > 100.0, "the line's clip is the map's window, not the node: {clip:?}");
+        }
         // The arrow: the player's place and heading, shown; its brightness the painter's default,
         // which the file does not give and the nodes and lines copy; its zoom the file's.
         assert_eq!((at(&ui, WORLD_CURSOR, "_x"), at(&ui, WORLD_CURSOR, "_y"), at(&ui, WORLD_CURSOR, "rotateangle"), at(&ui, WORLD_CURSOR, "visible")), (0.5, 0.5, f64::from(data::arrow_turn(0.25)), 1.0));

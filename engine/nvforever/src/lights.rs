@@ -823,6 +823,11 @@ mod tests {
         assert!(at("nvf_spot_display(light_id") < at("nvf_directional_display(i,"));
         assert!(at("nvf_directional_display(i,") < at("let nvf_sum"));
         assert!(at("let nvf_sum") < at("// Total light"));
+        // The product is formed in display values and made linear by the sRGB curve, the
+        // frame's own (not a 2.2 power, which shows dark products at half and less).
+        assert!(out.contains("direct_light += nvf_display_to_linear(min(nvf_linear_to_display(diffuse_color) * nvf_sum, vec3(1.0))) / view_bindings::view.exposure;"));
+        assert!(at("fn nvf_linear_to_display(") < at("fn nvf_display_to_linear(") && at("fn nvf_display_to_linear(") < at("fn apply_pbr_lighting("));
+        assert!(!out.contains("pow(nvf_sum"));
         assert_eq!(out.matches("fn apply_pbr_lighting(").count(), 1);
         assert!(out.starts_with("head\n") && out.ends_with("tail\n"));
         // A missing anchor (Bevy changed) leaves the source alone.

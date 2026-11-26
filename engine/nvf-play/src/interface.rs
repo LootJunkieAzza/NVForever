@@ -1392,6 +1392,18 @@ fn own_texture(path: &str) -> String {
     format!("textures\\{}", path.trim().trim_start_matches(['\\', '/']).to_ascii_lowercase())
 }
 
+/// `face` drawn `k` times its size: every glyph's box and spacing scaled (the game's
+/// fonts come in few sizes).
+pub fn scaled_face(face: &Face, k: f32) -> Face {
+    let mut font = face.font.clone();
+    font.size *= k;
+    for g in &mut font.glyphs {
+        (g.width, g.height, g.before, g.after, g.ascent) = (g.width * k, g.height * k, g.before * k, g.after * k, g.ascent * k);
+    }
+    let vector = face.vector.clone().map(|v| VectorFace { em: v.em * k, base: v.base * k, ..v });
+    Face { font, image: face.image.clone(), vector }
+}
+
 #[cfg(test)]
 #[path = "interface_layout_tests.rs"]
 mod layout_tests;

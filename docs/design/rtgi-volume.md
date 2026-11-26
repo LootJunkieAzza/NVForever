@@ -73,6 +73,11 @@ light += pull (Y(light) was / Y(was) - light)     was = max(S, 0)^2.2, where Y(w
 if share < 1:  light = was + share (light - was)
 ```
 
+Since the display sum is shown by the sRGB curve (lights/display_shader.rs; docs/spec-notes/world.md
+§8 "Dark values of the sum"), the line takes `light` back to a sum, `light^(1/2.2)`, and shows
+that as the sum is: `to_linear(min(to_display(diffuse colour) x light^(1/2.2), 1))`. With the
+volume's change at 0, `light` is `max(S, 0)^2.2` and the line is the one without the volume.
+
 Y is the luminance (0.2126, 0.7152, 0.0722). The occlusion is in A and once on the bounce, in
 linear light. The clip to 1 per channel comes after, as before. Emissive light, the highlights, the
 reflections and the fog are as before.

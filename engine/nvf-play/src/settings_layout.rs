@@ -335,6 +335,7 @@ mod shared_table_tests {
     /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row;
     /// #2991's volumetric clouds row; #3348's HDR output row; #3783's occlusion culling row;
     /// #3032's volumetric light row and its strength; #3843's localized armor DT/DR row; the
+    /// casino screens' Caravan tips row; the
     /// physical lighting row), by the group it registers with.
     pub(super) const KNOWN: &[(&str, &str)] = &[
         ("detached-camera", "Gameplay"),
@@ -347,7 +348,9 @@ mod shared_table_tests {
         ("sprint", "Gameplay"),
         ("animation-smoothing", "Gameplay"),
         ("sound-cover", "Gameplay"),
+        ("caravan-tips", "Gameplay"),
         ("npc-weapon-mods", "Gameplay"),
+        ("quantity-select-short-keys", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
         ("reload-slows", "Gameplay"),
@@ -756,8 +759,10 @@ mod shared_table_tests {
         assert_eq!(at("terrain-shadows"), "Graphics > Shadows", "after Cloud shadows (#2671)");
         assert_eq!(at("light-shadows"), "Graphics > Shadows", "after Terrain shadows (light_shadows.rs)");
         assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
+        assert_eq!(at("caravan-tips"), "Display > Interface");
         assert_eq!(at("localized-dt-dr"), "Gameplay > Combat", "#3843");
         assert_eq!(at("npc-weapon-mods"), "Gameplay > Game", "#3876");
+        assert_eq!(at("quantity-select-short-keys"), "Gameplay > Menus", "#3799");
         assert_eq!(at("volumetric-light"), "Graphics > Lighting and Effects", "with the other experimental effects (#3032)");
         assert_eq!(at("volumetric-light-strength"), "Graphics > Lighting and Effects", "right after its switch");
         // The strength is greyed while its switch is off; the volumetric rows run under

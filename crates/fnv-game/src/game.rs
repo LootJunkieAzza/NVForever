@@ -334,6 +334,12 @@ pub struct RefExtra {
     /// The current package reached its goal ([`Game::package_goal_met`]).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub package_goal_met: bool,
+    /// A script relocated the actor (`MoveTo`, `MoveToMarkerWithFade`, scripted door)
+    /// while its current package was running: Must Complete and Must Reach Location no
+    /// longer hold that pre-relocation package past its schedule or failed conditions
+    /// ([`Game::package_held`], issue #3041). Cleared when a new package is chosen.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub package_relocated: bool,
     /// Once Per Day packages: GameDaysPassed when the actor last chose each.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub package_chosen_at: BTreeMap<FormId, f32>,
@@ -1644,6 +1650,10 @@ pub struct Game<'a> {
     /// Effect shaders and actor alpha scripts asked for (`crate::functions::misc::ScriptLooks`),
     /// for the engine to draw. Not part of the saved state.
     pub script_looks: crate::functions::misc::ScriptLooks,
+    /// Per-reference reentrancy guard for PRE-update `OnEnable` / `OnDisable` dispatch
+    /// [design: prevents an `OnDisable`/`OnEnable` handler calling `Disable`/`Enable` on the
+    /// same reference from recursing to `MAX_UDF_DEPTH` or emitting duplicate trace events].
+    pub(crate) enable_event_active: BTreeSet<FormId>,
     /// Animation groups scripts asked objects to play, and what the engine reports they
     /// play (`crate::anims`). Not part of the saved state.
     pub anims: crate::anims::ObjectAnims,
@@ -2756,6 +2766,7 @@ impl<'a> Game<'a> {
             music_requests: Vec::new(),
             texture_swaps: Default::default(),
             script_looks: Default::default(),
+            enable_event_active: BTreeSet::new(),
             anims: Default::default(),
             barter_requests: Vec::new(),
             recipe_requests: Vec::new(),
@@ -4823,12 +4834,20 @@ impl<'a> Game<'a> {
         let ended: Vec<FormId> = self.script_looks.fading_out.iter().filter(|(_, &until)| until <= now).map(|(&r, _)| r).collect();
         for r in ended {
             self.script_looks.fading_out.remove(&r);
-            if self.world.set_enabled(r, false).is_ok() {
+            let was = self.world.get(r).is_ok_and(|s| s.enabled());
+            if was {
+                if !self.enable_event_active.insert(r) {
+                    continue;
+                }
+                // The extender's OnDisable, matching plain Disable's PRE-update timing and
+                // null calling reference [hypothesis: not separately observed for a faded
+                // disable].
+                self.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], None);
+                self.enable_event_active.remove(&r);
+            }
+            let still_enabled = self.world.get(r).is_ok_and(|s| s.enabled());
+            if self.world.set_enabled(r, false).is_ok() && still_enabled {
                 self.script_looks.disabled_after_fade.push(r);
-                // The extender's OnDisable, as a plain Disable sends it, now that the
-                // reference is disabled [hypothesis: the event follows the state
-                // GetDisabled reads; not observed for a faded disable].
-                self.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
             }
         }
         // `MoveToMarkerWithFade` moves whose fade out has ended.
