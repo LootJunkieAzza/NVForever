@@ -465,8 +465,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `maxDistance [flags]`: the actors within the distance; flag 1 no dead ones, 2 no
         // invisible ones (Invisibility or Chameleon above 0), 4 only ones in combat the
         // calling reference detects [documented: GetNumActorsInRangeFromRef]. The calling
-        // reference does not count itself [observed: `so_14_actors_in_range_excludes_self`
-        // (`wave4a_extenders.json`), see docs/spec-notes/ext-showoff.md §5].
+        // reference does not count itself [observed 2026-11-23/24: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 10 official base masters,
+        // `GSDocMitchellHouse` (`0x00103DF9`), committed probes
+        // `so_14_actors_in_range_excludes_self` (`wave4a_extenders.json`) and
+        // `w6t2_08_showoff_equipped_weight_and_ally_temp`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`): `rng(10=0,2k=1)`
+        // (range 10 returns 0 excluding Player; range 2000 returns 1 for Doc Mitchell),
+        // see docs/spec-notes/ext-showoff.md §5; zero DLL, PDB, or third-party source
+        // consulted].
         "getnumactorsinrangefromref" => {
             let Some(me) = subject else { return Some(Ok(zero)) };
             let max = num(args, 0, 0.0);

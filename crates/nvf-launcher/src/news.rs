@@ -281,7 +281,8 @@ pub fn parse_iso(t: &str) -> Option<i64> {
     let offset = match zone.rfind(['+', '-']) {
         Some(i) if zone.len() - i == 6 => {
             let z = &zone[i..];
-            let m = z[1..3].parse::<i64>().ok()? * 60 + z[4..6].parse::<i64>().ok()?;
+            // `get`, not an index: a byte range that splits a character is no date, not a panic.
+            let m = z.get(1..3)?.parse::<i64>().ok()? * 60 + z.get(4..6)?.parse::<i64>().ok()?;
             if z.starts_with('-') {
                 -m
             } else {
@@ -494,6 +495,8 @@ mod tests {
         assert_eq!(parse_iso("2000-03-01T00:00Z"), Some(951_868_800));
         assert_eq!(parse_iso("2026-11-18T21:00:00+01:00"), parse_iso("2026-11-18T20:00:00Z"));
         assert_eq!(parse_iso("nope"), None);
+        // A zone of the right length whose bytes split a character (#4590).
+        assert_eq!(parse_iso("2026-11-18T21:00:00+0\u{e9}00"), None);
         assert_eq!(countdown_text(2 * 86_400 + 14 * 3600 + 3 * 60 + 12), "2d 14h 03m 12s");
         assert_eq!(countdown_text(-5), "00h 00m 00s");
     }

@@ -555,58 +555,31 @@ game beyond the field test below [documented: `engine/nvf-assets/src/authored.rs
 
 ### Known limits (stage 3)
 
-From the source reviews of 2026-11-19 and 2026-11-20 [documented: the files named]. Two
-are not fixed:
+From the source reviews of 2026-11-19 and 2026-11-20 [documented: the files named]:
 
-- **A script's material edit during a fade.** The property mirror
-  (`engine/nvforever/src/nif_mirror.rs`) makes the shape's private material from the
-  material it wears, which during a fade is the fade's copy, while the fade
-  (`engine/nvf-play/src/fade.rs` `Fading`, `engine/nvforever/src/effect_shaders.rs` `Faded`)
-  keeps the older original and puts it back when it ends. The edit is then lost: on an
-  authored shape the set's roughness first looks right, and a later swap to a diffuse
-  without a set brings back the gloss stored before the edit. Fixing it means the fades
-  rebuilding their copies from a per-shape material, a change to the fade system itself.
+- **A script's material edit during a fade (fixed in #3105).** Previously, the property
+  mirror (`engine/nvforever/src/nif_mirror.rs`) copied the worn fade copy and the fade's
+  end discarded the edit. Under #3105's single `nvf_play::fade::Fading` owner,
+  `mutate_shape_material` resolves `nvf_play::fade::persistent_material`, edits the mesh's
+  own private persistent copy, and calls `queue_retarget` to rebuild the see-through copy
+  in place, so the edit is drawn during the fade and kept after it ends.
 - **A placed shape the mirror gave a private material, then swapped.** The swap matches
   shapes by their original material, and a placed shape without a shape name no longer
   matches once the mirror replaced it, so its old diffuse stays drawn with its authored
   fields (set, mark, metallic). This predates stage 3 (`texture_swap.rs`, `nif_mirror.rs`).
 
-What holds for a texture swap while the shape fades, and what does not:
+What holds for a texture swap and overlapping fades (#3105):
 
-- **SetActorAlpha and a fade on one mesh, then a swap.** Whichever of the two started
-  second copied what the mesh wore then, so its stored original can be the other's
-  see-through copy. The swap matches and copies the mesh's own material beneath both
-  (`engine/nvforever/src/effect_shaders.rs` `persistent_material`, `texture_swap.rs`), so
-  the swapped material carries the new diffuse with the mesh's own alpha, blend mode and
-  depth write, in both start orders [documented: test `texture_swap.rs`
-  `a_swap_under_both_fades_copies_the_mesh_own_material_in_either_start_order`, through
-  `Swapping::sync`, the fade's step and `AlphaDrawing::sync` on a named shape, with the
-  fade stepped before the actor's alpha in that fixture; not seen in the game]. An unnamed
-  shape is matched by the same handle, its model's material [hypothesis, from the source:
-  the test has no model-backed unnamed shape]. When the actor's alpha outlasts one fade and
-  a second fade runs, the alpha's stored original is the first fade's removed copy; the
-  swap then takes the second fade's original [documented: test
-  `a_swap_during_a_second_fade_under_one_actor_alpha_copies_the_mesh_own_material`]. Two
-  sequences still give the swap a wrong source [hypothesis, from the source; neither system
-  keeps the mesh's own handle apart from its copies]: the alpha outliving a fade with no
-  second fade running (its stored original is a removed copy, so the swap is not made), and
-  the alpha released while a fade that started second still runs (the fade's original is
-  the alpha's copy, so the swapped material is see-through). Both go with the issue below.
-- **Not changed, and not whole: how the two see-through copies hand the mesh back.** With
-  no swap, two orders leave the mesh wrong after both have ended: the actor's alpha started
-  first and released first (the fade's end puts the alpha's copy back, the mesh stays
-  see-through), and the fade started first and ended first (the alpha's release puts back
-  the fade's copy, which the fade removed). The other two orders, and all four after a swap,
-  end on the mesh's own or swapped material, opaque [documented: the same test's `HELD`
-  list, each change in its own update, in the fixture's order of the two systems]. While
-  both run the two factors are not consistently composed: a fade that starts under the
-  actor's alpha multiplies the alpha copy's opacity, but an alpha that starts or changes
-  under a fade replaces what is drawn. The game declares no order between the fade's step
-  and the actor's alpha, and two ends in one update are not covered by the test
-  [hypothesis, from reading `fade.rs` `step` and `effect_shaders.rs` `AlphaDrawing::sync`].
-  This predates stage 3 and needs one
-  owner of the drawn material (base opacity x actor alpha x fade); it is left for its own
-  issue.
+- **Single owner of `SetActorAlpha` and presence fades (#3105).** `nvf_play::fade::Fading`
+  owns one see-through copy per mesh for presence fades (`fade.rs`) and `SetActorAlpha`
+  (`effect_shaders.rs`) alike, scaling the mesh's own persistent material's opacity and
+  cut-out threshold by `presence * actor_alpha` and restoring `Fading::original()` when
+  the last effect ends. Both `SwapTexture` (`texture_swap.rs`) and scripted material edits
+  (`nif_mirror.rs`) resolve `nvf_play::fade::persistent_material` and retarget `Fading` in
+  place, so all eight overlap/swap start-and-end orders (named and model-backed unnamed
+  shapes alike, including two ends in one update and either command-flush ordering) restore
+  the mesh's own or swapped material opaque [documented: tests in `fade.rs`,
+  `texture_swap.rs`, `effect_shaders.rs`, `nif_mirror.rs`].
 
 ## Reflections on authored materials
 

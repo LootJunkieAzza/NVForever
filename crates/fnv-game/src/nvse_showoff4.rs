@@ -87,11 +87,13 @@ impl Game<'_> {
         let left_arm = self.is_crippled(actor, crate::combat::LEFT_ARM);
         let right_arm = self.is_crippled(actor, crate::combat::RIGHT_ARM);
         // Crippled-arm spread penalty by `WEAP.DNAM.animation_type`
-        // [observed: `w4d_09_spread_all_anim_types` in `wave4d_extenders.json` (#3802 / PR #3803)]:
+        // [observed: `w4d_09_spread_all_anim_types` in `wave4d_extenders.json` (#3802 / PR #3803)
+        // and `w6t2p2_07_spread_anim_7_9_2_1_0` in `wave6_t2_observed_matches.json` (2026-11-24:
+        // `t8(0.6212,0.4232,0.4232,0.5157)|t9(0.1781,0.3631,0.3631,0.4556)|t2(1.0000,1.0000)`)]:
         // - 1H guns (anim 3, 4): right arm +0.2, left arm alone 0, both arms +0.4.
-        // - 2H ranged (anim 5, 6, 8 observed; 7, 9 grouped as [hypothesis]): either single
+        // - 2H ranged (anim 5, 6, 8, 9 observed; 7 grouped as [hypothesis]): either single
         //   arm +0.4, both arms +0.6 (`fCrippledArms2HSpreadPenalty`).
-        // - Thrown/grenade/mine/melee/unarmed (anim 10 observed +0.0; 0..=2 and 11..=13
+        // - Melee/thrown/grenade/mine/unarmed (anim 2 and 10 observed +0.0; 0..=1 and 11..=13
         //   grouped as [hypothesis]): 0.0 for right, left, and both arms.
         let anim = field(self, "animation_type") as i64;
         let arms = match anim {
@@ -207,10 +209,13 @@ pub fn matrix_op(a: &Matrix, op: &str, b: &Matrix) -> Option<Matrix> {
 }
 
 /// Each element with a scalar: `+`, `-`, `*`, `/` [documented:
-/// Matrix_ApplyOperationWithScalar; "%" is not supported]. Division by 0 gives the
-/// floating-point infinity (`inf`) [observed: `so_02_mat_scalar_div0`
-/// (`wave4a_extenders.json`) and `w4c_b6_08_matrix_div0_and_1d_trans`
-/// (`wave4c_extenders.json`), see docs/spec-notes/ext-showoff.md §7].
+/// Matrix_ApplyOperationWithScalar; "%" is not supported]. Division by 0 returns a
+/// same-length array of floating-point infinities (`inf`) rather than `ar_Null`
+/// [observed: `so_02_mat_scalar_div0` (`wave4a_extenders.json`),
+/// `w4c_b6_08_matrix_div0_and_1d_trans` (`wave4c_extenders.json`), and
+/// `w6t2_32_showoff_matrix_edges_and_get_weapon_mod_flags`
+/// (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`: `div0=3` on a
+/// 3-element row), see docs/spec-notes/ext-showoff.md §7].
 pub fn scalar_op(a: &Matrix, op: &str, s: f64) -> Option<Matrix> {
     let f: fn(f64, f64) -> f64 = match op {
         "+" => |x, y| x + y,
@@ -223,7 +228,10 @@ pub fn scalar_op(a: &Matrix, op: &str, s: f64) -> Option<Matrix> {
 }
 
 /// The transpose [documented: Matrix_Transpose's example]; a one-dimensional row becomes
-/// a column (a list of one-element lists).
+/// a column (a list of one-element lists) [observed 2026-11-24:
+/// `w6t2_32_showoff_matrix_edges_and_get_weapon_mod_flags`
+/// (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`): `tr(sz=3,sub=1)` on
+/// `ar_List 1, 2, 3`].
 pub fn transpose(a: &Matrix) -> Matrix {
     let rows = (0..a.cols()).map(|j| a.rows.iter().map(|r| r[j]).collect()).collect();
     Matrix { rows, flat: false }
@@ -255,7 +263,10 @@ pub fn quat_to_matrix(q: [f64; 4]) -> Option<[[f64; 3]; 3]> {
 /// The quaternion `[w, x, y, z]` of a rotation matrix in the usual right-handed form (so
 /// not the inverse of [`quat_to_matrix`], which gives the transpose [observed 2026-11-08:
 /// showoff4.quat.back and quat.back.270 equal with this, quat.z90 transposed]), by the largest of the trace and the diagonal; `w` not negative
-/// [hypothesis: q and −q are the same rotation, the page picks neither].
+/// [observed 2026-11-24: `w6t2_32_showoff_matrix_edges_and_get_weapon_mod_flags`
+/// (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`): `diag(-1, -1, 1)`
+/// yields `q(sz=4,w=0.00,z=1.00)`; hypothesis: sign convention for other negative-trace
+/// rotations].
 pub fn matrix_to_quat(m: [[f64; 3]; 3]) -> [f64; 4] {
     let t = m[0][0] + m[1][1] + m[2][2];
     let q = if t > 0.0 {

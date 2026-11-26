@@ -232,10 +232,19 @@ not decode yet.
   no form [observed: jip4, GameYear 2281 reads GetGlobalRef 0; after SetGlobalRef of
   00104C0F it reads GetGlobalValue 1.49665e-39, which is those bits].
 - `GetEditorPosition` [documented: returns the cell and writes the six output variables;
-  0 for a reference not placed in the editor]. The angles are in degrees [hypothesis: as
-  GetStartingAngle reads them]. Not probed: none of six forms of the call (let or set,
-  to a ref or a float, three outputs or six, or no result) compiled through the capture
-  plugin's run-time compiler [observed, 2026-10-30].
+  0 for a reference not placed in the editor]: angles are written in degrees matching
+  `GetStartingAngle`, and when called on a reference with no editor placement (such as
+  `Player`), it returns `00000000` and preserves all six output variables unchanged
+  [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN
+  NVSE 57.30 (`5730`) + lStewieAl's Tweaks 1005 (`bUseConsoleOutputFile=1`), 10 official
+  base masters, isolated clean-room staging copy (read-only `PrintToConsole` probe; zero
+  writes to game install or Saves), `GSDocMitchellHouse` (`0x00103DF9`), `DocMitchellRef`
+  (`0x00104C0F`) and `Player`, committed probe `w6_t1_03_pos_ex_and_editor_pos`
+  (`tools/capture/nvse/catalogs/wave6_t1_editor_pos.json`):
+  `PROBE|w6_t1_03_pos_ex_and_editor_pos|posExPc=0(0.00,0.00,0.00)|posExDoc=0(0.00,0.00,0.00)|edDoc=00103DF9(dpos=0.00,0.00,0.00|rot=0.000,0.000,22.918|start=0.000,0.000,22.918)|edPc=00000000(111.0,222.0,333.0,444.0,555.0,666.0)`;
+  no DLL, PDB, or third-party source consulted]. (Earlier 2026-10-30 probes passed bare
+  variable names, which the runtime compiler refuses; parenthesized `(ox) ... (rz)`
+  compiles cleanly.)
 - `GetStartingPos axis`, `GetStartingAngle axis` (vanilla, built with this batch in
   `functions/refs.rs`): the reference's placement in the plugins, the angle in degrees;
   the player reads 0 on every axis [observed: jip4, DocMitchellRef 2288, 2244, 7360 and
