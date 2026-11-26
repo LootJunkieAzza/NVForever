@@ -147,7 +147,7 @@ pub struct CoopProgress {
     pub unshared_told: std::collections::BTreeSet<u32>,
     /// A guest: the host's stage offers heard before this game was kept as its own
     /// (`save::SoloBase`, right after joining, when a catch-up comes), and since when.
-    /// Taken in order once it is kept, at most [`HOLD_FOR`] later (observed: buckallobill, in game, FNV 1.4.0.525:
+    /// Taken in order once it is kept, at most [`HOLD_FOR`] later (design:
     /// a returning guest's catch-up stages were lost this way).
     pub held: Vec<Shared>,
     pub held_since: Option<std::time::Instant>,
@@ -169,7 +169,7 @@ pub const HOLD_FOR: std::time::Duration = std::time::Duration::from_secs(120);
 ///   offer only when it shares quest progress this time. Its own game's checks decide
 ///   each one as they would have then, so the quest stays shared.
 /// - For [`Returns::WARN_FOR`] after a player dropped, the host is told when it moves a
-///   quest on or turns one in: a warning, never a block (observed: buckallobill, in game, FNV 1.4.0.525: "it should warn the host,
+///   quest on or turns one in: a warning, never a block (design: "it should warn the host,
 ///   not prevent").
 #[derive(Debug, Default)]
 pub struct Returns {
@@ -272,7 +272,7 @@ impl Returns {
 
 /// A guest's hand-outs taken and not yet told: their lines ([`gift_lines`]) wait until
 /// no hand-out has come for [`HandOuts::HOLD`], so a stack the host's script adds a piece
-/// at a time is one line even when the pieces arrive over several frames (observed: buckallobill, in game, FNV 1.4.0.525: Doc
+/// at a time is one line even when the pieces arrive over several frames (design: Doc
 /// Mitchell's 22 single 9mm rounds came in two frames 5 ms apart, "9mm Round (7)" then
 /// "9mm Round (15)") [design].
 #[derive(Debug, Default)]
@@ -479,7 +479,7 @@ fn reward_line(host: &str, quest: Option<&str>, xp: impl std::fmt::Display, caps
 }
 
 /// The name a hand-out's line shows: the item's FULL, as the player sees it elsewhere;
-/// its Editor ID only when it has none (observed: buckallobill, in game, FNV 1.4.0.525 showed an editor ID there).
+/// its Editor ID only when it has none (design showed an editor ID there).
 fn item_label(full_names: &std::collections::HashMap<FormId, String>, item: FormId, edid: impl FnOnce() -> String) -> String {
     full_names.get(&item).filter(|n| !n.is_empty()).cloned().unwrap_or_else(edid)
 }
@@ -557,7 +557,7 @@ fn take_inbox(
                 }
                 // Into the played world (`crate::script::with_world`): outside it the
                 // runtime holds a stand-in, whose caps no menu shows (a guest's +50 caps
-                // never reached its Pip-Boy in observed: buckallobill, in game, FNV 1.4.0.525).
+                // never reached its Pip-Boy [design: a found bug]).
                 let taken = match sim.as_deref_mut() {
                     Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_reward(xp as f64, caps as i32)),
                     None => Err("no simulation world".to_string()),
@@ -568,7 +568,7 @@ fn take_inbox(
                     // The host by its character's name (its name in the lobby).
                     // The quest's COMPLETED line came with its own message ([`Shared::QuestEnded`]).
                     // By the quest's shown name (its FULL), never its editor ID ("VMS19" on
-                    // screen in observed: buckallobill, in game, FNV 1.4.0.525); a quest with none: "a quest".
+                    // screen [design: a found bug]); a quest with none: "a quest".
                     Ok(gained) => {
                         let shown = rt.game.data.quests.get(&FormId(quest)).and_then(|d| d.name.clone()).filter(|n| !n.trim().is_empty());
                         say(&mut corner, reward_line(&host, shown.as_deref(), gained, caps))
@@ -608,7 +608,7 @@ fn take_inbox(
                 }
             }
             // The host's quest completed or failed: listed as done, and its line, in the
-            // order the host's quests ended (observed: buckallobill, in game, FNV 1.4.0.525: the host showed 10
+            // order the host's quests ended (design: the host showed 10
             // failed quests, the guest none; another: VMS39, completed and failed a second
             // apart, showed neither). Come Fly With Me, not the host's active
             // quest, showed no COMPLETED line on the guest before such lines were sent.
@@ -749,7 +749,7 @@ fn take_inbox(
 
 /// The corner lines of hand-outs taken together (item, name, count given; [`HandOuts`]):
 /// one per item, its counts added up, in the order the items first came. A script that adds a
-/// stack a round at a time (Doc Mitchell's 9mm rounds: 25 AddItem calls of 1 in observed: buckallobill, in game, FNV 1.4.0.525)
+/// stack a round at a time (Doc Mitchell's 9mm rounds: 25 AddItem calls of 1 [observed: buckallobill, in game, FNV 1.4.0.525])
 /// was one uncounted "9mm Round" line. The count in brackets after the name, as this
 /// game's own item lines have it (`script_events`) [design: the original's wording for a
 /// counted hand-out is not in the data files; observer-checks.md].

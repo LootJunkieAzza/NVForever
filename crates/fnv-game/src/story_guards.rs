@@ -25,8 +25,8 @@
 //!   lets Jed's force greet run (box variable iJedConvo 1 after 2 s), and his lines set
 //!   NVDLC02MQ01 stage 5, whose result script gives the controls back and moves the
 //!   scene on [observed: HonestHearts.esm SCPT 0x01010006, QUST 0x01008893 stage 5;
-//!   the greet came about 2.5 s after stage 100 in every test run]. In buckallobill's game Jed never greeted and the controls stayed locked;
-//!   `SetStage NVDLC02MQ01 5` got the player out [observed: buckallobill, in game]. The guard asks Jed to choose again after 8 s,
+//!   the greet came about 2.5 s after stage 100 in every test run]. In a co-op game Jed never greeted and the controls stayed locked;
+//!   `SetStage NVDLC02MQ01 5` got the player out [design: a found bug]. The guard asks Jed to choose again after 8 s,
 //!   and sets stage 5 after 30 s. Setting it skips Jed's greeting lines: stage 5 moves
 //!   his conversation state past them.
 

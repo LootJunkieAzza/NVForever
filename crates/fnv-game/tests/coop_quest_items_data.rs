@@ -255,7 +255,7 @@ fn a_quest_item_is_handed_out_once() {
 }
 
 /// Doc Mitchell's hand-out reaches a fresh guest whole: the 6 bobby pins (a misc stack,
-/// once 1 in observed: buckallobill, in game, FNV 1.4.0.525) and every 9mm round his script adds one at a time.
+/// once 1 on the guest [design: a found bug]) and every 9mm round his script adds one at a time.
 #[test]
 fn doc_mitchells_stacks_reach_a_guest_whole() {
     let Some(dir) = data_dir() else { return };
@@ -286,7 +286,7 @@ fn doc_mitchells_stacks_reach_a_guest_whole() {
 
 /// A guest that only half finished a quest in its own game (the stages before a stage
 /// that hands something out set, the quest not completed) still gets what the host's
-/// later stage hands out, and nothing of the stages it did (observed: buckallobill, in game, FNV 1.4.0.525).
+/// later stage hands out, and nothing of the stages it did (design).
 #[test]
 fn a_half_finished_quest_gives_the_later_stages_items() {
     let Some(dir) = data_dir() else { return };
@@ -350,7 +350,7 @@ fn a_completed_quests_xp_and_caps_still_reach_the_guest() {
     assert_eq!(held(&mut b, fnv_game::coop_rewards::CAPS), caps + 50, "guest B gains the caps");
 }
 
-/// Items the add-ons' object scripts give the player (observed: buckallobill, in game, FNV 1.4.0.525: a fresh guest
+/// Items the add-ons' object scripts give the player (design: a fresh guest
 /// gets every quest item, also those a quest's or a quest object's script gives).
 /// Activated by the player on a fresh host, each row's script hands out for the quest it
 /// names (Dead Money's Tampico prop, SCPT 0x0100FFD4: two items and NVDLC01MQ03b's
@@ -390,7 +390,7 @@ fn quest_objects_scripts_hand_out_for_their_quest() {
     let dm = dm.expect("Dead Money's Tampico prop is placed");
     assert!(!dm.is_empty() && dm.iter().all(|g| g.quest == Some(FormId(0x0101_3A43))), "the Tampico props hand out for NVDLC01MQ03b: {dm:?}");
     // Guest A takes them inside the Sierra Madre (its items in Dead Money's checkpoint,
-    // as in observed: buckallobill, in game, FNV 1.4.0.525); guest B, whose game completed NVDLC01MQ03b, keeps its own.
+    // [design]); guest B, whose game completed NVDLC01MQ03b, keeps its own.
     let (mut a, mut b) = (game(&l), game(&l));
     a.coop_check_in(DM_CHECKPOINT, -1, None);
     b.quest(FormId(0x0101_3A43)).completed = true;
@@ -502,7 +502,7 @@ fn dead_moneys_gear_stays_in_the_sierra_madre() {
         assert_eq!(late.take_coop_gift(g, &mut last).unwrap(), 0, "a late guest gets no {}", l.data.name(g.item));
     }
 
-    // A guest that saves inside the Sierra Madre and loads (observed: buckallobill, in game, FNV 1.4.0.525): its save
+    // A guest that saves inside the Sierra Madre and loads (design): its save
     // is its own game with the character as it is now (`with_character_of`), the
     // checkpoint's records with it; after the load the way out still gives its own back.
     let mut saver = game(&l);
@@ -532,7 +532,7 @@ fn dead_moneys_gear_stays_in_the_sierra_madre() {
 }
 
 /// A quest the host fails (a Fail Quest stage) is kept for its guests, as a completion
-/// is (observed: buckallobill, in game, FNV 1.4.0.525: the host showed 10 "Quest failed", the guest none). The
+/// is (the host showed 10 "Quest failed" [observed: buckallobill, in game, FNV 1.4.0.525]; the guest none [design: a found bug]). The
 /// guest lists it once as failed, and a completed quest that fails after is told again.
 #[test]
 fn the_hosts_failed_quest_is_kept_for_the_guests() {
@@ -581,9 +581,9 @@ fn the_hosts_failed_quest_is_kept_for_the_guests() {
 }
 
 /// A quest completed and failed in the same frame (in one sync tick) reaches the guests
-/// as both, in that order, though its completion pays nothing (observed: buckallobill, in game, FNV 1.4.0.525:
-/// I FORGOT TO REMEMBER TO FORGET, VMS39, completed at stage 70 and failed at stage 80 a
-/// second later, showed neither line on the guest).
+/// as both, in that order, though its completion pays nothing (I FORGOT TO REMEMBER TO FORGET, VMS39, completes at
+/// stage 70 and fails at stage 80 a second later [observed: buckallobill, in game, FNV 1.4.0.525];
+/// the guest showed neither line [design: a found bug]).
 #[test]
 fn a_quest_completed_then_failed_in_one_tick_reaches_the_guest_as_both() {
     let Some(dir) = data_dir() else { return };
@@ -596,8 +596,8 @@ fn a_quest_completed_then_failed_in_one_tick_reaches_the_guest_as_both() {
     assert!(complete < fail, "VMS39 completes at {complete} before it fails at {fail}");
     let mut host = game(&l);
     host.coop_rewards.on = true;
-    // Its first stage shows an objective (Travel to Bitter Springs with Boone [observed:
-    // observed: buckallobill, in game, FNV 1.4.0.525].
+    // Its first stage shows an objective (Travel to Bitter Springs with Boone
+    // [observed: buckallobill, in game, FNV 1.4.0.525]).
     host.set_stage(q, *stages.keys().next().expect("a stage"));
     // Both stages in one frame: the host's sync takes them together.
     host.set_stage(q, complete);
@@ -609,7 +609,7 @@ fn a_quest_completed_then_failed_in_one_tick_reaches_the_guest_as_both() {
     assert_eq!(told, [true, true], "the guest tells both");
     assert_eq!(guest.coop_host_ended, vec![(q, true)], "and lists it as failed");
     // The host's story, which every guest's quest list reads (a guest that joins later
-    // too), carries it as failed with its objectives (observed: buckallobill, in game, FNV 1.4.0.525: the guest listed
+    // too), carries it as failed with its objectives (design: the guest listed
     // only the host's active quest).
     let view = host.story_view();
     let s = &view.quests[&q];

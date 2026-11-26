@@ -1621,7 +1621,7 @@ pub fn quest_seen(st: &DataState, quest: u32) -> u64 {
     st.seen.get(&quest).copied().unwrap_or(0)
 }
 
-/// A co-op guest's quest list, the host's (observed: buckallobill, in game, FNV 1.4.0.525: the guest
+/// A co-op guest's quest list, the host's (design: the guest
 /// listed only the host's active quest): each quest of the host's story with a name and an
 /// objective shown or done, as [`listed`] has the host's own (`Game::coop_host_story`,
 /// which reaches a guest that joins later within a round of its pages); the host's active

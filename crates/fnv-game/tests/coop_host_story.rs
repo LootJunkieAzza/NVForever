@@ -1,4 +1,4 @@
-//! A co-op guest's world reads the host's story (`fnv_game::coop::HostStory`; observed: buckallobill, in game, FNV 1.4.0.525): a gate whose OnActivate asks a quest's
+//! A co-op guest's world reads the host's story (`fnv_game::coop::HostStory`; design): a gate whose OnActivate asks a quest's
 //! variable and stage, on a synthetic plugin built in memory (no game data). The scripts
 //! are compiled from source by NVForever's compiler.
 

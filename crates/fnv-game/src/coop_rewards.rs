@@ -27,7 +27,7 @@
 //!
 //! **Hand-outs** are not rewards: the items a quest's or a dialogue line's result script
 //! gives the player along the way (Sunny Smiles' varmint rifle and its rounds, Ringo's
-//! Caravan deck) go to every player (observed: buckallobill, in game, FNV 1.4.0.525) [design]. The ledger keeps
+//! Caravan deck) go to every player [design]. The ledger keeps
 //! them ([`RewardLedger::hand_out`], not caps), unless the same script took caps from the
 //! player (a purchase); each run of a result script is one batch, which names the quest
 //! (and stage) whose script gave it ([`Gift`]). Quest items are hand-outs too [design: a
@@ -39,7 +39,7 @@
 //! - otherwise ammo, aid and chips always (a gun's rounds come with the gun);
 //! - Caravan cards only if it had none when the batch began (one deck), into its Caravan
 //!   cards as AddCardToPlayer puts them, not its inventory (the card's own script takes the
-//!   card away on the host; observed: buckallobill, in game, FNV 1.4.0.525: a guest's deck builder listed none);
+//!   card away on the host [observed: buckallobill, in game, FNV 1.4.0.525]; a guest's deck builder listed none [design]);
 //! - anything else, quest items included, only if it has none of it yet (no second rifle,
 //!   no second key).
 //!
@@ -137,8 +137,8 @@ pub struct RewardLedger {
     /// or failed (`true`, a Fail Quest stage or FailQuest), for the guests' quest lines
     /// and lists. Each goes at once, apart from the completion's reward, which
     /// waits for its window ([`RewardLedger::due`]) and is left out when it gives nothing:
-    /// a quest that pays nothing and fails a second after it completes (VMS39 in a
-    /// observed: buckallobill, in game, FNV 1.4.0.525) showed neither line on the guest when the line rode the reward.
+    /// a quest that pays nothing and fails a second after it completes (VMS39
+    /// [observed: buckallobill, in game, FNV 1.4.0.525]) showed neither line on the guest when the line rode the reward [design: a found bug].
     pub ended: Vec<(FormId, bool)>,
     batch: u32,
     /// The quest or object script running now outside any result script
@@ -397,7 +397,7 @@ impl Game<'_> {
         let card = kind == Some(ItemKind::CaravanCard) || self.data.caravan_cards.contains_key(&item);
         // The player's cards are its Caravan collection, not items: each card's script runs
         // AddCardToPlayer and takes the card away (docs/spec-notes/caravan.md §2). A guest
-        // owns cards when its collection holds any (observed: buckallobill, in game, FNV 1.4.0.525: the deck
+        // owns cards when its collection holds any (design: the deck
         // builder of a guest given Ringo's deck listed none).
         let had_cards = !self.player.caravan.cards.is_empty() || inv.is_some_and(|i| i.groups().any(|(it, _, _)| self.world.forms.item(it).is_some_and(|f| f.kind == ItemKind::CaravanCard)));
         let had = card.then(|| {
@@ -438,7 +438,7 @@ impl Game<'_> {
             return Ok(n);
         }
         // Stacks come whole: Doc Mitchell's 6 bobby pins (a misc item, given only when this
-        // player has none) were 1 (observed: buckallobill, in game, FNV 1.4.0.525). A weapon or an armour piece is one.
+        // player has none) were 1 [design: a found bug]. A weapon or an armour piece is one.
         let n = if matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor)) { 1 } else { count.max(1) };
         let added = self.world.add_item(FormId::PLAYER_REF, item, n).map_err(|e| e.to_string())?;
         for (item, count) in added {

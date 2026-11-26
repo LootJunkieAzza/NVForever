@@ -6,7 +6,7 @@
 //! **Shared progress** (`progress`, `story`; docs/design/coop-shared-progress.md): quest
 //! rewards, stage offers, kill credit, saves and the host's quest, level and story go
 //! between the games as `nvf_coop::progress` items on the reliable stream, checked on the
-//! host by the rules it registers once its world is loaded (`host_forms`).
+//! host by the rules it registers with its link (`host_progress_rules`) and its world (`host_forms`).
 //!
 //! **Off by default.** Nothing here opens a socket until the Co-op switch is on and a
 //! lobby is created or joined [design]; this part opens none (below).
@@ -234,6 +234,8 @@ pub(crate) struct Coop {
     finding_since: Option<f32>,
     /// The host's checks were given the load order and the world's rules.
     forms_set: bool,
+    /// The host's checks on shared progress are on its link ([`host_progress_rules`]).
+    rules_set: bool,
     /// When each player's state was last logged.
     state_logged: BTreeMap<u8, f32>,
     /// The host's Hellos turned away for the secret, as of the last look, and when.
@@ -349,6 +351,7 @@ impl Coop {
             joining: Joining::Idle,
             finding_since: None,
             forms_set: false,
+            rules_set: false,
             state_logged: BTreeMap::new(),
             hello_drops: (0, 0.0),
             npcs: HashMap::new(),
@@ -432,6 +435,7 @@ impl Plugin for CoopPlugin {
             .add_systems(
                 Update,
                 (
+                    host_progress_rules,
                     host_forms,
                     replication::frame_clock,
                     lobby,
@@ -684,6 +688,8 @@ impl Coop {
     fn stop_hosting(&mut self) {
         // Dropping the link says goodbye to the guests.
         self.link = None;
+        self.forms_set = false;
+        self.rules_set = false;
         self.hello_drops = (0, 0.0);
         self.state_logged.clear();
         self.code = None;
@@ -777,12 +783,25 @@ fn host_forms(mut coop: ResMut<Coop>, sim: Option<Res<nvf_play::sim::SimState>>)
     if let Some(link) = &coop.link {
         link.set_forms(Some(check));
         nvf_coop::world::add_world_rules(&mut |kind, rule| link.add_rule(kind, rule));
-        // The host's checks on what guests send of shared progress.
+        coop.forms_set = true;
+        info!("co-op: the host checks guests' forms by its load order, and their world messages by its rules");
+    }
+}
+
+/// The host's checks on what guests send of shared progress, added as soon as the lobby's
+/// link is there: not after the world loads, so no guest item passes unchecked meanwhile
+/// (a kind with no rule is let through). Made again for each lobby the host opens
+/// ([`Coop::stop_hosting`] forgets them).
+fn host_progress_rules(mut coop: ResMut<Coop>) {
+    if coop.rules_set || !coop.is_host() {
+        return;
+    }
+    let coop = &mut *coop;
+    if let Some(link) = &coop.link {
         for (kind, rule) in coop.progress.checks.rules() {
             link.add_rule(kind, rule);
         }
-        coop.forms_set = true;
-        info!("co-op: the host checks guests' forms by its load order, and their world messages by its rules");
+        coop.rules_set = true;
     }
 }
 
@@ -3554,6 +3573,46 @@ mod tests {
         let coop = app.world().resource::<Coop>();
         assert!(coop.link.is_none());
         assert_eq!(coop.joining, Joining::Failed(NO_TRANSPORT.to_string()));
+    }
+
+    struct NoTransport;
+    impl nvf_coop::seam::Transport for NoTransport {
+        fn send_to(&self, bytes: &[u8], _to: std::net::SocketAddr) -> std::io::Result<usize> {
+            Ok(bytes.len())
+        }
+        fn recv_from(&mut self, _buf: &mut [u8]) -> std::io::Result<Option<(usize, std::net::SocketAddr)>> {
+            Ok(None)
+        }
+        fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+            Ok("127.0.0.1:1".parse().unwrap())
+        }
+    }
+
+    /// A host's progress rules go on its link at once, with no world loaded, and again for
+    /// the next lobby it opens.
+    #[test]
+    fn a_hosts_progress_rules_go_on_with_its_link_and_again_for_a_second_lobby() {
+        let mut app = App::new();
+        app.add_plugins(CoopPlugin(Config { host: None, join: None, name: "Courier".into() }));
+        let run = |app: &mut App| {
+            use bevy::ecs::system::RunSystemOnce;
+            app.world_mut().run_system_once(host_progress_rules).unwrap();
+        };
+        let host = |app: &mut App| {
+            let session = net::Session::host_on(Box::new(NoTransport), Box::new(nvf_coop::seam::SharedSecret::new(7).unwrap()));
+            app.world_mut().resource_mut::<Coop>().link = Some(Link::new(session).unwrap());
+        };
+        run(&mut app);
+        assert!(!app.world().resource::<Coop>().rules_set, "no link, no rules");
+        host(&mut app);
+        run(&mut app);
+        assert!(app.world().resource::<Coop>().rules_set, "the rules are on before any world is loaded");
+        assert!(!app.world().resource::<Coop>().forms_set, "the forms check still waits for the world");
+        app.world_mut().resource_mut::<Coop>().stop_hosting();
+        assert!(!app.world().resource::<Coop>().rules_set && !app.world().resource::<Coop>().forms_set);
+        host(&mut app);
+        run(&mut app);
+        assert!(app.world().resource::<Coop>().rules_set, "the second lobby has its rules too");
     }
 
     #[test]

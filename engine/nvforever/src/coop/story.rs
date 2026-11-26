@@ -1,4 +1,4 @@
-//! The host's story on a guest (observed: buckallobill, in game, FNV 1.4.0.525):
+//! The host's story on a guest (design):
 //! the host sends its quests' states and quest script variables (`nvf_coop::story`), and
 //! a guest's game keeps them where the world's scripts read them
 //! (`fnv_game::coop::HostStory`). So a door or activator whose script asks the story (a
@@ -17,7 +17,7 @@
 //!   (SetSecuritronExpression, SwapTexture; `TextureSwaps`) go with the story
 //!   ([`swap_entries`]), and a guest draws each the host has (`TextureSwaps::follow_host`):
 //!   a guest runs none of the host's dialogue and quest scripts that make them, and the
-//!   scene's swaps (`super::scene`) go only while a scene holds the view (observed: buckallobill, in game, FNV 1.4.0.525:
+//!   scene's swaps (`super::scene`) go only while a scene holds the view (design:
 //!   the guest saw a Securitron's stock face where the host saw Victor's).
 //! - Test aid `NVF_COOP_NO_HOST_STORY=1` (a guest's): the pages heard are dropped, as
 //!   before the fix, to show what a guest's world does on its own story.

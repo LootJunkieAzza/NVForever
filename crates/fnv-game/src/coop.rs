@@ -336,7 +336,7 @@ pub const HOST_STAGES_DONE: usize = 32;
 /// opens only once a quest variable is set by talking to a guard, which the host did and
 /// the guest never does, ran the script's other branch on the guest (the guard's
 /// conversation, which no script starts with a guest), and the gate did nothing
-/// [observed: buckallobill, in game, FNV 1.4.0.525].
+/// [design].
 ///
 /// - **What it holds.** Each quest the host's game has a state for (its stage, the
 ///   highest [`HOST_STAGES_DONE`] stages done, running, ended), and every variable of the
@@ -917,7 +917,7 @@ impl Game<'_> {
         }
         // The guest's own copy of an add-on checkpoint's gear the host's story took off
         // inside it goes too: NVDLC01MQ03 stage 100 takes the player's collar, whoever's
-        // it is (observed: buckallobill, in game, FNV 1.4.0.525: guest B kept its own collar from its save).
+        // it is (design: guest B kept its own collar from its save).
         let dropped: Vec<FormId> = self.coop_story_kept.iter().copied().filter(|i| !host.iter().any(|(h, _)| h == i)).collect();
         for item in dropped {
             self.coop_story_kept.remove(&item);
@@ -975,7 +975,7 @@ impl Game<'_> {
     }
 
     /// A co-op host's talk with a story NPC waits until every other player is near it
-    /// [observed: buckallobill, in game: the host could not talk to important NPCs when
+    /// [design: the host could not talk to important NPCs when
     /// guests were too far; story NPCs, within sight]: true while one is not, with the
     /// wait put in [`Game::coop_story_wait`] for the host's screen and the far players'
     /// prompts. Asked when the host's player starts a conversation and when an NPC's
@@ -991,7 +991,7 @@ impl Game<'_> {
     /// the same way, but the hold is shown on the screens only for its first
     /// [`NPC_WAIT_SHOWN`] seconds. The NPC's package asks again every update for as long
     /// as a guest is away, so a banner would stay up through the host's normal play
-    /// [observed: buckallobill, in game: "WAITING FOR PLAYERS..." on the Strip while the host played,
+    /// [design: "WAITING FOR PLAYERS..." on the Strip while the host played,
     /// "it reads as a stuck co-op message"; a Strip Securitron's greet held for 16 s
     /// while the guest stayed in Freeside].
     pub fn story_gate_npc(&mut self, actor: FormId) -> bool {
@@ -1069,7 +1069,7 @@ fn dlc_main_quest(edid: &str) -> bool {
 /// StartQuest, a quest variable set or read). A unit without compiled data falls back on
 /// its source, the Editor ID after a SetStage or StartQuest [observed: Honest Hearts' Jed
 /// greeting, line 0x0100F195, starts NVDLC02MQ01 by its reference list; the source scan
-/// alone left Jed out, observed: buckallobill, in game, FNV 1.4.0.525].
+/// alone left Jed out [design: a found bug].
 fn unit_quests(data: &GameData, unit: &fnv_script::unit::ScriptUnit) -> Vec<FormId> {
     if unit.has_scda {
         return unit
@@ -1192,7 +1192,7 @@ impl Game<'_> {
     }
 }
 
-/// Where an add-on checkpoint's gear may go [observed: buckallobill, in game: guests
+/// Where an add-on checkpoint's gear may go [design: guests
 /// were seen in Dead Money's gear].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointGear {

@@ -452,7 +452,7 @@ impl Game<'_> {
         }
         // A co-op guest's kill is the player's, as a companion's is: GetKiller, IsKiller
         // player, OnDeath's killer, kill counts and karma all see the player, so the host's
-        // quests move on exactly as for its own kill (observed: buckallobill, in game, FNV 1.4.0.525) [design].
+        // quests move on exactly as for its own kill [design].
         let raw_killer = killer;
         let killer = killer.map(|k| self.as_player(k));
         // Karma and murder are judged while the victim still lives (`crate::crime`). A

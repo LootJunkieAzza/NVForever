@@ -260,7 +260,7 @@ fn a_host_keeps_its_story_gear_across_a_save_and_load() {
 
 #[test]
 fn a_guest_keeps_on_what_it_already_wore_when_the_hosts_story_lets_it_go() {
-    // [observed: buckallobill, in game] The host's Pip-Boy is story gear (Doc
+    // [design] The host's Pip-Boy is story gear (Doc
     // Mitchell's script equips it); the guest wore its own. When the host's list no
     // longer had it, the guest's was taken off and its Pip-Boy fell back to the
     // screen-only frame.
@@ -363,7 +363,7 @@ fn a_line_starting_a_story_quest_makes_a_story_npc() {
 }
 
 /// An NPC's own greet held for a far guest shows on the screens only at first, though it
-/// stays held; the host's own try to talk shows it again [observed: buckallobill, in game: "WAITING FOR PLAYERS..." stayed up on the Strip while a Securitron's greet waited].
+/// stays held; the host's own try to talk shows it again [design: "WAITING FOR PLAYERS..." stayed up on the Strip while a Securitron's greet waited].
 #[test]
 fn an_npcs_held_greet_is_shown_only_at_first() {
     let f = fixture_of(plugin_bytes_starting(false, "QCashier", Some("NVDLC02MQ01")));
