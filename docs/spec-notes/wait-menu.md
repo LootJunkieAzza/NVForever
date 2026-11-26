@@ -75,7 +75,12 @@ In the interface file [documented: `menus\sleep_wait_menu.xml` and the files it 
   is "targeted" (the pointer is on it, or it is chosen with a gamepad) and half opaque
   otherwise; a frame is drawn around it only then. On PC a key hint is written after
   the label. [hypothesis: in the screenshot Cancel is the targeted one and Wait is not,
-  which fits the 0.59.]
+  which fits the 0.59.] A player's screenshot of the original (#4684, 2026-11-26) has
+  both buttons as bright as the date line (peak 206 of 255, the date's own peak in
+  font 2) [observed], which the file gives only to a targeted button; NVForever's
+  untargeted buttons measure 119 in the same player's screenshot of ours. Not settled:
+  whether that game had a UI mod, or the original targets the buttons some other way
+  (observer check 293). The drawing keeps the file's rule until then.
 - The file has a black panel behind the box, a little larger than it, but at a low
   opacity, and nothing in it asks for a blur. The blur and most of the darkening on the
   screenshot therefore come from the game's code, not from the file [hypothesis].

@@ -4245,3 +4245,18 @@ capture setup, so every part of a check that needs an interior is still open.
      and note the lowest value at which it still reads 1. Then `SetDisposition` towards
      another actor at 100 with the player's at 0: does it read 1 (not towards the player
      only)?
+
+## Added 2026-11-26 (the Wait menu's buttons at half opacity, #4684)
+
+293. **Are the Wait menu's Wait and Cancel buttons at half opacity when the pointer is
+     not on them?** (P3; #4684, wait-menu.md §2.) Ours [documented: `text_box.xml`
+     `_line_alpha` 128, 255 while `target`; `sleep_wait_menu.xml` gives the Wait button
+     the same rule]: a button the pointer is not on is drawn at half opacity. The two
+     screenshots of the original disagree [observed]: the owner's has "Wait E)" at about
+     0.59 of "Cancel X)" (Cancel taken as targeted), which fits the file; a player's
+     (#4684) has both buttons at the date line's full brightness (peak 206 of 255, the
+     same as the date), which the vanilla file gives only to a targeted button. With no
+     UI mods installed, open the Wait menu (T in the world) and take a screenshot (a)
+     with the pointer outside the box and not moved since the menu opened, (b) with the
+     pointer on Wait, (c) on Cancel, (d) after pressing a key the menu acts on (a step
+     of the slider with A or D). Note each button's brightness against the date line.
