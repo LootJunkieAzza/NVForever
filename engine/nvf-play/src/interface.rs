@@ -419,8 +419,34 @@ pub fn menu_frame(anchor: Vec2) -> Option<Node> {
 /// [`menu_frame`].
 pub const MENU_SPREAD: f32 = 0.5;
 
-/// The share of the view a spread frame takes (module notes of [`MENU_SPREAD`]).
+std::thread_local! {
+    /// A scope asked for the whole view ([`whole_view`]).
+    static WHOLE_VIEW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While alive, a spread frame on this thread takes the whole view whatever the scale
+/// ([`spread_share`] 1), so a page drawn smaller to fit a narrow view gets all of its room
+/// (the settings page in a portrait view, #3334); dropped, it goes back.
+#[must_use]
+pub struct WholeView(bool);
+
+impl Drop for WholeView {
+    fn drop(&mut self) {
+        WHOLE_VIEW.with(|c| c.set(self.0));
+    }
+}
+
+/// [`WholeView`] from now until it is dropped.
+pub fn whole_view() -> WholeView {
+    WholeView(WHOLE_VIEW.with(|c| c.replace(true)))
+}
+
+/// The share of the view a spread frame takes (module notes of [`MENU_SPREAD`]); all of it
+/// inside a [`whole_view`] scope.
 fn spread_share() -> f32 {
+    if WHOLE_VIEW.with(|c| c.get()) {
+        return 1.0;
+    }
     let s = unit_scale();
     (s * (1.0 + MENU_SPREAD * (1.0 - s))).min(1.0)
 }
