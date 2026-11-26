@@ -1,4 +1,7 @@
+use super::tests::*;
 use super::*;
+use bevy::ecs::system::RunSystemOnce;
+use fnv_sim::inventory::Inventory;
 use nvf_assets::actor::DEFAULT_RIGID_BONE;
 
 fn head_and_foretwist_skeleton_nif() -> Vec<u8> {
@@ -21,7 +24,11 @@ fn rigid_part_roots_stay_out_of_dressed_parts_and_despawn_without_orphans_on_swa
     let (mut app, dir) = asset_fixture();
     // Replace the minimal fixture skeleton with one carrying Bip01 Head and Bip01 L ForeTwist
     // so rigid parts with named root NiNodes spawn real rigid_roots under the bone.
-    std::fs::write(dir.path().join("meshes\\skeleton.nif"), head_and_foretwist_skeleton_nif()).unwrap();
+    std::fs::write(
+        dir.path().join("meshes").join("skeleton.nif"),
+        head_and_foretwist_skeleton_nif(),
+    )
+    .unwrap();
 
     let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(actor_forms(vec![])));
     let refs: &'static fnv_sim::RefTable = Box::leak(Box::default());

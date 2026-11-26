@@ -677,12 +677,12 @@ pub(crate) mod tests {
         assert_eq!((a.weapon, a.weapon_mods), (Some(WEAPON), 5));
     }
 
-    fn words(out: &mut Vec<u8>, values: &[u32]) { out.extend(values.iter().flat_map(|v| v.to_le_bytes())); }
+    pub(super) fn words(out: &mut Vec<u8>, values: &[u32]) { out.extend(values.iter().flat_map(|v| v.to_le_bytes())); }
     fn floats(out: &mut Vec<u8>, values: &[f32]) { out.extend(values.iter().flat_map(|v| v.to_le_bytes())); }
 
     /// Synthetic NIF/KF containers using `schemas/nif` and the layout in
     /// `crates/fnv-nif/tests/synthetic.rs`; no game data or original binaries.
-    fn nif(blocks: &[(&str, Vec<u8>)], strings: &[&str]) -> Vec<u8> {
+    pub(super) fn nif(blocks: &[(&str, Vec<u8>)], strings: &[&str]) -> Vec<u8> {
         fn string(out: &mut Vec<u8>, s: &str) { words(out, &[s.len() as u32]); out.extend(s.as_bytes()); }
         let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
         words(&mut out, &[0x1402_0007]);
@@ -703,7 +703,7 @@ pub(crate) mod tests {
         out
     }
 
-    fn av_object(name: u32) -> Vec<u8> {
+    pub(super) fn av_object(name: u32) -> Vec<u8> {
         let mut out = vec![];
         words(&mut out, &[name, 0, u32::MAX, 14]); // name, extras, controller, flags
         floats(&mut out, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
@@ -954,14 +954,14 @@ pub(crate) mod tests {
     }
 
     /// The shapes `actor`'s record has now.
-    fn dressed_shapes(app: &App, actor: Entity) -> Vec<Entity> {
+    pub(super) fn dressed_shapes(app: &App, actor: Entity) -> Vec<Entity> {
         app.world().get::<Dressed>(actor).unwrap().parts.iter().flat_map(|(_, shapes)| shapes.iter().copied()).collect()
     }
 
     /// `actor`'s shapes not in `before`, each of which must have `reference`'s `RefVisual`
     /// and the mark: read on the entities themselves, so a shape left without a `RefVisual`
     /// fails here, where [`drawn_all_marked`]'s query would not find it. How many there are.
-    fn new_shapes_refer_to(app: &App, actor: Entity, reference: u32, before: &[Entity]) -> usize {
+    pub(super) fn new_shapes_refer_to(app: &App, actor: Entity, reference: u32, before: &[Entity]) -> usize {
         let new: Vec<Entity> = dressed_shapes(app, actor).into_iter().filter(|e| !before.contains(e)).collect();
         for &e in &new {
             assert_eq!(app.world().get::<RefVisual>(e).map(|r| r.0), Some(reference), "{e}");
@@ -1389,7 +1389,8 @@ pub(crate) mod tests {
         app.update();
         assert_eq!(app.world().resource::<OutfitStats>().replacements, N, "no extra reloads on frame 3");
     }
-
-    #[path = "../../outfits_rigid_roots_tests.rs"]
-    mod rigid_roots_tests;
 }
+
+#[cfg(test)]
+#[path = "outfits_rigid_roots_tests.rs"]
+mod rigid_roots_tests;
