@@ -246,15 +246,11 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     };
     // The ambient occlusion's hook goes in after the sun's; it too acts only under its
     // shader def (ssao_lighting.rs).
-    // Under physical PBR the light loop is another text: the occlusion's hook for it comes
-    // with #3828's split part 2 (#4287); until then the occlusion stays on the picture.
-    let (patched, ao_hooked) = match (!physical).then(|| crate::ssao_lighting::hook_patched(&patched)).flatten() {
+    // Under physical PBR the light loop is another text, with its own hook (#3828's split
+    // part 2, #4287): the sky visibility and the sun's contact shadow as well.
+    let hooked = if physical { crate::ssao_lighting::physical_hook_patched(&patched) } else { crate::ssao_lighting::hook_patched(&patched) };
+    let (patched, ao_hooked) = match hooked {
         Some(hooked) => (hooked, true),
-        None if physical => {
-            info!("ambient occlusion: on the picture under physical PBR (its lighting hook is still to come)");
-            crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
-            (patched, false)
-        }
         None => {
             error!("{PBR_FUNCTIONS}: the ambient occlusion hook's anchors not found (Bevy changed?); the occlusion stays on the picture");
             crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
@@ -263,11 +259,12 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     };
     // The bounce light's hook goes in after the ambient occlusion's, whose names it uses; it
     // too acts only under its shader def (rtgi_volume.rs).
-    // Under physical PBR it waits with the occlusion's hook (#4287), whose names it needs.
+    // Under physical PBR it waits for a linear variant of its line (its display sum is not
+    // in the physical loop).
     let (patched, rtgi_hooked) = match (!physical).then(|| crate::rtgi_volume::hook_patched(&patched)).flatten() {
         Some(hooked) => (hooked, true),
         None if physical => {
-            info!("RTGI volume: not under physical PBR yet (it needs the occlusion's lighting hook)");
+            info!("RTGI volume: not under physical PBR yet (its hook is written for the display-value sum)");
             crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
             (patched, false)
         }
@@ -865,8 +862,14 @@ mod tests {
         assert!(physical_functions.contains("let nvf_ambient_lin = "));
         assert!(!physical_functions.contains("nvf_point_display"));
         let sun_patched = crate::sun_visibility::hook_patched(&physical_functions).expect("sun_visibility hook applies after physical_patched");
+        // The ambient occlusion's physical hook (#4287) after the sun's; not the display one.
+        assert!(crate::ssao_lighting::hook_patched(&sun_patched).is_none(), "the display-value hook finds no display sum");
+        let ao = crate::ssao_lighting::physical_hook_patched(&sun_patched).expect("the physical ambient occlusion hook applies");
+        for name in ["nvf_physical_occlusion(", "if (i == 0u && nvf_display) { shadow *= nvf_sun_contact; }", "nvf_specular_ao(NdotV, nvf_ao_ambient * nvf_ibl_sky_factor, roughness)", "nvf_ao_shadowed"] {
+            assert!(ao.contains(name), "{name}");
+        }
         // Authored reflections under physical lighting: the reflection gate goes in after them.
-        assert!(reflection_gate::gate_patched(&sun_patched).is_some(), "the reflection gate applies after physical_patched");
+        assert!(reflection_gate::gate_patched(&ao).is_some(), "the reflection gate applies after the physical hooks");
     }
 
     /// CPU white-furnace check for EON (`Fd_OrenNayar` without dielectric coupling):

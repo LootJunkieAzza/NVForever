@@ -32,7 +32,7 @@ use bevy::shader::Shader;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub mod hook;
-pub(crate) use hook::hook_patched;
+pub(crate) use hook::{hook_patched, physical_hook_patched};
 
 /// ssao_lighting.wesl, imported by the patched `apply_pbr_lighting` as
 /// `nvforever::ssao_lighting`.

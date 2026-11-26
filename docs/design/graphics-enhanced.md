@@ -4314,7 +4314,7 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
 
 ### 3.25 Physical lighting (`physical-pbr`; off in every preset, #3827)
 
-**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion's physical channels and its place inside the physical light loop (part 2, #4287, below; until then the occlusion stays on the picture under this row, logged once), the canopy shading (part 3b, #4266), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
+**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion's physical channels and its place inside the physical light loop (part 2, #4287, below), the canopy shading (part 3b, #4266), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
 
 **With the volumetric rows** [design: agreed with the volumetric work, 2026-11-26]: Volumetric
 clouds and Volumetric light run under Physical lighting. The clouds are lit as the physical
@@ -4402,7 +4402,7 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
   for the indoor image-based light's day lift (`emittance.rs` `weather_daylight_luma`); the
   rays themselves are drawn as in the display-value look.
 
-- *Ambient occlusion* (with Ambient occlusion on, §3.1; part 2, #4287, in progress): under
+- *Ambient occlusion* (with Ambient occlusion on, §3.1; part 2, #4287): under
   this row the occlusion pass also writes a long-range sky visibility for architecture
   (about 3 m, foliage counted only by its thickness so a crown does not act as a wall)
   into its texture's blue channel, and a short screen-space contact shadow towards the
@@ -4411,10 +4411,23 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
   the sun rises from 3 to 14 % above the horizon (ssao.rs `physical_occlusion_vectors`).
   All three channels go through a two-stage denoise: a 4 × 4 core with a stride-2 ring,
   then a 7 × 7 separable à-trous pass (`denoise_wide`), blurring more with distance (110 to
-  420 units) and over foliage [design]. Still to come: the lighting side that reads them
-  (the depth-aware upsample, the sky term in the multi-bounce, the contact shadow in the
-  sun's light, the specular occlusion of the image-based light); until then the occlusion
-  stays on the picture under this row. Without the row the occlusion looks as before.
+  420 units) and over foliage [design]. The lighting reads them inside the physical light
+  loop (ssao_lighting/hook.rs `PHYSICAL_HOOK_EDITS`, ssao_lighting.wesl
+  `nvf_physical_occlusion`):
+  - a 3 × 3 depth-aware tent upsample of the texture, with a near and a soft depth
+    tolerance, the soft one taken over foliage and with distance;
+  - the sky's light and the fallback ambient take the local occlusion with the multi-bounce
+    fit times `mix(0.28, 1, sky visibility)`, and the sky's reflection Lagarde and de
+    Rousiers' specular occlusion of the same [documented: "Moving Frostbite to Physically
+    Based Rendering", SIGGRAPH 2014, §4.10.2];
+  - the first directional light (the sun or the moon, an interior's key light) takes the
+    contact shadow in a world view;
+  - lamps take the lamps' factor (a share of it where their shadow is looked up, as in the
+    display-value loop); their highlight takes the diffuse factor, as the physical loop adds
+    a lamp's diffuse light and highlight as one [design].
+
+  The bounce light volume (RTGI) still waits under the row: its hook is written for the
+  display-value sum. Without the row the occlusion looks as before.
 
 | Constant | Value | Tag and basis |
 |---|---|---|

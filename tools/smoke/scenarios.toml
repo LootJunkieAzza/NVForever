@@ -37392,3 +37392,55 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
+[[scenario]]
+name = "physical-lighting-occlusion"
+source = "[design, #3827 part 2] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/ssao_lighting/hook.rs `PHYSICAL_HOOK_EDITS`, ssao_lighting.wesl `nvf_physical_occlusion`): with --graphics-only physical-pbr,ambient-occlusion at Goodsprings at noon, the occlusion goes into the physical light loop (the local occlusion, the sky visibility and the sun's contact shadow), every material that reads it compiles and draws, and the RTGI hook says why it waits. Whether the look is right is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/ssao*", "engine/nvforever/src/ssao_lighting/**", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/nvf-shader-tests/**"]
+args = ["--cell", "Goodsprings", "--hour", "12", "--play", "--no-voice", "--no-messages", "--graphics-only", "physical-pbr,ambient-occlusion"]
+run_seconds = 16
+order = [[
+  { text = "lights: physical PBR linear lighting installed", label = "the physical light loop (Goodsprings)" },
+  { text = "lights: ambient occlusion hook installed", label = "the physical hook after it (Goodsprings)" },
+  { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera once the hook is in (Goodsprings)" },
+]]
+expect = [
+  { text = "physical PBR: on", count = 1, label = "the run's switch is on (Goodsprings)" },
+  { text = "ambient occlusion: on the ambient light in the lighting (main camera)", count = 1, label = "said once: it stays in the lighting (Goodsprings)" },
+  { text = "RTGI volume: not under physical PBR yet (its hook is written for the display-value sum)", count = 1, label = "the bounce light's hook waits, and says why (Goodsprings)" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the occlusion in the physical loop (Goodsprings)" },
+  { text = "Shader validation error", label = "a material shader with NVF_AMBIENT_OCCLUSION under Physical lighting does not compile (Goodsprings)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (Goodsprings)" },
+  { text = "hook's anchors not found", label = "the lighting hooks apply to the physical loop (Goodsprings)" },
+  { text = "lighting hook is not installed", label = "the occlusion goes into the lighting, not the fallback (Goodsprings)" },
+  { text = "DeviceLost", label = "the GPU device was lost (Goodsprings)" },
+]
+note = "Written 2026-11-26 (#4287, the occlusion's hook for the physical loop); first run 2026-11-26 on vanilla data: PASS."
+[[scenario]]
+name = "physical-lighting-occlusion-interior"
+source = "[design, #3827 part 2] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/ssao_lighting/hook.rs `PHYSICAL_HOOK_EDITS`, ssao_lighting.wesl `nvf_physical_occlusion`): with --graphics-only physical-pbr,ambient-occlusion in the Prospector Saloon, lit by lamps, the occlusion goes into the physical light loop (the local occlusion, the sky visibility and the sun's contact shadow), every material that reads it compiles and draws, and the RTGI hook says why it waits. Whether the look is right is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/ssao*", "engine/nvforever/src/ssao_lighting/**", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/nvf-shader-tests/**"]
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--graphics-only", "physical-pbr,ambient-occlusion"]
+run_seconds = 16
+order = [[
+  { text = "lights: physical PBR linear lighting installed", label = "the physical light loop (the saloon)" },
+  { text = "lights: ambient occlusion hook installed", label = "the physical hook after it (the saloon)" },
+  { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera once the hook is in (the saloon)" },
+]]
+expect = [
+  { text = "physical PBR: on", count = 1, label = "the run's switch is on (the saloon)" },
+  { text = "ambient occlusion: on the ambient light in the lighting (main camera)", count = 1, label = "said once: it stays in the lighting (the saloon)" },
+  { text = "RTGI volume: not under physical PBR yet (its hook is written for the display-value sum)", count = 1, label = "the bounce light's hook waits, and says why (the saloon)" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the occlusion in the physical loop (the saloon)" },
+  { text = "Shader validation error", label = "a material shader with NVF_AMBIENT_OCCLUSION under Physical lighting does not compile (the saloon)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the saloon)" },
+  { text = "hook's anchors not found", label = "the lighting hooks apply to the physical loop (the saloon)" },
+  { text = "lighting hook is not installed", label = "the occlusion goes into the lighting, not the fallback (the saloon)" },
+  { text = "DeviceLost", label = "the GPU device was lost (the saloon)" },
+]
+note = "Written 2026-11-26 (#4287, the occlusion's hook for the physical loop); first run 2026-11-26 on vanilla data: PASS."

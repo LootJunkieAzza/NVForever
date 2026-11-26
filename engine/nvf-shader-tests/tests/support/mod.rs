@@ -56,16 +56,16 @@ impl Compiler {
     }
 
     /// The production sources with the physical PBR patches (`Fd_OrenNayar`, full
-    /// Cook-Torrance Fresnel, linear diffuse/ambient; the ambient occlusion's hook for them
-    /// comes with #3828's split part 2).
+    /// Cook-Torrance Fresnel, linear diffuse/ambient) and the ambient occlusion's hook for
+    /// them (#3828's split part 2).
     pub fn with_physical_pbr() -> Self {
-        Self::build(&[], false, false, true)
+        Self::build(&[], true, false, true)
     }
 
     /// The physical PBR patches with the reflection gate after them (Physical lighting in a
     /// run with authored reflections, nvforever lights.rs `gating`).
     pub fn with_physical_pbr_and_gate() -> Self {
-        Self::build(&[], false, true, true)
+        Self::build(&[], true, true, true)
     }
 
     fn build(
@@ -155,6 +155,10 @@ impl Compiler {
                             &production_display_shader::unix_lines(&source),
                         )
                         .expect("production physical PBR patch anchors match the selected shader");
+                        if self.ambient_occlusion_hook {
+                            source = production_ambient_occlusion_hook::physical_hook_patched(&source)
+                                .expect("the physical ambient occlusion hook's anchors match the selected shader");
+                        }
                     } else {
                         // LightsPlugin prepares this actual module before grass uses it.
                         source = production_display_shader::display_patched(
