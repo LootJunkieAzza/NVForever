@@ -857,8 +857,10 @@ impl ScriptLooks {
         self.hologram_fallbacks.push(HologramFallback { on, set, neutral, under });
     }
 
-    /// A script's `PlayMagicShaderVisuals` of `shader` on `on`: the same shader played
-    /// again starts over. A hologram colour (`colour`, [`hologram_colour`]) follows the
+    /// A script's `PlayMagicShaderVisuals` of `shader` on `on`: repeated non-hologram
+    /// plays stack distinct instances in start order [observed:
+    /// `w6d12_13_play_stop_magic_shader_has_and_playing_list`]. A hologram colour
+    /// (`colour`, [`hologram_colour`]) deduplicates and follows the
     /// colour rule [hypothesis: #3017, effect-shaders.md §9]:
     /// - a threat colour ends the other colours of its set playing on the reference; a
     ///   neutral colour it ends is held back under it, and comes back when the threat
@@ -941,8 +943,10 @@ pub fn hologram_colour(load_order: &[String], edid: Option<&str>, shader: fnv_si
 
 /// `ref.PlayMagicShaderVisuals shader [duration]`: play an effect shader on the calling
 /// reference (the player without one) for the duration, or until stopped [documented:
-/// GECK wiki PlayMagicShaderVisuals]. The same shader played again on the same reference
-/// starts over [hypothesis]; hologram colours follow [`ScriptLooks::play`]'s rule.
+/// GECK wiki PlayMagicShaderVisuals]. Repeated non-hologram plays on the same reference
+/// stack distinct instances [observed:
+/// `w6d12_13_play_stop_magic_shader_has_and_playing_list`]; hologram colours deduplicate
+/// and follow [`ScriptLooks::play`]'s rule [design].
 pub fn play_magic_shader_visuals(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let on = ctx.subject_or_player();
     let shader = a.form(0)?;
