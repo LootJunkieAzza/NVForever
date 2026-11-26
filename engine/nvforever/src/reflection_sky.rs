@@ -55,8 +55,9 @@
 //!     shows display values clipped (lights.rs `display_clip`, the default; GAME_CLIP,
 //!     lights.rs:70) and the inverse of the Tony McMapface table otherwise (`NVF_TONEMAP=tony`);
 //!   - lit ground ([`ground_texel`]): the fork's display-value sum writes a diffuse surface as
-//!     min(diffuse x (ambient + direct)^2.2, 1) (lights/display_shader.rs:108-111, then x
-//!     exposure / exposure), with no inverse tone map;
+//!     the linear colour of min(diffuse's display value x (ambient + direct), 1)
+//!     (lights/display_shader.rs `DISPLAY_EDITS`, then x exposure / exposure), with no
+//!     inverse tone map;
 //!   - indoors ([`texel`]): no sky is drawn, so the ambient-matched identity stays: a
 //!     display value v (with the ambient's share) is v x max(v, 1e-6)^1.2, so a direction
 //!     coloured like the ambient reflects the converted ambient (nvf_assets
@@ -220,10 +221,11 @@ pub fn sky_texel(scaled: Vec3, clip: bool) -> Vec3 {
 
 /// Lit ground's units (module notes): what the fork's display-value sum writes for a diffuse
 /// surface of linear colour `albedo` under the display-value light `light` (ambient +
-/// direct, lights/display_shader.rs:108-111): min(albedo x light^2.2, 1) per channel, no
-/// inverse tone map (the surface itself is tone-mapped like the mirror).
+/// direct, lights/display_shader.rs `DISPLAY_EDITS`): the linear colour of min(albedo's
+/// display value x light, 1) per channel, no inverse tone map (the surface itself is
+/// tone-mapped like the mirror).
 pub fn ground_texel(albedo: Vec3, light: Vec3) -> Vec3 {
-    (albedo * light.max(Vec3::ZERO).powf(2.2)).min(Vec3::ONE)
+    reflection_room::lit_texel(albedo, light)
 }
 
 /// [`GROUND_ALBEDO`] as the shader's linear diffuse colour.

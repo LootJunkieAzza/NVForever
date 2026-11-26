@@ -1334,12 +1334,18 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-11-05 (placed particle scale, issue #1547)
 
-87. **Does a placed reference's scale size its particles?** (P2; particles.md §7.7.) The
+87. **Does a placed reference's scale size its particles?** (P2; particles.md §7.7, #3673.) The
     Ultra-Luxe fountain's ULFountainFX (0x0016566E) is placed at scale 0.5. Take a frame of the
     original at hour 12 from about (1176, -700, 1080), facing north, and the same frame in
     NVForever. Check the size of the drops against the basin, how high the spray goes, and
     whether it comes out of the spout. If the original's spray is the file's full size, the
     rule in §7.7 is wrong and the cause of the misplaced spray lies elsewhere.
+    Also compare placed smoke in FalloutNV.esm (#3673): `dlc03fxdarksmoke.nif` at scale
+    0.23 (`0x000E72EF`, WastelandNV 28255, 32694, 5595) against the one at scale 1
+    (`0x00137F86`, -31401, -95650, 6918), measuring puff size beside nearby geometry in
+    the original. If that comparison supports radius scaling, re-check the Ultra-Luxe
+    fountain (`0x0016566E`) and tyre smoke (`fxtiresmoke.nif`) before and after testing
+    the candidate rule.
 
 ## Added 2026-11-05 (leveled rolls and locks, issue #1567)
 

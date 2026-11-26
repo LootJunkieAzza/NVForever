@@ -1235,7 +1235,7 @@ run_seconds = 14
 order = [
   [
     { re = 'graphics: ambient occlusion, light glow$', label = "the switch is on from the start (Goodsprings, MSAA)" },
-    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (Goodsprings, MSAA)" },
+    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (Goodsprings, MSAA)" },
   ],
   [
     "lights: ambient occlusion hook installed",
@@ -1268,7 +1268,7 @@ run_seconds = 14
 order = [
   [
     { re = 'graphics: ambient occlusion, light glow$', label = "the switch is on from the start (the saloon)" },
-    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (the saloon)" },
+    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (the saloon)" },
   ],
   [
     "lights: ambient occlusion hook installed",
@@ -1301,7 +1301,7 @@ run_seconds = 14
 order = [
   [
     { re = 'graphics: ambient occlusion, .*temporal anti-aliasing', label = "the switch and TAA on from the start" },
-    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (TAA)" },
+    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (TAA)" },
   ],
   [
     "lights: ambient occlusion hook installed",
@@ -1334,7 +1334,7 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr",
 run_seconds = 16
 order = [
   [
-    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (FSR)" },
+    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (FSR)" },
     { text = "FSR dispatch active: 3.1.4, 853x480 -> 1280x720", label = "FSR draws at the render size after the occlusion said where it runs (the estimate line comes with the camera, FSR's with its first dispatch)" },
   ],
   [
@@ -1478,7 +1478,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TE
 args = ["--cell", "Novac", "--play", "--hour", "12", "--no-voice", "--no-messages", "--graphics", "enhanced", "--ambient-occlusion=performance"]
 run_seconds = 28
 expect = [
-  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (Novac at 12:00, Performance)" },
+  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (Novac at 12:00, Performance)" },
   { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera (Novac at 12:00, Performance)" },
   { text = "ambient occlusion: the multisampled depth resolved once to one sample for the passes", label = "under 4x multisampling the passes read the resolved depth (Novac at 12:00, Performance)" },
 ]
@@ -1501,7 +1501,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TE
 args = ["--cell", "Novac", "--play", "--hour", "12", "--no-voice", "--no-messages", "--graphics", "enhanced", "--ambient-occlusion=performance", "--upscaler", "dlss", "--upscaler-quality", "quality"]
 run_seconds = 28
 expect = [
-  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (Novac at 12:00, Performance with DLSS Quality)" },
+  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (Novac at 12:00, Performance with DLSS Quality)" },
   { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera (Novac at 12:00, Performance with DLSS Quality)" },
 ]
 forbid = [
@@ -1521,7 +1521,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TE
 args = ["--cell", "UnderpassRanchInterior01", "--play", "--hour", "12", "--no-voice", "--no-messages", "--graphics", "enhanced", "--ambient-occlusion=performance"]
 run_seconds = 28
 expect = [
-  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (UnderpassRanchInterior01, Performance)" },
+  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (UnderpassRanchInterior01, Performance)" },
   { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera (UnderpassRanchInterior01, Performance)" },
   { text = "ambient occlusion: the multisampled depth resolved once to one sample for the passes", label = "under 4x multisampling the passes read the resolved depth (UnderpassRanchInterior01, Performance)" },
 ]
@@ -15633,12 +15633,12 @@ expect = [
 
 [[scenario]]
 name = "slots"
-source = "docs/spec-notes/slots.md §7: a slot machine at The Tops (0x0016546A in TOPSCasino) activated with 200 Tops chips: its script's ShowSlotMachineMenuParams opens the menu (bets 1 to 75) with the help the first time; the payout list shown and hidden; a bet of 5 made to stop on three oranges pays 160 x 5, then a cherry on the left reel pays 2 x 5, then a losing line; screenshots of the help, the payout list, the reels turning and a result"
+source = "docs/spec-notes/slots.md §7: a slot machine at The Tops (TOPSCasino) activated with 200 Tops chips: its script's ShowSlotMachineMenuParams opens the menu (bets 1 to 75) with the help the first time; the payout list shown and hidden; a bet of 5 made to stop on three oranges pays 160 x 5, then a cherry on the left reel pays 2 x 5, then a losing line; screenshots of the help, the payout list, the reels turning and a result"
 areas = ["slots", "menus"]
 paths = ["crates/fnv-game/src/slots.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvf-play/src/lockpick/help.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,52:reels:1-2-3,52.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_help.png,38.5:slots_payouts.png,41:slots_spin.png,43.5:slots_result.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,42.5:payout,44:payout,44.5:reels:6-6-6,45:spin,51:reels:7-1-2,55.5:spin,63:reels:1-2-3,63.5:spin,70.5:exit", NVF_PLAY_TEST_SHOTS = "40.5:slots_help.png,43.5:slots_payouts.png,46:slots_spin.png,50.1:slots_result.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 61
+run_seconds = 73
 order = [[
   "slots: the player is given 200 chips",
   'slots: open The Tops (0x00144C3F): bets 1 to 75, 200 chips carried, earnings 0 of 10000, reel stops [2, 2, 2, 2, 2, 2, 2] (14 a reel), 7 symbol pictures, model terminals\NV_SlotMachine\NV_SlotMachine-Minigame.NIF; help message shown (first use)',
@@ -15654,6 +15654,147 @@ order = [[
 expect = [
   "slots summary: 1 asked, 1 opened (0 refused); 3 spins, 2 won, 800 chips won, 5 lost; 0 bans",
 ]
+
+[[scenario]]
+name = "slots-seated"
+source = "Slot machines, part A: The Tops' machine has its stool (TopsSlotMachineStool01L) 56 units out in front [observed: the load-order survey]; activated, the player sits on it by the stool's own getting-on clip, the menu opens once seated, each spin plays NVSlotMachineInsertCoin, a loss NVSlotMachineLoose, the jackpot (160 x) the cheer for 3 s on the upper body, and leaving gets the player up by the getting-off clip a moment later; third person for the screenshots"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:6-6-6,50.5:spin,59.5:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_seated_sitting_down.png,44.2:slots_seated_insert_coin.png,48.6:slots_seated_loss.png,55.6:slots_seated_cheer.png,60:slots_seated_end_00.png,61:slots_seated_end_01.png,62.5:slots_seated_end_02.png,63.7:slots_seated_end_03.png,64.5:slots_seated_end_04.png,65.5:slots_seated_getting_up_00.png,66.5:slots_seated_getting_up_01.png,67.5:slots_seated_getting_up_02.png,68.5:slots_seated_up_00.png,70:slots_seated_up_01.png,71.5:slots_seated_up_02.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 74
+order = [[
+  "slots seat: the player sits on stool 0011E62E at machine 0016546A",
+  "furniture: the player uses 0011E62E",
+  "furniture: the player is on 0011E62E",
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots: open The Tops (0x00144C3F)",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Bell BAR Seven: nothing",
+  "slots seat: the player plays Loose",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots seat: celebration 3.00s (160 x)",
+  "slots seat: the player plays Cheer",
+  "slots seat: celebration ended",
+  "slots: closed (the player left)",
+  "slots seat: the menu closed; the player stays on stool 0011E62E a moment",
+  "slots seat: the player gets up from stool 0011E62E",
+  "furniture: the player got off 0011E62E",
+  "slots seat: the player is up",
+]]
+expect = [
+  { re = 'slots seat: \S+specialidle_nvinsertcoin\.kf: [\d.]+s, \d+ upper-body tracks', label = "InsertCoin loads, upper body only" },
+  { re = 'slots seat: \S+specialidle_nvloose\.kf: [\d.]+s, \d+ upper-body tracks', label = "Loose loads" },
+]
+
+[[scenario]]
+name = "slots-standing"
+source = "Slot machines, part A: Gomorrah's machine (the cushion row) has no stool in front [observed: the load-order survey]; activated, the player stands 44 units out in front facing it, a spin plays InsertCoin on the upper body, a two-cherry win (5 x) a short cheer, and leaving lets the player go at once"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_standing_at.png,35.2:slots_standing_insert_coin.png,39.4:slots_standing_cheer.png,46:slots_standing_left.png" }
+args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
+run_seconds = 48
+order = [[
+  { re = 'slots seat: standing at machine 0015EB86 \(.*\), facing 270 deg \(no stool in front\)', label = "standing in front, facing the machine" },
+  "slots: open Gommorah (0x00140521)",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Cherry Cherry Bell: Two cherries pays 5 x 5 = 25 chips",
+  { re = 'slots seat: celebration 1\.3\ds \(5 x\)', label = "a short celebration for a small win" },
+  "slots seat: the player plays Cheer",
+  "slots seat: celebration ended",
+  "slots: closed (the player left)",
+  "slots seat: the player leaves the machine",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-standing-holster"
+source = "Slot machines, part A: at a standing machine (Gomorrah, no stool) the weapon is put away, as sitting does (`furniture::drive_player`): the 10mm pistol is equipped and drawn in third person before the machine is activated; the win's cheer then shows both hands empty. Screenshots: the gun drawn, the cheer"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "28:slots_holster_drawn.png,39.4:slots_holster_cheer.png" }
+args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
+run_seconds = 48
+order = [[
+  "slots seat: the weapon is put away at the machine",
+  { re = 'slots seat: standing at machine 0015EB86 \(.*\), facing 270 deg \(no stool in front\)', label = "standing in front, facing the machine" },
+  "slots: the reels stop on Cherry Cherry Bell: Two cherries pays 5 x 5 = 25 chips",
+  "slots seat: the player plays Cheer",
+  "slots: closed (the player left)",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-seated-holster"
+source = "Slot machines, part A: The Tops' machine with its stool, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Two losing spins, then Exit: a moment on the stool, then the getting-off clip [design]. Screenshots: the gun drawn, seated, after Exit, getting off, up again"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon,26:orbit=150:-10,31:release", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:2-3-4,50.5:spin,56:exit", NVF_PLAY_TEST_SHOTS = "29:slots_seated_holster_drawn.png,36.5:slots_seated_holster_seated.png,56.5:slots_seated_holster_end_00.png,57.5:slots_seated_holster_end_01.png,59:slots_seated_holster_end_02.png,60.2:slots_seated_holster_end_03.png,61:slots_seated_holster_end_04.png,62:slots_seated_holster_getting_up_00.png,63:slots_seated_holster_getting_up_01.png,64:slots_seated_holster_getting_up_02.png,65:slots_seated_holster_up_00.png,66.5:slots_seated_holster_up_01.png,68:slots_seated_holster_up_02.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 70
+order = [[
+  "slots seat: the player sits on stool 0011E62E at machine 0016546A",
+  "furniture: the player is on 0011E62E",
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots seat: the weapon is away (sitting put it away)",
+  "slots seat: the player plays Loose",
+  "slots seat: the player plays Loose",
+  "slots: closed (the player left)",
+  "slots seat: the menu closed; the player stays on stool 0011E62E a moment",
+  { re = 'slots seat: the player gets up from stool 0011E62E', label = "then off the stool" },
+  { re = 'furniture: the player got off 0011E62E', label = "the getting-off clip" },
+  { re = 'slots seat: the player is up', label = "up, the weapon still away" },
+]]
+expect = []
+
+[[scenario]]
+name = "slots-3d"
+source = "Slot machines, part B (engine/nvforever/src/slots_view.rs): the Tops slot machine activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera pans slowly in on the reels and stays there for the pull and the turn, out to third person only for a win, back in after; a pull while the win's sequence plays (48.1 s) is ignored and the next spin waits for it to end; the body out of the close camera's view; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+areas = ["slots", "menus"]
+paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs", "engine/nvf-play/src/slots.rs", "engine/nvf-play/src/slots/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,48.1:spin,50.3:spin,57.5:reels:1-2-3,58.5:spin,65.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_reels.png,38.5:slots3d_payouts.png,40.00:slots3d_clip_00.png,40.25:slots3d_clip_01.png,40.50:slots3d_clip_02.png,40.75:slots3d_clip_03.png,41.00:slots3d_clip_04.png,41.25:slots3d_clip_05.png,41.50:slots3d_clip_06.png,41.75:slots3d_clip_07.png,42.00:slots3d_clip_08.png,42.25:slots3d_clip_09.png,42.50:slots3d_clip_10.png,42.75:slots3d_clip_11.png,43.00:slots3d_clip_12.png,43.25:slots3d_clip_13.png,43.50:slots3d_clip_14.png,43.75:slots3d_clip_15.png,44.00:slots3d_clip_16.png,44.25:slots3d_clip_17.png,44.50:slots3d_clip_18.png,46.65:slots3d_cheer.png,47.85:slots3d_win_line.png,48.25:slots3d_blocked.png,49.05:slots3d_back_01.png,49.45:slots3d_back_02.png,50.05:slots3d_back_03.png,50.9:slots3d_pull2.png,54.93:slots3d_small_00.png,55.53:slots3d_small_win.png,56.13:slots3d_small_01.png,57.73:slots3d_small_03.png,59.5:slots3d_loss_00.png,62.5:slots3d_loss_01.png,63.1:slots3d_loss.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 69
+order = [[
+  "slots: the machine is 0016546A",
+  "slots view: the reel model has 28 faces (radius 7.",
+  "slots view: drums on 0016546A (its own reel nodes; radius 8.",
+  "slots: spin: bet 5, 195 chips left; the reels will stop on Orange Orange Orange",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots: the next spin waits 5.6s for the win's sequence",
+  "slots: spin ignored: the win's sequence has",
+  "slots: spins open again (the win's sequence is over)",
+  "slots: spin: bet 5, 990 chips left; the reels will stop on Cherry Bell BAR",
+  "slots: the reels stop on Cherry Bell BAR: One cherry pays 2 x 5 = 10 chips",
+  "slots: the reels stop on Bell BAR Seven: nothing",
+  "slots: closed (the player left)",
+  "slots view: drums on 0016546A taken away",
+]]
+expect = [
+  "arm found",
+  "faces as the reel model)",
+  "slots view summary: drums built on 1 machines",
+  "slots view: the player's body out of the camera's view",
+  "slots view: the player's body back in the camera's view",
+]
+
+[[scenario]]
+name = "slots-3d-static"
+source = "Slot machines, part B (engine/nvforever/src/slots_view.rs): an Atomic Wrangler slot machine of the static model Slot_Machine02.nif (vWranglerSlot02, has no reel nodes: the drums stand at the vanilla cabinet's reel places; a win of three bells and a loss; screenshots. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+areas = ["slots", "menus"]
+paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00119EC0", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x00119EC0", NVF_PLAY_TEST_SLOTS = "18:chips:200:144C42,36:help,37:bet:5,39.5:reels:1-1-1,40:spin,46:reels:2-3-4,49:spin,55.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_static_reels.png,41.2:slots3d_static_spin.png,44.95:slots3d_static_win.png,50.3:slots3d_static_spin2.png,54.1:slots3d_static_loss.png" }
+args = ["--cell", "FreesideAtomicWrangler", "--play", "--no-voice"]
+run_seconds = 59
+order = [[
+  "slots: the machine is 00119EC0",
+  "slots view: drums on 00119EC0 (the cabinet's reel places (static model)",
+  "slots: the reels stop on Bell Bell Bell: Three bells pays 10 x 5 = 50 chips",
+  "slots: the reels stop on BAR Seven Lemon: nothing",
+  "slots: closed (the player left)",
+]]
 
 [[scenario]]
 name = "blackjack"
@@ -18394,7 +18535,7 @@ order = [["caravan: bet accepted: ante", "caravan: the player's ante", "caravan:
 name = "caravan"
 source = "docs/spec-notes/caravan.md: ShowCaravanMenu against Ringo with his deck (as his dialogue line) is refused with no cards; given his deck's 30 cards the bet opens with its help, Auto Match and Accept, the deck builder's random deck of 30, then the game plays out by itself (the player's side by the opponent's rules) to a winner, the pot settles and the results close"
 areas = ["caravan", "menus"]
-paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs"]
+paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs", "engine/nvforever/src/caravan_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "17:caravan_bet.png,22.5:caravan_deck.png,33:caravan_game.png" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 130
@@ -18418,8 +18559,47 @@ expect = [
   { re = 'caravan: help box on the bet screen .*, (-?\d+) left of the buttons', range = [20, 1000], label = "and left of the buttons with a gap (#1663)" },
   { re = 'caravan: opponent plays .* on its caravan', label = "the opponent lays numbered cards" },
   { re = 'caravan summary: 2 asked, 1 opened \(1 refused\); 1 games: [01] won, [01] lost', label = "the summary" },
+  { text = "caravan view: the table built", label = "the game is drawn on the 3D table" },
+  { text = "caravan view: the table put away", label = "the 3D table goes with the game" },
 ]
-forbid = [{ text = "move refused", label = "every move the sides choose is legal" }]
+forbid = [
+  { text = "move refused", label = "every move the sides choose is legal" },
+  { text = "caravan view: no card picture", label = "every card's picture is found" },
+]
+
+[[scenario]]
+name = "caravan-pot-drop"
+source = "[design]: the Caravan pot falls onto the table as real objects (engine/nvforever/src/caravan_pot.rs): the notes flutter down first, then the caps and coins drop onto them and heap up, none on its rim, nothing in the planks. As the caravan scenario (pot 108 against Ringo); the pot is laid when play starts (about 23 s) and comes to rest by itself"
+areas = ["caravan"]
+paths = ["engine/nvforever/src/caravan_pot.rs", "engine/nvforever/src/caravan_view.rs", "engine/nvf-play/src/caravan/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "23.6:caravan_pot_small_falling.png,31:caravan_pot_small_settled.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 34
+manual = "caravan_pot_small_*.png: the notes falling flat, then the pot at rest in heaps on its notes, clear of the cards and the screen's words, no cap on its rim"
+order = [[
+  { re = 'caravan view: the pot of 108 on the table as \d+ pieces, falling in', label = "the pot of 108 is laid and falls" },
+  { re = 'caravan view: the pot of 108 settled: ', label = "and comes to rest" },
+]]
+expect = [
+  { re = 'caravan view: the pot of 108 settled: \d+ pieces, \d+ caps and coins resting on others, \d+ pinned, at rest by itself: true, in the planks: 0', label = "at rest by itself, nothing in the planks" },
+]
+
+[[scenario]]
+name = "caravan-pot-drop-large"
+source = "as caravan-pot-drop with a pot of 10434 (Ringo given 5000 caps, the player 20000, the whole bet raised): many notes and Legion coins, the caps and coins heaped on others, every note whole on the screen (0cda73198)"
+areas = ["caravan"]
+paths = ["engine/nvforever/src/caravan_pot.rs", "engine/nvforever/src/caravan_view.rs", "engine/nvf-play/src/caravan/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:104C7D.additem 0000000F 5000;12.3:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:20000,15:cards:15D7A2,16:open:104C7D:15D7A2:1.0,18:help,19:match,20:accept,21:help,22:randomize,23:play,23.5:help", NVF_PLAY_TEST_SHOTS = "24:caravan_pot_large_falling.png,34:caravan_pot_large_settled.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 37
+manual = "caravan_pot_large_*.png: notes fluttering down flat, then heaps of caps and coins on the notes, every note whole on the screen"
+order = [[
+  { re = 'caravan view: the pot of 10434 on the table as \d+ pieces, falling in', label = "the pot of 10434 is laid and falls" },
+  { re = 'caravan view: the pot of 10434 settled: ', label = "and comes to rest" },
+]]
+expect = [
+  { re = 'caravan view: the pot of 10434 settled: \d+ pieces, (?P<n>\d+) caps and coins resting on others, \d+ pinned, at rest by itself: true, in the planks: 0', range = [3, 1000], label = "heaped (some resting on others), at rest by itself, nothing in the planks" },
+]
 
 [[scenario]]
 name = "f5-helios-rows-untouched"

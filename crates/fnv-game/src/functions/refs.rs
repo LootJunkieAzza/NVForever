@@ -27,12 +27,26 @@ pub fn enable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String> 
         return none();
     }
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled();
-    g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
     if !was {
+        if !g.enable_event_active.insert(r) {
+            return none();
+        }
+        // The extender's OnEnable fires PRE-update (GetDisabled still 1) with null
+        // calling reference (GetSelfAlt == 0) and args (ref, 0) [observed: 2026-11-24,
+        // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_on_enable_disable_pre_update.json` probe
+        // `w6d1p2_07_on_enable_tick`:
+        // `PROBE|w6d1p2_07_on_enable_tick|dis=1->0|en(n1=1,n2=1,s0=1,sR=0,a1R=1,a2z=1,inDis=1)`;
+        // no DLL, PDB, or third-party source consulted].
+        g.dispatch_event("OnEnable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], None);
+        g.enable_event_active.remove(&r);
+    }
+    let still_disabled = !g.world.get(r).map_err(|e| e.to_string())?.enabled();
+    g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
+    if still_disabled {
         g.emit(EventKind::RefEnabled { reference: r, fade });
         g.note_enabled(r);
-        // The extender's OnEnable: the reference, then 0 [observed: nvse-events].
-        g.dispatch_event("OnEnable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
     none()
 }
@@ -88,11 +102,26 @@ pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String>
     }
     g.script_looks.fading_out.remove(&r);
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled();
-    g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
     if was {
+        if !g.enable_event_active.insert(r) {
+            return none();
+        }
+        // The extender's OnDisable fires PRE-update (GetDisabled still 0) with
+        // GetSelfAlt != ref and args (ref, 0) [observed: 2026-11-24, Fallout: New
+        // Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, ShowOffNVSE 184,
+        // GSDocMitchellHouse (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_on_enable_disable_pre_update.json` probe
+        // `w6d1_07_on_enable_on_disable_args`:
+        // `PROBE|w6d1_07_on_enable_on_disable_args|dis(n1=1,n2=1,sOk=0,a1Ok=1,a2z=1,inDis=0)|en(n1=0,sOk=0,a1Ok=0,inDis=0)|par(d=0,da=1,ea=0)`;
+        // no DLL, PDB, or third-party source consulted]; passing `None` (`GetSelfAlt == 0`)
+        // matches `OnEnable` (`s0=1`) [hypothesis].
+        g.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], None);
+        g.enable_event_active.remove(&r);
+    }
+    let still_enabled = g.world.get(r).map_err(|e| e.to_string())?.enabled();
+    g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
+    if still_enabled {
         g.emit(EventKind::RefDisabled { reference: r, fade });
-        // The extender's OnDisable: the reference, then 0 [observed: nvse-events].
-        g.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
     none()
 }

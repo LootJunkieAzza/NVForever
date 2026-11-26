@@ -1230,14 +1230,15 @@ pub fn place_width(rel: Vec3, dir: Vec3, width: f32, r: f32) -> f32 {
     width / dir.dot(n).abs().max(1e-3)
 }
 
-/// Isotropic footprint for filtering the placement (march `vc_place_width`). Fair banks use the area of
-/// the projected footprint.
+/// Isotropic footprint for filtering placement (march `vc_place_width`). Fair banks use the
+/// projected area. An isolated mixed bank resolves the reconstructed texel across that area.
 /// As coverage becomes a continuous deck the horizontal base dominates again.
 fn cloud_place_width(rel: Vec3, dir: Vec3, width: f32, u: &CloudVolumeUniform) -> f32 {
     let projected = place_width(rel, dir, width, u.reach.y);
     if u.scale.w < 0.72 {
         let deck = smoothstep(0.55, 0.72, u.scale.w);
-        let fair = (width * projected).sqrt();
+        let texel = 1.0 + (u.dshape.w - 1.0) * crate::volumetric_clouds_model2::mixed_sheet(u);
+        let fair = (width * projected).sqrt() * texel;
         fair + (projected - fair) * deck
     } else {
         projected
@@ -2616,7 +2617,7 @@ fn follow_volume(
     let (Some(sky), Some(c), Some(blended)) = (sky.as_deref(), cover.0.as_ref(), blended) else { return };
     // The live tuning's effective aids on top of the start values (#3032 stage 2e).
     let input = inputs(sky, c, &blended, temporal);
-    let input = aids.apply(input);
+    let input = physical_sun_hue(aids.apply(input), nvf_assets::authored::physical_pbr());
     // The level's probe spacing (the far buffer's scale is the medium's, by the request's level).
     let input = drawn_inputs(VolumeInputs { probe: Some(level.probe_factor()), ..input });
     // A weather the medium cannot use is shown flat, not repaired.
@@ -2823,6 +2824,23 @@ fn count_sky_jumps(
     }
 }
 
+/// The sunlight's share of the direct light's colour under Physical lighting (the `SUNCOLOUR`
+/// aid's value there): the physical sun's colour carries the hour, warm low and white high, as
+/// the ground it lights shows, so the clouds take it whole instead of the weather's cloud
+/// colours at its luminance; otherwise they stay grey over a warm evening land [design;
+/// observed: Goodsprings at 17:30, 2026-11-26].
+pub const PHYSICAL_SUN_COLOUR_SHARE: f32 = 1.0;
+
+/// The inputs with [`PHYSICAL_SUN_COLOUR_SHARE`] under Physical lighting, after the aids (which
+/// would set the share back); unchanged otherwise.
+fn physical_sun_hue(input: VolumeInputs, physical: bool) -> VolumeInputs {
+    if !physical {
+        return input;
+    }
+    let light_aids = crate::volumetric_clouds_light::LightAids { sun_colour: PHYSICAL_SUN_COLOUR_SHARE, ..input.light_aids };
+    VolumeInputs { light_aids, ..input }
+}
+
 /// The uniform's inputs from the live sky, the cover and this frame's blend of the weathers'
 /// own covers (the amount and the tint shares, [`blend_covers`]).
 fn inputs(sky: &SkyState, c: &CloudCoverOutput, blended: &BlendedCover, temporal: bool) -> VolumeInputs {
@@ -2849,7 +2867,7 @@ fn inputs(sky: &SkyState, c: &CloudCoverOutput, blended: &BlendedCover, temporal
         sky: crate::volumetric_clouds_light::SkyLight {
             upper: daylight.map_or_else(|| sky.color(ColorType::SkyUpper), |d| d.upper),
             horizon: daylight.map_or_else(|| sky.color(ColorType::Horizon), |d| d.horizon),
-            ambient: sky.color(ColorType::Ambient),
+            ambient: daylight.map_or_else(|| sky.color(ColorType::Ambient), |d| d.ground),
             elevation: sky.sun_elevation(),
         },
         moon_extra: sky.moon_brightness_multiplier() - 1.0,
@@ -4628,6 +4646,9 @@ pub(crate) mod tests {
         assert_eq!(compose_uniform(ToneCurve::TonyMcMapface, false, true).flags.y, 1.0);
         assert_eq!(compose_uniform(ToneCurve::TonyMcMapface, false, false), CloudComposeUniform::default());
         assert_eq!(compose_uniform(ToneCurve::TonyMcMapface, true, false).flags.x, 1.0, "linear light (Physical lighting) skips the inverse");
+        let i = VolumeInputs::default();
+        assert_eq!(physical_sun_hue(i, false), i);
+        assert_eq!(physical_sun_hue(i, true).light_aids.sun_colour_share(), 1.0, "the physical sun's own hue");
         assert!(shader.contains("if compose.flags.y > 0.5 {\n        return vec4<f32>(0.0);"), "held: nothing added (premultiplied zero)");
     }
 

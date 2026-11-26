@@ -9,6 +9,11 @@
 //! and their light as they are. [`fit()`] makes the constants, by what is seen from above a [`Floor`];
 //! [`solution()`] is both.
 //!
+//! `export` and [`reach_by()`] are for another tracer of the same rays, such as the GPU solve of `nvf-rtgi-live`: the
+//! scene, its lamps' table and the points of a volume plainly, the flood with the validity of its points told from
+//! outside, and [`SolvedVolume::of_points`] to pack light gathered elsewhere as a solve packs its own. This solver
+//! stays the reference: what it computes is the same with them.
+//!
 //! Space is Bevy's world in game units: y up, -z north. Colours are linear unless called display values.
 //!
 //! A room with a lamp: what a ray meets on its floor, the light in its air, what is read of it on the floor, and how
@@ -68,6 +73,7 @@
 #![forbid(unsafe_code)]
 
 mod bvh;
+mod export;
 mod failed;
 mod fit;
 mod floor;
@@ -83,18 +89,19 @@ mod trace;
 mod vec3;
 mod volume;
 
-pub use bvh::Ray;
+pub use bvh::{Corners, Ray};
+pub use export::{classified, meet, Export, Near, Sheared, VolumePoint};
 pub use failed::{Cancel, Failed, Reason};
 pub use fit::{FitConfig, FitOutcome, Fitted, Met, Population, Solution, Stock};
 pub use floor::{Floor, FloorLimits, Room, EYE};
-pub use gather::{Moments, Probe};
-pub use grid::{Coverage, Place};
-pub use light::{Cone, Directional, Lamp, LightState};
-pub use reach::{GatherConfig, GatherLimits, Reached, MOST_RAYS};
+pub use gather::{directions, Moments, Probe};
+pub use grid::{Classify, Coverage, Place};
+pub use light::{Cone, Directional, Lamp, LampTable, LightState};
+pub use reach::{GatherConfig, GatherLimits, Reached, ReachedBy, MOST_RAYS};
 pub use scene::{Cull, Instance, Level, Material, Mesh, SceneInput, Texture, Wrap};
 pub use solve::{Counts, Seeds, SolveConfig, SolvedVolume, Stats};
-pub use texture::Lookup;
-pub use trace::{lift, Hit, PreparedScene, SceneLimits, SceneStats, MOST_THREADS};
+pub use texture::{Lookup, Texels};
+pub use trace::{lift, Face, Hit, PreparedScene, SceneLimits, SceneStats, MOST_THREADS};
 pub use vec3::V3;
 pub use volume::{Read, Reader, SLABS, THIN};
 
@@ -109,6 +116,17 @@ pub fn prepare(scene: SceneInput, limits: &SceneLimits, threads: usize, cancel: 
 /// segments of one start, and now and then during the rest, on any thread.
 pub fn reach(scene: &PreparedScene, light: &LightState, seeds: &[V3], config: &GatherConfig, cancel: Cancel) -> Result<Reached, Failed> {
     failed::guarded(|| Reached::of(scene, light, seeds, config, cancel))
+}
+
+/// The points of the air that `seeds` reach, as [`reach()`] floods them: the same config, seeds, segments, neighbours,
+/// order and limit of points, and the same refusals in the same order, but whether a candidate is valid
+/// ([`Probe::valid`]) is from what `classify` says its rays met, not from gathering it. With [`classified`] as the
+/// classifier it is [`reach()`]'s reach. Nothing is lit and no light is looked at: what a light may not be is refused
+/// where the light is used. A classifier that gives a wrong number of counts, or counts that cannot be (more hidden
+/// sides than hits, more hits than rays), is [`Failed::Internal`]; its failures and panics are the reach's. `cancel` is
+/// asked before every call of it, and as for [`reach()`] in the rest.
+pub fn reach_by(scene: &PreparedScene, seeds: &[V3], config: &GatherConfig, classify: &mut Classify, cancel: Cancel) -> Result<ReachedBy, Failed> {
+    failed::guarded(|| ReachedBy::of(scene, seeds, config, classify, cancel))
 }
 
 /// The bounce light of the points the seeds reach, as a texture. `cancel` as for [`reach()`], and now and then

@@ -3534,6 +3534,90 @@ fn is_event_handler_first_and_last_match_execution_priority_order() {
 }
 
 #[test]
+fn on_disable_and_on_enable_fire_pre_update_with_null_self() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(
+            &format!("int afterDis\nint afterEn\nBegin Function {{ }}\n{body}\nEnd\n"),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let res = q(
+        &mut g,
+        "set TestGlobal to 0
+         SetEventHandler \"OnDisable\" (Begin Function {ref r, int z}
+           if eval (GetSelfAlt == 0) && (r == TestActivatorREF) && (z == 0) && (r.GetDisabled == 0)
+             let TestGlobal := TestGlobal + 1
+           endif
+         End)
+         SetEventHandler \"OnEnable\" (Begin Function {ref r, int z}
+           if eval (GetSelfAlt == 0) && (r == TestActivatorREF) && (z == 0) && (r.GetDisabled == 1)
+             let TestGlobal := TestGlobal + 10
+           endif
+         End)
+         TestActivatorREF.Disable 0
+         let afterDis := TestActivatorREF.GetDisabled
+         TestActivatorREF.Enable 0
+         let afterEn := TestActivatorREF.GetDisabled
+         SetFunctionValue (afterDis * 10 + afterEn)",
+    );
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+        "unexpected script error: {:?}",
+        g.events
+    );
+    assert_eq!(res, XVal::Num(10.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 11.0);
+}
+
+#[test]
+fn on_disable_and_on_enable_reentrancy_does_not_recurse_or_duplicate_events() {
+    use fnv_game::trace::EventKind;
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let res = g
+        .run_query(
+            "int afterDis
+             int afterEn
+             Begin Function { }
+               set TestGlobal to 0
+               SetEventHandler \"OnDisable\" (Begin Function {ref r, int z}
+                 let TestGlobal := TestGlobal + 1
+                 r.Disable 0
+               End)
+               SetEventHandler \"OnEnable\" (Begin Function {ref r, int z}
+                 let TestGlobal := TestGlobal + 10
+                 r.Enable 0
+               End)
+               TestActivatorREF.Disable 0
+               let afterDis := TestActivatorREF.GetDisabled
+               TestActivatorREF.Enable 0
+               let afterEn := TestActivatorREF.GetDisabled
+               SetFunctionValue (afterDis * 10 + afterEn)
+             End",
+            Default::default(),
+        )
+        .unwrap();
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, EventKind::ScriptError { .. })),
+        "unexpected script error on reentrant Disable/Enable: {:?}",
+        g.events
+    );
+    assert_eq!(res, XVal::Num(10.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 11.0);
+    let dis_count = g.events.iter().filter(|e| matches!(e.kind, EventKind::RefDisabled { .. })).count();
+    let en_count = g.events.iter().filter(|e| matches!(e.kind, EventKind::RefEnabled { .. })).count();
+    assert_eq!(dis_count, 1, "expected exactly 1 RefDisabled event");
+    assert_eq!(en_count, 1, "expected exactly 1 RefEnabled event");
+}
+
+#[test]
 fn set_event_handler_and_alt_deduplicate_identical_registrations() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();
@@ -3793,6 +3877,58 @@ fn get_debug_mode_state_reports_combat_ai_default_and_toggles() {
     g.toggles.actors_ai_off = true;
     assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 1)"), XVal::Num(0.0), "tai sets mode 1 to 0");
     assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 2)"), XVal::Num(1.0), "mode 2 stays 1 independently");
+}
+
+#[test]
+fn get_event_handlers_showoff_known_and_filter_keys() {
+    // [observed 2026-11-24: w6t2_16_xnvse_get_event_handlers_filter_keys ->
+    // empty(cross=-1,soAdd=0)|std(first,second)|alt(0,1)]
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+
+    // Known ShowOff:* events return an empty Map (size 0), while OnCrosshairOn and unknown
+    // event names return ar_Null (size -1).
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"ShowOff:OnAdd\"))"), XVal::Num(0.0), "ShowOff:OnAdd empty Map");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"ShowOff:OnFireWeapon\"))"), XVal::Num(0.0), "ShowOff:OnFireWeapon empty Map");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"OnCrosshairOn\"))"), XVal::Num(-1.0), "OnCrosshairOn returns ar_Null when unregistered");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"UnknownUserEvent\"))"), XVal::Num(-1.0), "unknown event returns ar_Null");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"\"))"), XVal::Num(0.0), "unfiltered GetEventHandlers remains empty");
+
+    // Standard SetEventHandler stores filter StringMap keys as "first"/"second".
+    assert_eq!(
+        q(
+            &mut g,
+            "SetEventHandler \"OnActivate\" TestAdd \"first\"::PlayerREF \"second\"::TestGlobal\n\
+             array_var aAct = GetEventHandlers \"OnActivate\" TestAdd 1\n\
+             array_var aF = aAct[0][1]\n\
+             array_var aK = ar_Keys aF\n\
+             string_var sOut = sv_Construct \"%z,%z\" (aK[0]) (aK[1])\n\
+             RemoveEventHandler \"OnActivate\" TestAdd\n\
+             SetFunctionValue sOut",
+        ),
+        XVal::Str("first,second".into()),
+        "SetEventHandler filter keys are first,second"
+    );
+
+    // SetEventHandlerAlt stores filter StringMap keys as numeric index strings "0"/"1".
+    assert_eq!(
+        q(
+            &mut g,
+            "SetEventHandlerAlt \"OnActivate\" TestAdd 0::PlayerREF 1::TestGlobal\n\
+             array_var aAlt = GetEventHandlers \"OnActivate\" TestAdd 1\n\
+             array_var aF = aAlt[0][1]\n\
+             array_var aK = ar_Keys aF\n\
+             string_var sOut = sv_Construct \"%z,%z\" (aK[0]) (aK[1])\n\
+             RemoveEventHandler \"OnActivate\" TestAdd\n\
+             SetFunctionValue sOut",
+        ),
+        XVal::Str("0,1".into()),
+        "SetEventHandlerAlt filter keys are 0,1"
+    );
 }
 
 #[test]
