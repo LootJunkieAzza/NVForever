@@ -46,19 +46,26 @@ pub fn separate(bodies: &[Body], dt: f32) -> (Vec<[f32; 2]>, Vec<bool>) {
     let mut moves = vec![[0.0f32; 2]; bodies.len()];
     let mut touched = vec![false; bodies.len()];
     let most = SPEED * dt;
+    const DIAMETER: f32 = 2.0 * RADIUS;
+    const DIAMETER_SQ: f32 = DIAMETER * DIAMETER;
     for i in 0..bodies.len() {
+        let a = &bodies[i];
         for j in i + 1..bodies.len() {
-            let (a, b) = (&bodies[i], &bodies[j]);
+            let b = &bodies[j];
             // Different floors of one space are not in each other's way.
             if a.space != b.space || (a.feet[2] - b.feet[2]).abs() > 100.0 {
                 continue;
             }
             let d = [a.feet[0] - b.feet[0], a.feet[1] - b.feet[1]];
-            let dist = d[0].hypot(d[1]);
-            let overlap = 2.0 * RADIUS - dist;
-            if overlap <= 0.0 {
+            if d[0].abs() >= DIAMETER || d[1].abs() >= DIAMETER {
                 continue;
             }
+            let dist_sq = d[0] * d[0] + d[1] * d[1];
+            if dist_sq >= DIAMETER_SQ {
+                continue;
+            }
+            let dist = dist_sq.sqrt();
+            let overlap = DIAMETER - dist;
             touched[i] = true;
             touched[j] = true;
             let (share_a, share_b) = match (a.movable, b.movable) {
