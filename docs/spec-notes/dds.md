@@ -55,6 +55,11 @@ A layout without alpha reads as opaque; luminance is copied to all three colours
 (A8) is not read: Direct3D samples it with black colour, so what it would look like
 in the game is not known.
 
+A FourCC file may also set `DDPF_ALPHAPIXELS` (flags 0x5): it reads as the 0x4 row of
+its FourCC, the bit adds nothing [observed: Honest Hearts' tree textures, e.g.
+`textures\nvdlc02\landscape\trees\nvdlc02treebark.dds`, `DXT5`/`DXT1` with flags 0x5,
+which the original draws textured; refused, they drew white (#4488)].
+
 ## 3. Sizes [observed: exact for all 26,907 files]
 
 - Width and height are powers of two in every file, 4096 at most [observed]. A texture
@@ -100,7 +105,7 @@ explicitly, so rendering does not rely on the naming convention.
 ```
 
 `mip_count` is the stored value; `levels` the number used (§3). `format` is a name from
-§2 (a row matches on the whole pixel-format flags value), or, for anything else,
+§2 (a row matches on the whole pixel-format flags value; 0x5 reads as 0x4, §2.1), or, for anything else,
 `unknown(flags=0x%x,fourcc=<4 ASCII chars, or 0x + 8 hex digits>,bits=%d,masks=0x%08x/0x%08x/0x%08x/0x%08x)`
 with `expected_size` `null`. For a file with a DX10 header (§6), `format` is the DXGI
 name of its code (`BC7_UNORM_SRGB`), or `unknown(dxgi=N)` for a code not read, and

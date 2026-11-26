@@ -96,8 +96,14 @@ number, a form or a string. [observed: set rest1]:
   lower-case key order [design].
 - **GetAsArray**: a string map of the keys and values.
 - **GetFirst / GetNext**: a `[key, value]` list each; after the last, no array.
-- **GetAll** `0|1`: no array when the store has no map; with `1` a string map of the
-  temporary maps by name [observed: getall.0, getall.1; hypothesis: `0` the saved maps].
+- **GetAll** `0|1`: no array when the store has no map; with `0` a string map of the saved
+  (non-`*`) maps by name and with `1` a string map of the temporary (`*`) maps by name
+  [observed: getall.0, getall.1; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+  ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base
+  masters, read-only `PrintToConsole` probe `so_09_auxstrmap_getall_0_vs_1`
+  (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, checking `ar_HasKey` on
+  `AuxStringMapArrayGetAll 0` and `1` for `"w4_perm_map"` and `"*w4_temp_map"`):
+  `PROBE|so_09_auxstrmap_getall_0_vs_1|1,0,0,1`; no DLL or source consulted].
 - **SetFromArray** `name array [keep]`: the map becomes the array's string keys and values,
   or with `keep` non-zero gains them; answers 0 (`fromarray`, `fromarray.keep`,
   `fromarray.replace`).
@@ -213,9 +219,16 @@ crashed ran alone]. Code: `crates/fnv-game/src/nvse_unlisted2.rs`.
 - **SetAnimInterpPriority, CopyAnimPriorities, RemoveAnimTextKey, QueueNextAnim,
   SetAnimAdditiveInterpsWeightMult**: 0, and no getter showed a change (`knv2.setprio` then
   `prio.after` -1; `queue` then `queued.after` 0). NVForever answers 0.
-- **SetAnimCycleType, SetAnimDestFrame** `path n [n]`: 1 for a file of the game
-  (`knv2.cycletype`, `destframe`). NVForever gives 1 when the file exists, else 0
-  [hypothesis].
+- **SetAnimCycleType, SetAnimDestFrame** `path n [n]`: 1 for an existing `.kf` file of the
+  game and 0 for a missing `.kf` file [observed: knv2.cycletype, destframe; Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + kNVSE 37, 2026-11-23, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probes
+  `b3_knv_02_anim_cycle_dest_frame` (`tools/capture/nvse/catalogs/wave4b_extenders.json`,
+  #3679): `PROBE|b3_knv_02_anim_cycle_dest_frame|cyc=1/0,dst=1/0` and
+  `knv_02_set_anim_cycle_dest_missing_file`
+  (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679):
+  `PROBE|knv_02_set_anim_cycle_dest_missing_file|0,0`; no DLL or source consulted].
+  NVForever gives 1 when the file exists, else 0.
 - **EraseCurrentAnimAction**: 1 on the player (`knv2r2`).
 - **ThisAnim, ThisAnimDir**: "" outside an animation's own script (`knv1.thisanim.*`).
 - **EjectWeapon**: 0 on the player. **RegisterCustomAnimGroup** `group name` compiled in the

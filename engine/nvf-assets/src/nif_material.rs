@@ -141,6 +141,11 @@
 //! (`terrain_sampling::anti_tiling_defs`), and nif_material.wesl sets the surface up with
 //! terrain_pbr.wesl's anti-tiled reads instead of Bevy's `pbr_input_from_standard_material`.
 //! Every other shape (repeat 0) keeps the call there always was.
+//!
+//! Landscape layers (#3789; docs/spec-notes/world.md "Landscape layers"): the main pass of
+//! the same materials gets `TERRAIN_LAYER` ([`terrain_layer_def`]), and a layer drawn blended
+//! covers by its painted opacity alone: its diffuse texture's alpha, which a ground pack may
+//! use for a height map, has no part in it. Road strips and other NIF shapes keep theirs.
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -785,6 +790,18 @@ impl NifSurfaceKey {
     }
 }
 
+/// The main-pass fragment definition of a landscape material (module notes, "Landscape
+/// layers"). The blended layers are in no prepass and cast no shadows; an opaque base is
+/// opaque in both whatever its texture's alpha.
+fn terrain_layer_def(descriptor: &mut RenderPipelineDescriptor) {
+    if descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        return;
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.push("TERRAIN_LAYER".into());
+    }
+}
+
 impl MaterialExtension for NifSurface {
     fn fragment_shader() -> ShaderRef {
         "embedded://nvf_assets/nif_material.wesl".into()
@@ -844,6 +861,9 @@ impl MaterialExtension for NifSurface {
         }
         if key.bind_group_data.anti_tiling {
             crate::terrain_sampling::anti_tiling_defs(descriptor, true);
+        }
+        if key.bind_group_data.terrain_layer {
+            terrain_layer_def(descriptor);
         }
         // The ambient occlusion in the lighting (module notes of nvforever ssao_lighting.rs):
         // a refracting shape is in no prepass, so the texels under it are the surface behind;
@@ -1764,6 +1784,21 @@ mod tests {
         assert!(NifSurfaceKey::from(&NifSurface { terrain_repeat: 256.0, ..default() }).terrain_layer);
         assert!(!NifSurfaceKey::from(&NifSurface::default()).terrain_layer);
         assert!(!NifSurfaceKey::from(&NifSurface { terrain_repeat: -1.0, ..default() }).terrain_layer);
+        // #3789: its main pass, and no other, leaves the diffuse texture's alpha out.
+        let mut d = RenderPipelineDescriptor { fragment: Some(FragmentState::default()), ..default() };
+        terrain_layer_def(&mut d);
+        assert_eq!(d.fragment.unwrap().shader_defs, vec![ShaderDefVal::from("TERRAIN_LAYER")]);
+        let mut prepass = RenderPipelineDescriptor { fragment: Some(FragmentState::default()), ..default() };
+        prepass.vertex.shader_defs.push("PREPASS_PIPELINE".into());
+        terrain_layer_def(&mut prepass);
+        assert!(prepass.fragment.unwrap().shader_defs.is_empty());
+        for line in [
+            "    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING) pbr_input.material.base_color.a = standard_material(in.instance_index).base_color.a;",
+            "    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING && VERTEX_COLORS) pbr_input.material.base_color.a *= vin.color.a;",
+        ] {
+            assert!(include_str!("nif_material.wesl").contains(line), "{line}");
+        }
+        assert!(crate::terrain_sampling::PBR_SOURCE.contains("p.material.base_color = vec4(p.material.base_color.rgb * terrain_base_diffuse(in.instance_index, standard.flags, taps, fp).rgb, p.material.base_color.a);"), "anti-tiled too");
         assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: 300.0, ..default() }).terrain, Vec4::new(300.0, 0.0, 0.0, 0.0));
         assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).terrain, Vec4::ZERO);
         assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: -1.0, anti_tiling: true, ..default() }).terrain, Vec4::ZERO);

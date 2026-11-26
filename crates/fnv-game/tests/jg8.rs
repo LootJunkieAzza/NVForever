@@ -19,20 +19,39 @@ const QUST: u32 = 0x901;
 const REPU: u32 = 0x902;
 const MISC_A: u32 = 0x903;
 const MISC_B: u32 = 0x904;
+const XMARKER: u32 = 0x3B;
+const ACTI_TRAP: u32 = 0x905;
+const CELL_A: u32 = 0x200;
+const TRAP_REF: FormId = FormId(0x305);
+const MISC_REF: FormId = FormId(0x306);
 
 fn edid(sig: &[u8; 4], fid: u32, name: &str) -> Vec<u8> {
     record(sig, 0, fid, &[sub(b"EDID", z(name))])
 }
 
+fn placed_obj(id: FormId, edid: &str, base: u32) -> Vec<u8> {
+    let data: Vec<u8> = [0.0f32; 6].iter().flat_map(|v| v.to_le_bytes()).collect();
+    record(b"REFR", 0, id.0, &[sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", data)])
+}
+
 fn plugin_bytes() -> Vec<u8> {
     let glob = record(b"GLOB", 0, GLOB, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let refs = [placed_obj(TRAP_REF, "TrapRef", ACTI_TRAP), placed_obj(MISC_REF, "MiscRef", MISC_A)].concat();
+    let cell = [
+        record(b"CELL", 0, CELL_A, &[sub(b"EDID", z("TestCellA"))]),
+        group(CELL_A.to_le_bytes(), 6, &group(CELL_A.to_le_bytes(), 9, &refs)),
+    ]
+    .concat();
     [
         tes4(),
         top(b"NPC_", &edid(b"NPC_", 0x7, "Player")),
+        top(b"STAT", &edid(b"STAT", XMARKER, "XMarker")),
+        top(b"ACTI", &edid(b"ACTI", ACTI_TRAP, "TestTrap")),
         top(b"GLOB", &glob),
         top(b"QUST", &edid(b"QUST", QUST, "TestQuest")),
         top(b"REPU", &edid(b"REPU", REPU, "TestReputation")),
         top(b"MISC", &[edid(b"MISC", MISC_A, "ZuluThing"), edid(b"MISC", MISC_B, "AlphaThing")].concat()),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
     ]
     .concat()
 }
@@ -106,10 +125,26 @@ fn handlers_hear_the_game() {
     q(&mut g, "let TestGlobal := 0\nSetJohnnyOnLimbGoneEventHandler 1 (begin function {ref rA, int iLimb}\nlet TestGlobal := TestGlobal + iLimb\nend) 0 0 1");
     g.dismember(FormId::PLAYER_REF, &[(1, false), (3, false)], None);
     assert_eq!(global(&mut g), 1.0);
-    // SetOnReputationChangeEventHandler's (reputation, axis, value) (see docs/spec-notes/ext-jg8.md).
-    q(&mut g, "let TestGlobal := 0\nSetOnReputationChangeEventHandler 1 (begin function {ref rR, int iAxis, float fV}\nlet TestGlobal := fV\nend) 0 TestReputation");
-    fnv_game::functions::reputation_store(&mut g, FormId(REPU), 0, 5.0);
-    assert_eq!(global(&mut g), 5.0);
+    // [observed 2026-11-24: w6t2p3_12_rep_fame_infamy: (reputation, fame, infamy)].
+    q(
+        &mut g,
+        "let TestGlobal := 0\n\
+         SetOnReputationChangeEventHandler 1 (begin function {ref rR, float fFame, float fInf}\n\
+         PlayerREF.AuxVarSetFlt \"*rep_ok\" (rR == TestReputation)\n\
+         PlayerREF.AuxVarSetFlt \"*rep_fame\" fFame\n\
+         PlayerREF.AuxVarSetFlt \"*rep_inf\" fInf\n\
+         let TestGlobal := fFame * 10 + fInf\n\
+         end) 0 TestReputation",
+    );
+    fnv_game::functions::reputation_store(&mut g, FormId(REPU), 1, 5.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_ok""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_fame""#), 5.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_inf""#), 0.0);
+    assert_eq!(global(&mut g), 50.0);
+    fnv_game::functions::reputation_store(&mut g, FormId(REPU), 0, 3.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_fame""#), 5.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*rep_inf""#), 3.0);
+    assert_eq!(global(&mut g), 53.0);
     // Removing it: `0 function flag filters` as set.
     q(&mut g, "let TestGlobal := 0");
     let removed = g.other.jg8.handlers.len();
@@ -199,4 +234,41 @@ fn arrays_colours_and_menus() {
     assert_eq!(g.other.jg8.custom_marker, None);
     assert_eq!(n(&mut g, "ClearCustomMapMarker"), 1.0);
     assert_eq!(n(&mut g, "IsBSALoaded \"Fallout - Meshes.bsa\""), 0.0);
+}
+
+#[test]
+fn xmarker_filter_acts_as_wildcard_for_crosshair_and_jg8_events() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // XMarker (0x3B) in filter slot 0 with form type 21 (ACTI) in slot 1 matches any ACTI ref
+    // and rejects non-ACTI refs (matching active mods such as BetterTrapDisarm).
+    q(
+        &mut g,
+        "let TestGlobal := 0\n\
+         ref h\n\
+         let h := (begin function {ref rTgt}\n\
+           if rTgt == TrapRef\n\
+             let TestGlobal := TestGlobal + 1\n\
+           else\n\
+             let TestGlobal := TestGlobal + 100\n\
+           endif\n\
+         end)\n\
+         SetJohnnyOnCrosshairEventHandler 1 h 0 XMarker 21",
+    );
+    g.jg8_crosshair(MISC_REF);
+    assert_eq!(global(&mut g), 0.0, "non-ACTI ref must not match form type 21");
+    g.jg8_crosshair(TRAP_REF);
+    assert_eq!(global(&mut g), 1.0, "XMarker wildcard + type 21 matches placed ACTI ref");
+
+    // XMarker also acts as wildcard on SetOnReputationChangeEventHandler.
+    q(
+        &mut g,
+        "let TestGlobal := 0\n\
+         SetOnReputationChangeEventHandler 1 (begin function {ref rR}\n\
+           let TestGlobal := TestGlobal + 1\n\
+         end) 0 XMarker",
+    );
+    fnv_game::functions::reputation_store(&mut g, FormId(REPU), 1, 5.0);
+    assert_eq!(global(&mut g), 1.0, "XMarker wildcard matches reputation change");
 }

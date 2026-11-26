@@ -1,16 +1,18 @@
 //! A cell's bounce light: what its lamps in sight add to what the surfaces show, gathered around points in the air
-//! and packed as a small 3D texture. These are the first parts of a solver for it (#3009,
+//! and packed as a small 3D texture, with the constants to show it by. These are the first parts of a solver (#3009,
 //! `docs/design/rtgi-solver.md`). Plain data in and out: no Bevy, no files, no GPU, no state between calls. The
 //! same input gives the same bytes on any number of threads.
 //!
 //! [`prepare`] makes the ray scene once; `bvh`, `texture` and `trace` are its parts. [`solve()`] makes the texture,
 //! for one state of the light: `light` is the formula of the engine's light sum, `gather` the bounce light around a
 //! point, `grid` the points that can be reached, `volume` the texture and its reading. [`reach()`] gives the points
-//! and their light as they are.
+//! and their light as they are. [`fit()`] makes the constants, by what is seen from above a [`Floor`];
+//! [`solution()`] is both.
 //!
 //! Space is Bevy's world in game units: y up, -z north. Colours are linear unless called display values.
 //!
-//! A room with a lamp: what a ray meets on its floor, the light in its air, and what is read of it on the floor.
+//! A room with a lamp: what a ray meets on its floor, the light in its air, what is read of it on the floor, and how
+//! strong it is to be shown.
 //!
 //! ```
 //! use nvf_rtgi::*;
@@ -54,6 +56,12 @@
 //! let up = V3::new(0.0, 1.0, 0.0);
 //! let read = Reader::new(&volume).unwrap().read(hit.p, hit.facing(), up);
 //! assert!(read.e().0[0] > read.e().0[2] && read.v() > 0.0);
+//!
+//! let corner = |x: f32, z: f32| V3::new(x, 0.0, z);
+//! let triangles = [[corner(-90.0, -90.0), corner(-90.0, 90.0), corner(90.0, 90.0)], [corner(-90.0, -90.0), corner(90.0, 90.0), corner(90.0, -90.0)]];
+//! let seeds = Seeds::of(Floor::new(&triangles, &[], &FloorLimits::default(), &|| false)?);
+//! let FitOutcome::Fitted(fitted) = fit(&scene, &light, &volume, &seeds, &FitConfig::default(), &|| false)? else { panic!() };
+//! assert!(fitted.b >= 0.25 && fitted.g > 0.0 && fitted.g <= 10.0 && fitted.met.lit == 64 * 16);
 //! # Ok::<(), Failed>(())
 //! ```
 
@@ -61,6 +69,8 @@
 
 mod bvh;
 mod failed;
+mod fit;
+mod floor;
 mod gather;
 mod grid;
 mod light;
@@ -75,6 +85,8 @@ mod volume;
 
 pub use bvh::Ray;
 pub use failed::{Cancel, Failed, Reason};
+pub use fit::{FitConfig, FitOutcome, Fitted, Met, Population, Solution, Stock};
+pub use floor::{Floor, FloorLimits, Room, EYE};
 pub use gather::{Moments, Probe};
 pub use grid::{Coverage, Place};
 pub use light::{Cone, Directional, Lamp, LightState};
@@ -103,6 +115,21 @@ pub fn reach(scene: &PreparedScene, light: &LightState, seeds: &[V3], config: &G
 /// during the packing.
 pub fn solve(scene: &PreparedScene, light: &LightState, seeds: &Seeds, config: &SolveConfig, cancel: Cancel) -> Result<SolvedVolume, Failed> {
     failed::guarded(|| SolvedVolume::of(scene, light, &seeds.points, config, cancel))
+}
+
+/// The constants of a cell by its volume, for the state of the light that it was solved in. The places are above
+/// the floor of `seeds`; of seeds that are no floor's, some of the points that were reached. That the volume is the
+/// scene's and the light's is the caller's word. `cancel` is asked at every cell of the lamps' table, every 4,096
+/// texels, before every place, and before every candidate's mean over all that the rays met, on any thread: up to 50 of
+/// them, 178 where a gain is below 2^-12 of the cap. The stock mean, worked out twice, is not asked for.
+pub fn fit(scene: &PreparedScene, light: &LightState, volume: &SolvedVolume, seeds: &Seeds, config: &FitConfig, cancel: Cancel) -> Result<FitOutcome, Failed> {
+    failed::guarded(|| fit::fitted(scene, light, volume, seeds, config, cancel))
+}
+
+/// [`solve()`], then [`fit()`] in the same light. What the fit's config or the ambient may not be is refused before
+/// the solve.
+pub fn solution(scene: &PreparedScene, light: &LightState, seeds: &Seeds, config: &SolveConfig, fit: &FitConfig, cancel: Cancel) -> Result<Solution, Failed> {
+    failed::guarded(|| fit::solved(scene, light, seeds, config, fit, cancel))
 }
 
 #[cfg(test)]

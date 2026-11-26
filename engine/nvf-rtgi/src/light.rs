@@ -196,6 +196,19 @@ impl<'a> Lights<'a> {
         let sun = self.state.directionals.iter().fold(V3::ZERO, |s, d| s + d.display * n.dot(d.to_source).clamp(0.0, 1.0));
         self.state.ambient + sun
     }
+
+    /// The whole sum, unshadowed, as drawn.
+    pub fn sum(&self, p: V3, n: V3) -> V3 {
+        let lamps = self.near(p).fold(V3::ZERO, |s, l| {
+            let add = l.light(p, n);
+            if add != V3::ZERO {
+                s + add
+            } else {
+                s
+            }
+        });
+        self.base(n) + lamps
+    }
 }
 
 /// What the sum makes of a surface: min(albedo x max(S, 0)^2.2, 1) per channel, linear.
@@ -269,6 +282,7 @@ pub mod tests {
             let p = place(6200.0);
             let all = state.lamps.iter().fold(V3::ZERO, |s, l| s + l.light(p, UP));
             assert_eq!(sum(p), all);
+            assert_eq!(lights.sum(p, UP), all);
             some += usize::from(all != V3::ZERO);
             asked += lights.near(p).count();
         }
@@ -276,7 +290,7 @@ pub mod tests {
         assert_eq!(sum(V3([f32::NAN; 3])), V3::ZERO);
         let sun = LightState { ambient: UP, directionals: vec![Directional { display: UP, to_source: UP }], lamps: Vec::new() };
         let lights = lights_of(&sun);
-        assert!(lights.base(UP) == UP * 2.0 && lights.base(-UP) == UP && lights.near(V3::ZERO).count() == 0);
+        assert!(lights.base(UP) == UP * 2.0 && lights.sum(V3::ZERO, UP) == UP * 2.0 && lights.base(-UP) == UP && lights.near(V3::ZERO).count() == 0);
     }
 
     /// Nor one at the grid's upper edge or at a cell's, where a point's cell is rounded: one of ordinary sizes, and
