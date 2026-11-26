@@ -3505,6 +3505,35 @@ fn event_handlers_are_set_dispatched_filtered_and_removed() {
 }
 
 #[test]
+fn is_event_handler_first_and_last_match_execution_priority_order() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    q(
+        &mut g,
+        "SetEventHandler \"W6Ev\" TestSet \"priority\"::10
+         SetEventHandler \"W6Ev\" TestMap \"priority\"::5
+         SetEventHandler \"W6Ev\" TestAdd \"priority\"::5
+         SetEventHandler \"W6Ev\" TestSet \"priority\"::1",
+    );
+    // Highest priority (10) is first (1) and not last (0).
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 10)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 10)"), XVal::Num(0.0));
+    // Tied middle priority (5) is neither first nor last.
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestMap 5)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestMap 5)"), XVal::Num(0.0));
+    // Lowest priority (1) is not first (0) and is last (1).
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 1)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 1)"), XVal::Num(1.0));
+    // Unregistered priority (99) is 0 for both.
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 99)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 99)"), XVal::Num(0.0));
+}
+
+#[test]
 fn get_explosion_hit_damage_returns_minus_one_outside_handler() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();
@@ -3766,6 +3795,32 @@ fn set_delay_elapsed_returns_zero_and_updates_remaining_delay() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetDelayElapsed TestDelayQuest)"), XVal::Num(0.0), "remaining delay updated to 0.0s");
     // Missing/null form returns 0.0 safely.
     assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed 0 2.5)"), XVal::Num(0.0), "null quest returns 0.0");
+}
+
+#[test]
+fn get_debug_mode_state_reports_combat_ai_default_and_toggles() {
+    // [observed 2026-11-24: w6t2_24_jip_fall_time_and_is_in_air_edges -> dbg(0,1,1,0,0,0,tgm=1)]
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(0.0), "god mode off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 1)"), XVal::Num(1.0), "AI enabled by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 2)"), XVal::Num(1.0), "Combat AI enabled by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 3)"), XVal::Num(0.0), "collision debug off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 4)"), XVal::Num(0.0), "borders off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 5)"), XVal::Num(0.0), "out-of-range mode reads 0");
+
+    g.toggles.god_mode = true;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(1.0), "tgm sets mode 0 to 1");
+    g.toggles.god_mode = false;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(0.0));
+
+    g.toggles.actors_ai_off = true;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 1)"), XVal::Num(0.0), "tai sets mode 1 to 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 2)"), XVal::Num(1.0), "mode 2 stays 1 independently");
 }
 
 #[test]
@@ -4767,7 +4822,7 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(|p: &str| {
         (p.eq_ignore_ascii_case("nvse\\user_defined_functions\\sub\\add.txt")).then(|| b"begin Function { int iA, int iB }\nSetFunctionValue iA + iB\nend\n".to_vec())
     });
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new() });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { hosted_from: None, read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new(), list: None });
     let f = udf_fixture();
     let mut g = game(&f);
     let ctx = fnv_game::game::RunCtx::default;
@@ -4777,7 +4832,7 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (IsFormValid rF)"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "let rF := CompileScript \"sub\\add.txt\"\nlet rG := GetUDFFromFile \"Sub/Add.txt\"\nSetFunctionValue (rF == rG)"), Ok(XVal::Num(1.0)), "cached by path");
     assert_eq!(q(&mut g, "SetFunctionValue (CompileScript \"Sub/None.txt\")"), Ok(XVal::Ref(0)), "no file");
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new() });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { hosted_from: None, read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new(), list: None });
 
     g.console_out.clear();
     q(&mut g, "let fRes := 2.5\nlet aA := ar_List 2, 4\nPrintVar fRes, aA").unwrap();

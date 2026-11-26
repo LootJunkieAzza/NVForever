@@ -307,10 +307,19 @@ impl Plugin for HdrPlugin {
         let Some(render) = app.get_sub_app_mut(RenderApp) else { return };
         render
             .add_systems(RenderStartup, init_pipeline)
-            // Before frame generation's HUD-less copy too: a copy taken before the expansion
-            // differed from the frame everywhere, so DLSS-G's UI alpha came out 1 on every pixel
-            // and no frame was generated over the picture (PR #3348 review).
-            .add_systems(Core3d, hdr_expand.after(Core3dSystems::PostProcess).before(crate::frame_gen::capture_hudless).before(bevy::ui_render::render_pass::ui_pass));
+            // After save-thumbnail capture (so SDR thumbnails read the pre-expansion [0, 1]
+            // tonemapped frame deterministically, #3808) and before frame generation's
+            // HUD-less copy (a copy taken before the expansion differed from the frame
+            // everywhere, so DLSS-G's UI alpha came out 1 on every pixel and no frame was
+            // generated over the picture, PR #3348 review).
+            .add_systems(
+                Core3d,
+                hdr_expand
+                    .after(Core3dSystems::PostProcess)
+                    .after(nvf_play::save::SaveShotSystems)
+                    .before(crate::frame_gen::capture_hudless)
+                    .before(bevy::ui_render::render_pass::ui_pass),
+            );
     }
 }
 

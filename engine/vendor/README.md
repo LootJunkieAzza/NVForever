@@ -598,6 +598,24 @@ The shader that reads the bindings is nvforever's (`ssao_lighting.wesl`, patched
 component; without it the layouts and shader defs are upstream's, and the pipeline keys are
 the same keys numbered differently (the packed fields above the new bit moved up by one).
 As for the sun visibility, a meshlet view must not get the component.
+
+Another change (the bounce light's volume, #3009, docs/design/rtgi-volume.md), each part marked
+`NVForever RTGI volume`, for nvforever's `rtgi_volume.rs`, built the same way. nvforever inserts
+the component nowhere yet:
+
+- `src/render/mesh_view_bindings.rs`: the render-world view component `NvfRtgiVolumeBindings`
+  (a uniform buffer, a filterable float 3D texture and a filtering sampler), the layout key bit
+  `MeshPipelineViewLayoutKey::NVF_RTGI_VOLUME` (20) and bindings 47-49 of the mesh view bind
+  group, present only for a view with it. The entries are made by the public
+  `nvf_rtgi_layout_entries`, which the tests read.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_RTGI_VOLUME` (bit 30; the packed fields above it
+  move up by one more and end at bit 51, still below the base mesh key's bits from 58), set by
+  `check_views_need_specialization` from the same component. No shader def follows from it:
+  nvf-assets' NIF material pushes `NVF_RTGI_VOLUME` for the pipelines that read the bindings.
+
+Bevy inserts no such component; without it the layouts and shader defs are upstream's, and the
+pipeline keys are the same keys numbered differently. A meshlet view must not get it.
+
 Graphics pass 2026-11-23, four more changes:
 
 - `src/cluster/gpu.rs`, `src/cluster/mod.rs`: bevy#25869 (GPU clustering keeps each view's

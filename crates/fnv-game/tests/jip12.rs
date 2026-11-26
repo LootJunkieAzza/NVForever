@@ -268,9 +268,10 @@ fn cells_light_and_settings() {
     // Internal markers: the marker model's own, a script's.
     assert_eq!(n(&mut g, "SetInternalMarker TestMarker"), 1.0);
     assert_eq!(n(&mut g, "SetInternalMarker TestStatic"), 0.0);
-    assert_eq!(n(&mut g, "SetInternalMarker TestStatic 1"), 1.0);
+    assert_eq!(n(&mut g, "SetInternalMarker TestStatic 1"), 0.0, "2-arg setter returns 0 [observed: w6d2p4_53]");
+    assert_eq!(n(&mut g, "SetInternalMarker TestStatic"), 1.0);
     assert!(g.internal_marker(FormId(STAT)));
-    q(&mut g, "SetInternalMarker TestMarker 0");
+    assert_eq!(n(&mut g, "SetInternalMarker TestMarker 0"), 0.0);
     assert!(!g.internal_marker(FormId(MARKER)));
 
     // Image space modifiers on: ApplyImageSpaceModifier A, B, A -> GetActiveIMODs

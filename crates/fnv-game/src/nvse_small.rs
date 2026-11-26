@@ -812,13 +812,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if set {
                 let v = text(args, 1);
                 match trait_name.as_str() {
-                    // [hypothesis] "string" is an exact alias for "tag" and returns 1.
+                    // [observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + yUI 140,
+                    // 10 official base masters, `GSDocMitchellHouse`, committed probe
+                    // `w6t2_26_ysi_traits_set_get_and_metadata`
+                    // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+                    // `set(str=1,ic=1,tpl=0,cat=0,unk=0)|g1=W6T2Tag,fn=w6t2_ic.dds|meta(,,,,,)` —
+                    // `YSISetTrait "string"` aliases `"tag"` and returns 1]
                     "tag" | "string" => {
                         g.small.ysi_tag.insert(f, v);
                         yes(true)
                     }
-                    // [documented: GECK wiki YSISetTrait ("icon"); hypothesis: "icon" and
-                    // "filename" share the tag-scoped store; (trait, value, form) order returns 1]
+                    // [documented: GECK wiki YSISetTrait ("icon"); observed 2026-11-24:
+                    // `w6t2_26_ysi_traits_set_get_and_metadata` (`wave6_t2_observed_matches.json`):
+                    // `YSISetTrait "icon" "w6t2_ic.dds" rStim` returns 1 and `YSIGetTrait "filename"`
+                    // reads back `"w6t2_ic.dds"`, confirming shared store and `(trait, value, form)`
+                    // order; hypothesis: calling `YSISetTrait "filename"` directly behaves identically]
                     "icon" | "filename" => {
                         match effective_tag(g, f) {
                             Some(t) => {
@@ -830,8 +838,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                         }
                         yes(true)
                     }
-                    // [hypothesis] Metadata trait names and unknown traits are rejected
-                    // no-ops returning 0 on yUI v1.4d (plugin version 140).
+                    // [observed 2026-11-24: `w6t2_26_ysi_traits_set_get_and_metadata`
+                    // (`wave6_t2_observed_matches.json`): `"template"`, `"category"`, and unknown
+                    // `"__unknown__"` return 0 on yUI 140 (`tpl=0,cat=0,unk=0`); hypothesis: the
+                    // other 4 metadata names (`"systemcolor"`, `"name"`, `"tab"`, `"count"`) also
+                    // return 0 on `YSISetTrait`]
                     "template" | "systemcolor" | "category" | "name" | "tab" | "count" => zero,
                     _ => zero,
                 }
@@ -867,8 +878,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                                 .unwrap_or_else(|| fallback(g)),
                         }
                     }
-                    // [hypothesis] All 6 icon-rule metadata trait names return "" on yUI
-                    // v1.4d (plugin version 140).
+                    // [observed 2026-11-24: `w6t2_26_ysi_traits_set_get_and_metadata`
+                    // (`wave6_t2_observed_matches.json`): `meta(,,,,,)` — all 6 icon-rule metadata
+                    // trait names return "" on yUI v1.4d (plugin version 140)]
                     "template" | "systemcolor" | "category" | "name" | "tab" | "count" => {
                         String::new()
                     }
