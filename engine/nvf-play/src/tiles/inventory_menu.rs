@@ -1495,7 +1495,7 @@ mod tests {
     const ROW_H: f64 = 40.0;
 
     fn row(item: u32, text: &str) -> item_menu::RowShown {
-        item_menu::RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: item == 1, ysi: None }
+        item_menu::RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: item == 1, dim: false, ysi: None }
     }
 
     fn shown(rows: usize, selected: usize) -> Shown {
@@ -2105,7 +2105,7 @@ mod tests {
         let mut model=crate::menu::model::MenuModel::open_inventory(&mut sim.world).unwrap();model.apply(&mut sim.world,crate::menu::model::Command::SetCategory(Side::Player,Category::Aid));
         let mut drawing=shown(12,0);drawing.tab=2;drawing.list.lists[Side::Player as usize].category=Category::Aid;
         drawing.list.lists[Side::Player as usize].rows=model.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{
-            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,ysi:None}).collect();
+            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,dim:false,ysi:None}).collect();
         let (mut ui,mut tiles)=(tree(),InventoryTiles::default());let menu=run(&mut ui,Some(drawing),&mut tiles).unwrap();tiles.shown=Some(menu);
         let row_text=list::child(&ui,rows(&tiles)[0].tile,ROW_TEXT).unwrap();
         let tab_text=find_named(&ui,tiles.written.tabs.iter().find(|t|t.key==4).unwrap().tile,TAB_TEXT).unwrap();
@@ -2159,7 +2159,7 @@ mod tests {
         let mut drawing=shown(model.list(Side::Player).rows.len(),model.selected[Side::Player as usize]);
         drawing.tab=2;drawing.list.lists[Side::Player as usize].category=Category::Aid;
         drawing.list.lists[Side::Player as usize].rows=model.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{
-            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,ysi:None}).collect();
+            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,dim:false,ysi:None}).collect();
         let ui=&mut script.rt.as_mut().unwrap().game.ui_tree;
         let menu=run(ui,Some(drawing),tiles).unwrap();tiles.shown=Some(menu);
     }
@@ -2179,7 +2179,7 @@ mod tests {
         let tab=app.world().resource::<PipBoy>().tab();
         let drawing={let m=app.world().resource::<ActiveMenu>().0.as_ref().unwrap();let mut d=shown(m.list(Side::Player).rows.len(),m.selected[Side::Player as usize]);
             d.tab=tab;d.list.lists[Side::Player as usize].category=m.category[Side::Player as usize];d.list.pointer_pick=m.pointer_pick;d.list.navigated=m.navigated;
-            d.list.lists[Side::Player as usize].rows=m.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{key:RowKey::at(&m.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,ysi:None}).collect();d};
+            d.list.lists[Side::Player as usize].rows=m.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{key:RowKey::at(&m.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,dim:false,ysi:None}).collect();d};
         let mut tiles=app.world_mut().remove_resource::<InventoryTiles>().unwrap();
         {let mut script=app.world_mut().resource_mut::<ScriptState>();let menu=run(&mut script.rt.as_mut().unwrap().game.ui_tree,Some(drawing),&mut tiles).unwrap();tiles.shown=Some(menu);}
         app.insert_resource(tiles);

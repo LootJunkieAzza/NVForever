@@ -28,6 +28,7 @@ pub fn note_created(g: &mut Game, r: FormId) {
             tracing::warn!("created {r}: the items of {source}: {e}");
         }
     }
+    g.maybe_apply_npc_weapon_mods(r);
     g.emit(EventKind::Placed { reference: r, base, cell, pos });
     if g.ref_script(r).is_some() {
         g.moved.insert(r);

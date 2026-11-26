@@ -140,7 +140,7 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// functions are built, its menus are not, and a mod that finds it goes on to read its
 /// tiles), and the plugins whose registered name no page gives (ITR, One111, ppNVSE,
 /// vheyes-nvse and the smaller ones): ext-version.md §6.
-pub const PLUGINS: [(&str, f64); 16] = [
+pub const PLUGINS: [(&str, f64); 18] = [
     ("JIP NVSE Plugin", JIP_VERSION),
     ("JIP LN NVSE", JIP_VERSION),
     ("ShowOffNVSE Plugin", 184.0),
@@ -157,6 +157,13 @@ pub const PLUGINS: [(&str, f64); 16] = [
     ("Extensions for NVSE", UNOBSERVED_VERSION),
     ("UI Organizer Plugin", UNOBSERVED_VERSION),
     ("Improved Console", 3.0),
+    // No script functions of their own; their work (engine speed-ups, a sharper local map)
+    // is the engine's own here, as UIO's lists are (ext-version.md §4). Nuclear Sunset's
+    // start-up Script Runner check shows "Outdated xNVSE plugins detected!" without them
+    // [observed in FadedLight's Nuclear Sunset fork: an installed copy's nvse.log,
+    // "Engine Optimizations; version 100", "HighResLocalMaps; version 12" (#4491)].
+    ("Engine Optimizations", 100.0),
+    ("HighResLocalMaps", 12.0),
 ];
 
 /// The version reported for a plugin the engine builds whose own number is neither

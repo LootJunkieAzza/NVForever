@@ -312,6 +312,19 @@ fn the_position_into_script_variables() {
     let mut g = game(&f);
     let out = s(&mut g, "DoorRef.GetPosEx fX fY fZ\nlet sOut := sv_Construct \"%g %g %g\" fX fY fZ\nSetFunctionValue sOut");
     assert_eq!(out, "10 20 30");
+    // GetEditorPosition on a placed ref writes pos + angles in degrees and returns the
+    // origin cell; on Player (no editor placement) it returns 0 and leaves all six
+    // output variables unchanged [observed: w6_t1_03_pos_ex_and_editor_pos].
+    let ed_door = s(
+        &mut g,
+        "float rX\nfloat rY\nfloat rZ\nref c = DoorRef.GetEditorPosition fX fY fZ rX rY rZ\nlet sOut := sv_Construct \"%i %g %g %g %g %g %g\" c fX fY fZ rX rY rZ\nSetFunctionValue sOut",
+    );
+    assert_eq!(ed_door, format!("{CELL:08X} 10 20 30 0 0 0"));
+    let ed_pc = s(
+        &mut g,
+        "float rX = 444\nfloat rY = 555\nfloat rZ = 666\nfX = 111\nfY = 222\nfZ = 333\nref c = PlayerREF.GetEditorPosition fX fY fZ rX rY rZ\nlet sOut := sv_Construct \"%i %g %g %g %g %g %g\" c fX fY fZ rX rY rZ\nSetFunctionValue sOut",
+    );
+    assert_eq!(ed_pc, "00000000 111 222 333 444 555 666");
 }
 
 fn node(name: &str, parent: Option<usize>, translation: [f32; 3], rotation: [f32; 3], material: Option<[f32; 9]>) -> SceneNode {
@@ -354,6 +367,35 @@ fn nif_block_materials_and_places() {
     assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Panel:1\" fX fY fZ 1"), "1 0.00 -0.00 90.00");
     g.scene.set_tree(r, vec![node("Scene Root", None, [0.0; 3], [30.0, 0.0, 90.0], None)]);
     assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ"), "1 30.00 -0.00 90.00");
-    let intrinsic = place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 2");
-    assert_ne!(intrinsic, "1 30.00 -0.00 90.00", "the same turn about the turning axes: other angles");
+    // Modes 2 & 3 decompose the transpose (drawn matrix) via ZYX Euler extraction
+    // [observed: w6_t1_04_nif_trans_rot_alt]:
+    // r0=(-1.9, 0.4, 23.5) -> r2=(1.9, 0.4, -23.5),
+    // r1=(89.0, 83.1, 80.7) -> r3=(-89.2, -81.7, 82.3).
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 2"), "1 0.00 -30.00 -90.00");
+    g.scene.set_tree(r, vec![node("Scene Root", None, [0.0; 3], [-1.9, 0.4, 23.5], None)]);
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 2"), "1 1.90 0.39 -23.50");
+    g.scene.set_tree(r, vec![node("Scene Root", None, [0.0; 3], [89.0, 83.1, 80.7], None)]);
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 3"), "1 -89.17 -81.69 82.28");
+    // Missing node returns 0 and leaves variables unchanged, and short aliases work.
+    assert_eq!(place(&mut g, "GetNifRotAlt \"Scene Root\" fX fY fZ 0\nlet fR := DoorRef.GetNifBlockRotationAlt \"Missing\" fX fY fZ 0"), "0 89.00 83.10 80.70");
+}
+
+#[test]
+fn get_angles_between_points_and_get_angle_ex_match_observed_jip() {
+    let f = fixture();
+    let mut g = game(&f);
+    // East: pitch 0, heading -90; Diagonal (10,20,30)->(110,20,130): pitch 45, heading -90
+    // [observed: w6_t1_01_angles_between_points].
+    let east = s(&mut g, "GetAnglesBetweenPoints 0 0 0 100 0 0 fX fZ\nlet sOut := sv_Construct \"%.2f %.2f\" fX fZ\nSetFunctionValue sOut");
+    assert_eq!(east, "0.00 -90.00");
+    let diag = s(&mut g, "GetAnglesBetweenPoints 10 20 30 110 20 130 fX fZ\nlet sOut := sv_Construct \"%.2f %.2f\" fX fZ\nSetFunctionValue sOut");
+    assert_eq!(diag, "45.00 -90.00");
+    // GetAngleEx global (0) vs local (1) on Player rotated (25, 0, 315)
+    // [observed: w6_t1_02_angle_ex_and_heading].
+    q(&mut g, "PlayerREF.SetAngle X 25\nPlayerREF.SetAngle Z 315");
+    g.tick();
+    let glob = s(&mut g, "PlayerREF.GetAngleEx fX fY fZ 0\nlet sOut := sv_Construct \"%.2f %.2f %.2f\" fX fY fZ\nSetFunctionValue sOut");
+    assert_eq!(glob, "25.00 0.00 315.00");
+    let loc = s(&mut g, "PlayerREF.GetAngleEx fX fY fZ 1\nlet sOut := sv_Construct \"%.2f %.2f %.2f\" fX fY fZ\nSetFunctionValue sOut");
+    assert_eq!(loc, "-18.25 17.39 42.19");
 }

@@ -12,9 +12,6 @@ use std::{collections::HashMap, fs, path::Path, sync::Arc};
 #[path = "../../../nvforever/src/lights/display_shader.rs"]
 pub mod production_display_shader;
 
-#[path = "../../../nvforever/src/fog/shader.rs"]
-mod production_fog_shader;
-
 #[path = "../../../nvforever/src/ssao_lighting/hook.rs"]
 pub mod production_ambient_occlusion_hook;
 
@@ -107,9 +104,16 @@ impl Compiler {
         if ambient_occlusion_hook || physical_pbr {
             packages.push(("nvf_assets", "nvf-assets/src"));
         }
+        let all_assets = packages.iter().any(|(package, _)| *package == "nvf_assets");
         for (package, directory) in packages {
             let root = engine.join(directory);
             compiler.register_directory(package, &root, &root, remove_invariance);
+        }
+        // The shared tonemapper input, which nvforever's sky and clouds import whatever else
+        // of nvf_assets a test leaves out.
+        if !all_assets {
+            let path = engine.join("nvf-assets/src/tone_input.wesl");
+            compiler.register("nvf_assets/tone_input.wesl", fs::read_to_string(path).expect("tone_input.wesl"));
         }
         compiler
     }
@@ -144,10 +148,6 @@ impl Compiler {
                 if self.physical_pbr && name == "bevy_pbr/render/pbr_lighting.wesl" {
                     source = production_display_shader::lighting_patched(&source, true)
                         .expect("production physical lighting patch anchors match the selected shader");
-                }
-                if self.physical_pbr && name == "bevy_pbr/render/fog.wesl" {
-                    source = production_fog_shader::fog_patched(&source, true)
-                        .expect("production physical fog patch anchors match the selected shader");
                 }
                 if name == "bevy_pbr/render/pbr_functions.wesl" {
                     if self.physical_pbr {

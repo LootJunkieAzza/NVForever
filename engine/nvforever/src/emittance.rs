@@ -35,10 +35,6 @@ impl Plugin for EmittancePlugin {
     }
 }
 
-/// Linear multiplier for unlit additive weather-driven ray meshes (such as `IndFXLightRays*`)
-/// under Physical lighting so thin daytime sunbeams remain visible through AgX tonemapping.
-pub const RAY_MESH_PHYSICAL_BOOST: f32 = 1.85;
-
 /// A material copy driven by an emittance source, with the colours it started from.
 struct Driven {
     copy: Handle<NifMaterial>,
@@ -46,7 +42,6 @@ struct Driven {
     base_color: LinearRgba,
     emissive: LinearRgba,
     unlit: bool,
-    additive: bool,
 }
 
 #[derive(Resource, Default)]
@@ -137,10 +132,9 @@ impl EmittanceState {
         }
         let m = materials.get(shared)?.clone();
         let (base_color, emissive, unlit) = (m.base.base_color.to_linear(), m.base.emissive, m.base.unlit);
-        let additive = matches!(m.base.alpha_mode, AlphaMode::Add);
         let copy = materials.add(m);
         self.copies.insert((shared.id(), xemi), copy.clone());
-        self.driven.push(Driven { copy: copy.clone(), source: xemi, base_color, emissive, unlit, additive });
+        self.driven.push(Driven { copy: copy.clone(), source: xemi, base_color, emissive, unlit });
         self.hour = None;
         Some(copy)
     }
@@ -233,10 +227,6 @@ fn scale(a: LinearRgba, b: LinearRgba) -> LinearRgba {
     LinearRgba::new(a.red * b.red, a.green * b.green, a.blue * b.blue, a.alpha)
 }
 
-fn ray_boost(additive: bool, is_weather: bool, physical: bool) -> f32 {
-    if additive && is_weather && physical { RAY_MESH_PHYSICAL_BOOST } else { 1.0 }
-}
-
 fn linear_luma(c: LinearRgba) -> f32 {
     (0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue).clamp(0.0, 1.0)
 }
@@ -267,17 +257,13 @@ pub(crate) fn update_emittance(
     state.shown = Some(shown);
     let colors: HashMap<u32, (LinearRgba, LinearRgba)> =
         state.sources.iter().filter_map(|(&k, s)| Some((k, color(s.as_ref()?, &sky)))).collect();
-    let physical = nvf_assets::authored::physical_pbr();
     for d in &state.driven {
         let Some(&(e, _)) = colors.get(&d.source) else { continue };
-        let is_weather = matches!(state.sources.get(&d.source), Some(Some(Source::Weather(..))));
         // Only a colour that changes is written: taking the material mutably marks it
         // changed, and its bindless slab is sent to the GPU again whatever was written.
         let Some(m) = materials.get(&d.copy) else { continue };
         if d.unlit {
-            let boost = ray_boost(d.additive, is_weather, physical);
-            let boosted = LinearRgba::new(e.red * boost, e.green * boost, e.blue * boost, e.alpha);
-            let c = Color::LinearRgba(scale(d.base_color, boosted));
+            let c = Color::LinearRgba(scale(d.base_color, e));
             if m.base.base_color != c {
                 if let Some(mut m) = materials.get_mut(&d.copy) {
                     m.base.base_color = c;
@@ -320,12 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn ray_mesh_boost_and_weather_daylight_luma_follow_time_and_presence() {
-        assert_eq!(ray_boost(true, true, true), RAY_MESH_PHYSICAL_BOOST);
-        assert_eq!(ray_boost(false, true, true), 1.0);
-        assert_eq!(ray_boost(true, false, true), 1.0);
-        assert_eq!(ray_boost(true, true, false), 1.0);
-
+    fn weather_daylight_luma_follows_time_and_presence() {
         assert_eq!(linear_luma(LinearRgba::BLACK), 0.0);
         assert!(linear_luma(LinearRgba::rgb(0.9, 0.8, 0.5)) > 0.7);
 

@@ -445,6 +445,7 @@ pub fn apply_modular_tweaks_to_game(overrides: &StewieIniMap, tweaks: &mut Tweak
     bool_tweak!("Tweaks", "bArmorConditionLabel", armor_condition);
     bool_tweak!("Tweaks", "bNoLockEncounterZoneLevels", no_lock_encounter_zone_levels);
     bool_tweak!("Tweaks", "bFasterSleepWait", faster_sleep_wait);
+    bool_tweak!("Tweaks", "bUseWASDAsArrowKeys", wasd_as_arrow_keys);
 
     // Numeric [Tweaks] settings with documented domains.
     if let Some(n) = overrides.get_i32("Tweaks", "iPerksPerLevel").filter(|&n| n >= 1) {
@@ -453,6 +454,10 @@ pub fn apply_modular_tweaks_to_game(overrides: &StewieIniMap, tweaks: &mut Tweak
     }
     if let Some(n) = overrides.get_i32("Tweaks", "iMaxCharacterLevel").filter(|&n| n >= 0) {
         tweaks.max_level = n.clamp(0, 100) as u32;
+        applied += 1;
+    }
+    if let Some(pct) = overrides.get_f64("Tweaks", "fCraftedItemHealthPct").filter(|v| v.is_finite() && *v >= 0.0) {
+        tweaks.crafted_item_health_pct = (pct as f32).clamp(0.0, 100.0);
         applied += 1;
     }
 

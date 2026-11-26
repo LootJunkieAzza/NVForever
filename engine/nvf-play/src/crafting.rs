@@ -552,11 +552,13 @@ fn keys(
                 to = crate::menu::model::amount_at(p.x + 0.5, most);
             }
         }
+        let wasd = rt.game.tweaks.wasd_as_arrow_keys;
         let wheel = scroll.as_ref().map_or(0.0, |s| s.delta.y);
         if keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::KeyD]) || wheel > 0.0 || act("more") {
             to += 1;
         }
-        if keys.just_pressed(KeyCode::ArrowLeft) || wheel < 0.0 || act("less") {
+        let less_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowLeft, KeyCode::KeyA] } else { &[KeyCode::ArrowLeft] };
+        if keys.any_just_pressed(less_keys.iter().copied()) || wheel < 0.0 || act("less") {
             to -= 1;
         }
         let other_changed=to!=amount || make || back;
@@ -589,7 +591,12 @@ fn keys(
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Back });
             return;
         }
-        if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || make || act("accept") {
+        let qty_accept: &[KeyCode] = if wasd {
+            &[KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]
+        } else {
+            &[KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]
+        };
+        if keys.any_just_pressed(qty_accept.iter().copied()) || make || act("accept") {
             open.quantity = None;
             let chosen = v.rows.get(open.selected.min(v.rows.len().saturating_sub(1))).map(|r| r.recipe);
             if let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) {
@@ -639,11 +646,14 @@ fn keys(
         open.pointer_pick = false;
         open.navigated = open.navigated.wrapping_add(1);
     }
+    let wasd = rt.game.tweaks.wasd_as_arrow_keys;
     let filters = v.filters + 1;
-    if keys.just_pressed(KeyCode::ArrowRight) || clicked == Some(RecipeButton::Right) || clicked == Some(RecipeButton::Title) || act("filter") {
+    let right_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowRight, KeyCode::KeyD] } else { &[KeyCode::ArrowRight] };
+    let left_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowLeft, KeyCode::KeyA] } else { &[KeyCode::ArrowLeft] };
+    if keys.any_just_pressed(right_keys.iter().copied()) || clicked == Some(RecipeButton::Right) || clicked == Some(RecipeButton::Title) || act("filter") {
         filter_step(open,filters,1);
     }
-    if keys.just_pressed(KeyCode::ArrowLeft) || clicked == Some(RecipeButton::Left) {
+    if keys.any_just_pressed(left_keys.iter().copied()) || clicked == Some(RecipeButton::Left) {
         filter_step(open,filters,-1);
     }
     if let Some(RecipeButton::Row(r)) = clicked {
@@ -686,7 +696,12 @@ fn keys(
         next.set(crate::repair::after_close(&rt.game));
         return;
     }
-    if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(RecipeButton::Accept) || act("accept") {
+    let accept_keys: &[KeyCode] = if wasd {
+        &[KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]
+    } else {
+        &[KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]
+    };
+    if keys.any_just_pressed(accept_keys.iter().copied()) || clicked == Some(RecipeButton::Accept) || act("accept") {
         let chosen = v.rows.get(open.selected.min(n.saturating_sub(1))).map(|r| r.recipe);
         let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) else { return };
         // Any can be made: how many? (module notes)
@@ -743,12 +758,14 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             }
         }
         let mut added = Vec::new();
-        // The player's tweak: weapons and armour come out at a condition of the
-        // player's Repair [design: docs/design/tweaks.md].
-        let condition = rt.game.tweaks.repair_scales_crafting.then(|| {
-            let repair = fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR) as f32;
-            fnv_game::tweaks::crafted_condition(repair)
-        });
+        // The player's tweaks: Repair-scaled condition (`bRepairScalesCraftingCondition`)
+        // or fixed crafted condition percentage (`fCraftedItemHealthPct`) [design: docs/design/tweaks.md].
+        let repair = if rt.game.tweaks.repair_scales_crafting {
+            fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR) as f32
+        } else {
+            0.0
+        };
+        let condition = fnv_game::tweaks::crafted_output_condition(&rt.game.tweaks, repair);
         for &(i, k) in &recipe.outputs {
             let count = recipe_count(k).saturating_mul(times).min(i32::MAX as u32);
             if count == 0 {
@@ -758,7 +775,7 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             match condition.filter(|c| worn && *c < 1.0) {
                 Some(c) => {
                     rt.game.world.add_item_at_condition(FormId::PLAYER_REF, i, count as i32, Some(c)).map_err(|e| format!("{e:?}"))?;
-                    info!("recipe menu: made at {:.0} % condition (Repair tweak)", c * 100.0);
+                    info!("recipe menu: made at {:.0} % condition (crafting condition tweak)", c * 100.0);
                 }
                 None => {
                     rt.game.world.add_item(FormId::PLAYER_REF, i, count as i32).map_err(|e| format!("{e:?}"))?;

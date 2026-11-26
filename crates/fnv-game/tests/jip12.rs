@@ -268,9 +268,10 @@ fn cells_light_and_settings() {
     // Internal markers: the marker model's own, a script's.
     assert_eq!(n(&mut g, "SetInternalMarker TestMarker"), 1.0);
     assert_eq!(n(&mut g, "SetInternalMarker TestStatic"), 0.0);
-    assert_eq!(n(&mut g, "SetInternalMarker TestStatic 1"), 1.0);
+    assert_eq!(n(&mut g, "SetInternalMarker TestStatic 1"), 0.0, "2-arg setter returns 0 [observed: w6d2p4_53]");
+    assert_eq!(n(&mut g, "SetInternalMarker TestStatic"), 1.0);
     assert!(g.internal_marker(FormId(STAT)));
-    q(&mut g, "SetInternalMarker TestMarker 0");
+    assert_eq!(n(&mut g, "SetInternalMarker TestMarker 0"), 0.0);
     assert!(!g.internal_marker(FormId(MARKER)));
 
     // Image space modifiers on: ApplyImageSpaceModifier A, B, A -> GetActiveIMODs
@@ -342,7 +343,10 @@ fn purged_references_go_with_their_cell() {
         v => panic!("{v:?}"),
     };
     assert_eq!(toggle(&mut g, ""), 0.0);
-    assert_eq!(toggle(&mut g, " 1"), 1.0);
+    assert_eq!(toggle(&mut g, " 1"), 0.0, "returns previous state [observed: w6d2_23]");
+    assert_eq!(toggle(&mut g, ""), 1.0);
+    assert_eq!(toggle(&mut g, " 0"), 1.0, "returns previous state");
+    assert_eq!(toggle(&mut g, " 1"), 0.0);
     // A placed reference is not purged [documented: dynamic references only].
     assert_eq!(n(&mut g, "TestRefOut.TogglePurgeOnUnload 1"), 0.0);
     assert!(!g.world.get(made).unwrap().deleted());

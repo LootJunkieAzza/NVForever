@@ -122,7 +122,7 @@ fn sky_shader_validates_with_and_without_premultiply_alpha() {
 }
 
 #[test]
-fn imagespace_shader_validates_with_agx_punchy_and_vats() {
+fn imagespace_shader_validates_under_physical_pbr() {
     let mut compiler = Compiler::with_physical_pbr();
     compiler.register(
         "bevy_core_pipeline/fullscreen_vertex_shader.wesl",

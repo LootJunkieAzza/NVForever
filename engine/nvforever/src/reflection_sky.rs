@@ -51,7 +51,7 @@
 //!   tone mapping and grade that follow treat both alike:
 //!   - the sky ([`sky_texel`]): sky.wesl writes the dome's linear colour times
 //!     `SkyLight.params.x` (= `SkyState::sky_scale`, sky.rs:1101 and :1117) through
-//!     `tony_inverse` (sky.wesl:67, :86, :104), which is the identity while the main view
+//!     the shared tonemapper input (nvf_assets tone_input.wesl `to_tonemap_input`), which is the identity while the main view
 //!     shows display values clipped (lights.rs `display_clip`, the default; GAME_CLIP,
 //!     lights.rs:70) and the inverse of the Tony McMapface table otherwise (`NVF_TONEMAP=tony`);
 //!   - lit ground ([`ground_texel`]): the fork's display-value sum writes a diffuse surface as
@@ -201,35 +201,11 @@ pub fn texel(display: Vec3) -> Vec3 {
     })
 }
 
-/// Tony McMapface's response to grey as sky.wesl samples it (input linear, output linear),
-/// the same numbers as `TONY_IN` / `TONY_OUT` there (sky.wesl:62-63) [observed there: Bevy
-/// 0.19.1 renders of a flat grey sky].
-pub const TONY_IN: [f32; 24] = [0.0, 0.005, 0.01, 0.02, 0.04, 0.07, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0, 5.0, 8.0, 16.0, 40.0, 100.0];
-pub const TONY_OUT: [f32; 24] = [0.0, 0.0056, 0.0113, 0.0222, 0.0437, 0.0723, 0.0999, 0.1470, 0.1812, 0.2542, 0.3140, 0.3663, 0.4125, 0.4910, 0.5457, 0.6172, 0.6867, 0.7454, 0.8070, 0.8796, 0.9216, 0.9473, 0.9771, 0.9875];
-
-/// sky.wesl's `tony_inverse` (sky.wesl:67) with Tony McMapface in place: the linear input
-/// the table maps to `y`, piecewise linear; the last input above the table.
-pub fn tony_inverse(y: f32) -> f32 {
-    for i in 1..TONY_IN.len() {
-        if y <= TONY_OUT[i] {
-            let t = (y - TONY_OUT[i - 1]) / (TONY_OUT[i] - TONY_OUT[i - 1]).max(1e-6);
-            return TONY_IN[i - 1] + (TONY_IN[i] - TONY_IN[i - 1]) * t;
-        }
-    }
-    TONY_IN[TONY_IN.len() - 1]
-}
-
-/// The table forward (the tone map sky.wesl undoes), for the tests: piecewise linear.
+/// Tony McMapface's response to grey and its inverse, the shared tonemapper input's
+/// (nvf_assets tone_input.rs, the numbers of tone_input.wesl that sky.wesl uses).
+pub use nvf_assets::tone_input::tony_inverse;
 #[cfg(test)]
-pub fn tony_forward(x: f32) -> f32 {
-    for i in 1..TONY_IN.len() {
-        if x <= TONY_IN[i] {
-            let t = (x - TONY_IN[i - 1]) / (TONY_IN[i] - TONY_IN[i - 1]);
-            return TONY_OUT[i - 1] + (TONY_OUT[i] - TONY_OUT[i - 1]) * t;
-        }
-    }
-    TONY_OUT[TONY_OUT.len() - 1]
-}
+pub use nvf_assets::tone_input::{tony_forward, TONY_IN, TONY_OUT};
 
 /// The sky's units (module notes): the texel for a sky colour `scaled`, linear and already
 /// times the sky's display scale, as sky.wesl writes it into the HDR target: `scaled` itself

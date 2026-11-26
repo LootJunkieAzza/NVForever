@@ -306,31 +306,53 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.gaps.jip3.refresh_items_list = true;
             zero
         }
-        // `mode`: 0 god mode (1 while on), 1 the actors' AI (1 while it runs, 0 after
-        // `tai`) [documented: GetDebugModeState; observed: jip3a, 0 then 1 across `tgm`,
-        // 1 then 0 then 1 across `tai`; hypothesis: 2 combat AI, 3 collision, 4 borders
-        // read 0].
+        // `mode`: 0 god mode (1 while on), 1 actors' AI (1 while it runs, 0 after `tai`),
+        // 2 combat AI (1 by default while enabled, matching mode 1), 3 collision (0 by
+        // default), 4 borders (0 by default), out-of-range modes 0 [documented:
+        // GetDebugModeState; observed: jip3a, 0 then 1 across `tgm`, 1 then 0 then 1
+        // across `tai`; observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9
+        // + JIP LN 57.30, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`),
+        // isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes
+        // to game install or Saves), committed probe
+        // `w6t2_24_jip_fall_time_and_is_in_air_edges`
+        // (`tools/capture/nvse/catalogs/wave6_t2_debug_mode_state.json`):
+        // `PROBE|w6t2_24_jip_fall_time_and_is_in_air_edges|dbg(0,1,1,0,0,0,tgm=1)|fall=0.952,air=0`;
+        // zero DLL, PDB, or third-party source consulted; hypothesis: toggling `tcai`,
+        // `tcl`, or `tb` at runtime is not yet tracked in `Toggles`].
         "getdebugmodestate" => match num(args, 0, -1.0) as i64 {
             0 => yes(g.toggles.god_mode),
             1 => yes(!g.toggles.actors_ai_off),
+            2 => yes(true),
             _ => zero,
         },
-        // `xVar yVar zVar [local]`: the reference's angles in degrees [documented:
-        // GetAngleEx; hypothesis: local and global are the same for an unparented
-        // reference].
+        // `xVar yVar zVar [local]`: the reference's Euler angles in degrees; `getLocal=0`
+        // (default) matches `GetAngle`, while `getLocal=1` decomposes the inverse/local
+        // matrix `Rx(-x) * Ry(-y) * Rz(-z)` into ZYX Euler angles [documented: GetAngleEx;
+        // observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+        // `w6_t1_02_angle_ex_and_heading` (`tools/capture/nvse/catalogs/wave6_t1_jip_angles.json`,
+        // `docs/spec-notes/jip-angles-ex.md`)].
         "getangleex" => {
-            let rot = subject.and_then(|r| g.ref_pos_rot(r)).map_or([0.0; 3], |(_, r)| r);
-            let d = |a: f32| f64::from(a.to_degrees());
-            outputs(g, zero, &[d(rot[0]), d(rot[1]), d(rot[2])])
+            let Some((_, rot)) = subject.and_then(|r| g.ref_pos_rot(r)) else {
+                return Some(Ok(outputs(g, zero, &[])));
+            };
+            let local = num(args, 0, 0.0) != 0.0;
+            let deg = if local {
+                local_euler_degrees(rot)
+            } else {
+                [f64::from(rot[0].to_degrees()), f64::from(rot[1].to_degrees()), f64::from(rot[2].to_degrees())]
+            };
+            outputs(g, zero, &deg)
         }
         // `x0 y0 z0 x1 y1 z1 → pitch heading`: the angles, in degrees, of the way from the
-        // first point to the second, pitch positive down as references' [documented:
-        // GetAnglesBetweenPoints; hypothesis: the signs and the 0..360 heading].
+        // first point to the second — pitch positive UP (`+Z`), heading counter-clockwise
+        // from north (`+Y`) in `(-180, 180]` (`E = -90`, `W = +90`, `S = +180`), the right-handed Euler
+        // `Rz(heading) * Rx(pitch) * +Y` [documented: GetAnglesBetweenPoints; observed:
+        // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+        // `w6_t1_01_angles_between_points` (`tools/capture/nvse/catalogs/wave6_t1_jip_angles.json`,
+        // `docs/spec-notes/jip-angles-ex.md`)].
         "getanglesbetweenpoints" => {
             let p: Vec<f64> = (0..6).map(|k| num(args, k, 0.0)).collect();
-            let (dx, dy, dz) = (p[3] - p[0], p[4] - p[1], p[5] - p[2]);
-            let pitch = (-dz).atan2(dx.hypot(dy)).to_degrees();
-            let heading = dx.atan2(dy).to_degrees().rem_euclid(360.0);
+            let [pitch, heading] = angles_between_points([p[0], p[1], p[2]], [p[3], p[4], p[5]]);
             outputs(g, zero, &[pitch, heading])
         }
         // `x y z rotX rotZ → x y z [flags] [range]`: casts from `(x, y, z)` along
@@ -488,5 +510,87 @@ fn pick_val(g: &mut Game, p: Option<crate::game::MenuPick>) -> XVal {
         Some(crate::game::MenuPick::Item { owner, item }) => XVal::Ref(g.temp_ref(owner, item).0),
         Some(crate::game::MenuPick::Form(f)) => XVal::Ref(f.0),
         None => XVal::Ref(0),
+    }
+}
+
+/// `GetAnglesBetweenPoints` `(pitch, heading)` in degrees: pitch up-positive (`+Z`),
+/// heading counter-clockwise from north (`+Y`) in `(-180, 180]` [observed:
+/// `w6_t1_01_angles_between_points`, `docs/spec-notes/jip-angles-ex.md`].
+pub fn angles_between_points(p0: [f64; 3], p1: [f64; 3]) -> [f64; 2] {
+    let (dx, dy, dz) = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]);
+    let pitch = dz.atan2(dx.hypot(dy)).to_degrees() + 0.0;
+    let heading = (-dx + 0.0).atan2(dy).to_degrees() + 0.0;
+    [pitch, heading]
+}
+
+/// `GetAngleEx(..., getLocal=1)` Euler angles (degrees) from world radians `rot`: ZYX
+/// decomposition of `Rx(-x) * Ry(-y) * Rz(-z)` [observed:
+/// `w6_t1_02_angle_ex_and_heading`, `docs/spec-notes/jip-angles-ex.md`].
+pub fn local_euler_degrees(rot: [f32; 3]) -> [f64; 3] {
+    let (sx, cx) = (-f64::from(rot[0])).sin_cos();
+    let (sy, cy) = (-f64::from(rot[1])).sin_cos();
+    let (sz, cz) = (-f64::from(rot[2])).sin_cos();
+    let rx = [[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]];
+    let ry = [[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]];
+    let rz = [[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]];
+    let mul = |a: [[f64; 3]; 3], b: [[f64; 3]; 3]| {
+        let mut out = [[0.0; 3]; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                out[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j];
+            }
+        }
+        out
+    };
+    let m = mul(rx, mul(ry, rz));
+    let ox = m[2][1].atan2(m[2][2]).to_degrees() + 0.0;
+    let oy = (-m[2][0]).clamp(-1.0, 1.0).asin().to_degrees() + 0.0;
+    let oz = m[1][0].atan2(m[0][0]).to_degrees() + 0.0;
+    [ox, oy, oz]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn angles_between_points_matches_observed_jip_vectors() {
+        let cases: [([f64; 3], [f64; 3], [f64; 2]); 14] = [
+            ([0.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0]),
+            ([0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, -90.0]),
+            ([0.0, 0.0, 0.0], [-100.0, 0.0, 0.0], [0.0, 90.0]),
+            ([0.0, 0.0, 0.0], [0.0, -100.0, 0.0], [0.0, 180.0]),
+            ([0.0, 0.0, 0.0], [0.0, 0.0, 100.0], [90.0, 0.0]),
+            ([0.0, 0.0, 0.0], [0.0, 0.0, -100.0], [-90.0, 0.0]),
+            ([0.0, 0.0, 0.0], [100.0, 100.0, 0.0], [0.0, -45.0]),
+            ([0.0, 0.0, 0.0], [-100.0, 100.0, 0.0], [0.0, 45.0]),
+            ([0.0, 0.0, 0.0], [100.0, -100.0, 0.0], [0.0, -135.0]),
+            ([0.0, 0.0, 0.0], [-100.0, -100.0, 0.0], [0.0, 135.0]),
+            ([0.0, 0.0, 0.0], [0.0, 100.0, 100.0], [45.0, 0.0]),
+            ([0.0, 0.0, 0.0], [0.0, 100.0, -100.0], [-45.0, 0.0]),
+            ([10.0, 20.0, 30.0], [110.0, 20.0, 130.0], [45.0, -90.0]),
+            ([50.0, 50.0, 50.0], [50.0, 50.0, 50.0], [0.0, 0.0]),
+        ];
+        for (p0, p1, want) in cases {
+            let got = angles_between_points(p0, p1);
+            assert!((got[0] - want[0]).abs() < 1e-4 && (got[1] - want[1]).abs() < 1e-4, "{p0:?}->{p1:?}: got {got:?}, want {want:?}");
+        }
+    }
+
+    #[test]
+    fn get_angle_ex_local_matches_observed_rotations() {
+        let cases: [([f32; 3], [f64; 3]); 5] = [
+            ([0.0, 0.0, 5.70], [0.0, 0.0, -5.70]),
+            ([25.0, 0.0, 0.0], [-25.0, 0.0, 0.0]),
+            ([0.0, 0.0, 90.0], [0.0, 0.0, -90.0]),
+            ([30.0, 0.0, 90.0], [0.0, -30.0, -90.0]),
+            ([25.0, 0.0, 315.0], [-18.25, 17.39, 42.19]),
+        ];
+        for (deg, want) in cases {
+            let got = local_euler_degrees(deg.map(f32::to_radians));
+            for i in 0..3 {
+                assert!((got[i] - want[i]).abs() < 0.02, "{deg:?} axis {i}: got {got:?}, want {want:?}");
+            }
+        }
     }
 }

@@ -496,6 +496,8 @@ pub fn is_weapon_skill_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
 pub fn reset_inventory(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.world.reset_inventory(r).map_err(|e| e.to_string())?;
+    g.clear_npc_weapon_mods_roll(r);
+    g.maybe_apply_npc_weapon_mods(r);
     none()
 }
 

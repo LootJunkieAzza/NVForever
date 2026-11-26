@@ -233,7 +233,7 @@ pub fn parse_source(value: Option<&str>) -> crate::sun_visibility::CloudSource {
 /// Whether [`hand_over_source`] is due: not done yet, and the light volume asked for (the Volumetric
 /// clouds row and Cloud shadows on).
 fn source_due(shadows: Res<CloudShadows>, graphics: Option<Res<crate::graphics::Graphics>>, mut done: Local<bool>) -> bool {
-    let due = !*done && shadows.enabled && graphics.is_some_and(|g| g.volumetric_clouds_run());
+    let due = !*done && shadows.enabled && graphics.is_some_and(|g| g.volumetric_clouds);
     *done |= due;
     due
 }
