@@ -69,8 +69,9 @@ pub enum CombatRequest {
     /// (docs/spec-notes/dismemberment.md §5).
     Dismember { actor: FormId, location: i32, by: Option<FormId>, explode: Option<bool> },
     /// Set off an explosion placed by a script (PlaceAtMe of an EXPL) where it was placed,
-    /// nobody's.
-    Explode { explosion: FormId, at: [f32; 3] },
+    /// carrying the script caller as `source` for explosion-ref queries and
+    /// `ShowOff:OnExplosionHit` without fabricating a weapon `Cause`.
+    Explode { explosion: FormId, at: [f32; 3], source: Option<FormId> },
 }
 
 /// What damage did to a destructible reference (step C7).

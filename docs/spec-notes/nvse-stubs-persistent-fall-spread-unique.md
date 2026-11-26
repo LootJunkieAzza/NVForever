@@ -137,7 +137,13 @@ Part of #2272. Core-only implementations in `crates/fnv-game` replacing four
   does not appear as an optional repair-part source in the repair menu;
   `IsItemUnique item:form` returns `1` if marked unique and `0` otherwise.
 - [observed: `data3` probes `unique.stimpak`, `unique.pistol`, `unique.toggle`,
-  `unique.restore`] Non-repairable forms such as `ALCH` ingestibles (stimpak)
+  `unique.restore`; and Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+  2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only
+  `PrintToConsole` probe `core_19_toggle_item_unique_non_weap_armo`
+  (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, calling `ToggleItemUnique`
+  then `IsItemUnique` on `WEAP` `0x434F`, `MISC` Caps `0xF`, and `ALCH` Stimpak `0x15169`):
+  `PROBE|core_19_toggle_item_unique_non_weap_armo|1,0,0`; no DLL or source consulted]
+  Non-repairable forms such as `ALCH` ingestibles (stimpak) and `MISC` items (caps)
   ignore `ToggleItemUnique` and continue reading `0` from `IsItemUnique`.
 - [design] Session state is stored in `GapsState::unique_items` (keeping
   `Game::Session` untouched), restricted to `WEAP` and `ARMO` base forms (and
@@ -145,6 +151,6 @@ Part of #2272. Core-only implementations in `crates/fnv-game` replacing four
   flag, and `Game::player_repair_list` (`crates/fnv-game/src/repair.rs`) filters
   out unique items as repair-part sources while still allowing a unique item to
   be repaired as the target using non-unique donors.
-- [hypothesis] Whether non-`WEAP`/non-`ARMO` forms beyond `ALCH` are also
-  ignored in the original game, and whether unique status persists across
+- [hypothesis] Whether other non-`WEAP`/non-`ARMO` forms beyond `ALCH` and `MISC`
+  are also ignored in the original game, and whether unique status persists across
   save/load, remain hypothesis pending capture.

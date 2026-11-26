@@ -596,8 +596,8 @@ the defaults given here. Read once at the start, usable in a played run (they do
   `noise` are in §3.23. `VIEW=none` restores the picture.
 - `NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_TUNE=<file>` (#3032 stage 2e, L1): the cloud source's aids
   tuned live from a `NAME=value` file, looked at at most every 0.5 s of real time while the row is
-  on (live: `SHAPE`, `EROSION`, `DENSITY`, `STEPS`, `TYPE`, `VIEW`, `WISP`, the light's weights and
-  `SUNCOLOUR`; start-only: `HEIGHT`, `HORIZON`).
+  on (live: `SHAPE`, `EROSION`, `DENSITY`, `STEPS`, `TYPE`, `VIEW`, `WISP`, the light's weights,
+  `SUNCOLOUR`, `NIGHTPULL`, `MOONFORWARD`, `MOONBACK` and `MOONCAP`; start-only: `HEIGHT`, `HORIZON`).
   Each change of the effective values counts as a sky jump for the history (dropped
   once), so paired pictures after an edit start from fresh rays. A key the file does not set (a
   deleted line included) takes its start value: its start variable, else its start default
@@ -611,7 +611,8 @@ the defaults given here. Read once at the start, usable in a played run (they do
   `1,1` is B1's whole sweep every frame).
 - `NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_` `SHAPE`, `EROSION`, `STEPS`, `TYPE`, `HEIGHT`, `HORIZON`, `WISP`,
   `PUFF`, `AIR`, `REFINED_STRIDE`, `LIGHT_REUSE` and the light's `OCTAVE`, `BACKSCATTER`, `UPPER`, `LOWER`,
-  `GROUND`, `FORWARD`, `SUN`, `LEVEL`, `OCCLUDE`, `POWDER`, `SUNCOLOUR` (alias `SUNCOLOR`), and
+  `GROUND`, `FORWARD`, `SUN`, `LEVEL`, `OCCLUDE`, `POWDER`, `SUNCOLOUR` (alias `SUNCOLOR`),
+  `NIGHTPULL`, `MOONFORWARD`, `MOONBACK`, `MOONCAP`, and
   `NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS=<0..4>` (`DENSITY`): the cloud source's start values, ranges and meanings
   are graphics-enhanced.md §3.23, "Debug aids". The cloud source's light is the source's own business:
   the medium's seam (`MediumRay` in, `MediumSample` out) and its history do not see it. The wisps' phases
@@ -650,7 +651,7 @@ they turn the view by an aid),
 
 [design] An addition of NVForever's own, an engineering choice for the enhanced look: sunlight
 seen in the air, shafts where the air is lit and shade where a ridge, a building or a cloud
-stands between it and the sun. It is not a statement about the original's frames, never a
+stands between it and the sun, or by night the moon. It is not a statement about the original's frames, never a
 parity item, and never to be used to explain a difference from them. Off by default and in
 every preset; a release build without `dev-aids` reads none of the aids below (dev_aids.rs), so there the row alone
 switches it; started with it off, nothing is allocated, no pipeline is asked for, nothing is
@@ -895,7 +896,7 @@ all by default) [design]:
   (from the image's texel mean: K is affine in the texel, so the mean of K is K of the mean)
   rides in the uniform as the reference visibility's default (below); 1 with the camera at or above
   the plane.
-- **Not yet a source**: local lights (the light in the air is the sun's alone); the moon.
+- **Not yet a source**: local lights (the light in the air is the sun's, and by night the moon's).
 
 ### The medium
 
@@ -942,6 +943,19 @@ black (medium_air.rs `scaled_share`, its module doc names sky.rs's fields) [desi
 `SHARE` overrides it; `a = clamp(s, 0, 1)` is the share alone. The strength k multiplies the
 whole correction: the uniform's scalar is `k x a` (medium_air.rs `applied_scale`, `phase2.z`), applied
 before the floor, so k 0 changes no pixel and the floor holds at any k.
+
+**The moonlight** [design]: at night the sky's direct light is the moon's, from the opposite side in the weather's night
+Sunlight colour, faded out at the horizon (sky.rs `aim_sun`), and the air is lit by it as by the sun. The source (medium_air.rs `AirSource`, `air_source`)
+is the sun while the elevation that aimed the light is above 0
+(`SkyState::sun_elevation_at(sun_light_hour())`, the hour sky.rs aims the light from, so no comparison
+with the stepped hour's sun is needed), the moon at and under it where the climate has a moon
+(`Climate::has_moon`), and nothing otherwise: the gate is then closed. At the horizon the light's
+illuminance, so the share, is 0 on both sides, and the change of source cannot show (tested). The share is the same `d / (d + a)`, so
+the moon's share of the sun's strength and MoonlightNVSE.ini's factor come with the illuminance, once. The moon's
+constants are its own (`MoonTune`, `AirTune::lit_by`; [design], the contributor's pick from stills, 2026-11-25): the strength's factor
+`MOON_STRENGTH` (1) times the aid's or the slider's strength, rays 8, lift 1.6, shade 0.4, phase g 0.7, cap 3, sky 0.3, sky phase 0.15
+(`MOON_RAYS`, `MOON_LIFT`, `MOON_SHADE`, `MOON_G`, `MOON_CAP`, `MOON_SKY`, `MOON_SKYPHASE`); each `auto` is the day's. By day none of them is read (tested: the same uniform bit for bit). The clouds follow
+their own clock, the sky's stepped hour (graphics-enhanced.md §3.23, "By moonlight"): the two are not joined.
 
 **The deck's share** D: the weather's lights still name a direct part under a closed deck (an s of
 0.62 in an overcast noon, 0.65 in a fair one [hypothesis: the figures this was worked for on 2026-11-24;
@@ -1155,7 +1169,7 @@ about 8,300 placed references, are of its plain class [hypothesis: counted on 20
 that is not committed].
 
 **What.** While the light in the air is drawn (and only then: from its gate's "on" line to its "off" line,
-`AirDraws`, so not at night, indoors, under water or at a strength of 0; hidden from the first frame the
+`AirDraws`, so not at night without a moon, indoors, under water or at a strength of 0; hidden from the first frame the
 composite stops, `AirOpen`, gone half a second later) such a shape is drawn once more as its
 solid core: the same mesh with a copy of its material as a cut-out at 0.85
 (`SOLID_CORE_CUT`), so its solid texels are in the depth prepass. The blended draw stays and is drawn
@@ -1254,7 +1268,7 @@ another; `solid cores: removed (...)` when the light is no longer drawn; nothing
   with no temporal pass after it, so the grid's samples are fixed in time, spread in space
   (several dithered samples per froxel) and filtered in space (the 3 x 3 tent); a temporal filter
   of V is later work.
-- **One light.** The talk's grid gathers local lights and fog volumes; ours the sun alone.
+- **One light.** The talk's grid gathers local lights and fog volumes; ours the sun, or the moon, alone.
 - **A fullscreen, opaque-world approximation** instead of applying the volume in the deferred
   lighting and to forward-drawn surfaces (slide 64): the composite re-shades the finished
   picture by its depth [design]. The production route, if the look is kept: sample the
@@ -1301,10 +1315,18 @@ another; `solid cores: removed (...)` when the light is no longer drawn; nothing
   before, so it reads the air's change as transparency on opaque terrain and sky [design; deferred].
 - The composite's ray uses the raster pixel without the upscalers' temporal jitter offset (the
   depth texel itself is the right one) [design; deferred].
-- Night is off: by the moon nothing is drawn (the moon as the direct light is later work). Day is
-  told by the elevation that aimed the light: `SkyState::sun_elevation_at(sun_light_hour())`
-  above 0 (medium_air.rs `day_by_aim`, read in medium_air_light.rs), the hour sky.rs aims the
-  light from, so no comparison with the stepped hour's sun is needed.
+- Night without a moon is off ("The moonlight", under "The medium").
+- The moonlight's shafts come from what its light is hidden by: the one near shadow cascade of the night, the terrain map (which
+  follows the light's own direction, the moon's too) and the clouds. They are faint: by 22:00 and 04:00 in clear weather at
+  Goodsprings a cloud's shadow streak and a pole's shadow show by a few levels of 255. The whole picture's mean moves by -0.6 to +1.9 of 255 against the same clouds with the air off
+  in clear weather (most facing the low moon), by -1.8 in the hazy weather facing the moon, and by under 0.3 in overcast and Zion's weather [observed:
+  NVForever runs, 2026-11-25, 1920x1080]. The bright hold, the moon's disc, the Strip's lamps, the Sun shafts' yield in
+  the first degrees after sunset (they end at 2 degrees under the horizon, and give way to the moonlit air from
+  its first frame) and FSR are not looked at by night.
+- In a frame in which the light's share is exactly 0 at the horizon the air draws nothing, so Sun shafts may draw in it, though
+  their own fade is above 0 down to 2 degrees under the horizon [design; not seen].
+- A halo round the moon in the sky (`MOON_SKYPHASE`) multiplies the sky's own light (the composite's far
+  form), so a black zenith stays black: what it can add there is bounded by the sky's own value.
 - Interiors and under water are off; so are a fog not blended in display values, an unreadable
   fog, a strength of 0 and a sunlit share of 0 (the gate's reasons, below). While the gate is
   closed the grid and filter passes are not dispatched for the light's views (`none`, `delta`,
@@ -1416,6 +1438,8 @@ defaults given here. Read once at the start, usable in a played run:
 | `SAMPLES` | 1..8 | 4 | visibility samples a froxel |
 | `FILTER` | 0, 1 | 1 | the 3 x 3 filter pass |
 | `VIEW`, `OCCLUDERS` | as the aids | none, all | |
+| `MOON_STRENGTH` | 0..2 | 1 | by moonlight: the factor on the strength (the product held to 2) |
+| `MOON_RAYS`, `MOON_LIFT`, `MOON_SHADE`, `MOON_G`, `MOON_CAP`, `MOON_SKY`, `MOON_SKYPHASE` | as the day's, `auto` | 8, 1.6, 0.4, 0.7, 3, 0.3, 0.15 | by moonlight, in place of the day's (`auto`: the day's) |
 
 The defaults are the Natural look, set by stills [design, 2026-11-24]. The earlier values (G 0.6, CAP 2.5,
 RAYS 6, LIFT 1.5, SKY 0.5, the same SHADE) drew the far plain and the pylons on the horizon of a hazy morning
@@ -1428,16 +1452,16 @@ the views and the steps were not kept].
 
 Log lines (prefix `volumetric medium: light in the air`): ` wanted (debug aid
 NVF_PLAY_DEBUG_MEDIUM_LIGHT)` once at the start (never in a release build), ` wanted (the Volumetric light row)` and ` no
-longer wanted by the row (the Volumetric light row)` as the row changes; ` on: grid <x>x<y>x<z> to <d> units, phase g <g>,
-cap <c>, sunlit share <s>, strength <k>, near pixels at most +<g1> x the fog colour, far pixels
+longer wanted by the row (the Volumetric light row)` as the row changes; ` on: grid <x>x<y>x<z> to <d> units, lit by the sun | lit by the moon, phase g <g>,
+cap <c>, sunlit share | moonlit share <s>, strength <k>, near pixels at most +<g1> x the fog colour, far pixels
 at most +<g2> x mix(fog colour, pixel, t), sky at most x<1 + gs> (display values; a snapshot for
 this weather, hour and view), sky <w>, sky phase <q>, rays <r>, floor <f>, ref auto | ref <v>
-(set), lift <l>, shade <h>` when the gate opens, again on a tune change and when a bound moved by
+(set), lift <l>, shade <h>` (by night the moon's values) when the gate opens or the source changes, again on a tune change and when a bound moved by
 more than 0.05 (looked at every 5 s); ` off: <reason>` once a reason has
 held 0.5 s of real time (at the start the fog shader is patched a moment after the first frames),
 the reasons in the gate's order: `indoors`, `the camera is under water`, `no sun light`, `the
-weather's fog cannot be read (...)`, `the fog does not blend in display values`, `night (the direct
-light is the night light)`, `the strength is 0`, `the sunlit share is 0`; ` tune: <changed keys>` (or ` tune: the file
+weather's fog cannot be read (...)`, `the fog does not blend in display values`, `night, and the
+climate has no moon`, `the strength is 0`, `the sunlit share is 0`; ` tune: <changed keys>` (or ` tune: the file
 cannot be read (...): the start values`); `: grid <x>x<y>x<z> to <d> units (<m> MiB in <n>
 volume(s), filter 3x3|off), view <v>` when the volume is made; `: terrain map in use (<side> texels
 of <texel> units)` or ` not in use (...)`; `: cloud shadow in use (plane <h> units up, strength
@@ -1456,7 +1480,8 @@ grid over the adapter's 3D limit, a failed pipeline, missing bindings). Pipeline
 **Tests**: unit tests of the pure maths beside it (the slice curve and its figures, froxel
 geometry round trips, the fog share against fog.rs and under synthetic extreme weathers, the
 phase's sphere mean and cap, the sums and the lookup, the lit fraction, the relative form, the
-floor and the bounds, the far and fog blends' continuity, the deck's share, the bright hold, the gate and its log, the tune file); CPU
+floor and the bounds, the far and fog blends' continuity, the deck's share, the bright hold, the gate and its log, the source and the moonlight's values,
+the share over the horizon, the tune file); CPU
 mirrors of the shaders' loops (`column_mirror_at`, `lookup_mirror`, `pixel_mirror`, the filter's;
 the grid's walks against a reference of the column written apart from them, for every slice count)
 with numerical fixtures (an unobstructed sun fully lit between columns, MSAA samples with their
@@ -1466,8 +1491,8 @@ binds and the uniform as the CPU side has it; the plumbing (off holds nothing, a
 then the light off holds nothing, a non-perspective camera unmarked, unsupported projections and
 fogs refused, the format support cached apart from the grid); and the three narrow edits' tests. Smoke: `volumetric-light` (the row at Goodsprings at 17:30 under NVWastelandClear
 with the Terrain shadows and Cloud shadows rows, 4x MSAA), `volumetric-light-taa` (single-sampled
-depth), `volumetric-light-fsr`, `volumetric-light-night` (01:00: off with the night reason, no
-composite), `volumetric-light-off` (the row off: no line of the light at all), `volumetric-light-no-aids` (a release build
+depth), `volumetric-light-fsr`, `volumetric-light-night` (01:00: lit by the moon;
+a climate without one is a unit test's), `volumetric-light-off` (the row off: no line of the light at all), `volumetric-light-no-aids` (a release build
 ignores the aids), `volumetric-light-row` (the row alone, without the shadows' rows), `volumetric-light-switch` (off, on, off, on in play),
 `volumetric-light-clouds` (with the clouds and their shadows), `volumetric-light-solid-cores`, and with
 `NVF_SMOKE_DEV_AIDS` set (an exe built with the feature) `-aid` (the light by its aid, the row off), `-picture` (the picture with and
