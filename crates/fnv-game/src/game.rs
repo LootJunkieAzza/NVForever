@@ -544,6 +544,10 @@ pub struct RefExtra {
     /// (`fnv_sim::leveled::roll_seed`).
     #[serde(skip_serializing_if = "is_zero_u32", default)]
     pub rolls: u32,
+    /// Whether the optional `npc-weapon-mods` roll (`crate::npc_weapon_mods`, #3876) has
+    /// already run for this NPC so repeated ticks never re-roll its main weapon [design].
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub npc_weapon_mods_rolled: bool,
 }
 
 fn is_zero(v: &u16) -> bool {
@@ -3806,7 +3810,10 @@ impl<'a> Game<'a> {
                 return Some(id);
             }
         }
-        let bytes = crate::mod_files::read_data_file(&key)?;
+        let Some(bytes) = crate::mod_files::read_data_file(&key) else {
+            tracing::warn!("compile script: {path}: not found as {key}");
+            return None;
+        };
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;
@@ -3858,7 +3865,9 @@ impl<'a> Game<'a> {
         };
         let c = fnv_script::compile::compile_mod_runtime(&src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
-            let what = format!("{what}: {}: {}", e.kind.replace('_', " "), e.detail);
+            let what = format!("{what}: line {}: {}: {}", e.line, e.kind.replace('_', " "), e.detail);
+            // In the log too: a mod's "problem compiling" box says nothing of why.
+            tracing::warn!("compile script: {what}");
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });
             return None;
         }
@@ -6184,6 +6193,7 @@ impl<'a> Game<'a> {
     pub fn outfit_loaded_actors(&mut self) {
         for a in self.package_actors() {
             let _ = self.world.outfit(a);
+            self.maybe_apply_npc_weapon_mods(a);
         }
     }
 
@@ -6237,13 +6247,13 @@ impl<'a> Game<'a> {
         // the extender heard that attempt before the block ran, so this `Activate` is the
         // same activation and is not heard twice [design, #2123].
         let npc_door = mode == ActMode::Default && self.in_npc_door_run(actor, target);
-        if !npc_door {
-            self.activation_heard(actor, target);
-        }
-        if !self.activation_goes_on(actor, target) {
-            return Ok(serde_json::json!({"result": "destroyed"}));
-        }
         if mode == ActMode::Hand {
+            if !npc_door {
+                self.activation_heard(actor, target);
+            }
+            if !self.activation_goes_on(actor, target) {
+                return Ok(serde_json::json!({"result": "destroyed"}));
+            }
             if !self.pre_activation_allows(actor, target) {
                 return Ok(serde_json::json!({"result": "prevented"}));
             }
@@ -6251,8 +6261,19 @@ impl<'a> Game<'a> {
                 return Ok(serde_json::json!({"result": "destroyed"}));
             }
         } else {
+            // Scripted Activate runs ShowOff:OnPreScriptedActivate BEFORE xNVSE OnActivate
+            // and before destroyed refusal; vetoing skips OnActivate [observed: 2026-11-24,
+            // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+            // (0x00103DF9), 10 official base masters,
+            // `tools/capture/nvse/catalogs/wave6d1_pre_scripted_activate_order.json` probes
+            // `w6d1p2_11_on_activate_and_pre_scripted_order`, `w6d1p3_11_on_activate_noveto`,
+            // `w6d1_14_pre_scripted_destroyed_mutation`; no DLL, PDB, or third-party source
+            // consulted].
             if !self.pre_scripted_activation_allows(actor, target, mode == ActMode::Block) {
                 return Ok(serde_json::json!({"result": "prevented"}));
+            }
+            if !npc_door {
+                self.activation_heard(actor, target);
             }
             if !self.activation_goes_on(actor, target) {
                 return Ok(serde_json::json!({"result": "destroyed"}));
@@ -6349,10 +6370,12 @@ impl<'a> Game<'a> {
     }
 
     /// The extender's OnActivate handlers hear `actor` activating `target` (the target
-    /// first, the action reference second) [documented: NVSE Event Handling, OnActivate
-    /// row]. Also the first step of an NPC's walk through a door (`crate::npc_doors`).
+    /// first, the action reference second, null calling reference `GetSelfAlt == 0`)
+    /// [documented: NVSE Event Handling, OnActivate row; observed:
+    /// `w6d1p3_11_on_activate_noveto`, `act(s0=1,sR=0,a1=1,a2=1)`]. Also the first step
+    /// of an NPC's walk through a door (`crate::npc_doors`).
     pub(crate) fn activation_heard(&mut self, actor: FormId, target: FormId) {
-        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
+        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], None);
     }
 
     /// [`Game::activation_begins`] after the handlers: whether the activation goes on.
@@ -8155,6 +8178,14 @@ impl Host for Exec<'_, '_> {
         if self.game.temp_item(f).is_some() {
             return Some(*b"REFR");
         }
+        // A script CompileScript made, or a lambda, is a script form while it lasts
+        // [documented: CompileScript returns "a reference to the compiled script";
+        // observed in FadedLight's Nuclear Sunset fork: Scaled Recurring Challenges'
+        // `ln_addHandler.txt` checks `IsFormValid` on it and showed "There was a problem
+        // compiling" although it compiled (#4491)].
+        if self.game.compiled_slots.contains_key(&form) || self.game.lambda_slots.contains_key(&form) {
+            return Some(*b"SCPT");
+        }
         let f = self.game.unclone(f);
         // The player reference is no record of a plugin [documented: PlayerREF, 00000014].
         if let Some(s) = self.game.data.sig(f).or_else(|| (f == FormId::PLAYER_REF).then_some(*b"ACHR")) {
@@ -8267,7 +8298,13 @@ impl Host for Exec<'_, '_> {
         // reads the calling script.
         self.game.other.plugin = self.unit_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
+        let timed = self.game.sr.is_running().then(std::time::Instant::now);
         let out = crate::nvse::call(self.game, &ctx, name, on, args);
+        if let Some(t) = timed {
+            let e = self.game.sr.call_times.entry(name.to_ascii_lowercase()).or_default();
+            e.0 += 1;
+            e.1 += t.elapsed().as_micros();
+        }
         // The host's own plugin questions (IsDLLLoaded, IsModLoaded), for the test aid.
         if self.game.plugin_questions.is_some() && crate::plugin_questions::FUNCTIONS.contains(&name) {
             if let (Some(Ok(fnv_script::vm::XVal::Num(answer))), Some(fnv_script::vm::XVal::Str(asked))) = (&out, args.first()) {

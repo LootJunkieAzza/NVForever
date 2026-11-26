@@ -102,6 +102,16 @@ not decode yet.
 - 5 (moons) and 6 (phase length) share TNAM's last byte: the moons are its top two
   bits, the phase length its low six [observed: jip4, WastelandClimate reads moons 2
   and phase length 3; SetClimateTraitNumeric 6 7 reads back 7 and leaves the moons 2].
+- Bounds and validation: sun times (`0..=3`) convert via unsigned 10-minute slots capped
+  at `143` (`25 -> 20`, `1500 -> 1430`, `-10 -> 1430`), moons (`5`) clamp to `0..=3`
+  (`4 -> 3`), phase length (`6`) clamps to `0..=63` (`64 -> 63`), and non-`CLMT` forms
+  are ignored (`bad=0`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN
+  57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  isolated clean-room staging copy (read-only probe; zero writes to game install or
+  Saves), `w6d2_16_climate_traits_and_weather_add_remove`
+  (`tools/capture/nvse/catalogs/wave6d2_set_climate_trait_bounds.json`):
+  `PROBE|w6d2_16_climate_traits_and_weather_add_remove|sun(300->25:20,1500:1430,neg:1430)|m5(2->4:3)|p6(3->64:63)|bad=0|wlst(n=1->1,r=1,1,1,1)`;
+  zero DLL, PDB, or third-party source consulted].
 
 ## 8. Quests
 
@@ -222,10 +232,19 @@ not decode yet.
   no form [observed: jip4, GameYear 2281 reads GetGlobalRef 0; after SetGlobalRef of
   00104C0F it reads GetGlobalValue 1.49665e-39, which is those bits].
 - `GetEditorPosition` [documented: returns the cell and writes the six output variables;
-  0 for a reference not placed in the editor]. The angles are in degrees [hypothesis: as
-  GetStartingAngle reads them]. Not probed: none of six forms of the call (let or set,
-  to a ref or a float, three outputs or six, or no result) compiled through the capture
-  plugin's run-time compiler [observed, 2026-10-30].
+  0 for a reference not placed in the editor]: angles are written in degrees matching
+  `GetStartingAngle`, and when called on a reference with no editor placement (such as
+  `Player`), it returns `00000000` and preserves all six output variables unchanged
+  [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN
+  NVSE 57.30 (`5730`) + lStewieAl's Tweaks 1005 (`bUseConsoleOutputFile=1`), 10 official
+  base masters, isolated clean-room staging copy (read-only `PrintToConsole` probe; zero
+  writes to game install or Saves), `GSDocMitchellHouse` (`0x00103DF9`), `DocMitchellRef`
+  (`0x00104C0F`) and `Player`, committed probe `w6_t1_03_pos_ex_and_editor_pos`
+  (`tools/capture/nvse/catalogs/wave6_t1_editor_pos.json`):
+  `PROBE|w6_t1_03_pos_ex_and_editor_pos|posExPc=0(0.00,0.00,0.00)|posExDoc=0(0.00,0.00,0.00)|edDoc=00103DF9(dpos=0.00,0.00,0.00|rot=0.000,0.000,22.918|start=0.000,0.000,22.918)|edPc=00000000(111.0,222.0,333.0,444.0,555.0,666.0)`;
+  no DLL, PDB, or third-party source consulted]. (Earlier 2026-10-30 probes passed bare
+  variable names, which the runtime compiler refuses; parenthesized `(ox) ... (rz)`
+  compiles cleanly.)
 - `GetStartingPos axis`, `GetStartingAngle axis` (vanilla, built with this batch in
   `functions/refs.rs`): the reference's placement in the plugins, the angle in degrees;
   the player reads 0 on every axis [observed: jip4, DocMitchellRef 2288, 2244, 7360 and

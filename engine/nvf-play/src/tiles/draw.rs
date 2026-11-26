@@ -198,6 +198,9 @@ pub struct TileFonts {
     /// What each notice text copy's width was last measured from
     /// ([`super::notices::write_widths`]).
     notice_widths: super::notices::WidthsWritten,
+    /// What each mod-added HUD text's width was last measured from: its string and wrap
+    /// ([`FontKit::write_mod_widths`]).
+    mod_widths: HashMap<TileId, (String, f64)>,
 }
 
 #[derive(SystemParam)]
@@ -326,6 +329,36 @@ impl FontKit<'_> {
     pub(crate) fn write_widths(&mut self, ui: &mut Ui) {
         if let Some(measure) = self.widths(ui) {
             fnv_game::ui_hud::write_text_widths(ui, &*measure);
+        }
+        self.write_mod_widths(ui);
+    }
+
+    /// The widths of the text tiles mods add to the HUD (`fnv_game::ui_hud::unmeasured_texts`),
+    /// each measured in its own font when that font is read, and only when its string or
+    /// wrap changed. The original sets every text tile's `width` to its measured size; a mod
+    /// that centres a text by its own width read 0 here, so MAPMO's HUD clock (x = (dial
+    /// width − text width) / 2 from its place) ran off the right edge of the view
+    /// [observed 2026-11-21 in FadedLight's Nuclear Sunset fork, #4493].
+    fn write_mod_widths(&mut self, ui: &mut Ui) {
+        // The notices' copies have their own measure (`write_notice_widths`).
+        let notices: std::collections::HashSet<TileId> = super::notices::texts(ui).into_iter().collect();
+        let tiles: Vec<TileId> = fnv_game::ui_hud::unmeasured_texts(ui).into_iter().filter(|t| !notices.contains(t)).collect();
+        let present: std::collections::HashSet<TileId> = tiles.iter().copied().collect();
+        self.fonts.mod_widths.retain(|id, _| present.contains(id));
+        for tile in tiles {
+            let t = ui.tile(tile);
+            let Some(string) = t.get("string").map(Value::text) else { continue };
+            let font = t.get("font").map_or(0.0, Value::num);
+            let wrap = t.get("wrapwidth").map_or(0.0, Value::num);
+            if self.fonts.mod_widths.get(&tile).is_some_and(|(s, w)| *s == string && *w == wrap) {
+                continue;
+            }
+            self.load(font);
+            let Some(face) = self.face(font).filter(|f| f.image.is_some()) else { continue };
+            let (width, _) = measure(&face.font, self.font_number(font), &string, Some(wrap).filter(|w| *w > 0.0));
+            ui.set_trait(tile, "width", Value::Num(width));
+            ui.set_trait(tile, fnv_game::ui_hud::MEASURED_MARK, Value::Num(1.0));
+            self.fonts.mod_widths.insert(tile, (string, wrap));
         }
     }
 

@@ -608,9 +608,9 @@ const PASS_REASONS: [&str; 6] = ["first", "config", "publication", "pending", "s
 /// on a convertible shape or (another handle) on a census-only one, a temporary marker
 /// added, then each removal kind (the ordinary and marker removals on a shape still
 /// tracked). Several can fire in one frame.
-const SHAPE_SIGNALS: [&str; 11] = [
+const SHAPE_SIGNALS: [&str; 10] = [
     "blend-shape", "census", "ordinary-convertible", "ordinary-census-only", "marker-added",
-    "removed-blend-shape", "removed-census", "removed-ordinary", "removed-fading", "removed-faded", "removed-override",
+    "removed-blend-shape", "removed-census", "removed-ordinary", "removed-fading", "removed-override",
 ];
 /// At most this many `verify shape-trigger` lines per signal per run of the blend (only
 /// the five signals with a shape to name log one: at most 10 lines).
@@ -885,8 +885,8 @@ fn enabled_material(source: &NifMaterial, c: BlendConfig, surface: &crate::terra
     }
 }
 
-/// Temporary material owners (fades, actor alpha, overrides), whose copies never blend.
-type Temporary = (Has<nvf_play::fade::Fading>, Has<crate::effect_shaders::Faded>, Has<MaterialOverride>);
+/// Temporary material owners (fades/actor alpha under `Fading`, overrides), whose copies never blend.
+type Temporary = (Has<nvf_play::fade::Fading>, Has<MaterialOverride>);
 /// The see-through shadow markers (nif_material.rs `see_through_casts_no_shadow`).
 type ShadowMarks = (Has<NotShadowCaster>, Has<SeeThroughNoShadow>);
 /// Every shape the blend tracks: convertible ones ([`BlendShape`]) and census-only ones.
@@ -903,7 +903,7 @@ type Tracked<'w, 's> = Query<'w, 's, (Entity, Option<&'static mut BlendShape>, O
 /// (see [`pass_needed`]).
 type ShapeChanges<'w, 's> = Query<'w, 's, (), (Or<(With<BlendShape>, With<BlendCensus>)>, Or<(
     Changed<BlendShape>, Changed<BlendCensus>, (Changed<MeshMaterial3d<NifMaterial>>, With<BlendShape>),
-    Added<nvf_play::fade::Fading>, Added<crate::effect_shaders::Faded>, Added<MaterialOverride>,
+    Added<nvf_play::fade::Fading>, Added<MaterialOverride>,
 )>)>;
 
 /// [design] Census-only shapes (no `BlendShape`) whose ordinary material component was put
@@ -917,7 +917,7 @@ type CensusDrawn<'w, 's> = Query<'w, 's, (Entity, &'static MeshMaterial3d<NifMat
 /// The verify aid only: each tracked shape's signals ([`count_shape_signals`]).
 type Signals<'w, 's> = Query<'w, 's, (
     Entity, Option<Ref<'static, BlendShape>>, Option<Ref<'static, BlendCensus>>, Option<Ref<'static, MeshMaterial3d<NifMaterial>>>,
-    Option<Ref<'static, nvf_play::fade::Fading>>, Option<Ref<'static, crate::effect_shaders::Faded>>, Option<Ref<'static, MaterialOverride>>,
+    Option<Ref<'static, nvf_play::fade::Fading>>, Option<Ref<'static, MaterialOverride>>,
 ), Or<(With<BlendShape>, With<BlendCensus>)>>;
 
 /// The conversion's shape queries; one at a time.
@@ -931,7 +931,6 @@ struct Removals<'w, 's> {
     census: RemovedComponents<'w, 's, BlendCensus>,
     ordinary: RemovedComponents<'w, 's, MeshMaterial3d<NifMaterial>>,
     fading: RemovedComponents<'w, 's, nvf_play::fade::Fading>,
-    faded: RemovedComponents<'w, 's, crate::effect_shaders::Faded>,
     overridden: RemovedComponents<'w, 's, MaterialOverride>,
 }
 
@@ -966,16 +965,15 @@ fn shape_mask(recorded: u32, temporary: bool, source: Option<&NifMaterial>) -> u
 /// [design] Whether any tracked shape's inputs changed since the conversion last ran
 /// ([`ShapeChanges`], [`CensusDrawn`], [`Removals`]), and which removal kinds fired (for
 /// the verify aid's counts). Every removal reader is drained each run.
-fn shapes_changed(shapes: &mut ShapeQueries, removals: &mut Removals, variants: &Variants) -> (bool, [bool; 6]) {
-    let mut removed = [!removals.shape.is_empty(), !removals.census.is_empty(), false, false, false, false];
+fn shapes_changed(shapes: &mut ShapeQueries, removals: &mut Removals, variants: &Variants) -> (bool, [bool; 5]) {
+    let mut removed = [!removals.shape.is_empty(), !removals.census.is_empty(), false, false, false];
     removals.shape.clear();
     removals.census.clear();
     {
         let tracked = shapes.p0();
         removed[2] = removals.ordinary.read().fold(false, |hit, e| hit | tracked.contains(e));
         removed[3] = removals.fading.read().fold(false, |hit, e| hit | tracked.contains(e));
-        removed[4] = removals.faded.read().fold(false, |hit, e| hit | tracked.contains(e));
-        removed[5] = removals.overridden.read().fold(false, |hit, e| hit | tracked.contains(e));
+        removed[4] = removals.overridden.read().fold(false, |hit, e| hit | tracked.contains(e));
     }
     let changed = removed.contains(&true) || !shapes.p1().is_empty()
         || shapes.p2().iter().any(|(e, drawn)| variants.census_drawn.get(&e) != Some(&drawn.0.id()));
@@ -985,17 +983,17 @@ fn shapes_changed(shapes: &mut ShapeQueries, removals: &mut Removals, variants: 
 /// The verify aid only, in a frame whose pass ran for `shapes`: which shape signals fired
 /// ([`SHAPE_SIGNALS`]), counted once each, and up to [`TRIGGER_LINES`] lines per signal naming a
 /// shape that fired one (its model, shape index and recorded reasons).
-fn count_shape_signals(shapes: &mut ShapeQueries, variants: &mut Variants, removed: [bool; 6]) {
+fn count_shape_signals(shapes: &mut ShapeQueries, variants: &mut Variants, removed: [bool; 5]) {
     let mut fired = [false; SHAPE_SIGNALS.len()];
     fired[5..].copy_from_slice(&removed);
-    for (e, shape, census, ordinary, fading, faded, overridden) in shapes.p3().iter() {
+    for (e, shape, census, ordinary, fading, overridden) in shapes.p3().iter() {
         let ordinary_changed = ordinary.as_ref().is_some_and(|o| o.is_changed());
         let hits = [
             shape.as_ref().is_some_and(|s| s.is_changed()),
             census.as_ref().is_some_and(|c| c.is_changed()),
             ordinary_changed && shape.is_some(),
             ordinary_changed && shape.is_none() && ordinary.as_ref().is_some_and(|o| variants.census_drawn.get(&e) != Some(&o.0.id())),
-            fading.is_some_and(|m| m.is_added()) || faded.is_some_and(|m| m.is_added()) || overridden.is_some_and(|m| m.is_added()),
+            fading.is_some_and(|m| m.is_added()) || overridden.is_some_and(|m| m.is_added()),
         ];
         for (i, hit) in hits.iter().enumerate() {
             if !hit { continue; }
@@ -1200,8 +1198,8 @@ fn full_pass(
         }
     }
     variants.ordinary_seen.retain(|e, _| ordinary_live.contains(e));
-    for (entity, shape, tracked, drawn, (fading, faded, overridden), (no_shadow, see_through_mark)) in shapes.iter_mut() {
-        let temporary = fading || faded || overridden;
+    for (entity, shape, tracked, drawn, (fading, overridden), (no_shadow, see_through_mark)) in shapes.iter_mut() {
+        let temporary = fading || overridden;
         let recorded = tracked.map_or(0, |t| t.reasons);
         let Some(mut shape) = shape else {
             // Census only: never converted.

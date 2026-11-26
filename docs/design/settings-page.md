@@ -123,7 +123,7 @@ line has a soft dark glow; the arrows and the scroll bar are drawn shapes
 (`engine/nvf-play/src/menu_shapes.rs`), and they, the list boxes and the hover and selection
 boxes have the glow too; the selection box is drawn under a row and takes no room, so nothing
 moves when a row is chosen [design: owner 2026-11-15, second and third tests]. The quit
-question is two columns of three lines, centred in the view: "Warning", what is lost and the
+question is two columns of three lines, centred in the view: "Quit", what is lost and the
 question at the left, the answers (bold) at the right. The load page's band reaches as far past
 the saves' right side as past their left, with the same dark column; the sliders' meters and
 the scroll bar have the glow too (fourth build).
@@ -136,8 +136,9 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 
 | Tab | Heading | Rows (keys), in order |
 |---|---|---|
-| Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy` |
+| Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy`, `npc-weapon-mods` (#3876) |
 | Gameplay | Saving | `autosave-travel`, `autosave-fast-travel`, `autosave-wait`, `autosave-sleep`, `autosave-scripts` |
+| Gameplay | Combat | `localized-dt-dr` (#3843) |
 | Gameplay | Dialogue | `menu-pause`, `dialogue-goodbye-hint`, `dialogue-look`, `dialogue-recentre`, `dialogue-zoom`, `lip-sync` |
 | Gameplay | Camera | `detached-camera`, `true-iron-sights`, `first-person-body`, `weapon-lower`, `field-of-view`, `viewmodel-field-of-view` |
 | Gameplay | World | `grass-fire` (#2662), `sound-cover` (#2688) |
@@ -178,8 +179,9 @@ and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distanc
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
-(Detail and Distance, after `mesh-terrain-blend`; read at the next start), and `physical-pbr`
-(Lighting and Effects, after `night-sky-detail`; read at the next start). The
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start), #3843's
+`localized-dt-dr` (Gameplay › Combat), and `physical-pbr` (Lighting and Effects, after
+`night-sky-detail`; read at the next start). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
 [observed: #1953], hence Interface there.
 

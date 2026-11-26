@@ -677,6 +677,7 @@ impl<'a> Game<'a> {
             // An actor walking into a loaded cell for the first time dresses as one loaded
             // there (`Game::outfit_loaded_actors`).
             let _ = self.world.outfit(a);
+            self.maybe_apply_npc_weapon_mods(a);
             let due = match self.extra.get(&a).and_then(|e| e.package_due) {
                 Some(d) => d,
                 None => {

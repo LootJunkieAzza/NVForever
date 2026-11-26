@@ -32,6 +32,7 @@ texpresso.workspace = true
 fnv-spt.workspace = true
 fnv-font.workspace = true
 nvf-play.workspace = true
+nvf-coop.workspace = true
 fnv-actor.workspace = true
 fnv-sim.workspace = true
 fnv-combat.workspace = true
@@ -122,6 +123,9 @@ jni = "0.21"
 winresource = "0.1"
 
 [dev-dependencies]
+# wgpu's no-op backend: a device without a GPU for the bind group layout and view key tests
+# (rtgi_volume/tests.rs). A feature of the wgpu already in the build.
+wgpu = { version = "30", default-features = false, features = ["noop"] }
 # [design, #2403] Exercise the real reports system with synthetic UI navigation states.
 # [design, #2652] Authored-plugin runtimes for the Use Weapon shooter tests.
 nvf-play = { workspace = true, features = ["test-support", "report-test-support", "test-fixtures", "dev-aids"] }

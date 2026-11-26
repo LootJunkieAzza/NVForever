@@ -238,7 +238,7 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
                 _ => 0,
             });
             let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(move |p: &str| v2.as_ref().as_ref().and_then(|v| v.read(p)).and_then(Result::ok));
-            fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![a.lo.data_dir.clone()], config: config.clone(), write: None, lookup: Some(lookup), reader: Some(reader), archives });
+            fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { hosted_from: None, read: vec![a.lo.data_dir.clone()], config: config.clone(), write: None, lookup: Some(lookup), reader: Some(reader), archives, list: None });
             weather_hook(&a);
             run_actions(&a, &actions, !no_voice_lengths, &ini, coverage.as_deref())
         }

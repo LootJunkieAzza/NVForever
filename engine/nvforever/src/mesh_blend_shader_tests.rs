@@ -461,7 +461,7 @@ fn shader_ground_lookup_reads_the_surface_squares() {
     }
 }
 
-fn nif_defs(bindless: bool, blend: bool, prepass: bool, soft_edges: bool, layout: nvf_assets::nif_surface_blend::HeightLayout) -> Vec<ShaderDefVal> {
+pub(crate) fn nif_defs(bindless: bool, blend: bool, prepass: bool, soft_edges: bool, layout: nvf_assets::nif_surface_blend::HeightLayout) -> Vec<ShaderDefVal> {
     let mut defs = vec![
         ShaderDefVal::Bool("BINDLESS".into(), bindless),
         ShaderDefVal::Bool("NIF_SURFACE_BLEND".into(), blend),
@@ -547,7 +547,7 @@ fn without_pbr_debug(source: &str) -> String {
 /// at brace depth 0 (attribute lines included) to the line that brings the depth back to 0
 /// ending in `}` or `;`; blank lines at depth 0 separate nothing and are dropped, blank lines
 /// inside a body stay in it. The composed WGSL has no comments or strings.
-fn declarations(source: &str) -> Vec<String> {
+pub(crate) fn declarations(source: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current: Vec<&str> = Vec::new();
     let mut depth = 0i32;
@@ -570,7 +570,7 @@ fn declarations(source: &str) -> Vec<String> {
 }
 
 /// The first of two sorted declaration lists' differences, as a message (`None`: equal).
-fn declaration_difference(ours: &[String], theirs: &[String]) -> Option<String> {
+pub(crate) fn declaration_difference(ours: &[String], theirs: &[String]) -> Option<String> {
     let i = (0..ours.len().max(theirs.len())).find(|&i| ours.get(i) != theirs.get(i))?;
     let (a, b) = (ours.get(i).map_or("", String::as_str), theirs.get(i).map_or("", String::as_str));
     let at = first_difference(a, b).unwrap_or(0);
@@ -713,7 +713,7 @@ fn terrain_surface_bake_composes_for_the_folded_base() {
 
 /// The folded TerrainMaterial's main-pass defs (terrain.rs `TerrainLayersKey`) on the
 /// landscape's mesh layout.
-fn terrain_defs(bindless: bool, bake: bool, height: bool, anti: bool, parallax: bool) -> Vec<ShaderDefVal> {
+pub(crate) fn terrain_defs(bindless: bool, bake: bool, height: bool, anti: bool, parallax: bool) -> Vec<ShaderDefVal> {
     vec![
         ShaderDefVal::Bool("BINDLESS".into(), bindless),
         ShaderDefVal::Bool("SURFACE_BAKE".into(), bake),

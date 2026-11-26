@@ -159,8 +159,10 @@ pub enum Page {
 impl Page {
     pub const ALL: [Page; 3] = [Page::Stats, Page::Items, Page::Data];
 
-    /// The page's title at the screen's top left [observed: the owner's screenshots]: its
-    /// setting's text when the load order defines it (`labels`, #1443).
+    /// The page's title at the screen's top left: its setting's text when the load order
+    /// defines it (`labels`, #1443), else the setting's name in capitals [design: headings
+    /// in capitals are NVForever's choice, the words the settings' names, #2984; the
+    /// built-in table's `sInventoryItems` and `sData` follow these, #2212].
     pub fn title(self) -> &'static str {
         use labels::label;
         match self {
@@ -170,8 +172,9 @@ impl Page {
         }
     }
 
-    /// The page's tabs, left to right [observed: the owner's screenshots]: each one's
-    /// setting's text when the load order defines it (`labels`, #1443).
+    /// The page's tabs, left to right: each one's setting's text when the load order
+    /// defines it (`labels`, #1443), else the words of the setting's name [design, #2984;
+    /// "S.P.E.C.I.A.L." as the data's own text spells it, #1740].
     pub fn tabs(self) -> [&'static str; 5] {
         use labels::label;
         match self {

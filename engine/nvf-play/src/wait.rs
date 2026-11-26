@@ -628,12 +628,19 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: crate::pad::ActionButtons<KeyCode>, input: ControlInput, menu: Res<WaitMenu>, mut out: MessageWriter<WaitInput>) {
+fn keys(
+    keys: crate::pad::ActionButtons<KeyCode>,
+    input: ControlInput,
+    menu: Res<WaitMenu>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    mut out: MessageWriter<WaitInput>,
+) {
     let keys = keys.snapshot();
     use KeyCode::*;
     if !menu.is_open() {
         return;
     }
+    let wasd = tweaks.as_ref().is_some_and(|t| t.game.wasd_as_arrow_keys);
     let mut send = |c| {
         out.write(WaitInput(c));
     };
@@ -641,7 +648,8 @@ fn keys(keys: crate::pad::ActionButtons<KeyCode>, input: ControlInput, menu: Res
         send(Command::Cancel);
         return;
     }
-    if keys.any_just_pressed([KeyE, Enter, NumpadEnter]) {
+    let accept: &[KeyCode] = if wasd { &[KeyE, Enter, NumpadEnter, Space] } else { &[KeyE, Enter, NumpadEnter] };
+    if keys.any_just_pressed(accept.iter().copied()) {
         send(Command::Accept);
     }
     if keys.any_just_pressed([ArrowLeft, KeyA]) {
@@ -1261,6 +1269,33 @@ mod tests {
         // The end marks stand inside the line's ends.
         let last = MARK_X0 + MARK_STEP * (MAX_HOURS + 1) as f32;
         assert!(MARK_X0 > 65.0 && last < 65.0 + 516.0);
+    }
+
+    #[test]
+    fn wasd_as_arrow_keys_allows_space_to_accept_sleep_wait_only_when_enabled() {
+        let run_space = |wasd: bool| -> Vec<Command> {
+            let mut app = App::new();
+            let mut tweaks = crate::tweaks::TweakSettings::default();
+            tweaks.game.wasd_as_arrow_keys = wasd;
+            let mut kb = ButtonInput::<KeyCode>::default();
+            kb.press(KeyCode::Space);
+            app.insert_resource(kb)
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<crate::bindings::Bindings>()
+                .insert_resource(WaitMenu(Some(Model::open(false))))
+                .insert_resource(tweaks)
+                .add_message::<WaitInput>()
+                .add_systems(Update, keys);
+            app.update();
+            app.world_mut()
+                .resource_mut::<bevy::ecs::message::Messages<WaitInput>>()
+                .drain()
+                .map(|e| e.0)
+                .collect()
+        };
+
+        assert!(run_space(false).is_empty(), "vanilla Sleep/Wait ignores Space");
+        assert_eq!(run_space(true), vec![Command::Accept], "bUseWASDAsArrowKeys accepts with Space");
     }
 
     #[test]

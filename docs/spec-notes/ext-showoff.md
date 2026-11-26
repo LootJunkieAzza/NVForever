@@ -64,6 +64,17 @@ ran.
   left read -1 (gone) and the handler had run once, with the player as owner [observed]. It
   runs again on `AuxTimerStop name 1` [observed]; AuxTimerStop fires the event only when its
   fireEvent argument is non-0 [documented].
+- Registration and removal via `SetOnAuxTimerStopHandler` take effect on the next frame
+  (stopping in the same frame as registration does not fire; stopping on the next frame
+  fires; stopping in the same frame as removal still fires), and both Start and Stop
+  handlers execute with null calling reference (`GetSelfAlt == 0`) [observed: 2026-11-24,
+  Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters,
+  `tools/capture/nvse/catalogs/wave6d1_aux_timer_stop_deferred_and_self.json` probes
+  `w6d1p3_27_aux_timer_stop` (`same=0,noev=0,next=1,remSame=1|nm=[sNm],ownP=1,s0=1,sP=0`)
+  and `w6d1p3_28_aux_timer_start_and_clear` (`st(n=1,nm=[sNm],s0=1,sP=0)`); no binary,
+  DLL, PDB, or third-party source consulted]. Update handlers likewise pass `None` as the
+  calling reference [hypothesis].
 - NVForever checks the running timers each frame and erases and reports the ones whose time
   is up. Before this, a timer whose time was up stayed with 0 seconds left.
 
@@ -106,10 +117,19 @@ ran.
   (`Game::take_force_jam_requests`). For the player, `nvf_play::combat::fire` interrupts
   any active reload or attack phase via `Cycle::jam` and increments `WeaponAnim::jams`
   (which `nvforever::player_body` plays on the reload layer, interrupting any active reload
-  clip) while reporting `AnimAction::Jam` (code `9` for `GetAnimAction`, while
-  `IsAnimPlayingEx 4` remains `0` and `SetOnReloadWeaponEventHandler` does not fire;
-  generalizing `Phase::Jammed -> AnimAction::Jam` (`9` instead of `13`) to natural vanilla
-  weapon-condition jams is [hypothesis]).
+  clip) while reporting `AnimAction::Jam` (code `9` for `GetAnimAction`, `IsAnimPlayingEx 4`
+  remains `0`, `GetSequenceAnimGroup 4` reads `200` `JamA`, and JIP's
+  `SetOnReloadWeaponEventHandler` fires on jam entry [observed 2026-11-24: Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528 + ShowOffNVSE 184,
+  10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room
+  staging copy, committed probe `w6t2_14_jip_on_reload_and_seq_anim_group`
+  (`tools/capture/nvse/catalogs/wave6c_jip_on_reload_and_seq_group.json`):
+  `PROBE|w6t2_14_jip_on_reload_and_seq_anim_group|fj=1,relHit=1,s0=0,s4(pre=24,t0=200,t1=200,cb=200)`;
+  no DLL or source consulted]; generalizing `Phase::Jammed -> AnimAction::Jam` (`9` instead
+  of `13`) to natural vanilla weapon-condition jams is [hypothesis]).
+  `ForceWeaponJamAnim` also enters `AnimAction::Jam` synchronously so immediate script
+  queries (`t0=200`) and the `SetOnReloadWeaponEventHandler` callback (`cb=200`) see the
+  jam state without double-firing when `nvf-play` syncs `AnimAction::Jam` [design].
   Repeated calls while `Cycle::jammed` is already true return `1` without restarting the
   active jam timer [design]. NPC jam animation playback remains [not built] (`nvf-play`
   models `Cycle` for the player only). No ShowOff DLL or source code was consulted.
@@ -133,7 +153,7 @@ lab `L5.ext.showoff2`): 49 of 50 rows match.
 | SetCreatureFootWeight, SetCreatureTurningSpeed, SetCreatureBaseScale, SetCreatureReach `value [creature]` | WNAM, TNAM, BNAM, RNAM for the session; refused below 0; 1 when set [documented; observed: turning speed 45 read back, -1 refused] |
 | GetCellEncounterZone (GetCellZone) `cell` | the cell's zone [documented; observed: Doc's house none] |
 | GetZoneRespawns `zone` | not "Never Resets", reading saved `SetZoneRespawns` and session `SetZoneFlag` overrides through `Game::zone` [documented; observed: Vault 11 0, Hoover Dam 1; hypothesis: live override interaction] |
-| IsBaseForm `form`, IsReferenceCloned, IsActorAlt `[form]` | a record that is no placed reference; a reference made in play (0xFF); an NPC or creature [documented; observed: the pistol 1, the player and Doc's reference 0] |
+| IsBaseForm `form`, IsReferenceCloned, IsActorAlt `[form]` | `IsBaseForm` returns `1` for authored base forms (`WEAP`, `NPC_`, `CELL`, `WRLD`, `QUST`, `FACT`, `FLST`) and `TempCloneForm` `0xFF` base forms, and `0` for `Player`, `DocMitchellRef`, and doors [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_is_base_form_tempclone.json` probe `w6d1_35_showoff_is_base_form_and_fade_state`: `base(w=1,cl=1,n=1,ce=1,wr=1,qu=1,fa=1,fl=1,doc=0,pc=0,dr=0)`; no DLL, PDB, or third-party source consulted]; `0xFF` `PlaceAtMe` placed references and temporary inventory references are also rejected [documented: IsBaseForm, a valid base form; design: check `world.placed`, `temp_item`, and `clones`]; `IsReferenceCloned` is a reference made in play (`0xFF`); `IsActorAlt` is an NPC or creature [documented] |
 | ModNumericGameSetting `setting by` | the setting changed by the amount; 0 for no such setting [documented; observed: fMoveRunMult 4 + 1 = 5] |
 | GetShowOffDebugMode, SetShowOffDebugMode | the switch kept; nothing more is printed |
 
@@ -178,7 +198,7 @@ on 000E8911 gives the three texts the page's example lists, the first one word f
 | ConditionPrint | 1, and a console line naming the reference in NVForever's own words [documented] |
 | IsAnimPlayingExCond `category [subType]` | IsAnimPlayingEx [documented] |
 | IsJumping | IsInAir: the page marks it broken, it "functions equivalently to IsInAir" [documented]. `rP.IsJumping` did not compile in the original's runtime compiler [observed: showoff3 so3.jumping]: not registered under that name or no calling reference, the one row cannot tell. NVForever keeps compiling it [decision: #2037, the owner's 2026-11-10 ruling to refuse what the original refuses needs a rule the data gives; ext-syntax.md §11] |
-| GetNumActorsInRangeFromRef `maxDistance [flags]` | the loaded actors within the distance (3-D, same space); 1 no dead, 2 no Invisibility or Chameleon above 0, 4 only actors in combat the caller detects [documented]. The caller does not count itself [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_14_actors_in_range_excludes_self` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, calling `Player.GetNumActorsInRangeFromRef` at radius `1.0`, `5000.0` flag `0`, and `5000.0` flag `1`): `PROBE\|so_14_actors_in_range_excludes_self\|0,1,1`; no DLL or source consulted] |
+| GetNumActorsInRangeFromRef `maxDistance [flags]` | the loaded actors within the distance (3-D, same space); 1 no dead, 2 no Invisibility or Chameleon above 0, 4 only actors in combat the caller detects [documented]. The caller does not count itself [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves), `so_14_actors_in_range_excludes_self` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, calling `Player.GetNumActorsInRangeFromRef` at radius `1.0`, `5000.0` flag `0`, and `5000.0` flag `1`): `PROBE\|so_14_actors_in_range_excludes_self\|0,1,1`, and `w6t2_08_showoff_equipped_weight_and_ally_temp` (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`): `PROBE\|w6t2_08_showoff_equipped_weight_and_ally_temp\|wt(0.0,0.0,0.0,c=0.0)\|rng(10=0,2k=1)\|fac(0,0,0,0)`; zero DLL, PDB, or third-party source consulted] |
 | SetIsPCAMurderer `0/1` | the flag IsPCAMurderer reads [documented] |
 | GetPCHasSleepWaitOverride, SetPCHasSleepWaitOverride `0/1` | EnableFastTravel's can-wait flag, which the wait menu checks [documented: EnableFastTravel "can modify this canSleepWait override flag"] |
 | GetChallengeProgress `challenge` | the progress the challenge system keeps: a non-recurring challenge done stays at its threshold, a recurring one counts again from 0 [documented] |
@@ -277,10 +297,10 @@ their titles have a space where the name has an underscore).
 |---|---|
 | Matrix_IsMatrix (Mat_IsMat) `array` | a list of numbers (one row) or a list of lists of numbers, all of one length; empty, mixed or ragged arrays are none [documented: the page's seven examples]. Only list arrays count (stringmaps and numeric maps return 0) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_01_mat_is_stringmap` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, testing `ar_List 1 2 3`, stringmap, and numeric map): `PROBE\|so_01_mat_is_stringmap\|1,0,0`; no DLL or source consulted] |
 | Matrix_ApplyOperationWithMatrix (Mat_ApplyOpWithMat) `A op B` | `+ - / %` element by element (`%` the Schur product), `*` the matrix product when A's columns are B's rows; anything else no array [documented: the table and examples, e.g. (3 4; 5 6)·(7 8; 9 10) = (57 64; 89 100), 1×3 · 1×3 undefined] |
-| Matrix_ApplyOperationWithScalar (Mat_ApplyOpWithScal) `A op s` | `+ - * /` on each element, `%` no array [documented]; division by 0 returns floating-point infinity (`inf`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probes `so_02_mat_scalar_div0` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_02_mat_scalar_div0\|2,inf` and `w4c_b6_08_matrix_div0_and_1d_trans` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679): `PROBE\|w4c_b6_08_matrix_div0_and_1d_trans\|transN=3(t0=Array)\|div0N=3\|modN=-1`; no DLL or source consulted]. The catalogue row was named "Matrix" (the template's name has a space); fixed in `script_functions.py` NAME_FIXES |
+| Matrix_ApplyOperationWithScalar (Mat_ApplyOpWithScal) `A op s` | `+ - * /` on each element, `%` no array [documented]; division by 0 returns a same-length array of floating-point infinities (`inf`) rather than `ar_Null` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probes `so_02_mat_scalar_div0` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_02_mat_scalar_div0\|2,inf`, `w4c_b6_08_matrix_div0_and_1d_trans` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679): `PROBE\|w4c_b6_08_matrix_div0_and_1d_trans\|transN=3(t0=Array)\|div0N=3\|modN=-1`, and `w6t2_32_showoff_matrix_edges_and_get_weapon_mod_flags` (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`): `PROBE\|w6t2_32_showoff_matrix_edges_and_get_weapon_mod_flags\|tr(sz=3,sub=1)\|div0=3\|q(sz=4,w=0.00,z=1.00)\|imod(4.00,0.40)\|pm=100.0`; zero DLL, PDB, or third-party source consulted]. The catalogue row was named "Matrix" (the template's name has a space); fixed in `script_functions.py` NAME_FIXES |
 | Matrix_Transpose (Mat_T), Matrix_Dump (Mat_Dump) | the transpose [documented]; the dump prints a heading and each row with four decimals to the console, the heading in NVForever's own words |
-| Quaternion_GetMatrix (Quat_GetMat) `[w x y z]`, Matrix3x3_GetQuaternion (Mat_GetQuat) | the layout [w, x, y, z] [documented]. Quat_GetMat does not normalise and gives the transpose of the usual right-handed matrix, in single precision: diagonal 2(w²+a²)−1, (2 0 0 0) gives 7 7 7 [observed 2026-11-08: quat.unnormal]; (0.7071 0 0 0.7071) gives m[0][0] −5.96046e-08, m[0][1] 1, m[1][0] −1, m[2][2] 1 [observed: quat.z90], and the x and y 90° rotations transpose alike (`m_x[1][2]=1, m_x[2][1]=-1, m_y[0][2]=-1, m_y[2][0]=1`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_03_quat_getmat_xy_transpose` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_03_quat_getmat_xy_transpose\|1.0000,-1.0000,-1.0000,1.0000`; no DLL or source consulted]. Mat_GetQuat reads the usual right-handed form, by the largest of trace and diagonal with w not negative [observed: quat.back, quat.back.270 equal], so the two are not inverses |
-| Results' shape | a 1-D row stays 1-D under scalar operations and transposes to a column of one-element lists [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probes `so_04_mat_transpose_1d_shape` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_04_mat_transpose_1d_shape\|3,1,3,Number` and `w4c_b6_08_matrix_div0_and_1d_trans` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679): `PROBE\|w4c_b6_08_matrix_div0_and_1d_trans\|transN=3(t0=Array)\|div0N=3\|modN=-1`; no DLL or source consulted]; keeping 1-D shape for element-wise matrix-with-matrix operations remains [hypothesis; probe schur.flat.size] |
+| Quaternion_GetMatrix (Quat_GetMat) `[w x y z]`, Matrix3x3_GetQuaternion (Mat_GetQuat) | the layout [w, x, y, z] [documented]. Quat_GetMat does not normalise and gives the transpose of the usual right-handed matrix, in single precision: diagonal 2(w²+a²)−1, (2 0 0 0) gives 7 7 7 [observed 2026-11-08: quat.unnormal]; (0.7071 0 0 0.7071) gives m[0][0] −5.96046e-08, m[0][1] 1, m[1][0] −1, m[2][2] 1 [observed: quat.z90], and the x and y 90° rotations transpose alike (`m_x[1][2]=1, m_x[2][1]=-1, m_y[0][2]=-1, m_y[2][0]=1`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe `so_03_quat_getmat_xy_transpose` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_03_quat_getmat_xy_transpose\|1.0000,-1.0000,-1.0000,1.0000`; no DLL or source consulted]. Mat_GetQuat reads the usual right-handed form, by the largest of trace and diagonal with w not negative [observed: quat.back, quat.back.270 equal; observed 2026-11-24: `w6t2_32_showoff_matrix_edges_and_get_weapon_mod_flags` (`wave6_t2_observed_matches.json`): `diag(-1,-1,1)` -> `q(sz=4,w=0.00,z=1.00)`], so the two are not inverses |
+| Results' shape | a 1-D row stays 1-D under scalar operations and transposes to a column of one-element lists [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probes `so_04_mat_transpose_1d_shape` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679): `PROBE\|so_04_mat_transpose_1d_shape\|3,1,3,Number`, `w4c_b6_08_matrix_div0_and_1d_trans` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3679): `PROBE\|w4c_b6_08_matrix_div0_and_1d_trans\|transN=3(t0=Array)\|div0N=3\|modN=-1`, and `w6t2_32_showoff_matrix_edges_and_get_weapon_mod_flags` (`wave6_t2_observed_matches.json`): `tr(sz=3,sub=1)`; zero DLL, PDB, or third-party source consulted]; keeping 1-D shape for element-wise matrix-with-matrix operations remains [hypothesis; probe schur.flat.size] |
 | SayTo_GetTopic, SayTo_GetTopicInfo | the topic and response of the actor's running SayTo line (`Game::speech`), none without one [documented] |
 | Get/SetItemHotkeyIconPath `item [onlyOverride]`, `item path` | the override, else GetTexturePath's icon; onlyOverride 1 the override or ""; "" resets [documented: GetItemHotkeyIconPath, SetItemHotkeyIconPath]. Wired into the engine's hotkey pictures (`Game::item_hotkey_icon_path`, `nvf_play::hotkeys::icon_override`, `weapon_wheel::draw`, `pipboy::hotkey_panel`) for both assigned slots (excluding Ammo Swap slot 2) and the Pip-Boy hotkey panel's pointed-at centre icon; override paths are normalised to lowercase backslashes relative to `textures\` (stripping any leading separator or `data\textures\` / `textures\` prefix, ignoring whitespace-only values) before `interface::Pictures` lookup [design]. Unmodded vanilla icon resolution is unchanged when no override is set |
 | Get/SetPlayerCanPickpocketEquippedItems (Get/SetPCCanStealEqItems) | off by default; on, the pickpocket menu lists the victim's equipped items, never a child's (`Game::pickpocket_worn`, `nvf_play::menu::model::Steal::worn`) [documented] |
@@ -321,13 +341,21 @@ RemoveAllItemsShowOff.
 ## 9. `ShowOff:OnPOVChange` and preactivation events
 
 - **`ShowOff:OnPOVChange`** [documented: GECK wiki,
-  [ShowOff:OnPOVChange](https://geckwiki.com/index.php?title=ShowOff%3AOnPOVChange)]:
-  fires when the player's camera perspective switches between first-person and
-  third-person, passing one integer argument (`1` = first-person, `0` = third-person).
-  NVForever dispatches it from `Game::set_first_person` (fed every frame by
-  `nvf_play::control::tell_scripts`) only when `senses.first_person` actually changes,
-  with `IsPC1stPerson` already reflecting the new perspective and no calling reference
-  [hypothesis: calling reference and getter visibility during callback unobserved].
+  [ShowOff:OnPOVChange](https://geckwiki.com/index.php?title=ShowOff%3AOnPOVChange);
+  observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 +
+  ShowOffNVSE Plugin 184, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`),
+  isolated clean-room staging copy, committed probe
+  `w6t2p2_03_showoff_on_pov_change_toggle`
+  (`tools/capture/nvse/catalogs/wave6c_showoff_on_pov_change_thisalt.json`):
+  `PROBE|w6t2p2_03_showoff_on_pov_change_toggle|init=1|to3p(n=1,arg=0,inCb=1,aft=0,s0=0,sP=1)|to1p(n=2,arg=1,inCb=1,aft=1)`;
+  no DLL or source consulted]: fires when the player's camera perspective switches
+  between first-person and third-person, with calling reference `Player` (`0x00000014`,
+  `GetSelfAlt == Player`, `0::Player` filterable) and one integer argument (`1` =
+  first-person, `0` = third-person). NVForever dispatches it from
+  `Game::set_first_person` (fed every frame by `nvf_play::control::tell_scripts`) only
+  when `senses.first_person` actually changes; on 1P -> 3P (`0`) it fires before
+  clearing `senses.first_person` so `IsPC1stPerson` still reads `1` inside the callback
+  and `0` afterward, while on 3P -> 1P (`1`) `IsPC1stPerson` reads `1` inside and after.
   Save restore syncs `senses.first_person` directly to the restored camera POV without
   emitting a spurious transition [design]. Free when no handler is registered.
 - **`ShowOff:OnPreScriptedActivate`**, **`ShowOff:OnPreActivateInventoryItem`**, and
@@ -418,9 +446,17 @@ RemoveAllItemsShowOff.
   184, 2026-11-23, GSDocMitchellHouse (`0x00103DF9`), 10 official base masters, probe
   `w1_3632_onfireweapon_and_forcejam` in #3679: `Player.FireWeapon` on the 7-pellet
   Caravan Shotgun `0x000CD53A` fires `ShowOff:OnFireWeapon` once, not 7 times].
-- Excludes non-actors (e.g., trap activators) and melee weapons (`DNAM/animation_type`
-  `0..=2`), and is not suppressed by player god mode (`ToggleGodMode`), unlike JIP's
-  `SetOnFireWeaponEventHandler` whose god-mode omission is a JIP-documented quirk
-  [hypothesis: non-actor, melee, and god-mode edge cases unprobed in original ShowOff].
+- Is not suppressed by player god mode (`ToggleGodMode`), unlike JIP's
+  `SetOnFireWeaponEventHandler` whose god-mode omission suppresses player firing
+  [observed: 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas
+  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + ShowOffNVSE 184 with the 10 official base
+  masters, isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes
+  to game install or Saves), committed probe `w6t2p3_04_fire_god_melee`
+  (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+  `PROBE|w6t2p3_04_fire_god_melee|norm(so=1,jp=1)|god(so=1,jp=0)|melee(so=1,jp=1)`; zero
+  DLL, PDB, or third-party source consulted]. Excludes non-actors (e.g., trap activators)
+  and melee weapons (`DNAM/animation_type` `0..=2`) during normal combat [hypothesis:
+  non-actor exclusion unprobed; note scripted `Player.FireWeapon` on a melee weapon fired
+  both handlers in `w6t2p3_04_fire_god_melee`].
 - Free when no `ShowOff:OnFireWeapon` handler is registered (unmodded vanilla weapon
   firing is unchanged). No ShowOff DLL or source code was consulted.
