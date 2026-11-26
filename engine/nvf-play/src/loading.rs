@@ -51,7 +51,7 @@ use crate::{Location, PlaySet, PlayState, PlayWorld, Travel};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
-use fnv_world::loadscreen::{choose, load_screens, Destination, LoadScreen, TipStyle};
+use fnv_world::loadscreen::{choose_with, load_screens, Destination, LoadScreen, TipStyle};
 use nvf_assets::{GameData, TextureCache};
 
 /// Frames the screen is up before the travel is applied [engineering choice: the frame
@@ -148,6 +148,11 @@ pub struct Loading {
     /// The player's No Exterior Load Screens tweak: a trip out of an interior shows the
     /// black alone, no picture or tip [design: docs/design/tweaks.md].
     pub plain_going_out: bool,
+    /// Named NVForever option `location-load-screens` (off by default; #3844): prefer
+    /// location-specific load screens when any match the destination, synced live from
+    /// [`LocationLoadScreens`] [documented: JIP LN NVSE v57.30 / Settings INI v56.24
+    /// `jip_nvse.ini` `bLoadScreenFix`; design: `docs/spec-notes/location-load-screens.md`].
+    pub prefer_location: bool,
     /// The next screen is the plain one (set for one [`spawn_screen`]).
     plain_once: bool,
     waiting_click: bool,
@@ -379,11 +384,29 @@ struct Screens(Vec<LoadScreen>);
 #[derive(Component)]
 struct LoadingRoot;
 
+/// Named NVForever option `location-load-screens` (off by default; #3844): when enabled,
+/// prefer location-specific `LSCR` loading screens matching the destination cell or
+/// worldspace over generic screens [documented: JIP LN NVSE v57.30 / Settings INI v56.24
+/// `jip_nvse.ini` `bLoadScreenFix`; no DLL or source consulted; design:
+/// `docs/spec-notes/location-load-screens.md`].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct LocationLoadScreens(pub bool);
+
+/// Keep [`Loading::prefer_location`] aligned with the live [`LocationLoadScreens`] setting
+/// so toggling it from the pause menu takes effect immediately.
+pub(crate) fn sync_location_load_screens(setting: Option<Res<LocationLoadScreens>>, mut loading: ResMut<Loading>) {
+    let want = setting.as_deref().is_some_and(|s| s.0);
+    if loading.prefer_location != want {
+        loading.prefer_location = want;
+    }
+}
+
 pub struct LoadingPlugin;
 
 impl Plugin for LoadingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Loading>()
+            .init_resource::<LocationLoadScreens>()
             .init_resource::<Look>()
             .add_message::<TravelRequest>()
             .add_message::<CoverRequest>()
@@ -393,8 +416,21 @@ impl Plugin for LoadingPlugin {
                 PreUpdate,
                 hold_input.after(bevy::input::InputSystems).after(crate::pad::menu_keys).after(crate::test_aid::real_presses).before(bevy::ui::UiSystems::Focus),
             )
-            .add_systems(Update, (send.in_set(PlaySet::Input), (begin_start, begin, hold, look::fit_tip, look::turn_emblem).chain().in_set(PlaySet::Sync)))
+            .add_systems(Update, (send.in_set(PlaySet::Input), (sync_location_load_screens, begin_start, begin, hold, look::fit_tip, look::turn_emblem).chain().in_set(PlaySet::Sync)))
             .add_systems(Last, finish);
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "location-load-screens",
+                group: "Interface",
+                label: "Location-specific loading screens",
+                note: "On: prefer loading screens matching the destination cell or worldspace over generic screens. Off: mix matching and generic loading screens as in the original.",
+                switches: "",
+                get: |w| w.resource::<LocationLoadScreens>().0,
+                set: |w, on| w.resource_mut::<LocationLoadScreens>().0 = on,
+                slider: None,
+            },
+        );
     }
 }
 
@@ -456,6 +492,7 @@ struct Art<'w> {
     textures: Option<ResMut<'w, TextureCache>>,
     images: Option<ResMut<'w, Assets<Image>>>,
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
+    prefer_location: Option<Res<'w, LocationLoadScreens>>,
     look: ResMut<'w, Look>,
 }
 
@@ -581,7 +618,8 @@ fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, t
     let to = to.unwrap_or(&anywhere);
     loading.shown += 1;
     let plain = std::mem::take(&mut loading.plain_once);
-    let screen = art.screens.as_deref().filter(|_| !plain).and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    let prefer_location = loading.prefer_location || art.prefer_location.as_deref().is_some_and(|s| s.0);
+    let screen = art.screens.as_deref().filter(|_| !plain).and_then(|s| choose_with(&s.0, to, roll(loading.shown), prefer_location));
     if plain {
         info!("loading screen: out of an interior, no picture (tweak)");
     }
@@ -1448,5 +1486,104 @@ mod tests {
         until_down(&mut app);
         assert!(!app.world().resource::<Loading>().active());
         assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+    }
+
+    #[test]
+    fn location_load_screens_setting_defaults_off_syncs_and_round_trips_ini() {
+        use bevy::app::PostStartup;
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::MinimalPlugins;
+
+        let dir = std::env::temp_dir().join(format!("nvf-location-load-screens-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+
+        let make_app = |ini_path: &std::path::Path| {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+                .init_state::<PlayState>()
+                .insert_resource(crate::settings::SettingsFile(Some(ini_path.to_path_buf())))
+                .init_resource::<crate::settings::GivenSwitches>()
+                .add_plugins(LoadingPlugin)
+                .add_systems(PostStartup, crate::settings::apply_stored);
+            app.world_mut().run_schedule(PostStartup);
+            app
+        };
+
+        // 1. Fresh start with no INI: defaults to off, within note budget.
+        let mut app = make_app(&path);
+        assert!(!app.world().resource::<LocationLoadScreens>().0, "must default to off");
+        assert!(!app.world().resource::<Loading>().prefer_location, "Loading::prefer_location defaults off");
+        let idx = app.world().resource::<crate::settings::Settings>().index("location-load-screens").expect("setting registered");
+        let row = &app.world().resource::<crate::settings::Settings>().list()[idx];
+        assert_eq!(crate::settings::note_over_budget(row.note), None, "note must fit within 200-char budget");
+
+        // Live sync propagates to Loading::prefer_location and persists to NVForever.ini.
+        assert_eq!(crate::settings::flip(app.world_mut(), idx), Some(true));
+        app.world_mut().run_system_once(sync_location_load_screens).unwrap();
+        assert!(app.world().resource::<LocationLoadScreens>().0);
+        assert!(app.world().resource::<Loading>().prefer_location);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert!(ini.contains("location-load-screens=1"), "persisted to NVForever.ini: {ini}");
+
+        // 2. Next start loads ON from NVForever.ini.
+        let mut reloaded = make_app(&path);
+        assert!(reloaded.world().resource::<LocationLoadScreens>().0, "restored from NVForever.ini");
+
+        // 3. Flipping back off writes 0 and restores off on next start.
+        let idx2 = reloaded.world().resource::<crate::settings::Settings>().index("location-load-screens").unwrap();
+        assert_eq!(crate::settings::flip(reloaded.world_mut(), idx2), Some(false));
+        let ini_off = std::fs::read_to_string(&path).unwrap();
+        assert!(ini_off.contains("location-load-screens=0"), "off persisted: {ini_off}");
+        let reloaded_off = make_app(&path);
+        assert!(!reloaded_off.world().resource::<LocationLoadScreens>().0, "off restored from NVForever.ini");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn location_load_screens_consumer_prefers_matching_screen_when_enabled_and_preserves_vanilla_when_off() {
+        use fnv_world::loadscreen::ScreenLocation;
+
+        const CELL: u32 = 0x106FE5;
+        let screens = vec![
+            LoadScreen { form_id: 1, edid: Some("GenericA".into()), texture: None, text: "Generic tip".into(), locations: vec![], main_menu: false, tip: None },
+            LoadScreen {
+                form_id: 2,
+                edid: Some("SaloonOwn".into()),
+                texture: None,
+                text: "Saloon tip".into(),
+                locations: vec![ScreenLocation::Direct(CELL)],
+                main_menu: false,
+                tip: None,
+            },
+        ];
+
+        let run_trips = |prefer: bool| -> Vec<String> {
+            let mut app = app();
+            app.insert_resource(Screens(screens.clone()));
+            app.world_mut().resource_mut::<LocationLoadScreens>().0 = prefer;
+            app.update();
+            let mut tips = Vec::new();
+            for _ in 0..8 {
+                let t = Travel { world: None, interior: Some(CELL), feet: [1.0, 2.0, 3.0], heading_deg: 0.0, pitch_deg: None };
+                app.world_mut().write_message(TravelRequest(t));
+                app.update();
+                let tip = app.world_mut().query::<&look::Tip>().iter(app.world()).next().expect("tip spawned").text.clone();
+                tips.push(tip);
+                until_down(&mut app);
+            }
+            tips
+        };
+
+        // Default off: mixes location-specific and generic tips across rolls (vanilla behavior).
+        let vanilla = run_trips(false);
+        assert!(vanilla.iter().any(|t| t == "Generic tip"), "off must still pick generic screens: {vanilla:?}");
+        assert!(vanilla.iter().any(|t| t == "Saloon tip"), "off must also pick location screens: {vanilla:?}");
+
+        // Enabled: every trip to CELL chooses the matching location-specific screen.
+        let preferred = run_trips(true);
+        assert!(preferred.iter().all(|t| t == "Saloon tip"), "on must prefer matching location screens: {preferred:?}");
     }
 }

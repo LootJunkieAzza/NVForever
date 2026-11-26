@@ -101,7 +101,7 @@ impl Game<'_> {
         for (f, filter) in hs {
             let pass = match (filter, subject) {
                 (None, _) => true,
-                (Some(l), Some(s)) => l == s || crate::functions::list_members(self, l).contains(&s),
+                (Some(l), Some(s)) => l == s || crate::functions::base_of(self, s) == Some(l) || crate::functions::list_members(self, l).contains(&s),
                 (Some(_), None) => false,
             };
             if !pass {
@@ -483,6 +483,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `set|remove function flag [filter]`: JohnnyGuitar's handlers kept here
         // (`Game::jg_event`) [documented: the SetJohnnyOn…EventHandler pages].
+        // `XMarker` (`0x0000_003B`) as wildcard filter is [observed 2026-11-24:
+        // `w6t2p2_09_jg_on_dying_all_filters`] for `JgEvent::Dying` and [hypothesis] for
+        // `JgEvent::CompleteQuest` and `JgEvent::ChallengeComplete`.
         "setjohnnyonrendereventhandler" | "setjohnnyonrenderupdateeventhandler" | "setjohnnyondyingeventhandler" | "setjohnnyoncompletequesteventhandler" | "setjohnnyonchallengecompleteeventhandler" => {
             let ev = match name {
                 "setjohnnyondyingeventhandler" => JgEvent::Dying,
@@ -491,7 +494,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 _ => JgEvent::RenderUpdate,
             };
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let filter = form(args, 3);
+            let filter = form(args, 3).filter(|&id| id != FormId(0x0000_003B));
             g.gaps.jip3.jg_handlers.retain(|(e, h, l)| !(*e == ev && *h == f && *l == filter));
             if num(args, 0, 1.0) != 0.0 {
                 g.gaps.jip3.jg_handlers.push((ev, f, filter));

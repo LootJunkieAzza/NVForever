@@ -44,6 +44,17 @@ event, which does the same. A second controller's input arriving before its `Con
 error) panicked the game: crash signature `panic-f2bce0a1986452c8`, "index out of bounds:
 the len is 1 but the index is 1" at `gamepad.rs:474`. 0.11.2 is still the latest release.
 
+Second change, in `SDL_GameControllerDB/gamecontrollerdb.txt` (`# Windows`) and
+`src/mapping/mod.rs` (unit test `gamesir_hid_3537_100e_windows_mapping`): adds Windows
+USB (`03000000373500000e10000000000000`) and Bluetooth (`05000000373500000e10000000000000`)
+mappings for the GameSir HID controller (`VID 0x3537`, `PID 0x100E`), matching the
+sibling `VID 0x3537` Windows HID entries already bundled in `gamecontrollerdb.txt`
+(`GameSir G7 Pro` `2210`, `GameSir Tegenaria Lite` `9410`, `Anbernic RG P01` `0710`/`4610`).
+Without an entry, Windows Gaming Input's `RawGameController` fallback uses `Mapping::default`,
+where `b4` (`Y`) maps to `Button::LeftTrigger` (`LB`), `b0`/`b3`/`b8` shift (`A -> X`,
+`X -> Y`, `LT -> Back`), and idle trigger axis `a5` at `-1.0` maps to `Axis::RightStickY`,
+aiming the camera continuously upward.
+
 The crate ships no licence files of its own; its `Cargo.toml` names Apache-2.0/MIT. The
 bundled `SDL_GameControllerDB` keeps its LICENSE. `Cargo.lock` and `Cargo.toml.orig` from
 the archive are left out.

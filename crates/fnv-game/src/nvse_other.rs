@@ -270,10 +270,14 @@ impl<'a> Game<'a> {
 }
 
 impl Game<'_> {
-    /// The control groups locked now: DisablePlayerControls' and every plugin's
-    /// DisablePlayerControlsAlt's (the engine reads this).
+    /// The control groups locked now: DisablePlayerControls', every plugin's
+    /// DisablePlayerControlsAlt's and, on a co-op guest, the host's scene's
+    /// ([`Game::coop_host_locks`]) (the engine reads this).
     pub fn controls_locked(&self) -> [bool; 7] {
         let mut out = self.player.controls_disabled;
+        for (o, l) in out.iter_mut().zip(self.coop_host_locks) {
+            *o |= l;
+        }
         for locks in self.other.alt_locks.values() {
             for (o, l) in out.iter_mut().zip(locks) {
                 *o |= l;

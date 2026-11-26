@@ -258,7 +258,7 @@ fn zone_app() -> App {
             with_world(script.rt.as_mut().unwrap(), &mut sim, |rt| {
                 rt.game.world.get(FormId::PLAYER_REF).unwrap().cell = Some(CELL);
                 rt.game.player_entered(Some(CELL));
-                crate::script_trigger::update(rt, play, phys, None);
+                crate::script_trigger::update(rt, play, phys, None, false);
             });
         });
     });
@@ -395,7 +395,7 @@ fn xtri23_projectile_zone_receives_onhit_for_hitscan_and_flying_without_stopping
             let play = world.resource::<PlayWorld>();
             let phys = world.resource::<PhysState>();
             with_world(script.rt.as_mut().unwrap(), &mut sim, |rt| {
-                crate::script_trigger::update(rt, play, phys, None);
+                crate::script_trigger::update(rt, play, phys, None, false);
             });
         });
     });

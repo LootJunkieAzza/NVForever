@@ -3618,6 +3618,61 @@ fn on_disable_and_on_enable_reentrancy_does_not_recurse_or_duplicate_events() {
 }
 
 #[test]
+fn dispatch_event_returns_one_and_overwrites_info_map_keys() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(
+            &format!("array_var m\nint r1\nint r2\nint ok\nBegin Function {{ }}\n{body}\nEnd\n"),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let res = q(
+        &mut g,
+        "SetEventHandler \"W6DEv\" (Begin Function {array_var a}
+           let a[\"mut\"] := 1
+         End)
+         let r1 := DispatchEvent \"W6DEv\"
+         let m := Ar_Construct \"stringmap\"
+         let m[\"eventName\"] := \"Wrong\"
+         let m[\"eventSender\"] := \"OldSnd\"
+         let r2 := DispatchEvent \"W6DEv\" m \"NewSnd\"
+         let ok := r1 * 1000 + r2 * 100
+         if eval (m[\"mut\"] == 1)
+           let ok := ok + 10
+         endif
+         if eval (m[\"eventName\"] == \"W6DEv\") && (m[\"eventSender\"] == \"NewSnd\")
+           let ok := ok + 1
+         endif
+         SetFunctionValue ok",
+    );
+    assert_eq!(res, XVal::Num(1111.0));
+    // Case-variant caller keys ("EventName", "eventsender") must overwrite in place rather than
+    // pushing duplicate entries into the stringmap.
+    let res_case = q(
+        &mut g,
+        "let m := Ar_Construct \"stringmap\"
+         let m[\"EventName\"] := \"Wrong\"
+         let m[\"eventsender\"] := \"OldSnd\"
+         let r1 := DispatchEvent \"W6DEv\" m \"CaseSnd\"
+         let ok := r1 * 1000
+         if eval (Ar_Size m == 3)
+           let ok := ok + 100
+         endif
+         if eval (m[\"eventName\"] == \"W6DEv\") && (m[\"eventSender\"] == \"CaseSnd\")
+           let ok := ok + 10
+         endif
+         if eval (m[\"EventName\"] == \"W6DEv\") && (m[\"eventsender\"] == \"CaseSnd\")
+           let ok := ok + 1
+         endif
+         SetFunctionValue ok",
+    );
+    assert_eq!(res_case, XVal::Num(1111.0));
+}
+
+#[test]
 fn set_event_handler_and_alt_deduplicate_identical_registrations() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();

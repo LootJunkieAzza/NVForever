@@ -76,8 +76,8 @@ pub fn curvature_and_concavity(mesh: &Mesh) -> Option<Vec<[f32; 2]>> {
     }
 
     let tris: Vec<[usize; 3]> = match mesh.indices() {
-        Some(Indices::U32(i)) => i.chunks_exact(3).map(|t| [t[0] as usize, t[1] as usize, t[2] as usize]).collect(),
-        Some(Indices::U16(i)) => i.chunks_exact(3).map(|t| [t[0] as usize, t[1] as usize, t[2] as usize]).collect(),
+        Some(Indices::U32(i)) => i.as_chunks::<3>().0.iter().map(|t| [t[0] as usize, t[1] as usize, t[2] as usize]).collect(),
+        Some(Indices::U16(i)) => i.as_chunks::<3>().0.iter().map(|t| [t[0] as usize, t[1] as usize, t[2] as usize]).collect(),
         None => (0..count / 3).map(|t| [3 * t, 3 * t + 1, 3 * t + 2]).collect(),
     };
 
@@ -229,6 +229,6 @@ mod tests {
         }
         assert!(bake(&mut concave));
         let Some(VertexAttributeValues::Float32x2(uv)) = concave.attribute(Mesh::ATTRIBUTE_UV_1) else { panic!("no UV_1") };
-        assert!(uv.iter().all(|c| c[0] > 0.0 && c[1] > 0.0), "inward sphere has positive concavity: {:?}", &uv[0]);
+        assert!(uv.iter().all(|c| c[0] > 0.0 && c[1] > 0.0), "inward sphere has positive concavity: {:?}", uv[0]);
     }
 }
