@@ -4749,6 +4749,9 @@ dependencies = [
  "log",
  "naga",
  "nvf-rtgi",
+ "serde",
+ "serde_json",
+ "texpresso",
  "wgpu",
 ]
 
