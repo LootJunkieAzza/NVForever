@@ -324,7 +324,7 @@ impl Plugin for WeaponWheelPlugin {
             .init_resource::<Hotkeys>()
             .init_resource::<WheelStats>()
             .insert_resource(WheelAid { steps, ..default() })
-            .add_systems(Update, (run_aid, read).chain().in_set(PlaySet::Input).before(crate::control::read_controls))
+            .add_systems(Update, (run_aid, read).chain().in_set(PlaySet::Input).in_set(WheelRead).before(crate::control::read_controls))
             .add_systems(Last, report);
         crate::save::add_save_hook(app, hotkeys::SAVE_HOOK);
         draw::build(app);
@@ -386,6 +386,11 @@ type Availability<'w> = (
 
 /// The wheel's scroll, the scope (whose wheel zoom it yields to) and combat (a reload under way).
 type Extras<'w> = (Option<Res<'w, bevy::input::mouse::AccumulatedMouseScroll>>, Option<Res<'w, crate::aim_zoom::Scope>>, Option<Res<'w, crate::combat::Combat>>);
+
+/// The weapon wheel's input read: the co-op wheels (`crate::coop_social`, `crate::emotes`)
+/// take their keys after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct WheelRead;
 
 /// The frame's keys, mouse and stick into the wheel; its outcomes carried out.
 #[allow(clippy::too_many_arguments)]

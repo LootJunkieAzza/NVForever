@@ -504,6 +504,10 @@ mod shared_table_tests {
         ("send-reports", "Reports"),
         ("reports-delete", "Reports"),
         ("coop", "Gameplay"),
+        ("name-tags", "Gameplay"),
+        ("name-tag-near", "Gameplay"),
+        ("name-tag-far", "Gameplay"),
+        ("kill-in-conversation", "Gameplay"),
     ];
 
     /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).

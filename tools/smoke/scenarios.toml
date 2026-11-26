@@ -37563,3 +37563,24 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
+
+[[scenario]]
+name = "emote-wheel-solo"
+source = "the emote wheel [design]: emotes from the game's idles played on the player's third-person body (engine/nvforever/src/emote_play.rs), the wheel and the loadout (engine/nvf-play/src/emotes.rs)"
+areas = ["coop", "animation"]
+paths = ["engine/nvf-play/src/emotes.rs", "engine/nvforever/src/emote_play.rs"]
+note = "Goodsprings outside, solo: from first person a wave (one-shot; the view goes to third person and back), a sit ended by the aid after 6 s (entry, loop, exit), push-ups ended after 5 s, then the wheel opened, pointed at slot 3 (Sit) and let go, and the sit ended by Emote tapped"
+env = { NVF_PLAY_TEST_EMOTE = "10:1st,12:wave,16:sit:6,28:pushups:5,40:wheel,40.5:pick=3,41:release,46:cancel" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 52
+expect = [
+  { re = 'emotes: \d+ of \d+ available', label = "the emote list at startup" },
+  { re = 'emotes: start wave .*the view goes to third person', label = "a wave from first person goes to third" },
+  { re = 'emotes: end wave \(done\).*first person again', label = "the wave ends, first person again" },
+  { text = "emotes: sit loop 0", label = "the sit's entry, then its loop" },
+  { re = 'emotes: sit exit \(test aid\)', label = "the sit's exit" },
+  { re = 'emotes: end sit \(done\)', label = "the sit ends after its exit" },
+  { re = 'emotes: pushups exit \(test aid\)', label = "the push-ups get up" },
+  { text = "emotes: wheel: slot 3 plays sit", label = "the wheel's slot 3 plays Sit" },
+  { re = 'emotes: sit exit \(asked\)', label = "Emote tapped ends the sit" },
+]

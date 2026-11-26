@@ -32,6 +32,7 @@ pub mod touch;
 #[cfg(test)]
 pub(crate) mod tests;
 
+use fnv_util::words::{tr, trf};
 use crate::phys::PhysState;
 use crate::player::Player;
 use crate::sim::SimState;
@@ -246,6 +247,9 @@ pub(crate) fn reticle_target_limb(
 /// (`see_through`, #3233). In first person it is the eye's
 /// view ray; in third person the camera's, through the crosshair over the shoulder
 /// (`control::Crosshair`; playtest list 4, item 11).
+/// What the last target log line said: the target, its action, two flags and a talker.
+type TargetLogged = (u32, Action, bool, bool, Option<u32>);
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn find_target(
     player: Option<Res<Player>>,
@@ -258,6 +262,8 @@ pub(crate) fn find_target(
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
     (mut touch,cameras,windows,admission,input,time):touch::Context,
+    mut logged: Local<Option<TargetLogged>>,
+    talk: Option<Res<crate::coop_talk::TalkGuard>>,
     parts: Option<Res<crate::hitvol::ActorParts>>,
     combat: Option<Res<crate::combat::Combat>>,
 ) {
@@ -265,7 +271,7 @@ pub(crate) fn find_target(
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
     let (eye, dir) = crate::control::Crosshair::ray(crosshair.as_ref(), player.eye(), player.look_dir());
     let mut picker=TargetPicker {phys:phys.as_deref_mut(),sim:&mut sim,play:&play,
-        visuals:&visuals,script:script.as_deref_mut(),talkers:&mut talkers,parts:parts.as_deref(),combat:combat.as_deref()};
+        visuals:&visuals,script:script.as_deref_mut(),talkers:&mut talkers,parts:parts.as_deref(),combat:combat.as_deref(),talk:talk.as_deref()};
     let (new, note)=picker.at(eye,dir,true);
     if let Some(touch)=touch.as_deref_mut() {
         if let Some(point)=touch.point() {
@@ -286,8 +292,12 @@ pub(crate) fn find_target(
             } else {touch.cancel();}
         }
     }
-    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty, t.through));
-    if key(&target.0) != key(&new) {
+    // Logged when what this pick finds changes (the reference, its action, owned, empty,
+    // seen through), not whenever the target differs: co-op's social targeting
+    // (`crate::coop_social`) takes back a target this pick finds again every frame.
+    let key = new.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty, t.through));
+    if *logged != key {
+        *logged = key;
         if let Some(note) = note {
             info!("{note}");
         }
@@ -316,6 +326,7 @@ struct TargetPicker<'a,'w,'s>{
     visuals:&'a crate::PickVisuals<'w,'s>,script:Option<&'a mut crate::script::ScriptState>,
     talkers:&'a mut HashMap<u32,(bool,f64)>,parts:Option<&'a crate::hitvol::ActorParts>,
     combat:Option<&'a crate::combat::Combat>,
+    talk:Option<&'a crate::coop_talk::TalkGuard>,
 }
 impl TargetPicker<'_,'_,'_>{
     fn at(&mut self,eye:[f32;3],dir:[f32;3],publish_crosshair:bool)->(Option<Targeted>, Option<String>){
@@ -327,6 +338,7 @@ impl TargetPicker<'_,'_,'_>{
         let talkers=&mut *self.talkers;
         let parts=self.parts;
         let combat=self.combat;
+        let talk=self.talk;
     // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
     let mut far = None;
     let mut far_ref = None;
@@ -478,7 +490,13 @@ impl TargetPicker<'_,'_,'_>{
                         // player (a body is named still, as Search) [design: docs/design/tweaks.md].
                         let unknown = rt.as_deref().is_some_and(|rt| rt.game.tweaks.hide_unknown_names && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
                         let name = if unknown { String::new() } else { name };
-                        (name, actor_action(rt.as_deref_mut(), sim, id, talkers))
+                        let action = match actor_action(rt.as_deref_mut(), sim, id, talkers) {
+                            // Another player talks to it: wait for that one, by name
+                            // (`crate::coop_talk`).
+                            Action::HostOnly { host } => Action::HostOnly { host: talk.and_then(|t| t.talkers.get(&id).cloned()).unwrap_or(host) },
+                            a => a,
+                        };
+                        (name, action)
                     }
                     Action::Access => (n, terminal_action(rt.as_deref_mut(), sim, id)),
                     // An interior a script renamed (Fallout 3's SetCellFullName,
@@ -620,6 +638,11 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     // guest]. Empty outside co-op.
     if fighting_player || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Hostile;
+    }
+    // In a conversation with another player (co-op): no second one, "Wait for <them>"
+    // (`fnv_game::Game::in_another_players_talk`; `find_target` puts the talker's name).
+    if g.in_another_players_talk(r) {
+        return Action::HostOnly { host: tr("the other player").into() };
     }
     // A co-op guest talks only to trade, to play and to change chips at a cashier
     // (`fnv_game::Game::guest_lines`); the host's world runs the rest [design].
@@ -911,6 +934,15 @@ pub(crate) fn activate(
     }
     // A downed co-op player: the revive takes E (`nvforever`'s `coop.rs`).
     if matches!(t.action, Action::Revive { .. }) {
+        return;
+    }
+    // Another player (co-op): the interaction wheel takes E (`crate::coop_social`).
+    if t.action == Action::Player {
+        return;
+    }
+    if let Action::HostOnly { host } = &t.action {
+        info!("activate 0x{:08X} {}: in another player's conversation: wait for {host}", t.form_id, t.name);
+        hud.show(trf("Wait for {host}", &[("host", host)]));
         return;
     }
     // An actor shown by name only (hostile, or a creature with nothing to say): E does

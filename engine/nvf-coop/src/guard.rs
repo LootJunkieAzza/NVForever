@@ -42,7 +42,7 @@
 //! `crate::world`'s ([`crate::world::add_world_rules`]).
 //!
 //! Every drop is counted by kind and reason ([`Guard::stats`]), and each drop other than
-//! the rate's counts as a bad message against the guest that sent it ([`Guard::bad`]),
+//! the rate's and [`Reason::Unknown`]'s counts as a bad message against the guest that sent it ([`Guard::bad`]),
 //! for a kick policy.
 
 use std::collections::{BTreeMap, HashMap};
@@ -139,9 +139,17 @@ pub const BUCKETS_MAX: usize = 256;
 pub const WORLD_XY: f32 = 1_000_000.0;
 pub const WORLD_Z: f32 = 100_000.0;
 /// The highest reliable item kind (an item's first byte, the `crate::repl` kind): any other
-/// is refused [design: piece 1's 0x00-0x0F and the world's 0x10-0x2F; a later piece raises it
-/// with its own range].
-pub const ITEM_KIND_MAX: u8 = 0x2F;
+/// is refused, as is any between that no part here uses ([`item_kind_known`]).
+pub const ITEM_KIND_MAX: u8 = crate::action::ACTION;
+
+/// A reliable item kind this build uses [design: piece 1's 0x00-0x0F, the world's 0x10-0x2F
+/// and the social layer's actions, `crate::action::ACTION`; the ranges between (0x30-0x3F,
+/// and 0x41-0x5F, kept for later parts) are refused until a part with a rule for them is
+/// here; a kind in a used range with no rule is let through to the game side, whose
+/// `crate::repl` unpackers read only their own kind and ignore the rest].
+pub fn item_kind_known(kind: u8) -> bool {
+    kind <= 0x2F || kind == crate::action::ACTION
+}
 /// The longest an emote's clip time can be, seconds [design].
 pub const EMOTE_T_MAX: f32 = 3600.0;
 /// The fastest a player's feet move, game units a second [design: several times a
@@ -175,6 +183,12 @@ pub trait FormCheck: Send + Sync {
         let _ = form;
         true
     }
+    /// A placed actor: a reference of the plugins' to an NPC or creature, leveled or not.
+    /// By default none is known.
+    fn actor(&self, reference: u32) -> bool {
+        let _ = reference;
+        false
+    }
 }
 
 /// Why a message was dropped.
@@ -193,6 +207,9 @@ pub enum Reason {
     Secret,
     /// A registered [`Rule`], by its own name.
     Rule(&'static str),
+    /// A reference or form the host has no record of, made at run time say: refused, but
+    /// not the guest's doing, so it is not counted as a bad message.
+    Unknown,
 }
 
 /// What a check says.
@@ -335,10 +352,11 @@ impl Guard {
         self.bad.remove(&id);
     }
 
-    /// Count a drop of `kind` for `reason`, against guest `from_id` unless it is the rate.
+    /// Count a drop of `kind` for `reason`, against guest `from_id` unless it is the rate or
+    /// an unknown reference.
     pub fn note(&mut self, kind: Kind, reason: Reason, from_id: Option<u8>) {
         *self.dropped.entry((kind, reason)).or_default() += 1;
-        if let (Some(id), false) = (from_id, reason == Reason::Rate) {
+        if let (Some(id), false) = (from_id, matches!(reason, Reason::Rate | Reason::Unknown)) {
             self.note_bad(id);
         }
     }
@@ -387,7 +405,7 @@ impl Guard {
         // are refused before any rule sees them.
         let first = item.first().copied();
         let kind = Kind::Item(first.unwrap_or(0));
-        if first.is_none_or(|k| k > ITEM_KIND_MAX) {
+        if first.is_none_or(|k| !item_kind_known(k)) {
             self.note(kind, Reason::Bounds, Some(id));
             return Verdict::Drop(Reason::Bounds);
         }
@@ -731,10 +749,15 @@ mod tests {
         assert_eq!(g.admit_item(1, &[], now), refused(Reason::Bounds));
         assert_eq!(g.admit_item(1, &[ITEM_KIND_MAX + 1, 0], now), refused(Reason::Bounds));
         assert_eq!(g.admit_item(1, &[0xFF], now), refused(Reason::Bounds));
+        // The ranges no part here uses: 0x30-0x3F and 0x41-0x5F.
+        assert_eq!(g.admit_item(1, &[0x2F, 0], now), Verdict::Accept);
+        for kind in [0x30, 0x3F, 0x41, 0x5F] {
+            assert_eq!(g.admit_item(1, &[kind, 0], now), refused(Reason::Bounds), "kind {kind:#04X}");
+        }
         assert_eq!(g.admit_item(1, &[ITEM_KIND_MAX, 0], now), Verdict::Accept);
         assert_eq!(g.admit_item(1, &[0], now), Verdict::Accept);
         let refused: u64 = g.stats().dropped.iter().filter(|&&(k, r, _)| matches!(k, Kind::Item(_)) && r == Reason::Bounds).map(|&(_, _, n)| n).sum();
-        assert_eq!(refused, 3);
+        assert_eq!(refused, 7);
     }
 
     #[test]

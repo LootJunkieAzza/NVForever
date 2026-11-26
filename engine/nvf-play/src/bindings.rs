@@ -149,6 +149,12 @@ pub enum Control {
     HideHud,
     /// End the Pip-Boy radio's song or talk now (iSkipRadioSongKey).
     SkipRadioSong,
+    /// Co-op: mark the point under the crosshair for every player (`crate::world_marks`),
+    /// NVForever's own, unbound until the player binds it [design].
+    Ping,
+    /// Open the emote wheel (`crate::emotes`), NVForever's own, unbound until the player
+    /// binds it [design].
+    Emote,
     /// Open and close the console (the original's ` key; Stewie's Tweaks iConsoleKey), a
     /// binding like any other [design: owner 2026-11-16: "make the console hotkey and
     /// screenshot hotkey a normal rebindable key"].
@@ -165,7 +171,7 @@ pub enum Control {
 /// maintainer's decision on #3002]; Photo Mode unbound, no key and no controller button,
 /// until the player binds it under Controls, Actions (the pause menu's Photo Mode entry
 /// opens it meanwhile) [design, #3634: the maintainer's decision].
-pub const GAME_CONTROLS: [(Control, &str, u32); 59] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 61] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -223,6 +229,8 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 59] = [
     (Control::PlaceMarkerHere, "Place Marker Here", 0xFFFFFFFF),
     (Control::HideHud, "Hide HUD", 0xFFFFFFFF),
     (Control::SkipRadioSong, "Skip Radio Song", 0xFFFFFFFF),
+    (Control::Ping, "Ping", 0xFFFFFFFF),
+    (Control::Emote, "Emote", 0xFFFFFFFF),
     // Bound by default, as before they were bindings (the keys as the INI codes them).
     (Control::Console, "Console", 0x0029FFFF),
     (Control::Screenshot, "Screenshot", 0x0058FFFF),
@@ -668,6 +676,8 @@ pub fn label(c: Control) -> &'static str {
         PlaceMarkerHere => "Place Marker Here",
         HideHud => "Hide HUD",
         SkipRadioSong => "Skip Radio Song",
+        Ping => "Ping",
+        Emote => "Emote",
         Console => "Console",
         Screenshot => "Screenshot",
     }

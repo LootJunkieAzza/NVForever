@@ -782,6 +782,10 @@ pub struct Sfx {
     frame: u64,
     /// How long requests waited for their files (the exit report).
     pub waits: Waits,
+    /// Sounds a module places itself though their record is 2D (an interface sound given
+    /// a direction, `crate::world_marks`' ping): panned toward their place, at their
+    /// record's level at any distance [design].
+    pub placed_2d: std::collections::HashSet<FormId>,
     /// One-shots played at a place since [`crate::sound_cover`] last took them: their gain
     /// at the listener (no effects volume), distance and seconds.
     pub cover_notes: Vec<(f32, f32, f32)>,
@@ -884,6 +888,7 @@ impl Sfx {
             waiting: Vec::new(),
             frame: 0,
             waits: Waits::default(),
+            placed_2d: Default::default(),
             cover_notes: Vec::new(),
             one_shot_wait: MAX_ONE_SHOT_WAIT,
             reported: HashSet::new(),
@@ -2113,7 +2118,8 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
     let distance = at.zip(eye).map(|(at, e)| ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt());
     // Another actor's sound goes by its distances also when it is 2D ([`ActorSound`]).
     let at_distance = |d: f32| if matches!(wanted, Wanted::Actor(_)) { distance_gain(s, d) } else { placed_gain(s, d) };
-    let gain = static_gain(s) * distance.map_or(1.0, at_distance) * settings.volume.max(0.0) * scale;
+    let own_place = sfx.placed_2d.contains(&sound);
+    let gain = static_gain(s) * distance.filter(|_| !own_place).map_or(1.0, at_distance) * settings.volume.max(0.0) * scale;
     // The pitch: a replacement's was chosen when it was asked for; only what hangs on the
     // listener (gain, pan, place) is worked out again.
     let speed = match kept {
@@ -2153,7 +2159,7 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
         sfx.cover_notes.push((static_gain(s) * at_distance(d), d, seconds));
     }
     let placed = match placed {
-        Some(_) if s.has("2D") => {
+        Some(_) if s.has("2D") && !own_place => {
             sfx.flat_2d += 1;
             None
         }

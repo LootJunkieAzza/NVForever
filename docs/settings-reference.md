@@ -377,6 +377,39 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
 - Off by default; kept in `NVForever.ini` `[Settings]` [design].
 - Greyed while a lobby is open or this game is a guest in one.
 - Registered in `engine/nvf-play/src/lobby.rs`
+The rows after the switch are what only a co-op game uses; each is greyed while the Co-op switch (the main
+menu's Co-op entry) is off, its value kept (`engine/nvf-play/src/coop_social.rs`
+`grey_outside_coop`).
+
+### `name-tags`: Player name tags
+
+- On the page: On: the other players' names are shown over their heads, through walls. Off:
+  not shown.
+- Registered in `engine/nvf-play/src/world_marks.rs`
+
+### `name-tag-near`: Name tags fade from
+
+- On the page: A player's name tag is in full up to this distance, then fades and shrinks.
+- Its choices: 500, 1000, 1500 (the default), 2000, 3000, 4000 and 6000 units. Shown as a
+  list; an older slider number in the INI still loads as the choice it stood for.
+- Greyed while Player name tags is off.
+- Registered in `engine/nvf-play/src/world_marks.rs`
+
+### `name-tag-far`: Name tags gone at
+
+- On the page: A player's name tag is gone at this distance (at least 500 units past where
+  it starts to fade).
+- Its choices: 2000, 3000, 4000 (the default), 6000, 8000, 12000 and 16000 units. Shown as a
+  list; an older slider number in the INI still loads as the choice it stood for.
+- Greyed while Player name tags is off.
+- Registered in `engine/nvf-play/src/world_marks.rs`
+
+### `kill-in-conversation`: Players can kill NPCs in conversation
+
+- On the page: On: a player can hurt and kill an NPC another player is talking to (nothing
+  else can meanwhile). Off: nobody can until the talk ends. The host's choice counts for
+  everyone.
+- Registered in `engine/nvf-play/src/coop_talk.rs`
 
 ## Display › Screen
 

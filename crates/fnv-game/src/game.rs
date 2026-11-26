@@ -1960,6 +1960,12 @@ pub struct Game<'a> {
     /// Actors a script's StartConversation with allowMovement 1 lets go on moving while
     /// they talk to each other ([`Game::conversation_moves`]); not saved.
     pub moving_talkers: BTreeSet<FormId>,
+    /// Co-op: the actors in a conversation with any player now (the engine sets it each
+    /// frame, nvf-play `coop_talk`; empty outside a session). Only the players' hits
+    /// hurt them meanwhile, or nobody's ([`Game::coop_talk_kill`]; `combat::talk_guard`).
+    pub coop_talking: BTreeSet<FormId>,
+    /// Co-op, the host's setting "Players can kill NPCs in conversation" (on by default).
+    pub coop_talk_kill: bool,
     /// The hello and idle chatter lines said of late, with when (`Game::time`): no actor
     /// says one of them again for a while ([`Game::say_hello_fresh`],
     /// `crate::dialogue::IDLE_LINE_MEMORY`). Not part of the saved state.
@@ -2930,6 +2936,8 @@ impl<'a> Game<'a> {
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
+            coop_talking: BTreeSet::new(),
+            coop_talk_kill: true,
             idle_said: BTreeMap::new(),
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),

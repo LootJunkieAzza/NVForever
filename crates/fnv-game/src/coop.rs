@@ -709,4 +709,14 @@ impl Game<'_> {
     pub fn any_player(&self, mut is_in: impl FnMut(&Self, FormId) -> bool) -> bool {
         std::iter::once(FormId::PLAYER_REF).chain(self.coop_actors.keys().copied()).collect::<Vec<_>>().into_iter().any(|p| is_in(self, p))
     }
+
+    /// Co-op: `actor` (or the actor that speaks for it) is in a conversation with another
+    /// player ([`Game::coop_talking`] holds it, this game's own conversation does not): it
+    /// waits until that talk ends [design: if a player is talking to an NPC, someone else
+    /// has to wait to talk to them too].
+    pub fn in_another_players_talk(&self, actor: FormId) -> bool {
+        let actor = self.talker(actor).0;
+        let own = self.dialogue.as_ref().map(|c| self.talker(c.actor).0);
+        own != Some(actor) && self.coop_talking.iter().any(|t| self.talker(*t).0 == actor)
+    }
 }

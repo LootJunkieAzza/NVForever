@@ -149,6 +149,7 @@ mod rejoin;
 mod replication;
 mod revive;
 mod scene;
+mod social;
 mod syncing;
 
 pub use leave::HoldLeave;
@@ -322,6 +323,10 @@ pub(crate) struct Coop {
     /// The host's checks of what guests send against its world ([`checks`]): what each
     /// refused, counted, and the guests' drops and forced resends it keeps count of.
     checks: checks::HostChecks,
+    /// The players' actions heard on the reliable stream, by sender (`social`).
+    actions_in: Vec<(u8, Vec<u8>)>,
+    /// The duels and trades the host's checks know of (`social::Open`).
+    social_open: social::Open,
 }
 
 impl Coop {
@@ -382,6 +387,8 @@ impl Coop {
             parting: false,
             scene: Default::default(),
             checks: Default::default(),
+            actions_in: Vec::new(),
+            social_open: social::Open::default(),
         }
     }
 }
@@ -423,6 +430,7 @@ impl Plugin for CoopPlugin {
                     lobby,
                     send,
                     take_events,
+                    social::pump,
                     share_doors,
                     social_mates,
                     share_npcs,
@@ -744,6 +752,11 @@ impl FormCheck for HostForms {
     fn item(&self, form: u32) -> bool {
         self.sig(form).is_some_and(|s| ITEM_SIGS.contains(&s))
     }
+    fn actor(&self, reference: u32) -> bool {
+        // By the placed reference's own signature: ACHR and ACRE, whatever the base is (an
+        // NPC_ or CREA, or a leveled LVLN or LVLC, which is most generic NPCs and creatures).
+        self.refs.get(FormId(reference)).is_some_and(|r| matches!(&r.sig, b"ACHR" | b"ACRE"))
+    }
 }
 
 /// Give the host's checks its load order once the world is loaded, and the world's rules
@@ -754,9 +767,15 @@ fn host_forms(mut coop: ResMut<Coop>, sim: Option<Res<nvf_play::sim::SimState>>)
     }
     let Some(sim) = sim else { return };
     let check: Arc<dyn FormCheck> = Arc::new(HostForms { forms: sim.forms, refs: sim.refs });
+    // The duels and trades the host saw begin, which its checks on the players' actions use.
+    let open = social::Open::default();
+    coop.social_open = open.clone();
     if let Some(link) = &coop.link {
         link.set_forms(Some(check));
         nvf_coop::world::add_world_rules(&mut |kind, rule| link.add_rule(kind, rule));
+        // The players' actions' rules and the emote's bounds (`social::host_rules`).
+        link.add_rule(nvf_coop::action::Actions::kind(), Box::new(social::host_rules(open)));
+        link.add_rule(nvf_coop::guard::Kind::State, Box::new(social::EmoteBounds));
         coop.forms_set = true;
         info!("co-op: the host checks guests' forms by its load order, and their world messages by its rules");
     }
@@ -974,6 +993,8 @@ struct Doing<'w> {
     /// The furniture holding the player (`nvf_play::furniture`).
     seat: Option<Res<'w, nvf_play::furniture::PlayerSeat>>,
     knockdown: Option<Res<'w, crate::player_knockdown::PlayerKnockdown>>,
+    /// The emote this player plays (`emote_play`).
+    emote: Option<Res<'w, crate::emote_play::LocalEmote>>,
 }
 
 /// This player's state, for the others: where it is, what it holds and wears, what it
@@ -990,6 +1011,10 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     }
     let mut s = PlayerState::at(place_of(&loc), player.feet, player.heading);
     s.pitch = player.pitch;
+    // The emote this player plays, for its puppet in the others' games (`emote_play`).
+    if let Some(e) = doing.emote.as_deref() {
+        s.emote = e.state;
+    }
     let control = doing.control.as_deref();
     let out = control.is_some_and(|c| c.weapon_out);
     let aiming = out && control.is_some_and(|c| c.aiming);
@@ -1603,6 +1628,8 @@ fn take_events(
                 }
             }
             // For `replication::replicate`.
+            // The players' actions (`social`).
+            Event::Reliable { id, item } if item.first() == Some(&nvf_coop::action::ACTION) => coop.actions_in.push((id, item)),
             e @ (Event::Reliable { .. } | Event::RelReset { .. } | Event::Actors { .. }) => coop.repl.inbox.push(e),
         }
     }
@@ -3770,6 +3797,31 @@ mod tests {
             open_by_default: false, primitive: None, activate_parents: Vec::new(), parent_activate_only: false,
             prompt: None, radiation: None, radius: None, encounter_zone: None, level_modifier: None, map_marker: None, radio: None,
         }
+    }
+
+    /// A placed actor is any ACHR or ACRE, whatever its base: an NPC_ or CREA, or a leveled
+    /// LVLN or LVLC (most generic NPCs, nearly all creatures). A crate, or a reference the
+    /// plugins do not hold, is not one.
+    #[test]
+    fn the_hosts_placed_actors_include_leveled_ones() {
+        let mut table = fnv_sim::RefTable::default();
+        for (id, sig, base) in [
+            (0x0010_0001, *b"ACHR", 0x0010_00A1), // an NPC_ base
+            (0x0010_0002, *b"ACHR", 0x0010_00A2), // an LVLN base
+            (0x0010_0003, *b"ACRE", 0x0010_00A3), // an LVLC base
+            (0x0010_0004, *b"REFR", 0x0010_00A4), // a crate
+        ] {
+            let mut p = placed(id, false);
+            p.sig = sig;
+            p.base = FormId(base);
+            table.refs.insert(p.id, p);
+        }
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::default());
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(table));
+        let check = HostForms { forms, refs };
+        assert!(check.actor(0x0010_0001) && check.actor(0x0010_0002) && check.actor(0x0010_0003));
+        assert!(!check.actor(0x0010_0004), "a crate");
+        assert!(!check.actor(0xFF00_0001), "made at run time");
     }
 
     /// The host's world's presence reaches a guest's (module notes): the host's own flags
