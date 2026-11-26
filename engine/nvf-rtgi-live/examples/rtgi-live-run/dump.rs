@@ -200,12 +200,20 @@ impl Dump {
         })
     }
 
-    fn light(&self) -> LightState {
+    fn light(&self) -> Result<LightState> {
         let d = &self.doc;
-        let cone =
-            |l: &format::Light| if l.kind == "spot" { Some(Cone::new(V3(l.direction), l.inner_angle?, l.outer_angle?)) } else { None };
-        let lamps = d.lights.iter().filter(|l| l.on && l.kind != "dormant");
-        LightState {
+        let mut lamps = Vec::new();
+        for (i, l) in d.lights.iter().enumerate().filter(|(_, l)| l.on && l.kind != "dormant") {
+            let cone = if l.kind == "spot" {
+                let (inner, outer) = l.inner_angle.zip(l.outer_angle)
+                    .ok_or_else(|| format!("lights[{i}]: an active spot requires both inner_angle and outer_angle"))?;
+                Some(Cone::new(V3(l.direction), inner, outer))
+            } else {
+                None
+            };
+            lamps.push(Lamp { position: V3(l.position), display: V3(l.display), range: l.range, cone });
+        }
+        Ok(LightState {
             ambient: V3(d.ambient.display),
             directionals: d
                 .directional
@@ -213,8 +221,8 @@ impl Dump {
                 .filter(|l| l.on)
                 .map(|l| Directional { display: V3(l.display), to_source: V3(l.to_source) })
                 .collect(),
-            lamps: lamps.map(|l| Lamp { position: V3(l.position), display: V3(l.display), range: l.range, cone: cone(l) }).collect(),
-        }
+            lamps,
+        })
     }
 
     /// The floor's triangles, and the rooms.
@@ -305,14 +313,13 @@ pub struct Capture {
 pub fn loaded(folder: &Path, threads: usize) -> Result<Capture> {
     let start = Instant::now();
     let dump = Dump::load(folder)?;
-    let (input, light, (triangles, rooms)) = (dump.scene()?, dump.light(), dump.floor()?);
+    let (input, light, (triangles, rooms)) = (dump.scene()?, dump.light()?, dump.floor()?);
     drop(dump);
     let load_ms = crate::ms(start);
     let start = Instant::now();
-    let floor = Floor::new(&triangles, &rooms, &FloorLimits { triangles: usize::MAX, rooms: usize::MAX }, &|| false)?;
+    let floor = Floor::new(&triangles, &rooms, &FloorLimits::default(), &|| false)?;
     let seeds = Seeds::of(floor);
-    let scene = prepare(input, &SceneLimits { triangles: usize::MAX }, threads, &|| false)?;
+    let scene = prepare(input, &SceneLimits::default(), threads, &|| false)?;
     let prepare_ms = crate::ms(start);
-    println!("{} lamps, {} seeds, {:?}", light.lamps.len(), seeds.points.len(), scene.stats());
     Ok(Capture { scene, light, seeds, load_ms, prepare_ms })
 }

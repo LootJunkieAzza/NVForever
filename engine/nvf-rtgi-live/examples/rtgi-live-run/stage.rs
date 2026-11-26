@@ -1,12 +1,11 @@
 //! A room on both devices and the wall times of its first dispatch and readback.
 
-use crate::dump::{self, Capture};
+use crate::dump::Capture;
 use crate::gpu::Gpu;
 use crate::{ms, Result};
 use nvf_rtgi::{directions, solve, LightState, Probe, SolveConfig, SolvedVolume, V3};
 use nvf_rtgi_live::{probes_of, reach_of, read_back, Config, Points, Room, Tables, Target};
 use serde::Serialize;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -56,8 +55,7 @@ fn wait(gpu: &Gpu) -> Result<()> {
 }
 
 impl<'a> Bench<'a> {
-    pub fn open(gpu: &'a Gpu, folder: &Path, config: SolveConfig, live: Config) -> Result<Self> {
-        let capture = dump::loaded(folder, config.gather.threads)?;
+    pub fn open(gpu: &'a Gpu, capture: Capture, config: SolveConfig, live: Config) -> Result<Self> {
         let start = Instant::now();
         let reference = solve(&capture.scene, &capture.light, &capture.seeds, &config, &|| false)?;
         let cpu_solve_ms = ms(start);

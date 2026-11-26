@@ -2,7 +2,7 @@
 
 use crate::stage::{Bench, Times};
 use crate::{word, Report, Result};
-use nvf_rtgi::{reach, LightState, Place, Probe, VolumePoint};
+use nvf_rtgi::{reach, Lamp, LightState, Place, Probe, VolumePoint, V3};
 use nvf_rtgi_live::Points;
 use serde::Serialize;
 use serde_json::json;
@@ -40,21 +40,24 @@ struct State {
     mean_c0_luminance: f64,
     channels: Vec<Channel>,
     worst: Vec<Difference>,
+    hit_mismatches: usize,
+    back_mismatches: usize,
     lamp_mismatches: usize,
     shadow_mismatches: usize,
     first_count_mismatches: Vec<Counts>,
     passed: bool,
 }
 
+fn luminance(color: V3) -> f64 {
+    let [r, g, b] = color.0.map(f64::from);
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
 fn compare(name: &str, places: &[VolumePoint], cpu: &[Probe], gpu: &[Probe]) -> Result<State> {
     if places.is_empty() || places.len() != cpu.len() || cpu.len() != gpu.len() {
         return Err(format!("{} places, {} CPU probes, {} GPU probes", places.len(), cpu.len(), gpu.len()).into());
     }
-    let luminance = |p: &Probe| {
-        let [r, g, b] = p.moments.c[0].0.map(f64::from);
-        0.2126 * r + 0.7152 * g + 0.0722 * b
-    };
-    let mean = cpu.iter().map(luminance).sum::<f64>() / cpu.len() as f64;
+    let mean = cpu.iter().map(|p| luminance(p.moments.c[0])).sum::<f64>() / cpu.len() as f64;
     let error = |a: f32, b: f32| {
         if !a.is_finite() || !b.is_finite() || !mean.is_finite() || mean < 0.0 {
             f64::INFINITY
@@ -99,9 +102,12 @@ fn compare(name: &str, places: &[VolumePoint], cpu: &[Probe], gpu: &[Probe]) -> 
             }
         })
         .collect();
+    let (mut hit_mismatches, mut back_mismatches) = (0, 0);
     let (mut lamp_mismatches, mut shadow_mismatches) = (0, 0);
     let mut first_count_mismatches = Vec::new();
     for ((at, a), b) in places.iter().zip(cpu).zip(gpu) {
+        hit_mismatches += usize::from(a.hits != b.hits);
+        back_mismatches += usize::from(a.backs != b.backs);
         let (cpu, gpu) = ([a.lamps, a.shadow_rays], [b.lamps, b.shadow_rays]);
         lamp_mismatches += usize::from(cpu[0] != gpu[0]);
         shadow_mismatches += usize::from(cpu[1] != gpu[1]);
@@ -115,6 +121,8 @@ fn compare(name: &str, places: &[VolumePoint], cpu: &[Probe], gpu: &[Probe]) -> 
         mean_c0_luminance: mean,
         channels,
         worst,
+        hit_mismatches,
+        back_mismatches,
         lamp_mismatches,
         shadow_mismatches,
         first_count_mismatches,
@@ -136,11 +144,13 @@ fn state(bench: &Bench, places: &[VolumePoint], points: &Points, light: &LightSt
     let gpu = bench.probes(points, light, &mut Times::default())?;
     let s = compare(name, places, &cpu, &gpu)?;
     println!(
-        "  {} D, {name}, mean C0 luminance {:.6}, lamp/shadow count mismatches {} / {}",
+        "  {} D, {name}, mean C0 luminance {:.6}, lamp/shadow count mismatches {} / {}, hit/back mismatches (diagnostic) {} / {}",
         word(s.passed),
         s.mean_c0_luminance,
         s.lamp_mismatches,
-        s.shadow_mismatches
+        s.shadow_mismatches,
+        s.hit_mismatches,
+        s.back_mismatches
     );
     for rgb in s.channels.chunks(3) {
         let line: Vec<_> = rgb.iter().map(|c| format!("{} {:.4}/{:.4}", c.name, c.p95_pct, c.max_pct)).collect();
@@ -155,18 +165,21 @@ fn state(bench: &Bench, places: &[VolumePoint], points: &Points, light: &LightSt
     Ok(s)
 }
 
-pub const HEADER: &str = "points   worst p95 %   max %   lamp errors   shadow errors";
+pub const HEADER: &str = "points   worst p95 %   max %   lamp errors   shadow errors   hit diffs   back diffs";
 
 pub fn run(bench: &Bench, lamp: Option<usize>) -> Result<Report> {
     let places = bench.reference.points()?;
     let points = bench.points(places.iter().map(|p| p.position).collect(), &mut Times::default())?;
     let light = &bench.capture.light;
     let mut states = vec![state(bench, &places, &points, light, "dump light")?];
-    let off = lamp.or_else(|| (!light.lamps.is_empty()).then_some(0));
+    let score = |l: &Lamp| luminance(l.display) * f64::from(l.range.max(0.0));
+    let off = lamp.or_else(|| {
+        light.lamps.iter().enumerate().max_by(|(_, a), (_, b)| score(a).total_cmp(&score(b))).map(|(i, _)| i)
+    });
     if let Some(i) = off {
-        if i >= light.lamps.len() {
-            return Err(format!("lamp {i} requested, {} active lamps", light.lamps.len()).into());
-        }
+        let selected = light.lamps.get(i).ok_or_else(|| format!("lamp {i} requested, {} active lamps", light.lamps.len()))?;
+        let why = if lamp.is_some() { "--lamp" } else { "highest display luminance times range" };
+        println!("  switching off active lamp {i} ({why}, score {:.4})", score(selected));
         let mut changed = light.clone();
         changed.lamps.remove(i);
         states.push(state(bench, &places, &points, &changed, &format!("lamp {i} off"))?);
@@ -181,15 +194,17 @@ pub fn run(bench: &Bench, lamp: Option<usize>) -> Result<Report> {
     let max = channels().map(|c| c.max_pct).fold(0.0, f64::max);
     let lamps: usize = states.iter().map(|s| s.lamp_mismatches).sum();
     let shadows: usize = states.iter().map(|s| s.shadow_mismatches).sum();
-    let line = format!("{:6}   {p95:11.4}   {max:5.2}   {lamps:11}   {shadows:13}", places.len());
-    let detail = json!({ "points": places.len(), "active_lamps": light.lamps.len(), "lamp_off": off, "states": states });
+    let hits: usize = states.iter().map(|s| s.hit_mismatches).sum();
+    let backs: usize = states.iter().map(|s| s.back_mismatches).sum();
+    let line = format!("{:6}   {p95:11.4}   {max:5.2}   {lamps:11}   {shadows:13}   {hits:9}   {backs:10}", places.len());
+    let detail = json!({ "points": places.len(), "active_lamps": light.lamps.len(), "lamp_off": off,
+        "hit_mismatches": hits, "back_mismatches": backs, "states": states });
     Ok(Report { passed, line, detail })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nvf_rtgi::V3;
 
     #[test]
     fn one_dim_coefficient_decides_its_own_percentile() {
@@ -210,5 +225,11 @@ mod tests {
         gpu = cpu;
         gpu[0].shadow_rays += 1;
         assert!(!check(&gpu));
+        gpu = cpu;
+        gpu[0].hits += 1;
+        gpu[0].backs += 1;
+        let state = compare("test", &[at; 20], &cpu, &gpu).unwrap();
+        assert_eq!((state.hit_mismatches, state.back_mismatches), (1, 1));
+        assert!(state.passed);
     }
 }

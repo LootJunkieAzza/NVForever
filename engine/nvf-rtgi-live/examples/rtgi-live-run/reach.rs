@@ -2,7 +2,7 @@
 
 use crate::stage::{Bench, Times};
 use crate::{ms, word, Report, Result};
-use nvf_rtgi::{classified, fit, reach_by, Coverage, Failed, FitConfig, FitOutcome, GatherLimits, Place, ReachedBy, SolvedVolume, V3};
+use nvf_rtgi::{classified, fit, reach_by, Coverage, Failed, FitConfig, FitOutcome, GatherLimits, Place, Probe, ReachedBy, SolvedVolume, V3};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -64,7 +64,7 @@ fn validity(bench: &Bench, wave: &Wave) -> Result<(bool, Value)> {
     if cpu.len() != wave.asked.len() {
         return Err("wrong number of CPU classifications".into());
     }
-    let valid = |[hits, backs]: [u32; 2]| hits > 0 && backs <= hits / 4;
+    let valid = |[hits, backs]: [u32; 2]| Probe { hits, backs, ..Default::default() }.valid();
     let (mut counts_differ, mut validity_differs) = (0usize, 0usize);
     let mut first = Vec::new();
     for ((place, g), c) in wave.asked.iter().zip(&cpu) {
@@ -179,7 +179,7 @@ fn first_solve(bench: &Bench, reached: &ReachedBy, cpu_places: &BTreeSet<Place>)
 }
 
 pub const HEADER: &str =
-    "CPU/GPU reached   probed/budget  admission   fit    reach ms   flood ms   solve ms   read ms   pack ms   fit ms   estimate ms";
+    "CPU/GPU reached   probed/budget  admission   fit+support+box   reach ms   flood ms   solve ms   read ms   pack ms   fit ms   estimate ms";
 
 pub fn run(bench: &Bench) -> Result<Report> {
     let cpu = &bench.reference;
@@ -233,7 +233,7 @@ pub fn run(bench: &Bench) -> Result<Report> {
     detail["capture_to_publication_estimate_ms"] = json!(estimate_ms);
     detail["solve"] = json!(solved);
     let line = format!(
-        "{:6}/{:<8} {:6}/{:<7} {admission:9}   {:4}   {:8.1}   {:8.1}   {:8.1}   {:7.1}   {:7.1}   {:6.1}   {estimate_ms:11.1}",
+        "{:6}/{:<8} {:6}/{:<7} {admission:9}   {:15}   {:8.1}   {:8.1}   {:8.1}   {:7.1}   {:7.1}   {:6.1}   {estimate_ms:11.1}",
         cpu_places.len(),
         places.len(),
         reached.classified,
