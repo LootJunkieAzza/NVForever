@@ -947,19 +947,24 @@ pub struct Target {
     /// HUD, whose places are written for the scaled view, and a camera's image, which keeps
     /// its size: its picture is what scales) [design: #1631].
     pub frame: Option<Vec2>,
+    /// Override for `interface::unit_scale()` when painting into an off-screen camera image
+    /// whose pixel height is not 960 (e.g. `960.0 / viewport.height` for `ProjectUITile`
+    /// render targets so 1 interface unit maps to 1 target pixel); `None` uses `1.0`
+    /// (`original_units`), matching the 960px-tall Pip-Boy canvas [design].
+    pub unit_scale: Option<f32>,
 }
 
 impl Target {
     /// In the window, at `scale` logical pixels to an interface unit.
     pub fn window(scale: f32, z: i32) -> Target {
-        Target { camera: None, canvas: None, scale, image_scale: 1.0, text_scale: 1.0, z, frame: None }
+        Target { camera: None, canvas: None, scale, image_scale: 1.0, text_scale: 1.0, z, frame: None, unit_scale: None }
     }
 
     /// An image a camera renders: `canvas` is the part of it the pieces lie on. The image
     /// is as many logical pixels as interface units (`crate::pipboy::TARGET`), so one unit
     /// is one logical pixel whatever `image_scale` is [design: pipboy.rs, its module notes].
     pub fn image(camera: Entity, canvas: Vec2, image_scale: f32, z: i32) -> Target {
-        Target { camera: Some(camera), canvas: Some(canvas), scale: 1.0, image_scale, text_scale: 1.0, z, frame: None }
+        Target { camera: Some(camera), canvas: Some(canvas), scale: 1.0, image_scale, text_scale: 1.0, z, frame: None, unit_scale: None }
     }
 
     /// A menu in the window drawn at the UI scale in a frame kept at `anchor`
@@ -973,9 +978,20 @@ impl Target {
         Self { text_scale: scale, ..self }
     }
 
-    /// Whether a root made for `self` serves `other`: the same camera, area, level and frame.
+    /// Override `interface::unit_scale()` for an off-screen camera target whose pixel
+    /// height is not 960 [design].
+    pub(crate) fn with_unit_scale(self, scale: f32) -> Self {
+        Self { unit_scale: Some(scale), ..self }
+    }
+
+    /// Whether a root made for `self` serves `other`: the same camera, area, level, frame
+    /// and target unit scale.
     fn same_root(&self, other: &Target) -> bool {
-        self.camera == other.camera && self.canvas == other.canvas && self.z == other.z && self.frame == other.frame
+        self.camera == other.camera
+            && self.canvas == other.canvas
+            && self.z == other.z
+            && self.frame == other.frame
+            && self.unit_scale == other.unit_scale
     }
 }
 
@@ -1932,7 +1948,7 @@ pub(crate) fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<
     super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
     // Apply recipient metadata in the actual target's units, before final comparison.
     // A camera's image is laid out at its own size whatever the UI scale (#1631).
-    let _canvas = target.camera.map(|_| interface::original_units());
+    let _canvas = target.camera.map(|_| interface::units_at(target.unit_scale.unwrap_or(1.0)));
     super::runtime_images::present(&mut pieces, kit.runtime.as_deref(), ui);
     drawn.tex.frame();
     drawn.tex.prune(&pieces, ui);
