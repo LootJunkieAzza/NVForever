@@ -15,6 +15,9 @@ pub mod production_display_shader;
 #[path = "../../../nvforever/src/ssao_lighting/hook.rs"]
 pub mod production_ambient_occlusion_hook;
 
+#[path = "../../../nvforever/src/sss/hook.rs"]
+pub mod production_sss_hook;
+
 #[path = "../../../nvforever/src/lights/reflection_gate.rs"]
 pub mod production_reflection_gate;
 
@@ -35,37 +38,46 @@ pub struct Compiler {
     reflection_gate: bool,
     /// `pbr_lighting` and `pbr_functions` take the physical PBR patches (the Physical lighting row).
     physical_pbr: bool,
+    /// `pbr_functions` also takes the subsurface scattering hook (nvforever sss.rs), after the
+    /// others but the reflection gate, as lights.rs makes it.
+    sss: bool,
 }
 
 impl Compiler {
     /// `remove_invariance` restores the unannotated producer in memory. This runs
     /// through WESL and Naga too; it is not a source-text assertion.
     pub fn new(remove_invariance: &[&str]) -> Self {
-        Self::build(remove_invariance, false, false, false)
+        Self::build(remove_invariance, false, false, false, false)
     }
 
     /// The production sources with the ambient occlusion's hook in `pbr_functions` as well,
     /// and nvf_assets' shaders (the NIF material) registered.
     pub fn with_ambient_occlusion_hook() -> Self {
-        Self::build(&[], true, false, false)
+        Self::build(&[], true, false, false, false)
     }
 
     /// As [`Self::with_ambient_occlusion_hook`], with the reflection gate after the hook.
     pub fn with_reflection_gate() -> Self {
-        Self::build(&[], true, true, false)
+        Self::build(&[], true, true, false, false)
     }
 
     /// The production sources with the physical PBR patches (`Fd_OrenNayar`, full
     /// Cook-Torrance Fresnel, linear diffuse/ambient; the ambient occlusion's hook for them
     /// comes with #3828's split part 2).
     pub fn with_physical_pbr() -> Self {
-        Self::build(&[], false, false, true)
+        Self::build(&[], false, false, true, false)
     }
 
     /// The physical PBR patches with the reflection gate after them (Physical lighting in a
     /// run with authored reflections, nvforever lights.rs `gating`).
     pub fn with_physical_pbr_and_gate() -> Self {
-        Self::build(&[], false, true, true)
+        Self::build(&[], false, true, true, false)
+    }
+
+    /// The production sources with the subsurface scattering hook (nvforever sss.rs), on
+    /// the display-value or the physical light loop.
+    pub fn with_sss(physical_pbr: bool) -> Self {
+        Self::build(&[], true, false, physical_pbr, true)
     }
 
     fn build(
@@ -73,6 +85,7 @@ impl Compiler {
         ambient_occlusion_hook: bool,
         reflection_gate: bool,
         physical_pbr: bool,
+        sss: bool,
     ) -> Self {
         let mut compiler = Self {
             cache: ShaderCache::new((), |_, source, _| {
@@ -94,6 +107,7 @@ impl Compiler {
             ambient_occlusion_hook,
             reflection_gate,
             physical_pbr,
+            sss,
         };
         let engine = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let mut packages = vec![
@@ -165,6 +179,10 @@ impl Compiler {
                             source = production_ambient_occlusion_hook::hook_patched(&source)
                                 .expect("the ambient occlusion hook's anchors match the selected shader");
                         }
+                    }
+                    if self.sss {
+                        source = production_sss_hook::hook_patched(&source, self.physical_pbr)
+                            .expect("the subsurface scattering hook's anchors match the selected shader");
                     }
                     if self.reflection_gate {
                         source = production_reflection_gate::gate_patched(&source)

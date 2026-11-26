@@ -59,8 +59,10 @@ const LAYOUT_BIT: MeshPipelineViewLayoutKey = MeshPipelineViewLayoutKey::NVF_RTG
 #[test]
 fn the_bit_is_the_last_flag_and_the_packed_fields_hold() {
     assert_eq!((BIT.bits(), LAYOUT_BIT.bits()), (1 << 30, 1 << 20));
-    assert_eq!(MeshPipelineKey::LAST_FLAG, BIT);
-    assert_eq!(((BIT.bits() << 1) - 1) & MeshPipelineKey::ALL_RESERVED_BITS.bits(), 0, "flags below the fields");
+    // The skin's colour (sss/screen.rs) takes the next bit, the last flag.
+    assert_eq!(MeshPipelineKey::LAST_FLAG.bits(), BIT.bits() << 1);
+    assert_eq!(MeshPipelineKey::LAST_FLAG, MeshPipelineKey::NVF_SKIN_ALBEDO);
+    assert_eq!(((MeshPipelineKey::LAST_FLAG.bits() << 1) - 1) & MeshPipelineKey::ALL_RESERVED_BITS.bits(), 0, "flags below the fields");
     assert_eq!((BIT | MeshPipelineKey::ALL_RESERVED_BITS).bits() & BaseMeshPipelineKey::all().bits(), 0, "the mesh's own bits");
     assert_eq!(MeshPipelineKey::all().bits() & BaseMeshPipelineKey::all().bits(), MeshPipelineKey::MORPH_TARGETS.bits());
     let blends = [
@@ -283,6 +285,11 @@ fn which_surfaces_read() {
             anti_tiling: on(10),
             soft: on(11),
             hdr: on(12),
+            skin: false,
+            foliage: false,
+            eye: false,
+            hair: false,
+            outfit: false,
         };
         let may = !(0..6).any(on);
         for n in 0..8 {

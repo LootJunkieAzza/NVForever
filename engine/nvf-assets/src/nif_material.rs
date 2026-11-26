@@ -439,6 +439,42 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
     }
 }
 
+/// Whether a main-pass pipeline draws skin whose diffuse light the screen-space scattering
+/// blurs ([`crate::authored::SKIN_SPLIT_DEF`]; nvforever sss/screen.rs). The skin's mark goes
+/// in the picture's alpha, so only where nothing else reads that alpha in the draw: an
+/// opaque skin shape (no blending, no alpha to coverage) of a perspective view with a depth
+/// prepass, one sample and tone mapping after the main pass (the views that pass runs on;
+/// a multisampled view's samples cannot be read back, sss/screen.rs) and the skin's colour
+/// buffer bound (bevy_pbr `NvfSkinAlbedoBindings`, binding 50, which the split's fragments
+/// write; sss.wesl `nvf_skin_post_scatter`), not the first-person arms (their
+/// `SHADE_LIGHT` takes the light apart) nor an eye, and not under an input view
+/// (`NVF_PBR_VIEW`), whose colour is no light.
+fn skin_split_applies(enabled: bool, descriptor: &RenderPipelineDescriptor, mesh_key: MeshPipelineKey, key: &NifSurfaceKey, no_view_defs: bool) -> bool {
+    let main_pass = !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE"));
+    let opaque = descriptor.fragment.as_ref().is_some_and(|f| f.targets.first().is_some_and(|t| t.as_ref().is_some_and(|t| t.blend.is_none())));
+    enabled
+        && main_pass
+        && opaque
+        && no_view_defs
+        && key.skin
+        && !key.eye
+        && !key.shade_light
+        && !key.first_person
+        && !key.refract
+        && !descriptor.multisample.alpha_to_coverage_enabled
+        && descriptor.multisample.count <= 1
+        && mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS)
+        && mesh_key.contains(MeshPipelineKey::NVF_SKIN_ALBEDO)
+        && !mesh_key.contains(MeshPipelineKey::TONEMAP_IN_SHADER)
+        && (mesh_key & MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS) == MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE
+}
+
+fn push_shader_def_once(defs: &mut Vec<ShaderDefVal>, def: &ShaderDefVal) {
+    if !defs.contains(def) {
+        defs.push(def.clone());
+    }
+}
+
 /// The shader def under which the lighting takes the bounce light of a probe volume
 /// (nvforever rtgi_volume.rs, #3009). Nothing in bevy_pbr pushes it: a NIF surface's pipeline
 /// takes it by [`reads_rtgi_volume`].
@@ -642,6 +678,26 @@ pub struct NifSurface {
     /// The environment mask (texture-set slot 5); `None` when the set has none.
     #[texture(56)]
     pub env_mask: Option<Handle<Image>>,
+    /// The shape uses the game's skin shader (`SHADER_SKIN`). CPU only; enables
+    /// `NVF_SKIN_SSS` when `NVF_SSS=1`.
+    pub skin: bool,
+    /// The shape is placed NIF foliage (`nif_spawn::is_foliage_shape`). CPU only;
+    /// enables `NVF_FOLIAGE_SSS` when `NVF_SSS=1` and foliage shadow thickening.
+    pub foliage: bool,
+    /// The shape is an eye (`nif_spawn::is_eye_shape`). CPU only; enables `NVF_EYE` (iris
+    /// depth and limbal ring, nif_material.wesl) when `NVF_SSS=1`.
+    pub eye: bool,
+    /// The shape uses the hair shader (BSShaderFlags bit 18: hair, beards, brows). CPU
+    /// only; enables `NVF_HAIR` (the strand BSDF, nvforever sss.wesl) when `NVF_SSS=1`
+    /// with physical PBR.
+    pub hair: bool,
+    /// Un-authored vanilla outfit material class (`nif_spawn::classify_outfit_shape`: 0 none,
+    /// 1 leather, 2 cloth, 3 metal), packed into `NifSurfaceUniform.terrain.z` and enabling
+    /// `NVF_OUTFIT` under physical PBR.
+    pub outfit_kind: f32,
+    /// True for body/hand skin shapes (`nif_spawn::is_body_skin_shape`), packed into
+    /// `NifSurfaceUniform.terrain.w` so body skin keeps anatomical muscle relief and grain.
+    pub skin_body: bool,
 }
 
 /// What a blended shape's solid core ([`NifSurface::solid_core`]) is made from: its base
@@ -676,7 +732,8 @@ pub struct NifSurfaceUniform {
     pub pipboy_b: Vec4,
     /// x [`NifSurface::terrain_repeat`] (0 when it cannot place anti-tiled reads); y
     /// [`NifSurface::metal_gain`] (#2981; read only by the opted-in main pass of a view with
-    /// a reflection cube, on authored materials); z, w unused.
+    /// a reflection cube, on authored materials); z [`NifSurface::outfit_kind`]; w
+    /// [`NifSurface::skin_body`] (1 body skin, 0 head/other).
     pub terrain: Vec4,
     /// [`NifSurface::env`], [`NifSurface::env_how`].
     pub env: Vec4,
@@ -692,7 +749,7 @@ pub const REFRACTION_SCREEN: f32 = 0.1;
 
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, s.metal_gain, 0.0, 0.0), env: s.env, env_how: s.env_how }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, s.metal_gain, s.outfit_kind, if s.skin_body { 1.0 } else { 0.0 }), env: s.env, env_how: s.env_how }
     }
 }
 
@@ -771,6 +828,12 @@ impl Default for NifSurface {
             env_how: Vec4::ZERO,
             env_cube: None,
             env_mask: None,
+            skin: false,
+            foliage: false,
+            eye: false,
+            hair: false,
+            outfit_kind: 0.0,
+            skin_body: false,
         }
     }
 }
@@ -794,6 +857,16 @@ pub struct NifSurfaceKey {
     /// the surface the depth prepass holds and take the ambient occlusion
     /// ([`ambient_occlusion_opt_in`]).
     pub terrain_layer: bool,
+    /// Skin surface (`NifSurface::skin` or `facegen_offset`).
+    pub skin: bool,
+    /// Foliage surface (`NifSurface::foliage`).
+    pub foliage: bool,
+    /// Eye surface (`NifSurface::eye`).
+    pub eye: bool,
+    /// Hair-shader surface (`NifSurface::hair`).
+    pub hair: bool,
+    /// Un-authored outfit material (`NifSurface::outfit_kind > 0.5`).
+    pub outfit: bool,
     /// The shape fades where it meets the surface behind it ([`NifSurface::soft`] x above 0):
     /// `specialize` adds `NVF_SOFT_FADE` to its main pass, the only pipelines that read the
     /// prepass depth for it (#2868: every other opaque and cut-out pixel paid for the read).
@@ -824,6 +897,11 @@ impl NifSurfaceKey {
             pipboy_screen: surface.pipboy_screen,
             anti_tiling: surface.anti_tiling && crate::terrain_sampling::repeat_valid(surface.terrain_repeat),
             terrain_layer: crate::terrain_sampling::repeat_valid(surface.terrain_repeat),
+            skin: surface.skin || surface.facegen_offset.is_some(),
+            foliage: surface.foliage,
+            eye: surface.eye,
+            hair: surface.hair,
+            outfit: surface.outfit_kind > 0.5,
             soft: surface.soft.x > 0.0,
             hdr,
         }
@@ -944,10 +1022,43 @@ impl MaterialExtension for NifSurface {
         // Physical lighting (graphics-enhanced.md §3.25): the shade-light mix, the hot light,
         // the ambient highlight and the environment map's weight take their physical forms.
         let physical_def: &[&str] = if crate::authored::physical_pbr() { &["NVF_PHYSICAL_PBR"] } else { &[] };
+        // Subsurface scattering (part 6 of #3828's split, graphics-enhanced.md §3.26): an eye
+        // before skin (an eye may carry a FaceGen offset, which keys it as skin); hair's strand
+        // shading only under Physical lighting too.
+        let sss_def: &[&str] = if crate::authored::sss_enabled() {
+            if key.bind_group_data.eye {
+                &["NVF_EYE"]
+            } else if key.bind_group_data.skin {
+                &["NVF_SKIN_SSS"]
+            } else if key.bind_group_data.hair && crate::authored::physical_pbr() {
+                &["NVF_HAIR"]
+            } else {
+                &[]
+            }
+        } else {
+            &[]
+        };
+        // Outfits and armour without an authored set, by material class, under Physical lighting.
+        let outfit_def: &[&str] = if crate::authored::physical_pbr()
+            && key.bind_group_data.outfit
+            && !key.bind_group_data.eye
+            && !key.bind_group_data.skin
+            && !key.bind_group_data.foliage
+            && !key.bind_group_data.hair
+        {
+            &["NVF_OUTFIT"]
+        } else {
+            &[]
+        };
         let view_defs = crate::authored::view().shader_defs();
-        if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty() && reflect_def.is_empty() && physical_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty() && reflect_def.is_empty() && physical_def.is_empty() && sss_def.is_empty() && outfit_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
-                fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).chain(reflect_def).chain(physical_def).map(|d| ShaderDefVal::from(*d)));
+                fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).chain(reflect_def).chain(physical_def).chain(sss_def).chain(outfit_def).map(|d| ShaderDefVal::from(*d)));
+            }
+        }
+        if skin_split_applies(crate::authored::screen_sss_enabled(), descriptor, key.mesh_key, &key.bind_group_data, view_defs.is_empty()) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                push_shader_def_once(&mut fragment.shader_defs, &ShaderDefVal::from(crate::authored::SKIN_SPLIT_DEF));
             }
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
@@ -1237,6 +1348,7 @@ impl Plugin for NifMaterialPlugin {
         // where nothing did, as in the viewer).
         crate::authored::view();
         crate::authored::metallic_debug();
+        crate::authored::sss_enabled();
         crate::authored::parallax_layers();
         crate::authored::parallax_method();
         crate::authored::parallax_mask();
@@ -1546,6 +1658,36 @@ mod tests {
     }
 
     #[test]
+    fn only_opaque_single_sampled_world_skin_takes_the_skin_split() {
+        use bevy::render::render_resource::BlendState;
+        let skin = NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: true, foliage: false, eye: false, hair: false, outfit: false, soft: false, hdr: false };
+        let view = MeshPipelineKey::DEPTH_PREPASS | MeshPipelineKey::NVF_SKIN_ALBEDO | MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE;
+        let main = main_pipeline(1, None);
+        assert!(skin_split_applies(true, &main, view, &skin, true), "a face in the world view");
+        assert!(!skin_split_applies(false, &main, view, &skin, true), "the switch off");
+        assert!(!skin_split_applies(true, &main_pipeline(4, None), view, &skin, true), "multisampled");
+        assert!(!skin_split_applies(true, &main_pipeline(1, Some(BlendState::ALPHA_BLENDING)), view, &skin, true), "blended");
+        let mut coverage = main_pipeline(1, None);
+        coverage.multisample.alpha_to_coverage_enabled = true;
+        assert!(!skin_split_applies(true, &coverage, view, &skin, true), "alpha to coverage");
+        assert!(!skin_split_applies(true, &prepass_pipeline(1), view, &skin, true), "a prepass");
+        assert!(!skin_split_applies(true, &main, MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE | MeshPipelineKey::NVF_SKIN_ALBEDO, &skin, true), "no depth prepass");
+        assert!(!skin_split_applies(true, &main, view - MeshPipelineKey::NVF_SKIN_ALBEDO, &skin, true), "no skin colour buffer");
+        assert!(!skin_split_applies(true, &main, view | MeshPipelineKey::TONEMAP_IN_SHADER, &skin, true), "tone mapped in the shader");
+        assert!(!skin_split_applies(true, &main, MeshPipelineKey::DEPTH_PREPASS | MeshPipelineKey::NVF_SKIN_ALBEDO | MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC, &skin, true), "orthographic");
+        assert!(!skin_split_applies(true, &main, view, &skin, false), "an input view");
+        for (what, key) in [
+            ("not skin", NifSurfaceKey { skin: false, facegen: false, ..skin }),
+            ("an eye", NifSurfaceKey { eye: true, ..skin }),
+            ("the arms", NifSurfaceKey { shade_light: true, ..skin }),
+            ("first person", NifSurfaceKey { first_person: true, ..skin }),
+            ("refracting", NifSurfaceKey { refract: true, ..skin }),
+        ] {
+            assert!(!skin_split_applies(true, &main, view, &key, true), "{what}");
+        }
+    }
+
+    #[test]
     fn depth_equal_only_in_the_main_pass_of_a_view_with_a_prepass() {
         // An opaque shape in a view with a depth prepass.
         let mut d = main_pipeline(4, None);
@@ -1773,7 +1915,7 @@ mod tests {
         // Only the switches in `NifSurfaceKey` select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false, hair: false, outfit: false, soft: false, hdr: false });
         assert_eq!(surface.alpha_cut, 0.0);
         assert_eq!(surface.emissive_rule, Vec4::ZERO);
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, Vec4::ZERO);
@@ -1783,19 +1925,24 @@ mod tests {
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, surface.emissive_rule);
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false, hair: false, outfit: false, soft: false, hdr: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false, hair: false, outfit: false, soft: false, hdr: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false, hair: false, outfit: false, soft: false, hdr: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false, hair: false, outfit: false, soft: false, hdr: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
-        // A FaceGen offset selects the tinting shader.
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: false, foliage: false, eye: false, hair: false, outfit: false, soft: false, hdr: false });
+        // A FaceGen offset selects the tinting shader and also enables the skin key bit.
         surface.facegen_offset = Some(Handle::default());
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, soft: false, hdr: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false, skin: true, foliage: false, eye: false, hair: false, outfit: false, soft: false, hdr: false });
+        assert!(NifSurfaceKey::from(&NifSurface { skin: true, ..default() }).skin);
+        assert!(NifSurfaceKey::from(&NifSurface { foliage: true, ..default() }).foliage);
+        assert!(NifSurfaceKey::from(&NifSurface { eye: true, ..default() }).eye);
+        assert!(NifSurfaceKey::from(&NifSurface { outfit_kind: 1.0, ..default() }).outfit);
+        assert_eq!(NifSurfaceUniform::min_size().get(), 176);
     }
 
     #[test]

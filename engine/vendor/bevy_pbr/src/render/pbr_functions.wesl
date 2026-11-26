@@ -488,6 +488,12 @@ fn apply_pbr_lighting(
         let nvf_to_light = view_bindings::clustered_lights.data[light_id].position_radius.xyz - in.world_position.xyz;
         @if(STANDARD_MATERIAL_CLEARCOAT)
         let nvf_lit = true;
+        // NVForever skin and hair (nvforever sss.wesl): their light wraps past the terminator
+        // (to N.L = -0.45) and a normal map's bumps tip the shading normal away from a light
+        // the surface faces, so the test is the geometric normal's, to 30 degrees past it.
+        @elif(NVF_SKIN_SSS || NVF_HAIR)
+        let nvf_lit = dot(nvf_to_light, nvf_to_light) * view_bindings::clustered_lights.data[light_id].color_inverse_square_range.w < 1.0
+            && (dot(in.world_normal, nvf_to_light) > -0.5 * length(nvf_to_light) || view_bindings::clustered_lights.data[light_id].position_radius.w > 0.0);
         @else
         let nvf_lit = dot(nvf_to_light, nvf_to_light) * view_bindings::clustered_lights.data[light_id].color_inverse_square_range.w < 1.0
             && (dot(in.N, nvf_to_light) > 0.0 || view_bindings::clustered_lights.data[light_id].position_radius.w > 0.0);
@@ -554,6 +560,12 @@ fn apply_pbr_lighting(
         let nvf_to_light = view_bindings::clustered_lights.data[light_id].position_radius.xyz - in.world_position.xyz;
         @if(STANDARD_MATERIAL_CLEARCOAT)
         let nvf_lit = true;
+        // NVForever skin and hair (nvforever sss.wesl): their light wraps past the terminator
+        // (to N.L = -0.45) and a normal map's bumps tip the shading normal away from a light
+        // the surface faces, so the test is the geometric normal's, to 30 degrees past it.
+        @elif(NVF_SKIN_SSS || NVF_HAIR)
+        let nvf_lit = dot(nvf_to_light, nvf_to_light) * view_bindings::clustered_lights.data[light_id].color_inverse_square_range.w < 1.0
+            && (dot(in.world_normal, nvf_to_light) > -0.5 * length(nvf_to_light) || view_bindings::clustered_lights.data[light_id].position_radius.w > 0.0);
         @else
         let nvf_lit = dot(nvf_to_light, nvf_to_light) * view_bindings::clustered_lights.data[light_id].color_inverse_square_range.w < 1.0
             && (dot(in.N, nvf_to_light) > 0.0 || view_bindings::clustered_lights.data[light_id].position_radius.w > 0.0);
@@ -632,6 +644,9 @@ fn apply_pbr_lighting(
         // without reading the cascades or marching (its contribution is 0 there: N.L).
         @if(STANDARD_MATERIAL_CLEARCOAT)
         let nvf_faces = true;
+        // NVForever skin and hair (nvforever sss.wesl): as the point lights' above.
+        @elif(NVF_SKIN_SSS || NVF_HAIR)
+        let nvf_faces = dot(in.world_normal, (*light).direction_to_light) > -0.5;
         @else
         let nvf_faces = dot(in.N, (*light).direction_to_light) > 0.0;
         var shadow: f32 = 1.0;

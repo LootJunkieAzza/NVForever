@@ -244,6 +244,7 @@ mod sneaking;
 mod swimming;
 mod ssao;
 mod ssao_lighting;
+mod sss;
 mod taa;
 mod fg_presenter;
 mod ffx_api;
@@ -2058,6 +2059,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    // Subsurface scattering (the row, part 6 of #3828's split): skin, eyes, hair, outfits.
+    .add_plugins(sss::SssPlugin)
     // The bounce light volume's shader for the lighting (imported only under its def, which no view gives yet).
     .add_plugins(rtgi_volume::RtgiVolumePlugin)
     // Shadows of placed lights, the ALC shadows row (off by default).

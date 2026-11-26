@@ -112,6 +112,7 @@ impl Props {
             }
             n += 1;
         }
+        self.eye |= is_eye_shape(0, &self.textures);
         n
     }
 }
@@ -156,6 +157,8 @@ pub(crate) struct Props {
     pub(crate) hair: bool,
     /// The shader property's type is [`SHADER_SKIN`]: the shape is an actor's skin.
     pub(crate) skin: bool,
+    /// Eye mesh (`Eye_Environment_Mapping` bit 17, `eyecubemap`, or `characters/eyes/`).
+    pub(crate) eye: bool,
     /// The view-angle falloff of a BSShaderNoLightingProperty that switches it on
     /// ([`property_falloff`]).
     falloff: Option<Falloff>,
@@ -389,6 +392,21 @@ pub(crate) fn window_env_flags(shader_flags: i64) -> bool {
     shader_flags & (1 << 7) != 0 && shader_flags & (1 << 21) != 0
 }
 
+/// Whether shader flags or texture paths identify an eye shape (`Eye_Environment_Mapping`
+/// bit 17, `eyecubemap`, or `characters/eyes/`).
+pub(crate) fn is_eye_shape(shader_flags: i64, textures: &[String]) -> bool {
+    if shader_flags & (1 << 17) != 0 {
+        return true;
+    }
+    let has_eye_path = |slot: usize| {
+        textures.get(slot).is_some_and(|t| {
+            let norm = t.replace('\\', "/").to_ascii_lowercase();
+            norm.contains("characters/eyes/") || norm.contains("eyecubemap")
+        })
+    };
+    has_eye_path(0) || has_eye_path(4)
+}
+
 /// Whether shader flags ask for an environment map: BSShaderFlags bit 7
 /// "Environment_Mapping" [documented: nif.xml flag names; GECK wiki "NIF Shader
 /// Properties": "Enables environment mapping on the object"], with or without the window
@@ -410,6 +428,9 @@ pub(crate) fn env_flags(shader_flags: i64) -> bool {
 /// gated as #2462 gated them, LOD block geometry included. A cube that does not load as a
 /// cube map leaves the shape as it was (`shape_material_inner`).
 pub(crate) fn shape_env(props: &Props, aids: &crate::env_map::EnvAids) -> Option<crate::env_map::ShapeEnv> {
+    if props.eye {
+        return None;
+    }
     let f = props.env.filter(|f| f.scale > 0.0 && !props.unlit)?;
     if !f.window && (!aids.non_window || props.lod_building) {
         return None;
@@ -461,6 +482,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.dynamic_alpha = ty == "BSShaderNoLightingProperty" && flags & (1 << 19) != 0;
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
+        p.eye = is_eye_shape(flags, &p.textures);
         p.external_emittance = flags & (1 << 29) != 0;
         p.decal = is_decal(flags);
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
@@ -502,6 +524,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
             let src = s.strukt("base_texture").and_then(|b| b.block_ref("source")).and_then(|r| dec.get(r));
             if let Some(f) = src.and_then(|t| t.text("file_name")) {
                 p.textures = vec![f.to_string()];
+                p.eye |= is_eye_shape(0, &p.textures);
             }
         }
         "NiAlphaProperty" => p.alpha = Some((s.int("flags").unwrap_or(0), s.int("threshold").unwrap_or(128))),
@@ -884,12 +907,108 @@ fn specular_with(props: &Props, has_normal_map: bool, unmasked: bool, physical: 
     if props.hair {
         return (0.0, false);
     }
+    // An eye's cornea, and under Physical lighting skin (subsurface scattering needs it, so
+    // it is on under it as well): the skin's own reflectance, its oil read in the shader
+    // (nif_material.wesl NVF_SKIN_SSS) [design, part 6 of #3828's split].
+    if props.eye {
+        return (0.38, false);
+    }
     match (has_normal_map, props.specular) {
+        (true, true) if physical && props.skin && unmasked => (0.36, false),
+        (true, true) if physical && props.skin => (1.15, true),
         (true, true) if unmasked => (UNMASKED_SPECULAR, false),
         (true, true) => (2.0, true),
+        (true, false) | (false, _) if physical && props.skin && !props.specular => (0.36, false),
         (true, false) if physical => (0.32, false),
         (true, false) => (0.0, false),
         (false, _) => (0.3, false),
+    }
+}
+
+/// Hair-shader shapes take the strand BSDF (`NVF_HAIR`, nvforever sss.wesl) under
+/// subsurface scattering, which needs Physical lighting [engineering choice; it sets aside
+/// nif.md §6 "Hair"'s matte reading of the original for that mode only, where faces already
+/// depart from it].
+pub(crate) fn hair_strand_shading() -> bool {
+    crate::authored::sss_enabled()
+}
+
+/// Under [`hair_strand_shading`], the hair's longitudinal roughness range: 0.35 to 0.5
+/// gives lobe widths of 7 to 14 degrees, inside the 5 to 10 degrees measured for real
+/// fibres [documented: Marschner et al. 2003, Table 1] and a little past, for the 2010
+/// meshes' few strands; the files' glossiness 10 reads 0.64, a blur over the cap.
+pub(crate) const HAIR_ROUGHNESS: (f32, f32) = (0.35, 0.5);
+
+/// The perceptual roughness of an eye's cornea under subsurface scattering
+/// (`shape_material_inner`): a tear film is close to a mirror; Bevy raises anything under
+/// 0.089 to that for its highlight.
+pub(crate) const EYE_CORNEA_ROUGHNESS: f32 = 0.06;
+
+/// Outfit material class packed into `NifSurface::outfit_kind` (`terrain.z` in WGSL).
+pub const OUTFIT_NONE: f32 = 0.0;
+pub const OUTFIT_LEATHER: f32 = 1.0;
+pub const OUTFIT_CLOTH: f32 = 2.0;
+pub const OUTFIT_METAL: f32 = 3.0;
+
+fn contains_any_token(s: &str, tokens: &[&str]) -> bool {
+    tokens.iter().any(|t| s.contains(t))
+}
+
+/// Classifies un-authored armour and clothing shapes by material family (`OUTFIT_*`) from
+/// their diffuse texture's path, so the Physical lighting shader (nif_material.wesl
+/// `NVF_OUTFIT`) can read the game's normal-alpha specular masks as roughness, dielectric
+/// and metallic parts and cloth sheen [design, the token lists an engineering choice].
+fn classify_outfit_shape(props: &Props, diffuse: Option<&str>, alpha_mode: AlphaMode, foliage: bool, has_env: bool) -> f32 {
+    if props.skin || props.hair || props.eye || foliage || props.unlit || props.decal || props.lod_building || props.refraction.is_some() {
+        return OUTFIT_NONE;
+    }
+    if !matches!(alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
+        return OUTFIT_NONE;
+    }
+    let Some(raw) = diffuse else {
+        return OUTFIT_NONE;
+    };
+    let norm = raw.replace('\\', "/").to_ascii_lowercase();
+    if !contains_any_token(&norm, &["armor/", "clothes/", "clothing/", "outfits/"]) {
+        return OUTFIT_NONE;
+    }
+    if contains_any_token(&norm, &["gore", "meatcap", "pipboy", "glass", "visor", "lens", "goggles", "eyewear", "glasses"]) {
+        return OUTFIT_NONE;
+    }
+    if has_env || contains_any_token(&norm, &["powerarmor", "metalarmor", "enclave", "tesla", "t45", "t51", "brotherhood", "centurion", "combatarmor", "riotgear", "stealthsuit", "chinesestealth", "spacesuit", "robot"]) {
+        return OUTFIT_METAL;
+    }
+    if contains_any_token(&norm, &["leather", "chitin", "gecko", "hide", "boot", "glove", "belt", "saddle", "holster", "raider", "fiend", "viper", "jackal", "scorpion", "biker", "motorcycle", "rubber", "vinyl", "hazmat", "radsuit", "recon"]) {
+        return OUTFIT_LEATHER;
+    }
+    if contains_any_token(
+        &norm,
+        &[
+            "vaultsuit", "wasteland", "duster", "coat", "shirt", "suit", "dress", "tunic", "robe", "outfit", "clothes", "republican", "gambler", "prewar", "formal", "doctor", "scientist", "lab", "surgeon", "follower", "king", "powder", "khans", "boom", "trouper", "trooper", "ranger", "merc", "settler", "caravan", "brahmin", "farmer", "prospect", "tribal", "slaver", "underwear", "handwrap", "beanie", "bandana", "scarf", "cap", "hat", "fedora", "beret", "cowboy", "sleepwear", "pajama", "lingerie", "prostitute", "waitress", "bartender", "mechanic", "jumpsuit", "work", "parka", "hood", "cloak", "mantle", "legion", "caesar", "ncr", "veronica", "boone", "cass", "arcade", "benny", "scribe", "elder",
+        ],
+    ) {
+        return OUTFIT_CLOTH;
+    }
+    if !props.specular || props.glossiness.unwrap_or(10.0) <= 12.0 {
+        OUTFIT_CLOTH
+    } else {
+        OUTFIT_LEATHER
+    }
+}
+
+/// True for skin shapes other than the head (`upperbody*`, `hand*`, or worn body skin
+/// without a texture), so the shader keeps the body's relief, vascularity and concavity
+/// occlusion on the neck, torso and limbs without changing the head's look.
+fn is_body_skin_shape(props: &Props, diffuse: Option<&str>) -> bool {
+    if !props.skin {
+        return false;
+    }
+    match diffuse {
+        Some(d) => {
+            let norm = d.replace('\\', "/").to_ascii_lowercase();
+            !norm.contains("head") && !norm.contains("ear")
+        }
+        None => true,
     }
 }
 
@@ -1361,7 +1480,8 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     // drawing the original mesh, so tangents made on the copy never reach the draw. A height
     // map (a set's or the game's own) is put on such a material only when the mesh already
     // has them: Bevy marches no parallax on a mesh without tangents (#2979 review).
-    let height_mesh_ok = !matches!(tangents, Tangents::Keep) || had_tangents;
+    let drawn_mesh = !matches!(tangents, Tangents::Keep);
+    let height_mesh_ok = drawn_mesh || had_tangents;
     let normal = normal.filter(|_| has_uv && tangents.add_to(mesh));
     let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
@@ -1453,6 +1573,28 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         .flatten()
         .and_then(|t| textures.texture(t, true));
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
+    let physical = crate::authored::physical_pbr();
+    let sss = crate::authored::sss_enabled();
+    // Skin under subsurface scattering: the per-vertex curvature the pre-integrated
+    // scattering reads (skin_curvature.rs). A kept copy (`Tangents::Keep`) is not drawn.
+    if sss && props.skin && drawn_mesh {
+        crate::skin_curvature::bake(mesh);
+    }
+    // Physical lighting: an eye's and skin's roughness held to their ranges, hair's to the
+    // strand range under subsurface scattering; shapes without the specular flag (or hair)
+    // are rough, at least 0.86, so the sky's image-based light does not gloss them [design,
+    // tuned by eye on #3828's branch].
+    let perceptual_roughness = if props.eye && physical {
+        gloss_roughness(gloss).clamp(0.28, 0.45)
+    } else if physical && props.skin {
+        gloss_roughness(gloss).clamp(0.58, 0.72)
+    } else if props.hair && hair_strand_shading() {
+        gloss_roughness(gloss).clamp(HAIR_ROUGHNESS.0, HAIR_ROUGHNESS.1)
+    } else if physical && !props.specular && !props.hair {
+        gloss_roughness(gloss).max(0.86)
+    } else {
+        gloss_roughness(gloss)
+    };
     let (double_sided, cull_mode) = props_cull(props);
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
@@ -1462,10 +1604,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         // Green points down the image (DirectX style), Bevy expects up [observed,
         // docs/spec-notes/nif.md §6 "Normal maps"].
         flip_normal_map_y: true,
-        // Physical lighting: shapes without the specular flag (or hair) are rough, at least
-        // 0.86, so the sky's image-based light does not gloss them [design, tuned by eye on
-        // #3828's branch].
-        perceptual_roughness: if crate::authored::physical_pbr() && !props.specular && !props.hair { gloss_roughness(gloss).max(0.86) } else { gloss_roughness(gloss) },
+        perceptual_roughness,
         metallic: 0.0,
         reflectance,
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
@@ -1502,6 +1641,20 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         unlit_vertex_colors(&mut material);
     }
     material.extension.decal = props.decal;
+    material.extension.skin = props.skin;
+    material.extension.skin_body = is_body_skin_shape(props, diffuse.map(String::as_str));
+    material.extension.eye = props.eye;
+    material.extension.hair = props.hair;
+    // Foliage translucency waits for the foliage detection (canopy, #4266).
+    material.extension.outfit_kind = classify_outfit_shape(props, diffuse.map(String::as_str), alpha_mode, false, material.extension.env_cube.is_some());
+    // An eye under subsurface scattering: a wet cornea over the iris and white, a clear coat
+    // as smooth as a tear film (Bevy's Filament clear coat; its F0 is 0.04, a cornea's about
+    // 0.025 [hypothesis: IOR 1.376]), which gives the eye its sharp highlight of the sun and
+    // lamps [engineering choice].
+    if sss && props.eye {
+        material.base.clearcoat = 1.0;
+        material.base.clearcoat_perceptual_roughness = EYE_CORNEA_ROUGHNESS;
+    }
     // A baked shadow patch lies on the surface behind it: no fade where they meet
     // ([`baked_shadow_patch`]).
     if !props.shadow_patch && crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
@@ -3560,6 +3713,33 @@ mod bc5_material_tests {
     }
 
     #[test]
+    fn eye_shapes_skip_additive_cubemap_and_take_corneal_specular() {
+        assert!(is_eye_shape(1 << 17, &[]));
+        assert!(is_eye_shape(0, &[r"textures\characters\eyes\eyebrown.dds".into()]));
+        assert!(is_eye_shape(0, &["".into(), "".into(), "".into(), "".into(), r"textures\effects\eyecubemap.dds".into()]));
+        assert!(!is_eye_shape(1 << 7, &[r"textures\clutter\metal\tincan.dds".into()]));
+
+        let props = Props {
+            shader: true,
+            has_properties: true,
+            eye: true,
+            specular: true,
+            env: Some(crate::env_map::EnvFlags { scale: 1.0, window: false, light_fade: false }),
+            textures: vec![
+                r"textures\characters\eyes\eyebrown.dds".into(),
+                r"textures\shared\flat_n.dds".into(),
+                "".into(),
+                "".into(),
+                r"textures\effects\eyecubemap.dds".into(),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(shape_env(&props, &crate::env_map::EnvAids::default()), None);
+        assert_eq!(specular(&props, true, false), (0.38, false));
+    }
+
+
+    #[test]
     fn stencil_cull_maps_draw_mode_bits() {
         assert_eq!(stencil_cull(0), (false, Some(bevy::render::render_resource::Face::Back)));
         assert_eq!(stencil_cull(1 << 10), (false, Some(bevy::render::render_resource::Face::Back)));
@@ -3575,5 +3755,53 @@ mod bc5_material_tests {
             };
             assert_eq!(props_cull(&props), expected, "load-time props_cull must match stencil_cull for mode {mode}");
         }
+    }
+
+    #[test]
+    fn classify_outfit_maps_armor_and_cloth_families_and_excludes_non_outfits() {
+        let base = Props { specular: true, glossiness: Some(25.0), ..Default::default() };
+        assert_eq!(
+            classify_outfit_shape(&base, Some(r"textures\armor\leatherarmor\leatherarmorf.dds"), AlphaMode::Opaque, false, false),
+            OUTFIT_LEATHER
+        );
+        assert_eq!(
+            classify_outfit_shape(&base, Some(r"textures\armor\vaultsuit\vaultsuit21f.dds"), AlphaMode::Opaque, false, false),
+            OUTFIT_CLOTH
+        );
+        assert_eq!(
+            classify_outfit_shape(&base, Some(r"textures\armor\powerarmor\powerarmort45d.dds"), AlphaMode::Opaque, false, false),
+            OUTFIT_METAL
+        );
+        assert_eq!(
+            classify_outfit_shape(&base, Some(r"textures\armor\custom\something.dds"), AlphaMode::Opaque, false, true),
+            OUTFIT_METAL
+        );
+        // Exclusions: skin, hair, eye, pipboy, visor/glass, blended effects, non-armor meshes.
+        assert_eq!(
+            classify_outfit_shape(&Props { skin: true, ..base.clone() }, Some(r"textures\armor\leatherarmor\leatherarmorf.dds"), AlphaMode::Opaque, false, false),
+            OUTFIT_NONE
+        );
+        assert_eq!(
+            classify_outfit_shape(&Props { hair: true, ..base.clone() }, Some(r"textures\armor\headgear\wig.dds"), AlphaMode::Opaque, false, false),
+            OUTFIT_NONE
+        );
+        assert_eq!(
+            classify_outfit_shape(&base, Some(r"textures\armor\headgear\visor.dds"), AlphaMode::Opaque, false, false),
+            OUTFIT_NONE
+        );
+        assert_eq!(
+            classify_outfit_shape(&base, Some(r"textures\armor\leatherarmor\leatherarmorf.dds"), AlphaMode::Blend, false, false),
+            OUTFIT_NONE
+        );
+        assert_eq!(
+            classify_outfit_shape(&base, Some(r"textures\architecture\goodsprings\wood.dds"), AlphaMode::Opaque, false, false),
+            OUTFIT_NONE
+        );
+        assert!(is_body_skin_shape(&Props { skin: true, ..Default::default() }, Some(r"textures\characters\female\upperbodyfemale.dds")));
+        assert!(is_body_skin_shape(&Props { skin: true, ..Default::default() }, Some(r"textures\characters\female\handfemale.dds")));
+        assert!(is_body_skin_shape(&Props { skin: true, ..Default::default() }, None));
+        assert!(!is_body_skin_shape(&Props { skin: true, ..Default::default() }, Some(r"textures\characters\male\headhuman.dds")));
+        assert!(!is_body_skin_shape(&Props { skin: true, ..Default::default() }, Some(r"textures\characters\head\earshuman.dds")));
+        assert!(!is_body_skin_shape(&Props::default(), Some(r"textures\characters\female\upperbodyfemale.dds")));
     }
 }

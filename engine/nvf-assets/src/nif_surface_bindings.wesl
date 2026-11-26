@@ -56,7 +56,9 @@ struct NifSurface {
     // Landscape anti-tiling (nif_material.rs NifSurface::terrain_repeat): x world units per
     // texture repeat of a landscape material, 0 on every other shape; y an authored set's
     // metal gain (NifSurface::metal_gain, #2981; 0 on every other material), read by
-    // nif_material.wesl's lift only; z, w unused.
+    // nif_material.wesl's lift only; z outfit material class (NifSurface::outfit_kind: 0
+    // none, 1 leather, 2 cloth, 3 metal); w body skin flag (NifSurface::skin_body: 1 body,
+    // 0 head/other).
     terrain: vec4<f32>,
     // Environment map (nif_material.rs NifSurface::env): x the scale (0: none), y the mask
     // (0 none, 1 the mask's red, 2 the mask's alpha: the game's normal map bound as the

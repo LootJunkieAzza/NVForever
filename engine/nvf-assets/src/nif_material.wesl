@@ -112,6 +112,7 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
 @if(NVF_PBR_VIEW_OCCLUSION && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_OCCLUSION_TEXTURE_BIT;
 @if(NVF_PBR_VIEW_HEIGHT && !PREPASS_PIPELINE) import nvf_assets::nif_surface_bindings::height_texel;
 @if(NVF_PBR_VIEW_HEIGHT && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_DEPTH_MAP_BIT;
+@if((NVF_SKIN_SSS || NVF_OUTFIT) && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_SPECULAR_TEXTURE_BIT;
 @if(NVF_PBR_PARALLAX_MASK && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types as parallax_mask_types;
 @if(MESH_TERRAIN_BLEND) import nvf_assets::nif_surface_bindings::{mesh_terrain_lookup, mesh_terrain_view, mesh_terrain_shading, mesh_terrain_unlit_view, mesh_terrain_diagnostic, mesh_terrain_blend_normal, mesh_terrain_target_colour, mesh_terrain_target_normal, mesh_terrain_face_up, MeshTerrainInputs, LOOKUP_SUCCESS, LAND_ROUGHNESS, LAND_REFLECTANCE};
 @if(!NIF_SURFACE_BLEND) import nvf_assets::nif_surface_bindings::{env_cube_texel, env_mask_texel, env_mask_alpha};
@@ -581,6 +582,256 @@ const BODY_CLEARANCE: f32 = 24.0;
     @builtin(frag_depth) depth: f32,
 }
 
+// NVF_SKIN_SSS: strand noise for the hairline's shade (nvforever sss_screen.wesl `hairline`):
+// streaks running along the texture's v, which on a head runs up and down the forehead and
+// temples, the way the hair grows out of the hairline [hypothesis: the head texture's
+// layout, not measured], about SKIN_STRAND_U across and SKIN_STRAND_V long in texture units
+// [engineering choice: about 1.5 mm by 10 mm on an adult head]. Two octaves of value noise,
+// its contrast raised; in texture space, so it stays on the skin as the head moves.
+const SKIN_STRAND_U: f32 = 400.0;
+const SKIN_STRAND_V: f32 = 60.0;
+
+@if((NVF_SKIN_SSS || NVF_OUTFIT) && !PREPASS_PIPELINE) fn skin_strand_hash(c: vec2<i32>) -> f32 {
+    var h = (bitcast<u32>(c.x) * 1597334677u) ^ (bitcast<u32>(c.y) * 3812015801u);
+    h = h * 0x27d4eb2du;
+    h = h ^ (h >> 15u);
+    return f32(h) * (1.0 / 4294967295.0);
+}
+
+@if((NVF_SKIN_SSS || NVF_OUTFIT) && !PREPASS_PIPELINE) fn skin_value_noise(p: vec2<f32>) -> f32 {
+    let i = vec2<i32>(floor(p));
+    let f = fract(p);
+    let w = f * f * (3.0 - 2.0 * f);
+    let a = skin_strand_hash(i);
+    let b = skin_strand_hash(i + vec2(1, 0));
+    let c = skin_strand_hash(i + vec2(0, 1));
+    let d = skin_strand_hash(i + vec2(1, 1));
+    return mix(mix(a, b, w.x), mix(c, d, w.x), w.y);
+}
+
+@if((NVF_SKIN_SSS || NVF_OUTFIT) && VERTEX_UVS_A && !PREPASS_PIPELINE) fn micro_uv_bump(
+    uv: vec2<f32>,
+    freq: f32,
+    dp_dx: vec3<f32>,
+    dp_dy: vec3<f32>,
+    duv_dx: vec2<f32>,
+    duv_dy: vec2<f32>,
+    n: vec3<f32>,
+) -> vec4<f32> {
+    let p = uv * freq;
+    let c = skin_value_noise(p);
+    let gx = skin_value_noise(p + vec2(0.25, 0.0)) - c;
+    let gy = skin_value_noise(p + vec2(0.0, 0.25)) - c;
+    let dp2perp = cross(dp_dy, n);
+    let dp1perp = cross(n, dp_dx);
+    let det = dot(dp_dx, dp2perp);
+    if abs(det) < 1e-12 {
+        return vec4(0.0, 0.0, 0.0, c);
+    }
+    let grad_u = (dp2perp * duv_dx.x + dp1perp * duv_dy.x) / det;
+    let grad_v = (dp2perp * duv_dx.y + dp1perp * duv_dy.y) / det;
+    return vec4(-(grad_u * gx + grad_v * gy) * 4.0, c);
+}
+
+@if(NVF_SKIN_SSS && !PREPASS_PIPELINE) fn skin_strand_noise(uv: vec2<f32>) -> f32 {
+    let p = uv * vec2(SKIN_STRAND_U, SKIN_STRAND_V);
+    let n = 0.65 * skin_value_noise(p) + 0.35 * skin_value_noise(p * vec2(2.3, 1.7) + vec2(17.0, 31.0));
+    return smoothstep(0.3, 0.7, n);
+}
+
+// NVF_EYE (an eye shape under NVF_SSS, nif_material.rs `NifSurface::eye`): the iris lies
+// below a clear cornea (nif_spawn.rs gives the eye a clear coat for it), so it is seen
+// through the cornea's refraction, shifting against the white as the view moves, and it
+// ends in a dark limbal ring. The game's eye mesh maps its texture along the gaze: its
+// foremost vertex has UV (0.51, 0.46), and the iris of the eye textures is a disc of
+// radius about 0.19 round (0.50, 0.44) [observed: meshes\characters\head\eyelefthuman.nif
+// (49 vertices, facing +Y), textures\characters\eyes\eyeblue.dds and eyedarkbrown.dds,
+// 128 x 128]. A texture with its iris elsewhere is only shifted and ringed where these
+// say, at worst a faint ring on the white.
+const EYE_IRIS_CENTRE: vec2<f32> = vec2(0.50, 0.44);
+const EYE_IRIS_RADIUS: f32 = 0.19;
+// The iris's depth below the cornea at its centre, game units: about 2.5 mm, the human
+// anterior chamber [hypothesis; 14.3 mm per unit, skin_curvature.rs], going to 0 at its
+// edge as the cornea meets the white.
+const EYE_IRIS_DEPTH: f32 = 0.17;
+// Air to cornea (IOR 1.376 [hypothesis: the common textbook figure]).
+const EYE_CORNEA_ETA: f32 = 0.7267;
+// How much of the iris's colour the limbal ring takes at its darkest, and its half-width
+// in iris radii [engineering choice].
+const EYE_LIMBUS_DARKEN: f32 = 0.35;
+const EYE_LIMBUS_WIDTH: f32 = 0.12;
+// The eye's own frame: every human eye mesh looks along its +Y with +Z up, at the shape's
+// identity transform, and maps its texture straight along that gaze, v growing downward
+// and the corner by the nose at low u in both eyes (the right eye mirrors the left)
+// [observed: meshes\characters\head\eyelefthuman.nif, eyerighthuman.nif,
+// eyelefthumanfemale.nif, eyerighthumanfemale.nif: foremost vertex at UV (0.51, 0.46),
+// topmost at v 0.19, lowest at v 0.88]. An eye is a rigid shape under the head bone
+// (actor.rs), so its world-from-local turns these axes with the head.
+//
+// Sky reflection through the socket (eye_sky_share). Bevy's sky reflection has no
+// occlusion of its own, so the cornea's clear coat mirrored the whole open sky over the
+// eye and turned it milky grey (owner's screenshot, 2026-11-23). The brow, lids and nose
+// hide most of the sky from an eye; it sees out through the opening in front. A
+// reflection pointing out of that opening (forward, up to about 20° above the gaze) keeps
+// EYE_SKY_OPEN of the sky, which gives the eye its catchlight of the bright sky or a
+// window; one pointing up into the brow or off to the sides keeps EYE_SKY_CLOSED
+// [engineering choice]. Highlights of the sun and lamps are direct light and keep their
+// full strength.
+// 0.16 (was 0.3; tightened with grazing NdotV taper so the sclera edges do not flare
+// silver from the horizon cubemap): the open sky over the cornea laid a milky veil on the
+// pupil, and the upper lid's overhang cuts reflections from about 0.10-0.30 above the gaze.
+const EYE_SKY_OPEN: f32 = 0.16;
+const EYE_SKY_CLOSED: f32 = 0.03;
+// The sky's diffuse light that reaches an eye set back under the brow, beside the nose and
+// between the lids: about 35-50% of the hemisphere [hypothesis: skin research notes
+// 2026-11-26 §1.6]. On its diffuse occlusion; the socket shading (below) darkens its
+// colour on top, sun and lamps alike.
+const EYE_SKY_DIFFUSE: f32 = 0.48;
+// Lid and socket shading (eye_socket_occlusion): the upper lid overhangs the top of the
+// eye and the corners sit deep in the socket, which shadow maps are far too coarse to
+// show; the eye texture paints some of it in, the lighting none [engineering choice]. In
+// texture space: darkest at EYE_LID_V (the upper lid's line, the painted dark band's lower
+// edge in the textures above) and gone by EYE_LID_CLEAR_V; the corners from EYE_CORNER_U
+// to EYE_CORNER_DEEP_U away from the iris's centre line.
+const EYE_LID_V: f32 = 0.28;
+const EYE_LID_CLEAR_V: f32 = 0.54;
+const EYE_LID_DARKEN: f32 = 0.48;
+// The lower lid's margin: from EYE_LOWER_LID_V down to the mesh's lowest v (0.88, above),
+// darkened by up to EYE_LOWER_LID_DARKEN [hypothesis: skin research notes 2026-11-26 §1.6].
+const EYE_LOWER_LID_V: f32 = 0.62;
+const EYE_LOWER_LID_DARKEN: f32 = 0.32;
+const EYE_CORNER_U: f32 = 0.20;
+const EYE_CORNER_DEEP_U: f32 = 0.36;
+const EYE_CORNER_DARKEN: f32 = 0.30;
+
+// The share of the sky the cornea at world normal `n` reflects toward the viewer `v`, for
+// the eye whose mesh is instance `ii`.
+@if(NVF_EYE && !PREPASS_PIPELINE) fn eye_sky_share(ii: u32, n: vec3<f32>, v: vec3<f32>) -> f32 {
+    let m = get_world_from_local(ii);
+    let gaze = normalize((m * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+    let up = normalize((m * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+    let r = reflect(-v, n);
+    let facing = smoothstep(0.15, 0.72, max(dot(n, v), 0.0));
+    let open = smoothstep(0.25, 0.70, dot(r, gaze)) * (1.0 - smoothstep(0.10, 0.30, dot(r, up))) * facing;
+    return mix(EYE_SKY_CLOSED, EYE_SKY_OPEN, open);
+}
+
+// Concave iris bowl normal (Jimenez et al. 2012): reflects the radial component across the
+// eye's gaze so refracted light illuminates the side of the iris opposite the key light,
+// while `clearcoat_N` keeps the smooth convex cornea normal for crisp catchlights.
+@if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) fn eye_iris_normal(ii: u32, uv: vec2<f32>, wn: vec3<f32>) -> vec3<f32> {
+    let r = distance(uv, EYE_IRIS_CENTRE) / EYE_IRIS_RADIUS;
+    let iris_mask = 1.0 - smoothstep(0.85, 1.05, r);
+    let m = get_world_from_local(ii);
+    let gaze = normalize((m * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+    let n_gaze = dot(wn, gaze);
+    let radial = wn - gaze * n_gaze;
+    let concave = normalize(gaze * max(n_gaze, 0.35) - radial * 1.15);
+    return normalize(mix(wn, concave, iris_mask));
+}
+
+// How much light the lids and socket leave the eye at texture coordinates `uv`.
+@if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) fn eye_socket_occlusion(uv: vec2<f32>) -> f32 {
+    let lid = 1.0 - smoothstep(EYE_LID_V, EYE_LID_CLEAR_V, uv.y);
+    let lower = smoothstep(EYE_LOWER_LID_V, 0.88, uv.y);
+    let corner = smoothstep(EYE_CORNER_U, EYE_CORNER_DEEP_U, abs(uv.x - EYE_IRIS_CENTRE.x));
+    return max(1.0 - EYE_LID_DARKEN * lid - EYE_LOWER_LID_DARKEN * lower - EYE_CORNER_DARKEN * corner, 0.35);
+}
+
+// The texture-coordinate shift that shows the iris point seen through the cornea at `uv`:
+// the view ray refracted at the surface (normal `n`, toward the viewer `v`) and followed
+// down to the iris, carried into texture space by the gradients of u and v along the
+// surface (the cotangent frame of the position and coordinate derivatives, Schüler 2013,
+// "Followup: Normal Mapping Without Precomputed Tangents"). 0 outside the iris.
+@if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) fn eye_iris_shift(uv: vec2<f32>, dp_dx: vec3<f32>, dp_dy: vec3<f32>, duv_dx: vec2<f32>, duv_dy: vec2<f32>, n: vec3<f32>, v: vec3<f32>) -> vec2<f32> {
+    let r = distance(uv, EYE_IRIS_CENTRE) / EYE_IRIS_RADIUS;
+    let dp2perp = cross(dp_dy, n);
+    let dp1perp = cross(n, dp_dx);
+    let det = dot(dp_dx, dp2perp);
+    if r >= 1.0 || abs(det) < 1e-12 {
+        return vec2(0.0);
+    }
+    let grad_u = (dp2perp * duv_dx.x + dp1perp * duv_dy.x) / det;
+    let grad_v = (dp2perp * duv_dx.y + dp1perp * duv_dy.y) / det;
+    let t = refract(-v, n, EYE_CORNEA_ETA);
+    let down = max(-dot(t, n), 0.25);
+    let along = (t + n * down) * (EYE_IRIS_DEPTH * (1.0 - r * r) / down);
+    return vec2(dot(grad_u, along), dot(grad_v, along));
+}
+
+// The limbal ring's darkening at `uv`: 1 away from the iris's edge.
+// The strand direction of a hair-shader shape, in world space, root to tip, unit length
+// (0 where there is none). The hair textures paint their strands along curves that turn
+// across the texture, so no texture axis is the strand: over the 67 HAIR models the texture
+// V axis follows the painted strands no better than a line straight down the head, both
+// |cos| 0.74 on average against 0.64 for a random line [observed: structure tensor of the
+// diffuse luma against each NoHat shape's UVs, 2026-11-23]. It is read here from the strokes
+// themselves: the structure tensor of the colour's luma over 4 x 4 texels at the mip about
+// 128 texels across, the strands' broad flow rather than single strokes (at 256 the
+// direction turned from stroke to stroke and the glint broke into flecks, owner's frames
+// 2026-11-24); the strand runs along the least change. Where the strokes give no
+// direction (flat texels), the line down the head; the sign is always down the head, so
+// the highlights' shift (sss.wesl) goes towards the root [engineering choice].
+@if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) fn hair_strand(ii: u32, uv: vec2<f32>, dp_dx: vec3<f32>, dp_dy: vec3<f32>, duv_dx: vec2<f32>, duv_dy: vec2<f32>, n: vec3<f32>) -> vec3<f32> {
+    let size = vec2<f32>(base_color_size(ii));
+    let level = max(log2(max(size.x, size.y) / 128.0), 0.0);
+    let step = exp2(level) / max(size, vec2(1.0));
+    var l: array<f32, 16>;
+    for (var j = 0; j < 4; j++) {
+        for (var i = 0; i < 4; i++) {
+            let c = base_color_texel_level(ii, uv + (vec2(f32(i), f32(j)) - 1.5) * step, level);
+            l[j * 4 + i] = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+        }
+    }
+    var jxx = 0.0;
+    var jyy = 0.0;
+    var jxy = 0.0;
+    for (var j = 0; j < 3; j++) {
+        for (var i = 0; i < 3; i++) {
+            let a = l[j * 4 + i];
+            let b = l[j * 4 + i + 1];
+            let c = l[(j + 1) * 4 + i];
+            let d = l[(j + 1) * 4 + i + 1];
+            let gx = 0.5 * (b + d - a - c);
+            let gy = 0.5 * (c + d - a - b);
+            jxx += gx * gx;
+            jyy += gy * gy;
+            jxy += gx * gy;
+        }
+    }
+    let spread = sqrt((jxx - jyy) * (jxx - jyy) + 4.0 * jxy * jxy);
+    let coherence = select(0.0, spread / (jxx + jyy), jxx + jyy > 1e-7);
+    // The least change: the gradient's direction turned a quarter, in texels, then in uv.
+    let ang = 0.5 * atan2(2.0 * jxy, jxx - jyy) + 1.5707963;
+    let s_uv = vec2(cos(ang), sin(ang)) * step;
+    // The surface's change per unit u and v, from the view pixel's.
+    let det = duv_dx.x * duv_dy.y - duv_dx.y * duv_dy.x;
+    let dp_du = (dp_dx * duv_dy.y - dp_dy * duv_dx.y) / det;
+    let dp_dv = (dp_dy * duv_dx.x - dp_dx * duv_dy.x) / det;
+    var t = dp_du * s_uv.x + dp_dv * s_uv.y;
+    t -= n * dot(t, n);
+    // Down the head (Bevy's -Y), on the surface.
+    var down = vec3(0.0, -1.0, 0.0) - n * -n.y;
+    let down_len = length(down);
+    down = select(vec3(0.0), down / max(down_len, 1e-6), down_len > 0.05);
+    let t_len = length(t);
+    if abs(det) < 1e-12 || t_len < 1e-9 || !(t_len < 1e30) {
+        return down;
+    }
+    t = t / t_len;
+    t = select(t, -t, dot(t, down) < 0.0);
+    let w = smoothstep(0.15, 0.5, coherence);
+    let mixed = mix(down, t, w);
+    let m_len = length(mixed);
+    return select(t, mixed / m_len, m_len > 1e-4);
+}
+
+@if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) fn eye_limbus(uv: vec2<f32>) -> f32 {
+    let r = distance(uv, EYE_IRIS_CENTRE) / EYE_IRIS_RADIUS;
+    let x = (r - 1.0) / EYE_LIMBUS_WIDTH;
+    return 1.0 - EYE_LIMBUS_DARKEN * exp(-x * x);
+}
+
 // A first-person shape (nif_material.rs "First-person depth"): its colour, at its depth
 // squeezed in front of the world.
 @if(FIRST_PERSON_DEPTH) @fragment
@@ -620,6 +871,30 @@ fn nif_fragment(
     @if(NVF_RTGI_VOLUME && !PREPASS_PIPELINE) nvf_rtgi_face(in.world_position.xyz);
     // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
     @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
+    // Pre-integrated skin curvature (NVF_SKIN_SSS). A skin mesh carries its own, per vertex,
+    // in mm^-1 (UV_1 x, nvf-assets skin_curvature.rs); one without falls back to a
+    // screen-space estimate, taken in uniform control flow before any discard
+    // (1 game unit ≈ 14.3 mm).
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && !VERTEX_UVS_B) let skin_n_len = length(in.world_normal);
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && !VERTEX_UVS_B) let skin_n_unit = select(vec3(0.0, 1.0, 0.0), in.world_normal / skin_n_len, skin_n_len > 1e-6);
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && !VERTEX_UVS_B) let skin_curv_raw = length(fwidth(skin_n_unit)) / max(length(fwidth(in.world_position.xyz)), 1e-4);
+    // An eye's iris shift (eye_iris_shift), its derivatives likewise before any discard.
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_n = normalize(in.world_normal);
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_v = normalize(view.world_position - in.world_position.xyz);
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_shift = eye_iris_shift(in.uv, dpdx(in.world_position.xyz), dpdy(in.world_position.xyz), dpdx(in.uv), dpdy(in.uv), select(-eye_n, eye_n, is_front), eye_v);
+    // A hair-shader shape's strand direction (hair_strand): its texture coordinates and
+    // their change, and the position's, across a view pixel, before any discard.
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_uv = (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy;
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_duv_dx = dpdx(hair_uv);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_duv_dy = dpdy(hair_uv);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_dp_dx = dpdx(in.world_position.xyz);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) let hair_dp_dy = dpdy(in.world_position.xyz);
+    // Micro-pore / fabric / leather grain derivatives captured in uniform control flow.
+    @if((NVF_SKIN_SSS || NVF_OUTFIT) && VERTEX_UVS_A && !PREPASS_PIPELINE) let detail_dp_dx = dpdx(in.world_position.xyz);
+    @if((NVF_SKIN_SSS || NVF_OUTFIT) && VERTEX_UVS_A && !PREPASS_PIPELINE) let detail_dp_dy = dpdy(in.world_position.xyz);
+    @if((NVF_SKIN_SSS || NVF_OUTFIT) && VERTEX_UVS_A && !PREPASS_PIPELINE) let detail_duv_dx = dpdx(in.uv);
+    @if((NVF_SKIN_SSS || NVF_OUTFIT) && VERTEX_UVS_A && !PREPASS_PIPELINE) let detail_duv_dy = dpdy(in.uv);
+    @if((NVF_SKIN_SSS || NVF_OUTFIT) && VERTEX_UVS_A && !PREPASS_PIPELINE) let detail_uv_fw = length(fwidth(in.uv));
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     let surface = nif_surface(in.instance_index);
     // NifSurface::pipboy_screen: the picture's texture coordinates and their change across a
@@ -643,6 +918,7 @@ fn nif_fragment(
     // values", #2435). Made linear at the vertices, the blend kept a colour falling to
     // black bright almost to the black edge: a glow card's soft wash became a board.
     var vin = in;
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) vin.uv = in.uv + eye_shift;
     @if(VERTEX_COLORS) if surface.emissive_rule.z > 0.5 {
         vin.color = vec4(display_to_linear(in.color.rgb), in.color.a);
     }
@@ -657,6 +933,198 @@ fn nif_fragment(
     // (#2981). No surface is rougher than 1; Bevy raises the low end to 0.089 where the
     // highlight's shape needs it, and 0 here only keeps a signed map's negative out.
     pbr_input.material.perceptual_roughness = clamp(pbr_input.material.perceptual_roughness, 0.0, 1.0);
+    // Carry skin curvature (mm^-1) in unused `material.thickness` for opaque skin. The
+    // baked curvature is the mesh's own: SKIN_CURVATURE_SCALE makes up for the bends a
+    // 2010 head's few polygons flatten, SKIN_CURVATURE_MIN keeps the broad cheek and
+    // forehead soft, and 0.45 is the top of the scattering fit (sss.wesl).
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && VERTEX_UVS_B) let SKIN_CURVATURE_SCALE = 1.5;
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && VERTEX_UVS_B) let SKIN_CURVATURE_MIN = 0.10;
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && VERTEX_UVS_B) pbr_input.material.thickness = clamp(in.uv_b.x * SKIN_CURVATURE_SCALE, SKIN_CURVATURE_MIN, 0.45);
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE && !VERTEX_UVS_B) pbr_input.material.thickness = clamp(0.15 + 0.02 * skin_curv_raw, 0.15, 0.18);
+    // Skin's specular (nvforever sss.wesl `nvf_skin_sebum_specular`, which reads the oil back
+    // from the roughness): a dielectric of F0 0.028 everywhere, IOR about 1.4 [documented:
+    // Donner & Jensen 2006, "A Spectral BSSRDF for Shading Human Skin"]; Bevy's F0 is
+    // 0.16 x reflectance², so reflectance 0.418. The normal map's alpha, the game's specular
+    // mask (nif_spawn.rs `specular`), scaled F0 down to about 0.0002 (mean alpha 16 of 255 on
+    // the female head, docs/spec-notes/nif.md), under the 0.02 at which Bevy's sky
+    // reflection reads F0 as baked occlusion and puts it out; here it is the skin's
+    // oiliness instead: from mean skin (about 0.06) to the nose and lips (about 0.2 and up)
+    // [observed: nif.md for the mean; the peaks and the ramp, skin research notes
+    // 2026-11-26 §1.2, hypothesis]. Shapes whose alpha is no mask take SKIN_OIL_UNMASKED.
+    // Pores: where the normal map tips N off the geometric normal (a pore's walls), its
+    // specular is occluded, the rims keeping their glints (Jimenez et al. 2013 cavity
+    // occlusion; 2.0 an engineering choice: 2.5 left the face matte, 1.5 wet, owner's frames
+    // 2026-11-26). The ramp 0.03 to 0.20: mean skin about 0.15 oil, the nose and lips the top
+    // (0 to 0.15 made the whole face oily and wet, 0.02 to 0.22 matte).
+    @if(NVF_SKIN_SSS && !PREPASS_PIPELINE) {
+        let SKIN_OIL_UNMASKED = 0.25;
+        var skin_oil = SKIN_OIL_UNMASKED;
+        @if(VERTEX_UVS_A) {
+            let skin_mask_uv = (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy;
+            let skin_mask = normal_map_texel(in.instance_index, skin_mask_uv).a;
+            skin_oil = select(SKIN_OIL_UNMASKED, smoothstep(0.03, 0.20, skin_mask), (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_SPECULAR_TEXTURE_BIT) != 0u);
+        }
+        let skin_is_body = surface.terrain.w > 0.5;
+        pbr_input.material.attenuation_distance = surface.terrain.w;
+        if skin_is_body {
+            // Preserve neck tendons, clavicles, and musculature on body meshes.
+            let skin_gn = normalize(pbr_input.world_normal);
+            let skin_ndg = dot(pbr_input.N, skin_gn);
+            let skin_dev = pbr_input.N - skin_gn * skin_ndg;
+            pbr_input.N = normalize(skin_gn * max(skin_ndg, 0.1) + skin_dev * 1.38);
+            @if(VERTEX_UVS_B) {
+                if in.uv_b.y < 0.05 && in.uv_b.x > 0.03 {
+                    skin_oil = saturate(skin_oil + 0.10 * smoothstep(0.03, 0.14, in.uv_b.x));
+                }
+            }
+        }
+        // The hairline's strand noise for the screen-space pass (nvforever sss.wesl
+        // `nvf_skin_post_scatter`), carried in `material.ior`, which skin does not use (Bevy
+        // reads it only for specular transmission), as the curvature rides in `thickness`.
+        pbr_input.material.ior = 0.5;
+        @if(VERTEX_UVS_A) {
+            pbr_input.material.ior = skin_strand_noise(in.uv);
+        }
+        let skin_w_oil = mix(0.10, 0.22, skin_oil);
+        let skin_f0_base = 0.028 * (1.0 - skin_w_oil);
+        pbr_input.material.reflectance = vec3(sqrt(skin_f0_base / 0.16));
+        var skin_roughness = mix(0.66, 0.52, skin_oil);
+        @if(VERTEX_UVS_A) {
+            let skin_detail_fade = 1.0 - smoothstep(0.0007, 0.0038, detail_uv_fw);
+            let skin_bump = micro_uv_bump(in.uv, 420.0, detail_dp_dx, detail_dp_dy, detail_duv_dx, detail_duv_dy, pbr_input.N);
+            pbr_input.N = normalize(pbr_input.N + skin_bump.xyz * (select(0.012, 0.045, skin_is_body) * skin_detail_fade));
+            skin_roughness = clamp(skin_roughness + (skin_bump.w - 0.5) * select(0.02, 0.08, skin_is_body) * skin_detail_fade, 0.35, 0.85);
+        }
+        pbr_input.material.perceptual_roughness = skin_roughness;
+        let skin_pore = saturate(1.0 - dot(pbr_input.N, normalize(pbr_input.world_normal)));
+        pbr_input.specular_occlusion = pbr_input.specular_occlusion * saturate(1.0 - 2.0 * skin_pore);
+        var skin_concav = 0.0;
+        @if(VERTEX_UVS_B) {
+            skin_concav = saturate(in.uv_b.y);
+        }
+        let skin_ao_w = select(skin_concav * 0.22, saturate(skin_concav * 0.65 + skin_pore * 1.15), skin_is_body);
+        pbr_input.diffuse_occlusion = pbr_input.diffuse_occlusion * mix(vec3(1.0), vec3(0.84, 0.72, 0.66), skin_ao_w);
+    }
+    // NVF_OUTFIT (Pass A + B + C under NVF_PHYSICAL_PBR): reinterprets un-authored vanilla
+    // outfit/armor normal-alpha specular masks into physical roughness, clamped dielectric
+    // F0 (> 0.02 so shadowed regions keep sky Fresnel), Kaplanyan & Hill (2016) Specular AA,
+    // wrinkle cavity/fold AO, procedural micro-grain (leather pebble / cloth twill / brushed
+    // metal), metallic hardware / env-mask separation, and cloth sheen strength in `thickness`.
+    @if(NVF_OUTFIT && NVF_PHYSICAL_PBR && !PREPASS_PIPELINE) {
+        let outfit_dndx = dpdx(pbr_input.N);
+        let outfit_dndy = dpdy(pbr_input.N);
+        let outfit_n_var = dot(outfit_dndx, outfit_dndx) + dot(outfit_dndy, outfit_dndy);
+        @if(VERTEX_UVS_A) let outfit_uv = (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy;
+        @if(VERTEX_UVS_A) let outfit_raw_mask = normal_map_texel(in.instance_index, outfit_uv).a;
+        @if(!NIF_SURFACE_BLEND && VERTEX_UVS_A) let outfit_env_m = env_mask_texel(in.instance_index, outfit_uv);
+        pbr_input.material.thickness = 0.0;
+        if surface.emissive_rule.w < 0.5 && surface.terrain.z > 0.5 {
+            var outfit_mask = 0.25;
+            @if(VERTEX_UVS_A) {
+                outfit_mask = select(0.25, outfit_raw_mask, (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_SPECULAR_TEXTURE_BIT) != 0u);
+            }
+            let outfit_gn = normalize(pbr_input.world_normal);
+            let outfit_tilt = saturate(1.0 - dot(pbr_input.N, outfit_gn));
+            let outfit_rgb = pbr_input.material.base_color.rgb;
+            let outfit_cmax = max(outfit_rgb.r, max(outfit_rgb.g, outfit_rgb.b));
+            let outfit_cmin = min(outfit_rgb.r, min(outfit_rgb.g, outfit_rgb.b));
+            let outfit_sat = select(0.0, (outfit_cmax - outfit_cmin) / outfit_cmax, outfit_cmax > 1e-4);
+            let outfit_lum = dot(outfit_rgb, vec3(0.2126, 0.7152, 0.0722));
+            let outfit_class = surface.terrain.z;
+            var r_out = 0.72;
+            var f0_out = 0.04;
+            var outfit_metal = 0.0;
+            var cav_occ = 1.0;
+            var m_ao = 1.0;
+            var cloth_sheen = 0.0;
+            var detail_fade = 0.0;
+            @if(VERTEX_UVS_A) {
+                detail_fade = 1.0 - smoothstep(0.0008, 0.0045, detail_uv_fw);
+            }
+            if outfit_class < 1.5 {
+                // Leather / hide / biker / raider armor: worn ridges glisten, folds stay matte,
+                // only bright achromatic high-mask hardware (buckles/studs) becomes metallic.
+                let m = smoothstep(0.08, 0.85, outfit_mask);
+                m_ao = m;
+                r_out = mix(0.84, 0.38, m);
+                f0_out = mix(0.032, 0.046, m);
+                let metal_det = smoothstep(0.55, 0.82, outfit_mask)
+                    * (1.0 - smoothstep(0.08, 0.18, outfit_sat))
+                    * smoothstep(0.10, 0.22, outfit_lum);
+                outfit_metal = metal_det * 0.65;
+                r_out = mix(r_out, mix(0.46, 0.24, m), outfit_metal);
+                cav_occ = mix(0.45, 1.0, m) * saturate(1.0 - 1.4 * outfit_tilt);
+                cloth_sheen = 0.0;
+                @if(VERTEX_UVS_A) {
+                    let leather_bump = micro_uv_bump(outfit_uv, 220.0, detail_dp_dx, detail_dp_dy, detail_duv_dx, detail_duv_dy, pbr_input.N);
+                    pbr_input.N = normalize(pbr_input.N + leather_bump.xyz * (0.075 * detail_fade * (1.0 - outfit_metal)));
+                    r_out = clamp(r_out + (leather_bump.w - 0.5) * 0.14 * detail_fade, 0.16, 0.96);
+                }
+            } else if outfit_class < 2.5 {
+                // Cloth / Vault suits / coats / shirts: woven twill detail + Charlie fuzz,
+                // metallic only if the shape actually carries an FNV env mask.
+                let m = smoothstep(0.06, 0.75, outfit_mask);
+                m_ao = m;
+                r_out = mix(0.94, 0.70, m);
+                f0_out = mix(0.024, 0.038, m);
+                @if(!NIF_SURFACE_BLEND && VERTEX_UVS_A) {
+                    if surface.env.y > 0.5 && surface.env.y < 1.5 {
+                        outfit_metal = smoothstep(0.30, 0.75, outfit_env_m) * 0.70;
+                        r_out = mix(r_out, mix(0.44, 0.28, m), outfit_metal);
+                    }
+                }
+                cav_occ = mix(0.55, 1.0, m) * saturate(1.0 - 1.1 * outfit_tilt);
+                cloth_sheen = (0.48 * (1.0 - 0.65 * m)) * (1.0 - outfit_metal);
+                @if(VERTEX_UVS_A) {
+                    let weave_p = outfit_uv * 280.0 * 6.2831853;
+                    let w_u = sin(weave_p.x);
+                    let w_v = sin(weave_p.y);
+                    let dp2perp = cross(detail_dp_dy, pbr_input.N);
+                    let dp1perp = cross(pbr_input.N, detail_dp_dx);
+                    let det = dot(detail_dp_dx, dp2perp);
+                    if abs(det) >= 1e-12 {
+                        let gu = (dp2perp * detail_duv_dx.x + dp1perp * detail_duv_dy.x) / det;
+                        let gv = (dp2perp * detail_duv_dx.y + dp1perp * detail_duv_dy.y) / det;
+                        let weave_dir = gu * cos(weave_p.x) + gv * cos(weave_p.y);
+                        pbr_input.N = normalize(pbr_input.N - weave_dir * (0.045 * detail_fade * (1.0 - outfit_metal)));
+                    }
+                    r_out = clamp(r_out + (w_u * w_v) * 0.05 * detail_fade, 0.20, 0.98);
+                }
+            } else {
+                // Metal / env-masked armor (Power Armor, Combat Armor, Metal Armor, Riot Gear).
+                var has_env_mask = false;
+                var env_m = outfit_mask;
+                @if(!NIF_SURFACE_BLEND && VERTEX_UVS_A) {
+                    has_env_mask = surface.env.y > 0.5 && surface.env.y < 1.5;
+                    if has_env_mask {
+                        env_m = outfit_env_m;
+                    }
+                }
+                let metal_mask = select(smoothstep(0.25, 0.72, outfit_mask), smoothstep(0.12, 0.70, env_m), has_env_mask);
+                m_ao = metal_mask;
+                outfit_metal = metal_mask * 0.85;
+                r_out = mix(0.76, 0.28, metal_mask);
+                f0_out = 0.04;
+                cav_occ = mix(0.50, 1.0, metal_mask) * saturate(1.0 - 1.3 * outfit_tilt);
+                cloth_sheen = 0.14 * (1.0 - metal_mask);
+                pbr_input.material.base_color = vec4(mix(outfit_rgb, max(outfit_rgb, vec3(0.14)), outfit_metal * 0.65), pbr_input.material.base_color.a);
+                @if(VERTEX_UVS_A) {
+                    let scratch = skin_value_noise(outfit_uv * vec2(320.0, 48.0)) - 0.5;
+                    let edge_burnish = smoothstep(0.05, 0.25, outfit_tilt) * metal_mask;
+                    r_out = clamp(r_out + scratch * 0.12 * detail_fade - edge_burnish * 0.06, 0.18, 0.95);
+                }
+            }
+            let a_aa = r_out * r_out;
+            let a_filtered = sqrt(clamp(a_aa * a_aa + clamp(0.25 * outfit_n_var, 0.0, 0.18), 0.002, 1.0));
+            pbr_input.material.perceptual_roughness = clamp(sqrt(a_filtered), 0.08, 0.98);
+            pbr_input.material.reflectance = vec3(sqrt(f0_out / 0.16));
+            pbr_input.material.metallic = outfit_metal;
+            pbr_input.specular_occlusion = pbr_input.specular_occlusion * cav_occ;
+            let fold_ao = mix(0.76, 1.0, saturate(1.0 - 1.25 * outfit_tilt)) * mix(0.90, 1.0, m_ao);
+            pbr_input.diffuse_occlusion = pbr_input.diffuse_occlusion * fold_ao;
+            pbr_input.material.thickness = cloth_sheen;
+        }
+    }
     // NVF_PBR_PARALLAX_MASK (nvf-assets authored.rs `parallax_mask`, a development switch, off
     // unless NVF_PBR_PARALLAX_MASK=1 at the start): an alpha-tested shape may carry a height
     // map. Its alpha (material x vertex x texel) is read again at the unshifted coordinates,
@@ -706,13 +1174,28 @@ fn nif_fragment(
         // base_color is material colour × vertex colour × texel: the texel is read again
         // as pbr_input_from_standard_material reads it, and its tinted value takes its
         // place in that product.
+        // At vin.uv, the coordinates the base colour was read at (an eye's are shifted).
         let standard = standard_material(in.instance_index);
-        let uv = (standard.uv_transform * vec3(in.uv, 1.0)).xy;
+        let uv = (standard.uv_transform * vec3(vin.uv, 1.0)).xy;
         let texel = base_color_texel(in.instance_index, uv, view.mip_bias).rgb;
         var factor = standard.base_color.rgb;
         @if(FACEGEN_TINT && VERTEX_UVS_A && VERTEX_COLORS) factor *= vin.color.rgb;
         let tinted = facegen_tint(texel, facegen_offset_at(in.instance_index, uv));
         pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb + factor * (tinted - texel), pbr_input.material.base_color.a);
+    }
+    // Procedural dermal vascularity & chromophore variation on body skin (breaking up flat
+    // neck/torso/limb peaches without altering calibrated head textures).
+    @if(NVF_SKIN_SSS && VERTEX_UVS_A && !PREPASS_PIPELINE) {
+        if surface.terrain.w > 0.5 {
+            let v_hb = (skin_value_noise(in.uv * 18.0) - 0.5) * 0.08;
+            let v_mel = (skin_value_noise(in.uv * 52.0 + vec2(11.3, 7.1)) - 0.5) * 0.06;
+            let chromo = vec3(
+                1.0 + v_hb + 0.4 * v_mel,
+                1.0 - 0.5 * v_hb + 0.15 * v_mel,
+                1.0 - 0.7 * v_hb - 0.5 * v_mel,
+            );
+            pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb * chromo, pbr_input.material.base_color.a);
+        }
     }
     @if(PIPBOY_SCREEN && VERTEX_UVS_A) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
         // NifSurface::pipboy_screen: base_color is material colour x vertex colour x texel;
@@ -834,6 +1317,33 @@ fn nif_fragment(
         let reflect_weight = select(0.0, reflect_share * pbr_input.diffuse_occlusion.x, surface.emissive_rule.w > 0.5 && nvf_view_has_cube());
         pbr_input.specular_occlusion = pbr_input.specular_occlusion * reflect_weight;
     }
+    // An eye: the socket hides most of the sky from its cornea (eye_sky_share); the lids and
+    // socket shade it (eye_socket_occlusion), its light and its sky reflection alike; the
+    // iris ends in its limbal ring. Here, after the FaceGen tint, on the final colour.
+    @if(NVF_EYE && !PREPASS_PIPELINE) pbr_input.specular_occlusion = pbr_input.specular_occlusion * eye_sky_share(in.instance_index, normalize(in.world_normal), normalize(view.world_position - in.world_position.xyz));
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) let eye_socket = eye_socket_occlusion(in.uv);
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.specular_occlusion = pbr_input.specular_occlusion * eye_socket;
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) {
+        let eye_wn = normalize(in.world_normal);
+        pbr_input.N = eye_iris_normal(in.instance_index, vin.uv, eye_wn);
+        let eye_r = distance(vin.uv, EYE_IRIS_CENTRE) / EYE_IRIS_RADIUS;
+        let eye_iris_mask = 1.0 - smoothstep(0.85, 1.05, eye_r);
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.85, eye_iris_mask);
+    }
+    @if(NVF_EYE && STANDARD_MATERIAL_CLEARCOAT && VERTEX_UVS_A && !PREPASS_PIPELINE) {
+        let eye_cc_r = distance(vin.uv, EYE_IRIS_CENTRE) / EYE_IRIS_RADIUS;
+        let eye_sclera_t = smoothstep(0.95, 1.35, eye_cc_r);
+        pbr_input.material.clearcoat = mix(0.65, 0.28, eye_sclera_t);
+        pbr_input.material.clearcoat_perceptual_roughness = mix(0.06, 0.18, eye_sclera_t);
+    }
+    // The socket's shade warms toward the lids' and the tear duct's rose (red least
+    // darkened, blue most) [hypothesis: skin research notes 2026-11-26 §1.6].
+    @if(NVF_EYE && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb * eye_limbus(vin.uv) * pow(vec3(eye_socket), vec3(0.65, 0.92, 1.10)), pbr_input.material.base_color.a);
+    @if(NVF_EYE && !PREPASS_PIPELINE) pbr_input.diffuse_occlusion = pbr_input.diffuse_occlusion * EYE_SKY_DIFFUSE;
+    // A hair-shader shape: the strand tangent for the strand BSDF (nvforever sss.wesl
+    // NVF_HAIR), in anisotropy_T, which Bevy reads only under its anisotropy, not set here.
+    @if(NVF_HAIR && !PREPASS_PIPELINE) pbr_input.anisotropy_T = vec3(0.0);
+    @if(NVF_HAIR && VERTEX_UVS_A && !PREPASS_PIPELINE) pbr_input.anisotropy_T = hair_strand(in.instance_index, hair_uv, hair_dp_dx, hair_dp_dy, hair_duv_dx, hair_duv_dy, pbr_input.N);
     // base_color already holds texture × vertex colour × material colour.
     // Bevy's pbr_input_from_standard_material fills the emissive light in only for lit
     // materials, so an unlit shape's stays black: it is read from the material here
@@ -979,6 +1489,9 @@ fn nif_fragment(
                 let ndotv = max(dot(pbr_input.N, pbr_input.V), 0.0001);
                 let fresnel_w = select(0.35 + 0.65 * pow(1.0 - ndotv, 3.0), 0.08 + 0.92 * pow(1.0 - ndotv, 4.0), surface.env.y < 0.5);
                 reflection *= recv * fresnel_w;
+            }
+            @if(NVF_OUTFIT && NVF_PHYSICAL_PBR) if surface.emissive_rule.w < 0.5 && surface.terrain.z >= 2.5 {
+                reflection *= 0.25;
             }
             out.color = vec4(out.color.rgb + reflection, out.color.a);
         }
