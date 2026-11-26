@@ -862,7 +862,7 @@ fn typing(
             "poker" => match crate::poker::Casino::from_letter(rest) {
                 Some(casino) => {
                     c.print(format!("Opening the poker table at {}", casino.title()));
-                    poker.write(crate::poker::OpenPoker { casino });
+                    poker.write(crate::poker::OpenPoker { casino, table: None });
                     close(&mut c, &mut next, &mut commands, &roots);
                     return;
                 }
