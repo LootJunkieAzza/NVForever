@@ -1165,6 +1165,15 @@ impl PhysWorld {
     /// whoever asks).
     pub fn update_queries_for(&mut self, by: QueryConsumer) {
         if self.dirty {
+            // Character controllers (`solid_for`) unconditionally ignore `Owner::Actor` hit
+            // volumes (`combat.md §5.2`), so a HitVolume-only dirty mark does not affect
+            // player or NPC movement queries; keep `dirty` set so `Cast` and `Step` still
+            // flush the updated hit volumes [design].
+            if matches!(by, QueryConsumer::Controller | QueryConsumer::Npc)
+                && self.dirty_by == (1 << DirtyBy::HitVolume as u8)
+            {
+                return;
+            }
             // Only when there is work: this is called before every query.
             let _span = tracing::info_span!("phys::query_refresh").entered();
             self.count_refresh(by);

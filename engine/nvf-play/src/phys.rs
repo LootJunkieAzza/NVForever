@@ -1794,6 +1794,7 @@ impl PhysState {
         ch.ignore_layers = fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes());
         // A stuck actor's move is not swept again every step (`fnv_phys` `Held`, issue #1797).
         ch.hold_when_stuck = true;
+        ch.hold_when_idle_static = true;
         let standing_height = ch.params.height;
         let mut b = NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false };
         b.sink = drawn_sink(&b.ch, self.drawn_ground(&b.ch));
@@ -2010,7 +2011,11 @@ impl PhysState {
         let at = hit.as_ref().map_or(feet, |h| [feet[0], feet[1], h.point[2] + params.rest_gap(h.shell)]);
         match self.player.as_mut() {
             Some(c) => self.world.place_character(c, at),
-            None => self.player = Some(self.world.add_character(0, CharacterParams::default(), at)),
+            None => {
+                let mut ch = self.world.add_character(0, CharacterParams::default(), at);
+                ch.hold_when_stuck_same_input = true;
+                self.player = Some(ch);
+            }
         }
         self.stands_placed(hit.is_some());
         self.prev_feet = at;
@@ -2042,7 +2047,11 @@ impl PhysState {
         let a = self.world.arrival(feet, &params, &filter);
         match self.player.as_mut() {
             Some(c) => self.world.place_character(c, a.feet),
-            None => self.player = Some(self.world.add_character(0, params, a.feet)),
+            None => {
+                let mut ch = self.world.add_character(0, params, a.feet);
+                ch.hold_when_stuck_same_input = true;
+                self.player = Some(ch);
+            }
         }
         self.stands_placed(a.support.is_some());
         self.prev_feet = a.feet;
