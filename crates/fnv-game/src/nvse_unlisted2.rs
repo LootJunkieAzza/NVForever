@@ -35,6 +35,8 @@ pub struct Unlisted2State {
     /// SetRaceVoice / SetRaceAgeRace for the session: (race, voice, second) -> form.
     pub race_sets: std::collections::BTreeMap<(FormId, bool, bool), FormId>,
     /// ToggleHitEffects: true when hit effects have been switched off (default false = enabled/1).
+    /// Currently tracks script-visible toggle state/return value only; renderer visual hit-effect
+    /// suppression is not yet wired [design].
     pub hit_effects_disabled: bool,
 }
 
