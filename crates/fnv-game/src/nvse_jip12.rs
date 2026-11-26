@@ -815,10 +815,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // original and gives -439019037 [observed: jip12 hash], no common 32-bit string
         // hash we tried (FNV-1/1a, djb2, sdbm, ×31, ×131, CRC-32, Adler-32) on the text as written, lower or upper case.
         "getstringhash" => zero,
-        // Created references (FF) only [documented]; the toggle's state, or the state
-        // without an argument.
+        // Created references (FF) only [documented]; returns the previous toggle state
+        // before applying any supplied argument [observed: `w6d2_23_world_state_internal_marker_and_light`].
         "togglepurgeonunload" => {
             let Some(r) = subject.filter(|r| r.is_dynamic()) else { return Some(Ok(zero)) };
+            let was = g.other.jip12.purge.contains(&r);
             if let Some(t) = num(args, 0) {
                 if t != 0.0 {
                     g.other.jip12.purge.insert(r);
@@ -826,16 +827,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     g.other.jip12.purge.remove(&r);
                 }
             }
-            yes(g.other.jip12.purge.contains(&r))
+            yes(was)
         }
-        // The form's marker state, changed when a toggle is given [documented]; the
+        // The form's marker state: 1-arg returns current state, 2-arg updates the state
+        // and returns 0 [documented; observed: `w6d2p4_53_micro_precision_bounds`]; the
         // engine draws the change for references placed from then on (`nvforever::world`).
         "setinternalmarker" => {
             let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
             if let Some(t) = num(args, 1) {
                 g.other.jip12.internal.insert(f, t != 0.0);
+                zero
+            } else {
+                yes(g.internal_marker(f))
             }
-            yes(g.internal_marker(f))
         }
         // ---- the barter menu ----
         "getbartergoldalt" => XVal::Num(g.other.jip12.barter.as_ref().map_or(0.0, |b| f64::from(b.merchant_caps))),

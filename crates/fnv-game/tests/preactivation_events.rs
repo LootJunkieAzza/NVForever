@@ -417,6 +417,110 @@ fn scripted_activate_dispatches_showoff_on_pre_scripted_activate_with_flag_and_v
 }
 
 #[test]
+fn scripted_activate_runs_pre_scripted_before_on_activate_and_on_pre_destroyed() {
+    // 1. Unvetoed scripted Activate runs ShowOff:OnPreScriptedActivate BEFORE OnActivate,
+    // and OnActivate receives GetSelfAlt == 0.
+    let f = fixture(true);
+    let mut g = game(&f);
+    query(
+        &mut g,
+        r#"SetEventHandlerAlt "ShowOff:OnPreScriptedActivate" (Begin Function {ref actor, int blockFlag, int allowed}
+SetModLocalData "ord.seq" ((GetModLocalData "ord.seq") * 10 + 1)
+End)
+SetEventHandler "OnActivate" (Begin Function {ref obj, ref actor}
+SetModLocalData "ord.seq" ((GetModLocalData "ord.seq") * 10 + 2)
+if eval (GetSelfAlt == 0)
+SetModLocalData "ord.self_zero" 1
+endif
+End)"#,
+    );
+    let trader = target(&mut g, "owned.trader");
+    g.activate(FormId::PLAYER_REF, trader, ActMode::Block).unwrap();
+    assert_eq!(num(&mut g, "ord.seq"), 12.0, "PreScriptedActivate (1) must run before OnActivate (2)");
+    assert_eq!(num(&mut g, "ord.self_zero"), 1.0, "OnActivate must have GetSelfAlt == 0");
+    no_errors(&g);
+
+    // 2. Vetoing ShowOff:OnPreScriptedActivate suppresses OnActivate completely.
+    let f2 = fixture(true);
+    let mut g2 = game(&f2);
+    query(
+        &mut g2,
+        r#"SetEventHandlerAlt "ShowOff:OnPreScriptedActivate" (Begin Function {ref actor, int blockFlag, int allowed}
+SetModLocalData "ord.pre" 1
+SetFunctionValue 0
+End)
+SetEventHandler "OnActivate" (Begin Function {ref obj, ref actor}
+SetModLocalData "ord.act" 1
+End)"#,
+    );
+    let trader2 = target(&mut g2, "owned.trader");
+    let res = g2.activate(FormId::PLAYER_REF, trader2, ActMode::Block).unwrap();
+    assert_eq!(res["result"], "prevented");
+    assert_eq!(num(&mut g2, "ord.pre"), 1.0);
+    assert_eq!(num(&mut g2, "ord.act"), 0.0, "veto must skip OnActivate");
+    no_errors(&g2);
+
+    // 3. A pre-destroyed door (DOOR with SetDestroyed 1) still dispatches
+    // ShowOff:OnPreScriptedActivate on scripted Activate (ActMode::Default and ActMode::Block),
+    // returning "destroyed" when unvetoed and "prevented" when vetoed.
+    let mut bytes = tes4();
+    bytes.extend(top(
+        b"NPC_",
+        &record(b"NPC_", 0, 7, &[sub(b"EDID", z("Player"))]),
+    ));
+    bytes.extend(top(
+        b"DOOR",
+        &record(
+            b"DOOR",
+            0,
+            0x910,
+            &[sub(b"EDID", z("OwnedDoor")), sub(b"FULL", z("Test Door"))],
+        ),
+    ));
+    let plugins = vec![Plugin::parse(&bytes, "OwnedPreDestroyed.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+    let schema = Schema::load_dir(root.join("fnv")).unwrap();
+    let path = root.join("script/functions.json");
+    let json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, FunctionTable::load(&path).unwrap(), &json, &refs);
+    let mut g3 = Game::new(
+        &data,
+        World::new(&forms, &refs, Default::default()),
+        GameConfig {
+            strict: true,
+            ..Default::default()
+        },
+    );
+    query(
+        &mut g3,
+        r#"SetModLocalData "dest.door" (player.PlaceAtMe OwnedDoor)
+let ownRef := GetModLocalData "dest.door"
+ownRef.SetDestroyed 1
+SetEventHandlerAlt "ShowOff:OnPreScriptedActivate" (Begin Function {ref actor, int blockFlag, int allowed}
+SetModLocalData "dest.calls" ((GetModLocalData "dest.calls") + 1)
+if eval (GetModLocalData "dest.veto")
+SetFunctionValue 0
+endif
+End) 0::ownRef"#,
+    );
+    let door = target(&mut g3, "dest.door");
+    let r_def = g3.activate(FormId::PLAYER_REF, door, ActMode::Default).unwrap();
+    assert_eq!(r_def["result"], "destroyed");
+    assert_eq!(num(&mut g3, "dest.calls"), 1.0);
+    let r_blk = g3.activate(FormId::PLAYER_REF, door, ActMode::Block).unwrap();
+    assert_eq!(r_blk["result"], "destroyed");
+    assert_eq!(num(&mut g3, "dest.calls"), 2.0);
+    query(&mut g3, "SetModLocalData \"dest.veto\" 1");
+    let r_veto = g3.activate(FormId::PLAYER_REF, door, ActMode::Default).unwrap();
+    assert_eq!(r_veto["result"], "prevented");
+    assert_eq!(num(&mut g3, "dest.calls"), 3.0);
+    no_errors(&g3);
+}
+
+#[test]
 fn inventory_item_preactivation_dispatches_base_and_alt_with_veto_and_script_equip_cancel() {
     let mut bytes = tes4();
     bytes.extend(top(
@@ -573,7 +677,11 @@ fn pov_change_dispatches_showoff_on_pov_change_only_on_transitions() {
 SetModLocalData "pov.calls" ((GetModLocalData "pov.calls") + 1)
 SetModLocalData "pov.last" iPOV
 SetModLocalData "pov.getter" IsPC1stPerson
+SetModLocalData "pov.self_is_player" (GetSelfAlt == PlayerREF)
 End)
+SetEventHandlerAlt "ShowOff:OnPOVChange" (Begin Function {int iPOV}
+SetModLocalData "pov.player_only" ((GetModLocalData "pov.player_only") + 1)
+End) 0::Player
 SetEventHandlerAlt "ShowOff:OnPOVChange" (Begin Function {int iPOV}
 SetModLocalData "pov.third_only" ((GetModLocalData "pov.third_only") + 1)
 End) 1::0
@@ -586,11 +694,15 @@ End) 1::1"#,
     g.set_first_person(true);
     assert_eq!(num(&mut g, "pov.calls"), 0.0);
 
-    // First -> Third fires once with 0, and IsPC1stPerson already reads 0.
+    // First -> Third fires once with arg=0, calling ref Player (0::Player),
+    // IsPC1stPerson == 1 inside callback and 0 after [observed 2026-11-24: w6t2p2_03].
     g.set_first_person(false);
     assert_eq!(num(&mut g, "pov.calls"), 1.0);
     assert_eq!(num(&mut g, "pov.last"), 0.0);
-    assert_eq!(num(&mut g, "pov.getter"), 0.0);
+    assert_eq!(num(&mut g, "pov.getter"), 1.0);
+    assert_eq!(num(&mut g, "pov.self_is_player"), 1.0);
+    assert_eq!(num(&mut g, "pov.player_only"), 1.0);
+    assert_eq!(query(&mut g, "SetFunctionValue IsPC1stPerson"), XVal::Num(0.0));
     assert_eq!(num(&mut g, "pov.third_only"), 1.0);
     assert_eq!(num(&mut g, "pov.first_only"), 0.0);
 
@@ -600,11 +712,14 @@ End) 1::1"#,
     }
     assert_eq!(num(&mut g, "pov.calls"), 1.0);
 
-    // Third -> First fires once with 1, and IsPC1stPerson already reads 1.
+    // Third -> First fires once with arg=1, calling ref Player, and IsPC1stPerson == 1 inside and after.
     g.set_first_person(true);
     assert_eq!(num(&mut g, "pov.calls"), 2.0);
     assert_eq!(num(&mut g, "pov.last"), 1.0);
     assert_eq!(num(&mut g, "pov.getter"), 1.0);
+    assert_eq!(num(&mut g, "pov.self_is_player"), 1.0);
+    assert_eq!(num(&mut g, "pov.player_only"), 2.0);
+    assert_eq!(query(&mut g, "SetFunctionValue IsPC1stPerson"), XVal::Num(1.0));
     assert_eq!(num(&mut g, "pov.third_only"), 1.0);
     assert_eq!(num(&mut g, "pov.first_only"), 1.0);
     no_errors(&g);

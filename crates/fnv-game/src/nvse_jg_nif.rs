@@ -183,11 +183,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             crate::nif_blocks::node_world(g, r, &text(args, 0)).map_or(zero, |p| XVal::Num(dist(p, hit)))
         }
         // `[block] [pc]`: the bounding sphere in the world, [x, y, z, radius]; the
-        // reference's root without a block [documented]. A missing block name returns a
-        // 4-element array with radius 0.0 [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
-        // 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
-        // 10 official base masters, `w4c_b3_11b_jgnif_nodes_bounds`: `bndRoot=4(r=72.1),bndMiss=4(r=0.0)`;
-        // hypothesis: center elements are `[0.0, 0.0, 0.0]`, and empty array before 3D tree].
+        // reference's root without a block [documented]. A missing block name returns the
+        // exact 4-element zero bound `[0.0, 0.0, 0.0, 0.0]` [observed: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), 10 official base masters, `w4c_b3_11b_jgnif_nodes_bounds`
+        // (`bndRoot=4(r=72.1),bndMiss=4(r=0.0)`) and
+        // `w6t2_23_jg_dds_texture_format_and_bounds`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `bndMiss(sz=4,0.0,0.0,0.0,0.0)`; hypothesis: empty array before 3D tree].
         "getnibound" => {
             let Some(r) = on else { return Some(Ok(XVal::Array(0))) };
             let block = text(args, 0);
@@ -274,15 +277,39 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `slot`: the anim group playing in that sequence slot, 0 idle … 7 special idle
         // [documented]. Slot 0 holds Idle on a standing actor [observed: jgnif.sequences,
-        // 0 on the player]; the body's other movement groups fill slot 1 (movement). The
-        // other slots -1 [observed: slot 4 standing], as an unknown group [hypothesis: the
-        // engine tells the movement group alone, and an actor it told nothing of stands].
+        // 0 on the player]; the body's other movement groups fill slot 1 (movement). Slot 4
+        // (weapon/hand actions) holds 24 (Equip) when a weapon is drawn or equipping, and
+        // 200 (`JamA`, + `DNAM/reload_animation` [hypothesis]) during `AnimAction::Jam`
+        // [observed 2026-11-24: `w6t2_14_jip_on_reload_and_seq_anim_group`:
+        // `s0=0,s4(pre=24,t0=200,t1=200,cb=200)`]; standing holstered returns -1
+        // [observed: jgnif.sequences].
         "getsequenceanimgroup" => {
             let Some(r) = on else { return Some(Ok(XVal::Num(-1.0))) };
             let slot = num(args, 0, -1.0) as i64;
-            let group = g.senses.anim.get(&r).and_then(|s| s.group).unwrap_or("Idle");
-            let idle = group.eq_ignore_ascii_case("Idle");
-            let code = ((slot == 0 && idle) || (slot == 1 && !idle)).then_some(group).and_then(|gr| group_code_of(g, gr));
+            let code = if slot == 4 {
+                let action = g.senses.anim.get(&r).and_then(|s| s.action);
+                match action {
+                    Some(crate::anim_state::AnimAction::Jam) => {
+                        let w = crate::functions::items::equipped_weapon(g, r)
+                            .or_else(|| g.extra.get(&r).and_then(|e| e.held_weapon));
+                        let off = w
+                            .and_then(|w| crate::nvse::record_value(g, w, "DNAM", "reload_animation"))
+                            .and_then(|v| v.num().ok())
+                            .filter(|n| n.is_finite() && (0.0..=22.0).contains(n))
+                            .map_or(0u16, |n| n.trunc() as u16);
+                        Some(200 + off)
+                    }
+                    Some(crate::anim_state::AnimAction::Equip) => Some(24),
+                    Some(crate::anim_state::AnimAction::Unequip) => Some(25),
+                    Some(crate::anim_state::AnimAction::Stagger) => Some(223),
+                    None if g.extra.get(&r).is_some_and(|e| e.weapon_out) => Some(24),
+                    _ => None,
+                }
+            } else {
+                let group = g.senses.anim.get(&r).and_then(|s| s.group).unwrap_or("Idle");
+                let idle = group.eq_ignore_ascii_case("Idle");
+                ((slot == 0 && idle) || (slot == 1 && !idle)).then_some(group).and_then(|gr| group_code_of(g, gr))
+            };
             XVal::Num(code.map_or(-1.0, f64::from))
         }
         // The engine updates every drawn node each frame, so there is nothing to bring up

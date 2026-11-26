@@ -332,8 +332,10 @@ mod shared_table_tests {
     /// Quick Loot rows; #2965's heat haze row; #2675's desert haze row; Sprint; #2671's terrain
     /// shadows row; #2981's authored materials row and its reflections row; #2701's
     /// full-detail scenery row; #3014's distant objects row; #2993's aerial perspective row;
-    /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row; #2991's volumetric clouds row; #3783's occlusion culling row; #3032's volumetric light row and its
-    /// strength; the physical lighting and screen-space bounce light rows), by the group it registers with.
+    /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row;
+    /// #2991's volumetric clouds row; #3348's HDR output row; #3783's occlusion culling row;
+    /// #3032's volumetric light row and its strength; #3843's localized armor DT/DR row; the
+    /// physical lighting and screen-space bounce light rows), by the group it registers with.
     pub(super) const KNOWN: &[(&str, &str)] = &[
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
@@ -345,9 +347,11 @@ mod shared_table_tests {
         ("sprint", "Gameplay"),
         ("animation-smoothing", "Gameplay"),
         ("sound-cover", "Gameplay"),
+        ("npc-weapon-mods", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
         ("reload-slows", "Gameplay"),
+        ("localized-dt-dr", "Gameplay"),
         ("grass-fire", "Gameplay"),
         ("quick-loot", "Gameplay"),
         ("quick-loot-scale", "Gameplay"),
@@ -494,6 +498,7 @@ mod shared_table_tests {
         ("terrain-wireframe", "Debug"),
         ("send-reports", "Reports"),
         ("reports-delete", "Reports"),
+        ("coop", "Gameplay"),
     ];
 
     /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).
@@ -606,7 +611,7 @@ mod shared_table_tests {
         place-marker-here-says repeat-activate-takes-only hi-res-npc-weapons empty-reload-swaps-ammo keep-chosen-ammo \
         objectives-on-arrival objectives-gap sleep-in-owned-beds power-armor-no-training \
         sleep-misc-stat-requires-duration revive-on-cell-change no-self-explosion-non-hostiles grabbing-is-theft-min-value \
-        sneak-run-ap-cost sneak-run-ap-endurance no-lock-encounter-zone-levels faster-sleep-wait";
+        sneak-run-ap-cost sneak-run-ap-endurance no-lock-encounter-zone-levels faster-sleep-wait wasd-as-arrow-keys crafted-item-health-pct";
 
     /// [`TWEAK_ROWS`] as keys, under the Tweaks tab's group.
     pub(super) fn tweak_rows() -> Vec<(&'static str, &'static str)> {
@@ -725,7 +730,7 @@ mod shared_table_tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..14], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..15], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
         assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
         assert_eq!(
@@ -752,14 +757,15 @@ mod shared_table_tests {
         assert_eq!(at("terrain-shadows"), "Graphics > Shadows", "after Cloud shadows (#2671)");
         assert_eq!(at("light-shadows"), "Graphics > Shadows", "after Terrain shadows (light_shadows.rs)");
         assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
+        assert_eq!(at("localized-dt-dr"), "Gameplay > Combat", "#3843");
+        assert_eq!(at("npc-weapon-mods"), "Gameplay > Game", "#3876");
         assert_eq!(at("volumetric-light"), "Graphics > Lighting and Effects", "with the other experimental effects (#3032)");
         assert_eq!(at("volumetric-light-strength"), "Graphics > Lighting and Effects", "right after its switch");
-        // The strength is greyed while its switch is off, and every volumetric row while
-        // Physical lighting is on (the two do not work together yet).
-        let not_physical = Rule { parent: "physical-pbr", choices: &["Off"], why: "Not with Physical Lighting." };
-        assert_eq!(needs("volumetric-light-strength"), vec![Rule { parent: "volumetric-light", choices: &[], why: "Needs Volumetric Light." }, not_physical]);
-        assert_eq!(needs("volumetric-light"), vec![not_physical]);
-        assert_eq!(needs("volumetric-clouds"), vec![not_physical]);
+        // The strength is greyed while its switch is off; the volumetric rows run under
+        // Physical lighting too (graphics-enhanced.md §3.25).
+        assert_eq!(needs("volumetric-light-strength"), vec![Rule { parent: "volumetric-light", choices: &[], why: "Needs Volumetric Light." }]);
+        assert_eq!(needs("volumetric-light"), vec![]);
+        assert_eq!(needs("volumetric-clouds"), vec![]);
         // Sun shafts have no shared rule: whether Volumetric light replaces them depends on its
         // strength (nvforever settings.rs `shafts_status`, the game's page alone).
         assert_eq!(needs("light-shafts"), vec![]);
@@ -779,7 +785,7 @@ mod shared_table_tests {
         let l = resolve_layout(&list);
         let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
         let g = lines(&list, &l, "Gameplay", closed);
-        assert_eq!(g[..13], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
+        assert_eq!(g[..14], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
         let p = l.placement_of(list.iter().position(|s| s.key == "vats-style").unwrap()).unwrap();
         assert_eq!(l.shown_count(&p, |_| true), 3);
         assert_eq!(l.shown_count(&p, |i| i != LayoutItem::Setting(list.iter().position(|s| s.key == "vats-slowdown").unwrap())), 2);
@@ -1098,7 +1104,7 @@ mod android_profile_tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..14], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..15], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
         assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
         assert_eq!(
@@ -1129,7 +1135,7 @@ mod android_profile_tests {
         let l = resolve_layout(&list);
         let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
         let g = lines(&list, &l, "Gameplay", closed);
-        assert_eq!(g[..13], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
+        assert_eq!(g[..14], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
         let p = l.placement_of(list.iter().position(|s| s.key == "vats-style").unwrap()).unwrap();
         assert_eq!(l.shown_count(&p, |_| true), 3);
         assert_eq!(l.shown_count(&p, |i| i != LayoutItem::Setting(list.iter().position(|s| s.key == "vats-slowdown").unwrap())), 2);

@@ -91,6 +91,7 @@ import bevy_pbr::{
 @if(!PREPASS_PIPELINE && DEPTH_PREPASS) import bevy_pbr::prepass::utils as prepass_utils;
 @if(!PREPASS_PIPELINE) import bevy_pbr::render::mesh_functions::get_world_from_local;
 @if(!PREPASS_PIPELINE) import nvf_assets::first_person_depth;
+@if(!PREPASS_PIPELINE) import nvf_assets::tone_input::tony_inverse_each;
 @if(!PREPASS_PIPELINE && SHADE_LIGHT) import bevy_pbr::{
     render::pbr_types::PbrInput,
     render::mesh_types::{MESH_FLAGS_SHADOW_RECEIVER_BIT, NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT},
@@ -102,6 +103,9 @@ import bevy_pbr::{
 // while the view has the plumbing (the shader def then exists: bevy_pbr mesh.rs).
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
+// The probe volume's bounce light (nvforever rtgi_volume.rs), only in the pipelines that read
+// it (nif_material.rs `reads_rtgi_volume`).
+@if(!PREPASS_PIPELINE && NVF_RTGI_VOLUME) import nvforever::rtgi_volume::nvf_rtgi_face;
 
 import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
 @if(NVF_PBR_VIEW_OCCLUSION && !PREPASS_PIPELINE) import nvf_assets::nif_surface_bindings::occlusion_texel;
@@ -312,19 +316,6 @@ fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
 // tonemapper it lands where clipping would put it. Lit surfaces without emitted light
 // keep the tonemapper [hypothesis from the original's frames of Dead Money's lantern].
 const HOT_MAX: f32 = 0.95;
-const TONY_N: u32 = 24u;
-var<private> TONY_IN: array<f32, 24> = array<f32, 24>(0.0, 0.005, 0.01, 0.02, 0.04, 0.07, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0, 5.0, 8.0, 16.0, 40.0, 100.0);
-var<private> TONY_OUT: array<f32, 24> = array<f32, 24>(0.0, 0.0056, 0.0113, 0.0222, 0.0437, 0.0723, 0.0999, 0.1470, 0.1812, 0.2542, 0.3140, 0.3663, 0.4125, 0.4910, 0.5457, 0.6172, 0.6867, 0.7454, 0.8070, 0.8796, 0.9216, 0.9473, 0.9771, 0.9875);
-
-fn tony_inverse(y: f32) -> f32 {
-    for (var i = 1u; i < TONY_N; i++) {
-        if y <= TONY_OUT[i] {
-            let t = (y - TONY_OUT[i - 1u]) / max(TONY_OUT[i] - TONY_OUT[i - 1u], 1e-6);
-            return mix(TONY_IN[i - 1u], TONY_IN[i], t);
-        }
-    }
-    return TONY_IN[TONY_N - 1u];
-}
 
 // `lit` plus the emitted light `e` as a hot source: held per channel, mapped through
 // the inverse response. Only light that goes past white is a hot source: blended in as
@@ -339,7 +330,7 @@ fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
     var out = lit + e;
     if hot_share > 0.0 {
         let d = min(lit + e, vec3(HOT_MAX));
-        let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
+        let hot = tony_inverse_each(d);
         out = mix(lit + e, hot, hot_share);
     }
     // HDR output (nvforever hdr.rs): the SDR picture up to white, and above white the light
@@ -611,6 +602,9 @@ fn nif_fragment(
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_wdy = dpdy(in.world_position.xyz);
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dx = vec2(terrain_wdx.x, -terrain_wdx.z);
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dy = vec2(terrain_wdy.x, -terrain_wdy.z);
+    // The probe volume's reads are moved off the surface along its geometric normal, taken
+    // here for the same reason.
+    @if(NVF_RTGI_VOLUME && !PREPASS_PIPELINE) nvf_rtgi_face(in.world_position.xyz);
     // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
     @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);

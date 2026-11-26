@@ -97,6 +97,7 @@ mod decals;
 mod dismember;
 mod distant_lights;
 mod knockouts;
+mod coop;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -117,6 +118,7 @@ mod hdr_calibrate;
 mod aerial;
 mod fly;
 mod foot_ik;
+mod upright;
 mod anti_lag;
 mod dlss;
 mod dlss_download;
@@ -139,6 +141,7 @@ mod light_shadow_casters;
 mod light_shadow_detail;
 mod light_shadows;
 mod lights;
+mod photo_lights;
 mod physical_ibl;
 mod limbs;
 mod lips;
@@ -197,6 +200,7 @@ mod talk_clips;
 mod readahead;
 mod reflection;
 mod reflection_sky;
+mod rtgi_volume;
 mod minimap_render;
 mod refraction;
 mod residents;
@@ -219,6 +223,7 @@ mod shadow_thin;
 mod shafts;
 mod heat_haze;
 mod sun_heightfield;
+mod bokeh;
 mod imagespace;
 mod imposters;
 mod sky;
@@ -2029,7 +2034,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     #[cfg(target_os = "android")]
     let default_plugins = default_plugins.disable::<bevy::gilrs::GilrsPlugin>();
     app.add_plugins(default_plugins)
-    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, keep_awake::KeepAwakePlugin, hdr::HdrPlugin))
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, keep_awake::KeepAwakePlugin, hdr::HdrPlugin, photo_lights::PhotoLightsPlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins(night_sky::NightSkyPlugin)
@@ -2045,6 +2050,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    // The bounce light volume's shader for the lighting (imported only under its def, which no view gives yet).
+    .add_plugins(rtgi_volume::RtgiVolumePlugin)
     // Shadows of placed lights, the ALC shadows row (off by default).
     .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))
     .add_plugins(light_shadow_detail::LightShadowDetailPlugin)
@@ -2334,6 +2341,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(turret_aim::TurretAimPlugin);
         // Also with --no-foot-ik: the settings page can switch it on.
         app.add_plugins(foot_ik::FootIkPlugin { enabled: !args.no_foot_ik });
+        app.add_plugins(upright::UprightPlugin);
         // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the
         // --npc-travel walkers' too, without --play.
         app.add_plugins(actor_jumps::ActorJumpsPlugin { physics: play.is_some() });
@@ -2356,6 +2364,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.insert_resource(inertia);
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
+            // Co-op: idle until a lobby is opened or joined.
+            app.add_plugins(coop::CoopPlugin(coop::Config { host: None, join: None, name: "Courier".to_string() }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
@@ -2809,11 +2819,6 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         // (this camera alone marches them, #2991).
         bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, sky::BODY_LAYER, decals::DECAL_LAYER, camera_overlay::OVERLAY_PRE_IS_LAYER, volumetric_clouds::VOLUME_LAYER]),
     )).id();
-    // Physical lighting tonemaps with AgX (lights.rs `physical_agx`; imagespace.wesl adds
-    // its Punchy look), graphics-enhanced.md §3.25.
-    if crate::lights::physical_agx() {
-        commands.entity(cam).insert(bevy::core_pipeline::tonemapping::Tonemapping::AgX);
-    }
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
     }

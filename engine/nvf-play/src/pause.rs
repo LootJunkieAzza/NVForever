@@ -442,17 +442,28 @@ pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, l
     }
 }
 
-/// Pause the virtual clock while the picture is held ([`picture_held`]), or while the
-/// console's free camera holds the world (`crate::free_cam`, mode 1), and let it run
-/// again after. Nothing else pauses it.
-fn freeze_picture(mode: Res<MenuPause>, paused: Res<Paused>, state: Res<State<PlayState>>, free_cam: Option<Res<crate::free_cam::FreeCam>>, mut clock: ResMut<Time<Virtual>>) {
-    let held_by_cam = free_cam.is_some_and(|f| f.holds_world());
+/// Pause the virtual clock while the picture is held ([`picture_held`]), while the
+/// console's free camera holds the world (`crate::free_cam`, mode 1), or while photo mode
+/// does (`crate::photo_mode`, which stands the picture still), and let it run again after.
+/// Nothing else pauses it.
+fn freeze_picture(
+    mode: Res<MenuPause>,
+    paused: Res<Paused>,
+    state: Res<State<PlayState>>,
+    free_cam: Option<Res<crate::free_cam::FreeCam>>,
+    photo: Option<Res<crate::photo_mode::PhotoMode>>,
+    mut clock: ResMut<Time<Virtual>>,
+) {
+    let held_by_photo = photo.is_some_and(|p| p.holds_world());
+    let held_by_cam = free_cam.is_some_and(|f| f.holds_world()) || held_by_photo;
     let stop = picture_held(*mode, paused.0, *state.get()) || held_by_cam;
     if clock.is_paused() != stop {
         let why = if paused.0 {
             "the pause menu"
         } else if *state.get() == PlayState::Loading {
             "a loading screen"
+        } else if held_by_photo {
+            "photo mode"
         } else if held_by_cam {
             "the free camera"
         } else {
@@ -860,6 +871,11 @@ enum Entry {
     Continue,
     Save,
     Load,
+    /// Back to the world in photo mode (`crate::photo_mode`), the way a controller opens it
+    /// [design].
+    Photo,
+    /// Co-op: the Co-op screen, `crate::lobby` (its switch and the lobby) [design].
+    Lobby,
     Settings,
     /// Where the original has Help, under the player's Replace Help With Console tweak: the
     /// game goes on and the console opens [design: docs/design/tweaks.md].
@@ -870,9 +886,15 @@ enum Entry {
 }
 
 /// The column's entries, with the Console entry when `console` (the tweak) and the Mods
-/// entry when `mods` ([`ModsEntry`]).
-fn entries(mods: bool, console: bool) -> Vec<Entry> {
-    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Settings];
+/// entry when `mods` ([`ModsEntry`]), and the Co-op entry only while the Co-op switch is on
+/// (`coop`, `crate::lobby::CoopSwitch`): a single-player game shows nothing of co-op here.
+fn entries(mods: bool, console: bool, coop: bool) -> Vec<Entry> {
+    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load];
+    if coop {
+        v.push(Entry::Lobby);
+    }
+    v.push(Entry::Photo);
+    v.push(Entry::Settings);
     if console {
         v.push(Entry::Console);
     }
@@ -889,6 +911,8 @@ impl Entry {
             Entry::Continue => "Continue",
             Entry::Save => "Save",
             Entry::Load => "Load",
+            Entry::Photo => "Photo Mode",
+            Entry::Lobby => "Co-op",
             Entry::Settings => "Settings",
             Entry::Console => CONSOLE_LABEL,
             Entry::Mods => MODS_LABEL,
@@ -904,11 +928,11 @@ impl Entry {
     }
 }
 
-/// The quit question and its choices [observed: the owner's screenshot of the original's
-/// quit question].
-const WARNING_TITLE: &str = "Warning";
-const WARNING: &str = "Any unsaved progress will be lost.";
-const QUESTION: &str = "Are you sure you want to quit?";
+/// The quit question and its choices [design: NVForever's own words, #2984; the title is
+/// the Quit entry's own word].
+const WARNING_TITLE: &str = "Quit";
+const WARNING: &str = "Progress since your last save will not be kept.";
+const QUESTION: &str = "Leave the game?";
 const CONFIRM: [&str; 3] = ["Main Menu", "Exit Game", "Cancel"];
 /// The keep question's answers [design].
 const KEEP_ANSWERS: [&str; 2] = ["Keep", "Revert"];
@@ -2152,7 +2176,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 Page::Main => {
                     if let Some(sel) = d.confirm {
                         // The question in two columns of three lines [design: owner 2026-11-15,
-                        // third test]: at the left "Warning" (bold), what is lost and the
+                        // third test]: at the left "Quit" (bold), what is lost and the
                         // question, ending left of the answers; at the right the answers, bold,
                         // each on the line of its left line; all at the titles' size.
                         let lines = [(&f.title, tr(WARNING_TITLE)), (&f.entry, tr(WARNING)), (&f.entry, tr(QUESTION))];
@@ -3220,6 +3244,7 @@ fn open(
     mut next: ResMut<NextState<PlayState>>,
     wheel: Option<Res<crate::weapon_wheel::WeaponWheel>>,
     (script, mut seen, mut request): (Option<Res<crate::script::ScriptState>>, Local<u64>, ResMut<PageRequest>),
+    photo: Option<Res<crate::photo_mode::PhotoMode>>,
 ) {
     let keys = keys.snapshot();
     let by_aid = fire(&mut aid.open, time.elapsed_secs());
@@ -3245,8 +3270,9 @@ fn open(
             _ => None,
         };
     }
-    // Esc closes the weapon wheel (`crate::weapon_wheel`), not the game.
-    if wheel.is_some_and(|w| w.holds_input()) && !by_aid && by_script.is_none() {
+    // Esc closes the weapon wheel (`crate::weapon_wheel`), not the game, and photo mode
+    // (`crate::photo_mode`).
+    if (wheel.is_some_and(|w| w.holds_input()) || photo.is_some_and(|p| p.on)) && !by_aid && by_script.is_none() {
         return;
     }
     if by_aid {
@@ -3967,7 +3993,7 @@ fn choose(
         Option<ResMut<PauseInputAid>>,
         Option<ResMut<crate::tiles::mods::ModsPage>>,
     ),
-    (bindings, pads, sticks, pending, mods, mut listening, mut layout, colours, hidden): (
+    (bindings, pads, sticks, pending, mods, mut listening, mut layout, colours, mut lobby, coop_switch, hidden): (
         Option<Res<crate::bindings::Bindings>>,
         crate::pad::ActionPads,
         Option<Res<crate::pad::StickButtons>>,
@@ -3976,9 +4002,19 @@ fn choose(
         ResMut<Listening>,
         ResMut<SettingsLayout>,
         Option<Res<crate::ui_colour::CustomColours>>,
+        Option<ResMut<crate::lobby::LobbyScreen>>,
+        Option<Res<crate::lobby::CoopSwitch>>,
         Option<Res<crate::settings_view::HiddenRows>>,
     ),
-    (meters, pointed, mut tab_store, tweaks, mut report, mut touch): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>, Option<Res<crate::tweaks::TweakSettings>>, Option<ResMut<ReportEntry>>, touch::Input),
+    (meters, pointed, mut tab_store, tweaks, mut report, mut touch, mut photo_ask): (
+        Query<(&PauseButton, &RelativeCursorPosition)>,
+        Query<(&PointerState, &PauseButton)>,
+        Option<ResMut<SettingsTabStore>>,
+        Option<Res<crate::tweaks::TweakSettings>>,
+        Option<ResMut<ReportEntry>>,
+        touch::Input,
+        Option<ResMut<crate::photo_mode::PhotoRequest>>,
+    ),
 ) {
     let keys = keys.snapshot();
     use crate::bindings::{Bindings, Input, InputDevice};
@@ -3993,11 +4029,16 @@ fn choose(
     if !paused.0 || intro.is_some_and(|i| i.is_playing()) {
         return;
     }
+    // The lobby screen over it takes the keys (`crate::lobby`).
+    if lobby.as_ref().is_some_and(|l| l.holds_input()) {
+        return;
+    }
     // Under the main menu the first page is the main menu's own (`crate::main_menu`): its
     // pages come from here, and going back shows it again.
     let under_main = main_menu.as_ref().is_some_and(|m| m.open);
     let mods = mods.is_some_and(|m| m.0);
-    let entries = entries(mods, console_entry);
+    let coop_on = coop_switch.is_some_and(|s| s.on);
+    let entries = entries(mods, console_entry, coop_on);
     // The Mods page goes when its entry does (the mod's tiles were unloaded).
     if *page == Page::Mods && !mods {
         info!("pause menu: no mod page any more, back to the column");
@@ -4740,8 +4781,13 @@ fn choose(
                 take = Some(Entry::Load);
             } else if keys.just_pressed(KeyCode::KeyS) || act("settings") {
                 take = Some(Entry::Settings);
+            } else if act("photo") {
+                take = Some(Entry::Photo);
             } else if act("mods") && mods {
                 take = Some(Entry::Mods);
+            } else if (act("lobby") || act("coop")) && entries.contains(&Entry::Lobby) {
+                // Only while the Co-op switch is on (the entry is not in the column otherwise).
+                take = Some(Entry::Lobby);
             } else if keys.just_pressed(KeyCode::Escape) {
                 take = Some(Entry::Continue);
             }
@@ -4752,8 +4798,9 @@ fn choose(
                 }
             }
             // Any other choice while a resume waits ends the wait; the graphics change stays
-            // latched, so the next Continue waits again [design: graphics_resume.rs].
-            if take.is_some_and(|e| e != Entry::Continue) && resume.pending() {
+            // latched, so the next Continue waits again [design: graphics_resume.rs]. Photo
+            // Mode resumes as Continue does, so it rides a wait already under way.
+            if take.is_some_and(|e| !matches!(e, Entry::Continue | Entry::Photo)) && resume.pending() {
                 commands.queue(cancel_resume);
             }
             match take {
@@ -4787,6 +4834,10 @@ fn choose(
                     }
                     *page = Page::Mods;
                 }
+                Some(Entry::Lobby) => match lobby.as_mut() {
+                    Some(l) => l.open(crate::lobby::Mode::Host),
+                    None => warn!("pause menu: co-op is not in this build"),
+                },
                 Some(Entry::Console) => {
                     info!("pause menu: console (tweak)");
                     commands.queue(|w: &mut World| {
@@ -4801,6 +4852,18 @@ fn choose(
                 Some(Entry::Continue) if !resume.pending() => {
                     commands.queue(request_resume);
                 }
+                // Back to the world the way Continue goes (`crate::graphics_resume`); photo
+                // mode opens once play has resumed.
+                Some(Entry::Photo) => match photo_ask.as_mut() {
+                    Some(p) => {
+                        info!("pause menu: photo mode");
+                        p.0 = true;
+                        if !resume.pending() {
+                            commands.queue(request_resume);
+                        }
+                    }
+                    None => warn!("pause menu: photo mode is not in this build"),
+                },
                 // Continue while a resume is already pending does nothing, as no choice does.
                 Some(Entry::Continue) | None => {}
             }
@@ -5653,7 +5716,7 @@ fn drawn_now(world: &mut World) -> Drawn {
             let tweaks = world.get_resource::<crate::tweaks::TweakSettings>();
             let console_on = tweaks.is_some_and(|t| t.help_is_console);
             let console_label = tweaks.map_or(CONSOLE_LABEL, crate::tweaks::TweakSettings::console_label);
-            entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), console_on)
+            entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), console_on, world.get_resource::<crate::lobby::CoopSwitch>().is_some_and(|s| s.on))
                 .iter()
                 .map(|e| (e.label_with(console_label), true))
                 .collect()
@@ -6013,9 +6076,9 @@ mod tests {
 
     #[test]
     fn the_console_entry_stands_where_help_was() {
-        let labels: Vec<&str> = super::entries(true, true).iter().map(|e| e.label()).collect();
-        assert_eq!(labels, ["Continue", "Save", "Load", "Settings", CONSOLE_LABEL, MODS_LABEL, "Quit"]);
-        assert!(!super::entries(false, false).contains(&Entry::Console));
+        let labels: Vec<&str> = super::entries(true, true, true).iter().map(|e| e.label()).collect();
+        assert_eq!(labels, ["Continue", "Save", "Load", "Co-op", "Photo Mode", "Settings", CONSOLE_LABEL, MODS_LABEL, "Quit"]);
+        assert!(!super::entries(false, false, false).contains(&Entry::Console));
     }
 
     #[test]
@@ -6804,7 +6867,7 @@ mod tests {
         let mut app = search_app(&SEARCHED, "pa", SettingsFocus::SearchText);
         app.world_mut().resource_mut::<SearchKeys>().0 = vec![SearchKey::Text("n".into())];
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyN);
-        let settings = entries(false, false).iter().position(|e| *e == Entry::Settings).unwrap();
+        let settings = entries(false, false, false).iter().position(|e| *e == Entry::Settings).unwrap();
         app.world_mut().spawn((Button, PauseButton::Column(settings), PointerState::Pressed));
         app.update();
         assert_eq!(*app.world().resource::<Page>(), Page::Main);
@@ -6965,9 +7028,12 @@ mod tests {
 
     #[test]
     fn the_mods_entry_stands_before_quit_only_when_a_mod_added_one() {
-        let labels = |mods| entries(mods, false).iter().map(|e| e.label()).collect::<Vec<_>>();
-        assert_eq!(labels(false), ["Continue", "Save", "Load", "Settings", "Quit"]);
-        assert_eq!(labels(true), ["Continue", "Save", "Load", "Settings", "Mods", "Quit"]);
+        let labels = |mods| entries(mods, false, true).iter().map(|e| e.label()).collect::<Vec<_>>();
+        assert_eq!(labels(false), ["Continue", "Save", "Load", "Co-op", "Photo Mode", "Settings", "Quit"]);
+        assert_eq!(labels(true), ["Continue", "Save", "Load", "Co-op", "Photo Mode", "Settings", "Mods", "Quit"]);
+        // The Co-op switch off: the column has nothing of co-op.
+        let off: Vec<&str> = entries(false, false, false).iter().map(|e| e.label()).collect();
+        assert_eq!(off, ["Continue", "Save", "Load", "Photo Mode", "Settings", "Quit"]);
         assert!(Page::Mods.opened_by("Mods"));
         assert!(!Page::Mods.opened_by("Settings"));
         assert_eq!(Page::Mods.settings_row(), None);
@@ -7221,7 +7287,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, column: entries(false, false).iter().map(|e| (std::borrow::Cow::Borrowed(e.label()), true)).collect(), device: ("Keyboard and Mouse", false), rumble: true, sensitivity: 1.0, view_w: VIEW_W as u32, ..default() };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, column: entries(false, false, false).iter().map(|e| (std::borrow::Cow::Borrowed(e.label()), true)).collect(), device: ("Keyboard and Mouse", false), rumble: true, sensitivity: 1.0, view_w: VIEW_W as u32, ..default() };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>, glyphs: Res<crate::pad::PadGlyphs>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list, &glyphs), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &Boxed)>();
