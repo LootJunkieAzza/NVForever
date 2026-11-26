@@ -42,7 +42,7 @@ pub struct AirWanted(pub bool);
 
 /// Whether the light is drawn as far as its gate goes (main world; false by default):
 /// medium_air_light.rs `follow_light` keeps it as its gate has settled (open at once, closed once
-/// a reason held 0.5 s), so a closed gate (night, indoors, under water, a strength of 0) takes
+/// a reason held 0.5 s), so a closed gate (night without a moon, indoors, under water, a strength of 0) takes
 /// with it what is drawn for the light alone (solid_cores.rs).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
 pub struct AirDraws(pub bool);
