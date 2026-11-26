@@ -431,6 +431,11 @@ pub struct FosPlayer {
     /// Active magic effects from the self-framing list before teammate perks in the
     /// player `ACHR` tail (§6.4) [observed: vanilla 1.4.0.525 A/B save pairs].
     pub active_effects: Vec<FosActiveEffect>,
+    /// Player Power Armor Training flag (`SetPCCanUsePowerArmor`) from the `ACHR 0x14`
+    /// post-inventory tail (`u8 |` at offset `-46` before the 11-slot `ref3 |` array,
+    /// the 5th of 6 `u8 |` bytes following `f32 |` and preceding `7 × (u32 |) + u8 | +
+    /// u32 |`; §6.4) [hypothesis].
+    pub power_armor_training: Option<bool>,
 }
 
 /// Global table 1 type 10: Pip-Boy radio playback state (§5.1, §6.3) [observed: vanilla 1.4.0.525
@@ -2871,12 +2876,16 @@ impl Fos {
                         .collect();
                 }
                 p.notes = self.parse_player_notes(tail);
+                p.power_armor_training = self.parse_player_power_armor_training(tail);
                 p.perks = self.parse_player_perks(tail);
                 if let Some((ae_end, tm_perks)) = self.parse_player_teammate_perks_and_anchor(tail) {
                     p.teammate_perks = tm_perks;
                     p.active_effects = self.parse_player_active_effects(tail, ae_end);
                 }
             }
+        }
+        if p.power_armor_training.is_none() {
+            p.power_armor_training = self.parse_player_power_armor_training(&r.data);
         }
         Ok(p)
     }
@@ -3214,6 +3223,53 @@ impl Fos {
             }
         }
         Vec::new()
+    }
+
+    /// Extract the player's Power Armor Training flag (`SetPCCanUsePowerArmor`) from the
+    /// `ACHR 0x14` tail immediately before the 11-slot `ref3 |` array (§6.4) [hypothesis].
+    ///
+    /// Anchors on the last `AD DE AD DE |` marker and validates the exact 17 bar-delimited
+    /// prefix fields (`f32 | 6 × (u8 |) 7 × (u32 |) u8 | u32 |`) immediately before the
+    /// 11-slot `ref3 |` array, checking that every slot resolves cleanly and that the flag
+    /// byte at `i - 46` (5th of the 6 `u8 |` bytes) is strictly boolean (`0` or `1`).
+    /// Fails closed (`None`) if zero or multiple anchors match or any byte fails validation.
+    fn parse_player_power_armor_training(&self, buf: &[u8]) -> Option<bool> {
+        const DEAD_MARK: &[u8] = b"\xAD\xDE\xAD\xDE\x7C";
+        // Bar offsets backwards from `i` (start of the 11-slot `ref3 |` array):
+        //   [-1] u32| (i-1), [-2] u8| (i-6), [-3..-9] 7×u32| (i-8,-13,-18,-23,-28,-33,-38),
+        //   [-10..-15] 6×u8| (i-43,-45,-47,-49,-51,-53), [-16] f32| (i-55) preceded by | (i-60).
+        const PRE_BARS: [usize; 17] =
+            [1, 6, 8, 13, 18, 23, 28, 33, 38, 43, 45, 47, 49, 51, 53, 55, 60];
+        let dead = buf.windows(DEAD_MARK.len()).rposition(|w| w == DEAD_MARK)?;
+        let start = dead + DEAD_MARK.len();
+        if buf.len() < start + 60 + 44 {
+            return None;
+        }
+        let mut found: Option<bool> = None;
+        for i in (start + 60)..=buf.len() - 44 {
+            if !PRE_BARS.iter().all(|&b| buf[i - b] == BAR) {
+                continue;
+            }
+            if !(0..11).all(|j| buf[i + j * 4 + 3] == BAR) {
+                continue;
+            }
+            let refs_ok = (0..11).all(|j| {
+                let off = i + j * 4;
+                self.reference([buf[off], buf[off + 1], buf[off + 2]]).is_ok()
+            });
+            if !refs_ok {
+                continue;
+            }
+            let flag = buf[i - 46];
+            if flag > 1 {
+                return None;
+            }
+            if found.is_some() {
+                return None;
+            }
+            found = Some(flag != 0);
+        }
+        found
     }
 
     /// Extract the player's perks (`vsval n | n * (ref3 | u8 rank |)`) from the post-inventory
@@ -5916,5 +5972,83 @@ mod tests {
         assert_eq!(bases.len(), 1);
         assert_eq!(bases[0].form, 0x0010_4C0C);
         assert_eq!(bases[0].female, Some(true));
+    }
+
+    #[test]
+    fn player_power_armor_training_tail_flag_parsing_and_fail_closed() {
+        let build_tail_with_flag = |flag_byte: u8, break_bar: bool, trailing_list_len: u32, dup: bool| {
+            let mut p = Build { b: Vec::new() };
+            p.r(3).f32(1.0).f32(2.0).f32(3.0).f32(0.0).f32(0.0).f32(0.0).bar();
+            for _ in 0..AV_ENTRIES {
+                p.f32(0.0).bar();
+            }
+            p.u8(0).bar(); // process_level
+            p.vs(0).bar(); // 0 actor extras
+            p.vs(0).bar(); // 0 inventory items
+            p.b.extend_from_slice(b"\xAD\xDE\xAD\xDE\x7C");
+            let push_block = |p: &mut Build| {
+                // Preceding bar before [-16] f32 |
+                p.u8(0).bar();
+                // [-16] f32 (-1.0) |
+                p.f32(-1.0).bar();
+                // [-15..-10] 6 × (u8 |); index 4 (offset -46 from slot11) is power_armor_training
+                p.u8(0).bar().u8(0).bar().u8(0).bar().u8(0).bar().u8(flag_byte).bar().u8(0).bar();
+                // [-9..-3] 7 × (u32 |)
+                for _ in 0..7 {
+                    p.u32(0).bar();
+                }
+                // [-2] u8 | + [-1] u32 |
+                if break_bar {
+                    p.u8(0).u8(0x00).u32(200).bar();
+                } else {
+                    p.u8(0).bar().u32(200).bar();
+                }
+                // 11-slot ref3 | array (with a non-zero resolved ref in slot 4)
+                for slot in 0..11 {
+                    p.r(if slot == 4 { 8 } else { 0 }).bar();
+                }
+                // Non-empty list immediately after slot11 (must not prevent decoding the flag)
+                p.vs(trailing_list_len).bar();
+                for _ in 0..trailing_list_len {
+                    p.r(8).bar();
+                }
+            };
+            push_block(&mut p);
+            if dup {
+                push_block(&mut p);
+            }
+            p.b
+        };
+
+        let parse_with = |data: Vec<u8>| {
+            let mut f = Fos::parse(&save()).unwrap();
+            let pl_cf = f.changed.iter_mut().find(|c| c.form == PLAYER_REF).unwrap();
+            pl_cf.flags = (1 << 1) | (1 << 5) | (1 << 28) | (1 << 31);
+            pl_cf.data = data;
+            f.player().unwrap().power_armor_training
+        };
+
+        // 0 => Some(false), 1 => Some(true), even with non-empty trailing list after slot11.
+        assert_eq!(parse_with(build_tail_with_flag(0, false, 0, false)), Some(false));
+        assert_eq!(parse_with(build_tail_with_flag(1, false, 3, false)), Some(true));
+        // Non-boolean byte, broken separator, or duplicate anchor all fail closed (`None`).
+        assert_eq!(parse_with(build_tail_with_flag(2, false, 0, false)), None);
+        assert_eq!(parse_with(build_tail_with_flag(1, true, 0, false)), None);
+        assert_eq!(parse_with(build_tail_with_flag(1, false, 0, true)), None);
+
+        // Unmapped pre-AV layout (av_parsed = false) still recovers power_armor_training from r.data.
+        let mut unmapped = Build { b: Vec::new() };
+        unmapped.r(3).f32(1.0).f32(2.0).f32(3.0).f32(0.0).f32(0.0).f32(0.0).bar();
+        unmapped.u8(0xAA).u8(0xBB); // breaks AV bar check
+        let full = build_tail_with_flag(1, false, 2, false);
+        let dead_pos = full.windows(5).position(|w| w == b"\xAD\xDE\xAD\xDE\x7C").unwrap();
+        unmapped.b.extend_from_slice(&full[dead_pos..]);
+        let mut f = Fos::parse(&save()).unwrap();
+        let pl_cf = f.changed.iter_mut().find(|c| c.form == PLAYER_REF).unwrap();
+        pl_cf.flags = (1 << 1) | (1 << 2) | (1 << 5);
+        pl_cf.data = unmapped.b;
+        let pl = f.player().unwrap();
+        assert!(!pl.av_parsed);
+        assert_eq!(pl.power_armor_training, Some(true));
     }
 }

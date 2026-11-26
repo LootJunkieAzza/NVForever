@@ -277,6 +277,9 @@ pub fn inspect_fos(fos: &Fos, cosave_present: bool) -> FosInspectReport {
                 if let Some(rounds) = p.active_weapon_magazine {
                     decoded_counts.insert("player_active_weapon_magazine".into(), rounds as usize);
                 }
+                if let Some(on) = p.power_armor_training {
+                    decoded_counts.insert("player_power_armor_training".into(), usize::from(on));
+                }
                 decoded_counts.insert("player_active_effects".into(), p.active_effects.len());
                 (
                     p.place.is_some(),
@@ -1003,6 +1006,17 @@ pub fn convert_fos(
                     Ok(_) => inc_skip("player_teammate_perk", "not a PERK record"),
                     Err(why) => inc_skip("player_teammate_perk", why),
                 }
+            }
+
+            // Player Power Armor Training flag (`SetPCCanUsePowerArmor`) [hypothesis].
+            // Must be applied before `apply_player_inventory` so worn Power Armor pieces
+            // (item extra `0x16`) pass `World::equip_check` rather than being refused with
+            // `SimError::NoPowerArmorTraining`.
+            if p.power_armor_training == Some(true) {
+                g.player.power_armor = true;
+                g.world.set_power_armor_training(true);
+                inc_ok("player_power_armor_training");
+                inc_hyp("player_power_armor_training (ACHR 0x14 tail flag) [hypothesis]");
             }
 
             match &p.inventory {
