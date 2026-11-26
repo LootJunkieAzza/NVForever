@@ -785,7 +785,8 @@ reflection); computed on the CPU from what the renderer already lights the room 
   0.38, 0.35) or a ceiling (0.45, 0.45, 0.43). It is lit as the display-value sum lights a
   diffuse surface: light = the cell's ambient + its directional light x N.L + for each lamp
   colour x brightness x the game's attenuation saturate(1 - d^2 / radius^2) x N.L (x the
-  cone), and the surface writes min(albedo x light^2.2, 1), the units of stage 1's ground.
+  cone), and the surface writes the linear colour of min(albedo's display value x light, 1)
+  (sRGB curve; world.md §8 "Dark values of the sum"), the units of stage 1's ground.
   The renderer's lamps cast no shadows, so neither do these; a lamp behind a wall lights it
   as on screen. The cell's directional light lights the walls at full (its shadows left
   out). The cell's fog mixes walls toward its colour by distance as the fog does indoors.

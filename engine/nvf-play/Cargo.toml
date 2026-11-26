@@ -46,6 +46,9 @@ rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis
 # Save thumbnails (save.rs): PNG encoded and decoded directly, the version Bevy's images
 # already build (no second copy).
 png = "0.18"
+# Photo mode names its pictures by the local date and time (photo_mode.rs); the version
+# fnv-game already builds (docs/design/dependencies.md), no second copy.
+jiff = "1"
 
 [features]
 # nvforever's `dev-aids`: the developer aids kept out of release builds

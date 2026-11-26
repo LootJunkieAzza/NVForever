@@ -320,6 +320,61 @@ PlayerREF.RemovePerk TestPerk
 }
 
 #[test]
+fn on_av_change_wildcard_minus_one_and_truncation() {
+    let f = fixture();
+    let mut g = game(&f);
+    // [observed 2026-11-24: w6t2p2_10_jg_on_av_change_timed and w6t2p3_10_av_m1_exact,
+    // FNV 1.4.0.525 + JG 528: -1 is wildcard, flag=0 truncates 200.0->199.4->198.8 to
+    // 200->199 and 199->198, flag=1 passes exact floats]
+    q(
+        &mut g,
+        r#"
+PlayerREF.SetAV Health 200
+int iM1
+let iM1 := -1
+SetOnActorValueChangeEventHandler 1 (begin function {int iAv, float fOld, float fNew}
+PlayerREF.AuxVarSetFlt "*av_i_n" ((PlayerREF.AuxVarGetFlt "*av_i_n") + 1)
+PlayerREF.AuxVarSetFlt "*av_i_o" fOld
+PlayerREF.AuxVarSetFlt "*av_i_new" fNew
+end) 0 16
+SetOnActorValueChangeEventHandler 1 (begin function {int iAv, float fOld, float fNew}
+PlayerREF.AuxVarSetFlt "*av_f_n" ((PlayerREF.AuxVarGetFlt "*av_f_n") + 1)
+PlayerREF.AuxVarSetFlt "*av_f_o" fOld
+PlayerREF.AuxVarSetFlt "*av_f_new" fNew
+end) 1 16
+SetOnActorValueChangeEventHandler 1 (begin function {int iAv, float fOld, float fNew}
+PlayerREF.AuxVarSetFlt "*av_m1_n" ((PlayerREF.AuxVarGetFlt "*av_m1_n") + 1)
+end) 0 iM1
+SetOnActorValueChangeEventHandler 1 (begin function {int iAv, float fOld, float fNew}
+PlayerREF.AuxVarSetFlt "*av_ag_n" ((PlayerREF.AuxVarGetFlt "*av_ag_n") + 1)
+end) 0 0
+
+PlayerREF.DamageAV Health 0.6
+"#,
+    );
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_n""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_o""#), 200.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_new""#), 199.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_f_n""#), 1.0);
+    assert!((n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_f_new""#) - 199.4).abs() < 1e-4);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_m1_n""#), 1.0, "-1 acts as wildcard, not AV 0");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_ag_n""#), 0.0, "AV 0 filter still excludes Health");
+
+    // Sub-integer drop inside the same whole number (199.4 -> 199.2): exact fires, trunc skips.
+    q(&mut g, "PlayerREF.DamageAV Health 0.2");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_n""#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_f_n""#), 2.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_m1_n""#), 1.0);
+
+    // Crossing the next integer boundary (199.2 -> 198.6): trunc fires 199.0 -> 198.0.
+    q(&mut g, "PlayerREF.DamageAV Health 0.6");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_n""#), 2.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_o""#), 199.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_new""#), 198.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_m1_n""#), 2.0);
+}
+
+#[test]
 fn xmarker_filter_acts_as_wildcard_for_crosshair_and_jg8_events() {
     let f = fixture();
     let mut g = game(&f);

@@ -38,6 +38,8 @@ fnv-sim.workspace = true
 fnv-combat.workspace = true
 fnv-collide.workspace = true
 fnv-phys.workspace = true
+# The Caravan pot falls as rigid bodies (caravan_pot.rs): the same pinned rapier as fnv-phys.
+rapier3d = { version = "=0.36.1", features = ["enhanced-determinism"] }
 fnv-nav.workspace = true
 fnv-ai.workspace = true
 fnv-game.workspace = true

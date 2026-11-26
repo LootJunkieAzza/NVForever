@@ -189,7 +189,7 @@ pub struct App {
     /// DLSS: what this PC has (read at start and after a download), and the licence open.
     dlss: crate::dlss::Status,
     dlss_licence: bool,
-    reports_rx: Option<Receiver<Result<usize, String>>>,
+    reports_rx: Option<Receiver<Result<crate::reports::Deleted, String>>>,
     // News.
     news: Vec<(Post, Option<Arc<[u8]>>)>,
     news_state: NewsState,
@@ -1341,7 +1341,15 @@ impl App {
         if let Some(r) = self.reports_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.reports_rx = None;
             self.message = Some(match r {
-                Ok(n) => (format!("The server was asked to delete the reports of {n} install ID(s) from this PC (it removes them within 7 days). Later reports get a new ID."), false),
+                Ok(d) => {
+                    let mut m = format!("The server was asked to delete the reports of {} install ID(s) from this PC (it removes them within 7 days). Later reports get a new ID.", d.ids);
+                    // A report not sent yet that could not be removed would still be sent (#4591).
+                    if d.left > 0 {
+                        let dir = self.home.as_ref().map(|h| h.reports().join("pending").display().to_string()).unwrap_or_default();
+                        m.push_str(&format!(" {} report(s) not sent yet could not be deleted. Delete them by hand from {dir}.", d.left));
+                    }
+                    (m, d.left > 0)
+                }
                 Err(e) => (format!("Could not delete the reports: {e}"), true),
             });
             self.reload_ini();
