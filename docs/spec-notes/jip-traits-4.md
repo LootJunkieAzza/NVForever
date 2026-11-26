@@ -239,9 +239,17 @@ not decode yet.
   `PROBE|b3_jip4_02_session_time_and_start_angle|sess=5.31,docZ=22.92,dynZ=270.00`; zero
   DLL, PDB, or third-party source consulted; hypothesis: X/Y axes and persistence of
   `made_rot` across saves].
-- `GetIsPoisoned` [documented: "under the influence of a poison-type effect"]: an effect
-  on the actor whose source is an ingestible that GetIsPoison counts, all its effects
-  hostile and detrimental [hypothesis: the rule].
+- `GetIsPoisoned` [documented: "under the influence of a poison-type effect"]: returns `1`
+  for active `SPEL` type-5 poisons (`RadScorpion1Poison`, `BarkScorpionPoison`,
+  `CazadorPoison`; cleared to `0` by Antivenom dispel), `ALCH` poisons (`SilverSting`),
+  and hostile+detrimental `SPEL` type-0 effects (`SpellFlamerEffect`), and `0` for clean
+  actors or beneficial ingestibles (`Stimpak`) [observed: 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730),
+  10 official base masters, read-only `PrintToConsole` probe
+  `w6d12_38_getispoisoned_all_sources_and_antivenom_clear`
+  (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`):
+  `clean=0|sp5(rad=1,bark=1,afterAnti=0,caz=1)|alchPois=1|sp0Flm=1|alchBen=0`; no DLL or
+  source consulted].
 
 ## 11. Still open
 
