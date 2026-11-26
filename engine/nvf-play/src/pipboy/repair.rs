@@ -542,7 +542,7 @@ pub fn hint_word(o: Option<&Offer>) -> (&'static str, bool) {
             };
             (word, o.usable())
         }
-        None => (super::labels::label("sInventoryRepair", "Repair"), false),
+        None => (super::labels::built_in_label("sInventoryRepair"), false),
     }
 }
 
@@ -551,8 +551,8 @@ pub fn hint_word(o: Option<&Offer>) -> (&'static str, bool) {
 pub(crate) fn stat(combat: Option<&crate::combat::Combat>, o: &Offer, condition: f32) -> Option<(&'static str, i32)> {
     let c = combat?;
     match o.gear {
-        Gear::Weapon => c.forms.weapons.get(&o.item).filter(|w| w.base_damage > 0).map(|w| (super::labels::label("sInventoryDamage", "DAM"), (w.base_damage as f32 * fnv_combat::damage::condition_mult(condition)).round() as i32)),
-        Gear::Armor => c.forms.armor.get(&o.item).map(|a| (super::labels::label("sInventoryDamageThreshold", "DT"), (a.dt * fnv_combat::condition::armor_mult(condition)).round() as i32)),
+        Gear::Weapon => c.forms.weapons.get(&o.item).filter(|w| w.base_damage > 0).map(|w| (super::labels::built_in_label("sInventoryDamage"), (w.base_damage as f32 * fnv_combat::damage::condition_mult(condition)).round() as i32)),
+        Gear::Armor => c.forms.armor.get(&o.item).map(|a| (super::labels::built_in_label("sInventoryDamageThreshold"), (a.dt * fnv_combat::condition::armor_mult(condition)).round() as i32)),
     }
 }
 
@@ -607,7 +607,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let cr = Rect::from_corners(MAIN.min + COMPARE.min, MAIN.min + COMPARE.max);
     let half = cr.width() / 2.0;
     let cards = |p: &mut ChildSpawnerCommands, c: &mut Ctx, y: f32, cond: f32| {
-        frame::card(p, c, cr.min.x, y, half - 5.0, super::labels::label("sInventoryCondition", "CND"), "");
+        frame::card(p, c, cr.min.x, y, half - 5.0, super::labels::built_in_label("sInventoryCondition"), "");
         let m = Rect::new(cr.min.x + half - 5.0 - METER.x - 15.0, y + 17.0, cr.min.x + half - 5.0 - 15.0, y + 17.0 + METER.y);
         bar(p, m, cond, bright);
         let (t, v) = stat(combat, o, cond).map_or(("", String::new()), |(t, v)| (t, v.to_string()));

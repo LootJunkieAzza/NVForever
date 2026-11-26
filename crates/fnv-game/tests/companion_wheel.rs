@@ -285,7 +285,7 @@ fn talk_closes_the_wheel_and_inventory_asks_for_the_teammates_container() {
     let f = fixture();
     let mut g = hired(&f);
     let b = button(&mut g, Command::OpenInventory);
-    assert!(b.context.as_deref().is_some_and(|c| c == "WG 0/200"), "{b:?}");
+    assert!(b.context.as_deref().is_some_and(|c| c == "Weight 0/200"), "{b:?}");
     assert!(matches!(g.wheel_command(Command::OpenInventory).unwrap(), Outcome::Said { .. }));
     assert_eq!(g.teammate_containers, vec![companion()]);
     let out = g.wheel_command(Command::Talk).unwrap();

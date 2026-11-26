@@ -107,6 +107,11 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::Instant;
 
+/// Frames a new game's or a load's Script Runner files wait at most for the player's
+/// models [engineering choice: about 5 s at 60 FPS; the models are usually in place within
+/// a few frames] (#4491).
+const NEW_GAME_FILES_WAIT: u32 = 300;
+
 /// MenuMode code while a message box is open (`fnv_game::game::menus::MESSAGE`): shipped
 /// scripts read the chosen button in `Begin MenuMode 1001` blocks [observed: FalloutNV
 /// SCPT 0x00105236, the Goodsprings chemistry set] as well as in GameMode (SCPT
@@ -307,6 +312,10 @@ pub struct Runtime {
     /// another run that never runs them (#1548) [hypothesis: the original runs them when
     /// a new game starts, docs/spec-notes/ext-script-runner.md §2].
     new_game_files: bool,
+    /// Frames the new game's files have waited for the player's models.
+    new_game_files_waited: u32,
+    /// A save's Script Runner files (`Moment::Load`) wait for the player's models too.
+    load_files: bool,
     /// An actor the player woke by talking to it, and when (`Game::time`): the
     /// conversation starts once it is off its bed ([`Runtime::talk_when_awake`]).
     wake_talk: Option<(FormId, f64)>,
@@ -723,6 +732,8 @@ impl Runtime {
             session_epoch: 0,
             opening_pending: new_game,
             new_game_files: false,
+            new_game_files_waited: 0,
+            load_files: false,
             wake_talk: None,
             start: GameStart::default(),
             opening_notice: None,
@@ -792,6 +803,7 @@ impl Runtime {
         sim.world.set_inventory_sources(inventory_sources(data, sim, &self.game));
         self.opening_pending = false;
         self.new_game_files = false;
+        self.load_files = false;
         self.player_cell = None;
         self.restored_from_save = true;
         self.session_epoch = self.session_epoch.saturating_add(1);
@@ -2380,6 +2392,9 @@ pub(crate) fn run_scripts(
                     script_runner(&mut rt, &mut sim, Moment::Restart);
                     // The new game's files wait for its first frame (`new_game_files`).
                     rt.new_game_files = true;
+                    // The player's trees are told from the start, so a new-game file's
+                    // first question about the player's model finds them.
+                    rt.game.scene.watch(FormId::PLAYER_REF);
                 }
                 let from_source = data.issues.count("script_compiled_from_source");
                 let failed = data.issues.count("script_source_does_not_compile");
@@ -2448,9 +2463,10 @@ pub(crate) fn run_scripts(
     }
     if mods_ticks.frames > 0 {
         info!("scripts: the Mods page closed after {} MenuMode frames", mods_ticks.frames);
-        mods_ticks.frames = 0;
         if let Some(rt) = st.rt.as_mut() {
-            with_world(rt, &mut sim, |rt| rt.game.page_menu_event(fnv_game::game::menus::START, false));
+            with_world(rt, &mut sim, |rt| crate::tiles::mods::close(&mut rt.game, &mut mods_ticks));
+        } else {
+            *mods_ticks = Default::default();
         }
     }
     if paused.0 || screen.active() {
@@ -2559,7 +2575,9 @@ pub(crate) fn run_scripts(
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let n = rt.game.dispatch_event("LoadGame", vec![fnv_script::vm::XVal::Str(name)], None) + rt.game.dispatch_event("PostLoadGame", vec![fnv_script::vm::XVal::Num(1.0)], None);
                 info!("scripts: LoadGame and PostLoadGame after the start menu's frames ({n} handlers ran)");
-                log_script_runner(rt.game.run_script_runner(Moment::Load), Moment::Load);
+                // Its Script Runner files wait for the player's models, as a new game's do.
+                rt.load_files = true;
+                rt.game.scene.watch(FormId::PLAYER_REF);
             }
         }
         rt.observe_inventory();
@@ -2579,8 +2597,29 @@ pub(crate) fn run_scripts(
             info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }
         rt.follow_player();
-        if std::mem::take(&mut rt.new_game_files) {
-            log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
+        // The new game's files run once the player's models are in place, as in the
+        // original, where a new game's scripts start with the player loaded [observed: B42
+        // Inertia's `ln_B42Inertia.txt` asks `Player.GetNifScale "NeckController" 2` one
+        // frame after it runs; on NVForever's first frame the first-person tree was not yet
+        // told, the answer was 0 and its "Install latest Compatibility Skeleton" box showed,
+        // log nvforever-20261125-152502-11852.log; from a save the same question reads 1,
+        // log nvforever-20261125-153358-7876.log]. At most NEW_GAME_FILES_WAIT frames.
+        if rt.new_game_files || rt.load_files {
+            let ready = !rt.game.scene.uses_separate_player_models()
+                || rt.game.scene.has_tree(FormId::PLAYER_REF, fnv_game::nif_blocks::ModelView::FirstPerson);
+            rt.new_game_files_waited += 1;
+            if ready || rt.new_game_files_waited > NEW_GAME_FILES_WAIT {
+                if !ready {
+                    info!("script runner: new game files run without the player's first-person model after {NEW_GAME_FILES_WAIT} frames");
+                }
+                rt.new_game_files_waited = 0;
+                if std::mem::take(&mut rt.load_files) {
+                    log_script_runner(rt.game.run_script_runner(Moment::Load), Moment::Load);
+                }
+                if std::mem::take(&mut rt.new_game_files) {
+                    log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
+                }
+            }
         }
         if std::mem::take(&mut rt.opening_pending) {
             // The extender's NewGame event as the new game begins; a `--cell` start is
@@ -3119,6 +3158,8 @@ impl ScriptState {
             session_epoch: 0,
             opening_pending: false,
             new_game_files: false,
+            new_game_files_waited: 0,
+            load_files: false,
             wake_talk: None,
             start: GameStart::default(),
             opening_notice: None,

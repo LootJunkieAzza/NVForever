@@ -48,10 +48,16 @@ When two folders have the same id, the first one wins. The language is chosen on
 settings page (Display, Interface: Language) and acts at once. It is kept as `language=<id>` in
 `NVForever.ini`.
 
-Until one is chosen there, the start picks the language of the game's text when its code
-page tells it and a file of it was found: Windows-1251 (a Russian install) chooses `ru`
-(#1948). The start's log says so. Windows-1250 and 1252 are each several languages, so
-they choose none and English stays.
+Until one is chosen there, the start picks the language Steam installed the game in, read
+from Steam's manifest beside the game's folder (`appmanifest_22380.acf`, `UserConfig`
+`language`; #1443): German, French, Italian, Spanish and Russian choose `de`, `fr`, `it`,
+`es` and `ru` when that file was found and the game's text is read in that language's code
+page. Outside a Steam library it picks the language of the game's text when its code page
+tells it: Windows-1251 (a Russian install) chooses `ru` (#1948). Windows-1250 and 1252 are
+each several languages, so the text alone chooses none and English stays. The start's log
+says what it chose. The code page itself comes from `[Text] CodePage` when set, else from
+the plugins' text (Cyrillic), else from Steam's language (1250 for Polish, Czech and
+Hungarian), else 1252.
 
 ## Checked
 

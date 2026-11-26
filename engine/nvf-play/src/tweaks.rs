@@ -95,7 +95,7 @@ pub struct TweakSettings {
     pub no_reputation_messages: bool,
     /// `bDisableExplosionInFaceIMOD`: a nearby explosion does not blur the screen.
     pub no_explosion_blur: bool,
-    /// `bRemoveSneakLabel`: no [HIDDEN] / [DETECTED] label while sneaking.
+    /// `bRemoveSneakLabel`: no [UNSEEN] / [SPOTTED] label while sneaking.
     pub no_sneak_label: bool,
     /// `bVatsExitKey`: a right click ends a kill camera.
     pub kill_cam_exit_key: bool,
@@ -1846,7 +1846,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "compass-doors-exterior", "Doors on the Compass: Reach Outside", "How far away a door outside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 10000.0, f32, compass_doors_exterior);
         amount!(app, "compass-doors-interior", "Doors on the Compass: Reach Inside", "How far away a door inside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 5000.0, f32, compass_doors_interior);
         switch!(app, "compass-doors-fade", "Doors on the Compass: Fade by Distance", "A door's mark is fainter the further away it is. (Stewie's Tweaks bShowDoorsOnCompass)", compass_doors_fade);
-        switch!(app, "detected-by-whom", "Detected by Whom", "The sneak word [DETECTED] names who has detected the player. (Stewie's Tweaks bDetectedByWhom)", detected_by_whom);
+        switch!(app, "detected-by-whom", "Detected by Whom", "The sneak word [SPOTTED] names who has spotted the player. (Stewie's Tweaks bDetectedByWhom)", detected_by_whom);
         amount!(app, "detected-names", "Detected by Whom: Names Shown", "How many names come before \"and N others\"; 0 shows only how many. (Stewie's Tweaks bDetectedByWhom)", 5.0, f32, detected_names);
         switch!(app, "quest-text-in-menus", "Quest Text Over the Pip-Boy", "The quest and location lines stay on screen, and go on, while the Pip-Boy or a terminal is open. (Stewie's Tweaks bQuestTextVisibleInMenus)", quest_text_in_menus);
         switch!(app, "continue-shows-save", "Continue Shows Its Save", "On the main menu, the picture of the save Continue loads is shown while Continue is chosen. (Stewie's Tweaks bMainMenuContinueIcon)", continue_shows_save);
@@ -2012,7 +2012,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "water-shows-h2o", "Water Sources Show H2O", "A tap's or puddle's prompt shows how much H2O a drink takes off. (Stewie's Tweaks bWaterSourcesShowH2O)", game.water_shows_h2o);
         switch!(app, "no-respec", "No Character Remake Offer", "Leaving Doc Mitchell's area does not offer to change your character. (Stewie's Tweaks bDisableCharacterRespec)", game.no_respec);
         switch!(app, "weapon-impacts", "Weapon Impact Effects", "A shot that strikes the weapon in someone's hands sparks and sounds like metal, with no blood. (Stewie's Tweaks bWeaponImpactEffects)", game.weapon_impacts);
-        switch!(app, "robots-heal-with-scrap", "Robot Companions Heal With Scrap Metal", "The companion wheel's Use Stimpak gives a robot companion Scrap Metal instead. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal)", game.robots_heal_with_scrap);
+        switch!(app, "robots-heal-with-scrap", "Robot Companions Heal With Scrap Metal", "The companion wheel's Heal gives a robot companion Scrap Metal instead. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal)", game.robots_heal_with_scrap);
         amount!(app, "robot-heal-base", "Scrap Metal: Health Each", "Health one Scrap Metal gives a robot companion. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fBase)", 200.0, f32, game.robot_heal_base);
         amount!(app, "robot-heal-per-repair", "Scrap Metal: Health per 10 Repair", "Health added for each 10 points of your Repair skill. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRepairMult)", 50.0, f32, game.robot_heal_per_repair);
         amount!(app, "robot-heal-expert", "Scrap Metal: Robotics Expert Bonus", "Health added when you have Robotics Expert. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRoboticsExpertBonus)", 200.0, f32, game.robot_heal_expert);
@@ -2373,6 +2373,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "power-armor-no-training", "Power Armor Without Training", "Power armor can be worn without Power Armor Training. (Stewie's Tweaks bPowerArmorNeedsNoTraining)", game.power_armor_needs_no_training);
         // ---- world ----
         switch!(app, "no-lock-encounter-zone-levels", "No Encounter Zone Level Lock", "Encounter zones recompute their level from the player's current level instead of freezing on first visit. (Stewie's Tweaks bNoLockEncounterZoneLevels)", game.no_lock_encounter_zone_levels);
+        // ---- menus ----
+        switch!(app, "wasd-as-arrow-keys", "WASD as Arrow Keys in Menus", "Use WASD as arrow keys and Space to accept across Barter, Quantity, Sleep/Wait, and Recipe menus. (Stewie's Tweaks bUseWASDAsArrowKeys)", game.wasd_as_arrow_keys);
     }
 }
 
@@ -3389,6 +3391,11 @@ pub(crate) fn sync(
         }
         // The loaded ammo's mark, and the player's tweak for containers.
         let loaded = combat.as_deref().and_then(|c| c.player_ammo());
+        // The ammo the weapon in hand can fire: the rest is dimmed in the Pip-Boy (#3442).
+        let firable = combat.as_deref().map(|c| c.player_weapon().and_then(|w| c.forms.weapons.get(&w)).map(|w| c.forms.ammo_choices(w)).unwrap_or_default());
+        if m.firable_ammo != firable {
+            m.firable_ammo = firable;
+        }
         if (m.current_ammo, m.ammo_mark_in_containers) != (loaded, tweaks.containers_show_ammo) {
             // The rows take it at the list's next refresh (opening, any change).
             (m.current_ammo, m.ammo_mark_in_containers) = (loaded, tweaks.containers_show_ammo);
@@ -3485,6 +3492,7 @@ mod tests {
         assert!(!t.game.sync_categories && t.game.prevent_switch_when_emptying_category);
         assert!(!t.game.no_lock_encounter_zone_levels);
         assert!(!t.game.faster_sleep_wait);
+        assert!(!t.game.wasd_as_arrow_keys);
         assert_eq!(t.sneak_run_ap_base, 0.0);
         assert_eq!(t.sneak_run_ap_endurance_mult, 0.0);
         assert_eq!(t.console_label(), "Console");
@@ -3608,6 +3616,7 @@ mod tests {
              bMenuSearch = 1\n\
              bNoLockEncounterZoneLevels = 1\n\
              bFasterSleepWait = 1\n\
+             bUseWASDAsArrowKeys = 1\n\
              iDateFormat = 2\n\
              [Critical Hits]\n\
              fCriticalDamageMult = 1.5\n",
@@ -3641,6 +3650,7 @@ mod tests {
             assert!(settings.game.menu_search);
             assert!(settings.game.no_lock_encounter_zone_levels);
             assert!(settings.game.faster_sleep_wait);
+            assert!(settings.game.wasd_as_arrow_keys);
             assert_eq!(settings.date_style, 2);
             assert_eq!(settings.game.crit_damage_scale, 2.0);
         }
@@ -3654,6 +3664,7 @@ mod tests {
         assert!(final_settings.game.menu_search, "unmentioned modular key stays enabled");
         assert!(final_settings.game.no_lock_encounter_zone_levels, "unmentioned modular key stays enabled");
         assert!(final_settings.game.faster_sleep_wait, "unmentioned modular key stays enabled");
+        assert!(final_settings.game.wasd_as_arrow_keys, "unmentioned modular key stays enabled");
         assert_eq!(final_settings.date_style, 2);
         // Toggling the registered switch in NVForever.ini overrides the modular INI back to off.
         let idx = app.world().resource::<crate::settings::Settings>().index("tweak-no-lock-encounter-zone-levels").unwrap();
@@ -3662,6 +3673,9 @@ mod tests {
         let sleep_idx = app.world().resource::<crate::settings::Settings>().index("tweak-faster-sleep-wait").unwrap();
         crate::settings::flip(app.world_mut(), sleep_idx);
         assert!(!app.world().resource::<TweakSettings>().game.faster_sleep_wait, "UI switch toggles off");
+        let wasd_idx = app.world().resource::<crate::settings::Settings>().index("tweak-wasd-as-arrow-keys").unwrap();
+        crate::settings::flip(app.world_mut(), wasd_idx);
+        assert!(!app.world().resource::<TweakSettings>().game.wasd_as_arrow_keys, "UI switch toggles off");
 
         let _ = std::fs::remove_dir_all(&root);
     }

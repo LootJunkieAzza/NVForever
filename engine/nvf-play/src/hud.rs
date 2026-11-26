@@ -232,7 +232,7 @@ const AMMO_LABEL_DROP: f32 = 17.0;
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
 const ENEMY_NAME_BASE: f32 = 53.0;
-/// Living Anatomy's "HP:… DT:…" line stands on this y of the enemy's piece, a line under
+/// Living Anatomy's "Health … DT …" line stands on this y of the enemy's piece, a line under
 /// the name [observed: the owner's screenshot 2026-10-24 of the original, the two lines
 /// about 20 of 528 rows apart: 36 interface units].
 const ENEMY_STATS_BASE: f32 = ENEMY_NAME_BASE + 36.0;
@@ -267,7 +267,7 @@ pub struct HudView {
     pub weapon: HudWeapon,
     /// The sneak word, while the player sneaks (§9).
     pub sneak: Option<Sneak>,
-    /// `[DETECTED]` with who detects the player, under the Detected by Whom tweak.
+    /// `[SPOTTED]` with who detects the player, under the Detected by Whom tweak.
     pub detected_by: Option<String>,
     /// The body armour's condition, 0 to 1, under the Armor Condition tweak.
     pub armor: Option<f32>,
@@ -294,13 +294,13 @@ pub enum Sneak {
 }
 
 impl Sneak {
-    /// [observed: the owner's four screenshots of the original.]
+    /// [design: NVForever's own words, #2984.]
     pub fn word(self) -> &'static str {
         match self {
-            Sneak::Hidden => "[HIDDEN]",
-            Sneak::Detected => "[DETECTED]",
-            Sneak::Caution => "[CAUTION]",
-            Sneak::Danger => "[DANGER]",
+            Sneak::Hidden => "[UNSEEN]",
+            Sneak::Detected => "[SPOTTED]",
+            Sneak::Caution => "[ALERT]",
+            Sneak::Danger => "[COMBAT]",
         }
     }
 
@@ -326,7 +326,7 @@ impl Sneak {
     }
 }
 
-/// `[DETECTED]` naming who detects the player, under the player's Detected by Whom tweak:
+/// `[SPOTTED]` naming who detects the player, under the player's Detected by Whom tweak:
 /// the first `max` names, then how many more; with `max` 0 only how many [design: our
 /// own words, docs/design/tweaks.md].
 pub fn detected_word(names: &[String], max: usize) -> String {
@@ -334,7 +334,7 @@ pub fn detected_word(names: &[String], max: usize) -> String {
         return Sneak::Detected.word().to_string();
     }
     if max == 0 {
-        return format!("[DETECTED BY {}]", names.len());
+        return format!("[SPOTTED BY {}]", names.len());
     }
     let shown = &names[..names.len().min(max)];
     let rest = names.len() - shown.len();
@@ -344,14 +344,14 @@ pub fn detected_word(names: &[String], max: usize) -> String {
         (some, 1) => format!("{} and 1 other", some.join(", ")),
         (some, n) => format!("{} and {n} others", some.join(", ")),
     };
-    format!("[DETECTED BY {list}]")
+    format!("[SPOTTED BY {list}]")
 }
 
 /// The sneak word from the game's detection states (`fnv_game::awareness`) and the
 /// latest detection values (`Game::detection`) [design: shared by drawing and tree].
 /// Teammates and actors following the player (`Game::with_player`) count for neither
-/// `[CAUTION]` nor `[DETECTED]` (#1159); one in Combat with the player still means
-/// `[DANGER]` [design: a fight is a fight].
+/// `[ALERT]` nor `[SPOTTED]` (#1159); one in Combat with the player still means
+/// `[COMBAT]` [design: a fight is a fight].
 pub(crate) fn sneak_now(g: &fnv_game::Game) -> Sneak {
     let me = FormId::PLAYER_REF;
     let (mut fighting, mut searching) = (false, false);
@@ -1459,7 +1459,7 @@ fn texts(
             shown.1 = enemy;
         }
     }
-    // Living Anatomy: "HP:… DT:…" centred under the name, in its colour.
+    // Living Anatomy: "Health … DT …" centred under the name, in its colour.
     let anatomy = target.0.as_ref().and_then(|t| t.anatomy_line());
     if shown.3 != anatomy {
         if let Ok(e) = stats.single() {
@@ -1576,13 +1576,13 @@ mod tests {
     #[test]
     fn detected_names_the_first_detectors_then_counts_the_rest() {
         let n = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(detected_word(&[], 2), "[DETECTED]");
-        assert_eq!(detected_word(&n(&["Easy Pete"]), 2), "[DETECTED BY Easy Pete]");
-        assert_eq!(detected_word(&n(&["Easy Pete", "Sunny"]), 2), "[DETECTED BY Easy Pete and Sunny]");
-        assert_eq!(detected_word(&n(&["A", "B", "C"]), 3), "[DETECTED BY A, B and C]");
-        assert_eq!(detected_word(&n(&["A", "B", "C"]), 2), "[DETECTED BY A, B and 1 other]");
-        assert_eq!(detected_word(&n(&["A", "B", "C", "D"]), 1), "[DETECTED BY A and 3 others]");
-        assert_eq!(detected_word(&n(&["A", "B"]), 0), "[DETECTED BY 2]");
+        assert_eq!(detected_word(&[], 2), "[SPOTTED]");
+        assert_eq!(detected_word(&n(&["Easy Pete"]), 2), "[SPOTTED BY Easy Pete]");
+        assert_eq!(detected_word(&n(&["Easy Pete", "Sunny"]), 2), "[SPOTTED BY Easy Pete and Sunny]");
+        assert_eq!(detected_word(&n(&["A", "B", "C"]), 3), "[SPOTTED BY A, B and C]");
+        assert_eq!(detected_word(&n(&["A", "B", "C"]), 2), "[SPOTTED BY A, B and 1 other]");
+        assert_eq!(detected_word(&n(&["A", "B", "C", "D"]), 1), "[SPOTTED BY A and 3 others]");
+        assert_eq!(detected_word(&n(&["A", "B"]), 0), "[SPOTTED BY 2]");
     }
 
     #[test]
@@ -1782,7 +1782,7 @@ mod tests {
         assert_eq!(Sneak::of(false, true, true), Sneak::Caution);
         assert_eq!(Sneak::of(true, true, true), Sneak::Danger);
         assert!(Sneak::Danger.warning() && Sneak::Caution.warning() && !Sneak::Detected.warning());
-        assert_eq!(Sneak::Hidden.word(), "[HIDDEN]");
+        assert_eq!(Sneak::Hidden.word(), "[UNSEEN]");
     }
 
     #[test]
@@ -1862,7 +1862,7 @@ mod tests {
         let (lefts, width) = tick_lefts(ENEMY_MARKS.1 - ENEMY_MARKS.0, TICK_BLOCK, ENEMY_PIPS);
         let ticks = from + (lefts[0] + lefts[ENEMY_PIPS - 1] + width) / 2.0;
         assert!((ticks - ENEMY_MIDDLE).abs() < 0.5, "ticks {ticks} middle {ENEMY_MIDDLE}");
-        for name in ["Fiend", "Gecko", "Cazador", "NCR Trooper", "Legion Veteran Decanus", "HP:120 DT:4"] {
+        for name in ["Fiend", "Gecko", "Cazador", "NCR Trooper", "Legion Veteran Decanus", "Health 120  DT 4.0"] {
             let line = font.lines(name, None).remove(0);
             let x = centred_x(&font, &line, ENEMY_MIDDLE);
             let first = &line.glyphs[0];

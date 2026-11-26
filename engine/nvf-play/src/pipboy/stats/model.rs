@@ -358,8 +358,8 @@ mod tests {
         assert_eq!(karma_title_setting(1, "Neutral", padded).as_deref(), Some("From the plugin"));
         assert_eq!(karma_title(1, "Neutral", padded), "From the plugin");
         assert_eq!(reputation_title(0, 0), "Neutral");
-        assert_eq!(reputation_title(3, 0), "Idolized");
-        assert_eq!(reputation_title(1, 1), "Mixed");
+        assert_eq!(reputation_title(3, 0), "Celebrated");
+        assert_eq!(reputation_title(1, 1), "Uncertain");
     }
 
     #[test]

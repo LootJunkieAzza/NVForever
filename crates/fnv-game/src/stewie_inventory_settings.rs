@@ -48,6 +48,8 @@ impl Game<'_> {
             self.tweaks.no_lock_encounter_zone_levels
         } else if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("bFasterSleepWait") {
             self.tweaks.faster_sleep_wait
+        } else if section.eq_ignore_ascii_case("Tweaks") && key.eq_ignore_ascii_case("bUseWASDAsArrowKeys") {
+            self.tweaks.wasd_as_arrow_keys
         } else {
             return None;
         };

@@ -460,13 +460,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             XVal::Num(g.other.jg9.compass_hostile[k].map_or(-1.0, f64::from))
         }
         // GetCurrentSkyColor type rOut gOut bOut: the sky's colour of that type now
-        // [documented: 0 sky upper … 9 clouds upper], 0-255; 0 without a sky (an
-        // interior; see docs/spec-notes/ext-jg9.md §6).
+        // [documented: 0 sky upper … 9 clouds upper], as normalized 0.0..=1.0 floats (in
+        // interiors too); out-of-range types (or no sky state) return 0 and leave the
+        // output variables unchanged [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9
+        // + JohnnyGuitarNVSE 528, 2026-11-24, `w6_t1_09_jg_sky_color_interior` and
+        // `w6_t1_15b_raycast_ref_mat_reticle_sky`
+        // (`tools/capture/nvse/catalogs/wave6_t1_jg_sky_color.json`, `ext-jg9.md` §6)].
         "getcurrentskycolor" => {
             let c = int_arg(args, 0).filter(|t| (0..10).contains(t)).zip(g.other.jg9.sky_colors).map(|(t, c)| c[t as usize]);
             match c {
-                Some(c) => outputs(g, 1.0, &c.map(|x| f64::from(x).round())),
-                None => outputs(g, 0.0, &[0.0; 3]),
+                Some(c) => outputs(g, 1.0, &c.map(|x| f64::from(x) / 255.0)),
+                None => outputs(g, 0.0, &[]),
             }
         }
         // ref.GetPlayerCamFOV 0/1/2: the world FOV, the first person's, or the one the
