@@ -778,6 +778,13 @@ diagonal times the largest scale) is below `nvf_small_caster_texels()` texels of
 cascade's map (`Cascade::texel_size`) is left out of that cascade; `NVF_SMALL_CASTER_TEXELS`
 (default 1, 0 off). Meshes with `NoFrustumCulling` are never left out.
 
+Extended (`#4720`, `[design]`, marked `NVForever small casters` / `NVForever fast ortho X/Y
+pre-reject`): compares squared bounding radius (`radius_sq < min_radius_sq[cascade]`) to avoid
+4 `sqrt` calls per mesh, hoists `transform.affine()` out of the cascade loop, and extracts
+light-space orthographic X/Y rows from `Cascade::clip_from_world` (when row 3 is `(0, 0, 0, 1)`)
+to reject far meshes conservatively (`|c| > 1.0001 + r`) in 4 SIMD dot products before running
+the full 6-plane `Frustum::intersects_obb` test.
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 [documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]
