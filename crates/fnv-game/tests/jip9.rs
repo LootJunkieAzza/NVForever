@@ -312,6 +312,19 @@ fn the_position_into_script_variables() {
     let mut g = game(&f);
     let out = s(&mut g, "DoorRef.GetPosEx fX fY fZ\nlet sOut := sv_Construct \"%g %g %g\" fX fY fZ\nSetFunctionValue sOut");
     assert_eq!(out, "10 20 30");
+    // GetEditorPosition on a placed ref writes pos + angles in degrees and returns the
+    // origin cell; on Player (no editor placement) it returns 0 and leaves all six
+    // output variables unchanged [observed: w6_t1_03_pos_ex_and_editor_pos].
+    let ed_door = s(
+        &mut g,
+        "float rX\nfloat rY\nfloat rZ\nref c = DoorRef.GetEditorPosition fX fY fZ rX rY rZ\nlet sOut := sv_Construct \"%i %g %g %g %g %g %g\" c fX fY fZ rX rY rZ\nSetFunctionValue sOut",
+    );
+    assert_eq!(ed_door, format!("{CELL:08X} 10 20 30 0 0 0"));
+    let ed_pc = s(
+        &mut g,
+        "float rX = 444\nfloat rY = 555\nfloat rZ = 666\nfX = 111\nfY = 222\nfZ = 333\nref c = PlayerREF.GetEditorPosition fX fY fZ rX rY rZ\nlet sOut := sv_Construct \"%i %g %g %g %g %g %g\" c fX fY fZ rX rY rZ\nSetFunctionValue sOut",
+    );
+    assert_eq!(ed_pc, "00000000 111 222 333 444 555 666");
 }
 
 fn node(name: &str, parent: Option<usize>, translation: [f32; 3], rotation: [f32; 3], material: Option<[f32; 9]>) -> SceneNode {

@@ -1792,7 +1792,7 @@ pub(crate) mod tests {
         assert!(!from(MeshPipelineKey::NVF_SUN_VISIBILITY).contains(volume));
         assert!(!from(MeshPipelineKey::NVF_CLOUD_VOLUME_VISIBILITY).contains(volume), "not without the sun visibility");
         assert!(fullest_view_key().contains(sun | volume | MeshPipelineViewLayoutKey::NVF_AMBIENT_OCCLUSION | MeshPipelineViewLayoutKey::VIEW_TRANSMISSION_TEXTURE));
-        // The key bits stay clear of the packed fields (bits 30 on) and the base mesh key's.
+        // The key bits stay clear of the packed fields (bits 31 on) and the base mesh key's.
         assert_eq!(MeshPipelineKey::NVF_CLOUD_VOLUME_VISIBILITY.bits(), 1 << 29);
         let vendored = |p: &str| unix_lines(&std::fs::read_to_string(format!("{}/../vendor/bevy_pbr/src/render/{p}", env!("CARGO_MANIFEST_DIR"))).expect("vendored bevy_pbr"));
         let (mesh, view) = (vendored("mesh.rs"), vendored("mesh_view_bindings.rs"));

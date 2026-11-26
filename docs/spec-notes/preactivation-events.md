@@ -121,24 +121,33 @@ post-handler destroyed re-check follow `ShowOff:OnPreActivate` via shared
     (`0::`) and five arguments `(rItemBase, rItemRef, bIsActivationNotPrevented, iKey,
     bEquipping)` carrying forward the sticky `allowed` state from the non-Alt pass.
 - Scripted `EquipItem` (aid/weapon) and scripted `UnequipItem` (equipped weapon)
-  fire `ShowOff:OnPreActivateInventoryItemAlt` (only the Alt event, not non-Alt,
-  `na=0`) with `bEquipping = 1` and cancel equip/consume/unequip on
-  `SetFunctionValue 0` [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE
-  6.4.9, ShowOffNVSE 184, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base
-  masters, `tools/capture/nvse/catalogs/wave6d1_pre_activate_inv_alt_unequip.json`
-  probes `w6d1_15_pre_activate_inv_aid_and_unequip`
+  fire `ShowOff:OnPreActivateInventoryItemAlt` only (not non-Alt
+  `ShowOff:OnPreActivateInventoryItem`, `na=0`), with calling reference `Player`, an
+  inventory reference as arg 2 (`IsReference == 1`), `bIsActivationNotPrevented == 1`,
+  `iKey == 0`, and `bEquipping == 1`, both events register (`reg=1/1`), and
+  `SetFunctionValue 0` cancels equip/consume/unequip [observed: 2026-11-24,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+  ShowOffNVSE 184 + JIP LN 57.30 with the 10 official base masters, isolated clean-room
+  staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves),
+  committed probes `w6t2_02_showoff_pre_activate_inv_alt` and
+  `w6t2p2_02_pre_activate_inv_alt_allow_vs_omit`
+  (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+  `PROBE|w6t2_02_showoff_pre_activate_inv_alt|reg=1/1|eq=0,na=0,al=1,selfP=1,isRef=1,key=0,bEq=1|unAl=1,unBEq=1|vetoEq=0`
+  and
+  `PROBE|w6t2p2_02_pre_activate_inv_alt_allow_vs_omit|omit(eq=0,al=1,alw=1)|one(eq=0,al=2)|un(eq=0,al=2,bEq=1)|zero(eq=0)`,
+  and `tools/capture/nvse/catalogs/wave6d1_pre_activate_inv_alt_unequip.json` probes
+  `w6d1_15_pre_activate_inv_aid_and_unequip`
   (`na=0|aid(vetoCnt=7,vAl=1,vEq=1,alwCnt=6,aAl=2)|wep(veto=0,alw=1,postUn=0,unAl=1,unBEq=1)`)
   and `w6d1p3_15_unequip_alt_beq_and_veto`
-  (`pre=1|veto(eq=1,n=1,bEq=1)|alw(eq=0,n=2,bEq=1)`); no binary, DLL, PDB, or
-  third-party source consulted]. Passing `iKey = 0` and wiring scripted `UseAidItem`
-  (`Game::consume`) through `Game::pre_activate_inventory_item_alt` remain
-  `[hypothesis]`; gating the helper on whether the actor carries (or, for
-  `UnequipItem`, has equipped) the item is `[design]`.
+  (`pre=1|veto(eq=1,n=1,bEq=1)|alw(eq=0,n=2,bEq=1)`); zero DLL, PDB, or third-party
+  source consulted]. Wiring scripted `UseAidItem` (`Game::consume`) through
+  `Game::pre_activate_inventory_item_alt` remains `[hypothesis]`; gating the helper on
+  whether the actor carries (or, for `UnequipItem`, has equipped) the item is `[design]`.
 
 [design] Both helpers short-circuit with zero `temp_ref` allocation when no matching
 handler is registered, leaving unmodded vanilla behavior untouched. A per-`Game`
 re-entrancy guard (`ShowOffState::in_pre_activate_item`) prevents infinite recursion if
-a handler invokes `EquipItem` or `UseAidItem` from inside the callback. Exact original
-fourth/fifth integer encodings (`iKey`, `bEquipping`), scripted-vs-UI event split, and
-relative ordering between non-Alt and Alt handlers remain `[hypothesis]` pending
-original-game probe captures.
+a handler invokes `EquipItem` or `UseAidItem` from inside the callback. UI/hotkey
+activations (`iKey` `1..=8`), `bEquipping == 0` on unequip, `SetFunctionValue 0` veto
+outside char-gen, and relative ordering between non-Alt and Alt handlers remain
+`[hypothesis]` pending original-game probe captures.
