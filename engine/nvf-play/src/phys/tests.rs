@@ -1382,3 +1382,27 @@ fn a_ragdoll_standing_on_a_floor_below_the_terrain_is_not_lifted() {
     let pose = [(0, [2600.0, 2000.0, t - 200.0]), (1, [2000.0, 2010.0, t - 345.0])];
     assert_eq!(p.lift_from_under(&pose, 0.0), None);
 }
+
+#[test]
+fn swapping_equal_ref_count_cells_advances_ref_cell_rev_and_invalidates_mines_idle_key() {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = state(true);
+    let cell_a = PhysCell::Exterior(0, 0);
+    let cell_b = PhysCell::Exterior(1, 0);
+
+    p.load(&ctx, cell_a);
+    let len_a = p.ref_cell.len();
+    let rev_a = p.ref_cell_or_created_rev();
+    let key_a = crate::mines::mines_idle_key(&sim, &p, None);
+    assert!(len_a > 0 && rev_a > 0);
+
+    // Swap cell A for cell B with the exact same ref count: len() matches, but the revision
+    // and MinesIdleKey must advance so mines::tick rescans the new cell's placed mines.
+    p.unload(cell_a);
+    p.load(&ctx, cell_b);
+    assert_eq!(p.ref_cell.len(), len_a);
+    assert!(p.ref_cell_or_created_rev() > rev_a);
+    let key_b = crate::mines::mines_idle_key(&sim, &p, None);
+    assert_ne!(key_a, key_b);
+}

@@ -387,3 +387,18 @@ fn temporary_scene_models_resolve_overrides_and_inherited_paths_consistently() {
         assert_eq!(created_draws_model(&play, &sim.world, alias, 0), drawn);
     }
 }
+
+#[test]
+fn pending_spawn_keeps_dropped_sync_cache_open_until_model_loads() {
+    let key_before_spawn = DroppedSyncKey { epoch: 1, non_actor_gen: 7, cell_count: 1, cell_sig: 0x1234, drawn_len: 0 };
+    // Model still loading or missing during spawn: cache must stay None so the next frame retries.
+    let last_sync = next_sync_key(true, key_before_spawn);
+    assert_eq!(last_sync, None);
+    assert_ne!(last_sync, Some(key_before_spawn));
+
+    // Once the model becomes available and spawns (drawn_len increments, pending_spawn = false),
+    // the key is recorded and subsequent unchanged frames hit the cache.
+    let key_after_spawn = DroppedSyncKey { drawn_len: 1, ..key_before_spawn };
+    let cached = next_sync_key(false, key_after_spawn);
+    assert_eq!(cached, Some(key_after_spawn));
+}

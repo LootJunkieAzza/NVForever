@@ -240,6 +240,20 @@ impl Plugin for DroppedPlugin {
 type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transform), Without<DroppedRoot>>;
 
 /// Bring the drawn created references in line with the simulation ([`plan`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct DroppedSyncKey {
+    epoch: u64,
+    non_actor_gen: u64,
+    cell_count: usize,
+    cell_sig: u64,
+    drawn_len: usize,
+}
+
+#[inline]
+fn next_sync_key(pending_spawn: bool, key: DroppedSyncKey) -> Option<DroppedSyncKey> {
+    (!pending_spawn).then_some(key)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn sync_drawn(
     mut commands: Commands,
@@ -251,8 +265,44 @@ fn sync_drawn(
     mut drawn: ResMut<Drawn>,
     mut models: ModelCtx,
     mut not_drawn: Local<BTreeSet<(FormId, u8)>>,
+    mut last_sync: Local<Option<DroppedSyncKey>>,
     phys: Option<Res<crate::phys::PhysState>>,
 ) {
+    let redraw_empty = phys.as_deref().is_none_or(|p| p.between.redraw.is_empty());
+    let mut cell_count = 0usize;
+    let mut cell_sig = 0u64;
+    for (e, _, t) in &cells {
+        cell_count += 1;
+        let bits = e.to_bits()
+            ^ ((t.translation.x.to_bits() as u64) << 1)
+            ^ ((t.translation.y.to_bits() as u64).rotate_left(21))
+            ^ ((t.translation.z.to_bits() as u64).rotate_left(42));
+        cell_sig = cell_sig.wrapping_add(bits.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    }
+    let sync_key = DroppedSyncKey {
+        epoch: sim.world.created_epoch(),
+        non_actor_gen: sim.world.non_actor_created_gen(),
+        cell_count,
+        cell_sig,
+        drawn_len: drawn.0.len(),
+    };
+    if *last_sync == Some(sync_key) {
+        if redraw_empty {
+            return;
+        }
+        // Only physics-driven dropped items moved this frame: update their transforms
+        // directly without scanning `sim.world.non_actor_created()` or rebuilding the spawn plan [design].
+        if let Some(p) = phys.as_deref() {
+            for &id in &p.between.redraw {
+                let Some(r) = drawn.0.get(&id) else { continue };
+                let Some(origin) = cells.get(r.cell_entity).ok().map(|(_, _, t)| t.translation) else { continue };
+                let Ok(mut t) = transforms.get_mut(r.root) else { continue };
+                let at = p.drawn_ref_pose(id).map_or_else(|| r.at.affine(), |(pos, rot)| crate::moved::ref_affine_matrix(pos, &rot, 1.0));
+                *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * at));
+            }
+        }
+        return;
+    }
     let loaded: HashMap<RenderCell, (Entity, Vec3)> = cells.iter().map(|(e, c, t)| (*c, (e, t.translation))).collect();
     // Drawn under a cell entity that is gone (render streaming, door travel: the root
     // went with it) or was replaced by a new load of the same cell in one frame.
@@ -267,7 +317,7 @@ fn sync_drawn(
     // Created actors (PlaceAtMe of an actor base) are actors, drawn and moved by the
     // engine's residents (nvforever `residents.rs`), not dropped items.
     let forms = sim.world.forms;
-    let wanted = Placed::wanted(d.index, sim.world.created().filter(|(_, s)| !fnv_game::ai::is_actor_base(forms, s.base)));
+    let wanted = Placed::wanted(d.index, sim.world.non_actor_created().filter(|(_, s)| !fnv_game::ai::is_actor_base(forms, s.base)));
     let was: BTreeMap<u32, Placed> = drawn.0.iter().map(|(&id, r)| (id, r.at)).collect();
     let p = plan(&wanted, &was, |c| loaded.contains_key(&c));
     for id in &p.despawn {
@@ -294,6 +344,7 @@ fn sync_drawn(
         let at = phys.as_deref().and_then(|p| p.drawn_ref_pose(id)).map_or_else(|| r.at.affine(), |(pos, rot)| crate::moved::ref_affine_matrix(pos, &rot, 1.0));
         *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-*origin) * at));
     }
+    let mut pending_spawn = false;
     for id in p.spawn {
         let w = wanted[&id];
         let (cell_e, origin) = loaded[&w.cell];
@@ -309,12 +360,14 @@ fn sync_drawn(
         }
         let Some(path) = created_model_path(&d, &sim.world, base, mods) else {
             warn_once!("dropped reference 0x{id:08X}: base {base} has no model to draw");
+            pending_spawn = true;
             continue;
         };
         let original = sim.world.temporary_scene_base(base).map_or(base,|descriptor|descriptor.original);
         let swaps = model_swaps(&d, original, mods);
         let Some(model) = models.model_swapped(&path, false, &swaps) else {
             warn_once!("dropped reference 0x{id:08X}: model {path} could not be loaded");
+            pending_spawn = true;
             continue;
         };
         let t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * w.affine()));
@@ -353,6 +406,16 @@ fn sync_drawn(
         );
         drawn.0.insert(id, DrawnRef { root, cell_entity: cell_e, at: w });
     }
+    *last_sync = next_sync_key(
+        pending_spawn,
+        DroppedSyncKey {
+            epoch: sim.world.created_epoch(),
+            non_actor_gen: sim.world.non_actor_created_gen(),
+            cell_count,
+            cell_sig,
+            drawn_len: drawn.0.len(),
+        },
+    );
 }
 
 #[cfg(test)]

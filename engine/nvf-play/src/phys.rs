@@ -96,6 +96,10 @@ pub struct PhysState {
     pub ref_cell: HashMap<u32, PhysCell>,
     /// References created at run time (dropped items) that have collision now.
     pub created: BTreeMap<u32, CreatedBody>,
+    /// Monotonic revision bumped whenever `ref_cell` or `created` changes membership so
+    /// caches keyed on loaded physics refs (e.g. `crate::mines`) never alias equal-length
+    /// cell swaps [design].
+    ref_cell_or_created_rev: u64,
     /// Placed references with one dynamic collision object, in the world now.
     pub placed_dynamic: BTreeMap<u32, PlacedDynamic>,
     /// Placed references whose pose [`PhysState::settle_placed`] wrote to the simulation
@@ -234,6 +238,7 @@ impl Default for PhysState {
             cells: BTreeMap::new(),
             ref_cell: HashMap::new(),
             created: BTreeMap::new(),
+            ref_cell_or_created_rev: 0,
             placed_dynamic: BTreeMap::new(),
             moved_now: Vec::new(),
             follow_only: BTreeSet::new(),
@@ -1143,6 +1148,7 @@ impl PhysState {
                 continue;
             }
             self.ref_cell.insert(e.form_id, cell);
+            self.bump_ref_cell_or_created();
             let shapes = e.shapes;
             with_collision += self.apply(ctx, e.placement, |_| shapes.expect("prepared with its placement")) as usize;
         }
@@ -1158,6 +1164,7 @@ impl PhysState {
             .collect();
         for r in created {
             self.ref_cell.insert(r, cell);
+            self.bump_ref_cell_or_created();
             with_collision += self.add_created(ctx, r) as usize;
             ids.push(r);
         }
@@ -1305,6 +1312,7 @@ impl PhysState {
                     if self.ref_cell.get(&r) == Some(&cell) {
                         if let Some(other) = self.cells.iter().find(|(_, o)| o.refs.contains(&r)).map(|(k, _)| *k) {
                             self.ref_cell.insert(r, other);
+                            self.bump_ref_cell_or_created();
                         }
                     }
                     continue;
@@ -1312,7 +1320,9 @@ impl PhysState {
                 self.held.remove(&r);
             }
             self.world.remove_ref(r);
-            self.created.remove(&r);
+            if self.created.remove(&r).is_some() {
+                self.bump_ref_cell_or_created();
+            }
             self.placed_dynamic.remove(&r);
             self.doors.remove(&r);
             self.animated.remove(&r);
@@ -1322,6 +1332,7 @@ impl PhysState {
             self.repose_pending.remove(&r);
             if self.ref_cell.get(&r) == Some(&cell) {
                 self.ref_cell.remove(&r);
+                self.bump_ref_cell_or_created();
             }
         }
         debug!("physics cell {cell:?} unloaded");
@@ -1454,7 +1465,9 @@ impl PhysState {
         let off = self.world.set_ref_keyframed_solid(id, true) > 0;
         self.world.remove_ref(id);
         let built = if FormId(id).is_dynamic() {
-            self.created.remove(&id);
+            if self.created.remove(&id).is_some() {
+                self.bump_ref_cell_or_created();
+            }
             self.add_created(ctx, id)
         } else {
             self.placed_dynamic.remove(&id);
@@ -1529,7 +1542,9 @@ impl PhysState {
                 if self.world.remove_ref(id) {
                     debug!("collision of {id:08X} removed");
                 }
-                self.created.remove(&id);
+                if self.created.remove(&id).is_some() {
+                    self.bump_ref_cell_or_created();
+                }
                 self.move_created(id, None);
             }
             Some(c) => {
@@ -1539,6 +1554,22 @@ impl PhysState {
                 }
             }
         }
+    }
+
+    /// Monotonic revision bumped whenever `ref_cell` or `created` changes membership [design].
+    pub fn ref_cell_or_created_rev(&self) -> u64 {
+        self.ref_cell_or_created_rev
+    }
+
+    #[inline]
+    fn bump_ref_cell_or_created(&mut self) {
+        self.ref_cell_or_created_rev = self.ref_cell_or_created_rev.wrapping_add(1);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_ref_cell_for_test(&mut self, id: u32, cell: PhysCell) {
+        self.ref_cell.insert(id, cell);
+        self.bump_ref_cell_or_created();
     }
 
     /// Track a created reference in loaded physics cell `to` (or in none).
@@ -1555,6 +1586,7 @@ impl PhysState {
             c.1.refs.push(id);
             self.ref_cell.insert(id, c.0);
         }
+        self.bump_ref_cell_or_created();
     }
 
     /// Add a created reference's collision: its base form's model at the simulation's
@@ -1620,6 +1652,7 @@ impl PhysState {
         }
         let added_at = self.world.stepped_secs();
         self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_at, settled: false, marks: 0, rested_at: None, sank: false });
+        self.bump_ref_cell_or_created();
         true
     }
 
@@ -1716,6 +1749,9 @@ impl PhysState {
         self.note_created_sinking(woke, awake);
         for id in lost {
             let start = self.created.remove(&id).map(|c| c.start);
+            if start.is_some() {
+                self.bump_ref_cell_or_created();
+            }
             self.world.remove_ref(id);
             if let (Ok(s), Some(start)) = (sim.get(FormId(id)), start) {
                 s.pos = start;
