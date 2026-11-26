@@ -329,6 +329,17 @@ the bullet and note the ruling in the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Killing soldiers of a side you started a fight with costs karma (#3401).** [design:
+  your earlier ask that killing innocents cost karma] A Neutral NPC killed in a fight the
+  player started is a murder, −25 karma each (a quarter of `fKarmaModKillingEvilActor`).
+  Legion soldiers are Neutral in the data (karma 0; VCaesarsLegionFaction has no Evil
+  flag), so opening fire on Nipton's Legion costs 25 karma per legionary, while Vulpes
+  (Very Evil) gives +100. Players on Discord and in #3401 expect no karma for Neutral
+  enemies, as they believe the original does (not observed yet). Choices: (a) keep it;
+  (b) a Neutral NPC already fighting the player when it dies is no murder, whoever
+  started the fight, which keeps the cost for shooting bystanders; (c) Neutral kills give
+  no karma at all, as HelpKarma's rule reads. Until you rule, (a) stays
+  ([crime-karma §4](spec-notes/crime-karma.md)).
 - **Chinese and other multi-byte game text, and a bundled font (#1443 step 4).** [design,
   #1443] NVForever's own words have a Simplified Chinese file (`lang/zh.toml`) and the
   menus draw it with a CJK font only when the system has one or `[Interface] CjkFontPath`

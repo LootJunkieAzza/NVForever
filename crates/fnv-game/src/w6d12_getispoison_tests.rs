@@ -61,7 +61,22 @@ fn getispoison_rejects_non_alch_and_tracks_dynamic_addneweffect() {
     assert_eq!(qn(&mut g, "GetIsPoison GpPois"), 1.0);
     assert_eq!(qn(&mut g, "GetIsPoison GpSpel"), 0.0);
     assert_eq!(qn(&mut g, "GetIsPoison GpEnch"), 0.0);
-    // Adding a non-hostile effect turns a poison ALCH into non-poison.
+    // TempCloneForm ALCH inherits poison status (cl0=1) and adding a non-hostile
+    // effect flips the clone to 0 (cl1=0) while leaving the original ALCH at 1.
+    let cl_flip = g.run_query("Begin Function {}
+ref rCl
+let rCl := TempCloneForm GpPois
+int a0
+let a0 := GetIsPoison rCl
+AddNewEffect rCl GpHeal 5 10 0 0 1
+int a1
+let a1 := GetIsPoison rCl
+SetFunctionValue (a0 * 10 + a1)
+End
+", Default::default()).unwrap();
+    assert_eq!(cl_flip, XVal::Num(10.0));
+    assert_eq!(qn(&mut g, "GetIsPoison GpPois"), 1.0);
+    // Adding a non-hostile effect directly on the base poison ALCH also flips it to 0.
     g.run_query("Begin Function {}
 AddNewEffect GpPois GpHeal 5 10 0 0 1
 End

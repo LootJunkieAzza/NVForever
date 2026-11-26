@@ -18,9 +18,20 @@ function with the same filters again replaces it; `0 …` with the same function
 removes it. The handlers are the session's state (`OtherState::jg8`), so a loaded save
 starts without them [documented: "flushed every game load"]. A filter given as a form
 matches that form, a reference of that base, or a member of that form list [documented:
-"Formlists are also accepted as filters"]. A number filter matches an equal number. A 0
-where a form goes means no filter [hypothesis: scripts pass 0 for "any"]. A handler may take
-fewer arguments than it is given.
+"Formlists are also accepted as filters"]. A number filter matches an equal number.
+`XMarker` (`0x0000003B`) in a form filter slot means no filter on
+`SetOnReputationChangeEventHandler` dispatch (`xm=1`) and registers/unregisters returning
+`0` with form type `21` on `SetJohnnyOnCrosshairEventHandler` (`xh(0,0)`) [observed
+2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN
+57.30, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room
+staging copy, committed probe `w6t2p2_12_jg_reputation_and_crosshair_xmarker`
+(`tools/capture/nvse/catalogs/wave6c_jg8_xmarker_wildcard.json`):
+`PROBE|w6t2p2_12_jg_reputation_and_crosshair_xmarker|xh(0,0)|fame(n=0,rOk=0,ax=0,v=0.0)|inf(n=1,ax=1.08423e+09,v=3.0)|xm=1`;
+no DLL or source consulted]; applying `XMarker` as wildcard to the remaining unprobed
+`nvse_jg8.rs` handlers (`FailQuest`, `LimbGone`, `SeenData`, `ProcessLevel`,
+`NpcActorValue`, `GeneralSubtitle`, `RadioPostSound`, `TakeBackItem`) is [hypothesis]; a 0
+where a form goes also means no filter [hypothesis: scripts pass 0 for "any"]. A handler may
+take fewer arguments than it is given.
 
 | Function | Fired by | Arguments |
 |---|---|---|
@@ -30,11 +41,11 @@ fewer arguments than it is given.
 | SetOnProcessLevelChangeEventHandler `[actor] [new level]` | an actor entering or leaving the loaded area: 3 → 0 or 0 → 3, as GetActorsByProcessingLevel reads the levels (`nvse_gaps`) | actor, old, new [documented]; levels 1 and 2 never occur [hypothesis, as there] |
 | SetOnActorValueChangeEventHandler `set function flag [code]` | every change of one of the player's values wherever it is written (`functions::actor::told`): scripts, aid and hit effects, hits; never another actor's, and not the derived skills NVForever works out on reading [documented: "limited to Player's actor value changes", the notes on derived skills]. A change a handler makes is not told again [our choice]. Before #2134 only the script functions told it, for any actor [observed: jip_events2, the original's first change was the player's Health +40 after the aid item] | code, old, new; whole numbers unless flag bit 0 [documented] |
 | SetOnNPCActorValueChangeEventHandler `[actor] [code]` | the watched actor value functions (`functions::actor`), never for the player [documented] | actor, code, old, new; whole numbers unless flag bit 0 [documented] |
-| SetOnReputationChangeEventHandler `[reputation]` | each reputation axis stored (`functions::reputation::store`) | reputation, axis (0 fame, 1 infamy), value [hypothesis: the page gives no arguments] |
+| SetOnReputationChangeEventHandler `[reputation]` | each reputation axis stored (`functions::reputation::store`) | reputation, fame, infamy [observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN 57.30, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging copy, committed probe `w6t2p3_12_rep_fame_infamy` (`tools/capture/nvse/catalogs/wave6c_jg8_reputation_args.json`): `PROBE\|w6t2p3_12_rep_fame_infamy\|s1(n=1,rOk=1,fame=5.0,inf=0.0)\|s2(n=2,fame=5.0,inf=3.0)`; no DLL or source consulted] |
 | SetOnNPCResponseEventHandler `[emotion]` | each response of the player's conversation (`dialogue.rs` emit_response) | text, voice path, emotion, emotion value, response number [documented]; the path from the host's voice index (`VoiceLengths::response_path`, `fnv_voice::VoiceBank`), "" without one |
 | SetJohnnyOnSleepWaitEventHandler `[mode]` | the hours of the wait menu starting to pass (`Game::begin_rest`) | 1 wait, 2 sleep; filter 0 both [documented] |
 | SetOnGeneralSubtitleEventHandler `[speaker]` | a line said outside the player's conversation (Say, SayTo, greetings, `Game::say_line`) | speaker, the first response's text, topic [hypothesis: the page gives no arguments] |
-| SetJohnnyOnCrosshairEventHandler `[form] [form type]` | the activation reach coming onto a reference (`nvf-play` activate.rs) | the reference [documented]; the type filter is the base's form type code (`functions::items::form_type_code`) |
+| SetJohnnyOnCrosshairEventHandler `[form] [form type]` | the activation reach coming onto a reference (`nvf-play` activate.rs) | the reference [documented: SetJohnnyOnCrosshairEventHandler]; the type filter is the base's form type code (`fnv_script::vm::form_type_code`, covering all record types including `ACTI` = 21 [documented: Form Type IDs, SetJohnnyOnCrosshairEventHandler]) |
 | SetJohnnyOnSettingsUpdateEventHandler (SetOnSettingsUpdateEventHandler) | `Game::jg8_settings_closed`, for the engine's settings menu | none [documented] |
 | SetJohnnyOnKeyboardControllerSelectionChangeEventHandler (SetOnKBCTrlUIDeltaHandler) `[menu]` | keyboard/controller navigation moving tile highlight in `ui_input::step` (`Game::jg8_keyboard_selection`); compiles, accepts `0` as the menu filter on register/unregister, and returns `0` [observed: 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `w4c_b3_08_jg8_event_regs` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3678 / PR #3679), registering and unregistering a helper UDF with filter `0`: `limb=0,seen=0,proc=0,sub=0,kb=0`; no DLL or source consulted]; `MenuID` `0` or omitted matching any menu at dispatch time remains [hypothesis: menu ID filter 0 = any] | menu ID [hypothesis: mod UI handlers take `{iMenuID}` alongside `SetOnMouseoverChangeEventHandler`; observer check] |
 | SetJohnnyOnRadioPostSoundAttachEventHandler, SetOnTakeBackItemEventHandler `[form] [form]` | kept; nothing fires them yet (follow-up) | radio, mode; [hypothesis] item, count |

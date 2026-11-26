@@ -144,6 +144,10 @@ pub struct Ragdolls {
     /// whose stored pose did not fit their skeleton.
     pub authored: usize,
     pub authored_skipped: usize,
+    /// Corpses whose stored pose (`XRGD`) is on a skeleton other than the one its reading
+    /// was checked on ([`authored_pose::CHECKED_ROOT`](crate::authored_pose::CHECKED_ROOT)):
+    /// they start awake from that pose and settle, not held in it (#3408).
+    pub settle_from_stored: HashSet<u32>,
     /// Ragdolls held at rest at the end of their time limit ([`MAX_AWAKE`] and the others)
     /// while still moving, after their settle; and how many of them had
     /// [`MAX_AWAKE_CROWDED`].
@@ -616,8 +620,14 @@ fn start(
         let (nodes, lifted) = out_of_terrain(&mut phys, rig.reference, &c, nodes, stored.is_some());
         let parts = body_parts(rig, &c, limbs);
         // A saved pose lifted out of the ground starts awake, to come down onto it: held at
-        // rest it would hover where it was lifted to.
-        let asleep = stored.is_some() && !lifted;
+        // rest it would hover where it was lifted to. So does a designer's pose on a
+        // skeleton its reading was not checked on (`settle_from_stored`, #3408): held, the
+        // Capital Wasteland's dead brahmin at Arefu hung in the air upside down.
+        let settle = stored.is_some() && ragdolls.settle_from_stored.contains(&rig.reference);
+        let asleep = stored.is_some() && !lifted && !settle;
+        if settle && !lifted {
+            info!("ragdoll: actor {:08X} starts awake from the pose its reference stores, to settle: a skeleton the stored poses' reading was not checked on", rig.reference);
+        }
         let velocity = std::mem::take(&mut c.velocity);
         let start = RagdollStart { form_id: rig.reference, ragdoll: &c.data, scale, nodes: &nodes, velocity, parts: &parts, asleep };
         // Bad ragdoll data that breaks the physics build (a panic, caught), or the test aid

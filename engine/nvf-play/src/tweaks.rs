@@ -3389,6 +3389,11 @@ pub(crate) fn sync(
         }
         // The loaded ammo's mark, and the player's tweak for containers.
         let loaded = combat.as_deref().and_then(|c| c.player_ammo());
+        // The ammo the weapon in hand can fire: the rest is dimmed in the Pip-Boy (#3442).
+        let firable = combat.as_deref().map(|c| c.player_weapon().and_then(|w| c.forms.weapons.get(&w)).map(|w| c.forms.ammo_choices(w)).unwrap_or_default());
+        if m.firable_ammo != firable {
+            m.firable_ammo = firable;
+        }
         if (m.current_ammo, m.ammo_mark_in_containers) != (loaded, tweaks.containers_show_ammo) {
             // The rows take it at the list's next refresh (opening, any change).
             (m.current_ammo, m.ammo_mark_in_containers) = (loaded, tweaks.containers_show_ammo);

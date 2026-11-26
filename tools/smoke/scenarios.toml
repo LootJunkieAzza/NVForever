@@ -335,6 +335,31 @@ expect = [
 forbid = ["composed shaders: not saved", "pipeline cache: not saved", "pipeline list: not saved", "Caught rendering error", "Mismatched pop_error_scope"]
 
 [[scenario]]
+name = "gpu-sheds-over-budget"
+source = "#2754 (an 8 GB card at 1440p held 7,037 of its 6,844 MB budget and stalled 1-2 s at a time; #3349 a lost device over budget): over 95 % of the GPU budget at two checks in a row the game gives memory back one step at a time, at most one every 10 s (shadow maps 4096 to 2048, then multisampling 8x to 4x, then 4x to 2x), logs the use before and after each step and tells the player (engine/nvforever/src/memory_budget.rs)"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/graphics.rs"]
+# Goodsprings on foot holds about 1,070 MB at 2048 maps and 4x (2026-11-25), under 95 % of the test aid's 1,150 MB, so nothing is lowered until the settings page sets 4096 maps and 8x (anti-aliasing 0.5 is the fourth of seven choices); those take it over, and each step follows while it stays over.
+env = { NVF_PLAY_TEST_VRAM_MB = "1150", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "3:4", NVF_PLAY_TEST_SETTINGS = "3.3:shadow-resolution=4096,3.6:anti-aliasing=0.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows", "--size", "1920x1080"]
+run_seconds = 45
+expect = [
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: shadow resolution lowered to 2048 to give memory back', count = 1, label = "the shadow maps go to 2048 first" },
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: anti-aliasing lowered to 4x to give memory back', count = 1, label = "then 8x multisampling to 4x" },
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: anti-aliasing lowered to 2x to give memory back', count = 1, label = "then 4x to 2x" },
+  { re = 'memory budget: after shadow resolution lowered to 2048 this process holds \d+ of 1150 MB \(it held \d+ MB\)', label = "the use after the step is logged" },
+]
+order = [[
+  "settings: shadow-resolution 4096",
+  { text = "sun shadows: maps 4096 x 4096 texels", label = "the maps go to 4096" },
+  { re = 'shadow resolution lowered to 2048 to give memory back', label = "the shadow step" },
+  { text = "sun shadows: maps 2048 x 2048 texels", label = "the maps are 2048 again" },
+  { re = 'anti-aliasing lowered to 4x to give memory back', label = "the first multisampling step" },
+  { re = 'anti-aliasing lowered to 2x to give memory back', label = "the second" },
+]]
+forbid = ["Caught rendering error", "Mismatched pop_error_scope", "lowered to 1024", "lowered to Off"]
+
+[[scenario]]
 name = "memory-budget-capped"
 source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
 areas = ["renderer"]
@@ -4160,6 +4185,20 @@ order = [[
   { text = "furniture: 00104C80 gets off 0010634A", label = "getting off it" },
   { text = "furniture: 00104C80 is on 00176ACE", label = "on his bed 00176ACE" },
 ]]
+
+[[scenario]]
+name = "upright-talk-from-the-side"
+source = "#3446 (player reports, 0.8.1: NPCs lie flat for a moment as they are talked to; #2859, fixed by #2860: a turn clip's tilted accumulation root): Sunny Smiles is put 120 units to the player's side and talked to as she walks off to the saloon, the player 161° off her front, so her body turns round to face the player; a standing actor whose pelvis -> head line leans past 60° is logged (engine/nvforever/src/upright.rs) and none may"
+areas = ["dialogue", "locomotion"]
+paths = ["engine/nvforever/src/upright.rs", "engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:moveto:SunnyRef:player:120:0:0,9:activate:SunnyRef" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  "dialogue: conversation with SunnyRef started",
+  { re = 'upright: 0 tips of standing actors seen', label = "nobody standing leans over" },
+]
+forbid = [{ re = 'upright: .* leans \d+° from upright while standing', label = "a standing actor lay over" }]
 
 [[scenario]]
 name = "force-greet"
@@ -8568,6 +8607,21 @@ expect = [
   { re = 'process summary: .* (?P<n>\d+) fell out of the cell buffer', range = [10, 100000], label = "process summary: ten or more fell out of the cell buffer" },
   { re = 'process summary: .* (?P<n>\d+) every 120 s \(', range = [10, 1000000], label = "process summary: Low-level updates every 120 s" },
 ]
+
+[[scenario]]
+name = "creature-stored-pose-settles"
+source = "issue #3408 (TTW report: dead brahmin at Arefu stood on their heads or hung above the ground beside a fence): a creature corpse's stored pose (XRGD) read with the human skeleton's reading floats or sinks, so on a skeleton other than the human one it starts awake in that pose and settles (engine/nvforever/src/deaths.rs, ragdoll.rs, authored_pose.rs CHECKED_ROOT; dead-on-spawn.md §5)"
+note = "the base game alone: DEADCaravanBrahmin 0x000F6909 (WastelandNV, stored pose above the ground, not lifted); before the fix it was held in its stored pose ('at rest ... after 0.0 s of physics') [observed 2026-11-25]; the Arefu corpses themselves need TTW's data, which is not a smoke data dir"
+areas = ["ragdoll", "deaths"]
+paths = ["engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1" }
+args = ["--play", "--pos=-11967,45400,4250", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  "ragdoll: actor 000F6909 starts awake from the pose its reference stores, to settle",
+  { re = 'ragdoll: actor 000F6909 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone, after (?P<s>[\d.]+) s of physics', range = [-1000, 35], label = "the brahmin settles lying down" },
+]
+forbid = [{ re = 'ragdoll: actor 000F6909 at rest at .* after 0\.0 s of physics', label = "not held in the stored pose without physics" }]
 
 [[scenario]]
 name = "dead-on-spawn"
@@ -27616,7 +27670,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 12
 expect = [
   { re = 'script: print "nvf ray down 1 1[0-9][0-9]"', label = "a cast straight down from 100 above the player meets the ground about 100 below its start" },
-  { re = 'script: print "nvf between 0 90"', label = "the way east: pitch 0, heading 90" },
+  { re = 'script: print "nvf between 0 -90"', label = "the way east: pitch 0, heading -90 [observed: w6_t1_01_angles_between_points]" },
 ]
 
 [[scenario]]
@@ -35519,7 +35573,7 @@ name = "load-phases-goodsprings"
 source = "#2407: players' Goodsprings door and save loads took 20-37 s; a loading screen now logs, and a slow load reports, when each thing it waited for came in, its longest frame and what the game files gave under it (nvf_play::loading::LoadPhases, fnv_vfs::read_stats). Out of Doc Mitchell's house into Goodsprings, the heaviest door of a new game"
 note = "2026-11-15 on the bench (i9-14900K, RTX 4070, SATA SSD, files in the OS cache): the start 2.4 s, the door 2.5 s with 2,106 files (248 MB) read. The cap is the reports' slow-load limit (reports/anomaly.rs SLOW_LOAD_MS), far above it"
 areas = ["loading", "streaming"]
-paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs"]
+paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs", "engine/vendor/bevy_render/src/render_resource/pipeline_cache.rs"]
 env = { NVFOREVER_HOME = "load-phases-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 20
@@ -35530,6 +35584,7 @@ order = [[
 ]]
 expect = [
   { re = 'loading screen down after (?P<n>[\d.]+) s$', range = [0, 20], all = true, label = "the door's load stays under the 20 s slow-load limit" },
+  { re = 'loading screen phases: up .*; (?P<n>\d+) pipelines compiled: [\d.]+ s queued for a thread, [\d.]+ s for the shader cache, [\d.]+ s composing, [\d.]+ s making modules, [\d.]+ s creating', range = [1, 100000], label = "the start's screen says where its pipelines' time went (#2407)" },
 ]
 
 [[scenario]]

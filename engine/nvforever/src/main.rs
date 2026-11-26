@@ -117,6 +117,7 @@ mod hdr_calibrate;
 mod aerial;
 mod fly;
 mod foot_ik;
+mod upright;
 mod anti_lag;
 mod dlss;
 mod dlss_download;
@@ -2321,6 +2322,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(turret_aim::TurretAimPlugin);
         // Also with --no-foot-ik: the settings page can switch it on.
         app.add_plugins(foot_ik::FootIkPlugin { enabled: !args.no_foot_ik });
+        app.add_plugins(upright::UprightPlugin);
         // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the
         // --npc-travel walkers' too, without --play.
         app.add_plugins(actor_jumps::ActorJumpsPlugin { physics: play.is_some() });

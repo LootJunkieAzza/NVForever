@@ -64,6 +64,17 @@ ran.
   left read -1 (gone) and the handler had run once, with the player as owner [observed]. It
   runs again on `AuxTimerStop name 1` [observed]; AuxTimerStop fires the event only when its
   fireEvent argument is non-0 [documented].
+- Registration and removal via `SetOnAuxTimerStopHandler` take effect on the next frame
+  (stopping in the same frame as registration does not fire; stopping on the next frame
+  fires; stopping in the same frame as removal still fires), and both Start and Stop
+  handlers execute with null calling reference (`GetSelfAlt == 0`) [observed: 2026-11-24,
+  Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters,
+  `tools/capture/nvse/catalogs/wave6d1_aux_timer_stop_deferred_and_self.json` probes
+  `w6d1p3_27_aux_timer_stop` (`same=0,noev=0,next=1,remSame=1|nm=[sNm],ownP=1,s0=1,sP=0`)
+  and `w6d1p3_28_aux_timer_start_and_clear` (`st(n=1,nm=[sNm],s0=1,sP=0)`); no binary,
+  DLL, PDB, or third-party source consulted]. Update handlers likewise pass `None` as the
+  calling reference [hypothesis].
 - NVForever checks the running timers each frame and erases and reports the ones whose time
   is up. Before this, a timer whose time was up stayed with 0 seconds left.
 
@@ -106,10 +117,19 @@ ran.
   (`Game::take_force_jam_requests`). For the player, `nvf_play::combat::fire` interrupts
   any active reload or attack phase via `Cycle::jam` and increments `WeaponAnim::jams`
   (which `nvforever::player_body` plays on the reload layer, interrupting any active reload
-  clip) while reporting `AnimAction::Jam` (code `9` for `GetAnimAction`, while
-  `IsAnimPlayingEx 4` remains `0` and `SetOnReloadWeaponEventHandler` does not fire;
-  generalizing `Phase::Jammed -> AnimAction::Jam` (`9` instead of `13`) to natural vanilla
-  weapon-condition jams is [hypothesis]).
+  clip) while reporting `AnimAction::Jam` (code `9` for `GetAnimAction`, `IsAnimPlayingEx 4`
+  remains `0`, `GetSequenceAnimGroup 4` reads `200` `JamA`, and JIP's
+  `SetOnReloadWeaponEventHandler` fires on jam entry [observed 2026-11-24: Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528 + ShowOffNVSE 184,
+  10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room
+  staging copy, committed probe `w6t2_14_jip_on_reload_and_seq_anim_group`
+  (`tools/capture/nvse/catalogs/wave6c_jip_on_reload_and_seq_group.json`):
+  `PROBE|w6t2_14_jip_on_reload_and_seq_anim_group|fj=1,relHit=1,s0=0,s4(pre=24,t0=200,t1=200,cb=200)`;
+  no DLL or source consulted]; generalizing `Phase::Jammed -> AnimAction::Jam` (`9` instead
+  of `13`) to natural vanilla weapon-condition jams is [hypothesis]).
+  `ForceWeaponJamAnim` also enters `AnimAction::Jam` synchronously so immediate script
+  queries (`t0=200`) and the `SetOnReloadWeaponEventHandler` callback (`cb=200`) see the
+  jam state without double-firing when `nvf-play` syncs `AnimAction::Jam` [design].
   Repeated calls while `Cycle::jammed` is already true return `1` without restarting the
   active jam timer [design]. NPC jam animation playback remains [not built] (`nvf-play`
   models `Cycle` for the player only). No ShowOff DLL or source code was consulted.
@@ -321,13 +341,21 @@ RemoveAllItemsShowOff.
 ## 9. `ShowOff:OnPOVChange` and preactivation events
 
 - **`ShowOff:OnPOVChange`** [documented: GECK wiki,
-  [ShowOff:OnPOVChange](https://geckwiki.com/index.php?title=ShowOff%3AOnPOVChange)]:
-  fires when the player's camera perspective switches between first-person and
-  third-person, passing one integer argument (`1` = first-person, `0` = third-person).
-  NVForever dispatches it from `Game::set_first_person` (fed every frame by
-  `nvf_play::control::tell_scripts`) only when `senses.first_person` actually changes,
-  with `IsPC1stPerson` already reflecting the new perspective and no calling reference
-  [hypothesis: calling reference and getter visibility during callback unobserved].
+  [ShowOff:OnPOVChange](https://geckwiki.com/index.php?title=ShowOff%3AOnPOVChange);
+  observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 +
+  ShowOffNVSE Plugin 184, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`),
+  isolated clean-room staging copy, committed probe
+  `w6t2p2_03_showoff_on_pov_change_toggle`
+  (`tools/capture/nvse/catalogs/wave6c_showoff_on_pov_change_thisalt.json`):
+  `PROBE|w6t2p2_03_showoff_on_pov_change_toggle|init=1|to3p(n=1,arg=0,inCb=1,aft=0,s0=0,sP=1)|to1p(n=2,arg=1,inCb=1,aft=1)`;
+  no DLL or source consulted]: fires when the player's camera perspective switches
+  between first-person and third-person, with calling reference `Player` (`0x00000014`,
+  `GetSelfAlt == Player`, `0::Player` filterable) and one integer argument (`1` =
+  first-person, `0` = third-person). NVForever dispatches it from
+  `Game::set_first_person` (fed every frame by `nvf_play::control::tell_scripts`) only
+  when `senses.first_person` actually changes; on 1P -> 3P (`0`) it fires before
+  clearing `senses.first_person` so `IsPC1stPerson` still reads `1` inside the callback
+  and `0` afterward, while on 3P -> 1P (`1`) `IsPC1stPerson` reads `1` inside and after.
   Save restore syncs `senses.first_person` directly to the restored camera POV without
   emitting a spurious transition [design]. Free when no handler is registered.
 - **`ShowOff:OnPreScriptedActivate`**, **`ShowOff:OnPreActivateInventoryItem`**, and

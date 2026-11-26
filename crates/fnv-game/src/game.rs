@@ -6237,13 +6237,13 @@ impl<'a> Game<'a> {
         // the extender heard that attempt before the block ran, so this `Activate` is the
         // same activation and is not heard twice [design, #2123].
         let npc_door = mode == ActMode::Default && self.in_npc_door_run(actor, target);
-        if !npc_door {
-            self.activation_heard(actor, target);
-        }
-        if !self.activation_goes_on(actor, target) {
-            return Ok(serde_json::json!({"result": "destroyed"}));
-        }
         if mode == ActMode::Hand {
+            if !npc_door {
+                self.activation_heard(actor, target);
+            }
+            if !self.activation_goes_on(actor, target) {
+                return Ok(serde_json::json!({"result": "destroyed"}));
+            }
             if !self.pre_activation_allows(actor, target) {
                 return Ok(serde_json::json!({"result": "prevented"}));
             }
@@ -6251,8 +6251,19 @@ impl<'a> Game<'a> {
                 return Ok(serde_json::json!({"result": "destroyed"}));
             }
         } else {
+            // Scripted Activate runs ShowOff:OnPreScriptedActivate BEFORE xNVSE OnActivate
+            // and before destroyed refusal; vetoing skips OnActivate [observed: 2026-11-24,
+            // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+            // (0x00103DF9), 10 official base masters,
+            // `tools/capture/nvse/catalogs/wave6d1_pre_scripted_activate_order.json` probes
+            // `w6d1p2_11_on_activate_and_pre_scripted_order`, `w6d1p3_11_on_activate_noveto`,
+            // `w6d1_14_pre_scripted_destroyed_mutation`; no DLL, PDB, or third-party source
+            // consulted].
             if !self.pre_scripted_activation_allows(actor, target, mode == ActMode::Block) {
                 return Ok(serde_json::json!({"result": "prevented"}));
+            }
+            if !npc_door {
+                self.activation_heard(actor, target);
             }
             if !self.activation_goes_on(actor, target) {
                 return Ok(serde_json::json!({"result": "destroyed"}));
@@ -6349,10 +6360,12 @@ impl<'a> Game<'a> {
     }
 
     /// The extender's OnActivate handlers hear `actor` activating `target` (the target
-    /// first, the action reference second) [documented: NVSE Event Handling, OnActivate
-    /// row]. Also the first step of an NPC's walk through a door (`crate::npc_doors`).
+    /// first, the action reference second, null calling reference `GetSelfAlt == 0`)
+    /// [documented: NVSE Event Handling, OnActivate row; observed:
+    /// `w6d1p3_11_on_activate_noveto`, `act(s0=1,sR=0,a1=1,a2=1)`]. Also the first step
+    /// of an NPC's walk through a door (`crate::npc_doors`).
     pub(crate) fn activation_heard(&mut self, actor: FormId, target: FormId) {
-        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
+        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], None);
     }
 
     /// [`Game::activation_begins`] after the handlers: whether the activation goes on.

@@ -439,6 +439,15 @@ root's ECS `Visibility` synchronized with `Rig::shown`.
   boxed), 9 rows at once (51 a row in a list 468 high). A row (its box) runs from the
   scroll bar to 5 short of the list's right edge, as the DATA lists' [design: it was the
   Repair page's 393, which ran over the item's figures; owner's screenshot 2026-11-01].
+  - **Ammo the weapon cannot fire is dim** (#3442): a row of ammo the weapon in hand
+    cannot fire is drawn at half brightness; the weapon's other kinds (the slug with the
+    shotgun, the .38 with the .357) stay full, every ammo row is dim with the fists out,
+    and a dim row can still be selected [observed: observer check 288, run 2026-11-22,
+    text colour about half; results on PR #3466]. Ours: `Row::dim` from
+    `FormStore::ammo_choices` of `Combat::player_weapon`, alpha 0.5 in the hand-built list
+    and 128 in the list drawn from the menu file; only in the player's inventory, not in a
+    container's or a trade's columns [design]. Not observed: a holstered weapon (ours
+    treats it as equipped), dropping a dim row or putting it on a hotkey (ours allows both).
   - Added 2026-10-23 (owner's playtest list 7, items 5, 6, 15, 20, 33):
     - **HP** is the STATS page's health out of its whole; **DT** the threshold a hit on
       the player meets (worn armour at its condition plus the Damage Threshold actor

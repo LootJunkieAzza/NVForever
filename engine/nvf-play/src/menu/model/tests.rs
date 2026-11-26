@@ -1723,3 +1723,26 @@ fn barter_hides_keys_on_both_sides_in_all_and_misc_while_inventory_and_container
     inv.apply(&mut w, Command::SetCategory(Side::Player, Category::Misc));
     assert!(names(inv.list(Side::Player)).contains(&("Keyring", 3)));
 }
+
+/// #3442: ammo the weapon cannot fire is dim; the weapon's other kinds and every
+/// row that is not ammo stay full; with the fists out every ammo row is dim; not
+/// knowing the weapon dims nothing [observed: observer check 288].
+#[test]
+fn ammo_the_weapon_cannot_fire_is_dim() {
+    let row = |item: u32, kind: ItemKind| Row {
+        item: FormId(item), at: None, name: format!("Item {item}"), count: 1, weight: None, value: None,
+        kind: Some(kind), equipped: false, quest: false, condition: None, icon: None, price: None,
+        bartered: false, loaded: false, dim: true, mods: 0, mods_value: 0, folder: None, reference: None, live: false, ysi: None,
+    };
+    let mut rows = vec![row(1, ItemKind::Ammo), row(2, ItemKind::Ammo), row(3, ItemKind::Ammo), row(4, ItemKind::Weapon)];
+    let dims = |rows: &[Row]| rows.iter().map(|r| r.dim).collect::<Vec<_>>();
+    // A .357 revolver: .357 and .38 full, the rest dim.
+    mark_dim(&mut rows, Some(&[FormId(1), FormId(2)]));
+    assert_eq!(dims(&rows), [false, false, true, false]);
+    // Fists: every ammo row dim, the weapon row not.
+    mark_dim(&mut rows, Some(&[]));
+    assert_eq!(dims(&rows), [true, true, true, false]);
+    // Unknown: nothing dim.
+    mark_dim(&mut rows, None);
+    assert_eq!(dims(&rows), [false, false, false, false]);
+}

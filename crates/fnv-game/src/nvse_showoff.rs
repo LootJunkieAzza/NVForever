@@ -26,6 +26,14 @@ pub const ON_FIRE_WEAPON: &str = "showoff:onfireweapon";
 /// drains `ShowOffState::force_jam_requests` [design].
 pub const MAX_FORCE_JAM_REQUESTS: usize = 64;
 
+/// Which ShowOff aux timer handler list a deferred registration/removal targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuxTimerHandlerKind {
+    Start,
+    Stop,
+    Update,
+}
+
 #[derive(Debug, Default)]
 pub struct ShowOffState {
     /// Batch 5's state: the level-up and pause menu asks, live explosions, the shot
@@ -42,10 +50,10 @@ pub struct ShowOffState {
     /// `timer_stops` (`nvse_showoff3`).
     pub timer_starts: Vec<(XVal, String, FormId)>,
     pub timer_updates: Vec<(XVal, String, FormId)>,
-    /// Start and update handlers set or removed this frame, applied at the next frame's
-    /// aux timer update: (start, set, the function, the name lower case, the owner)
-    /// (`nvse_showoff3`).
-    pub pending_handlers: Vec<(bool, bool, XVal, String, FormId)>,
+    /// Start, stop, and update handlers set or removed this frame, applied at the next
+    /// frame's aux timer update: (kind, set, the function, the name lower case, the owner)
+    /// (`nvse_showoff`, `nvse_showoff3`).
+    pub pending_handlers: Vec<(AuxTimerHandlerKind, bool, XVal, String, FormId)>,
     /// Each running aux timer's countdown and flags as AuxTimerStart gave them, by owner
     /// and name lower case (AuxTimerTimeToCountdown; the update flag 256).
     pub countdowns: std::collections::HashMap<(FormId, String), (f64, u32)>,
@@ -304,8 +312,9 @@ impl Game<'_> {
     }
 
     /// `ShowOff:OnPOVChange`, fired when the player's camera perspective transitions
-    /// between first-person (`1`) and third-person (`0`) [documented: GECK wiki
-    /// ShowOff:OnPOVChange].
+    /// between first-person (`1`) and third-person (`0`), with calling reference
+    /// `Player` (`0x14`) [documented: GECK wiki ShowOff:OnPOVChange; observed 2026-11-24:
+    /// `w6t2p2_03_showoff_on_pov_change_toggle`: `s0=0,sP=1`].
     pub(crate) fn showoff_on_pov_change(&mut self, first_person: bool) {
         if !self.handled(ON_POV_CHANGE) {
             return;
@@ -313,7 +322,7 @@ impl Game<'_> {
         self.dispatch_event(
             "ShowOff:OnPOVChange",
             vec![XVal::Num(if first_person { 1.0 } else { 0.0 })],
-            None,
+            Some(FormId::PLAYER_REF),
         );
     }
 
@@ -448,15 +457,27 @@ impl Game<'_> {
         std::mem::take(&mut self.showoff.force_jam_requests)
     }
 
+    /// Whether `actor` has a queued `ForceWeaponJamAnim` / `ForceJamAnim` request not yet
+    /// consumed by `nvf_play::combat::fire`, so post-script animation sync preserves
+    /// `AnimAction::Jam` without clobbering it back to `None`/`Reload` and double-firing
+    /// `SetOnReloadWeaponEventHandler`.
+    pub fn has_pending_force_jam(&self, actor: FormId) -> bool {
+        self.showoff.force_jam_requests.contains(&actor)
+    }
+
     /// The stop handlers of an aux timer that ran out or was stopped with its event: each
-    /// gets the timer's name and its owner [documented: SetOnAuxTimerStopHandler; observed:
-    /// showoff1, once when a 0.1 s timer ran out and once on AuxTimerStop 1, the owner the
-    /// player].
+    /// gets the timer's name and its owner with null calling reference (`GetSelfAlt == 0`)
+    /// [documented: SetOnAuxTimerStopHandler; observed: 2026-11-24, Fallout: New Vegas
+    /// 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse (0x00103DF9),
+    /// 10 official base masters,
+    /// `tools/capture/nvse/catalogs/wave6d1_aux_timer_stop_deferred_and_self.json` probe
+    /// `w6d1p3_27_aux_timer_stop`: `same=0,noev=0,next=1,remSame=1|nm=[sNm],ownP=1,s0=1,sP=0`;
+    /// no DLL, PDB, or third-party source consulted].
     pub(crate) fn aux_timer_stopped(&mut self, owner: FormId, name: &str) {
         let hs: Vec<XVal> = self.showoff.timer_stops.iter().filter(|(_, n, o)| n == name && *o == owner).map(|(f, _, _)| f.clone()).collect();
         for f in hs {
-            let ctx = RunCtx { self_ref: Some(owner), ..RunCtx::default() };
-            if let Err(error) = self.run_function(&f, Some(fnv_script::vm::Value::Ref(owner.0)), vec![XVal::Str(name.to_string()), XVal::Ref(owner.0)], None, ctx) {
+            let ctx = RunCtx::default();
+            if let Err(error) = self.run_function(&f, None, vec![XVal::Str(name.to_string()), XVal::Ref(owner.0)], None, ctx) {
                 self.emit(crate::trace::EventKind::ScriptError { unit: "aux timer stop handler".into(), error });
             }
         }
@@ -490,10 +511,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 Some(XVal::Ref(r)) if *r != 0 => FormId(*r),
                 _ => subject.filter(|_| args.len() < 4).unwrap_or(FormId::PLAYER_REF),
             };
-            g.showoff.timer_stops.retain(|(h, n, o)| !(*h == f && *n == timer && *o == owner));
-            if set {
-                g.showoff.timer_stops.push((f, timer, owner));
-            }
+            // Applied at the next frame (`Game::aux_timer_updates`), matching Start/Update
+            // [observed: `w6d1p3_27_aux_timer_stop`, `same=0,noev=0,next=1,remSame=1`].
+            g.showoff.pending_handlers.push((AuxTimerHandlerKind::Stop, set, f, timer, owner));
             XVal::Num(1.0)
         }
         // 1 when the actor is alive, has a weapon out, and the weapon has a jam animation
@@ -519,8 +539,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let ok = !g.is_dead(a)
                 && g.extra.get(&a).is_some_and(|e| e.weapon_out)
                 && crate::functions::items::equipped_weapon(g, a).is_some_and(|w| weapon_has_jam_anim(g, w));
-            if ok && !g.showoff.force_jam_requests.contains(&a) && g.showoff.force_jam_requests.len() < MAX_FORCE_JAM_REQUESTS {
-                g.showoff.force_jam_requests.push(a);
+            if ok {
+                if !g.showoff.force_jam_requests.contains(&a) && g.showoff.force_jam_requests.len() < MAX_FORCE_JAM_REQUESTS {
+                    g.showoff.force_jam_requests.push(a);
+                }
+                let mut st = g.senses.anim.get(&a).cloned().unwrap_or_default();
+                st.action = Some(crate::anim_state::AnimAction::Jam);
+                g.set_anim_state(a, st);
             }
             XVal::Num(f64::from(u8::from(ok)))
         }

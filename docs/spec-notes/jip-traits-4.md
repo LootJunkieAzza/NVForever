@@ -102,6 +102,16 @@ not decode yet.
 - 5 (moons) and 6 (phase length) share TNAM's last byte: the moons are its top two
   bits, the phase length its low six [observed: jip4, WastelandClimate reads moons 2
   and phase length 3; SetClimateTraitNumeric 6 7 reads back 7 and leaves the moons 2].
+- Bounds and validation: sun times (`0..=3`) convert via unsigned 10-minute slots capped
+  at `143` (`25 -> 20`, `1500 -> 1430`, `-10 -> 1430`), moons (`5`) clamp to `0..=3`
+  (`4 -> 3`), phase length (`6`) clamps to `0..=63` (`64 -> 63`), and non-`CLMT` forms
+  are ignored (`bad=0`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN
+  57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  isolated clean-room staging copy (read-only probe; zero writes to game install or
+  Saves), `w6d2_16_climate_traits_and_weather_add_remove`
+  (`tools/capture/nvse/catalogs/wave6d2_set_climate_trait_bounds.json`):
+  `PROBE|w6d2_16_climate_traits_and_weather_add_remove|sun(300->25:20,1500:1430,neg:1430)|m5(2->4:3)|p6(3->64:63)|bad=0|wlst(n=1->1,r=1,1,1,1)`;
+  zero DLL, PDB, or third-party source consulted].
 
 ## 8. Quests
 

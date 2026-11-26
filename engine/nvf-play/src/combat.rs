@@ -2655,8 +2655,11 @@ pub fn bridge_player_anim_state(
     dt: f32,
     had_weapon_action: &mut bool,
 ) {
-    use fnv_game::anim_state::{AnimState, MoveDir};
-    let weapon_action = combat.player_anim_action(anim, trigger, aiming, dt);
+    use fnv_game::anim_state::{AnimAction, AnimState, MoveDir};
+    let weapon_action = game
+        .has_pending_force_jam(FormId::PLAYER_REF)
+        .then_some(AnimAction::Jam)
+        .or_else(|| combat.player_anim_action(anim, trigger, aiming, dt));
     let prev = game.anim_state(FormId::PLAYER_REF).cloned().unwrap_or_default();
     let action = match weapon_action {
         Some(a) => {

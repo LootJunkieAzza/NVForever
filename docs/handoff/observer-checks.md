@@ -3657,6 +3657,9 @@ already talking takes over at once, same topic or another; nothing is queued or 
      square, and whether a dim row can still be selected, dropped or put on a hotkey.
      With a weapon that takes several kinds (12 gauge and its slugs, or the .357 with
      .38 Special), say whether the other kinds it can fire are at full strength.
+     **Answered 2026-11-22** (PR #3466's comments): dim at about half, the weapon's other
+     kinds full, every ammo row dim with the fists, a dim row still selectable; built in
+     pipboy.md §5 ITEMS (#3442).
 
 ## Added 2026-11-21 (placing the custom map marker with the mouse, #3324)
 

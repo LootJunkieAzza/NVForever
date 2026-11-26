@@ -4685,9 +4685,23 @@ fn generic_form_lists_validate_target_type_and_past_end_index() {
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, -2)"), XVal::Num(0.0), "empty FLST Add(-2) returns 0");
     assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "empty FLST Add(-2) appends (n: 0->1)");
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    // Exact boundary `i == n` when `n > 0` returns -1 without appending, whereas `i == 0`
+    // succeeds on an empty list (`n == 0`) [observed: w6t2p3_25_generic_form_real_flst].
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestHair, 0)"), XVal::Num(0.0), "empty FLST Add(0) inserts at 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestEye, 1)"), XVal::Num(-1.0), "non-empty FLST (n=1) Add(1 == n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, 2)"), XVal::Num(-1.0), "non-empty FLST (n=1) Add(2 > n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "Add(n) did not append");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, -1)"), XVal::Ref(0x0000_0811), "Delete(-1) removes sole entry");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, -2)"), XVal::Ref(0), "Delete(-2) on now-empty list returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
 
     // Non-empty FLST (TestMultiFlst = [TestHair 0x811, TestEye 0x812, TestPkg 0x813], n0=3):
-    // Add: ONLY -2 appends (ret = n0 - 1 = 2, n = 4); -1/-3/-10/n+5 return -1.
+    // Add: `i == n` (3) returns -1 without mutating; `0..n` inserts in-range; ONLY -2 appends (ret = n0 - 1 = 2, n = 4); -1/-3/-10/n+5 return -1.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, 3)"), XVal::Num(-1.0), "non-empty FLST (n=3) Add(3 == n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -1)"), XVal::Num(-1.0));
     assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -2)"), XVal::Num(2.0));
