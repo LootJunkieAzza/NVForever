@@ -159,11 +159,27 @@ pub struct Reader<'a> {
     rgba16f_le: &'a [u8],
 }
 
+/// Why a volume is not read.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Refused {
+    Cancelled,
+    Because(String),
+}
+
 impl<'a> Reader<'a> {
     /// Refuses one whose texels are not as many as they have to be, not finite, not zero where they are
     /// to be, not valid as often as it says, or whose counts are not those of its box.
     pub fn new(v: &'a SolvedVolume) -> Result<Reader<'a>, String> {
-        let no = |why: &str| Err(why.to_string());
+        match Reader::scanned(v, &|| false, |_| ()) {
+            Ok(reader) => Ok(reader),
+            Err(Refused::Because(why)) => Err(why),
+            Err(Refused::Cancelled) => Err("cancelled".into()),
+        }
+    }
+
+    /// [`Reader::new`], which gives `each` valid place on the way: none of them counts for anything if it is refused.
+    pub(crate) fn scanned(v: &'a SolvedVolume, cancel: Cancel, each: impl FnMut(Place)) -> Result<Reader<'a>, Refused> {
+        let no = |why: &str| Err(Refused::Because(why.into()));
         let origin = v.low.map(|c| c as f32 * v.spacing);
         if !(SPACINGS.contains(&v.spacing) && v.offset.is_finite() && V3(origin).finite() && v.origin == origin) {
             return no("the spacing, the offset or the origin");
@@ -180,31 +196,37 @@ impl<'a> Reader<'a> {
             return no("the counts");
         }
         let out = Reader { origin: V3(v.origin), spacing: v.spacing, offset: v.offset, dimensions: v.dimensions, atlas: v.atlas, rgba16f_le: &v.rgba16f_le };
-        let valid = out.check()?;
+        let valid = out.check(v.low, cancel, each)?;
         if valid != n.reached {
             return no(&format!("{valid} valid texels, not {}", n.reached));
         }
         Ok(out)
     }
 
-    /// How many texels are valid.
-    fn check(&self) -> Result<usize, String> {
+    /// How many texels are valid, each one's place by the first one's, `low`.
+    fn check(&self, low: Place, cancel: Cancel, mut each: impl FnMut(Place)) -> Result<usize, Refused> {
         let mut valid = 0;
         for i in 0..self.rgba16f_le.len() / TEXEL / SLABS {
+            if i.is_multiple_of(STEPS) && cancel() {
+                return Err(Refused::Cancelled);
+            }
             let (w, h) = (self.atlas[0] as usize, self.atlas[1] as usize);
             let at = [i % w, i / w % h, i / (w * h)];
             let t = self.slabs(at);
             if let Some(t) = t.iter().flatten().find(|t| !t.is_finite()) {
-                return Err(format!("{t} in the texture"));
+                return Err(Refused::Because(format!("{t} in the texture")));
             }
             let shell = (0..3).any(|k| at[k] == 0 || at[k] == self.dimensions[k] as usize + 1);
             let m = t[0][3];
             let black = || t.iter().flatten().all(|v| *v == 0.0);
             let fine = if m == 1.0 { !shell && t[1][3] >= 0.0 && t[2][3] == 0.0 && t[3][3] == 0.0 } else { m == 0.0 && black() };
             if !fine {
-                return Err(format!("the texel {at:?} (of the shell: {shell}): {t:?}"));
+                return Err(Refused::Because(format!("the texel {at:?} (of the shell: {shell}): {t:?}")));
             }
-            valid += usize::from(m == 1.0);
+            if m == 1.0 {
+                valid += 1;
+                each(std::array::from_fn(|k| low[k] + (at[k] as i32 - 1)));
+            }
         }
         Ok(valid)
     }
@@ -270,7 +292,7 @@ impl<'a> Reader<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::bvh::tests::direction;
     use crate::gather::tests::axis;
@@ -281,7 +303,7 @@ mod tests {
     const UP: V3 = V3([0.0, 1.0, 0.0]);
 
     /// Points from `low` in a box, `f` of each.
-    fn field(low: Place, dimensions: [u32; 3], f: impl Fn(Place) -> Option<[V3; 4]>) -> (Place, [u32; 3], BTreeMap<Place, Moments>) {
+    pub fn field(low: Place, dimensions: [u32; 3], f: impl Fn(Place) -> Option<[V3; 4]>) -> (Place, [u32; 3], BTreeMap<Place, Moments>) {
         let mut points = BTreeMap::new();
         for i in 0..dimensions.iter().product::<u32>() {
             let at = [i % dimensions[0], i / dimensions[0] % dimensions[1], i / (dimensions[0] * dimensions[1])];
@@ -297,7 +319,7 @@ mod tests {
         packed(low, dimensions, points.iter(), 1 << 20, &|| false)
     }
 
-    fn volume((low, dimensions, points): &(Place, [u32; 3], BTreeMap<Place, Moments>)) -> SolvedVolume {
+    pub fn volume((low, dimensions, points): &(Place, [u32; 3], BTreeMap<Place, Moments>)) -> SolvedVolume {
         let all = dimensions.iter().product::<u32>() as usize;
         let counts = Counts { points: all, reached: points.len(), unknown: all - points.len(), ..Counts::default() };
         SolvedVolume {
@@ -319,7 +341,7 @@ mod tests {
         Reader::new(Box::leak(Box::new(volume(&field(low, dimensions, f))))).unwrap()
     }
 
-    fn even(c: [f32; 3]) -> [V3; 4] {
+    pub fn even(c: [f32; 3]) -> [V3; 4] {
         [V3(c), V3::ZERO, V3::ZERO, V3::ZERO]
     }
 
@@ -596,7 +618,10 @@ mod tests {
         assert!(end(i32::MAX).contains("last place"));
         let mut far = good.clone();
         (far.low, far.origin) = ([0, i32::MAX - 1, 0], [0.0, (i32::MAX - 1) as f32 * 64.0, 0.0]);
-        assert!(Reader::new(&far).is_ok());
+        let mut valid = Vec::new();
+        Reader::scanned(&far, &|| false, |at| valid.push(at)).unwrap();
+        assert!(valid.len() == 8 && valid.contains(&[1, i32::MAX, 1]));
+        assert_eq!(Reader::scanned(&good, &|| true, |_| ()).unwrap_err(), Refused::Cancelled);
         assert!(why(&|v| v.rgba16f_le[inner + 1] = 0x7C).contains("in the texture"));
         assert!(why(&|v| v.rgba16f_le[1] = 0x3C).contains("of the shell: true"), "a lit shell");
         assert!(why(&|v| v.rgba16f_le[inner + 7] = 0x38).contains("the texel"), "half valid");

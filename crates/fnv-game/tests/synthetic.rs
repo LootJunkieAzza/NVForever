@@ -3548,6 +3548,63 @@ fn jip_quest_stage_handler_exact_stage_zero_and_duplicate_return() {
 }
 
 #[test]
+fn set_event_handler_and_alt_deduplicate_identical_registrations() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("ref cb\nint r1\nint r2\nint r3\nBegin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    // SetEventHandler: duplicate returns 0 and dispatches once.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x}
+               let TestGlobal := TestGlobal + x
+             End)
+             let r1 := SetEventHandler \"W6Dup\" cb
+             let r2 := SetEventHandler \"W6Dup\" cb
+             DispatchEventAlt \"W6Dup\" 1
+             SetFunctionValue (r1 * 10 + r2)",
+        ),
+        XVal::Num(10.0)
+    );
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 1.0);
+    // SetEventHandlerAlt: duplicate with identical filter returns 0 and dispatches once;
+    // distinct priority is accepted.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x}
+               let TestGlobal := TestGlobal + x
+             End)
+             let r1 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5
+             let r2 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5
+             DispatchEventAlt \"W6DupAlt\" 5
+             let r3 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5 \"priority\"::2
+             SetFunctionValue (r1 * 100 + r2 * 10 + r3)",
+        ),
+        XVal::Num(101.0)
+    );
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 6.0);
+    // Multiset filter equality: repeated filter pairs (1::5, 1::5) must not match distinct
+    // pairs of equal length (1::5, 2::6), while reordered identical pairs (2::6, 1::5) deduplicate.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x, int y}
+               let TestGlobal := TestGlobal + x + y
+             End)
+             let r1 := SetEventHandlerAlt \"W6DupMulti\" cb 1::5 1::5
+             let r2 := SetEventHandlerAlt \"W6DupMulti\" cb 1::5 2::6
+             let r3 := SetEventHandlerAlt \"W6DupMulti\" cb 2::6 1::5
+             SetFunctionValue (r1 * 100 + r2 * 10 + r3)",
+        ),
+        XVal::Num(110.0)
+    );
+}
+
+#[test]
 fn get_game_loaded_and_restarted_are_true_once_per_script() {
     // [documented: GetGameLoaded; GetGameRestarted] once per script after a load / per
     // session; a session's SetEventHandler registrations carry over a load.
@@ -3695,6 +3752,35 @@ fn refresh_items_list_sets_one_shot_transient_request() {
     assert!(g.take_refresh_items_list());
     assert!(!g.refresh_items_list_pending());
     assert!(!g.take_refresh_items_list());
+}
+
+#[test]
+fn set_delay_elapsed_returns_zero_and_updates_remaining_delay() {
+    // [observed 2026-11-24: w6t2_31_xnvse_items_ammo_rounds_and_ingrid -> del=0.00]
+    use fnv_script::vm::XVal;
+    let q_data = [vec![1u8, 0, 0, 0], 5.0f32.to_le_bytes().to_vec()].concat();
+    let quest = record(b"QUST", 0, 0x0000_0820, &[sub(b"EDID", z("TestDelayQuest")), sub(b"DATA", q_data)]);
+    let bytes = [tes4(), top(b"QUST", &quest)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "DelayQuest.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+
+    // SetDelayElapsed returns 0.0 (not secs) and adjusts remaining delay.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed TestDelayQuest 2.5)"), XVal::Num(0.0), "SetDelayElapsed returns 0.0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDelayElapsed TestDelayQuest)"), XVal::Num(2.5), "remaining delay updated to 2.5s");
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed TestDelayQuest 0)"), XVal::Num(0.0), "SetDelayElapsed 0 returns 0.0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDelayElapsed TestDelayQuest)"), XVal::Num(0.0), "remaining delay updated to 0.0s");
+    // Missing/null form returns 0.0 safely.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed 0 2.5)"), XVal::Num(0.0), "null quest returns 0.0");
 }
 
 #[test]
@@ -4642,9 +4728,23 @@ fn generic_form_lists_validate_target_type_and_past_end_index() {
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, -2)"), XVal::Num(0.0), "empty FLST Add(-2) returns 0");
     assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "empty FLST Add(-2) appends (n: 0->1)");
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    // Exact boundary `i == n` when `n > 0` returns -1 without appending, whereas `i == 0`
+    // succeeds on an empty list (`n == 0`) [observed: w6t2p3_25_generic_form_real_flst].
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestHair, 0)"), XVal::Num(0.0), "empty FLST Add(0) inserts at 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestEye, 1)"), XVal::Num(-1.0), "non-empty FLST (n=1) Add(1 == n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, 2)"), XVal::Num(-1.0), "non-empty FLST (n=1) Add(2 > n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "Add(n) did not append");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, -1)"), XVal::Ref(0x0000_0811), "Delete(-1) removes sole entry");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, -2)"), XVal::Ref(0), "Delete(-2) on now-empty list returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
 
     // Non-empty FLST (TestMultiFlst = [TestHair 0x811, TestEye 0x812, TestPkg 0x813], n0=3):
-    // Add: ONLY -2 appends (ret = n0 - 1 = 2, n = 4); -1/-3/-10/n+5 return -1.
+    // Add: `i == n` (3) returns -1 without mutating; `0..n` inserts in-range; ONLY -2 appends (ret = n0 - 1 = 2, n = 4); -1/-3/-10/n+5 return -1.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, 3)"), XVal::Num(-1.0), "non-empty FLST (n=3) Add(3 == n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -1)"), XVal::Num(-1.0));
     assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -2)"), XVal::Num(2.0));
@@ -4688,6 +4788,8 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     let ctx = fnv_game::game::RunCtx::default;
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("ref rF\nref rG\nfloat fRes\narray_var aA\nBegin Function {{ }}\n{body}\nEnd\n"), ctx());
     assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (Call rF 2 3)"), Ok(XVal::Num(5.0)));
+    // A compiled script is a valid form while it lasts (#4491).
+    assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (IsFormValid rF)"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "let rF := CompileScript \"sub\\add.txt\"\nlet rG := GetUDFFromFile \"Sub/Add.txt\"\nSetFunctionValue (rF == rG)"), Ok(XVal::Num(1.0)), "cached by path");
     assert_eq!(q(&mut g, "SetFunctionValue (CompileScript \"Sub/None.txt\")"), Ok(XVal::Ref(0)), "no file");
     fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new() });
@@ -5485,6 +5587,9 @@ fn built_in_plugins_report_installed() {
     assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
     assert_eq!(q(&mut g, "GetPluginVersion \"Improved Console\""), Ok(XVal::Num(3.0)));
+    // No script functions; the engine does their work itself (#4491).
+    assert_eq!(q(&mut g, "GetPluginVersion \"Engine Optimizations\""), Ok(XVal::Num(100.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"HighResLocalMaps\""), Ok(XVal::Num(12.0)));
     for name in ["yUI", "NVTF", "No Such Plugin"] {
         assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
         assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");

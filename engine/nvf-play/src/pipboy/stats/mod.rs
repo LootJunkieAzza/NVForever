@@ -1157,7 +1157,7 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         if let Some(st) = s.standings.get(v.selected[4]) {
             // The block: the picture 80 above it, 350 high; the title 20 under the
             // picture, the reputation's name 50 lower [observed: the owner's screenshots,
-            // "Liked" over "Goodsprings"; the file leaves it to the code].
+            // the title over "Goodsprings"; the file leaves it to the code].
             let h = 290.0 + th;
             let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
             if let Some(icon) = &st.icon {

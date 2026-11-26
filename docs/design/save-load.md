@@ -413,10 +413,14 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   Measured in the smoke run: the frame spends about 1 ms on the snapshot; the file is on
   disk about 65 ms later; a thumbnail is 35–300 KB. No picture within 30 frames: the save
   is written without one. A load (the restart) and quitting wait for saves in flight.
-- **Pause menu** (`pause.rs`): *Save game* (N) saves to a new slot `Save <n>` and says when
-  it is written; *Load game* (L) lists the saves newest first (name, kind, game date per
-  row; the chosen save's thumbnail, player and level, place, game date, play time and when
-  it was saved), Up/Down, the wheel or the pointer choose, Enter or a click load through
+- **Pause menu** (`pause.rs`): *Save* (N) opens the save page listing *New Save* (next
+  numbered slot `Save <n>`) followed by existing manual saves newest first; choosing *New
+  Save* writes a new slot, while choosing an existing manual save asks to confirm
+  overwriting it (defaulting to No; Cancel leaves the existing file untouched, Yes
+  overwrites through `SaveRequest` with the existing atomic writer safeguards) [design:
+  #3758]. *Load* (L) lists all saves newest first (name, kind, game date per row; the
+  chosen save's thumbnail, player and level, place, game date, play time and when it was
+  saved), Up/Down, the wheel or the pointer choose, Enter or a click load through
   `LoadRequest`. Only the chosen save's thumbnail is read. Our own layout; nothing of the
   original's menus is copied.
 - **Smoke**: `save-write` also checks that its saves carry a 512×288 thumbnail, saves from

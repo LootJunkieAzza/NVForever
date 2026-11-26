@@ -265,6 +265,32 @@ pub fn measured_texts(ui: &Ui) -> Vec<fnv_ui::TileId> {
     tiles
 }
 
+/// A text tile whose `width` the engine measured for a mod's HUD text
+/// ([`unmeasured_texts`]); its width is measured again when its string changes.
+pub const MEASURED_MARK: &str = "_NVFMeasured";
+
+/// The HUD's text tiles that mods add and that read their own size: every `text` under
+/// HUDMainMenu not in [`measured_texts`] whose file gives no `width` of its own (or whose
+/// width the engine wrote before, [`MEASURED_MARK`]). The original measures every text
+/// tile [hypothesis, menu-xml.md §3.1.2]; the vanilla pieces keep their own path (#4493).
+pub fn unmeasured_texts(ui: &Ui) -> Vec<fnv_ui::TileId> {
+    let Some(root) = ui.find_tile("HUDMainMenu") else { return Vec::new() };
+    let known = measured_texts(ui);
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let tile = ui.tile(id);
+        stack.extend(tile.children.iter().copied());
+        if tile.kind != "text" || known.contains(&id) {
+            continue;
+        }
+        if tile.get("width").is_none() || tile.get(MEASURED_MARK).is_some() {
+            out.push(id);
+        }
+    }
+    out
+}
+
 /// [design] Write measured text widths after [`write`], before scripts. `measure`
 /// takes font number (0 when absent) and string, returning interface units. A missing
 /// string keeps its old width [observed: hud.md §14.1, before the first sneak].

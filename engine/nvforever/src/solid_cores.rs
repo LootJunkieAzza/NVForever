@@ -1,7 +1,7 @@
 //! Solid cores of blended shapes under the light in the air (#3032): an engineering choice of
 //! NVForever's own for the enhanced look [design], never a parity item and never used to
 //! explain a difference from the original; nothing of it runs while the light in the air is
-//! not drawn ([`AirDraws`]: the row or the aid asks for it and its gate is open; at night, indoors,
+//! not drawn ([`AirDraws`]: the row or the aid asks for it and its gate is open; at night without a moon, indoors,
 //! under water and at a strength of 0 there are none; in the half second the gate takes to settle they
 //! are hidden, from the frame the composite stops).
 //!
