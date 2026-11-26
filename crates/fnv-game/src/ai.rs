@@ -189,6 +189,13 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// Whether `package`'s own conditions pass for `actor`, regardless of its schedule.
+    fn package_conditions_pass(&mut self, actor: FormId, package: FormId) -> bool {
+        let Some(def) = self.package_def(&package) else { return false };
+        let target = self.package_target(actor, def);
+        self.conditions_pass(&def.conditions, Some(actor), target, &format!("PACK {package}"))
+    }
+
     /// The package an actor runs when it evaluates its packages.
     ///
     /// - A script package (AddScriptPackage) overrides the list until its goal is met;
@@ -239,7 +246,13 @@ impl<'a> Game<'a> {
         let valid = list.iter().copied().find(|&p| self.check_package(actor, p) == PackageCheck::Valid);
         let kept = match valid {
             Some(_) => None,
-            None => self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)).filter(|&c| self.check_package(actor, c) != PackageCheck::ConditionsFail),
+            // Keep the current list package when no other applies and its conditions
+            // pass. Check them directly because a schedule or target problem can
+            // short-circuit check_package before it reaches the conditions (#3041).
+            None => self.extra.get(&actor).and_then(|e| e.current_package).filter(|c| list.contains(c)).filter(|&c| {
+                self.check_package(actor, c) != PackageCheck::ConditionsFail
+                    && self.package_conditions_pass(actor, c)
+            }),
         };
         self.choosing_package.pop();
         valid.or(kept)
@@ -247,7 +260,7 @@ impl<'a> Game<'a> {
 
     /// Whether the AI runs packages itself (their begin, end and change scripts and the
     /// periodic choice) rather than leaving them to the runner's inputs.
-    pub(crate) fn runs_packages(&self) -> bool {
+    pub fn runs_packages(&self) -> bool {
         self.cfg.package_interval.is_some()
     }
 
@@ -269,6 +282,7 @@ impl<'a> Game<'a> {
         }
         e.current_package = package;
         e.package_goal_met = false;
+        e.package_relocated = false;
         if let Some(p) = package.filter(|p| self.package_def(p).is_some_and(|d| d.has(flags::ONCE_PER_DAY))) {
             let now = self.world.calendar().map(|c| c.days_passed).unwrap_or(0.0);
             self.extra.entry(actor).or_default().package_chosen_at.insert(p, now);
@@ -557,6 +571,13 @@ impl<'a> Game<'a> {
         }
         if reference != FormId::PLAYER_REF {
             self.teleported.insert(reference);
+            // A script relocating an actor running a Must Complete / Must Reach Location
+            // package lets the next choice drop it if it is no longer valid (issue #3041:
+            // VERStalkersSouth01 moves the night stalkers to their holding interior and
+            // clears StalkersOn without calling EvaluatePackage) [design].
+            if let Some(e) = self.extra.get_mut(&reference).filter(|e| e.current_package.is_some()) {
+                e.package_relocated = true;
+            }
             // A drawn object is redrawn at its destination, as after SetPos.
             if !is_actor_base(self.world.forms, functions::base_of(self, reference).unwrap_or(FormId(0))) {
                 self.turned.insert(reference);
@@ -591,7 +612,7 @@ impl<'a> Game<'a> {
     pub fn package_held(&self, actor: FormId) -> Option<&'static str> {
         let e = self.extra.get(&actor)?;
         let def = self.package_def(&e.current_package?)?;
-        if def.has(flags::MUST_COMPLETE | flags::MUST_REACH_LOCATION) && !e.package_goal_met {
+        if def.has(flags::MUST_COMPLETE | flags::MUST_REACH_LOCATION) && !e.package_goal_met && !e.package_relocated {
             return Some(if def.has(flags::MUST_COMPLETE) { "must complete" } else { "must reach location" });
         }
         let cell = self.cell_of(actor);

@@ -384,7 +384,7 @@ fn the_hook_undone_is_the_input_and_each_variant_resolves() {
             let on = with(true);
             assert!(balanced(&on));
             let lighting = block_after(&on, "fn nvf_apply_pbr_lighting(");
-            assert_eq!(lighting.matches("direct_light += min(diffuse_color * ").count(), 1, "ao {ao} sun {sun}: one diffuse line");
+            assert_eq!(lighting.matches("direct_light += nvf_display_to_linear(min(nvf_linear_to_display(diffuse_color) * ").count(), 1, "ao {ao} sun {sun}: one diffuse line");
             assert_eq!(lighting.matches("nvf_rtgi_light(nvf_weights.x * nvf_ambient, nvf_sum, nvf_rtgi_occlusion, in.world_position.xyz, in.N, in.V)").count(), 1);
             assert_eq!(lighting.matches("let nvf_rtgi_occlusion = diffuse_occlusion;").count(), usize::from(!ao));
             assert_eq!(lighting.matches("let nvf_rtgi_occlusion = diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient, diffuse_color);").count(), usize::from(ao));

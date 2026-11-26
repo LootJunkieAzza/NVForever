@@ -4742,6 +4742,13 @@ name = "nvf-rtgi"
 version = "0.8.1"
 
 [[package]]
+name = "nvf-rtgi-live"
+version = "0.8.1"
+dependencies = [
+ "nvf-rtgi",
+]
+
+[[package]]
 name = "nvf-settings-layout"
 version = "0.8.1"
 dependencies = [
@@ -4807,6 +4814,7 @@ dependencies = [
  "nvf-dlss-files",
  "nvf-play",
  "png",
+ "rapier3d",
  "rayon",
  "rfd",
  "serde_json",

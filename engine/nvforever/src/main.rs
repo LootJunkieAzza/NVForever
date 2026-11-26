@@ -162,6 +162,11 @@ mod terminal_view;
 mod scope_lens;
 mod scope_view;
 mod poker_view;
+mod slots_view;
+mod caravan_pot;
+mod caravan_view;
+mod card_shape;
+mod slots_seat;
 mod lod;
 mod locomotion;
 mod combat_face;
@@ -274,6 +279,7 @@ mod vigor_view;
 mod walk_probe;
 mod water;
 mod weapon_models;
+mod wind_dust;
 mod window_icon;
 mod window_mode;
 mod keep_awake;
@@ -2314,6 +2320,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(roulette_view::RouletteViewPlugin);
         // The blackjack table (blackjack_view.rs).
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // The reels turning on the placed slot machine, its arm and spin camera (slots_view.rs).
+        app.add_plugins(slots_view::SlotsViewPlugin);
         // Test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: the terrain parallax's readback (#3322).
         terrain_parallax_ab::install(&mut app);
         // The terminal's monitor (terminal_view.rs).
@@ -2323,6 +2331,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(scope_view::ScopeViewPlugin);
         // The poker table (poker_view.rs).
         app.add_plugins(poker_view::PokerViewPlugin);
+        // The Caravan table in 3D (caravan_view.rs).
+        app.add_plugins(caravan_view::CaravanViewPlugin);
     }
     if let Some(a) = actor_world {
         if let Some(c) = creator_data.take() {
@@ -2424,6 +2434,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.add_plugins(npc_combat::NpcCombatPlugin);
             // NPCs heal with the stimpaks they carry (npc_stimpaks.rs).
             app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
+            // A slot machine played in the world: the body's idles and win celebration
+            // (slots_seat.rs).
+            app.add_plugins(slots_seat::SlotsSeatPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).

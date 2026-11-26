@@ -455,7 +455,7 @@ pub fn show_repair_menu(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Str
 /// The No Casino Bet Limit tweak's limit: more than any purse holds [design: docs/design/tweaks.md].
 pub const NO_BET_LIMIT: u32 = 1_000_000;
 
-pub fn show_blackjack_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn show_blackjack_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let casino = a.form(0)?;
     if !g.data.casinos.contains_key(&casino) {
         return Err(format!("{casino} is not a casino"));
@@ -465,7 +465,7 @@ pub fn show_blackjack_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, 
     // The player's tweak lifts the table's limit [design: docs/design/tweaks.md].
     let max_bet = if g.tweaks.no_max_casino_bet { NO_BET_LIMIT } else { max_bet };
     let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
-    g.blackjack_requests.push(crate::blackjack::BlackjackRequest { casino, min_bet, max_bet, max_winnings });
+    g.blackjack_requests.push(crate::blackjack::BlackjackRequest { casino, min_bet, max_bet, max_winnings, table: ctx.self_ref });
     none()
 }
 
@@ -474,7 +474,7 @@ pub fn show_blackjack_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, 
 /// opens it) [documented: GECK wiki ShowRouletteMenuParams; docs/spec-notes/roulette.md
 /// §1]. Left out, the bets run from 1 to 200 (every table's script passes those
 /// [observed]); a max winnings of 0 is the casino's own [hypothesis].
-pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn show_roulette_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let casino = a.form(0)?;
     if !g.data.casinos.contains_key(&casino) {
         return Err(format!("{casino} is not a casino"));
@@ -483,7 +483,7 @@ pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     let max_bet = (a.num_or(2, 200.0).max(0.0) as u32).max(min_bet);
     let max_bet = if g.tweaks.no_max_casino_bet { NO_BET_LIMIT } else { max_bet };
     let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
-    g.roulette_requests.push(crate::roulette::RouletteRequest { casino, min_bet, max_bet, max_winnings });
+    g.roulette_requests.push(crate::roulette::RouletteRequest { casino, min_bet, max_bet, max_winnings, table: ctx.self_ref });
     none()
 }
 
@@ -492,7 +492,7 @@ pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
 /// the casino's chips and is not banned there) [documented: GECK wiki
 /// ShowSlotMachineMenuParams; docs/spec-notes/slots.md §1]. Left out, the bets are 1 to 75
 /// [hypothesis: The Tops' machines'].
-pub fn show_slot_machine_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn show_slot_machine_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let casino = a.form(0)?;
     if !g.data.casinos.contains_key(&casino) {
         return Err(format!("{casino} is not a casino"));
@@ -501,7 +501,7 @@ pub fn show_slot_machine_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
     let max_bet = (a.num_or(2, 75.0).max(0.0) as u32).max(min_bet);
     let max_bet = if g.tweaks.no_max_casino_bet { NO_BET_LIMIT } else { max_bet };
     let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
-    g.slots_requests.push(crate::slots::SlotsRequest { casino, min_bet, max_bet, max_winnings });
+    g.slots_requests.push(crate::slots::SlotsRequest { casino, min_bet, max_bet, max_winnings, machine: ctx.self_ref });
     none()
 }
 

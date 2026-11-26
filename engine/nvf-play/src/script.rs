@@ -940,6 +940,7 @@ impl Runtime {
         if cell.is_some() && cell != self.player_cell {
             self.player_cell = cell;
             self.game.player_entered(cell);
+            self.triggers.prune_unloaded_projectile_zones(&self.game);
             debug!("script: player in cell {:?}; {} cells loaded for scripts", cell, self.game.loaded_cells.len());
             self.log_level_news();
         }

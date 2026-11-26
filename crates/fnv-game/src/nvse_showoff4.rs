@@ -340,7 +340,7 @@ impl Game<'_> {
             if after {
                 self.note_enabled(r);
             }
-            self.dispatch_event(event, vec![XVal::Ref(r.0), XVal::Num(0.0)], Some(r));
+            self.dispatch_event(event, vec![XVal::Ref(r.0), XVal::Num(0.0)], None);
         }
         Ok(())
     }
