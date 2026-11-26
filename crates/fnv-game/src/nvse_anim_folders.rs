@@ -120,11 +120,38 @@ struct CachedActorPicks {
     chosen: HashMap<PoolKey, String>,
 }
 
+/// Sound top-level conjunction pre-filter parsed once from a folder's `condition` string
+/// (only when no `||` appears at parenthesis depth 0) so per-actor refreshes reject
+/// non-matching global entries (sex, actor/leveled keywords, slot-2 armor keywords,
+/// weapon-out, teammate, creature) without entering the NVSE VM [design].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StaticGate {
+    SexFemale(bool),
+    ActorOrLeveledKeyword(String),
+    Slot2Keyword(String, bool),
+    WeaponOut(bool),
+    PlayerTeammate(bool),
+    NotCreature,
+}
+
 /// What the folders give.
 #[derive(Debug)]
 pub struct AnimFolders {
     loaded: bool,
     pub entries: Vec<FolderEntry>,
+    /// Derived indices over `entries` (rebuilt lazily when `entries` length or form-binding
+    /// count changes): `global_indices`/`by_form` index entries by target form,
+    /// `static_gates` caches sound top-level conjunction pre-filters, and `compiled_conds`
+    /// caches the `EvaluateString` callable ID per entry [design].
+    indexed_len: usize,
+    indexed_forms: usize,
+    global_indices: Vec<usize>,
+    by_form: HashMap<FormId, Vec<usize>>,
+    static_gates: Vec<Vec<StaticGate>>,
+    compiled_conds: Vec<Option<Option<u32>>>,
+    /// Cached `(weapon, weapon_mods, matched_indices)` per actor from the last evaluation
+    /// so unchanged refreshes skip rebuilding `active` [design].
+    cached_matched: HashMap<FormId, (Option<FormId>, u8, Vec<usize>)>,
     /// The files each actor's entries give now, by (actor, first person), the lowest
     /// priority first (a later file of the same group wins, as with the engine's
     /// replacements).
@@ -150,12 +177,232 @@ impl AnimFolders {
         Self {
             loaded: false,
             entries: Vec::new(),
+            indexed_len: usize::MAX,
+            indexed_forms: usize::MAX,
+            global_indices: Vec::new(),
+            by_form: HashMap::new(),
+            static_gates: Vec::new(),
+            compiled_conds: Vec::new(),
+            cached_matched: HashMap::new(),
             active: HashMap::new(),
             warned: HashSet::new(),
             rng: ChaCha8Rng::seed_from_u64(seed ^ CHANCES_RNG_MIX),
             picks: HashMap::new(),
         }
     }
+
+    fn ensure_indices(&mut self) {
+        let len = self.entries.len();
+        let forms_total: usize = self.entries.iter().map(|e| e.forms.len()).sum();
+        if self.indexed_len == len && self.indexed_forms == forms_total {
+            return;
+        }
+        self.global_indices.clear();
+        self.by_form.clear();
+        self.static_gates.clear();
+        self.static_gates.reserve(len);
+        self.compiled_conds.clear();
+        self.compiled_conds.resize(len, None);
+        for (idx, e) in self.entries.iter().enumerate() {
+            self.static_gates.push(e.condition.as_deref().map_or_else(Vec::new, parse_static_gates));
+            if e.forms.is_empty() {
+                self.global_indices.push(idx);
+            } else {
+                for &f in &e.forms {
+                    let list = self.by_form.entry(f).or_default();
+                    if list.last().copied() != Some(idx) {
+                        list.push(idx);
+                    }
+                }
+            }
+        }
+        self.indexed_len = len;
+        self.indexed_forms = forms_total;
+        self.cached_matched.clear();
+    }
+}
+
+/// Strip balanced outermost parentheses and surrounding whitespace.
+fn strip_outer_parens(mut s: &str) -> &str {
+    loop {
+        s = s.trim();
+        let bytes = s.as_bytes();
+        if bytes.len() < 2 || bytes[0] != b'(' || bytes[bytes.len() - 1] != b')' {
+            return s;
+        }
+        let mut depth = 0i32;
+        let mut in_str = false;
+        let mut encloses_all = true;
+        for (i, &b) in bytes.iter().enumerate() {
+            match b {
+                b'"' => in_str = !in_str,
+                b'(' if !in_str => depth += 1,
+                b')' if !in_str => {
+                    depth -= 1;
+                    if depth == 0 && i + 1 < bytes.len() {
+                        encloses_all = false;
+                        break;
+                    }
+                    if depth < 0 {
+                        return s;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if encloses_all && depth == 0 && !in_str {
+            s = &s[1..s.len() - 1];
+        } else {
+            return s;
+        }
+    }
+}
+
+/// Extract the quoted string literal from `prefix "<lit>" suffix` (case-insensitive prefix/suffix).
+fn extract_quoted<'a>(s: &'a str, prefix: &str, suffix: &str) -> Option<&'a str> {
+    let trimmed = s.trim();
+    if trimmed.len() < prefix.len() + suffix.len() + 2 {
+        return None;
+    }
+    if !trimmed[..prefix.len()].eq_ignore_ascii_case(prefix)
+        || !trimmed[trimmed.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+    {
+        return None;
+    }
+    let mid = trimmed[prefix.len()..trimmed.len() - suffix.len()].trim();
+    let bytes = mid.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"' {
+        let inner = &mid[1..mid.len() - 1];
+        if !inner.contains('"') {
+            return Some(inner);
+        }
+    }
+    None
+}
+
+fn split_top_two(s: &str, op: [u8; 2]) -> Option<(&str, &str)> {
+    let bytes = s.as_bytes();
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut split_at = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => in_str = !in_str,
+            b'(' if !in_str => depth += 1,
+            b')' if !in_str => {
+                depth -= 1;
+                if depth < 0 {
+                    return None;
+                }
+            }
+            b if !in_str && depth == 0 && b == op[0] && i + 1 < bytes.len() && bytes[i + 1] == op[1] => {
+                if split_at.is_some() {
+                    return None;
+                }
+                split_at = Some(i);
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let idx = split_at?;
+    (depth == 0 && !in_str).then_some((&s[..idx], &s[idx + 2..]))
+}
+
+/// Split `cond` on top-level `&&` (depth 0, outside quotes) and extract sound [`StaticGate`]
+/// pre-filters. Returns empty whenever any top-level `||` appears at depth 0 [design].
+pub(crate) fn parse_static_gates(cond: &str) -> Vec<StaticGate> {
+    let s = strip_outer_parens(cond);
+    let bytes = s.as_bytes();
+    let mut parts: Vec<&str> = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => in_str = !in_str,
+            b'(' if !in_str => depth += 1,
+            b')' if !in_str => {
+                depth -= 1;
+                if depth < 0 {
+                    return Vec::new();
+                }
+            }
+            b'|' if !in_str && depth == 0 && i + 1 < bytes.len() && bytes[i + 1] == b'|' => {
+                return Vec::new();
+            }
+            b'&' if !in_str && depth == 0 && i + 1 < bytes.len() && bytes[i + 1] == b'&' => {
+                parts.push(&s[start..i]);
+                i += 2;
+                start = i;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if depth != 0 || in_str {
+        return Vec::new();
+    }
+    parts.push(&s[start..]);
+
+    let mut gates = Vec::new();
+    for raw in parts {
+        let part = strip_outer_parens(raw);
+        let lower = part.to_ascii_lowercase();
+        if lower == "getissex female" || lower == "getissex female == 1" {
+            gates.push(StaticGate::SexFemale(true));
+        } else if lower == "getissex male" || lower == "getissex male == 1" {
+            gates.push(StaticGate::SexFemale(false));
+        } else if lower == "isweaponout == 1" || lower == "isweaponout" {
+            gates.push(StaticGate::WeaponOut(true));
+        } else if lower == "isweaponout == 0" || lower == "!isweaponout" {
+            gates.push(StaticGate::WeaponOut(false));
+        } else if lower == "getplayerteammate == 1" || lower == "getplayerteammate" {
+            gates.push(StaticGate::PlayerTeammate(true));
+        } else if lower == "getplayerteammate == 0" || lower == "!getplayerteammate" {
+            gates.push(StaticGate::PlayerTeammate(false));
+        } else if lower == "!getiscreature" || lower == "getiscreature == 0" {
+            gates.push(StaticGate::NotCreature);
+        } else if let Some(kw) = extract_quoted(part, "haskeyword (geteqobj 2)", "== 1")
+            .or_else(|| extract_quoted(part, "haskeyword (geteqobj 2)", ") == 1"))
+            .or_else(|| {
+                let p = strip_outer_parens(part.strip_suffix("== 1")?.trim());
+                extract_quoted(p, "haskeyword (geteqobj 2)", "")
+            })
+        {
+            gates.push(StaticGate::Slot2Keyword(kw.to_string(), true));
+        } else if let Some(kw) = extract_quoted(part, "haskeyword (geteqobj 2)", "== 0")
+            .or_else(|| extract_quoted(part, "haskeyword (geteqobj 2)", ") == 0"))
+            .or_else(|| {
+                let p = strip_outer_parens(part.strip_suffix("== 0")?.trim());
+                extract_quoted(p, "haskeyword (geteqobj 2)", "")
+            })
+        {
+            gates.push(StaticGate::Slot2Keyword(kw.to_string(), false));
+        } else if let Some((lhs, rhs)) = split_top_two(part, *b"||") {
+            let lhs = strip_outer_parens(lhs);
+            let rhs = strip_outer_parens(rhs);
+            if let Some(kw1) = extract_quoted(lhs, "haskeyword (this.gbo)", "") {
+                if let Some((r1, r2)) = split_top_two(rhs, *b"&&") {
+                    let r1 = strip_outer_parens(r1).to_ascii_lowercase();
+                    let r2 = strip_outer_parens(r2);
+                    if r1 == "this.getactorleveledlist != 0" {
+                        if let Some(kw2) = extract_quoted(r2, "haskeyword (this.getleveledactorbase)", "") {
+                            if kw1.eq_ignore_ascii_case(kw2) {
+                                gates.push(StaticGate::ActorOrLeveledKeyword(kw1.to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    gates
 }
 
 /// Normalized lowercase folder key for deduplicating walked folders and identifying
@@ -671,13 +918,57 @@ impl Game<'_> {
     }
 
     /// Read the folders once (when the Data folder is known), then every
-    /// [`REFRESH_FRAMES`] the entries of the player and each actor the engine draws.
+    /// [`REFRESH_FRAMES`] refresh the player and staggered NPC slots.
     pub(crate) fn anim_folders_tick(&mut self) {
         self.load_anim_folders();
-        if self.anim_folders.entries.is_empty() || self.frame % REFRESH_FRAMES != 1 {
+        if self.anim_folders.entries.is_empty() {
             return;
         }
-        self.refresh_anim_folders();
+        self.anim_folders.ensure_indices();
+        let slot = self.frame % REFRESH_FRAMES;
+        let mut actors: Vec<FormId> = self.senses.anim.keys().copied().collect();
+        if !actors.contains(&FormId::PLAYER_REF) {
+            actors.push(FormId::PLAYER_REF);
+        }
+        let entries = std::mem::take(&mut self.anim_folders.entries);
+        let global_indices = std::mem::take(&mut self.anim_folders.global_indices);
+        let by_form = std::mem::take(&mut self.anim_folders.by_form);
+        let static_gates = std::mem::take(&mut self.anim_folders.static_gates);
+        let mut compiled_conds = std::mem::take(&mut self.anim_folders.compiled_conds);
+        let mut cached_matched = std::mem::take(&mut self.anim_folders.cached_matched);
+        let mut active = std::mem::take(&mut self.anim_folders.active);
+        if slot == 1 {
+            cached_matched.retain(|a, _| actors.contains(a));
+            active.retain(|(a, _), _| actors.contains(a));
+            self.anim_folders.picks.retain(|a, _| actors.contains(a));
+        }
+        for &a in &actors {
+            let full_due = if a == FormId::PLAYER_REF {
+                slot == 1 || !cached_matched.contains_key(&a)
+            } else {
+                !cached_matched.contains_key(&a) || (self.frame.wrapping_add(a.0 as u64) % REFRESH_FRAMES) == 1
+            };
+            if full_due {
+                self.eval_anim_folders_for(
+                    &entries,
+                    &global_indices,
+                    &by_form,
+                    &static_gates,
+                    &mut compiled_conds,
+                    a,
+                    &mut cached_matched,
+                    &mut active,
+                    true,
+                );
+            }
+        }
+        self.anim_folders.entries = entries;
+        self.anim_folders.global_indices = global_indices;
+        self.anim_folders.by_form = by_form;
+        self.anim_folders.static_gates = static_gates;
+        self.anim_folders.compiled_conds = compiled_conds;
+        self.anim_folders.cached_matched = cached_matched;
+        self.anim_folders.active = active;
     }
 
     /// Read the folders, once the Data folder is known.
@@ -685,38 +976,188 @@ impl Game<'_> {
         if !self.anim_folders.loaded && crate::mod_files::data_dir().is_some() {
             self.anim_folders.loaded = true;
             self.anim_folders.entries = load(self);
+            self.anim_folders.ensure_indices();
         }
     }
 
-    /// Evaluate `entries` for one actor `a`, writing its active third- and first-person
-    /// override lists into `active`. Matching `Mod1`–`Mod3` (and combined) buckets are
-    /// appended after base files in specificity order; any `chances.txt` weighted pools
-    /// draw from `AnimFolders`'s dedicated RNG (never `Game::rng`) and keep their pick
-    /// stable per actor and pool until the equipped weapon, weapon-mod mask, or matching
-    /// entry set changes [design].
-    fn eval_anim_folders_for(&mut self, entries: &[FolderEntry], a: FormId, active: &mut HashMap<(FormId, bool), Vec<String>>) {
-        let base = crate::functions::base_of(self, a);
-        let weapon = crate::functions::items::equipped_weapon(self, a);
-        let weapon_mods = weapon.map_or(0, |w| self.world.get(a).ok().and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.equipped_mods(w)));
-        let mut hold: Vec<&FolderEntry> = Vec::new();
-        for e in entries {
-            if !e.forms.is_empty() && !e.forms.iter().any(|&f| f == a || Some(f) == base || Some(f) == weapon) {
-                continue;
-            }
-            if let Some(c) = &e.condition {
-                match self.evaluate_on(c, Some(a)) {
-                    Ok(true) => {}
-                    Ok(false) => continue,
-                    Err(err) => {
-                        if self.anim_folders.warned.insert(c.clone()) {
-                            tracing::warn!("AnimGroupOverride: {}: condition {c:?}: {err}", e.folder);
+    fn actor_slot2_item(&mut self, a: FormId) -> Option<FormId> {
+        let worn = self.world.inventory_mut(a).map(|inv| inv.equipped()).unwrap_or_default();
+        worn.into_iter().find(|&i| {
+            let key = "BMDT/biped_flags".to_string();
+            let ov = self.field_overrides.get(&(i, key.clone())).or_else(|| {
+                let orig = self.unclone(i);
+                (orig != i).then(|| self.field_overrides.get(&(orig, key))).flatten()
+            });
+            let bits = match ov {
+                Some(fnv_script::vm::XVal::Num(n)) => Some(*n as u64),
+                Some(_) => None,
+                None => self.data.record_field(self.unclone(i), "BMDT", "biped_flags").and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64))),
+            };
+            bits.is_some_and(|b| (b & (1 << 2)) != 0)
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn folder_entry_holds(
+        &mut self,
+        idx: usize,
+        e: &FolderEntry,
+        static_gates: &[Vec<StaticGate>],
+        compiled_conds: &mut [Option<Option<u32>>],
+        cond_cache: &mut HashMap<u32, bool>,
+        a: FormId,
+        actor_is_female: bool,
+        base: Option<FormId>,
+        leveled_base: Option<FormId>,
+        weapon: Option<FormId>,
+        slot2: &mut Option<Option<FormId>>,
+    ) -> bool {
+        if !e.forms.is_empty() && !e.forms.iter().any(|&f| f == a || Some(f) == base || Some(f) == weapon) {
+            return false;
+        }
+        if let Some(gates) = static_gates.get(idx) {
+            for gate in gates {
+                match gate {
+                    StaticGate::SexFemale(req) => {
+                        if *req != actor_is_female {
+                            return false;
                         }
-                        continue;
+                    }
+                    StaticGate::WeaponOut(req) => {
+                        let out = !self.is_dead(a)
+                            && !(base.and_then(|b| self.data.sig(b)).as_ref() == Some(b"CREA") && weapon.is_none())
+                            && self.weapon_is_out(a);
+                        if out != *req {
+                            return false;
+                        }
+                    }
+                    StaticGate::PlayerTeammate(req) => {
+                        let is_tm = self.extra.get(&a).is_some_and(|ex| ex.teammate);
+                        if is_tm != *req {
+                            return false;
+                        }
+                    }
+                    StaticGate::NotCreature => {
+                        if crate::nvse_nx::is_creature(self, a).unwrap_or(false) {
+                            return false;
+                        }
+                    }
+                    StaticGate::ActorOrLeveledKeyword(kw) => {
+                        let has_base = base.is_some_and(|b| self.has_keyword(b, kw));
+                        let has_leveled = !has_base && leveled_base.is_some_and(|lb| self.has_keyword(lb, kw));
+                        if !has_base && !has_leveled {
+                            return false;
+                        }
+                    }
+                    StaticGate::Slot2Keyword(kw, req) => {
+                        let item = match *slot2 {
+                            Some(cached) => cached,
+                            None => {
+                                let found = self.actor_slot2_item(a);
+                                *slot2 = Some(found);
+                                found
+                            }
+                        };
+                        let has = item.is_some_and(|i| self.has_keyword(i, kw));
+                        if has != *req {
+                            return false;
+                        }
                     }
                 }
             }
+        }
+        if let Some(c) = &e.condition {
+            let compiled = match compiled_conds.get(idx).copied().flatten() {
+                Some(res) => res,
+                None => {
+                    let res = match self.compile_condition(c) {
+                        Ok(id) => Some(id),
+                        Err(err) => {
+                            if self.anim_folders.warned.insert(c.clone()) {
+                                tracing::warn!("AnimGroupOverride: {}: condition {c:?}: {err}", e.folder);
+                            }
+                            None
+                        }
+                    };
+                    if let Some(slot) = compiled_conds.get_mut(idx) {
+                        *slot = Some(res);
+                    }
+                    res
+                }
+            };
+            let Some(id) = compiled else { return false };
+            if let Some(&cached) = cond_cache.get(&id) {
+                return cached;
+            }
+            match self.evaluate_compiled_on(id, Some(a)) {
+                Ok(v) => {
+                    cond_cache.insert(id, v);
+                    return v;
+                }
+                Err(err) => {
+                    if self.anim_folders.warned.insert(c.clone()) {
+                        tracing::warn!("AnimGroupOverride: {}: condition {c:?}: {err}", e.folder);
+                    }
+                    cond_cache.insert(id, false);
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Evaluate candidate `entries` for one actor `a` using the form index
+    /// (`global_indices` + `by_form`), writing its active third- and first-person
+    /// override lists into `active` only when changed [design].
+    #[allow(clippy::too_many_arguments)]
+    fn eval_anim_folders_for(
+        &mut self,
+        entries: &[FolderEntry],
+        global_indices: &[usize],
+        by_form: &HashMap<FormId, Vec<usize>>,
+        static_gates: &[Vec<StaticGate>],
+        compiled_conds: &mut [Option<Option<u32>>],
+        a: FormId,
+        cached_matched: &mut HashMap<FormId, (Option<FormId>, u8, Vec<usize>)>,
+        active: &mut HashMap<(FormId, bool), Vec<String>>,
+        can_reuse_active: bool,
+    ) {
+        let base = crate::functions::base_of(self, a);
+        let leveled_base = base
+            .filter(|&b| matches!(self.data.sig(b).as_ref(), Some(b"LVLN" | b"LVLC")))
+            .and_then(|_| self.world.placed.get(a).map(|p| p.base).or(base));
+        let weapon = crate::functions::items::equipped_weapon(self, a);
+        let weapon_mods = weapon.map_or(0, |w| self.world.get(a).ok().and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.equipped_mods(w)));
+        let actor_is_female = self.actor_female(a);
+        let mut slot2: Option<Option<FormId>> = None;
+        let mut candidates: Vec<usize> = Vec::with_capacity(global_indices.len() + 16);
+        candidates.extend_from_slice(global_indices);
+        for form in [Some(a), base, weapon].into_iter().flatten() {
+            if let Some(ids) = by_form.get(&form) {
+                candidates.extend_from_slice(ids);
+            }
+        }
+        candidates.sort_unstable();
+        candidates.dedup();
+        let mut cond_cache: HashMap<u32, bool> = HashMap::new();
+        let mut matched_ids = Vec::new();
+        let mut hold: Vec<&FolderEntry> = Vec::new();
+        for idx in candidates {
+            let e = &entries[idx];
+            if !self.folder_entry_holds(idx, e, static_gates, compiled_conds, &mut cond_cache, a, actor_is_female, base, leveled_base, weapon, &mut slot2) {
+                continue;
+            }
+            matched_ids.push(idx);
             hold.push(e);
         }
+        let unchanged = can_reuse_active
+            && cached_matched.get(&a).is_some_and(|(pw, pm, prev)| *pw == weapon && *pm == weapon_mods && *prev == matched_ids);
+        cached_matched.insert(a, (weapon, weapon_mods, matched_ids));
+        if unchanged {
+            return;
+        }
+        active.remove(&(a, false));
+        active.remove(&(a, true));
         hold.sort_by_key(|e| (e.priority, e.order));
         let context = ActorPickContext {
             weapon,
@@ -792,17 +1233,30 @@ impl Game<'_> {
 
     /// The entries that hold for each actor now.
     pub fn refresh_anim_folders(&mut self) {
+        self.anim_folders.ensure_indices();
         let mut actors: Vec<FormId> = self.senses.anim.keys().copied().collect();
         if !actors.contains(&FormId::PLAYER_REF) {
             actors.push(FormId::PLAYER_REF);
         }
         let entries = std::mem::take(&mut self.anim_folders.entries);
-        let mut active = HashMap::new();
+        let global_indices = std::mem::take(&mut self.anim_folders.global_indices);
+        let by_form = std::mem::take(&mut self.anim_folders.by_form);
+        let static_gates = std::mem::take(&mut self.anim_folders.static_gates);
+        let mut compiled_conds = std::mem::take(&mut self.anim_folders.compiled_conds);
+        let mut cached_matched = std::mem::take(&mut self.anim_folders.cached_matched);
+        let mut active = std::mem::take(&mut self.anim_folders.active);
+        cached_matched.retain(|a, _| actors.contains(a));
+        active.retain(|(a, _), _| actors.contains(a));
         for &a in &actors {
-            self.eval_anim_folders_for(&entries, a, &mut active);
+            self.eval_anim_folders_for(&entries, &global_indices, &by_form, &static_gates, &mut compiled_conds, a, &mut cached_matched, &mut active, true);
         }
         self.anim_folders.picks.retain(|a, _| actors.contains(a));
         self.anim_folders.entries = entries;
+        self.anim_folders.global_indices = global_indices;
+        self.anim_folders.by_form = by_form;
+        self.anim_folders.static_gates = static_gates;
+        self.anim_folders.compiled_conds = compiled_conds;
+        self.anim_folders.cached_matched = cached_matched;
         self.anim_folders.active = active;
     }
 
@@ -814,12 +1268,21 @@ impl Game<'_> {
         if self.anim_folders.entries.is_empty() {
             return;
         }
+        self.anim_folders.ensure_indices();
         let entries = std::mem::take(&mut self.anim_folders.entries);
+        let global_indices = std::mem::take(&mut self.anim_folders.global_indices);
+        let by_form = std::mem::take(&mut self.anim_folders.by_form);
+        let static_gates = std::mem::take(&mut self.anim_folders.static_gates);
+        let mut compiled_conds = std::mem::take(&mut self.anim_folders.compiled_conds);
+        let mut cached_matched = std::mem::take(&mut self.anim_folders.cached_matched);
         let mut active = std::mem::take(&mut self.anim_folders.active);
-        active.remove(&(actor, false));
-        active.remove(&(actor, true));
-        self.eval_anim_folders_for(&entries, actor, &mut active);
+        self.eval_anim_folders_for(&entries, &global_indices, &by_form, &static_gates, &mut compiled_conds, actor, &mut cached_matched, &mut active, false);
         self.anim_folders.entries = entries;
+        self.anim_folders.global_indices = global_indices;
+        self.anim_folders.by_form = by_form;
+        self.anim_folders.static_gates = static_gates;
+        self.anim_folders.compiled_conds = compiled_conds;
+        self.anim_folders.cached_matched = cached_matched;
         self.anim_folders.active = active;
     }
 
@@ -832,8 +1295,13 @@ impl Game<'_> {
                 e.forms.push(to);
             }
         }
+        self.anim_folders.ensure_indices();
     }
 }
+
+#[cfg(test)]
+#[path = "anim_folders_index_tests.rs"]
+mod anim_folders_index_tests;
 
 #[cfg(test)]
 mod tests {

@@ -3844,10 +3844,8 @@ impl<'a> Game<'a> {
         self.evaluate_on(text, None)
     }
 
-    /// EvaluateString's test run on a reference (`this` and the functions without a
-    /// reference name it): kNVSE's AnimGroupOverride conditions
-    /// (`crate::nvse_anim_folders`). The compiled texts are EvaluateString's.
-    pub(crate) fn evaluate_on(&mut self, text: &str, on: Option<FormId>) -> Result<bool, String> {
+    /// Compile (or look up cached) `EvaluateString` condition text, returning its callable ID.
+    pub(crate) fn compile_condition(&mut self, text: &str) -> Result<u32, String> {
         let id = match self.pp.evaluated.get(text) {
             Some(&id) => id,
             None => {
@@ -3860,9 +3858,21 @@ impl<'a> Game<'a> {
                 id
             }
         };
-        let id = id.ok_or_else(|| format!("{text:?} does not compile"))?;
+        id.ok_or_else(|| format!("{text:?} does not compile"))
+    }
+
+    /// Evaluate a previously compiled `EvaluateString` callable ID on `on`.
+    pub(crate) fn evaluate_compiled_on(&mut self, id: u32, on: Option<FormId>) -> Result<bool, String> {
         let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
         Ok(self.run_function(&fnv_script::vm::XVal::Ref(id), on.map(|f| Value::Ref(f.0)), Vec::new(), None, ctx)?.truthy())
+    }
+
+    /// EvaluateString's test run on a reference (`this` and the functions without a
+    /// reference name it): kNVSE's AnimGroupOverride conditions
+    /// (`crate::nvse_anim_folders`). The compiled texts are EvaluateString's.
+    pub(crate) fn evaluate_on(&mut self, text: &str, on: Option<FormId>) -> Result<bool, String> {
+        let id = self.compile_condition(text)?;
+        self.evaluate_compiled_on(id, on)
     }
 
     /// A function script from source text, kept as CompileScript keeps its files; `None`
