@@ -530,6 +530,16 @@ systems, loads its shaders and makes its allocator at startup, and a plugin cann
 after startup; nvforever's mesh terrain blend, off in most runs, gates its two material
 types with it. Drop it if upstream gains a way to register a material type lazily.
 
+Material reverse indices (#4719), in `src/material.rs`, marked `NVForever material reverse index`:
+`mark_meshes_as_changed_if_their_materials_changed` and `check_entities_needing_specialization`
+replace `AssetChanged<Mesh3d>` / `AssetChanged<MeshMaterial3d<M>>` full-world entity scans with
+incremental `Local` reverse maps (`MaterialMeshIndex<M>` and `MaterialSpecIndex<M>`) fed by
+pure `Changed<...>`/`Added<...>` component queries, `RemovedComponents`, and `MessageReader<AssetEvent<...>>`
+(with `mark_meshes_as_changed_if_their_materials_changed` ordered `.after(AssetEventSystems)`).
+This keeps both systems O(changed components + entities referencing changed assets) instead of
+scanning every mesh entity whenever any mesh or material asset event fires. Drop this patch if
+upstream Bevy indexes `AssetChanged` lookups by asset ID.
+
 Another change (sun visibility, #2670 and #2671, docs/design/sun-visibility.md), each part
 marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
 

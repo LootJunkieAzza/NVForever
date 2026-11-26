@@ -1,7 +1,6 @@
 use crate::*;
 use alloc::sync::Arc;
-use bevy_asset::prelude::AssetChanged;
-use bevy_asset::{Asset, AssetEventSystems, AssetId, AssetServer, UntypedAssetId};
+use bevy_asset::{Asset, AssetEvent, AssetEventSystems, AssetId, AssetServer, UntypedAssetId};
 use bevy_camera::visibility::ViewVisibility;
 use bevy_core_pipeline::core_3d::TransparentSortingInfo3d;
 use bevy_core_pipeline::deferred::{AlphaMask3dDeferred, Opaque3dDeferred};
@@ -13,6 +12,7 @@ use bevy_core_pipeline::{
 };
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::change_detection::Tick;
+use bevy_ecs::entity::{EntityHashMap, EntityHashSet};
 use bevy_ecs::system::SystemParam;
 use bevy_ecs::{
     prelude::*,
@@ -29,7 +29,7 @@ use bevy_material::{
 };
 use bevy_math::{Affine3, Affine3Ext as _};
 use bevy_mesh::{
-    mark_3d_meshes_as_changed_if_their_assets_changed, Mesh3d, MeshVertexBufferLayoutRef,
+    mark_3d_meshes_as_changed_if_their_assets_changed, Mesh, Mesh3d, MeshVertexBufferLayoutRef,
 };
 use bevy_platform::collections::hash_map::Entry;
 use bevy_platform::collections::{HashMap, HashSet};
@@ -64,7 +64,6 @@ use bevy_render::{
 };
 use bevy_render::{mesh::allocator::MeshAllocator, sync_world::MainEntityHashMap};
 use bevy_shader::{Shader, ShaderDefVal};
-use bevy_utils::Parallel;
 use core::{
     any::{Any, TypeId},
     hash::Hash,
@@ -554,6 +553,7 @@ where
                 open(
                     (
                         mark_meshes_as_changed_if_their_materials_changed::<M>
+                            .after(AssetEventSystems)
                             .ambiguous_with_all(),
                         check_entities_needing_specialization::<M>.after(AssetEventSystems),
                     )
@@ -873,17 +873,125 @@ pub const fn tonemapping_pipeline_key(tonemapping: Tonemapping) -> MeshPipelineK
 /// The easiest way to ensure that
 /// [`crate::render::mesh::extract_meshes_for_gpu_building`] re-extracts a mesh
 /// is to mark its [`Mesh3d`] as changed, so that's what this system does.
+/// NVForever material reverse index: incremental `AssetId<M> -> [Entity]` reverse index
+/// so [`mark_meshes_as_changed_if_their_materials_changed`] runs in O(changed components +
+/// affected material users) instead of scanning every mesh entity via `AssetChanged` [design].
+struct MaterialMeshIndex<M: Material> {
+    initialized: bool,
+    entity_mat: EntityHashMap<AssetId<M>>,
+    by_mat: HashMap<AssetId<M>, SmallVec<[Entity; 2]>>,
+}
+
+impl<M: Material> Default for MaterialMeshIndex<M> {
+    fn default() -> Self {
+        Self {
+            initialized: false,
+            entity_mat: EntityHashMap::default(),
+            by_mat: HashMap::default(),
+        }
+    }
+}
+
+impl<M: Material> MaterialMeshIndex<M> {
+    fn remove_from_mat(&mut self, mat_id: AssetId<M>, entity: Entity) {
+        if let Some(list) = self.by_mat.get_mut(&mat_id) {
+            if let Some(pos) = list.iter().position(|&e| e == entity) {
+                list.swap_remove(pos);
+            }
+            if list.is_empty() {
+                self.by_mat.remove(&mat_id);
+            }
+        }
+    }
+
+    fn upsert(&mut self, entity: Entity, mat_id: AssetId<M>) {
+        match self.entity_mat.entry(entity) {
+            Entry::Occupied(mut occ) => {
+                let old = *occ.get();
+                if old != mat_id {
+                    occ.insert(mat_id);
+                    self.remove_from_mat(old, entity);
+                    self.by_mat.entry(mat_id).or_default().push(entity);
+                }
+            }
+            Entry::Vacant(vac) => {
+                vac.insert(mat_id);
+                self.by_mat.entry(mat_id).or_default().push(entity);
+            }
+        }
+    }
+
+    fn remove(&mut self, entity: Entity) {
+        if let Some(old) = self.entity_mat.remove(&entity) {
+            self.remove_from_mat(old, entity);
+        }
+    }
+}
+
+/// NVForever material reverse index: returns the [`AssetId`] carried by any [`AssetEvent`]
+/// that matches Bevy's `AssetChanged` filter.
+#[inline]
+fn changed_asset_id<A: Asset>(event: &AssetEvent<A>) -> Option<AssetId<A>> {
+    match event {
+        AssetEvent::Added { id }
+        | AssetEvent::Modified { id }
+        | AssetEvent::Removed { id }
+        | AssetEvent::LoadedWithDependencies { id } => Some(*id),
+        AssetEvent::Unused { .. } => None,
+    }
+}
+
 fn mark_meshes_as_changed_if_their_materials_changed<M>(
-    mut changed_meshes_query: Query<
-        &mut Mesh3d,
-        Or<(Changed<MeshMaterial3d<M>>, AssetChanged<MeshMaterial3d<M>>)>,
-    >,
+    mut queries: ParamSet<(
+        Query<(Entity, &mut Mesh3d, &MeshMaterial3d<M>), Or<(Changed<MeshMaterial3d<M>>, Added<Mesh3d>)>>,
+        Query<(Entity, &mut Mesh3d, &MeshMaterial3d<M>)>,
+        Query<&mut Mesh3d, With<MeshMaterial3d<M>>>,
+    )>,
+    mut removed_mat: RemovedComponents<MeshMaterial3d<M>>,
+    mut mat_events: MessageReader<AssetEvent<M>>,
+    mut index: Local<MaterialMeshIndex<M>>,
 ) where
     M: Material,
 {
-    changed_meshes_query.par_iter_mut().for_each(|mut mesh| {
+    if !index.initialized {
+        index.initialized = true;
+        for _ in removed_mat.read() {}
+        for _ in mat_events.read() {}
+        for (entity, mut mesh, mat) in &mut queries.p1() {
+            index.upsert(entity, mat.id());
+            mesh.set_changed();
+        }
+        return;
+    }
+
+    for entity in removed_mat.read() {
+        index.remove(entity);
+    }
+
+    for (entity, mut mesh, mat) in &mut queries.p0() {
+        index.upsert(entity, mat.id());
         mesh.set_changed();
-    });
+    }
+
+    let mut all_meshes = queries.p2();
+    let mut stale: SmallVec<[Entity; 4]> = SmallVec::new();
+    for event in mat_events.read() {
+        let Some(mat_id) = changed_asset_id(event) else {
+            continue;
+        };
+        if let Some(entities) = index.by_mat.get(&mat_id) {
+            for &entity in entities {
+                if let Ok(mut mesh) = all_meshes.get_mut(entity) {
+                    mesh.set_changed();
+                } else {
+                    stale.push(entity);
+                }
+            }
+        }
+    }
+    for entity in stale {
+        index.remove(entity);
+    }
 }
 
 /// Fills the [`RenderMaterialInstances`] resources from the meshes in the
@@ -1048,22 +1156,96 @@ pub struct SpecializedMaterialViewPipelineCache {
     map: MainEntityHashMap<CachedRenderPipelineId>,
 }
 
+/// NVForever material reverse index: incremental reverse index mapping Mesh and Material
+/// asset IDs to the entities that reference them so [`check_entities_needing_specialization`]
+/// stays O(changed entities + changed asset users) instead of scanning every mesh entity on
+/// any asset event [design].
+pub struct MaterialSpecIndex<M: Material> {
+    initialized: bool,
+    entity_assets: EntityHashMap<(AssetId<Mesh>, AssetId<M>)>,
+    by_mesh: HashMap<AssetId<Mesh>, SmallVec<[Entity; 2]>>,
+    by_mat: HashMap<AssetId<M>, SmallVec<[Entity; 2]>>,
+}
+
+impl<M: Material> Default for MaterialSpecIndex<M> {
+    fn default() -> Self {
+        Self {
+            initialized: false,
+            entity_assets: EntityHashMap::default(),
+            by_mesh: HashMap::default(),
+            by_mat: HashMap::default(),
+        }
+    }
+}
+
+impl<M: Material> MaterialSpecIndex<M> {
+    fn remove_from_mesh(&mut self, mesh_id: AssetId<Mesh>, entity: Entity) {
+        if let Some(list) = self.by_mesh.get_mut(&mesh_id) {
+            if let Some(pos) = list.iter().position(|&e| e == entity) {
+                list.swap_remove(pos);
+            }
+            if list.is_empty() {
+                self.by_mesh.remove(&mesh_id);
+            }
+        }
+    }
+
+    fn remove_from_mat(&mut self, mat_id: AssetId<M>, entity: Entity) {
+        if let Some(list) = self.by_mat.get_mut(&mat_id) {
+            if let Some(pos) = list.iter().position(|&e| e == entity) {
+                list.swap_remove(pos);
+            }
+            if list.is_empty() {
+                self.by_mat.remove(&mat_id);
+            }
+        }
+    }
+
+    fn upsert(&mut self, entity: Entity, mesh_id: AssetId<Mesh>, mat_id: AssetId<M>) {
+        match self.entity_assets.entry(entity) {
+            Entry::Occupied(mut occ) => {
+                let (old_mesh, old_mat) = *occ.get();
+                if old_mesh != mesh_id || old_mat != mat_id {
+                    occ.insert((mesh_id, mat_id));
+                    if old_mesh != mesh_id {
+                        self.remove_from_mesh(old_mesh, entity);
+                        self.by_mesh.entry(mesh_id).or_default().push(entity);
+                    }
+                    if old_mat != mat_id {
+                        self.remove_from_mat(old_mat, entity);
+                        self.by_mat.entry(mat_id).or_default().push(entity);
+                    }
+                }
+            }
+            Entry::Vacant(vac) => {
+                vac.insert((mesh_id, mat_id));
+                self.by_mesh.entry(mesh_id).or_default().push(entity);
+                self.by_mat.entry(mat_id).or_default().push(entity);
+            }
+        }
+    }
+
+    fn remove(&mut self, entity: Entity) {
+        if let Some((old_mesh, old_mat)) = self.entity_assets.remove(&entity) {
+            self.remove_from_mesh(old_mesh, entity);
+            self.remove_from_mat(old_mat, entity);
+        }
+    }
+}
+
 /// Finds 3D entities that have changed in such a way as to potentially require
 /// specialization and adds them to the [`EntitiesNeedingSpecialization`] list.
+#[allow(clippy::too_many_arguments)]
 pub fn check_entities_needing_specialization<M>(
-    needs_specialization: Query<
-        Entity,
-        (
-            Or<(
-                Changed<Mesh3d>,
-                AssetChanged<Mesh3d>,
-                Changed<MeshMaterial3d<M>>,
-                AssetChanged<MeshMaterial3d<M>>,
-            )>,
-            With<MeshMaterial3d<M>>,
-        ),
+    changed_only: Query<
+        (Entity, &Mesh3d, &MeshMaterial3d<M>),
+        Or<(Changed<Mesh3d>, Changed<MeshMaterial3d<M>>)>,
     >,
-    mut par_local: Local<Parallel<Vec<Entity>>>,
+    all_entities: Query<(Entity, &Mesh3d, &MeshMaterial3d<M>)>,
+    mut mesh_events: MessageReader<AssetEvent<Mesh>>,
+    mut mat_events: MessageReader<AssetEvent<M>>,
+    mut index: Local<MaterialSpecIndex<M>>,
+    mut seen: Local<EntityHashSet>,
     mut entities_needing_specialization: ResMut<EntitiesNeedingSpecialization<M>>,
     mut removed_mesh_3d_components: RemovedComponents<Mesh3d>,
     mut removed_mesh_material_3d_components: RemovedComponents<MeshMaterial3d<M>>,
@@ -1073,25 +1255,81 @@ pub fn check_entities_needing_specialization<M>(
     entities_needing_specialization.changed.clear();
     entities_needing_specialization.removed.clear();
 
-    // Gather all entities that need their specializations regenerated.
-    needs_specialization
-        .par_iter()
-        .for_each(|entity| par_local.borrow_local_mut().push(entity));
-    par_local.drain_into(&mut entities_needing_specialization.changed);
+    if !index.initialized {
+        index.initialized = true;
+        for _ in mesh_events.read() {}
+        for _ in mat_events.read() {}
+        for entity in removed_mesh_3d_components
+            .read()
+            .chain(removed_mesh_material_3d_components.read())
+        {
+            entities_needing_specialization.removed.push(entity);
+        }
+        for (entity, mesh, mat) in &all_entities {
+            index.upsert(entity, mesh.id(), mat.id());
+            entities_needing_specialization.changed.push(entity);
+        }
+        return;
+    }
 
     // All entities that removed their `Mesh3d` or `MeshMaterial3d` components
-    // need to have their specializations removed as well.
-    //
-    // It's possible that `Mesh3d` was removed and re-added in the same frame,
-    // but we don't have to handle that situation specially here, because
-    // `specialize_material_meshes` processes specialization removals before
-    // additions. So, if the pipeline specialization gets spuriously removed,
-    // it'll just be immediately re-added again, which is harmless.
+    // need to have their specializations removed as well, and are evicted from the
+    // reverse asset index in O(removed) [design].
     for entity in removed_mesh_3d_components
         .read()
         .chain(removed_mesh_material_3d_components.read())
     {
+        index.remove(entity);
         entities_needing_specialization.removed.push(entity);
+    }
+
+    seen.clear();
+    // Component-level changes use pure `Changed<...>` so Bevy's archetype-table change
+    // ticks skip untouched tables in O(1) [design].
+    for (entity, mesh, mat) in &changed_only {
+        index.upsert(entity, mesh.id(), mat.id());
+        if seen.insert(entity) {
+            entities_needing_specialization.changed.push(entity);
+        }
+    }
+
+    // Asset-level changes look up only the entities bound to the changed Mesh/Material
+    // asset IDs instead of scanning all mesh entities in the world [design].
+    let mut stale: SmallVec<[Entity; 4]> = SmallVec::new();
+    for event in mesh_events.read() {
+        let Some(mesh_id) = changed_asset_id(event) else {
+            continue;
+        };
+        if let Some(entities) = index.by_mesh.get(&mesh_id) {
+            for &entity in entities {
+                if all_entities.contains(entity) {
+                    if seen.insert(entity) {
+                        entities_needing_specialization.changed.push(entity);
+                    }
+                } else {
+                    stale.push(entity);
+                }
+            }
+        }
+    }
+    for event in mat_events.read() {
+        let Some(mat_id) = changed_asset_id(event) else {
+            continue;
+        };
+        if let Some(entities) = index.by_mat.get(&mat_id) {
+            for &entity in entities {
+                if all_entities.contains(entity) {
+                    if seen.insert(entity) {
+                        entities_needing_specialization.changed.push(entity);
+                    }
+                } else {
+                    stale.push(entity);
+                }
+            }
+        }
+    }
+    for entity in stale {
+        index.remove(entity);
     }
 }
 
