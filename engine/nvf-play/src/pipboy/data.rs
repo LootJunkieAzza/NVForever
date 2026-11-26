@@ -2693,12 +2693,18 @@ fn objectives(game: &Game, q: u32) -> Vec<Row> {
 
 /// A co-op guest's quest whose stages it claimed this session (joint progression,
 /// `fnv_game::coop_joint`, coop-shared-progress.md §3.5): a last line under its objectives saying they also
-/// count in this character's own save [design: our own words].
+/// count in this character's own save; a quest it does not sync (its line sat out:
+/// docs/design/coop-quest-sync.md §3) says so instead [design: our own words].
 fn claimed_line(g: &fnv_game::game::Game, q: FormId) -> Option<String> {
+    if !g.coop_guest {
+        return None;
+    }
+    if g.player.quest_sync.on == Some(true) && !g.coop_takes_quest(Some(q)) {
+        return Some(fnv_util::words::tr("Sitting out: not shared with your own save").to_string());
+    }
     let n = g.player.claims.stages.get(&q).map_or(0, |s| s.len());
-    (g.coop_guest && n > 0).then(|| fnv_util::words::tr("Shared quest progress: also counts in your own save").to_string())
+    (n > 0).then(|| fnv_util::words::tr("Shared quest progress: also counts in your own save").to_string())
 }
-
 
 /// The heading's place name, kept per cell.
 fn place(st: &mut DataState, game: &Game) -> String {
