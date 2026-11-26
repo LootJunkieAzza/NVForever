@@ -384,8 +384,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- fast travel ----
         // EnableFastTravel 0's override [documented: GetPCHasScriptedFastTravelOverride,
-        // "can be granted via EnableFastTravel"; hypothesis: the override is the bar it
-        // sets].
+        // "can be granted via EnableFastTravel"; observed: `so_17_fast_travel_override_and_can`
+        // (`wave4a_extenders.json`), see docs/spec-notes/ext-showoff.md §6].
         "getpchasscriptedfasttraveloverride" => yes(g.player.fast_travel.travel_disabled),
         "getpccanfasttravel" => yes(g.can_fast_travel(ctx)),
         // ---- detection ----
