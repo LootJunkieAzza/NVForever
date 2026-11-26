@@ -903,6 +903,10 @@ pub fn first_shown(heights: &[f32], first: usize, selected: usize, room: f32) ->
     first
 }
 
+/// A dim row's strength: half, as the original draws ammo the weapon cannot fire
+/// [observed: observer check 288, text about half as bright].
+const DIM_ROW: f32 = 0.5;
+
 fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, heights: &[f32], tab: usize) {
     let bright = c.bright();
     let line = amber(LINE);
@@ -916,6 +920,8 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, 
     let mut fit = 0;
     for i in first..rows.len() {
         let r = &rows[i];
+        // Ammo the weapon cannot fire at half brightness (`Row::dim`, #3442).
+        let bright = if r.dim { bright.with_alpha(bright.alpha() * DIM_ROW) } else { bright };
         let lines = c.lines(2, &row_text(r), Some(wrap));
         let h = heights[i];
         if y + h > MAIN.min.y + LIST.max.y {
@@ -1051,7 +1057,7 @@ mod tests {
             condition: None,
             icon: None,
             price: None,
-            bartered: false, loaded: false,
+            bartered: false, loaded: false, dim: false,
             mods: 0,
             mods_value: 0,
             folder: None,
@@ -1065,7 +1071,7 @@ mod tests {
     }
 
     fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
-        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false, ysi: None }
+        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, dim: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false, ysi: None }
     }
 
     #[test]
