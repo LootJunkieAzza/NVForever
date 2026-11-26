@@ -112,7 +112,9 @@ impl Game<'_> {
     /// The engine reads [`Game::explosion_radius`] back before working out who it reaches.
     pub fn explosion_placed(&mut self, base: FormId, source: Option<FormId>, at: [f32; 3], radius: f32) -> Option<FormId> {
         let cell = source.and_then(|s| self.cell_of(s)).or_else(|| self.cell_of(FormId::PLAYER_REF));
-        let r = self.world.place(base, cell, at, [0.0; 3], 1).ok()?;
+        let place_base = self.unclone(base);
+        let r = self.world.place(place_base, cell, at, [0.0; 3], 1).ok()?;
+        let radius = self.explosion_radius_override(base).unwrap_or(radius);
         let until = self.time + self.cfg.frame_seconds;
         self.showoff.b5.explosions.insert(r, LiveExplosion { source, radius, until });
         Some(r)
@@ -144,26 +146,20 @@ impl Game<'_> {
 
     /// Whether the player could fast travel from here now: the checks the Pip-Boy's map
     /// makes before it asks (`nvf_play::pipboy::data::travel::refusal`), but the marker's:
-    /// EnableFastTravel 0, a cell or world flagged against it, in the air, in combat,
+    /// EnableFastTravel 0, an interior or a world flagged against it
+    /// (`crate::fast_travel::place_forbids`), in the air, in combat,
     /// hostiles near, over-encumbered without Long Haul [documented: GetPCCanFastTravel,
     /// "the same check that the game does"]. In the air is the player's IsInAir;
     /// "in combat" the player's combat state, where the map reads the battle music
     /// [hypothesis: the same moments].
-    fn can_fast_travel(&mut self, ctx: &RunCtx) -> bool {
+    pub(crate) fn can_fast_travel(&mut self, ctx: &RunCtx) -> bool {
         let p = FormId::PLAYER_REF;
         if self.player.fast_travel.travel_disabled {
             return false;
         }
         let cell = self.world.peek(p).and_then(|s| s.cell);
-        let flags = |g: &Game, f: FormId| g.data.record_field(f, "DATA", "").and_then(|v| v.as_f64()).map_or(0, |x| x as u32);
-        let place = match cell {
-            Some(c) => match self.world.placed.world_of(c) {
-                Some(w) => flags(self, w) & (1 << 1) != 0,
-                None => flags(self, c) & (1 << 2) != 0,
-            },
-            None => false,
-        };
-        if place {
+        // The player's Fast Travel From Anywhere lifts it, as on the map [design: docs/design/tweaks.md].
+        if !self.tweaks.unsafe_fast_travel && cell.is_some_and(|c| self.place_forbids_travel(Some(c), self.world.placed.world_of(c))) {
             return false;
         }
         if matches!(crate::nvse::call(self, ctx, "isinair", Some(p), &[]), Some(Ok(XVal::Num(x))) if x != 0.0) {
@@ -280,19 +276,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `[numPerks] [title]`: the menu on its perks page alone, no level gained; the
         // level's perks by default (1 at a perk level, else 0, which only browses); 0 when
-        // no perk is left to take [documented: ShowPerkMenu].
+        // no perk is left to take [documented: ShowPerkMenu]. Allowed when no menu is open
+        // or when SkillMenu / LevelUpMenu (`menus::LEVEL_UP`) is already open [observed:
+        // so_36_show_perk_menu_while_open: 1,1,1]; refused while any other menu is open so
+        // `Game::open_menu` does not overwrite another menu without firing its close event
+        // [hypothesis: other menus unprobed; design: preserve open-menu lifecycle]. Same-frame
+        // GetLevelUpMenuPoints 1 0 reads 0 [observed: so_26_levelup_perk_menu_points:
+        // 1,0,0,1,-1].
         "showperkmenu" => {
             let level = g.player_level() as i32;
             let sheet = crate::levelup::PerkSheet::of_player(g, level);
-            if !sheet.available.contains(&true) || g.menu.is_some() {
+            if !sheet.available.contains(&true) || g.menu.is_some_and(|m| m != crate::game::menus::LEVEL_UP) {
                 return Some(Ok(zero));
             }
             let n = num(args, 0, -1.0) as i32;
             let count = if n > -1 { n } else { i32::from(crate::levelup::perk_due(g, level)) * crate::levelup::PERKS_PER_LEVEL as i32 };
             g.showoff.b5.levelup.open_as = Some(LevelUpOpen { perks_only: true, count: Some(count), title: text(args, 1) });
-            // Read at once, before the engine's first frame [hypothesis, as ShowSkillMenu's].
             g.showoff.b5.levelup.page = Some(1);
-            g.showoff.b5.levelup.points = [0, 0, count, 0];
+            g.showoff.b5.levelup.points = [0, 0, 0, 0];
             g.open_menu(crate::game::menus::LEVEL_UP);
             yes(true)
         }
@@ -383,8 +384,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- fast travel ----
         // EnableFastTravel 0's override [documented: GetPCHasScriptedFastTravelOverride,
-        // "can be granted via EnableFastTravel"; hypothesis: the override is the bar it
-        // sets].
+        // "can be granted via EnableFastTravel"; observed: `so_17_fast_travel_override_and_can`
+        // (`wave4a_extenders.json`), see docs/spec-notes/ext-showoff.md §6].
         "getpchasscriptedfasttraveloverride" => yes(g.player.fast_travel.travel_disabled),
         "getpccanfasttravel" => yes(g.can_fast_travel(ctx)),
         // ---- detection ----
@@ -463,14 +464,26 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             yes(hit && !ignore)
         }
         // The recoil is not played [not built; documented: ForceRecoilAnim, "typically only
-        // works for melee/unarmed weapons"]. 1 for the player [observed 2026-11-08: showoff5.recoil.player, at the airport
-        // test ground; the save's weapon and whether it was out not recorded]: 1 for any
-        // living actor, whatever it holds [hypothesis: the page's "only works" is about
-        // the animation showing].
+        // works for melee/unarmed weapons"]. Returns 1 for a living actor unarmed/melee
+        // (`animation_type <= 2` or no equipped weapon) and 0 with a ranged gun equipped
+        // [observed 2026-11-08: showoff5.recoil.player 1 unarmed; observed: Fallout: New
+        // Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 2026-11-23/24,
+        // `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+        // `so_33_force_recoil_unarmed_vs_gun` (unarmed 1, holstered 10mm Pistol 0,
+        // ForceHitReaction 0) and `w4d_38_showoff_perk_stagger_fade`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+        // `stag(0,0)|rec(1,1,0)` (stagger on Player/Doc Mitchell; recoil unarmed, Baseball
+        // Bat, 10mm Pistol); no DLL or source consulted].
         "forcerecoilanim" => {
             let Some(a) = subject else { return Some(Ok(zero)) };
             let actor = a == FormId::PLAYER_REF || matches!(g.world.placed.get(a).map(|p| &p.sig), Some(b"ACHR" | b"ACRE"));
-            yes(actor && !g.is_dead(a))
+            let melee_or_unarmed = match crate::functions::items::equipped_weapon(g, a) {
+                None => true,
+                Some(w) => crate::nvse::record_value(g, w, "DNAM", "animation_type")
+                    .and_then(|v| v.num().ok())
+                    .is_none_or(|t| t <= 2.0),
+            };
+            yes(actor && !g.is_dead(a) && melee_or_unarmed)
         }
         // `[killer]`: KillActor on every loaded actor hostile to the player [documented:
         // KillAllHostiles; hypothesis: "within range" is the loaded area, as
@@ -488,39 +501,63 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- values ----
-        // `[accountForBarter]` on an item reference: its value at its condition; with the
-        // flag, on an inventory reference while the barter menu is open, what the player
-        // is paid for their own item or pays for the merchant's [documented:
-        // GetCalculatedItemValue]. Weapon mods' values and the Calculate Buy Price perks
-        // are not counted [hypothesis: the mods carry no value field NVForever reads]. -1
-        // for no item.
+        // `[accountForBarter]` on an item reference: its value at its condition plus the
+        // attached weapon mods' IMOD values (which condition does not lower [observed:
+        // o26_value, docs/spec-notes/weapon-mods.md §6, `FormStore::mods_value`]); with
+        // the flag, on an inventory reference while the barter menu is open, multiplied
+        // by the active trade's buy/sell multiplier (`SetBarterPriceMult` override, else
+        // live `BarterView::mult`, else the Barter skill GMST fallback) [documented:
+        // GetCalculatedItemValue; hypothesis: Calculate Buy Price perks outside a live
+        // BarterView are not counted]. -1 for no item.
         "getcalculateditemvalue" => {
             let Some(r) = subject else { return Some(Ok(XVal::Num(-1.0))) };
-            let (holder, item, condition) = match g.temp_item(r) {
+            let (holder, item, condition, mods) = match g.temp_item(r) {
                 Some((c, i)) => {
-                    let cond = g.world.peek(c).and_then(|s| s.inventory.as_ref()).and_then(|inv| inv.groups().find(|x| x.0 == i).and_then(|x| x.1.condition));
-                    (Some(c), i, cond)
+                    let (cond, mods) = g
+                        .world
+                        .peek(c)
+                        .and_then(|s| s.inventory.as_ref())
+                        .and_then(|inv| inv.groups().find(|x| x.0 == i).map(|x| (x.1.condition, x.1.mods)))
+                        .unwrap_or((None, 0));
+                    (Some(c), i, cond, mods)
                 }
                 None => match crate::functions::base_of(g, r) {
-                    Some(b) => (None, b, g.world.placed.get(r).and_then(|p| p.health)),
+                    Some(b) => {
+                        let (cond, mods) = match g.world.peek(r) {
+                            Some(s) => (s.extra.condition, s.extra.mods),
+                            None => (g.world.placed.get(r).and_then(|p| p.health), 0),
+                        };
+                        (None, b, cond, mods)
+                    }
                     None => return Some(Ok(XVal::Num(-1.0))),
                 },
             };
-            let Some(value) = g.world.forms.item(item).and_then(|i| i.value) else { return Some(Ok(XVal::Num(-1.0))) };
-            let has_health = g.world.forms.item(item).is_some_and(|i| i.health.is_some_and(|h| h > 0));
-            let mut v = value_at(g, f64::from(value), condition, has_health);
+            let Some(it) = g.world.resolve_item(item) else { return Some(Ok(XVal::Num(-1.0))) };
+            let Some(value) = g.forms.item_values.get(&item).copied().or(it.value) else { return Some(Ok(XVal::Num(-1.0))) };
+            let has_health = g.world.effective_health(item).is_some_and(|h| h > 0);
+            let mut v = value_at(g, f64::from(value), condition, has_health) + f64::from(g.world.forms.mods_value(g.unclone(item), mods));
             if num(args, 0, 0.0) != 0.0 && holder.is_some() && g.menu_open(crate::game::menus::BARTER) {
-                let skill = crate::functions::actor::actor_value(g, FormId::PLAYER_REF, crate::actor_values::BARTER).unwrap_or(0.0);
-                let s = |n: &str, d: f64| crate::combat::setting(g, n, d);
-                v *= if holder == Some(FormId::PLAYER_REF) {
-                    (s("fBarterSellBase", 0.45) + skill * s("fBarterSellMult", 0.45) / 100.0).min(1.0)
-                } else {
-                    (s("fBarterBuyBase", 1.55) + skill * s("fBarterBuyMult", -0.45) / 100.0).max(1.0)
-                };
+                let side = usize::from(holder == Some(FormId::PLAYER_REF));
+                let mult = g
+                    .other
+                    .jip12
+                    .price_mults[side]
+                    .or_else(|| g.other.jip12.barter.as_ref().map(|b| b.mult[side]))
+                    .map(f64::from)
+                    .unwrap_or_else(|| {
+                        let skill = crate::functions::actor::actor_value(g, FormId::PLAYER_REF, crate::actor_values::BARTER).unwrap_or(0.0);
+                        let s = |n: &str, d: f64| crate::combat::setting(g, n, d);
+                        if side == 1 {
+                            (s("fBarterSellBase", 0.45) + skill * s("fBarterSellMult", 0.45) / 100.0).min(1.0)
+                        } else {
+                            (s("fBarterBuyBase", 1.55) + skill * s("fBarterBuyMult", -0.45) / 100.0).max(1.0)
+                        }
+                    });
+                v *= mult;
             }
-            // A whole number, the fraction dropped [observed: 749.46 shows as 749;
-            // hypothesis: truncated rather than rounded].
-            XVal::Num(v.trunc())
+            // Rounded to nearest whole number [observed: o26_value Varmint Rifle
+            // 74.946 -> 75 and 48.679 -> 49; showoff5.itemvalue.pistol 749.46 -> 749].
+            XVal::Num(v.round())
         }
         // `whatAttack [weapon]`: the AP of the player's weapon (fists without one): 0 the
         // weapon's own (its override, else its animation type's setting), 1 a melee

@@ -32,7 +32,7 @@ use super::model;
 use super::vanilla::{drawn_line, kept_pieces, TileMenus, KEPT_PIECES, STRIP_TILE};
 use crate::compass_strip::{StripNode, StripTexels, StripWindow};
 use crate::hud::{strip_left, HudView, STRIP};
-use crate::interface::{self, at, bc_supported, face, plain_font, set_marked, u, Face, Pictures, SizedPicture, FONT_FILES};
+use crate::interface::{self, at, bc_supported, face, plain_font, set_marked, u, Face, Pictures, SizedPicture};
 use crate::repeat::{self, Repeats};
 use crate::script::ScriptState;
 use bevy::ecs::system::SystemParam;
@@ -42,7 +42,7 @@ use bevy::window::PrimaryWindow;
 use fnv_font::Font;
 use fnv_ui::{TileId, Ui, Value};
 use nvf_assets::GameData;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The menu drawn from: the HUD's file names it so [documented: hud_main_menu.xml].
 pub const HUD_MENU: &str = "HUDMainMenu";
@@ -60,6 +60,33 @@ pub fn font_number(font: f64) -> u8 {
     let n = font.round();
     if (1.0..=9.0).contains(&n) {
         n as u8
+    } else {
+        1
+    }
+}
+
+/// Resolve a tile's `font` number against loaded `xfonts` extended slots (`10..=255`).
+///
+/// Vanilla slots `1..=9` stay as written (preserving unloaded font `9`); registered
+/// extended slots `10..=255` resolve to their slot number (e.g. MAPMO `21`–`22`); and `0`,
+/// negative/non-finite values, or unregistered extended IDs (e.g. `<font>42</font>` when no
+/// `xfonts` file defines slot `42`) fall back to font `1` without panicking or routing to
+/// unloaded font `9` [design; hypothesis: original-game fallback for unregistered extended
+/// IDs is not directly captured; fonts.md §4.1].
+pub fn resolve_font_number(font: f64, extra: &BTreeMap<u8, String>) -> u8 {
+    let n = font.round();
+    if !n.is_finite() {
+        return 1;
+    }
+    if (1.0..=9.0).contains(&n) {
+        n as u8
+    } else if (10.0..=255.0).contains(&n) {
+        let slot = n as u8;
+        if extra.contains_key(&slot) {
+            slot
+        } else {
+            1
+        }
     } else {
         1
     }
@@ -110,11 +137,23 @@ impl StringMetrics {
 
 /// A session's owned font source and metrics for script queries. No Bevy resources or
 /// texture handles enter the callback [design]. All font IDs use the renderer's selector.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn string_measure(load: impl Fn(u8) -> Option<Font> + Send + Sync + 'static) -> fnv_game::ui_more::Measure {
+    string_measure_with_fonts(BTreeMap::new(), load)
+}
+
+/// [`string_measure`] with an `xfonts` extended slot map (`interface::load_xfonts`) so
+/// script `GetStringUIDimensions` calls resolve registered extended slots and fall back
+/// cleanly for `<font>0` and unregistered extended IDs [design].
+pub(crate) fn string_measure_with_fonts(
+    extra: BTreeMap<u8, String>,
+    load: impl Fn(u8) -> Option<Font> + Send + Sync + 'static,
+) -> fnv_game::ui_more::Measure {
     let cache = std::sync::Mutex::new(StringMetrics::default());
     let start = std::time::Instant::now();
     Box::new(move |font, text, wrap| {
-        cache.lock().map_or((0.0, 0.0, 0.0), |mut cache| cache.measure(font_number(font), text, wrap, start.elapsed(), &load))
+        let number = resolve_font_number(font, &extra);
+        cache.lock().map_or((0.0, 0.0, 0.0), |mut cache| cache.measure(number, text, wrap, start.elapsed(), &load))
     })
 }
 
@@ -150,12 +189,18 @@ pub fn tallest_glyph(font: &Font) -> f32 {
 #[derive(Resource, Default)]
 pub struct TileFonts {
     faces: HashMap<u8, Face>,
+    /// Extended `NVSE\Plugins\xfonts\*.txt` slots discovered once when `GameData` is
+    /// available [design: fonts.md §4.1].
+    extra: Option<BTreeMap<u8, String>>,
     /// The faces' fonts, owned, for the text widths a frame keeps back
     /// ([`fnv_game::ui_hud::defer`]); made again when a face is read.
     measure: Option<fnv_game::ui_hud::Measure>,
     /// What each notice text copy's width was last measured from
     /// ([`super::notices::write_widths`]).
     notice_widths: super::notices::WidthsWritten,
+    /// What each mod-added HUD text's width was last measured from: its string and wrap
+    /// ([`FontKit::write_mod_widths`]).
+    mod_widths: HashMap<TileId, (String, f64)>,
 }
 
 #[derive(SystemParam)]
@@ -168,23 +213,60 @@ pub(crate) struct FontKit<'w> {
     runtime: Option<Res<'w, super::runtime_images::RuntimeImages>>,
 }
 
+/// Path passed to [`interface::face`] for resolved slot `n`: vanilla slots `1..=9` pass the
+/// raw [`interface::FONT_FILES`] entry so `face()` runs `is_unloaded_font` first (keeping
+/// Font 9 unloaded even if an INI sets `sFontFile_9`) and resolves `font_file()` exactly
+/// once (preserving INI font swaps without double indirection); extended slots `>= 10` look
+/// up `extra` directly [design].
+fn face_slot_path(slot: u8, extra: Option<&BTreeMap<u8, String>>) -> &str {
+    if (1..=9).contains(&slot) {
+        interface::FONT_FILES[usize::from(slot) - 1]
+    } else {
+        extra
+            .and_then(|map| map.get(&slot))
+            .map(String::as_str)
+            .unwrap_or(interface::FONT_FILES[0])
+    }
+}
+
 impl FontKit<'_> {
-    fn load(&mut self, font: f64) {
-        let n = font_number(font);
+    fn ensure_xfonts(&mut self) {
+        if self.fonts.extra.is_none() {
+            if let Some(data) = self.data.as_deref() {
+                self.fonts.extra = Some(interface::load_xfonts(&data.vfs));
+            }
+        }
+    }
+
+    pub(crate) fn font_number(&self, font: f64) -> u8 {
+        match self.fonts.extra.as_ref() {
+            Some(extra) => resolve_font_number(font, extra),
+            None => font_number(font),
+        }
+    }
+
+    pub(crate) fn load(&mut self, font: f64) {
+        self.ensure_xfonts();
+        let n = self.font_number(font);
         if !self.fonts.faces.contains_key(&n) {
             // Only when a face is made: entries in a `profile hitch` line are the faces made in
             // that frame, whether read or the stand-in (`interface::face`; a tile-drawn menu's
             // own first use in `draw` counts here too, outside `tiles::write`).
             let _span = info_span!("tiles::write::font_load").entered();
             let bc = bc_supported(self.formats.as_deref());
-            let f = face(FONT_FILES[n as usize - 1], plain_font(31.0, 15.0), self.data.as_deref(), &mut self.images, bc);
+            let path = face_slot_path(n, self.fonts.extra.as_ref());
+            let f = face(path, plain_font(31.0, 15.0), self.data.as_deref(), &mut self.images, bc);
             self.fonts.faces.insert(n, f);
             self.fonts.measure = None;
         }
     }
 
-    fn face(&self, font: f64) -> Option<&Face> {
-        self.fonts.faces.get(&font_number(font))
+    pub(crate) fn face(&self, font: f64) -> Option<&Face> {
+        self.fonts.faces.get(&self.font_number(font))
+    }
+
+    pub(crate) fn images_mut(&mut self) -> &mut Assets<Image> {
+        &mut self.images
     }
 
     /// The faces made so far, the game's fonts and stand-ins alike
@@ -234,8 +316,9 @@ impl FontKit<'_> {
         }
         if self.fonts.measure.is_none() {
             let owned: HashMap<u8, Font> = self.fonts.faces.iter().map(|(&n, face)| (n, face.font.clone())).collect();
+            let extra = self.fonts.extra.clone().unwrap_or_default();
             self.fonts.measure = Some(std::sync::Arc::new(move |font: f64, text: &str| {
-                let n = font_number(font);
+                let n = resolve_font_number(font, &extra);
                 owned.get(&n).map_or(0.0, |f| measure(f, n, text, None).0)
             }));
         }
@@ -247,6 +330,36 @@ impl FontKit<'_> {
         if let Some(measure) = self.widths(ui) {
             fnv_game::ui_hud::write_text_widths(ui, &*measure);
         }
+        self.write_mod_widths(ui);
+    }
+
+    /// The widths of the text tiles mods add to the HUD (`fnv_game::ui_hud::unmeasured_texts`),
+    /// each measured in its own font when that font is read, and only when its string or
+    /// wrap changed. The original sets every text tile's `width` to its measured size; a mod
+    /// that centres a text by its own width read 0 here, so MAPMO's HUD clock (x = (dial
+    /// width − text width) / 2 from its place) ran off the right edge of the view
+    /// [observed 2026-11-21 in FadedLight's Nuclear Sunset fork, #4493].
+    fn write_mod_widths(&mut self, ui: &mut Ui) {
+        // The notices' copies have their own measure (`write_notice_widths`).
+        let notices: std::collections::HashSet<TileId> = super::notices::texts(ui).into_iter().collect();
+        let tiles: Vec<TileId> = fnv_game::ui_hud::unmeasured_texts(ui).into_iter().filter(|t| !notices.contains(t)).collect();
+        let present: std::collections::HashSet<TileId> = tiles.iter().copied().collect();
+        self.fonts.mod_widths.retain(|id, _| present.contains(id));
+        for tile in tiles {
+            let t = ui.tile(tile);
+            let Some(string) = t.get("string").map(Value::text) else { continue };
+            let font = t.get("font").map_or(0.0, Value::num);
+            let wrap = t.get("wrapwidth").map_or(0.0, Value::num);
+            if self.fonts.mod_widths.get(&tile).is_some_and(|(s, w)| *s == string && *w == wrap) {
+                continue;
+            }
+            self.load(font);
+            let Some(face) = self.face(font).filter(|f| f.image.is_some()) else { continue };
+            let (width, _) = measure(&face.font, self.font_number(font), &string, Some(wrap).filter(|w| *w > 0.0));
+            ui.set_trait(tile, "width", Value::Num(width));
+            ui.set_trait(tile, fnv_game::ui_hud::MEASURED_MARK, Value::Num(1.0));
+            self.fonts.mod_widths.insert(tile, (string, wrap));
+        }
     }
 
     /// Write the tile HUD's notice texts' widths (`super::notices::write_widths`), after
@@ -257,7 +370,7 @@ impl FontKit<'_> {
             return;
         }
         let mut last = std::mem::take(&mut self.fonts.notice_widths);
-        super::notices::write_widths(ui, &mut last, &|font, text, wrap| self.face(font).map_or(0.0, |f| measure(&f.font, font_number(font), text, wrap).0));
+        super::notices::write_widths(ui, &mut last, &|font, text, wrap| self.face(font).map_or(0.0, |f| measure(&f.font, self.font_number(font), text, wrap).0));
         self.fonts.notice_widths = last;
     }
 
@@ -266,11 +379,16 @@ impl FontKit<'_> {
     /// the renderer sets it ([`measure`]). A font not read measures by its stand-in, as it is drawn [design:
     /// the menu's places follow from these sizes, so a box is still laid out].
     pub(crate) fn menu_measure(&mut self, fonts: &[f64]) -> impl Fn(f64, &str, Option<f64>) -> (f64, f64) + '_ {
+        self.ensure_xfonts();
         for &font in fonts {
             self.load(font);
         }
         let faces = &self.fonts.faces;
-        move |font: f64, text: &str, wrap: Option<f64>| faces.get(&font_number(font)).map_or((0.0, 0.0), |face| measure_written(&face.font, font_number(font), text, wrap))
+        let extra = self.fonts.extra.as_ref();
+        move |font: f64, text: &str, wrap: Option<f64>| {
+            let n = extra.map_or_else(|| font_number(font), |e| resolve_font_number(font, e));
+            faces.get(&n).map_or((0.0, 0.0), |face| measure_written(&face.font, n, text, wrap))
+        }
     }
 
     /// A picture's own file's size in texels, read once by the one who asks (the tutorial
@@ -433,6 +551,27 @@ pub const fn text_base(font: u8) -> f32 {
     }
 }
 
+/// First-line baseline under a text tile's top for slot `number` and parsed face `font`.
+///
+/// Vanilla slots `1..=9` keep [`text_base`] bit-for-bit unchanged. Extended `xfonts` slots
+/// (`>= 10`) use the tallest ASCII glyph ascent (at least `0.75 * font.size`, matching
+/// `interface::line_base`) so large modded fonts (such as MAPMO's 76.7-unit HUD fonts) do
+/// not clip above the tile top [design: fonts.md §4.1].
+pub fn text_base_for(number: u8, font: &Font) -> f32 {
+    if (1..=9).contains(&number) {
+        text_base(number)
+    } else {
+        font.glyphs
+            .iter()
+            .skip(0x20)
+            .take(0x5F)
+            .filter(|g| g.drawn())
+            .map(|g| g.ascent)
+            .fold(0.0, f32::max)
+            .max(font.size * 0.75)
+    }
+}
+
 /// How far apart a text's lines stand in font number `number` ([`font_number`]), whose face
 /// is `font`. One number per font [observed: hud_menus capture 2026-10-31: a two-line text
 /// tile's `height` less a one-line one's, the same at three window sizes, and three lines
@@ -457,7 +596,7 @@ pub fn line_pitch(number: u8, font: &Font) -> f32 {
 /// zoom): each line, its x by the tile's justification [hypothesis] and its baseline in
 /// font number `number` ([`text_base`]), the lines one [`line_pitch`] apart.
 pub fn text_lines(font: &Font, number: u8, string: &str, wrap: Option<f64>, alignment: Alignment, width: f64) -> Vec<(fnv_font::Line, f32, f32)> {
-    let (base, pitch) = (text_base(number), line_pitch(number, font));
+    let (base, pitch) = (text_base_for(number, font), line_pitch(number, font));
     let width = width as f32;
     font.lines(string, wrap.map(|w| w as f32))
         .into_iter()
@@ -608,11 +747,85 @@ fn under(ui: &Ui, id: TileId, of: &[TileId]) -> bool {
     false
 }
 
+fn piece_from_item(ui: &Ui, item: &layout::DrawItem, whole: bool, strip: bool, resolve_font: &dyn Fn(f64) -> u8) -> Option<Piece> {
+    if !item.visible || item.alpha <= 0.0 {
+        return None;
+    }
+    let tile = ui.tile(item.tile);
+    let look = match &item.kind {
+        Kind::Rect if ["red", "green", "blue"].iter().any(|n| tile.get(n).is_some()) => Look::Box,
+        // A hotrect a model marked (`layout::HOTRECT_FILL`): its box filled.
+        Kind::Hotrect => Look::Box,
+        Kind::Image(image) if !image.filename.trim().is_empty() => {
+            let fit = match () {
+                _ if strip => Fit::Strip,
+                _ if whole => fit(tile),
+                _ => Fit::Stretch,
+            };
+            let source = match image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
+                _ if super::runtime_images::is_runtime(&image.filename) => Source::Runtime(None),
+                _ if !whole => Source::Shared,
+                Some(atlas) => Source::Index(atlas),
+                None => Source::Own,
+            };
+            Look::Picture { name: image.filename.trim().to_string(), source, fit }
+        }
+        Kind::Text(text) if !text.string.is_empty() => {
+            Look::Text { string: text.string.clone(), font: resolve_font(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment }
+        }
+        // A model with the whole menu drawn (T12 leftovers, `super::model`); the mods'
+        // nif tiles with the switch off are not drawn, as in T5 [design].
+        Kind::Nif(nif) if whole && !nif.filename.trim().is_empty() => Look::Model { filename: nif.filename.trim().to_string(), animation: nif.animation.clone() },
+        // Empty rects only place their children; radial and window tiles are not drawn
+        // [design].
+        _ => return None,
+    };
+    if item.clip.is_some_and(|c| c.width <= 0.0 || c.height <= 0.0) {
+        return None;
+    }
+    let c = &item.colour;
+    let own = [c.red, c.green, c.blue].map(|x| x as f32 / 255.0);
+    // `brightness` scales the colour, 255 the colour itself [hypothesis: as the
+    // interface's `amber(brightness)`]; clamped to 0..=255 [design].
+    let b = (c.brightness.clamp(0.0, 255.0) / 255.0) as f32;
+    let [r, g, bl] = base_colour(ui, item.tile, own).map(|x| x * b);
+    let mut alpha = (item.alpha / 255.0).clamp(0.0, 1.0) as f32;
+    // A faint fill reads as the hand-built highlights' does, whose alpha is put through
+    // the same curve (`crate::menu::look`, `crate::message_menu`) [design: not compared
+    // with a shot of the original, none shows a highlight yet].
+    if matches!(item.kind, Kind::Hotrect) {
+        alpha = alpha.powf(2.2);
+    }
+    let turn = match &look {
+        Look::Box => item.turn,
+        Look::Picture { fit, .. } if *fit != Fit::Strip => item.turn,
+        _ => None,
+    };
+    let crop = match &item.kind {
+        Kind::Image(image) if image.cropx.is_some() || image.cropy.is_some() => Some((image.cropx.unwrap_or(0.0), image.cropy.unwrap_or(0.0))),
+        _ => None,
+    };
+    Some(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn, crop })
+}
+
 /// The pieces to draw of `menu`, in drawing order (stable by summed `depth`
 /// [hypothesis: depth is the stacking order, ui-tile-tree.md §6.1]), and how many of the
 /// mod roots ([`fnv_ui::Ui::mod_added_tiles`]) draw at least one. `select` says which
 /// tiles ([`Select`]); `t15` is `tiles::interface_screen`'s hotrect-alpha gate [design].
 pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Select<'_>, t15: bool) -> (Vec<Piece>, usize) {
+    pieces_with_fonts(ui, menu, measure, &font_number, select, t15)
+}
+
+/// [`pieces`] with an explicit font-ID resolver (`resolve_font`), used when `xfonts`
+/// extended slots may be loaded [design: fonts.md §4.1].
+pub fn pieces_with_fonts(
+    ui: &Ui,
+    menu: TileId,
+    measure: &layout::Measure<'_>,
+    resolve_font: &dyn Fn(f64) -> u8,
+    select: Select<'_>,
+    t15: bool,
+) -> (Vec<Piece>, usize) {
     let roots = ui.mod_added_tiles(menu);
     let items: Vec<(Option<TileId>, layout::DrawItem)> = match select {
         Select::Mods { by_locus, .. } => roots
@@ -630,71 +843,65 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
             // A mod's own tiles draw under the kept pieces too [design].
             Select::Whole { kept, .. } => !under(ui, item.tile, kept) || (root.is_some() && ui.mod_tile_drawn(item.tile, None)),
         };
-        if !item.visible || item.alpha <= 0.0 || !wanted {
+        if !wanted {
             continue;
         }
-        let tile = ui.tile(item.tile);
-        let look = match &item.kind {
-            Kind::Rect if ["red", "green", "blue"].iter().any(|n| tile.get(n).is_some()) => Look::Box,
-            // A hotrect a model marked (`layout::HOTRECT_FILL`): its box filled.
-            Kind::Hotrect => Look::Box,
-            Kind::Image(image) if !image.filename.trim().is_empty() => {
-                let strip = matches!(select, Select::Whole { strip: Some(s), .. } if s == item.tile);
-                let fit = match () {
-                    _ if strip => Fit::Strip,
-                    _ if whole => fit(tile),
-                    _ => Fit::Stretch,
-                };
-                let source = match image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
-                    _ if super::runtime_images::is_runtime(&image.filename) => Source::Runtime(None),
-                    _ if !whole => Source::Shared,
-                    Some(atlas) => Source::Index(atlas),
-                    None => Source::Own,
-                };
-                Look::Picture { name: image.filename.trim().to_string(), source, fit }
-            }
-            Kind::Text(text) if !text.string.is_empty() => {
-                Look::Text { string: text.string.clone(), font: font_number(text.font), wrap: text.wrapwidth.filter(|w| *w > 0.0), alignment: text.alignment }
-            }
-            // A model with the whole menu drawn (T12 leftovers, `super::model`); the mods'
-            // nif tiles with the switch off are not drawn, as in T5 [design].
-            Kind::Nif(nif) if whole && !nif.filename.trim().is_empty() => Look::Model { filename: nif.filename.trim().to_string(), animation: nif.animation.clone() },
-            // Empty rects only place their children; radial and window tiles are not drawn
-            // [design].
-            _ => continue,
-        };
-        if item.clip.is_some_and(|c| c.width <= 0.0 || c.height <= 0.0) {
-            continue;
-        }
-        let c = &item.colour;
-        let own = [c.red, c.green, c.blue].map(|x| x as f32 / 255.0);
-        // `brightness` scales the colour, 255 the colour itself [hypothesis: as the
-        // interface's `amber(brightness)`]; clamped to 0..=255 [design].
-        let b = (c.brightness.clamp(0.0, 255.0) / 255.0) as f32;
-        let [r, g, bl] = base_colour(ui, item.tile, own).map(|x| x * b);
-        let mut alpha = (item.alpha / 255.0).clamp(0.0, 1.0) as f32;
-        // A faint fill reads as the hand-built highlights' does, whose alpha is put through
-        // the same curve (`crate::menu::look`, `crate::message_menu`) [design: not compared
-        // with a shot of the original, none shows a highlight yet].
-        if matches!(item.kind, Kind::Hotrect) {
-            alpha = alpha.powf(2.2);
-        }
-        let turn = match &look {
-            Look::Box => item.turn,
-            Look::Picture { fit, .. } if *fit != Fit::Strip => item.turn,
-            _ => None,
-        };
-        let crop = match &item.kind {
-            Kind::Image(image) if image.cropx.is_some() || image.cropy.is_some() => Some((image.cropx.unwrap_or(0.0), image.cropy.unwrap_or(0.0))),
-            _ => None,
-        };
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn, crop });
+        let strip = matches!(select, Select::Whole { strip: Some(s), .. } if s == item.tile);
+        let Some(piece) = piece_from_item(ui, &item, whole, strip, resolve_font) else { continue };
+        out.push(piece);
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
     }
     out.sort_by(|a, b| a.depth.total_cmp(&b.depth));
     (out, drawn_roots.len())
+}
+
+/// [design] Pieces for an isolated projected-UI subtree rooted at `root`, shifted by
+/// `(-viewport.x, -viewport.y)` with finite coordinate validation and clip intersection
+/// against the `[0..width, 0..height]` target canvas. Reuses the normal piece builder so
+/// runtime images, rotation, colour and fit behave identically to normal menu drawing.
+pub(crate) fn projected_pieces(
+    ui: &Ui,
+    root: TileId,
+    viewport: fnv_game::ui_projection::Viewport,
+    measure: &layout::Measure<'_>,
+    t15: bool,
+) -> Vec<Piece> {
+    let vw = f64::from(viewport.width);
+    let vh = f64::from(viewport.height);
+    if !viewport.x.is_finite() || !viewport.y.is_finite() || vw <= 0.0 || vh <= 0.0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for item in layout::layout_isolated(ui, root, measure, t15) {
+        let Some(mut piece) = piece_from_item(ui, &item, true, false, &font_number) else { continue };
+        piece.rect.left -= viewport.x;
+        piece.rect.top -= viewport.y;
+        if ![piece.rect.left, piece.rect.top, piece.rect.width, piece.rect.height].into_iter().all(f64::is_finite) {
+            continue;
+        }
+        if let Some(mut clip) = piece.clip {
+            clip.left -= viewport.x;
+            clip.top -= viewport.y;
+            if ![clip.left, clip.top, clip.width, clip.height].into_iter().all(f64::is_finite) {
+                continue;
+            }
+            let left = clip.left.max(0.0);
+            let top = clip.top.max(0.0);
+            let right = (clip.left + clip.width).min(vw);
+            let bottom = (clip.top + clip.height).min(vh);
+            let width = (right - left).max(0.0);
+            let height = (bottom - top).max(0.0);
+            if width <= 0.0 || height <= 0.0 {
+                continue;
+            }
+            piece.clip = Some(TileRect { left, top, width, height });
+        }
+        out.push(piece);
+    }
+    out.sort_by(|a, b| a.depth.total_cmp(&b.depth));
+    out
 }
 
 /// The renderer's node over the HUD.
@@ -731,6 +938,8 @@ pub struct Target {
     /// The camera's image's pixels to a logical pixel: 1 in the window. Layout does not
     /// read it (the units are logical: the camera's target already scales them).
     pub image_scale: f32,
+    /// Typography only, measured and painted inside the unchanged menu viewport.
+    pub text_scale: f32,
     /// The stacking level of the root.
     pub z: i32,
     /// Where a menu in the window keeps its place at the UI scale (its root a
@@ -743,20 +952,25 @@ pub struct Target {
 impl Target {
     /// In the window, at `scale` logical pixels to an interface unit.
     pub fn window(scale: f32, z: i32) -> Target {
-        Target { camera: None, canvas: None, scale, image_scale: 1.0, z, frame: None }
+        Target { camera: None, canvas: None, scale, image_scale: 1.0, text_scale: 1.0, z, frame: None }
     }
 
     /// An image a camera renders: `canvas` is the part of it the pieces lie on. The image
     /// is as many logical pixels as interface units (`crate::pipboy::TARGET`), so one unit
     /// is one logical pixel whatever `image_scale` is [design: pipboy.rs, its module notes].
     pub fn image(camera: Entity, canvas: Vec2, image_scale: f32, z: i32) -> Target {
-        Target { camera: Some(camera), canvas: Some(canvas), scale: 1.0, image_scale, z, frame: None }
+        Target { camera: Some(camera), canvas: Some(canvas), scale: 1.0, image_scale, text_scale: 1.0, z, frame: None }
     }
 
     /// A menu in the window drawn at the UI scale in a frame kept at `anchor`
     /// ([`Target::frame`]).
     pub fn in_frame(self, anchor: Vec2) -> Target {
         Target { frame: Some(anchor), ..self }
+    }
+
+    /// The same fixed canvas, with glyphs measured and painted at this size.
+    pub(crate) fn text_sized(self, scale: f32) -> Self {
+        Self { text_scale: scale, ..self }
     }
 
     /// Whether a root made for `self` serves `other`: the same camera, area, level and frame.
@@ -786,6 +1000,7 @@ struct Slot {
     order: usize,
     wrapper: Option<Entity>,
     outer: Option<Entity>,
+    hud_size: Option<crate::hud_readability::Part>,
 }
 
 /// A piece by its tile and its count among that tile's pieces, as slots are kept.
@@ -811,6 +1026,7 @@ pub(crate) struct Drawn {
     /// pictures').
     target: Option<Target>,
     counts: (usize, usize),
+    font_revision: u32,
     /// The whole menu's start line is written (T12a).
     told: bool,
     pictures: Option<Pictures>,
@@ -934,6 +1150,7 @@ struct Ctx<'a> {
     /// Logical pixels to an interface unit.
     scale: f32,
     heading: f32,
+    text_scale: f32,
 }
 
 /// How a turned piece's clip wrapper and outer node (and what they hold) are laid out:
@@ -1041,18 +1258,22 @@ fn spawn_unturned(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pi
             let id = p
                 .spawn((node, Pickable::IGNORE))
                 .with_children(|t| {
+                    let factor=ctx.text_scale;
+                    let _units=interface::units_at(interface::unit_scale()*factor);
+                    let wrap=wrap.map(|w|w/f64::from(factor));
+                    let width=piece.rect.width/f64::from(factor);
                     // A hint on one line names a button: draw its glyph in the name's place
                     // (`set_hint_marked`, so the glyph recolours with its piece).
                     if crate::pad::has_glyph(string) && face.font.lines(string, wrap.map(|w| w as f32)).len() == 1 {
                         let w = crate::pad::hint_width(face, string, ctx.glyphs);
                         let x = match alignment {
                             Alignment::Left => 0.0,
-                            Alignment::Center => (piece.rect.width as f32 - w) / 2.0,
-                            Alignment::Right => piece.rect.width as f32 - w,
+                            Alignment::Center => (width as f32 - w) / 2.0,
+                            Alignment::Right => width as f32 - w,
                         };
-                        crate::pad::set_hint_marked(t, face, string, x, text_base(*font), colour, ctx.glyphs, Ink::Drawn);
+                        crate::pad::set_hint_marked(t, face, string, x, text_base_for(*font, &face.font), colour, ctx.glyphs, Ink::Drawn);
                     } else {
-                        for (line, x, base) in piece_lines(piece, &face.font) {
+                        for (line, x, base) in text_lines(&face.font, *font, string, wrap, *alignment, width) {
                             set_marked(t, face, &line, x, base, colour, Ink::Drawn);
                         }
                     }
@@ -1085,6 +1306,7 @@ fn origins(ui: &Ui, menu: TileId) -> (usize, usize) {
 #[derive(SystemParam)]
 pub(crate) struct View<'w, 's> {
     menus: Option<Res<'w, TileMenus>>,
+    readability: Option<Res<'w, crate::menu_readability::MenuReadability>>,
     hud: Option<Res<'w, HudView>>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     /// The container, barter or inventory menu, for whether its prompt is open (T15a).
@@ -1242,6 +1464,14 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         blur_now.repair_services |= name == super::repair_services_menu::REPAIR_SERVICES_MENU && menu.is_some();
         blur_now.traits |= name == super::trait_menu::TRAIT_MENU && menu.is_some();
         blur_now.tags |= name == super::tag_menu::TAG_MENU && menu.is_some();
+        let kind=match name {
+            super::barter_menu::BARTER_MENU=>Some(crate::menu_readability::MenuKind::Barter),
+            super::repair_services_menu::REPAIR_SERVICES_MENU=>Some(crate::menu_readability::MenuKind::Repair),
+            super::recipe_menu::RECIPE_MENU=>Some(crate::menu_readability::MenuKind::Workbench),
+            super::menus::QUANTITY_MENU if view.active.as_ref().and_then(|a|a.0.as_ref()).is_some_and(|m|matches!(m.mode,crate::menu::model::Mode::Barter(_)))=>Some(crate::menu_readability::MenuKind::Barter),
+            _=>None,
+        };
+        let text_scale=kind.map_or(1.0,|kind|crate::menu::readability::size(view.readability.as_deref(),kind));
         let pieces = match menu {
             Some((ui, menu)) => {
                 if drawn.told_menu != Some(menu) {
@@ -1250,7 +1480,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                     drawn.told_menu = Some(menu);
                 }
                 // The VATS screen writes `screen()` in interface units itself while it is up.
-                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch) || name == super::vats_menu::VATS_MENU);
+                let mut pieces = whole_pieces_sized(ui, menu, &mut kit, super::interface_screen(switch) || name == super::vats_menu::VATS_MENU, text_scale);
                 // Marked as `paint` marks them, so a modified picture is not told as a change
                 // every frame (#1833).
                 super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
@@ -1281,7 +1511,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
             paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
             continue;
         }
-        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
+        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor).text_sized(text_scale), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
     pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
@@ -1427,6 +1657,7 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
     let menu = ui.filter(|_| on).and_then(|ui| ui.menu(super::mods::START_MENU).map(|m| (ui, m)));
     let (pieces, roots) = match menu {
         Some((ui, menu)) => {
+            kit.ensure_xfonts();
             let mut stack = ui.mod_added_tiles(menu);
             while let Some(t) = stack.pop() {
                 let tile = ui.tile(t);
@@ -1435,9 +1666,10 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
                 }
                 stack.extend(tile.children.iter().copied());
             }
-            let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap));
+            let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, kit.font_number(font), text, wrap));
+            let resolve = |font: f64| kit.font_number(font);
             let vanilla = files.and_then(|files| archived_names(ui, menu, files, &mut drawn.vanilla));
-            let (mut drawn, roots) = pieces(ui, menu, &measured, Select::Mods { vanilla, by_locus: true }, true);
+            let (mut drawn, roots) = pieces_with_fonts(ui, menu, &measured, &resolve, Select::Mods { vanilla, by_locus: true }, true);
             // MCM's trigger is its row in the original's pause column, which NVForever's
             // column stands for (its Mods entry): not drawn over it [design: owner-review.md #34].
             if let Some(trigger) = ui.find_tile(super::mods::MCM_TRIGGER) {
@@ -1474,12 +1706,22 @@ pub fn unloaded_fonts(pieces: &[Piece], loaded: impl Fn(u8) -> bool) -> Vec<u8> 
 /// Fonts for [`whole_pieces`]: whether one is loaded, loading it, and a text's size in it
 /// (none, (0, 0), while it is not loaded).
 pub trait MenuFonts {
+    fn prepare_fonts(&mut self) {}
+    fn resolve_font(&self, font: f64) -> u8 {
+        font_number(font)
+    }
     fn loaded(&self, font: u8) -> bool;
     fn load_font(&mut self, font: u8);
     fn size(&self, font: f64, text: &str, wrap: Option<f64>) -> (f64, f64);
 }
 
 impl MenuFonts for FontKit<'_> {
+    fn prepare_fonts(&mut self) {
+        self.ensure_xfonts();
+    }
+    fn resolve_font(&self, font: f64) -> u8 {
+        self.font_number(font)
+    }
     fn loaded(&self, font: u8) -> bool {
         self.fonts.faces.contains_key(&font)
     }
@@ -1487,7 +1729,7 @@ impl MenuFonts for FontKit<'_> {
         self.load(f64::from(font));
     }
     fn size(&self, font: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
-        self.face(font).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap))
+        self.face(font).map_or((0.0, 0.0), |face| measure(&face.font, self.font_number(font), text, wrap))
     }
 }
 
@@ -1496,8 +1738,25 @@ impl MenuFonts for FontKit<'_> {
 /// brought it in meanwhile) has it loaded here and the pieces worked out again, so no text
 /// is set out unmeasured or spawned without its face ([`unloaded_fonts`]).
 pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts, t15: bool) -> Vec<Piece> {
+    whole_pieces_sized(ui, menu, fonts, t15, 1.0)
+}
+
+pub(crate) fn whole_pieces_sized(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts, t15: bool, scale: f32) -> Vec<Piece> {
+    fonts.prepare_fonts();
     let select = Select::Whole { kept: &[], strip: None };
-    let set_out = |fonts: &dyn MenuFonts| pieces(ui, menu, &|font: f64, text: &str, wrap: Option<f64>| fonts.size(font, text, wrap), select, t15).0;
+    let set_out = |fonts: &dyn MenuFonts| {
+        pieces_with_fonts(
+            ui,
+            menu,
+            &|font: f64, text: &str, wrap: Option<f64>| {
+                crate::menu::readability::measured(&|font, text, wrap| fonts.size(font, text, wrap), scale, font, text, wrap)
+            },
+            &|font: f64| fonts.resolve_font(font),
+            select,
+            t15,
+        )
+        .0
+    };
     let first = set_out(fonts);
     let missing = unloaded_fonts(&first, |f| fonts.loaded(f));
     if missing.is_empty() {
@@ -1536,6 +1795,7 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
     // walk or lay out (`fnv_ui::Ui::has_mod_added_tiles`, a kept count) [design: #938].
     let (pieces, roots) = match menu {
         Some((ui, menu)) if whole || ui.has_mod_added_tiles(menu) => {
+            kit.ensure_xfonts();
             // The fonts of the text tiles drawn, read before measuring.
             let mut stack = if whole { vec![menu] } else { ui.mod_added_tiles(menu) };
             while let Some(t) = stack.pop() {
@@ -1545,7 +1805,8 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
                 }
                 stack.extend(tile.children.iter().copied());
             }
-            let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap));
+            let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, kit.font_number(font), text, wrap));
+            let resolve = |font: f64| kit.font_number(font);
             if whole {
                 if !drawn.told {
                     let (file, code) = origins(ui, menu);
@@ -1553,10 +1814,10 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
                     drawn.told = true;
                 }
                 let kept = kept_pieces(ui);
-                pieces(ui, menu, &measured, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) }, t15)
+                pieces_with_fonts(ui, menu, &measured, &resolve, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) }, t15)
             } else {
                 let vanilla = files.and_then(|files| archived_names(ui, menu, files, &mut drawn.vanilla));
-                pieces(ui, menu, &measured, Select::Mods { vanilla, by_locus: false }, t15)
+                pieces_with_fonts(ui, menu, &measured, &resolve, Select::Mods { vanilla, by_locus: false }, t15)
             }
         }
         _ => (Vec::new(), 0),
@@ -1574,6 +1835,20 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
     }
     // The HUD keeps the view's own frame: its places are written for the scaled view.
     paint(commands, drawn, pieces, Target::window(scale, TILES_Z), Brightness::File, heading, ui, kit, nodes, glyphs);
+    if let Some(ui) = ui {
+        for ((tile, _), slot) in &mut drawn.slots {
+            let wanted = crate::hud_readability::tile_part(&ui.path_of(*tile));
+            if wanted != slot.hud_size {
+                if let Some(part) = wanted {
+                    commands.entity(slot.node).insert(crate::hud_readability::HudSize(part));
+                } else {
+                    commands.entity(slot.node).remove::<crate::hud_readability::HudSize>()
+                        .insert(UiTransform::IDENTITY);
+                }
+                slot.hud_size = wanted;
+            }
+        }
+    }
 }
 
 /// How bright a menu's pieces are painted ([`paint`]), chosen by the caller.
@@ -1632,13 +1907,23 @@ pub(crate) fn device_brightness(pieces: &mut [Piece], ui: Option<&Ui>, brightnes
     }
 }
 
+/// Despawn a [`Drawn`] root and clear its cached piece slots.
+pub(crate) fn clear(commands: &mut Commands, drawn: &mut Drawn) {
+    if let Some(root) = drawn.root.take() {
+        commands.entity(root).despawn();
+    }
+    drawn.slots.clear();
+    drawn.pieces.clear();
+    drawn.target = None;
+}
+
 /// Bring one menu's drawn nodes in line with its `pieces` on `target`: nothing when they and
 /// the target are as last drawn; otherwise each piece's slot kept, moved and recoloured in
 /// place, spawned again or removed ([`change`]). `brightness` is applied to the pieces before
 /// they are compared ([`device_brightness`]), so a page whose frame switches between the
 /// device and the screen menu is recoloured.
 #[allow(clippy::too_many_arguments)]
-fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, brightness: Brightness, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+pub(crate) fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, brightness: Brightness, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
     device_brightness(&mut pieces, ui, brightness);
     let scale = target.scale;
     // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
@@ -1651,7 +1936,10 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
     super::runtime_images::present(&mut pieces, kit.runtime.as_deref(), ui);
     drawn.tex.frame();
     drawn.tex.prune(&pieces, ui);
-    if pieces == drawn.pieces && drawn.target == Some(target) {
+    let font_revision = crate::cjk_font::revision();
+    let font_changed = drawn.font_revision != font_revision;
+    drawn.font_revision = font_revision;
+    if !font_changed && pieces == drawn.pieces && drawn.target == Some(target) {
         return;
     }
     // Nothing drawn yet and nothing to draw (a menu switched off): no root node either.
@@ -1697,7 +1985,8 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
             commands.entity(slot.node).insert(ZIndex(i as i32));
             slot.order = i;
         }
-        let mut how = change(was, piece);
+        let font_changed = font_changed && matches!(piece.look, Look::Text { .. });
+        let mut how = if font_changed { Change::Spawn } else { change(was, piece) };
         // Only the offset changed: its image baked again in place, its nodes kept (#1833).
         if how == Change::Spawn && super::texmod::only_offset_differs(was, piece) {
             let strip = nodes.children.iter_descendants(slot.node).find(|e| nodes.strips.contains(*e));
@@ -1752,6 +2041,11 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
         }
     }
     if !spawn.is_empty() {
+        for &i in &spawn {
+            if let Look::Text { font, .. } = &pieces[i].look {
+                kit.load(f64::from(*font));
+            }
+        }
         let bc = bc_supported(kit.formats.as_deref());
         let data = kit.data.as_deref();
         let pictures = drawn.pictures.get_or_insert_with(|| Pictures::load(data));
@@ -1850,7 +2144,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
             };
             made.push((i, picture, baked, strip, model));
         }
-        let ctx = Ctx { fonts: &kit.fonts, glyphs, scale, heading };
+        let ctx = Ctx { fonts: &kit.fonts, glyphs, scale, heading, text_scale:target.text_scale };
         for (i, picture, baked, strip, model) in made {
             let piece = &pieces[i];
             let key = keys[i];
@@ -1866,7 +2160,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                     commands.entity(root).with_children(|r| {
                         let mut nodes = (None, None);
                         let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip, model)).id();
-                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1 });
+                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1, hud_size: None });
                     });
                     drawn.slots.extend(slot.map(|s| (key, s)));
                 }
@@ -1910,6 +2204,31 @@ pub(crate) fn scroll(hud: Option<Res<HudView>>, mut images: ResMut<Assets<Image>
 #[cfg(test)]
 #[path = "draw_layout_tests.rs"]
 mod layout_tests;
+
+// Install only the production native painter in the authored CPU typography scene.
+#[cfg(test)]
+pub(crate) fn install_typography_fixture_painter(app: &mut App) {
+    app.init_resource::<TileFonts>().init_resource::<super::menus::TileMenuBlur>()
+        .add_systems(Update, draw.after(super::barter_menu::write_system).after(crate::menu::MenuSystems));
+}
+
+#[cfg(test)]
+#[derive(Resource)]
+pub(super) struct TestPainted(pub Ui, pub TileId);
+
+#[cfg(test)]
+pub(super) fn paint_test_menu(
+    mut commands: Commands,
+    painted: Res<TestPainted>,
+    mut kit: FontKit,
+    mut nodes: Nodes,
+    glyphs: Res<crate::pad::PadGlyphs>,
+    mut drawn: Local<Drawn>,
+) {
+    let measure = |_: f64, _: &str, _: Option<f64>| (0.0, 0.0);
+    let (set, _) = pieces(&painted.0, painted.1, &measure, Select::Whole { kept: &[], strip: None }, true);
+    paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), Brightness::File, 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+}
 
 #[cfg(test)]
 mod tests {
@@ -2498,6 +2817,34 @@ mod tests {
         assert_eq!(lines.iter().map(|(_, _, base)| *base).collect::<Vec<_>>(), [30.0, 30.0 + 52.0]);
     }
 
+    #[test]
+    fn measured_and_drawn_cjk_tile_lines_use_the_same_advances() {
+        let mut font = plain_font(31.0, 15.0);
+        let glyph = fnv_font::Glyph {
+            width: 20.0,
+            ..default()
+        };
+        for c in "甲乙丙丁".chars() {
+            font.extra.insert(c, glyph);
+        }
+        crate::cjk_font::with_enabled_for_test(|| {
+            let text = "甲乙丙丁";
+            let wrap = Some(40.0);
+            assert_eq!(dimensions(&font, 1, text, wrap), (40.0, 62.0, 2.0));
+            let lines = text_lines(&font, 1, text, wrap, Alignment::Right, 50.0);
+            assert_eq!(
+                lines
+                    .iter()
+                    .map(|(line, x, base)| (line.text(), line.width, *x, *base))
+                    .collect::<Vec<_>>(),
+                [
+                    ("甲乙".to_string(), 40.0, 10.0, 20.0),
+                    ("丙丁".to_string(), 40.0, 10.0, 51.0)
+                ]
+            );
+        });
+    }
+
     /// #979: a text with no `font` is font 1 ([`font_number`]), whose line stands 20 under
     /// its top (the level digits' ink, hud.md §14.10); font 9, which draws nothing in the
     /// original (no texture), takes font 7's 24 and its file's size as its pitch [design].
@@ -2960,4 +3307,294 @@ mod tests {
         assert_eq!(app.world().resource::<Painted>().0.get_float("Recipient/Map/rotateangle"), Some(1.));
     }
 
+    #[test]
+    fn font_kit_loads_tex_only_slot_1_and_keeps_font_9_undrawn() {
+        use crate::interface::font_tex_tests::{synthetic_fnt, synthetic_tex, OwnedFontFiles};
+        let files = OwnedFontFiles::new(&[
+            ("glow_monofonto_large.fnt", synthetic_fnt("Glow_Monofonto_Large")),
+            ("Glow_Monofonto_Large.Tex", synthetic_tex(4, 2, [255, 255, 255, 255])),
+            ("nvfont_test.fnt", synthetic_fnt("NVFont_Test_0_Lod_A")),
+            ("nvfont_test_0_lod_a.tex", synthetic_tex(4, 4, [255, 255, 255, 255])),
+        ]);
+        let src = MemSource::default().with(
+            "fonts.xml",
+            r#"<menu name="Fonts">
+                <text name="Slot1"><string>A</string><font>1</font></text>
+                <text name="Slot9"><string>A</string><font>9</font></text>
+            </menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "fonts.xml").unwrap();
+        ui.update();
+        let t1 = ui.find_tile("Fonts/Slot1").unwrap();
+        let t9 = ui.find_tile("Fonts/Slot9").unwrap();
+
+        #[derive(Resource, Default)]
+        struct Seen {
+            f1_image: bool,
+            f9_image: bool,
+            f1_game: bool,
+            f9_game: bool,
+        }
+        #[derive(Resource)]
+        struct Probe {
+            ui: Ui,
+            t1: TileId,
+            t9: TileId,
+        }
+        fn check(mut kit: FontKit, probe: Res<Probe>, mut seen: ResMut<Seen>) {
+            seen.f1_game = kit.game_fonts(&probe.ui, &[probe.t1]);
+            seen.f9_game = kit.game_fonts(&probe.ui, &[probe.t9]);
+            seen.f1_image = kit.face(1.0).is_some_and(|f| f.image.is_some());
+            seen.f9_image = kit.face(9.0).is_some_and(|f| f.image.is_some());
+        }
+
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<Seen>()
+            .insert_resource(files.data())
+            .insert_resource(Probe { ui, t1, t9 })
+            .add_systems(Update, check);
+        app.update();
+        let seen = app.world().resource::<Seen>();
+        assert!(seen.f1_image && seen.f1_game, "tex-only slot 1 should load");
+        assert!(!seen.f9_image && !seen.f9_game, "vanilla font 9 should remain stand-in");
+    }
+
+    #[test]
+    fn resolve_font_number_handles_vanilla_xfonts_zero_and_unregistered_ids() {
+        let empty = BTreeMap::new();
+        for (raw, expected) in [
+            (0.0, 1),
+            (-5.0, 1),
+            (f64::NAN, 1),
+            (f64::INFINITY, 1),
+            (1.0, 1),
+            (7.0, 7),
+            (9.0, 9),
+            (21.0, 1),
+            (22.0, 1),
+            (42.0, 1),
+            (300.0, 1),
+        ] {
+            assert_eq!(resolve_font_number(raw, &empty), expected, "vanilla raw={raw}");
+        }
+
+        let mut extra = BTreeMap::new();
+        extra.insert(21, "textures\\fonts\\mapmo_hud_caps_font.fnt".to_string());
+        extra.insert(22, "textures\\fonts\\mapmo_hud_caps_font2.fnt".to_string());
+        assert_eq!(resolve_font_number(0.0, &extra), 1);
+        assert_eq!(resolve_font_number(1.0, &extra), 1);
+        assert_eq!(resolve_font_number(9.0, &extra), 9);
+        assert_eq!(resolve_font_number(21.0, &extra), 21);
+        assert_eq!(resolve_font_number(22.0, &extra), 22);
+        assert_eq!(resolve_font_number(42.0, &extra), 1, "unregistered 42 must fall back to font 1, not font 9");
+
+        extra.insert(42, "textures\\fonts\\custom_42.fnt".to_string());
+        assert_eq!(resolve_font_number(42.0, &extra), 42);
+    }
+
+    #[test]
+    fn text_base_for_preserves_vanilla_and_computes_extended_ascent_baseline() {
+        use crate::interface::font_tex_tests::synthetic_fnt_sized;
+        let big = Font::parse(&synthetic_fnt_sized("mapmo_hud_caps_font", 76.7, 24.0, 58.0)).unwrap();
+        for slot in 1..=9u8 {
+            assert_eq!(text_base_for(slot, &big), text_base(slot), "vanilla slot {slot} unchanged");
+        }
+        // Extended slot 21 uses max ASCII ascent (58.0 >= 76.7 * 0.75 = 57.525).
+        assert_eq!(text_base_for(21, &big), 58.0);
+        // Extended slot with no drawn ASCII glyphs falls back to 0.75 * font.size.
+        let stand_in = plain_font(80.0, 20.0);
+        assert_eq!(text_base_for(21, &stand_in), 60.0);
+        // text_lines uses text_base_for + font.size line_pitch for extended slots.
+        let lines = text_lines(&big, 21, "A\nA", None, Alignment::Left, 100.0);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].2, 58.0);
+        assert!((lines[1].2 - (58.0 + 76.7)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn font_kit_and_whole_pieces_resolve_mapmo_xfonts_21_22_and_fallback_0_and_42() {
+        use crate::interface::font_tex_tests::{synthetic_fnt, synthetic_fnt_sized, synthetic_tex, OwnedFontFiles};
+
+        let xml = r#"<menu name="XFontMenu">
+            <text name="T0"><string>A</string><font>0</font></text>
+            <text name="T1"><string>A</string><font>1</font></text>
+            <text name="T9"><string>A</string><font>9</font></text>
+            <text name="T21"><string>A</string><font>21</font></text>
+            <text name="T22"><string>A</string><font>22</font></text>
+            <text name="T42"><string>A</string><font>42</font></text>
+        </menu>"#;
+
+        #[derive(Resource, Default)]
+        struct Seen {
+            fonts_by_name: BTreeMap<String, u8>,
+            widths_by_name: BTreeMap<String, f64>,
+            f1_loaded: bool,
+            f9_loaded: bool,
+            f21_loaded: bool,
+            f22_loaded: bool,
+            game_fonts_21_22: bool,
+            game_fonts_0_42: bool,
+        }
+        #[derive(Resource)]
+        struct Probe {
+            ui: Ui,
+            menu: TileId,
+        }
+        fn run(mut kit: FontKit, probe: Res<Probe>, mut seen: ResMut<Seen>) {
+            let pieces = whole_pieces(&probe.ui, probe.menu, &mut kit, true);
+            for p in &pieces {
+                let name = probe.ui.tile(p.tile).name.clone();
+                if let Look::Text { font, .. } = p.look {
+                    seen.fonts_by_name.insert(name.clone(), font);
+                    seen.widths_by_name.insert(name, p.rect.width);
+                }
+            }
+            seen.f1_loaded = kit.face(1.0).is_some_and(|f| f.image.is_some());
+            seen.f9_loaded = kit.face(9.0).is_some_and(|f| f.image.is_some());
+            seen.f21_loaded = kit.face(21.0).is_some_and(|f| f.image.is_some());
+            seen.f22_loaded = kit.face(22.0).is_some_and(|f| f.image.is_some());
+            let t0 = probe.ui.find_tile("XFontMenu/T0").unwrap();
+            let t21 = probe.ui.find_tile("XFontMenu/T21").unwrap();
+            let t22 = probe.ui.find_tile("XFontMenu/T22").unwrap();
+            let t42 = probe.ui.find_tile("XFontMenu/T42").unwrap();
+            seen.game_fonts_21_22 = kit.game_fonts(&probe.ui, &[t21, t22]);
+            seen.game_fonts_0_42 = kit.game_fonts(&probe.ui, &[t0, t42]);
+        }
+
+        // Case 1: With MAPMO.txt registering slots 21 and 22 (.fnt + .Tex, no .dds).
+        let mapmo_txt = b"21=textures\\fonts\\mapmo_hud_caps_font.fnt\n\
+                          22=textures\\fonts\\mapmo_hud_caps_font2.fnt\n";
+        let modded_files = OwnedFontFiles::with_extra_files(
+            &[
+                ("glow_monofonto_large.fnt", synthetic_fnt("Glow_Monofonto_Large")),
+                ("Glow_Monofonto_Large.Tex", synthetic_tex(4, 2, [255, 255, 255, 255])),
+                ("nvfont_test.fnt", synthetic_fnt("NVFont_Test_0_Lod_A")),
+                ("nvfont_test_0_lod_a.tex", synthetic_tex(4, 4, [255, 255, 255, 255])),
+                ("mapmo_hud_caps_font.fnt", synthetic_fnt_sized("mapmo_hud_caps_font", 76.7, 24.0, 58.0)),
+                ("mapmo_hud_caps_font.Tex", synthetic_tex(8, 4, [20, 120, 220, 255])),
+                ("mapmo_hud_caps_font2.fnt", synthetic_fnt_sized("mapmo_hud_caps_font2", 76.7, 32.0, 60.0)),
+                ("mapmo_hud_caps_font2.Tex", synthetic_tex(8, 4, [40, 140, 240, 255])),
+            ],
+            &[("NVSE/Plugins/xfonts/MAPMO.txt", mapmo_txt.to_vec())],
+        );
+        let src = MemSource::default().with("xfonts.xml", xml);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "xfonts.xml").unwrap();
+        ui.update();
+
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<Seen>()
+            .insert_resource(modded_files.data())
+            .insert_resource(Probe { ui, menu })
+            .add_systems(Update, run);
+        app.update();
+        let seen = app.world().resource::<Seen>();
+        assert_eq!(seen.fonts_by_name.get("T0"), Some(&1));
+        assert_eq!(seen.fonts_by_name.get("T1"), Some(&1));
+        assert_eq!(seen.fonts_by_name.get("T9"), Some(&9));
+        assert_eq!(seen.fonts_by_name.get("T21"), Some(&21));
+        assert_eq!(seen.fonts_by_name.get("T22"), Some(&22));
+        assert_eq!(seen.fonts_by_name.get("T42"), Some(&1));
+        assert!(seen.f1_loaded && seen.f21_loaded && seen.f22_loaded);
+        assert!(!seen.f9_loaded, "vanilla font 9 must stay unloaded");
+        assert!(seen.game_fonts_21_22 && seen.game_fonts_0_42);
+        // Distinct glyph widths prove slots 1, 21, and 22 measured with their own faces.
+        assert_eq!(seen.widths_by_name.get("T1"), Some(&11.0));
+        assert_eq!(seen.widths_by_name.get("T0"), Some(&11.0));
+        assert_eq!(seen.widths_by_name.get("T42"), Some(&11.0));
+        assert_eq!(seen.widths_by_name.get("T21"), Some(&25.0));
+        assert_eq!(seen.widths_by_name.get("T22"), Some(&33.0));
+
+        // Case 2: Unmodded vanilla (no xfonts directory) resolves 0, 21, 22, 42 all to slot 1.
+        let vanilla_files = OwnedFontFiles::new(&[
+            ("glow_monofonto_large.fnt", synthetic_fnt("Glow_Monofonto_Large")),
+            ("Glow_Monofonto_Large.Tex", synthetic_tex(4, 2, [255, 255, 255, 255])),
+        ]);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "xfonts.xml").unwrap();
+        ui.update();
+        let mut vanilla_app = App::new();
+        vanilla_app
+            .init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<Seen>()
+            .insert_resource(vanilla_files.data())
+            .insert_resource(Probe { ui, menu })
+            .add_systems(Update, run);
+        vanilla_app.update();
+        let vseen = vanilla_app.world().resource::<Seen>();
+        for tile in ["T0", "T1", "T21", "T22", "T42"] {
+            assert_eq!(vseen.fonts_by_name.get(tile), Some(&1), "vanilla {tile} -> slot 1");
+            assert_eq!(vseen.widths_by_name.get(tile), Some(&11.0), "vanilla {tile} width");
+        }
+        assert_eq!(vseen.fonts_by_name.get("T9"), Some(&9));
+        assert!(!vseen.f9_loaded);
+    }
+
+    #[test]
+    fn string_measure_with_fonts_measures_xfonts_and_falls_back_for_0_and_42() {
+        let mut extra = BTreeMap::new();
+        extra.insert(21, "textures\\fonts\\mapmo_hud_caps_font.fnt".to_string());
+        let f1 = plain_font(31.0, 10.0);
+        let f21 = plain_font(76.7, 25.0);
+        let measure = string_measure_with_fonts(extra, move |n| match n {
+            1 => Some(f1.clone()),
+            21 => Some(f21.clone()),
+            _ => None,
+        });
+        assert_eq!(measure(1.0, "AB", 0.0), (20.0, 31.0, 1.0));
+        assert_eq!(measure(0.0, "AB", 0.0), (20.0, 31.0, 1.0));
+        assert_eq!(measure(42.0, "AB", 0.0), (20.0, 31.0, 1.0));
+        let (w, h, lines) = measure(21.0, "AB", 0.0);
+        assert_eq!((w, lines), (50.0, 1.0));
+        assert!((h - 76.7f32 as f64).abs() < 1e-4);
+    }
+
+    #[test]
+    fn face_slot_path_preserves_single_pass_ini_swaps_and_font_9_unloaded_guard() {
+        let mut extra = BTreeMap::new();
+        extra.insert(21, "textures\\fonts\\mapmo_hud_caps_font.fnt".to_string());
+        // Simulate an install INI that swaps sFontFile_1 -> FONT_FILES[1],
+        // sFontFile_2 -> FONT_FILES[2], and attempts to remap sFontFile_9.
+        let ini = format!(
+            "[Fonts]\nsFontFile_1={}\nsFontFile_2={}\nsFontFile_9=textures\\fonts\\custom_9.fnt\n",
+            interface::FONT_FILES[1],
+            interface::FONT_FILES[2],
+        );
+        let install_fonts = interface::fonts_in_ini(&ini);
+
+        // Vanilla slots 1..=9 pass the raw FONT_FILES entry into interface::face(),
+        // so face() resolves font_file_in() exactly once (no double swap on slot 1 -> 2 -> 3)
+        // and catches Font 9 via is_unloaded_font() BEFORE font_file_in() runs.
+        for slot in 1..=9u8 {
+            assert_eq!(
+                face_slot_path(slot, Some(&extra)),
+                interface::FONT_FILES[usize::from(slot) - 1],
+                "slot {slot} must pass raw FONT_FILES entry to interface::face()"
+            );
+        }
+        let raw_slot_1 = face_slot_path(1, Some(&extra));
+        assert!(!interface::is_unloaded_font(raw_slot_1));
+        assert_eq!(
+            interface::font_file_in(raw_slot_1, Some(&install_fonts)),
+            interface::FONT_FILES[1],
+            "single-pass font_file_in keeps sFontFile_1 swap at FONT_FILES[1]"
+        );
+        let raw_slot_9 = face_slot_path(9, Some(&extra));
+        assert!(
+            interface::is_unloaded_font(raw_slot_9),
+            "pre-font_file unloaded guard must catch Font 9 even when sFontFile_9 is overridden"
+        );
+        // Extended slots >= 10 resolve from extra directly; unregistered slots fall back to slot 1.
+        assert_eq!(face_slot_path(21, Some(&extra)), "textures\\fonts\\mapmo_hud_caps_font.fnt");
+        assert_eq!(face_slot_path(42, Some(&extra)), interface::FONT_FILES[0]);
+        assert_eq!(face_slot_path(21, None), interface::FONT_FILES[0]);
+    }
+
 }
+

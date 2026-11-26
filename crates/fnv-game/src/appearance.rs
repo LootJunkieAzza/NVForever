@@ -83,6 +83,13 @@ pub fn blend_coefficients(current: &[f64], toward: &[f64], percent: f64) -> Vec<
     (0..current.len().max(toward.len())).map(|i| at(current, i) + (at(toward, i) - at(current, i)) * t).collect()
 }
 
+/// Which walk/locomotion animation set the player uses (`SetPCToddler`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum PlayerWalkSet {
+    Normal,
+    Toddler,
+}
+
 /// The longest walk along a race's age links (a guard against a looping chain).
 const MAX_STEPS: i32 = 16;
 
@@ -114,17 +121,23 @@ impl Game<'_> {
         } else if let Some(f) = self.extra.get(&r).and_then(|e| e.female) {
             return f;
         }
-        self.look_def(r).is_some_and(|a| a.female)
+        self.look_source(r).is_some_and(|(id, a)| &a.sig == b"NPC_" && self.acbs_flag(id, a, crate::actor_values::acbs::FEMALE, |d| d.female))
+    }
+
+    /// The resolved `(base_id, ActorDef)` the actor's race and sex come from: its base's
+    /// look source when BaseCopyFaceGenFrom gave one, else the Traits template's.
+    fn look_source(&self, r: FormId) -> Option<(FormId, &crate::data::ActorDef)> {
+        let base = crate::functions::base_of(self, r).unwrap_or(r);
+        match self.face_from_base.get(&base) {
+            Some(&src) => self.data.actors.get(&src).map(|d| (src, d)),
+            None => self.traits_source(r),
+        }
     }
 
     /// The record the actor's race and sex come from: its base's look source when
     /// BaseCopyFaceGenFrom gave one, else the Traits template's.
     fn look_def(&self, r: FormId) -> Option<&crate::data::ActorDef> {
-        let base = crate::functions::base_of(self, r).unwrap_or(r);
-        match self.face_from_base.get(&base) {
-            Some(src) => self.data.actors.get(src),
-            None => self.traits_def(r),
-        }
+        self.look_source(r).map(|(_, d)| d)
     }
 
     /// The race `steps` age steps from `race` (positive older), stopping at the end of
@@ -212,6 +225,37 @@ impl Game<'_> {
         }
         self.appearance_changes.push(AppearanceChange { actor, reset: false });
         Ok(())
+    }
+
+    /// `SetPCYoung flag`: toggles whether the player uses only the race's default hair
+    /// and suppresses face attachments [documented: GECK wiki SetPCYoung]. Notifies the
+    /// engine to rebuild the player body when the flag changes.
+    pub fn set_pc_young(&mut self, young: bool) {
+        if self.player.young != young {
+            self.player.young = young;
+            self.appearance_changes.push(AppearanceChange { actor: FormId::PLAYER_REF, reset: false });
+        }
+    }
+
+    /// Whether `SetPCYoung 1` is active on the player.
+    pub fn pc_young(&self) -> bool {
+        self.player.young
+    }
+
+    /// `SetPCToddler flag`: switches the player to the toddler walk animation set (1) or
+    /// back to normal movement (0) [documented: GECK wiki SetPCToddler].
+    pub fn set_pc_toddler(&mut self, toddler: bool) {
+        self.player.toddler = toddler;
+    }
+
+    /// Whether `SetPCToddler 1` is active on the player.
+    pub fn pc_toddler(&self) -> bool {
+        self.player.toddler
+    }
+
+    /// The walk/locomotion set currently selected for the player (`SetPCToddler`).
+    pub fn player_walk_set(&self) -> PlayerWalkSet {
+        if self.player.toddler { PlayerWalkSet::Toddler } else { PlayerWalkSet::Normal }
     }
 
     /// The race and sex changes since the last call (the engine draws the actors again).

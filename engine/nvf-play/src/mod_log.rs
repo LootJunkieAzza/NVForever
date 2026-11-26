@@ -24,20 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const ENV: &str = "NVF_PLAY_TEST_MOD_LOG";
 
-/// The base game's plugin and its add-ons' [documented: the file names of the game's
-/// Data folder, as the examples' `MASTERS` lists have them].
-const GAME_PLUGINS: [&str; 10] = [
-    "FalloutNV.esm",
-    "DeadMoney.esm",
-    "HonestHearts.esm",
-    "OldWorldBlues.esm",
-    "LonesomeRoad.esm",
-    "GunRunnersArsenal.esm",
-    "ClassicPack.esm",
-    "MercenaryPack.esm",
-    "TribalPack.esm",
-    "CaravanPack.esm",
-];
+use crate::game_files::GAME_PLUGINS;
 
 /// How many scripts that do not compile one mod names.
 const FAILED_SHOWN: usize = 10;

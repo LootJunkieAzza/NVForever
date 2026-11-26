@@ -13,7 +13,7 @@
 //! modules read the rest from the resource.
 
 use crate::script::ScriptState;
-use crate::settings::{add_setting, choice_index, choice_part, Setting, Slider};
+use crate::settings::{add_choice_list, add_setting, choice_index, choice_of, choice_part, ChoiceList, Setting, Slider};
 use bevy::prelude::*;
 use fnv_game::tweaks::Tweaks;
 
@@ -95,7 +95,7 @@ pub struct TweakSettings {
     pub no_reputation_messages: bool,
     /// `bDisableExplosionInFaceIMOD`: a nearby explosion does not blur the screen.
     pub no_explosion_blur: bool,
-    /// `bRemoveSneakLabel`: no [HIDDEN] / [DETECTED] label while sneaking.
+    /// `bRemoveSneakLabel`: no [UNSEEN] / [SPOTTED] label while sneaking.
     pub no_sneak_label: bool,
     /// `bVatsExitKey`: a right click ends a kill camera.
     pub kill_cam_exit_key: bool,
@@ -128,9 +128,6 @@ pub struct TweakSettings {
     pub console_timestamps: bool,
     /// `bLivingAnatomyShowDR`: Living Anatomy's line shows the DR too.
     pub living_anatomy_dr: bool,
-    /// `bSynchronizeContainerCategories`: a container's or barter's two lists change
-    /// category together.
-    pub sync_categories: bool,
     /// `bNoFastTravelTimeChange`: fast travel takes no time.
     pub no_travel_time: bool,
     /// `bPowerArmorScalesFallDamage`/`fFallDamageMult`: fall damage to anyone in power
@@ -140,8 +137,22 @@ pub struct TweakSettings {
     pub no_travel_crippled_leg: bool,
     /// `bJumpingCostsAP`/`iJumpAPCost`: Action Points a jump costs; 0 changes nothing.
     pub jump_ap_cost: f32,
+    /// `[Jumping Costs AP] bCombatOnly`: jumps only cost AP while in danger (Stewie 9.70).
+    pub jump_ap_danger_only: bool,
+    /// `[Jumping Costs AP] bJumpWithoutEnoughAP`: allow jumping with less AP than the cost,
+    /// draining remaining AP to 0 instead of refusing.
+    pub jump_without_enough_ap: bool,
     /// `bRunningCostsAP`: Action Points running costs a second; 0 changes nothing.
     pub run_ap_per_second: f32,
+    /// `bRunningCostsAP` (`fSneakAPDrainCostBase`, `fSneakRunAPEnduranceMult`): Action
+    /// Points running while sneaking costs a second (`fSneakAPDrainCostBase +
+    /// fSneakRunAPEnduranceMult * (Endurance - 5)`) [documented: Stewie Tweaks v10.05
+    /// generated `nvse_stewie_tweaks.ini` `[Running Costs AP]` comment; option names also
+    /// in v10.05 Readme & `AllTweaks.json`; hypothesis: sign vs. the v10.05 Readme's
+    /// `(5 - Endurance)` standing-run formula is unobserved in the original binary;
+    /// design: clamp at 0, off when the base is 0, Endurance fallback of 5].
+    pub sneak_run_ap_base: f32,
+    pub sneak_run_ap_endurance_mult: f32,
     /// `bDisableSellingItems`: the player cannot sell in a barter.
     pub no_selling: bool,
     /// The Own Skill Points Rule's numbers, kept while the rule is off.
@@ -171,9 +182,6 @@ pub struct TweakSettings {
     /// `bCrippledLegsScaleJumpHeight`: the jump height is multiplied by this for each
     /// crippled leg; 1 changes nothing.
     pub crippled_leg_jump: f32,
-    /// `bBarterCheckActorBuySellFlags`: a merchant takes from the player only what its
-    /// list says it buys.
-    pub vendor_lists_both: bool,
     /// `bNoPlayerStaggerAnims`: the player never staggers from a hit.
     pub no_player_stagger: bool,
     /// `bPreventReloadWeaponUnholstering`: Ready Item does not draw a holstered weapon.
@@ -216,9 +224,13 @@ pub struct TweakSettings {
     /// once; so does an attack this many seconds after the death (0: not by attacking).
     pub skip_death_cam: bool,
     pub skip_death_cam_attack: f32,
-    /// `bReplaceHelpWithConsole`: the pause menu has a Console entry where the original
-    /// has Help.
+    /// `bReplaceHelpWithConsole` (`[Help Button Replacer] sButtonLabel` [documented:
+    /// Stewie Tweaks v10.05 Readme & generated `nvse_stewie_tweaks.ini`]): the pause menu
+    /// has a Console entry where the original has Help, using `help_console_label` when
+    /// non-empty (else `"Console"`, read at startup from `NVForever.ini` `[Settings]
+    /// tweak-help-console-label` [design]).
     pub help_is_console: bool,
+    pub help_console_label: String,
     /// `bHeatbeatSoundsFade` (`fDuration`): the low-health heartbeat fades out over this
     /// many seconds, whole again at each loss of health.
     pub heartbeat_fade: bool,
@@ -330,11 +342,12 @@ pub struct TweakSettings {
     pub compass_doors_exterior: f32,
     pub compass_doors_interior: f32,
     pub compass_doors_fade: bool,
-    /// `bArmorConditionLabel`: the body armour's condition under the weapon's on the HUD;
-    /// shown below `armor_visible_below` (0: always), red below `armor_red_below`,
-    /// flashing below `armor_flash_below`, in the weapon's place with none drawn under
+    /// `bArmorConditionLabel`: thresholds and placement for the body armour's condition
+    /// row under the weapon's on the HUD (the enable switch itself lives on
+    /// `game.armor_condition` so `StewVal`/`StewieGetValue` reads it live): shown below
+    /// `armor_visible_below` (0: always), red below `armor_red_below`, flashing below
+    /// `armor_flash_below`, in the weapon's place with none drawn under
     /// `armor_in_weapon_place`.
-    pub armor_condition: bool,
     pub armor_visible_below: f32,
     pub armor_red_below: f32,
     pub armor_flash_below: f32,
@@ -404,8 +417,6 @@ pub struct TweakSettings {
     pub tab_closes_terminals: bool,
     /// `bTabBackInStartMenu`: Tab goes back in the pause menu where it steps no tabs.
     pub tab_back_in_pause: bool,
-    /// `bAllowUnsafeFastTravel`: fast travel from places flagged against it (indoors).
-    pub unsafe_fast_travel: bool,
     /// `iDateFormat`: the style of `crate::wait::model::DATE_STYLES`.
     pub date_style: usize,
     /// `bEnteringVATSDoesntUnholsterWeapon`: a weapon V.A.T.S. drew goes away again when
@@ -534,9 +545,11 @@ pub struct TweakSettings {
     pub run_overencumbered: bool,
     pub over_run_ap: f32,
     pub over_jump_ap: f32,
-    /// `bScopeHoldBreath`: Shift through a scope steadies it to `breath_sway` of its
-    /// sway, paying `breath_ap` Action Points a second.
+    /// `bScopeHoldBreath`: Shift (or Activate when `breath_activate` is on) through a scope
+    /// steadies it to `breath_sway` of its sway, paying `breath_ap` Action Points a second.
     pub hold_breath: bool,
+    /// `[Hold Breath] bActivateHoldsBreath`: holding Activate also holds breath.
+    pub breath_activate: bool,
     pub breath_sway: f32,
     pub breath_ap: f32,
     /// `bAdjustableScopeZoom`: the wheel zooms a scope in and out.
@@ -652,6 +665,15 @@ pub struct TweakSettings {
     pub compass_quest_height: bool,
     /// `bPlacedMarkerHeightIndicator`: the same for the player's custom map marker.
     pub compass_marker_height: bool,
+    /// `bRememberWeaponAmmos` [documented: lStewieAl's Tweaks 10.05
+    /// (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini`
+    /// `[Tweaks]`: `; remember ammo type and count for all player weapons` /
+    /// `bRememberWeaponAmmos = 0`; no DLL or source consulted]: remember the player's
+    /// last chosen ammo type per weapon base form across switching, unequipping,
+    /// dropping and saving/loading (#3305, #3877) [design: remembers chosen ammo type
+    /// per weapon base form while magazine ammo counts are already tracked per weapon
+    /// via `magazine_ammo`].
+    pub keep_chosen_ammo: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -685,6 +707,56 @@ impl TweakSettings {
             self.game.skill_points = Some((self.skill_point_base, self.skill_points_per_int));
         }
     }
+
+    /// Label shown for the pause menu's Console entry (`[Help Button Replacer] sButtonLabel`
+    /// [documented: Stewie Tweaks v10.05 Readme & generated `nvse_stewie_tweaks.ini`]),
+    /// falling back to `"Console"` when empty or whitespace-only [design].
+    pub fn console_label(&self) -> &str {
+        let trimmed = self.help_console_label.trim();
+        if trimmed.is_empty() { "Console" } else { trimmed }
+    }
+}
+
+/// `NVForever.ini` `[Settings]` key supplying custom text for the pause menu's Console entry
+/// (`[Help Button Replacer] sButtonLabel` [documented: Stewie Tweaks v10.05 Readme & generated
+/// `nvse_stewie_tweaks.ini`]) [design: no free-text widget on the Tweaks tab; kept in
+/// `NVForever.ini` alongside `tweak-help-is-console`, never imported from
+/// `nvse_stewie_tweaks.ini`].
+pub const HELP_CONSOLE_LABEL_KEY: &str = "tweak-help-console-label";
+
+/// Read `[Settings] tweak-help-console-label` from `NVForever.ini` (`SettingsFile`) at startup
+/// into [`TweakSettings::help_console_label`] [design]. Unattended runs in the player's own
+/// home (`SettingsFile(None)`) leave the label at its default.
+pub(crate) fn read_help_console_label(file: Option<Res<crate::settings::SettingsFile>>, mut tweaks: ResMut<TweakSettings>) {
+    let Some(path) = file.and_then(|f| f.0.clone()) else { return };
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    if let Some(label) = parse_help_console_label(&text) {
+        info!("tweaks: [{}] {HELP_CONSOLE_LABEL_KEY}={label} read from {}", crate::settings::SECTION, path.display());
+        tweaks.help_console_label = label;
+    }
+}
+
+fn parse_help_console_label(text: &str) -> Option<String> {
+    let raw = fnv_install::ini_get(text, crate::settings::SECTION, HELP_CONSOLE_LABEL_KEY)?;
+    let trimmed = raw.trim();
+    let unquoted = trimmed.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(trimmed).trim();
+    (!unquoted.is_empty()).then(|| unquoted.to_string())
+}
+
+/// Action Points per second drained while sneak-running under `[Running Costs AP]`:
+/// `fSneakAPDrainCostBase + fSneakRunAPEnduranceMult * (Endurance - 5)`
+/// [documented: Stewie Tweaks v10.05 generated `nvse_stewie_tweaks.ini` `[Running Costs AP]`
+/// comment; option names also in v10.05 Readme & `AllTweaks.json`; hypothesis: sign vs. the
+/// v10.05 Readme's `(5 - Endurance)` standing-run formula is unobserved in the original
+/// binary].
+///
+/// [design]: returns `0.0` whenever `base <= 0.0` (disabled) and clamps the computed drain
+/// rate at `0.0` (never negative).
+pub fn sneak_run_ap_rate(base: f32, endurance_mult: f32, endurance: f32) -> f32 {
+    if base <= 0.0 {
+        return 0.0;
+    }
+    (base + endurance_mult * (endurance - 5.0)).max(0.0)
 }
 
 /// Whether `actor` wears power armour on the upper body.
@@ -695,9 +767,60 @@ pub fn wears_power_armor(world: &fnv_sim::World, actor: fnv_sim::FormId) -> bool
 
 /// The perks-per-level choices (1 to 5) and the S.P.E.C.I.A.L. totals (30 to 70 by 2).
 const PERKS: usize = 5;
+const PERK_CHOICES: [&str; PERKS] = ["1", "2", "3", "4", "5"];
+/// Place Name: Distance choices (0 none, 1 metres, 2 feet).
+const MARKER_NAME_UNITS: [&str; 3] = ["None", "Metres", "Feet"];
 const SPECIAL_LOW: i32 = 30;
 const SPECIAL_STEP: i32 = 2;
 const SPECIALS: usize = 21;
+
+fn choice_names(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| (*s).to_string()).collect()
+}
+
+fn take_perks_per_level(world: &mut World, text: &str) -> bool {
+    let names = choice_names(&PERK_CHOICES);
+    let Some(i) = choice_of(text, &names, |v| choice_index(v, PERKS)) else { return false };
+    if let Some(mut t) = world.get_resource_mut::<TweakSettings>() {
+        t.game.perks_per_level = i + 1;
+        true
+    } else {
+        false
+    }
+}
+
+fn take_date_style(world: &mut World, text: &str) -> bool {
+    let names = choice_names(&crate::wait::model::DATE_STYLES);
+    let Some(i) = choice_of(text, &names, |v| choice_index(v, crate::wait::model::DATE_STYLES.len())) else { return false };
+    if let Some(mut t) = world.get_resource_mut::<TweakSettings>() {
+        t.date_style = i;
+        true
+    } else {
+        false
+    }
+}
+
+fn take_companion_pip(world: &mut World, text: &str) -> bool {
+    let names: Vec<String> = COMPANION_COLOURS.iter().map(|(n, _)| (*n).to_string()).collect();
+    let Some(i) = choice_of(text, &names, |v| choice_index(v, COMPANION_COLOURS.len())) else { return false };
+    if let Some(mut t) = world.get_resource_mut::<TweakSettings>() {
+        t.companion_pip = i;
+        true
+    } else {
+        false
+    }
+}
+
+fn take_marker_name_units(world: &mut World, text: &str) -> bool {
+    let names = choice_names(&MARKER_NAME_UNITS);
+    let Some(i) = choice_of(text, &names, |v| choice_index(v, MARKER_NAME_UNITS.len())) else { return false };
+    if let Some(mut t) = world.get_resource_mut::<TweakSettings>() {
+        t.marker_name_units = i as u8;
+        true
+    } else {
+        false
+    }
+}
 
 impl Default for TweakSettings {
     fn default() -> TweakSettings {
@@ -732,12 +855,15 @@ impl Default for TweakSettings {
             console_compress_repeats: false,
             console_timestamps: false,
             living_anatomy_dr: false,
-            sync_categories: false,
             no_travel_time: false,
             power_armor_fall_damage: 1.0,
             no_travel_crippled_leg: false,
             jump_ap_cost: 0.0,
+            jump_ap_danger_only: false,
+            jump_without_enough_ap: false,
             run_ap_per_second: 0.0,
+            sneak_run_ap_base: 0.0,
+            sneak_run_ap_endurance_mult: 0.0,
             no_selling: false,
             skill_point_base: SKILL_POINTS_START.0,
             skill_points_per_int: SKILL_POINTS_START.1,
@@ -751,7 +877,6 @@ impl Default for TweakSettings {
             aiming_draws_weapon: false,
             walk_angle: fnv_phys::CharacterParams::default().max_slope_deg,
             crippled_leg_jump: 1.0,
-            vendor_lists_both: false,
             no_player_stagger: false,
             ready_does_not_draw: false,
             no_hotkeys_while_reloading: false,
@@ -772,6 +897,7 @@ impl Default for TweakSettings {
             skip_death_cam: false,
             skip_death_cam_attack: 0.0,
             help_is_console: false,
+            help_console_label: String::new(),
             heartbeat_fade: false,
             heartbeat_fade_seconds: 5.0,
             terminal_fade: false,
@@ -825,7 +951,6 @@ impl Default for TweakSettings {
             compass_doors_exterior: 2000.0,
             compass_doors_interior: 1000.0,
             compass_doors_fade: false,
-            armor_condition: false,
             armor_visible_below: 0.0,
             armor_red_below: 0.25,
             armor_flash_below: 0.1,
@@ -867,7 +992,6 @@ impl Default for TweakSettings {
             shift_talks_sneaking: false,
             tab_closes_terminals: false,
             tab_back_in_pause: false,
-            unsafe_fast_travel: false,
             date_style: 0,
             vats_keeps_holstered: false,
             no_hotkey_wheel: false,
@@ -924,6 +1048,7 @@ impl Default for TweakSettings {
             over_run_ap: 4.0,
             over_jump_ap: 10.0,
             hold_breath: false,
+            breath_activate: false,
             breath_sway: 0.2,
             breath_ap: 5.0,
             scope_wheel_zoom: false,
@@ -976,6 +1101,7 @@ impl Default for TweakSettings {
             npc_weapon_volume: 100.0,
             compass_quest_height: false,
             compass_marker_height: false,
+            keep_chosen_ammo: false,
         }
     }
 }
@@ -1135,13 +1261,40 @@ impl Plugin for TweaksPlugin {
         crate::save::add_save_hook(app, HIDE_HUD_SAVE_HOOK);
         app.init_resource::<TweakSettings>()
             .init_resource::<ItemPlaces>()
+            .add_systems(Startup, read_help_console_label)
+            .add_systems(PostStartup, apply_modular_stewie_inis.before(crate::settings::apply_stored))
             .add_systems(Update, remember_item_places.after(crate::menu::MenuSystems))
-            .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song, toggle_device).in_set(crate::PlaySet::Input))
-            .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
+            .add_systems(Update, sync.in_set(crate::PlaySet::Input)
+                .before(crate::player::read_input).before(crate::control::read_controls))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker, hide_hud_key, skip_radio_song).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (objectives_on_arrival, revive_companions_on_arrival).in_set(crate::PlaySet::Ui));
+        #[cfg(not(target_os = "android"))]
+        app.add_systems(Update, toggle_device.in_set(crate::PlaySet::Input));
+        app
+            // On Android, Switch Device by Pressing is admitted by pad::device::automatic,
+            // through the same consumed edge/cancellation/save path as the selector.
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         sound_list!(app, "discovered-sound", "Location Discovered Sound", "The sound a newly discovered place plays: the game's own, or another of its interface sounds. (Stewie's Tweaks bCustomLocationDiscoveredSound)", discovered_sound);
+        // Named off-by-default NVForever option (#3876, Gameplay > Game, docs/spec-notes/npc-weapon-mods.md;
+        // follows JIP LN NVSE Plugin 57.30 jip_nvse.ini [GamePatches] bNPCWeaponMods, never reads jip_nvse.ini).
+        add_setting(
+            app,
+            Setting {
+                key: "npc-weapon-mods",
+                group: crate::pause::GROUP_MENUS,
+                label: "NPC weapon mods",
+                note: "On: NPCs have a level-scaled chance (10%-60%, +2%/level) for their main weapon to spawn with random weapon mods. Off: NPC weapons have no extra mods, as in the original.",
+                switches: "",
+                get: |w| w.get_resource::<TweakSettings>().is_some_and(|t| t.game.npc_weapon_mods),
+                set: |w, on| {
+                    if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                        t.game.npc_weapon_mods = on;
+                    }
+                },
+                slider: None,
+            },
+        );
         amount!(app, "level-sound-every-a", "Level-Up Sound A: Every N Levels", "Every this many levels the level-up plays Sound A instead of its own; 0 never. (Stewie's Tweaks bAlternateLevelupSounds, iLevelA)", 50.0, f32, level_sound_every_a);
         sound_list!(app, "level-sound-a", "Level-Up Sound A", "The sound for those levels. (Stewie's Tweaks bAlternateLevelupSounds, sSoundA)", level_sound_a);
         amount!(app, "level-sound-every-b", "Level-Up Sound B: Every N Levels", "Every this many levels the level-up plays Sound B; where both fall on one level, the larger number wins. 0 never. (Stewie's Tweaks bAlternateLevelupSounds, iLevelB)", 50.0, f32, level_sound_every_b);
@@ -1212,26 +1365,29 @@ impl Plugin for TweaksPlugin {
         switch!(app, "console-compress-repeats", "Count Repeated Console Lines", "A console line said again right after itself is counted on one line (line -#2). (Stewie's Tweaks bCompressDuplicateConsoleMessages)", console_compress_repeats);
         switch!(app, "console-timestamps", "Console Times", "Console lines start with the time since the game started. (Stewie's Tweaks bConsolePrintsIncludeTimestamp)", console_timestamps);
         switch!(app, "living-anatomy-dr", "Living Anatomy Shows DR", "With Living Anatomy the target's line shows its Damage Resistance as well. (Stewie's Tweaks bLivingAnatomyShowDR)", living_anatomy_dr);
-        switch!(app, "sync-categories", "Matching Categories", "In containers and barter both lists change category together. (Stewie's Tweaks bSynchronizeContainerCategories)", sync_categories);
+        switch!(app, "sync-categories", "Matching Categories", "In containers and barter both lists change category together. (Stewie's Tweaks bSynchronizeContainerCategories)", game.sync_categories);
+        switch!(app, "sync-categories-keep-empty", "Matching Categories: Keep Emptied Category", "Stay on an emptied synchronized category after moving its last item instead of switching to All. (Stewie's Tweaks bPreventSwitchWhenEmptyingCategory)", game.prevent_switch_when_emptying_category);
         // ---- batch 6: gameplay ----
-        add_setting(
+        add_choice_list(
             app,
-            Setting::slider(
-                "tweak-perks-per-level",
-                GROUP,
-                "Perks per Level",
-                "How many perks a level-up's perk page lets the player take; 1 changes nothing. (Stewie's Tweaks iPerksPerLevel)",
-                Slider::choice(
-                    PERKS,
-                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(1, |t| t.game.perks_per_level).clamp(1, PERKS) - 1, PERKS),
-                    |w, v| {
-                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
-                            t.game.perks_per_level = choice_index(v, PERKS) + 1;
-                        }
-                    },
-                    |v| (choice_index(v, PERKS) + 1).to_string(),
-                ),
-            ),
+            Setting {
+                key: "tweak-perks-per-level",
+                group: GROUP,
+                label: "Perks per Level",
+                note: "How many perks a level-up's perk page lets the player take; 1 changes nothing. (Stewie's Tweaks iPerksPerLevel)",
+                switches: "",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            ChoiceList {
+                names: |_| choice_names(&PERK_CHOICES),
+                chosen: |w| PERK_CHOICES[w.get_resource::<TweakSettings>().map_or(1, |t| t.game.perks_per_level).clamp(1, PERKS) - 1].to_string(),
+                pick: take_perks_per_level,
+                save: |w| PERK_CHOICES[w.get_resource::<TweakSettings>().map_or(1, |t| t.game.perks_per_level).clamp(1, PERKS) - 1].to_string(),
+                load: take_perks_per_level,
+                ask_keep: false,
+            },
         );
         add_setting(
             app,
@@ -1259,6 +1415,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "loot-unconscious", "Search the Unconscious", "An unconscious actor can be searched like a dead one. (Stewie's Tweaks bLootUnconsciousVictims)", game.loot_unconscious);
         switch!(app, "revive-companions", "Revive Unconscious Companions", "Activating a knocked-out companion uses a Stimpak and gets them up at once. (Stewie's Tweaks bReviveUnconsciousCompanions)", game.revive_companions);
         amount!(app, "revive-down-seconds", "Revive: Companions Stay Down", "Least seconds a revivable companion stays down (and in a fight); 0 keeps 10. (Stewie's Tweaks bReviveUnconsciousCompanions, fUnconsciousTime)", 600.0, f32, game.revive_down_seconds);
+        switch!(app, "revive-on-cell-change", "Revive: On Changing Cells", "Knocked-out companions get up automatically on a worldspace or interior change. (Stewie's Tweaks bReviveUnconsciousCompanions, bReviveWhenChangingCells)", game.revive_on_cell_change);
         switch!(app, "pickpocket-worn", "Pickpocket Worn Items", "What an actor wears can be pickpocketed (never a child's). (Stewie's Tweaks bPickpocketWornItems)", game.pickpocket_worn_items);
         switch!(app, "no-sneak-criticals", "No Sneak Criticals", "The player's sneak attacks are not criticals. (Stewie's Tweaks bNoSneakAttacksCriticals)", game.no_sneak_criticals);
         switch!(app, "reload-when-empty", "Reload Only When Empty", "The player cannot reload a magazine that still has rounds. (Stewie's Tweaks bDisableReloadingNonEmptyClip)", game.reload_only_when_empty);
@@ -1314,7 +1471,33 @@ impl Plugin for TweaksPlugin {
         switch!(app, "wait-only-seated", "Wait Only When Seated", "Waiting is refused unless the player sits (god mode excepted). (Stewie's Tweaks bOnlyAllowWaitWhileSitting)", game.wait_only_seated);
         amount!(app, "kill-reward-ap", "Action Points per Kill", "Action Points a kill by the player gives back; 0 changes nothing. (Stewie's Tweaks bKillsRewardAP)", 50.0, f64, game.kill_reward_ap);
         amount!(app, "jump-ap-cost", "Action Points per Jump", "Action Points a jump costs; with too few the player cannot jump. 0 changes nothing. (Stewie's Tweaks bJumpingCostsAP)", 50.0, f32, jump_ap_cost);
+        switch!(app, "jump-ap-danger-only", "Action Points per Jump: Only in Danger", "With Action Points per Jump above 0, jumps only cost AP while in danger. (Stewie's Tweaks bCombatOnly)", jump_ap_danger_only);
+        switch!(app, "jump-without-enough-ap", "Action Points per Jump: Jump Without Enough AP", "With Action Points per Jump above 0, still jump with too little AP, draining what is left. (Stewie's Tweaks bJumpWithoutEnoughAP)", jump_without_enough_ap);
         amount!(app, "run-ap-cost", "Action Points per Second Running", "Action Points running costs each second; with none left the player walks. 0 changes nothing. (Stewie's Tweaks bRunningCostsAP)", 20.0, f32, run_ap_per_second);
+        amount!(app, "sneak-run-ap-cost", "Action Points per Second Sneak-Running", "Action Points running while sneaking costs each second; with none left the player walks. 0 changes nothing. (Stewie's Tweaks bRunningCostsAP, fSneakAPDrainCostBase)", 20.0, f32, sneak_run_ap_base);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-sneak-run-ap-endurance",
+                GROUP,
+                "Sneak-Running AP: Endurance Factor",
+                "With Action Points per Second Sneak-Running above 0, added per Endurance over 5 (negative saves AP); 0 changes nothing. (Stewie's Tweaks bRunningCostsAP, fSneakRunAPEnduranceMult)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.5, |t| ((t.sneak_run_ap_endurance_mult + 1.0) / 2.0).clamp(0.0, 1.0)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.sneak_run_ap_endurance_mult = ((v * 2.0 - 1.0) * 10.0).round() / 10.0;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| {
+                        let rate = ((v * 2.0 - 1.0) * 10.0).round() / 10.0;
+                        if rate == 0.0 { "0.0".to_string() } else { format!("{rate:+.1}") }
+                    }),
+                },
+            ),
+        );
         // ---- batch 9 ----
         switch!(app, "no-selling", "No Selling", "The player cannot sell items in a barter (buying still works). (Stewie's Tweaks bDisableSellingItems)", no_selling);
         add_setting(
@@ -1447,7 +1630,8 @@ impl Plugin for TweaksPlugin {
         // ---- batch 13 ----
         switch!(app, "aid-at-full-health", "Aid at Full Health", "The STATS page's Stimpak and Doctor's Bag can be used with nothing hurt. (Stewie's Tweaks bAllowAidAtMaxHealth)", game.aid_at_full_health);
         switch!(app, "grabbing-is-theft", "Grabbing Is Stealing", "Grabbing someone else's thing counts as stealing it. (Stewie's Tweaks bGrabbingItemsIsCrime)", game.grabbing_is_theft);
-        switch!(app, "vendor-lists", "Merchants Keep to Their Lists", "A merchant buys from the player only what its list says it deals in. (Stewie's Tweaks bBarterCheckActorBuySellFlags)", vendor_lists_both);
+        amount!(app, "grabbing-is-theft-min-value", "Grabbing Is Stealing: Min Value", "Lowest item value (caps) that makes grabbing an owned item a crime; 0 counts any item. (Stewie's Tweaks bGrabbingItemsIsCrime, fMinValue)", 500.0, f32, game.grabbing_is_theft_min_value);
+        switch!(app, "vendor-lists", "Merchants Keep to Their Lists", "A merchant buys from the player only what its list says it deals in. (Stewie's Tweaks bBarterCheckActorBuySellFlags)", game.vendor_lists_both);
         switch!(app, "key-name", "Name the Key", "A lock that needs a key names it. (Stewie's Tweaks bLockNeedsKeyShowName)", game.lock_needs_key_name);
         switch!(app, "no-skill-tags", "No Skill Tags", "Dialogue topics show no skill or perk tag. (Stewie's Tweaks bNoSkillTags)", game.no_skill_tags);
         switch!(app, "no-npc-addiction", "No NPC Addiction", "Only the player becomes addicted to chems. (Stewie's Tweaks bPreventNPCAddiction)", game.no_npc_addiction);
@@ -1508,6 +1692,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-companion-kill-xp", "No XP for Companion Kills", "A teammate's kills give the player no experience. (Stewie's Tweaks bNoCompanionKillXP)", game.no_companion_kill_xp);
         switch!(app, "no-disarm-companions", "Companions Keep Their Weapons", "A crippled arm does not make a teammate drop its weapon. (Stewie's Tweaks bNoDisarmCompanions)", game.no_disarm_companions);
         switch!(app, "no-self-explosion-damage", "Own Blasts Spare the Player", "The player's own explosions do not hurt the player. (Stewie's Tweaks bNoSelfExplosionDamage)", game.no_self_explosion_damage);
+        switch!(app, "no-self-explosion-non-hostiles", "Own Blasts Spare Non-Hostiles", "With Own Blasts Spare the Player on, your explosions also spare friendly and neutral actors. (Stewie's Tweaks bNoSelfExplosionDamage)", game.no_self_explosion_non_hostiles);
         switch!(app, "sneak-criticals-melee", "Sneak Criticals Melee Only", "Only melee and unarmed sneak attacks are criticals. (Stewie's Tweaks bSneakCriticalsOnlyMeleeWeapons)", game.sneak_criticals_melee_only);
         switch!(app, "teammates-meltdown", "Meltdown for Companions", "Teammates' energy weapon kills use the player's Meltdown perk. (Stewie's Tweaks bAllowTeammatesUseMeltdown)", game.teammates_meltdown);
         switch!(app, "speed-scales-jump", "Speed Scales the Jump", "The player's Speed Mult (and armour's pace) scales the jump's height. (Stewie's Tweaks bSpeedMultScalesJumpHeight)", game.speed_scales_jump);
@@ -1660,7 +1845,7 @@ impl Plugin for TweaksPlugin {
         );
         // ---- batch 25 ----
         switch!(app, "invert-title-wheel", "Reverse Category Wheel", "The mouse wheel over a container's category title steps the other way. (Stewie's Tweaks bInvertContainerTitleScrollwheelDirection)", invert_title_wheel);
-        switch!(app, "armor-condition", "Armor Condition on the HUD", "The HUD shows the condition of the armour worn on the body, under the weapon's. (Stewie's Tweaks bArmorConditionLabel)", armor_condition);
+        switch!(app, "armor-condition", "Armor Condition on the HUD", "The HUD shows the condition of the armour worn on the body, under the weapon's. (Stewie's Tweaks bArmorConditionLabel)", game.armor_condition);
         part!(app, "armor-visible-below", "Armor Condition: Shown Below", "The armour's row shows only below this condition; 0% always. (Stewie's Tweaks bArmorConditionLabel)", armor_visible_below);
         part!(app, "armor-red-below", "Armor Condition: Red Below", "The armour's bar turns red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_red_below);
         part!(app, "armor-flash-below", "Armor Condition: Flashing Below", "The armour's bar flashes red below this condition; 0% never. (Stewie's Tweaks bArmorConditionLabel)", armor_flash_below);
@@ -1680,7 +1865,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "compass-doors-exterior", "Doors on the Compass: Reach Outside", "How far away a door outside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 10000.0, f32, compass_doors_exterior);
         amount!(app, "compass-doors-interior", "Doors on the Compass: Reach Inside", "How far away a door inside still shows, in game units (70 a metre). (Stewie's Tweaks bShowDoorsOnCompass)", 5000.0, f32, compass_doors_interior);
         switch!(app, "compass-doors-fade", "Doors on the Compass: Fade by Distance", "A door's mark is fainter the further away it is. (Stewie's Tweaks bShowDoorsOnCompass)", compass_doors_fade);
-        switch!(app, "detected-by-whom", "Detected by Whom", "The sneak word [DETECTED] names who has detected the player. (Stewie's Tweaks bDetectedByWhom)", detected_by_whom);
+        switch!(app, "detected-by-whom", "Detected by Whom", "The sneak word [SPOTTED] names who has spotted the player. (Stewie's Tweaks bDetectedByWhom)", detected_by_whom);
         amount!(app, "detected-names", "Detected by Whom: Names Shown", "How many names come before \"and N others\"; 0 shows only how many. (Stewie's Tweaks bDetectedByWhom)", 5.0, f32, detected_names);
         switch!(app, "quest-text-in-menus", "Quest Text Over the Pip-Boy", "The quest and location lines stay on screen, and go on, while the Pip-Boy or a terminal is open. (Stewie's Tweaks bQuestTextVisibleInMenus)", quest_text_in_menus);
         switch!(app, "continue-shows-save", "Continue Shows Its Save", "On the main menu, the picture of the save Continue loads is shown while Continue is chosen. (Stewie's Tweaks bMainMenuContinueIcon)", continue_shows_save);
@@ -1748,6 +1933,7 @@ impl Plugin for TweaksPlugin {
             ),
         );
         switch!(app, "repair-scales-crafting", "Crafting Uses Repair", "Weapons and armour made at a workbench come out at a condition set by Repair: half at 0, whole at 100. (Stewie's Tweaks bRepairScalesCraftingCondition)", game.repair_scales_crafting);
+        amount!(app, "crafted-item-health-pct", "Crafted Item Condition", "Percent condition of weapons and armour made at a workbench; 0 leaves it unchanged. (Stewie's Tweaks fCraftedItemHealthPct)", 100.0, f32, game.crafted_item_health_pct);
         switch!(app, "no-healing-in-combat", "No Healing In Combat", "Aid that restores health or a limb cannot be used from the Pip-Boy while something fights the player. (Stewie's Tweaks bNoHealingInCombat)", game.no_healing_in_combat);
         switch!(app, "power-attack-if-blocking", "Power Attack From a Block", "While blocking with a melee weapon, a press of attack is a power attack at once, with no hold. (Stewie's Tweaks bPowerAttackIfBlocking)", power_attack_if_blocking);
         amount!(app, "breath-regain", "Slow Breath Regen", "Seconds of breath each second at the surface gives back; the meter stays up until it is whole. 0 refills it at once. (Stewie's Tweaks bSlowBreathRegen)", 20.0, f32, game.breath_regain);
@@ -1777,6 +1963,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "contact-mines-player", "Contact Mines (Player)", "A mine the player stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bPlayer)", game.contact_mines_player);
         switch!(app, "contact-mines-npcs", "Contact Mines (Others)", "A mine anyone else stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bNPCs)", game.contact_mines_npcs);
         amount!(app, "sleep-heal-min-hours", "Sleep Healing Min Duration", "Hours a sleep must last before it restores Health and heals limbs; 0 heals from the first hour. (Stewie's Tweaks bSleepHealingMinDuration)", 12.0, u32, game.sleep_heal_min_hours);
+        switch!(app, "sleep-misc-stat-requires-duration", "Sleep Healing: Stat Needs Full Duration", "Times Slept counts a sleep only when it meets Sleep Healing Min Duration. (Stewie's Tweaks bSleepHealingMinDuration, bMiscStatRequiresSleepDuration)", game.sleep_misc_stat_requires_duration);
         amount!(app, "barter-repair-discount", "Barter Lowers Repair Costs", "Percent of a vendor's repair price the player's Barter takes off at 100 (in proportion below); 0 changes nothing. (Stewie's Tweaks bBarterAffectsRepairCosts)", 60.0, f32, game.barter_repair_discount);
         add_setting(
             app,
@@ -1845,7 +2032,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "water-shows-h2o", "Water Sources Show H2O", "A tap's or puddle's prompt shows how much H2O a drink takes off. (Stewie's Tweaks bWaterSourcesShowH2O)", game.water_shows_h2o);
         switch!(app, "no-respec", "No Character Remake Offer", "Leaving Doc Mitchell's area does not offer to change your character. (Stewie's Tweaks bDisableCharacterRespec)", game.no_respec);
         switch!(app, "weapon-impacts", "Weapon Impact Effects", "A shot that strikes the weapon in someone's hands sparks and sounds like metal, with no blood. (Stewie's Tweaks bWeaponImpactEffects)", game.weapon_impacts);
-        switch!(app, "robots-heal-with-scrap", "Robot Companions Heal With Scrap Metal", "The companion wheel's Use Stimpak gives a robot companion Scrap Metal instead. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal)", game.robots_heal_with_scrap);
+        switch!(app, "robots-heal-with-scrap", "Robot Companions Heal With Scrap Metal", "The companion wheel's Heal gives a robot companion Scrap Metal instead. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal)", game.robots_heal_with_scrap);
         amount!(app, "robot-heal-base", "Scrap Metal: Health Each", "Health one Scrap Metal gives a robot companion. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fBase)", 200.0, f32, game.robot_heal_base);
         amount!(app, "robot-heal-per-repair", "Scrap Metal: Health per 10 Repair", "Health added for each 10 points of your Repair skill. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRepairMult)", 50.0, f32, game.robot_heal_per_repair);
         amount!(app, "robot-heal-expert", "Scrap Metal: Robotics Expert Bonus", "Health added when you have Robotics Expert. (Stewie's Tweaks bRobotCompanionsHealWithScrapMetal, fRoboticsExpertBonus)", 200.0, f32, game.robot_heal_expert);
@@ -1870,7 +2057,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hide-read-notes", "Hide Read Notes", "The Pip-Boy's notes list leaves out notes already read. (Stewie's Tweaks bHideReadNotes)", game.hide_read_notes);
         switch!(app, "tab-closes-terminals", "Tab Closes Terminals", "Tab closes a terminal from any page instead of going back a page (Backspace still goes back). (Stewie's Tweaks bTabClosesTerminals)", tab_closes_terminals);
         switch!(app, "tab-back-in-pause", "Tab Goes Back in the Pause Menu", "Tab goes back a page in the pause menu, as Backspace does (the Settings and Controls pages keep Tab for their tabs). (Stewie's Tweaks bTabBackInStartMenu)", tab_back_in_pause);
-        switch!(app, "unsafe-fast-travel", "Fast Travel From Anywhere", "Fast travel works from places flagged against it, such as interiors; leaving a scripted place this way can break it. (Stewie's Tweaks bAllowUnsafeFastTravel)", unsafe_fast_travel);
+        switch!(app, "unsafe-fast-travel", "Fast Travel From Anywhere", "Fast travel works from places flagged against it, such as interiors; leaving a scripted place this way can break it. (Stewie's Tweaks bAllowUnsafeFastTravel)", game.unsafe_fast_travel);
         switch!(app, "vats-auto-head", "V.A.T.S. Starts on the Head", "In the classic V.A.T.S., a target's head is selected first rather than the part easiest to hit. (Stewie's Tweaks bVATSAutoTargetHead)", game.vats_auto_head);
         switch!(app, "vats-drops-disarmed-shots", "V.A.T.S. Drops Shots at a Lost Weapon", "Attacks queued in V.A.T.S. on someone's weapon are not played once they no longer hold it. (Stewie's Tweaks bVATSDequeueWeaponShotsOnDisarm)", game.vats_drops_disarmed_shots);
         switch!(app, "vats-target-projectiles", "Target Projectiles in V.A.T.S.", "V.A.T.S. can mark projectiles in flight: explosives go off, others end; odds: distance, skill. (Stewie's Tweaks bTargetProjectilesInVATS)", game.vats_target_projectiles);
@@ -1879,47 +2066,51 @@ impl Plugin for TweaksPlugin {
         switch!(app, "vats-ignore-non-explosive", "V.A.T.S. Ignores Non-Explosive Projectiles", "With Target Projectiles in V.A.T.S., only projectiles with an explosion can be marked. (Stewie's Tweaks bVATSIgnoreNonExplosiveProjectiles)", game.vats_ignore_non_explosive);
         switch!(app, "vats-burst-stops-on-kill", "V.A.T.S. Burst Stops on a Kill", "The rest of a burst in V.A.T.S. is not fired once its target is dead. (Stewie's Tweaks bVATSStopBurstIfTargetDead)", game.vats_burst_stops_on_kill);
         switch!(app, "repair-needs-weapon-skill", "Repair Needs the Weapon's Skill", "The player can repair a weapon only with Repair at least the weapon's skill requirement. (Stewie's Tweaks bRepairRequiresWeaponSkill)", game.repair_needs_weapon_skill);
-        add_setting(
+        add_choice_list(
             app,
-            Setting::slider(
-                "tweak-date-style",
-                GROUP,
-                "Date Format",
-                "How the Pip-Boy and the wait menu write the date. (Stewie's Tweaks iDateFormat)",
-                Slider::choice(
-                    crate::wait::model::DATE_STYLES.len(),
-                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(0, |t| t.date_style).min(crate::wait::model::DATE_STYLES.len() - 1), crate::wait::model::DATE_STYLES.len()),
-                    |w, v| {
-                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
-                            t.date_style = choice_index(v, crate::wait::model::DATE_STYLES.len());
-                        }
-                    },
-                    |v| crate::wait::model::DATE_STYLES[choice_index(v, crate::wait::model::DATE_STYLES.len())].to_string(),
-                ),
-            ),
+            Setting {
+                key: "tweak-date-style",
+                group: GROUP,
+                label: "Date Format",
+                note: "How the Pip-Boy and the wait menu write the date. (Stewie's Tweaks iDateFormat)",
+                switches: "",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            ChoiceList {
+                names: |_| choice_names(&crate::wait::model::DATE_STYLES),
+                chosen: |w| crate::wait::model::DATE_STYLES[w.get_resource::<TweakSettings>().map_or(0, |t| t.date_style).min(crate::wait::model::DATE_STYLES.len() - 1)].to_string(),
+                pick: take_date_style,
+                save: |w| crate::wait::model::DATE_STYLES[w.get_resource::<TweakSettings>().map_or(0, |t| t.date_style).min(crate::wait::model::DATE_STYLES.len() - 1)].to_string(),
+                load: take_date_style,
+                ask_keep: false,
+            },
         );
         switch!(app, "hide-unknown-names", "Hide Unknown Names", "The activation prompt gives no name for someone who has not spoken to the player yet (bodies are still named). (Stewie's Tweaks bHideUnknownNPCNames)", game.hide_unknown_names);
         switch!(app, "vats-keeps-holstered", "V.A.T.S. Puts the Weapon Back", "A weapon that V.A.T.S. drew is put away again when the mode ends with nothing fired. (Stewie's Tweaks bEnteringVATSDoesntUnholsterWeapon)", vats_keeps_holstered);
         switch!(app, "no-hotkey-wheel", "No Hotkey Wheel", "Holding a hotkey does not open the weapon wheel; letting go uses the slot as a tap does. (Stewie's Tweaks bNoHUDHotkeyPopup)", no_hotkey_wheel);
         switch!(app, "ammo-label-under", "Ammo Label Under the Count", "The HUD writes the ammo type under the ammo count instead of beside it. (Stewie's Tweaks bMoveAmmoTypeLabel)", ammo_label_under);
-        add_setting(
+        add_choice_list(
             app,
-            Setting::slider(
-                "tweak-companion-pip",
-                GROUP,
-                "Companion Compass Colour",
-                "The colour of companions' marks on the compass; Off leaves them as anyone's. (Stewie's Tweaks bCompanionPipColorChange)",
-                Slider::choice(
-                    COMPANION_COLOURS.len(),
-                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(0, |t| t.companion_pip).min(COMPANION_COLOURS.len() - 1), COMPANION_COLOURS.len()),
-                    |w, v| {
-                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
-                            t.companion_pip = choice_index(v, COMPANION_COLOURS.len());
-                        }
-                    },
-                    |v| COMPANION_COLOURS[choice_index(v, COMPANION_COLOURS.len())].0.to_string(),
-                ),
-            ),
+            Setting {
+                key: "tweak-companion-pip",
+                group: GROUP,
+                label: "Companion Compass Colour",
+                note: "The colour of companions' marks on the compass; Off leaves them as anyone's. (Stewie's Tweaks bCompanionPipColorChange)",
+                switches: "",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            ChoiceList {
+                names: |_| COMPANION_COLOURS.iter().map(|(n, _)| (*n).to_string()).collect(),
+                chosen: |w| COMPANION_COLOURS[w.get_resource::<TweakSettings>().map_or(0, |t| t.companion_pip).min(COMPANION_COLOURS.len() - 1)].0.to_string(),
+                pick: take_companion_pip,
+                save: |w| COMPANION_COLOURS[w.get_resource::<TweakSettings>().map_or(0, |t| t.companion_pip).min(COMPANION_COLOURS.len() - 1)].0.to_string(),
+                load: take_companion_pip,
+                ask_keep: false,
+            },
         );
         switch!(app, "female-facial-hair", "Facial Hair for Women", "The character creator and the barber offer facial hair to a woman too. (Stewie's Tweaks bRaceMenuAllowFemaleFacialHair)", female_facial_hair);
         switch!(app, "terminal-password-prompt", "Show Use Password", "A locked terminal whose password note the player holds says so in its prompt until first opened. (Stewie's Tweaks bShowUsePasswordOnTerminalsWithNote)", game.terminal_password_prompt);
@@ -2052,7 +2243,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "scope-delay", "Scope Delay (ms)", "Milliseconds (to 1000) a scope waits once zoomed before covering the screen; 0 shows it at once. (Stewie's Tweaks bScopeVisibilityDelay)", 1000.0, f32, scope_delay_ms);
         switch!(app, "no-pointer-message-box", "No Pointer Over Message Boxes", "The mouse pointer is hidden while a message box is up; choose with the keys or the controller. (Stewie's Tweaks bHideCursorInMessageMenu)", no_pointer_in_message_box);
         switch!(app, "no-pointer-dialogue", "No Pointer in Conversations", "The mouse pointer is hidden over a conversation's choices; choose with the number keys, the arrows, the wheel or the controller. (Stewie's Tweaks bHideCursorInDialog)", no_pointer_in_dialogue);
-        switch!(app, "levelup-wheel", "Level Up: Wheel Sets Skills", "On level-up skills, the mouse wheel raises or lowers the skill under the pointer, not scrolling. (Stewie's Tweaks bLevelUpScrollWheelSupport)", levelup_wheel);
+        switch!(app, "levelup-wheel", "Level Up: Wheel Sets Skills", "On level-up skills, S.P.E.C.I.A.L., and the Vigor Tester, the mouse wheel raises or lowers the stat under the pointer instead of scrolling. (Stewie's Tweaks bLevelUpScrollWheelSupport)", levelup_wheel);
         switch!(app, "compare-armor", "Compare Armor", "A piece of armour's DT in the Pip-Boy shows the difference from what you wear in the same places. (Stewie's Tweaks bCompareArmorStats)", game.compare_armor);
         switch!(app, "detailed-stats", "Detailed Stats", "In the Pip-Boy's stats, a raised or lowered value says by how much, as (+5) for (+), and values show past 10 and 100. (Stewie's Tweaks bMoreDetailedStatsMenu)", game.detailed_stats);
         switch!(app, "minigames-timescale", "Lockpicking Follows the Time Speed", "When a script speeds up or slows down time, the lock turns and the pick wears at that speed too. (Stewie's Tweaks bTimescaleAffectsMinigames)", game.minigames_timescale);
@@ -2075,6 +2266,29 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hack-no-repeat-words", "Hacking: No Repeat Guesses", "A word you have already tried cannot be tried again, so it costs no attempt. (Stewie's Tweaks bImprovedHacking)", game.hack_no_repeat_words);
         switch!(app, "hack-dud-when-full", "Hacking: Dud When Attempts Full", "A bracket pair found with all attempts left removes a dud instead of giving attempts back. (Stewie's Tweaks bImprovedHacking)", game.hack_dud_when_full);
         switch!(app, "hack-spare-guessed", "Hacking: Duds Spare Tried Words", "Removing a dud leaves the words you have already tried, unless only they are left. (Stewie's Tweaks bImprovedHacking)", game.hack_spare_guessed);
+        switch!(app, "hack-mark-guesses-as-duds", "Hacking: Mark Guesses as Duds", "Wrong guesses turn into dots in the dump like removed duds. (Stewie's Tweaks bImprovedHacking, bMarkGuessesAsDuds)", game.hack_mark_guesses_as_duds);
+        switch!(app, "hack-keep-matching-chars", "Hacking: Keep Matching Characters", "With Mark Guesses as Duds, letters matching the password stay visible in place. (Stewie's Tweaks bMarkGuessesAsDudsKeepMatchingCharacters)", game.hack_keep_matching_chars);
+        switch!(app, "hack-compact-guesses", "Hacking: Compact Guess Log", "Prints each wrong guess on one log line with its likeness instead of three lines. (Stewie's Tweaks bImprovedHacking, bCompactGuesses)", game.hack_compact_guesses);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-hack-replenish-bonus",
+                GROUP,
+                "Hacking: Replenish Bonus Attempts",
+                "Extra attempts a Replenished bracket adds instead of resetting to 4; 0 resets to 4. (Stewie's Tweaks iAllowanceReplenishedBonus)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| (f32::from(t.game.hack_replenish_bonus) / 10.0).clamp(0.0, 1.0)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.hack_replenish_bonus = (v * 10.0).round() as u8;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.1,
+                    shown: Some(|v| format!("{:.0}", (v * 10.0).round())),
+                },
+            ),
+        );
         switch!(app, "run-overencumbered", "Run While Overencumbered", "Carrying too much, you can still run and jump by spending Action Points; with none left you walk. (Stewie's Tweaks bOverencumberedTweak)", run_overencumbered);
         amount!(app, "over-run-ap", "Overencumbered Running AP", "Action Points running costs each second while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 20.0, f32, over_run_ap);
         amount!(app, "over-jump-ap", "Overencumbered Jump AP", "Action Points a jump costs while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 50.0, f32, over_jump_ap);
@@ -2089,6 +2303,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "skill-cap-most", "Skill Cap Most", "No skill's cap goes above this (Skills Capped by S.P.E.C.I.A.L.). (Stewie's Tweaks bCapSkillsBySPECIAL)", 100.0, i32, game.skill_cap_most);
         switch!(app, "cap-skills-spare-tagged", "Skill Cap Spares Tagged Skills", "Tagged skills are not capped by Skills Capped by S.P.E.C.I.A.L. (Stewie's Tweaks bCapSkillsBySPECIAL)", game.cap_skills_spare_tagged);
         switch!(app, "hold-breath", "Hold Breath Through a Scope", "Holding Shift while looking through a scope steadies it, costing Action Points while held; with none left the breath goes. (Stewie's Tweaks bScopeHoldBreath)", hold_breath);
+        switch!(app, "breath-activate", "Held Breath: Activate Key", "Holding Activate also holds breath through a scope. (Stewie's Tweaks bActivateHoldsBreath)", breath_activate);
         part!(app, "breath-sway", "Held Breath Sway", "How much a scope still sways while the breath is held, as a part of its usual sway. (Stewie's Tweaks bScopeHoldBreath)", breath_sway);
         amount!(app, "breath-ap", "Held Breath AP", "Action Points holding the breath costs each second (Hold Breath Through a Scope). (Stewie's Tweaks bScopeHoldBreath)", 20.0, f32, breath_ap);
         switch!(app, "scope-wheel-zoom", "Wheel Zooms Scopes", "The mouse wheel zooms a scope in (up) and out, half to double the usual, reset each time. (Stewie's Tweaks bAdjustableScopeZoom)", scope_wheel_zoom);
@@ -2123,24 +2338,26 @@ impl Plugin for TweaksPlugin {
         switch!(app, "region-borders-message-only", "World Borders: Warning Only", "At a world border (a plugin's border region) you are warned but not stopped. (Stewie's Tweaks bDisableRegionBordersKeepMessage)", region_borders_message_only);
         amount!(app, "marker-name-angle", "Place Name: Widest Angle", "How far off straight ahead, in degrees, a place's name is still shown. (Stewie's Tweaks bHUDMarkerNameIndicator)", 45.0, f32, marker_name_angle);
         switch!(app, "marker-name-hide-unfound", "Place Name: Only Places Found", "Places the player has not found are not named. (Stewie's Tweaks bHUDMarkerNameIndicator)", marker_name_hide_unfound);
-        add_setting(
+        add_choice_list(
             app,
-            Setting::slider(
-                "tweak-marker-name-units",
-                GROUP,
-                "Place Name: Distance",
-                "Whether the place's name comes with how far it is, and in what. (Stewie's Tweaks bHUDMarkerNameIndicator)",
-                Slider::choice(
-                    3,
-                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(0, |t| t.marker_name_units as usize).min(2), 3),
-                    |w, v| {
-                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
-                            t.marker_name_units = choice_index(v, 3) as u8;
-                        }
-                    },
-                    |v| ["None", "Metres", "Feet"][choice_index(v, 3)].to_string(),
-                ),
-            ),
+            Setting {
+                key: "tweak-marker-name-units",
+                group: GROUP,
+                label: "Place Name: Distance",
+                note: "Whether the place's name comes with how far it is, and in what. (Stewie's Tweaks bHUDMarkerNameIndicator)",
+                switches: "",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            ChoiceList {
+                names: |_| choice_names(&MARKER_NAME_UNITS),
+                chosen: |w| MARKER_NAME_UNITS[w.get_resource::<TweakSettings>().map_or(0, |t| t.marker_name_units as usize).min(MARKER_NAME_UNITS.len() - 1)].to_string(),
+                pick: take_marker_name_units,
+                save: |w| MARKER_NAME_UNITS[w.get_resource::<TweakSettings>().map_or(0, |t| t.marker_name_units as usize).min(MARKER_NAME_UNITS.len() - 1)].to_string(),
+                load: take_marker_name_units,
+                ask_keep: false,
+            },
         );
         switch!(app, "hide-hud-compass", "Hide HUD Key: Health and Compass", "The Hide HUD key (on the Controls page) hides the health bar and compass. (Stewie's Tweaks iHideHUDKey)", hide_hud_compass);
         switch!(app, "hide-hud-ammo", "Hide HUD Key: Action Points and Ammo", "The Hide HUD key hides the action points, condition and ammo. (Stewie's Tweaks iHideHUDKey)", hide_hud_ammo);
@@ -2160,12 +2377,24 @@ impl Plugin for TweaksPlugin {
         switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "Repeat Activate (Controls page, unbound at first), held, takes again and again; off, activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
         switch!(app, "hi-res-npc-weapons", "Fine Weapon Models for Everyone", "People hold the detailed first-person models of their weapons; weapons drawn after the change. (Stewie's Tweaks bForceHiResWeaponModels)", hi_res_npc_weapons);
         switch!(app, "empty-reload-swaps-ammo", "Reload Swaps Spent Ammo", "Reloading when none of the ammo in use is left changes to another kind you carry. (Stewie's Tweaks bReloadingWithNoAmmoSwapsAmmoTypes)", game.empty_reload_swaps_ammo);
+        switch!(
+            app,
+            "keep-chosen-ammo",
+            "Keep Chosen Ammo",
+            "Weapons remember the ammo type you picked for them after switching, unequipping or dropping them; falls back if none is carried. (Stewie's Tweaks bRememberWeaponAmmos)",
+            keep_chosen_ammo
+        );
         switch!(app, "objectives-on-arrival", "Objectives on Arrival", "Going through a door to a new place shows your active quest's open objectives again. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", objectives_on_arrival);
         amount!(app, "objectives-gap", "Objectives on Arrival Gap (s)", "The least time, up to 300 seconds, between two showings of Objectives on Arrival. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", 300.0, f32, objectives_gap);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
+        switch!(app, "faster-sleep-wait", "Faster Sleep and Wait", "Hours count down faster while sleeping or waiting. (Stewie's Tweaks bFasterSleepWait)", game.faster_sleep_wait);
         // ---- items ----
         switch!(app, "power-armor-no-training", "Power Armor Without Training", "Power armor can be worn without Power Armor Training. (Stewie's Tweaks bPowerArmorNeedsNoTraining)", game.power_armor_needs_no_training);
+        // ---- world ----
+        switch!(app, "no-lock-encounter-zone-levels", "No Encounter Zone Level Lock", "Encounter zones recompute their level from the player's current level instead of freezing on first visit. (Stewie's Tweaks bNoLockEncounterZoneLevels)", game.no_lock_encounter_zone_levels);
+        // ---- menus ----
+        switch!(app, "wasd-as-arrow-keys", "WASD as Arrow Keys in Menus", "Use WASD as arrow keys and Space to accept across Barter, Quantity, Sleep/Wait, and Recipe menus. (Stewie's Tweaks bUseWASDAsArrowKeys)", game.wasd_as_arrow_keys);
     }
 }
 
@@ -2311,6 +2540,30 @@ fn objectives_on_arrival(
     }
 }
 
+/// Revive Unconscious Companions on Cell Change (`bReviveWhenChangingCells`): moving to a
+/// new interior cell or worldspace revives every knocked-out companion without consuming a
+/// Stimpak [design: docs/design/tweaks.md].
+fn revive_companions_on_arrival(
+    tweaks: Res<TweakSettings>,
+    state: Res<State<crate::PlayState>>,
+    location: Option<Res<crate::Location>>,
+    mut script: Option<ResMut<ScriptState>>,
+    sim: Option<ResMut<crate::sim::SimState>>,
+    mut last: Local<Option<(u32, Option<u32>)>>,
+) {
+    let Some(loc) = location else { return };
+    let here = (loc.world, loc.interior);
+    let was = last.replace(here);
+    if !tweaks.game.revive_companions || !tweaks.game.revive_on_cell_change || *state.get() != crate::PlayState::Playing || was.is_none_or(|w| w == here) {
+        return;
+    }
+    let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
+    let revived = crate::script::with_world(rt, &mut sim, |rt| rt.game.revive_companions_on_cell_change());
+    if !revived.is_empty() {
+        info!("tweaks: {} knocked-out companion(s) revived on cell change", revived.len());
+    }
+}
+
 /// The Toggle Sighting Node key while playing: the iron sights move to the weapon's
 /// second sighting node, or back [design: docs/design/tweaks.md].
 fn toggle_sight(input: crate::bindings::ControlInput, state: Res<State<crate::PlayState>>) {
@@ -2397,6 +2650,7 @@ fn place_marker_here(
 /// working the controls, a controller's A switches them to the controller; with the
 /// controller, a left click switches them back. Written to the INI only with the controls'
 /// next save (`crate::bindings::with_controls`) [design: docs/design/tweaks.md].
+#[cfg(not(target_os = "android"))]
 fn toggle_device(tweaks: Res<TweakSettings>, mouse: Res<ButtonInput<MouseButton>>, pads: Query<&Gamepad>, bindings: Option<ResMut<crate::bindings::Bindings>>, listening: Option<Res<crate::pause::Listening>>) {
     use crate::bindings::InputDevice;
     let Some(mut b) = bindings else { return };
@@ -2564,17 +2818,32 @@ fn clear_near_marker(
 /// [design: docs/design/tweaks.md].
 pub static BREATH_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Shift held with a scope up holds the breath, paying [`TweakSettings::breath_ap`]
-/// Action Points a second; with none left it is let go. In god mode nothing is paid.
+/// Whether the player is asking to hold breath through a scope: `hold_breath` enabled,
+/// scope raised, and either Shift held or Activate held with `breath_activate` enabled
+/// [design; Stewie's Tweaks 9.65 public changelog / `nvse_stewie_tweaks.ini` `bActivateHoldsBreath`].
+fn hold_breath_asked(hold_breath: bool, scope_on: bool, shift_held: bool, breath_activate: bool, activate_held: bool) -> bool {
+    hold_breath && scope_on && (shift_held || (breath_activate && activate_held))
+}
+
+/// Shift (or Activate when `breath_activate` is on) held with a scope up holds the breath,
+/// paying [`TweakSettings::breath_ap`] Action Points a second; with none left it is let
+/// go. In god mode nothing is paid.
 fn hold_breath(
     time: Res<Time>,
     tweaks: Res<TweakSettings>,
     keys: Res<ButtonInput<KeyCode>>,
+    control: crate::bindings::ControlInput,
     scope: Option<Res<crate::aim_zoom::Scope>>,
     mut script: Option<ResMut<ScriptState>>,
     sim: Option<ResMut<crate::sim::SimState>>,
 ) {
-    let asked = tweaks.hold_breath && scope.is_some_and(|s| s.on) && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let asked = hold_breath_asked(
+        tweaks.hold_breath,
+        scope.is_some_and(|s| s.on),
+        keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
+        tweaks.breath_activate,
+        control.pressed(crate::bindings::Control::Activate),
+    );
     let mut held = asked;
     if asked && !crate::combat::god_mode() && tweaks.breath_ap > 0.0 {
         if let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) {
@@ -2595,10 +2864,37 @@ fn hold_breath(
     }
 }
 
+/// Resolve jump AP cost under `bJumpingCostsAP` (`iJumpAPCost`, `bCombatOnly` danger check,
+/// `bJumpWithoutEnoughAP`) and `bOverencumberedTweak` (`over_jump_ap`), returning
+/// `(ap_damage, jump_allowed)` [design; Stewie's Tweaks 9.70 public changelog /
+/// `nvse_stewie_tweaks.ini`].
+fn resolve_jump_ap(
+    ap: f64,
+    base_jump: f32,
+    danger_only: bool,
+    in_danger: bool,
+    allow_without_enough: bool,
+    over_jump: f32,
+) -> (f64, bool) {
+    let base = if danger_only && !in_danger { 0.0 } else { base_jump.max(0.0) };
+    let over = over_jump.max(0.0);
+    let cost = f64::from(base + over);
+    if cost <= 0.0 {
+        return (0.0, true);
+    }
+    if ap >= cost {
+        (cost, true)
+    } else if allow_without_enough && over <= 0.0 {
+        (ap.max(0.0), true)
+    } else {
+        (0.0, false)
+    }
+}
+
 /// The Action Point costs of jumping and running ([`TweakSettings::jump_ap_cost`],
 /// [`TweakSettings::run_ap_per_second`]) [design: docs/design/tweaks.md]: a jump is paid
-/// when asked for and refused without the points; running drains each frame and, with
-/// none left, the player walks. Not in god mode.
+/// when asked for and refused without the points (unless `jump_without_enough_ap` is on);
+/// running drains each frame and, with none left, the player walks. Not in god mode.
 fn ap_costs(
     time: Res<Time>,
     tweaks: Res<TweakSettings>,
@@ -2607,40 +2903,62 @@ fn ap_costs(
     sim: Option<ResMut<crate::sim::SimState>>,
     mut jumped: Local<bool>,
 ) {
-    let (mut jump, mut run) = (tweaks.jump_ap_cost, tweaks.run_ap_per_second);
     // Over the carry limit under the Overencumbered Running tweak: its own costs too, and
     // without the points the player walks as without the tweak [design: docs/design/tweaks.md].
     let over = tweaks.run_overencumbered && crate::player::OVERENCUMBERED.load(std::sync::atomic::Ordering::Relaxed);
-    if over {
-        (jump, run) = (jump + tweaks.over_jump_ap, run + tweaks.over_run_ap);
-    }
+    let over_jump = if over { tweaks.over_jump_ap } else { 0.0 };
+    let run = tweaks.run_ap_per_second + if over { tweaks.over_run_ap } else { 0.0 };
+    let sneak_run_base = tweaks.sneak_run_ap_base;
     let asked = intent.jump;
     let fresh_jump = asked && !*jumped;
     *jumped = asked;
-    if (jump <= 0.0 && run <= 0.0) || crate::combat::god_mode() {
+    if (tweaks.jump_ap_cost <= 0.0 && over_jump <= 0.0 && run <= 0.0 && sneak_run_base <= 0.0) || crate::combat::god_mode() {
         return;
     }
     let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
-    let running = (intent.forward != 0.0 || intent.right != 0.0) && !intent.walk && !intent.sneak;
+    let moving = intent.forward != 0.0 || intent.right != 0.0;
+    let running = moving && !intent.walk && !intent.sneak;
+    let sneak_running = moving && !intent.walk && intent.sneak;
     let dt = time.delta_secs();
     let intent = &mut *intent;
     crate::script::with_world(rt, &mut sim, |rt| {
-        use fnv_game::actor_values::ACTION_POINTS;
+        use fnv_game::actor_values::{ACTION_POINTS, ENDURANCE};
         let g = &mut rt.game;
         let p = fnv_sim::FormId::PLAYER_REF;
         let mut ap = fnv_game::functions::actor_value(g, p, ACTION_POINTS).unwrap_or(0.0);
-        if fresh_jump && jump > 0.0 {
-            if ap >= f64::from(jump) {
-                fnv_game::functions::add_actor_value_damage(g, p, ACTION_POINTS, f64::from(jump));
-                ap -= f64::from(jump);
-            } else {
+        if fresh_jump && (tweaks.jump_ap_cost > 0.0 || over_jump > 0.0) {
+            let in_danger = crate::hud::sneak_now(g) == crate::hud::Sneak::Danger;
+            let (drain, allowed) = resolve_jump_ap(
+                ap,
+                tweaks.jump_ap_cost,
+                tweaks.jump_ap_danger_only,
+                in_danger,
+                tweaks.jump_without_enough_ap,
+                over_jump,
+            );
+            if drain > 0.0 {
+                fnv_game::functions::add_actor_value_damage(g, p, ACTION_POINTS, drain);
+                ap -= drain;
+            }
+            if !allowed {
                 intent.jump = false;
-                info!("tweaks: jump refused, {ap:.0} AP of {jump:.0}");
+                let need = tweaks.jump_ap_cost + over_jump;
+                info!("tweaks: jump refused, {ap:.0} AP of {need:.0}");
             }
         }
-        if running && run > 0.0 {
+        let move_rate = if running {
+            run
+        } else if sneak_running {
+            // [design]: Endurance fallback of 5.0 when the actor value is unavailable;
+            // sneak_run_ap_rate returns 0.0 when base <= 0.0 and clamps at 0.0.
+            let endurance = fnv_game::functions::actor_value(g, p, ENDURANCE).unwrap_or(5.0) as f32;
+            sneak_run_ap_rate(sneak_run_base, tweaks.sneak_run_ap_endurance_mult, endurance)
+        } else {
+            0.0
+        };
+        if move_rate > 0.0 {
             if ap > 0.0 {
-                fnv_game::functions::add_actor_value_damage(g, p, ACTION_POINTS, f64::from(run * dt).min(ap));
+                fnv_game::functions::add_actor_value_damage(g, p, ACTION_POINTS, f64::from(move_rate * dt).min(ap));
             } else {
                 intent.walk = true;
             }
@@ -2751,10 +3069,225 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
     gains.iter().any(|&(av, amount)| amount > 0.0 && (av == fnv_game::actor_values::HEALTH || fnv_game::actor_values::LIMB_CONDITIONS.contains(&av)))
 }
 
+/// Apply recognized modular Stewie Tweaks overrides (`Data\NVSE\Plugins\Tweaks\INIs\*.ini`)
+/// onto `TweakSettings` (both `settings.game` and engine-side fields) [design:
+/// docs/spec-notes/stewie-modular-inis.md]. Runs in `PostStartup` before
+/// `crate::settings::apply_stored`, so explicit player choices in `NVForever.ini` win
+/// over mod-shipped modular INI defaults.
+pub fn apply_modular_overrides_to_settings(overrides: &fnv_game::stewie_inis::StewieIniMap, settings: &mut TweakSettings) -> usize {
+    if overrides.is_empty() {
+        return 0;
+    }
+    let mut applied = fnv_game::stewie_inis::apply_modular_tweaks_to_game(overrides, &mut settings.game);
+    macro_rules! bool_tweak {
+        ($key:expr, $($field:ident).+) => {
+            if let Some(v) = overrides.get_bool("Tweaks", $key) {
+                settings.$($field).+ = v;
+                applied += 1;
+            }
+        };
+    }
+
+    bool_tweak!("bNoKarmaMessages", no_karma_messages);
+    bool_tweak!("bNoXPMessages", no_xp_messages);
+    bool_tweak!("bNoQuestFailedPopup", no_quest_failed_popup);
+    bool_tweak!("bNoLocationPopup", no_location_popup);
+    bool_tweak!("bRemoveQuestObjectiveAddedText", no_objective_popup);
+    bool_tweak!("bDisableFastTravel", disable_fast_travel);
+    bool_tweak!("bMidairFastTravel", midair_fast_travel);
+    bool_tweak!("bFastTravelWithEnemiesNearby", fast_travel_enemies_nearby);
+    bool_tweak!("bFastTravelOverencumbered", fast_travel_overencumbered);
+    bool_tweak!("bNoRedCrosshairOnEnemies", no_red_crosshair);
+    bool_tweak!("bHideEnemyMarkers", hide_enemy_markers);
+    bool_tweak!("bDisableCombatMusic", no_combat_music);
+    bool_tweak!("bDisableLoadingScreenTips", no_loading_tips);
+    bool_tweak!("bNoReputationMessages", no_reputation_messages);
+    bool_tweak!("bDisableExplosionInFaceIMOD", no_explosion_blur);
+    bool_tweak!("bRemoveSneakLabel", no_sneak_label);
+    bool_tweak!("bVatsExitKey", kill_cam_exit_key);
+    bool_tweak!("bNumberedComputerHotkeys", numbered_terminal_keys);
+    bool_tweak!("bDeselectHotkeys", deselect_hotkeys);
+    bool_tweak!("bNonSelectablePlayerInConsole", console_skips_player);
+    bool_tweak!("bPipboyLightAndHolsteringIgnoreTimescale", holster_real_time);
+    bool_tweak!("bPowerArmorPreventsScreenBlood", power_armor_no_screen_blood);
+    bool_tweak!("bHideRedCrosshairOnDistantInvisibleTargets", no_red_crosshair_on_cloaked);
+    bool_tweak!("bGodmodePreventsLegCrippleSound", god_mode_quiet_landing);
+    bool_tweak!("bCompressDuplicateConsoleMessages", console_compress_repeats);
+    bool_tweak!("bConsolePrintsIncludeTimestamp", console_timestamps);
+    bool_tweak!("bLivingAnatomyShowDR", living_anatomy_dr);
+    bool_tweak!("bSynchronizeContainerCategories", game.sync_categories);
+    bool_tweak!("bNoFastTravelTimeChange", no_travel_time);
+    bool_tweak!("bNoFastTravelIfLegsCrippled", no_travel_crippled_leg);
+    bool_tweak!("bDisableSellingItems", no_selling);
+    bool_tweak!("bAimingSpeed", no_aiming_slowdown);
+    bool_tweak!("bRepeatJumping", repeat_jumping);
+    bool_tweak!("bHoldCrouchToSneak", hold_to_sneak);
+    bool_tweak!("bAddInventoryDropItemHotkey", drop_key);
+    bool_tweak!("bAimingUnholstersWeapons", aiming_draws_weapon);
+    bool_tweak!("bBarterCheckActorBuySellFlags", game.vendor_lists_both);
+    bool_tweak!("bNoPlayerStaggerAnims", no_player_stagger);
+    bool_tweak!("bPreventReloadWeaponUnholstering", ready_does_not_draw);
+    bool_tweak!("bReloadingPreventsWeaponHotkeys", no_hotkeys_while_reloading);
+    bool_tweak!("bMinigamesPlayXPSoundAtMaxLevel", xp_sound_at_cap);
+    bool_tweak!("bHoldWaitKeyToShowMenu", hold_to_wait);
+    bool_tweak!("bDisableWeaponFOV", no_sight_zoom);
+    bool_tweak!("bHideMiscQuestItems", hide_misc_quest);
+    bool_tweak!("bClickingActiveTabTogglesSorting", tab_click_sorts);
+    bool_tweak!("bHotkeyHolstersWeaponIfEquipped", hotkey_toggles_in_hand);
+    bool_tweak!("bDisableInteriorFog", no_interior_fog);
+    bool_tweak!("bNoCompassPipsIfNotInDanger", compass_pips_in_danger_only);
+    bool_tweak!("bHostilesUseNeutralColorOnCompass", neutral_foes_on_compass);
+    bool_tweak!("bShowSneakLabelWhileStanding", sneak_label_standing);
+    bool_tweak!("bNoXPBarInCombat", no_xp_meter_in_combat);
+    bool_tweak!("bDisableHUDCrippledLimbIndicator", no_limb_indicator);
+    bool_tweak!("bSkipDeathcamHotkey", skip_death_cam);
+    bool_tweak!("bReplaceHelpWithConsole", help_is_console);
+    bool_tweak!("bHeatbeatSoundsFade", heartbeat_fade);
+    bool_tweak!("bTerminalFadeTime", terminal_fade);
+    bool_tweak!("bContainersShowEquippedAmmo", containers_show_ammo);
+    bool_tweak!("bDescriptiveMarkerAddedMessage", descriptive_marker_added);
+    bool_tweak!("bDisableGrenadeIndicator", no_grenade_indicator);
+    bool_tweak!("bHideGrenadeIndicatorForNoDamageExplosions", grenade_indicator_skip_harmless);
+    bool_tweak!("bExplodingDestructibleIndicator", grenade_indicator_destructibles);
+    bool_tweak!("bContainerTakeAllDoesntCloseMenu", take_all_stays);
+    bool_tweak!("bTakeAllConfirmation", take_all_confirm);
+    bool_tweak!("bRepairAllConfirmation", repair_all_confirm);
+    bool_tweak!("bHideEquippedItemsInBarter", hide_equipped_barter);
+    bool_tweak!("bHideEquippedItemsInContainers", hide_equipped_containers);
+    bool_tweak!("bNoCapitaliseContainerCategories", title_case_categories);
+    bool_tweak!("bDisableInventoryRightClickDrop", no_right_click_drop);
+    bool_tweak!("bPreventNoFastTravelMessage", quiet_undiscovered);
+    bool_tweak!("bOnlyChangeCameraHeightIfPOVKeyHeld", camera_wheel_needs_pov);
+    bool_tweak!("bNoHotkeyEquipSounds", quiet_hotkeys);
+    bool_tweak!("bDisableWeaponHotkeys", no_weapon_hotkeys);
+    bool_tweak!("bOpenPipboyToInventoryByDefault", pipboy_opens_items);
+    bool_tweak!("bHideCrosshairWhileReloading", hide_crosshair_reloading);
+    bool_tweak!("bInvertCameraX", invert_x);
+    bool_tweak!("bShowNearestUndiscoveredLocation", nearest_unfound_on_compass);
+    bool_tweak!("bLocationDiscoveredCornerMessage", discovered_in_corner);
+    bool_tweak!("bInvertContainerTitleScrollwheelDirection", invert_title_wheel);
+    bool_tweak!("bAutoContinueGame", auto_continue);
+    bool_tweak!("bMainMenuContinueIcon", continue_shows_save);
+    bool_tweak!("bQuestTextVisibleInMenus", quest_text_in_menus);
+    bool_tweak!("bDetectedByWhom", detected_by_whom);
+    bool_tweak!("bKeyRepeatAcceleration", key_repeat_accel);
+    bool_tweak!("bHUDFatigueIndicator", hud_fatigue);
+    bool_tweak!("bToggleControllerIfAttackPressed", toggle_device);
+    bool_tweak!("bScaleExplosionShake", scale_explosion_shake);
+    bool_tweak!("bMorePreciseRadMeter", precise_rad_meter);
+    bool_tweak!("bShowDoorsOnCompass", compass_doors);
+    bool_tweak!("bHideAmmoLabel", hide_ammo_label);
+    bool_tweak!("bUseCustomBarterPriceMultipliers", barter_by_kind);
+    bool_tweak!("bAllowDuplicateControlBinds", duplicate_binds);
+    bool_tweak!("bTogglePOVWhenHolsteringWeapon", pov_follows_weapon);
+    bool_tweak!("bContainerEncumbranceIndicator", warn_encumbrance);
+    bool_tweak!("bHapticPipboy", pipboy_buzz);
+    bool_tweak!("bPowerAttackIfBlocking", power_attack_if_blocking);
+    bool_tweak!("bVATSHipFire", vats_hip_fire);
+    bool_tweak!("bNoPipBoyInCombat", no_pipboy_in_combat);
+    bool_tweak!("bNoEquippedWeaponMovementPenalty", no_weapon_move_penalty);
+    bool_tweak!("bUnequipBrokenArmor", unequip_broken_armor);
+    bool_tweak!("bHideCrosshairInFirstPerson", hide_crosshair_first);
+    bool_tweak!("bHideCrosshairInThirdPerson", hide_crosshair_third);
+    bool_tweak!("bBlackJackTotalDisplay", blackjack_total);
+    bool_tweak!("bSlotsAutoSpinHotkey", slots_hold_to_spin);
+    bool_tweak!("bTalkWhileSneakingIfShiftIsHeld", shift_talks_sneaking);
+    bool_tweak!("bTabClosesTerminals", tab_closes_terminals);
+    bool_tweak!("bTabBackInStartMenu", tab_back_in_pause);
+    bool_tweak!("bEnteringVATSDoesntUnholsterWeapon", vats_keeps_holstered);
+    bool_tweak!("bNoHUDHotkeyPopup", no_hotkey_wheel);
+    bool_tweak!("bMoveAmmoTypeLabel", ammo_label_under);
+    bool_tweak!("bRaceMenuAllowFemaleFacialHair", female_facial_hair);
+    bool_tweak!("bContainerMenuStoreAllHotkey", store_all);
+    bool_tweak!("bStartMenuQuickLoad", quick_load_in_menus);
+    bool_tweak!("bPickLocksEvenWithKey", pick_locks_with_key);
+    bool_tweak!("bRightClickChangesToPreviousContainerCategory", right_click_previous_category);
+    bool_tweak!("bShowBarterTotalWhenOverSellLimit", full_barter_total);
+    bool_tweak!("bCompassFadeLeftSide", compass_fade_left);
+    bool_tweak!("bDisableControllerDeadzones", custom_dead_zones);
+    bool_tweak!("bControllerTriggerDeadzones", custom_trigger_dead_zones);
+    bool_tweak!("bMoreResponsiveControllerAiming", responsive_stick);
+    bool_tweak!("bFasterControllerPOVRotate", faster_pad_orbit);
+    bool_tweak!("bVanityCamReturnsToFirstPerson", vanity_returns_first);
+    bool_tweak!("bRememberConsoleHistory", remember_console_history);
+    bool_tweak!("bUseConsoleOutputFile", console_output_file);
+    bool_tweak!("bConsoleTextShadow", console_text_shadow);
+    bool_tweak!("bClickToExitLoadScreens", click_to_exit_loading);
+    bool_tweak!("bBarterShowCapsChange", barter_caps_change);
+    bool_tweak!("bJumpSwimsUpwards", jump_swims_up);
+    bool_tweak!("bFirstPersonVATS", first_person_vats);
+    bool_tweak!("bKeepCrosshairWhenAiming", crosshair_when_aiming);
+    bool_tweak!("bMoveDuringVATSPlayback", move_during_kill_cam);
+    bool_tweak!("bBetterPickupPrompt", stack_figures);
+    bool_tweak!("bTurnFurtherWhileSeated", seated_wide);
+    bool_tweak!("bNoTurningAnim", no_turn_clip);
+    bool_tweak!("bRemoveLandingAnim", no_land_clip);
+    bool_tweak!("bHideInvisibleUndiscoveredLocations", hide_unmapped_places);
+    bool_tweak!("bSkipVigorTesterSpecialPages", vigor_review_first);
+    bool_tweak!("bHideCursorInMessageMenu", no_pointer_in_message_box);
+    bool_tweak!("bHideCursorInDialog", no_pointer_in_dialogue);
+    bool_tweak!("bLevelUpScrollWheelSupport", levelup_wheel);
+    bool_tweak!("bActivatingDoesntStandUp", seat_keeps_on_activate);
+    bool_tweak!("bNoExteriorLoadScreens", plain_going_out);
+    bool_tweak!("bHideHotkeyedItemsInContainers", hide_hotkeyed_containers);
+    bool_tweak!("bHideHotkeyedItemsInBarter", hide_hotkeyed_barter);
+    bool_tweak!("bHideHotkeyedItemsInRepairLists", hide_hotkeyed_repair);
+    bool_tweak!("bAddSetHomeCommand", console_homes);
+    bool_tweak!("bShiftScreenshotHidesMenus", shift_screenshot_hides);
+    bool_tweak!("bOverencumberedTweak", run_overencumbered);
+    bool_tweak!("bScopeHoldBreath", hold_breath);
+    bool_tweak!("bAdjustableScopeZoom", scope_wheel_zoom);
+    bool_tweak!("bMousewheelScrollsWeaponHotkeys", wheel_cycles_hotkeys);
+    bool_tweak!("bWeaponCycleUpDownHotkeys", dpad_cycles_hotkeys);
+    bool_tweak!("bAllowKeyboardAndMouseWithControllerConnected", keys_with_pad);
+    bool_tweak!("bDoubleTapReloadToChangeAmmoType", double_tap_ammo);
+    bool_tweak!("bImprovedWeather", improved_weather);
+    bool_tweak!("bVATSStopFollowingDeadTargets", vats_stop_following_dead);
+    bool_tweak!("bAddNightVisionToggle", night_vision_toggle);
+    bool_tweak!("bUseHitLocationInCinematicKillcams", kill_cam_hit_location);
+    bool_tweak!("bCompassNPCDistanceBasedAlpha", compass_pips_fade);
+    bool_tweak!("bCompassLocationDistanceBasedAlpha", compass_places_fade);
+    bool_tweak!("bArmorSoundsPlayIn3D", armor_sounds_3d);
+    bool_tweak!("bEncumbranceIncludesGrabbedItems", grabbed_weighs);
+    bool_tweak!("bSortEquipableAmmo", usable_ammo_first);
+    bool_tweak!("bBetterFlycam", better_flycam);
+    bool_tweak!("bForceHiResWeaponModels", hi_res_npc_weapons);
+    bool_tweak!("bShowQuestObjectivesOnCellChange", objectives_on_arrival);
+    bool_tweak!("bKeepFallHeightOnLoad", keep_fall_height_on_load);
+    bool_tweak!("bRememberPipboyScrollPositions", remember_item_places);
+    bool_tweak!("bHUDMarkerNameIndicator", hud_marker_name);
+    bool_tweak!("bHUDShowRegionNames", hud_region_names);
+    bool_tweak!("bMoveDuringOpenPipboyAnim", move_during_pipboy_raise);
+    bool_tweak!("bDisableRegionBordersKeepMessage", region_borders_message_only);
+    bool_tweak!("bTerminalGreyReadNotes", grey_read_notes);
+    bool_tweak!("bCompassQuestHeightIndicator", compass_quest_height);
+    bool_tweak!("bPlacedMarkerHeightIndicator", compass_marker_height);
+    bool_tweak!("bRememberWeaponAmmos", keep_chosen_ammo);
+
+    if let Some(style) = overrides.get_i32("Tweaks", "iDateFormat").filter(|&s| s >= 0) {
+        let max = crate::wait::model::DATE_STYLES.len() - 1;
+        settings.date_style = (style as usize).min(max);
+        applied += 1;
+    }
+
+    applied
+}
+
+/// Startup system: load `Data\NVSE\Plugins\Tweaks\INIs\*.ini` into `TweakSettings` before
+/// `crate::settings::apply_stored` applies explicit `NVForever.ini` choices.
+fn apply_modular_stewie_inis(mut tweaks: ResMut<TweakSettings>) {
+    let (files, overrides) = fnv_game::stewie_inis::load_modular_inis_from_data();
+    if files == 0 {
+        return;
+    }
+    let applied = apply_modular_overrides_to_settings(&overrides, &mut tweaks);
+    info!("tweaks: applied {applied} override(s) from {files} modular Stewie INI file(s)");
+}
+
 /// Hand the game's part to the running game when it differs, and log the change.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
-fn sync(
+pub(crate) fn sync(
     tweaks: Res<TweakSettings>,
     mut script: Option<ResMut<ScriptState>>,
     quests: Option<ResMut<crate::quest_messages::QuestMessages>>,
@@ -2816,14 +3349,17 @@ fn sync(
     // different rows (smoke pipboy-items-extras). The rows take the settings at the
     // list's next refresh.
     if let Some(m) = active.as_mut().and_then(|a| a.bypass_change_detection().0.as_mut()) {
-        if m.sync_categories != tweaks.sync_categories {
-            m.sync_categories = tweaks.sync_categories;
+        if m.sync_categories != tweaks.game.sync_categories {
+            m.sync_categories = tweaks.game.sync_categories;
+        }
+        if m.prevent_switch_when_emptying_category != tweaks.game.prevent_switch_when_emptying_category {
+            m.prevent_switch_when_emptying_category = tweaks.game.prevent_switch_when_emptying_category;
         }
         if m.no_selling != tweaks.no_selling {
             m.no_selling = tweaks.no_selling;
         }
-        if m.vendor_lists_both != tweaks.vendor_lists_both {
-            m.vendor_lists_both = tweaks.vendor_lists_both;
+        if m.vendor_lists_both != tweaks.game.vendor_lists_both {
+            m.vendor_lists_both = tweaks.game.vendor_lists_both;
         }
         if m.hide_misc_quest != tweaks.hide_misc_quest {
             m.hide_misc_quest = tweaks.hide_misc_quest;
@@ -2875,6 +3411,11 @@ fn sync(
         }
         // The loaded ammo's mark, and the player's tweak for containers.
         let loaded = combat.as_deref().and_then(|c| c.player_ammo());
+        // The ammo the weapon in hand can fire: the rest is dimmed in the Pip-Boy (#3442).
+        let firable = combat.as_deref().map(|c| c.player_weapon().and_then(|w| c.forms.weapons.get(&w)).map(|w| c.forms.ammo_choices(w)).unwrap_or_default());
+        if m.firable_ammo != firable {
+            m.firable_ammo = firable;
+        }
         if (m.current_ammo, m.ammo_mark_in_containers) != (loaded, tweaks.containers_show_ammo) {
             // The rows take it at the list's next refresh (opening, any change).
             (m.current_ammo, m.ammo_mark_in_containers) = (loaded, tweaks.containers_show_ammo);
@@ -2965,7 +3506,489 @@ mod tests {
     fn every_tweak_is_off_by_default() {
         let t = TweakSettings::default();
         assert_eq!(t.game, Tweaks::default());
+        assert!(!t.game.npc_weapon_mods);
         assert_eq!(t.game.xp_multiplier, 1.0);
-        assert!(!t.no_karma_messages && !t.disable_fast_travel);
+        assert!(!t.no_karma_messages && !t.disable_fast_travel && !t.keep_chosen_ammo);
+        assert!(!t.breath_activate && !t.jump_ap_danger_only && !t.jump_without_enough_ap);
+        assert!(!t.game.sync_categories && t.game.prevent_switch_when_emptying_category);
+        assert!(!t.game.no_lock_encounter_zone_levels);
+        assert!(!t.game.faster_sleep_wait);
+        assert!(!t.game.wasd_as_arrow_keys);
+        assert_eq!(t.game.crafted_item_health_pct, 0.0);
+        assert_eq!(t.sneak_run_ap_base, 0.0);
+        assert_eq!(t.sneak_run_ap_endurance_mult, 0.0);
+        assert_eq!(t.console_label(), "Console");
+    }
+
+    #[test]
+    fn hold_breath_activate_key_requires_parent_scope_and_option() {
+        assert!(!hold_breath_asked(false, true, true, true, true));
+        assert!(!hold_breath_asked(true, false, true, true, true));
+        assert!(hold_breath_asked(true, true, true, false, false));
+        assert!(!hold_breath_asked(true, true, false, false, true));
+        assert!(hold_breath_asked(true, true, false, true, true));
+        assert!(!hold_breath_asked(true, true, false, true, false));
+    }
+
+    #[test]
+    fn resolve_jump_ap_enforces_danger_gate_and_low_ap_allowance() {
+        // Default behavior (danger_only = false, allow_without_enough = false): charges AP and refuses when short.
+        assert_eq!(resolve_jump_ap(30.0, 20.0, false, false, false, 0.0), (20.0, true));
+        assert_eq!(resolve_jump_ap(10.0, 20.0, false, false, false, 0.0), (0.0, false));
+        // Stewie 9.70 danger-only gate (bCombatOnly): free outside danger, charged in danger.
+        assert_eq!(resolve_jump_ap(10.0, 20.0, true, false, false, 0.0), (0.0, true));
+        assert_eq!(resolve_jump_ap(30.0, 20.0, true, true, false, 0.0), (20.0, true));
+        assert_eq!(resolve_jump_ap(10.0, 20.0, true, true, false, 0.0), (0.0, false));
+        // Jump without enough AP (bJumpWithoutEnoughAP): drains remaining AP and still allows jump.
+        assert_eq!(resolve_jump_ap(10.0, 20.0, false, false, true, 0.0), (10.0, true));
+        assert_eq!(resolve_jump_ap(0.0, 20.0, false, false, true, 0.0), (0.0, true));
+        // Overencumbered jump AP still enforces sufficient AP.
+        assert_eq!(resolve_jump_ap(5.0, 0.0, false, false, true, 10.0), (0.0, false));
+        assert_eq!(resolve_jump_ap(15.0, 20.0, true, false, false, 10.0), (10.0, true));
+    }
+
+    #[test]
+    fn sneak_run_ap_rate_follows_endurance_formula() {
+        assert_eq!(sneak_run_ap_rate(0.0, -0.1, 1.0), 0.0, "disabled when base is zero");
+        assert_eq!(sneak_run_ap_rate(2.0, 0.0, 10.0), 2.0, "flat base with zero multiplier");
+        assert!((sneak_run_ap_rate(2.0, -0.2, 10.0) - 1.0).abs() < 1e-6, "higher Endurance reduces drain");
+        assert!((sneak_run_ap_rate(2.0, -0.2, 1.0) - 2.8).abs() < 1e-6, "lower Endurance raises drain");
+        assert_eq!(sneak_run_ap_rate(0.5, -0.5, 10.0), 0.0, "clamped non-negative");
+    }
+
+    #[test]
+    fn help_console_label_uses_custom_text_or_default() {
+        let mut t = TweakSettings::default();
+        assert_eq!(t.console_label(), "Console");
+        t.help_console_label = "   ".to_string();
+        assert_eq!(t.console_label(), "Console");
+        t.help_console_label = " Dev Console ".to_string();
+        assert_eq!(t.console_label(), "Dev Console");
+    }
+
+    #[test]
+    fn help_console_label_reads_from_nvforever_ini_and_survives_settings_save() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("nvf-help-console-label-{}-{stamp}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "[Settings]\ntweak-help-is-console=1\ntweak-help-console-label=\"Dev Console\"\n").unwrap();
+
+        let mut app = App::new();
+        app.add_plugins(TweaksPlugin);
+        app.insert_resource(crate::settings::SettingsFile(Some(path.clone())));
+        crate::settings::apply_stored(app.world_mut());
+        app.world_mut().run_system_cached(read_help_console_label).unwrap();
+        {
+            let tweaks = app.world().resource::<TweakSettings>();
+            assert!(tweaks.help_is_console);
+            assert_eq!(tweaks.help_console_label, "Dev Console");
+            assert_eq!(tweaks.console_label(), "Dev Console");
+        }
+
+        // Saving registered settings preserves the INI-only label line untouched.
+        let i = app.world().resource::<crate::settings::Settings>().index("tweak-no-karma-messages").unwrap();
+        crate::settings::flip(app.world_mut(), i);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(fnv_install::ini_get(&saved, crate::settings::SECTION, HELP_CONSOLE_LABEL_KEY).as_deref(), Some("\"Dev Console\""), "{saved}");
+
+        // Blank/whitespace value falls back to default "Console".
+        std::fs::write(&path, "[Settings]\ntweak-help-console-label=\"   \"\n").unwrap();
+        let mut blank = App::new();
+        blank.add_plugins(TweaksPlugin);
+        blank.insert_resource(crate::settings::SettingsFile(Some(path.clone())));
+        blank.world_mut().run_system_cached(read_help_console_label).unwrap();
+        assert_eq!(blank.world().resource::<TweakSettings>().console_label(), "Console");
+
+        // Unattended run with SettingsFile(None) reads nothing.
+        let mut none = App::new();
+        none.add_plugins(TweaksPlugin);
+        none.insert_resource(crate::settings::SettingsFile(None));
+        none.world_mut().run_system_cached(read_help_console_label).unwrap();
+        assert_eq!(none.world().resource::<TweakSettings>().console_label(), "Console");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn modular_stewie_inis_apply_sorted_overrides_and_nvforever_ini_wins() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("nvf-play-modular-stewie-{}-{stamp}", std::process::id()));
+        let data = root.join("Data");
+        let inis = data.join("NVSE/Plugins/Tweaks/INIs");
+        std::fs::create_dir_all(&inis).unwrap();
+
+        // Absent/empty check first on a clean root with no modular INIs.
+        let empty_root = root.join("EmptyData");
+        std::fs::create_dir_all(&empty_root).unwrap();
+        let (empty_files, empty_map) = fnv_game::stewie_inis::load_modular_inis_from_roots(&[empty_root]);
+        assert_eq!(empty_files, 0);
+        let mut unchanged = TweakSettings::default();
+        assert_eq!(apply_modular_overrides_to_settings(&empty_map, &mut unchanged), 0);
+        assert_eq!(unchanged, TweakSettings::default());
+
+        // Two sorted modular INIs: 20_second.ini overrides 10_first.ini.
+        std::fs::write(
+            inis.join("10_first.ini"),
+            "; first modular override\n\
+             [Tweaks]\n\
+             bTabBackInStartMenu = 1\n\
+             bNoKarmaMessages = 1\n\
+             bCritChanceIgnoresFireRate = 1\n\
+             bMenuSearch = 1\n\
+             bNoLockEncounterZoneLevels = 1\n\
+             bFasterSleepWait = 1\n\
+             bUseWASDAsArrowKeys = 1\n\
+             fCraftedItemHealthPct = 80.0\n\
+             iDateFormat = 2\n\
+             [Critical Hits]\n\
+             fCriticalDamageMult = 1.5\n",
+        )
+        .unwrap();
+        std::fs::write(
+            inis.join("20_second.INI"),
+            "[tweaks]\n\
+             bTabBackInStartMenu = 0 ; second file wins\n\
+             bUnknownFutureKey = 1\n\
+             [Critical Hits]\n\
+             fCriticalDamageMult = 2.0\n",
+        )
+        .unwrap();
+
+        let (files, overrides) = fnv_game::stewie_inis::load_modular_inis_from_roots(std::slice::from_ref(&data));
+        assert_eq!(files, 2);
+
+        let nvf_ini = root.join("NVForever.ini");
+        std::fs::write(&nvf_ini, "[Settings]\ntweak-no-karma-messages=0\ntweak-crit-damage-scale=0.25\n").unwrap();
+
+        let mut app = App::new();
+        app.add_plugins(TweaksPlugin);
+        app.insert_resource(crate::settings::SettingsFile(Some(nvf_ini)));
+        {
+            let mut settings = app.world_mut().resource_mut::<TweakSettings>();
+            apply_modular_overrides_to_settings(&overrides, &mut settings);
+            assert!(!settings.tab_back_in_pause, "20_second.INI disabled bTabBackInStartMenu");
+            assert!(settings.no_karma_messages);
+            assert!(settings.game.crit_ignores_fire_rate);
+            assert!(settings.game.menu_search);
+            assert!(settings.game.no_lock_encounter_zone_levels);
+            assert!(settings.game.faster_sleep_wait);
+            assert!(settings.game.wasd_as_arrow_keys);
+            assert_eq!(settings.game.crafted_item_health_pct, 80.0);
+            assert_eq!(settings.date_style, 2);
+            assert_eq!(settings.game.crit_damage_scale, 2.0);
+        }
+        // Explicit NVForever.ini preferences override modular INI defaults while
+        // unmentioned modular keys remain intact.
+        crate::settings::apply_stored(app.world_mut());
+        let final_settings = app.world().resource::<TweakSettings>();
+        assert!(!final_settings.no_karma_messages, "explicit NVForever.ini off wins");
+        assert_eq!(final_settings.game.crit_damage_scale, 0.5, "explicit NVForever.ini slider 0.25 -> x0.5 wins");
+        assert!(final_settings.game.crit_ignores_fire_rate, "unmentioned modular key stays enabled");
+        assert!(final_settings.game.menu_search, "unmentioned modular key stays enabled");
+        assert!(final_settings.game.no_lock_encounter_zone_levels, "unmentioned modular key stays enabled");
+        assert!(final_settings.game.faster_sleep_wait, "unmentioned modular key stays enabled");
+        assert!(final_settings.game.wasd_as_arrow_keys, "unmentioned modular key stays enabled");
+        assert_eq!(final_settings.game.crafted_item_health_pct, 80.0, "unmentioned modular key stays applied");
+        assert_eq!(final_settings.date_style, 2);
+        // Toggling the registered switch in NVForever.ini overrides the modular INI back to off.
+        let idx = app.world().resource::<crate::settings::Settings>().index("tweak-no-lock-encounter-zone-levels").unwrap();
+        crate::settings::flip(app.world_mut(), idx);
+        assert!(!app.world().resource::<TweakSettings>().game.no_lock_encounter_zone_levels, "UI switch toggles off");
+        let sleep_idx = app.world().resource::<crate::settings::Settings>().index("tweak-faster-sleep-wait").unwrap();
+        crate::settings::flip(app.world_mut(), sleep_idx);
+        assert!(!app.world().resource::<TweakSettings>().game.faster_sleep_wait, "UI switch toggles off");
+        let wasd_idx = app.world().resource::<crate::settings::Settings>().index("tweak-wasd-as-arrow-keys").unwrap();
+        crate::settings::flip(app.world_mut(), wasd_idx);
+        assert!(!app.world().resource::<TweakSettings>().game.wasd_as_arrow_keys, "UI switch toggles off");
+        let craft_idx = app.world().resource::<crate::settings::Settings>().index("tweak-crafted-item-health-pct").unwrap();
+        crate::settings::set_slider(app.world_mut(), craft_idx, 0.5);
+        assert_eq!(app.world().resource::<TweakSettings>().game.crafted_item_health_pct, 50.0, "UI slider updates condition pct");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remember_weapon_ammos_ini_maps_to_keep_chosen_ammo_and_respects_nvforever_ini() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("nvf-play-remember-weapon-ammos-{}-{stamp}", std::process::id()));
+        let data = root.join("Data");
+        let plugins = data.join("NVSE/Plugins");
+        let inis = plugins.join("Tweaks/INIs");
+        std::fs::create_dir_all(&inis).unwrap();
+
+        // Base nvse_stewie_tweaks.ini alone does not supply NVForever defaults (#3535),
+        // keeping unmodded/vanilla keep_chosen_ammo = false while StewieGetValue/query_value
+        // still resolves it from the base file.
+        std::fs::write(plugins.join("nvse_stewie_tweaks.ini"), "[Tweaks]\nbRememberWeaponAmmos = 1\n").unwrap();
+        let (no_mod_files, no_mod_map) = fnv_game::stewie_inis::load_modular_inis_from_roots(std::slice::from_ref(&data));
+        assert_eq!(no_mod_files, 0);
+        let mut base_only = TweakSettings::default();
+        assert_eq!(apply_modular_overrides_to_settings(&no_mod_map, &mut base_only), 0);
+        assert!(!base_only.keep_chosen_ammo, "base nvse_stewie_tweaks.ini alone leaves default off");
+
+        let mut mod_files = fnv_game::mod_files::ModFiles::default();
+        assert!(mod_files.write_bytes("NVSE/Plugins/nvse_stewie_tweaks.ini", b"[Tweaks]\nbRememberWeaponAmmos = 1\n"));
+        assert_eq!(fnv_game::stewie_inis::query_value(&mod_files, "bRememberWeaponAmmos", "Tweaks").as_deref(), Some("1"));
+
+        // Invalid boolean value leaves keep_chosen_ammo unchanged (false).
+        let mut invalid_map = fnv_game::stewie_inis::StewieIniMap::default();
+        invalid_map.parse_into("[Tweaks]\nbRememberWeaponAmmos = not_a_bool\n");
+        let mut invalid_settings = TweakSettings::default();
+        assert_eq!(apply_modular_overrides_to_settings(&invalid_map, &mut invalid_settings), 0);
+        assert!(!invalid_settings.keep_chosen_ammo);
+
+        // Modular Tweaks/INIs/10_enable.ini enables keep_chosen_ammo.
+        std::fs::write(inis.join("10_enable.ini"), "; Stewie 10.05 modular override\n[Tweaks]\nbRememberWeaponAmmos = 1\n").unwrap();
+        let (files_on, map_on) = fnv_game::stewie_inis::load_modular_inis_from_roots(std::slice::from_ref(&data));
+        assert_eq!(files_on, 1);
+
+        // Unmentioned in NVForever.ini: modular bRememberWeaponAmmos=1 stays enabled.
+        let nvf_unmentioned = root.join("NVForever-unmentioned.ini");
+        std::fs::write(&nvf_unmentioned, "[Settings]\n").unwrap();
+        let mut app_on = App::new();
+        app_on.add_plugins(TweaksPlugin);
+        app_on.insert_resource(crate::settings::SettingsFile(Some(nvf_unmentioned)));
+        {
+            let mut settings = app_on.world_mut().resource_mut::<TweakSettings>();
+            assert_eq!(apply_modular_overrides_to_settings(&map_on, &mut settings), 1);
+            assert!(settings.keep_chosen_ammo);
+        }
+        crate::settings::apply_stored(app_on.world_mut());
+        assert!(app_on.world().resource::<TweakSettings>().keep_chosen_ammo);
+
+        // Explicit NVForever.ini off wins over modular bRememberWeaponAmmos=1.
+        let nvf_off = root.join("NVForever-off.ini");
+        std::fs::write(&nvf_off, "[Settings]\ntweak-keep-chosen-ammo=0\n").unwrap();
+        let mut app_user_off = App::new();
+        app_user_off.add_plugins(TweaksPlugin);
+        app_user_off.insert_resource(crate::settings::SettingsFile(Some(nvf_off)));
+        {
+            let mut settings = app_user_off.world_mut().resource_mut::<TweakSettings>();
+            assert_eq!(apply_modular_overrides_to_settings(&map_on, &mut settings), 1);
+            assert!(settings.keep_chosen_ammo);
+        }
+        crate::settings::apply_stored(app_user_off.world_mut());
+        assert!(!app_user_off.world().resource::<TweakSettings>().keep_chosen_ammo, "explicit NVForever.ini off wins");
+
+        // Later modular file setting bRememberWeaponAmmos=0 turns it back off,
+        // overrides base INI for query_value, and still yields to explicit NVForever.ini=1.
+        std::fs::write(inis.join("20_disable.INI"), "[tweaks]\nbRememberWeaponAmmos = 0\n").unwrap();
+        let (files_off, map_off) = fnv_game::stewie_inis::load_modular_inis_from_roots(std::slice::from_ref(&data));
+        assert_eq!(files_off, 2);
+        let mut disabled = TweakSettings { keep_chosen_ammo: true, ..TweakSettings::default() };
+        assert_eq!(apply_modular_overrides_to_settings(&map_off, &mut disabled), 1);
+        assert!(!disabled.keep_chosen_ammo, "later modular file with 0 disables keep_chosen_ammo");
+
+        assert!(mod_files.write_bytes("NVSE/Plugins/Tweaks/INIs/20_disable.INI", b"[tweaks]\nbRememberWeaponAmmos = 0\n"));
+        assert_eq!(fnv_game::stewie_inis::query_value(&mod_files, "bRememberWeaponAmmos", "Tweaks").as_deref(), Some("0"));
+
+        let nvf_on = root.join("NVForever-on.ini");
+        std::fs::write(&nvf_on, "[Settings]\ntweak-keep-chosen-ammo=1\n").unwrap();
+        let mut app_user_on = App::new();
+        app_user_on.add_plugins(TweaksPlugin);
+        app_user_on.insert_resource(crate::settings::SettingsFile(Some(nvf_on)));
+        {
+            let mut settings = app_user_on.world_mut().resource_mut::<TweakSettings>();
+            assert_eq!(apply_modular_overrides_to_settings(&map_off, &mut settings), 1);
+            assert!(!settings.keep_chosen_ammo);
+        }
+        crate::settings::apply_stored(app_user_on.world_mut());
+        assert!(app_user_on.world().resource::<TweakSettings>().keep_chosen_ammo, "explicit NVForever.ini on wins");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sim_state_loads_modular_game_settings_into_form_store_and_world() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("nvf-play-modular-gmst-{}-{stamp}", std::process::id()));
+        let gmst_dir = root.join("Data/nvse/plugins/tweaks/gamesettings");
+        std::fs::create_dir_all(&gmst_dir).unwrap();
+        std::fs::write(
+            gmst_dir.join("01_base.ini"),
+            "; headerless GMST overrides\n\
+             fSyntheticFloat = 12.5\n\
+             iSyntheticInt = 7\n\
+             sSyntheticText = \"First\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            gmst_dir.join("02_override.INI"),
+            "[GameSettings]\n\
+             iSyntheticInt = 42 ; later file overrides\n\
+             sSyntheticText = \"Second;Value\"\n\
+             fUnknownGmst = 99.0\n",
+        )
+        .unwrap();
+
+        let mut forms = fnv_sim::FormStore::default();
+        forms.settings.insert("fsyntheticfloat".into(), fnv_sim::settings::Setting::Float(1.0));
+        forms.settings.insert("isyntheticint".into(), fnv_sim::settings::Setting::Int(1));
+        forms.settings.insert("ssynthetictext".into(), fnv_sim::settings::Setting::Str("Initial".into()));
+        let (files, applied) = fnv_game::stewie_inis::apply_modular_game_settings_to_forms_from_roots(&mut forms, &[root.join("Data")]);
+        assert_eq!(files, 2);
+        assert_eq!(applied, 3);
+        assert_eq!(forms.setting_f32("fSyntheticFloat"), Some(12.5));
+        assert_eq!(forms.setting_f32("iSyntheticInt"), Some(42.0));
+        assert_eq!(forms.settings.get("ssynthetictext"), Some(&fnv_sim::settings::Setting::Str("Second;Value".into())));
+        assert!(!forms.settings.contains_key("funknowngmst"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn npc_weapon_mods_setting_defaults_off_persists_and_syncs_to_game_tweaks() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("nvf-npc-weapon-mods-{}-{stamp}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let make_app = |ini: &std::path::Path| {
+            let mut app = App::new();
+            app.add_plugins(TweaksPlugin);
+            app.insert_resource(crate::settings::SettingsFile(Some(ini.to_path_buf())));
+            app.insert_resource(crate::script::ScriptState::over_no_plugins());
+            crate::settings::apply_stored(app.world_mut());
+            app.world_mut().run_system_cached(sync).unwrap();
+            app
+        };
+
+        // 1. Off by default, registered in Gameplay, note within budget, synced false to Game::tweaks.
+        let mut app = make_app(&path);
+        assert!(!app.world().resource::<TweakSettings>().game.npc_weapon_mods);
+        assert!(!app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.tweaks.npc_weapon_mods);
+        let idx = app.world().resource::<crate::settings::Settings>().index("npc-weapon-mods").expect("npc-weapon-mods registered");
+        let row = &app.world().resource::<crate::settings::Settings>().list()[idx];
+        assert_eq!(row.group, crate::pause::GROUP_MENUS);
+        assert_eq!(crate::settings::note_over_budget(row.note), None);
+
+        // 2. Flipping ON persists npc-weapon-mods=1 and syncs true into live Game::tweaks.
+        assert_eq!(crate::settings::flip(app.world_mut(), idx), Some(true));
+        app.world_mut().run_system_cached(sync).unwrap();
+        assert!(app.world().resource::<TweakSettings>().game.npc_weapon_mods);
+        assert!(app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.tweaks.npc_weapon_mods);
+        let ini_on = std::fs::read_to_string(&path).unwrap();
+        assert!(ini_on.contains("npc-weapon-mods=1"), "persisted ON: {ini_on}");
+
+        // 3. Reloading restores ON and syncs true to live Game::tweaks.
+        let mut reloaded = make_app(&path);
+        assert!(reloaded.world().resource::<TweakSettings>().game.npc_weapon_mods);
+        assert!(reloaded.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.tweaks.npc_weapon_mods);
+
+        // 4. Flipping OFF persists npc-weapon-mods=0 and syncs false to live Game::tweaks.
+        let idx2 = reloaded.world().resource::<crate::settings::Settings>().index("npc-weapon-mods").unwrap();
+        assert_eq!(crate::settings::flip(reloaded.world_mut(), idx2), Some(false));
+        reloaded.world_mut().run_system_cached(sync).unwrap();
+        assert!(!reloaded.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.tweaks.npc_weapon_mods);
+        let ini_off = std::fs::read_to_string(&path).unwrap();
+        assert!(ini_off.contains("npc-weapon-mods=0"), "persisted OFF: {ini_off}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tweaks_has_no_few_step_sliders_and_four_choice_lists_roundtrip_names_and_legacy_parts() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("nvf-play-tweak-choice-lists-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ini = root.join("NVForever.ini");
+
+        let start = |path: &std::path::Path| {
+            let mut app = App::new();
+            app.add_plugins(TweaksPlugin);
+            app.insert_resource(crate::settings::SettingsFile(Some(path.to_path_buf())));
+            crate::settings::apply_stored(app.world_mut());
+            app
+        };
+
+        let mut app = start(&ini);
+        let settings = app.world().resource::<crate::settings::Settings>();
+        let few: Vec<&str> = settings.list().iter().filter(|s| crate::settings::few_step_slider(s)).map(|s| s.key).collect();
+        assert!(few.is_empty(), "TweaksPlugin must have zero sliders with <= 7 values: {few:?}");
+
+        for (key, expected_default) in [
+            ("tweak-perks-per-level", "1"),
+            ("tweak-date-style", "As the game"),
+            ("tweak-companion-pip", "Off"),
+            ("tweak-marker-name-units", "None"),
+        ] {
+            let i = settings.index(key).unwrap_or_else(|| panic!("missing {key}"));
+            assert!(settings.list()[i].slider.is_none(), "{key} must not be a slider");
+            let list = settings.choices(i).unwrap_or_else(|| panic!("{key} must be a choice list"));
+            assert_eq!((list.chosen)(app.world()), expected_default, "{key} default");
+        }
+
+        // `tweak-marker-name-units` is greyed out while `tweak-hud-marker-name` is off.
+        let units_idx = settings.index("tweak-marker-name-units").unwrap();
+        let hud_name_idx = settings.index("tweak-hud-marker-name").unwrap();
+        let perks_idx = settings.index("tweak-perks-per-level").unwrap();
+        let date_idx = settings.index("tweak-date-style").unwrap();
+        let pip_idx = settings.index("tweak-companion-pip").unwrap();
+        assert!(settings.disabled_status(app.world(), units_idx).is_some(), "units greyed until Place Name on the HUD is on");
+        assert!(!crate::settings::pick(app.world_mut(), units_idx, "Feet"), "greyed row refuses pick");
+        assert_eq!(crate::settings::flip(app.world_mut(), hud_name_idx), Some(true));
+        assert!(app.world().resource::<crate::settings::Settings>().disabled_status(app.world(), units_idx).is_none());
+
+        // Pick named choices, verify TweakSettings + INI save + reload round-trip.
+        assert!(crate::settings::pick(app.world_mut(), perks_idx, "4"));
+        assert!(crate::settings::pick(app.world_mut(), date_idx, "Year first (2281-10-19)"));
+        assert!(crate::settings::pick(app.world_mut(), pip_idx, "Cyan"));
+        assert!(crate::settings::pick(app.world_mut(), units_idx, "Feet"));
+        {
+            let t = app.world().resource::<TweakSettings>();
+            assert_eq!(t.game.perks_per_level, 4);
+            assert_eq!(t.date_style, 3);
+            assert_eq!(t.companion_pip, 3);
+            assert_eq!(t.marker_name_units, 2);
+        }
+        let saved = std::fs::read_to_string(&ini).unwrap();
+        assert!(saved.contains("tweak-perks-per-level=4"), "{saved}");
+        assert!(saved.contains("tweak-date-style=Year first (2281-10-19)"), "{saved}");
+        assert!(saved.contains("tweak-companion-pip=Cyan"), "{saved}");
+        assert!(saved.contains("tweak-marker-name-units=Feet"), "{saved}");
+
+        let reloaded = start(&ini);
+        let t = reloaded.world().resource::<TweakSettings>();
+        assert_eq!(t.game.perks_per_level, 4);
+        assert_eq!(t.date_style, 3);
+        assert_eq!(t.companion_pip, 3);
+        assert_eq!(t.marker_name_units, 2);
+
+        // Legacy slider parts from older NVForever.ini files still load to the exact choices.
+        std::fs::write(
+            &ini,
+            "[Settings]\n\
+             tweak-perks-per-level=1.00\n\
+             tweak-date-style=0.333\n\
+             tweak-companion-pip=0.40\n\
+             tweak-marker-name-units=0.50\n",
+        )
+        .unwrap();
+        let legacy = start(&ini);
+        let t = legacy.world().resource::<TweakSettings>();
+        assert_eq!(t.game.perks_per_level, 5, "legacy slider 1.00 -> 5 perks");
+        assert_eq!(t.date_style, 1, "legacy slider 0.333 -> Day first");
+        assert_eq!(t.companion_pip, 2, "legacy slider 0.40 -> Blue");
+        assert_eq!(t.marker_name_units, 1, "legacy slider 0.50 -> Metres");
+
+        // Legacy 0.00 / 0.25 / invalid values.
+        std::fs::write(
+            &ini,
+            "[Settings]\n\
+             tweak-perks-per-level=0.25\n\
+             tweak-date-style=bogus\n\
+             tweak-companion-pip=bogus\n\
+             tweak-marker-name-units=bogus\n",
+        )
+        .unwrap();
+        let mixed = start(&ini);
+        let t = mixed.world().resource::<TweakSettings>();
+        assert_eq!(t.game.perks_per_level, 2, "legacy slider 0.25 -> 2 perks");
+        assert_eq!(t.date_style, 0, "invalid value keeps default");
+        assert_eq!(t.companion_pip, 0, "invalid value keeps default");
+        assert_eq!(t.marker_name_units, 0, "invalid value keeps default");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

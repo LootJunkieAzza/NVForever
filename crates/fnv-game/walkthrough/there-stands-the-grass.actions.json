@@ -56,6 +56,16 @@
    "label": "milestone: VMS06 10"
   },
   {
+   "op": "note",
+   "text": "Vault 22's food cave door 000EB555 (lock 255) opens from its linked terminal V22FoodCaveWallTerm 0x000EFB18, whose Disengage Lock entry needs V22BaileysKeycard 0x000F3D50 on the player; the keycard lies in Vault22d (REFR 0x0017AAEB) [observed: round 12 triage]. Stand-in for finding it: the keycard."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "V22BaileysKeycard",
+   "count": 1
+  },
+  {
    "op": "move_player",
    "to": "V22DownloadMainframeREF"
   },

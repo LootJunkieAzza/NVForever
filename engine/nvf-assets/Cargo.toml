@@ -10,8 +10,11 @@ publish = false
 bevy.workspace = true
 fnv-nif.workspace = true
 fnv-dds.workspace = true
+fnv-pbr.workspace = true
 fnv-vfs.workspace = true
 fnv-world.workspace = true
+# Half floats for the reflection cube's texels (reflection_cube.rs); already in the lock.
+half = "2"
 
 [dev-dependencies]
 # tests/sample_mask_spirv.rs: the vendored naga's SPIR-V for `@builtin(sample_mask)`

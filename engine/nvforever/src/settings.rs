@@ -28,7 +28,9 @@ use crate::nav::NavState;
 use crate::perf_overlay::{FpsCounter, Low};
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
+use crate::ssao::{AoLevel, AO_CHOICES};
 use crate::upscaler::{DlssModel, UpscaleQuality, Upscaler, UpscalerChoice};
+use crate::volumetric_clouds::{CloudLevel, CLOUD_CHOICES};
 use crate::window_mode;
 use crate::world::Streamer;
 use crate::{Args, Overlay};
@@ -127,61 +129,7 @@ pub fn register(app: &mut App) {
         },
     );
     // The resolution first, then full screen [owner 2026-10-18].
-    add_choice_list(
-        app,
-        Setting {
-            key: "resolution",
-            group: GROUP_PICTURE,
-            label: "Resolution",
-            note: "The window's size, or in full screen the monitor's (its own size: borderless). A new one goes back after 20 seconds unless you keep it.",
-            switches: "--size",
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
-        ChoiceList {
-            names: window_mode::resolution_names,
-            chosen: window_mode::resolution_chosen,
-            pick: window_mode::resolution_pick,
-            save: window_mode::resolution_save,
-            load: window_mode::resolution_load,
-            ask_keep: true,
-        },
-    );
-    add_setting(
-        app,
-        Setting {
-            key: "borderless",
-            group: GROUP_PICTURE,
-            label: "Full screen",
-            note: "On: the game fills its monitor without a frame, at the full screen resolution above. Off: a window of the window resolution.",
-            switches: "--window",
-            get: |w| w.resource::<Args>().window == window_mode::WindowChoice::Borderless,
-            set: window_mode::set_borderless,
-            slider: None,
-        },
-    );
-    add_choice_list(
-        app,
-        Setting {
-            key: "monitor",
-            group: GROUP_PICTURE,
-            label: "Monitor",
-            note: "The display the game opens on in full screen (the first display until you pick one).",
-            switches: "--window",
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
-        ChoiceList {
-            names: window_mode::monitor_names,
-            chosen: window_mode::monitor_chosen,
-            pick: window_mode::monitor_pick,
-            save: window_mode::monitor_save,
-            load: window_mode::monitor_load,
-            ask_keep: false,
-        },
-    );
+    register_window_display(app);
     if has_body {
         add_setting(
             app,
@@ -374,6 +322,9 @@ pub fn register(app: &mut App) {
     register_display(app);
     register_distances(app);
     register_graphics(app);
+    if crate::mobile_performance::enabled() {
+        crate::mobile_performance::register(app);
+    }
     // The Quality and Enhanced effects rows over the rows above (#1966).
     crate::quality::register(app, GROUP_GRAPHICS);
     // Renderer edits are latched by the shared settings setters, including Defaults.
@@ -477,6 +428,9 @@ pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread, t
 /// The frame split row's command-line switches: none, so the INI's state always applies.
 pub(crate) const FPS_SPLIT_SWITCHES: &str = "";
 
+/// The Tree distance row's note [design: our own words, #3016].
+const TREE_DISTANCE_NOTE: &str = "How far from you trees beyond the loaded cells are drawn as flat pictures, at most as far as distant objects are drawn. Farther runs slower.";
+
 /// The field of view's least and greatest degrees on the settings page, in steps of 5.
 const FOV_MIN: f32 = 50.0;
 const FOV_MAX: f32 = 110.0;
@@ -515,9 +469,13 @@ fn register_display(app: &mut App) {
         .with_switches("--viewmodel-fov"),
     );
     // The HUD's size (#1631), kept by nvf-play's interface and fixed for the run at start.
-    let (row, list) = nvf_play::interface::ui_scale_row(GROUP_PICTURE);
-    nvf_play::settings::add_choice_list(app, row, list);
+    nvf_play::interface::register_hud_scale(app, GROUP_PICTURE);
     nvf_play::menu_scale::register(app, GROUP_PICTURE);
+    #[cfg(target_os = "android")]
+    {
+        nvf_play::menu_readability::register(app, GROUP_PICTURE);
+        nvf_play::hud_readability::register(app, GROUP_PICTURE);
+    }
     add_setting(
         app,
         Setting {
@@ -560,6 +518,10 @@ fn register_display(app: &mut App) {
         },
     );
     app.add_systems(PostStartup, read_old_vsync.after(nvf_play::settings::apply_stored));
+    register_frame_cap(app);
+}
+
+fn register_frame_cap(app: &mut App) {
     // A list of the limits [design: the menu overhaul]; the INI's older slider part loads.
     add_choice_list(
         app,
@@ -823,7 +785,8 @@ pub fn script_fov(args: Res<Args>, script: Option<ResMut<nvf_play::script::Scrip
 }
 
 /// The draw-distance sliders (`draw_distance.rs`): each a part of its full distance, the
-/// full one drawing as without them.
+/// full one drawing as without them; the Tree distance's full one is the distant LOD's far
+/// limit and it starts at `--tree-distance`'s part of that (#3016).
 fn register_distances(app: &mut App) {
     if !app.world().contains_resource::<DrawDistances>() {
         return;
@@ -858,6 +821,22 @@ fn register_distances(app: &mut App) {
             "How far from you grass is drawn, as a part of the farthest grass distance and its fade range.",
             slider(|w| w.resource::<DrawDistances>().grass, draw_distance::set_grass),
         ),
+        // A part of the distant LOD's far limit, shown as the distance it gives (#3016).
+        Setting::slider(
+            "tree-distance",
+            GROUP_PICTURE,
+            "Tree distance",
+            TREE_DISTANCE_NOTE,
+            Slider {
+                get: |w| w.resource::<DrawDistances>().trees,
+                set: draw_distance::set_trees,
+                min: draw_distance::TREE_STEP,
+                step: draw_distance::TREE_STEP,
+                shown: Some(draw_distance::tree_distance_text),
+            },
+        )
+        // Its start is the flag's distance, so a given flag wins over the INI in a test run.
+        .with_switches("--tree-distance"),
     ];
     for s in sliders {
         add_setting(app, s);
@@ -1041,6 +1020,38 @@ fn register_graphics(app: &mut App) {
         },
         ChoiceList { names: |_| graphics::SHADOW_FILTERS.iter().map(|f| f.0.to_string()).collect(), chosen: shadow_filter_chosen, pick: take_shadow_filter, save: shadow_filter_chosen, load: take_shadow_filter, ask_keep: false },
     );
+    // The full-detail scenery ring (#2701, full_detail.rs): Off, 7 x 7 or 9 x 9, switched
+    // in play (the ring is cleared and streamed again).
+    add_choice_list(
+        app,
+        Setting {
+            key: FULL_DETAIL_KEY,
+            group: GROUP_GRAPHICS,
+            label: "Full-detail scenery",
+            note: "Draws buildings, rocks and cliffs out to 7 x 7 or 9 x 9 cells as full models, not distant forms. Costs GPU time. Not in the original.",
+            switches: "--graphics-only",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList { names: |_| full_detail_names(), chosen: full_detail_chosen, pick: take_full_detail, save: full_detail_chosen, load: take_full_detail, ask_keep: false },
+    );
+    // Distant objects (#3014, distant_objects.rs): Off, 8 cells or 12 cells, switched in
+    // play (cells out of a smaller reach fade out, new ones stream in).
+    add_choice_list(
+        app,
+        Setting {
+            key: DISTANT_OBJECTS_KEY,
+            group: GROUP_GRAPHICS,
+            label: "Distant objects",
+            note: "Draws the rocks, shacks, pylons and signs the distant LOD leaves out, up to 8 or 12 cells away. Costs GPU time. Not in the original.",
+            switches: "--graphics-only",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList { names: |_| distant_objects_names(), chosen: distant_objects_chosen, pick: take_distant_objects, save: distant_objects_chosen, load: take_distant_objects, ask_keep: false },
+    );
     // The sun's shadow maps' side, 2048 (the default) or 4096, changed in play (#2843); saved
     // as its name, the branch's older slider part (0 or 1) still loads.
     add_choice_list(
@@ -1061,6 +1072,29 @@ fn register_graphics(app: &mut App) {
             pick: take_shadow_resolution,
             save: shadow_resolution_chosen,
             load: take_shadow_resolution,
+            ask_keep: false,
+        },
+    );
+    // Shadows of placed lights (light_shadows.rs; graphics-enhanced.md §3.17): Off,
+    // Performance or Quality as the Sun shadows row, saved by name, off by default [design].
+    add_choice_list(
+        app,
+        Setting {
+            key: "light-shadows",
+            group: GROUP_GRAPHICS,
+            label: "ALC shadows",
+            note: LIGHT_SHADOWS_NOTE,
+            switches: "--light-shadows",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| crate::light_shadows::CHOICES.iter().map(|c| c.to_string()).collect(),
+            chosen: light_shadows_chosen,
+            pick: take_light_shadows,
+            save: light_shadows_chosen,
+            load: take_light_shadows,
             ask_keep: false,
         },
     );
@@ -1104,15 +1138,22 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 19] = [
-        (
-            "ambient-occlusion",
-            "Ambient occlusion",
-            "On: creases, corners and the ground under things are darkened by how enclosed they are (screen-space, from the depth). Not in the original.",
-            "--graphics",
-            |w| w.resource::<Graphics>().ambient_occlusion,
-            |w, on| w.resource_mut::<Graphics>().ambient_occlusion = on,
-        ),
+    // Ambient occlusion: a list of its three choices like Sun shadows' [design, #3075:
+    // \"AO's row to match ALC shadows' Off/Performance/Quality"]; the INI's older
+    // on/off (1/0, true/false, on/off, yes/no) still loads, as Quality and Off.
+    add_choice_list(
+        app,
+        Setting { key: AO_KEY, group: GROUP_GRAPHICS, label: "Ambient occlusion", note: AO_NOTE, switches: "--graphics, --ambient-occlusion", get: |_| false, set: |_, _| {}, slider: None },
+        ChoiceList { names: |_| AO_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: ao_chosen, pick: take_ao, save: ao_chosen, load: take_ao, ask_keep: false },
+    );
+    // Volumetric clouds: a list of Off and its levels [design, 2026-11-23: 7
+    // or fewer values]; the INI's older on/off still loads, on as Normal.
+    add_choice_list(
+        app,
+        Setting { key: CLOUDS_KEY, group: GROUP_GRAPHICS, label: "Volumetric clouds (experimental)", note: CLOUDS_NOTE, switches: "--graphics-only", get: |_| false, set: |_, _| {}, slider: None },
+        ChoiceList { names: |_| CLOUD_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: clouds_chosen, pick: take_clouds, save: clouds_chosen, load: take_clouds, ask_keep: false },
+    );
+    let switches: [Switch; 25] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1188,6 +1229,26 @@ fn register_graphics(app: &mut App) {
                 nvf_assets::texture::set_anisotropy(if on { 16 } else { 8 });
             },
         ),
+        // #2981: read once at the start (main.rs, nvf_assets `authored::set_enabled`); the
+        // row keeps the next start's choice, so no pipeline waits for it.
+        (
+            crate::graphics::AUTHORED_MATERIALS_KEY,
+            "Authored materials",
+            AUTHORED_MATERIALS_NOTE,
+            AUTHORED_MATERIALS_SWITCHES,
+            |w| w.resource::<Graphics>().authored_materials,
+            |w, on| w.resource_mut::<Graphics>().authored_materials = on,
+        ),
+        // #2981 reflections: read once at the start like Authored materials (main.rs,
+        // nvf_assets `reflection_cube::set_enabled`); the row keeps the next start's choice.
+        (
+            crate::graphics::AUTHORED_REFLECTIONS_KEY,
+            "Reflections on authored materials",
+            AUTHORED_REFLECTIONS_NOTE,
+            AUTHORED_MATERIALS_SWITCHES,
+            |w| w.resource::<Graphics>().authored_reflections,
+            |w, on| w.resource_mut::<Graphics>().authored_reflections = on,
+        ),
         (
             "terrain-height-blend",
             "Terrain height blending",
@@ -1203,6 +1264,17 @@ fn register_graphics(app: &mut App) {
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().terrain_anti_tiling,
             |w, on| w.resource_mut::<Graphics>().terrain_anti_tiling = on,
+        ),
+        // #3322: needs Authored materials (nvf_settings_layout NEEDS, for the next start) and
+        // the run's state of it (`parallax_status`), whose height maps it draws; switched
+        // while the game runs (terrain.rs `sync_parallax`).
+        (
+            "terrain-parallax",
+            "Terrain parallax",
+            "On: ground textures a texture pack gives height maps for (textures\\pbr\\) show depth near you, for some GPU time. Without such a pack nothing changes.",
+            "--graphics-only",
+            |w| w.resource::<Graphics>().terrain_parallax,
+            |w, on| w.resource_mut::<Graphics>().terrain_parallax = on,
         ),
         (
             "light-shafts",
@@ -1227,6 +1299,38 @@ fn register_graphics(app: &mut App) {
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().desert_haze,
             |w, on| w.resource_mut::<Graphics>().desert_haze = on,
+        ),
+        (
+            VOLUMETRIC_LIGHT_KEY,
+            "Volumetric light (experimental)",
+            VOLUMETRIC_LIGHT_NOTE,
+            "--graphics-only",
+            |w| w.resource::<Graphics>().volumetric_light,
+            |w, on| w.resource_mut::<Graphics>().volumetric_light = on,
+        ),
+        (
+            "aerial-perspective",
+            "Aerial perspective (experimental)",
+            "On: far land takes on the sky's colours with distance, bluer at noon, warmer at dusk, brighter toward the sun, inside the weather's fog. Not in the original.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().aerial_perspective,
+            |w, on| w.resource_mut::<Graphics>().aerial_perspective = on,
+        ),
+        (
+            "night-sky-detail",
+            "Night sky detail (experimental)",
+            "On: stars twinkle a little, more near the horizon; the moon gets a glow and lights the clouds facing it, wider in hazy weather. Not in the original.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().night_sky_detail,
+            |w, on| w.resource_mut::<Graphics>().night_sky_detail = on,
+        ),
+        (
+            "distant-lights",
+            "Distant lights (experimental)",
+            "On: at night, lamps in the places beyond the loaded area show as small glows, so towns can be seen from afar. They light nothing. Not in the original.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().distant_lights,
+            |w, on| w.resource_mut::<Graphics>().distant_lights = on,
         ),
         (
             "water-reflections",
@@ -1267,6 +1371,180 @@ fn register_graphics(app: &mut App) {
     for (key, label, note, switches, get, set) in switches {
         add_setting(app, Setting { key, group: GROUP_GRAPHICS, label, note, switches, get, set, slider: None });
     }
+    // Read once at the start like Authored materials; the row keeps the next start's choice
+    // (gpu_occlusion.rs).
+    crate::gpu_occlusion::add_row(app, GROUP_GRAPHICS);
+    nvf_play::settings::set_needs_in_game(app, "terrain-parallax", |w| parallax_status(nvf_assets::authored::enabled(), w.get_resource::<Graphics>().is_some_and(|g| g.authored_materials)));
+    // #3032 stage 3: the light in the air's strength, 0 to 200 % in steps of 10 (greyed while
+    // its switch is off: `settings_layout::NEEDS`); Sun shafts are greyed while the light is
+    // wanted at a strength above 0 (they yield to it where it draws, shafts.rs): the game's page
+    // alone, for the launcher's shared rules know no slider's value.
+    nvf_play::settings::set_needs_in_game(app, "light-shafts", |w| {
+        use crate::medium_air_demand::{AirStrengthSetting, AirWanted};
+        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+        let aid = w.get_resource::<crate::medium_air_demand::AirAid>().is_some_and(|a| a.0);
+        #[cfg(not(any(test, debug_assertions, feature = "dev-aids")))]
+        let aid = false;
+        shafts_status(w.get_resource::<AirWanted>().is_some_and(|a| a.0), aid, w.get_resource::<AirStrengthSetting>().copied().unwrap_or_default().0)
+    });
+    add_setting(app, Setting::slider(VOLUMETRIC_LIGHT_STRENGTH_KEY, GROUP_GRAPHICS, "Volumetric light strength", VOLUMETRIC_LIGHT_STRENGTH_NOTE, air_strength_slider()));
+}
+
+/// Why the Sun shafts row cannot apply: the light in the air is wanted (so drawn on this device)
+/// at a strength above 0 (the debug aid's always is); at 0 the shafts draw.
+fn shafts_status(wanted: bool, aid: bool, strength: f32) -> Option<&'static str> {
+    (wanted && (aid || strength > 0.0)).then_some("Replaced by Volumetric Light.")
+}
+
+/// The Volumetric light row's key (#3032 stage 3; graphics.rs `Graphics::volumetric_light`).
+pub(crate) const VOLUMETRIC_LIGHT_KEY: &str = "volumetric-light";
+/// Its strength's slider (medium_air_demand.rs `AirStrengthSetting`).
+pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_KEY: &str = "volumetric-light-strength";
+
+/// The Volumetric light row's note: what it does and what it looks best with (its rays are
+/// cut by the Cloud shadows image and the Terrain shadows map, medium_air_grid.rs) [design].
+pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight and moonlight show in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's.";
+
+/// The strength slider's note [design].
+pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_NOTE: &str = "How strongly the light in the air brightens lit air and darkens shaded air: 100% is the look as tuned, 0% none.";
+
+/// The strength's slider: the part strength / 2 (0..=1) in steps of 0.05 (10 %), shown as
+/// 0 to 200 %; read from and written to `AirStrengthSetting` (made when it is not there yet:
+/// the INI is read before every plugin's resource may exist) [design].
+fn air_strength_slider() -> Slider {
+    use crate::medium_air_demand::AirStrengthSetting;
+    Slider {
+        get: |w| w.get_resource::<AirStrengthSetting>().copied().unwrap_or_default().part(),
+        set: |w, v| {
+            let next = AirStrengthSetting::from_part(v);
+            match w.get_resource_mut::<AirStrengthSetting>() {
+                Some(mut s) => {
+                    s.set_if_neq(next);
+                }
+                None => w.insert_resource(next),
+            }
+        },
+        min: 0.0,
+        step: 0.05,
+        shown: Some(AirStrengthSetting::shown),
+    }
+}
+
+/// The Terrain parallax row's availability in the game, by the run's Authored materials
+/// state (`session`, nvf_assets `authored::enabled`, fixed at the start), not the row's
+/// saved value (`row`, which the launcher's NEEDS rule follows for the next start): free
+/// while the run has authored materials, even with the row turned off for the next start
+/// (the height maps stay loaded); greyed with a restart note while the row is on but the run
+/// started without them; the NEEDS words while both are off [design, #3322 review].
+pub(crate) fn parallax_status(session: bool, row: bool) -> Option<&'static str> {
+    match (session, row) {
+        (true, _) => None,
+        (false, true) => Some(PARALLAX_RESTART),
+        (false, false) => Some(PARALLAX_NEEDS),
+    }
+}
+
+/// The NEEDS words of the Terrain parallax row (nvf_settings_layout `NEEDS`).
+pub(crate) const PARALLAX_NEEDS: &str = "Needs Authored Materials.";
+
+/// What the Terrain parallax row says while Authored materials waits for the next start.
+pub(crate) const PARALLAX_RESTART: &str = "After a restart (Authored Materials)";
+
+/// The Authored materials row's note (#2981): it takes effect at the next start, as the run's
+/// state is fixed before the first material (main.rs).
+pub(crate) const AUTHORED_MATERIALS_NOTE: &str = "On: surfaces whose textures a texture pack gives material maps for (textures\\pbr\\) are shaded from them. Off: every surface uses the game's own values. Takes effect at the next start.";
+
+/// The command-line switches the Authored materials row weighs against the INI at the start
+/// (`authored_after_ini`).
+pub(crate) const AUTHORED_MATERIALS_SWITCHES: &str = "--graphics-only";
+
+/// The run's Authored materials state (#2981), decided before the first material: the
+/// command line's (`--graphics-only no-authored-materials`, else on), then the INI's stored
+/// row by the settings' own precedence (`nvf_play::settings::switch_after_ini`, as
+/// `apply_stored` decides at PostStartup), so the saved choice of the last run applies from
+/// the start. `given`: the switches a `--play` run was given (`None`: no settings page, the
+/// INI is not read).
+pub(crate) fn authored_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    let Some(given) = given else { return command_line };
+    let stored = stored_at_start(crate::graphics::AUTHORED_MATERIALS_KEY).and_then(|v| nvf_play::settings::parse_switch(&v));
+    nvf_play::settings::switch_after_ini(command_line, stored, given, AUTHORED_MATERIALS_SWITCHES)
+}
+
+/// The Reflections on authored materials row's note (#2981 reflections): it needs a pack and
+/// Authored materials, and takes effect at the next start (main.rs).
+pub(crate) const AUTHORED_REFLECTIONS_NOTE: &str = "On: pack materials reflect the sky outdoors and an approximation of the room and nearby lights indoors. Needs a material pack and Authored materials on. Takes effect at the next start.";
+
+/// The run's Reflections on authored materials state (#2981 reflections), decided before the
+/// first NIF pipeline by [`authored_after_ini`]'s rule: the command line's
+/// (`--graphics-only no-authored-reflections`, else on), then the INI's stored row.
+pub(crate) fn reflections_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    let Some(given) = given else { return command_line };
+    let stored = stored_at_start(crate::graphics::AUTHORED_REFLECTIONS_KEY).and_then(|v| nvf_play::settings::parse_switch(&v));
+    nvf_play::settings::switch_after_ini(command_line, stored, given, AUTHORED_MATERIALS_SWITCHES)
+}
+
+/// The Ambient occlusion row's key and note (ssao.rs `AoLevel`).
+const AO_KEY: &str = "ambient-occlusion";
+const AO_NOTE: &str = "Creases, corners and the ground under things darken by how enclosed they are: Off, Performance (cheaper, a little grainier) or Quality. Not in the original.";
+
+/// The Ambient occlusion row's choice now: Off, or the level it runs at.
+fn ao_chosen(world: &World) -> String {
+    let g = world.resource::<Graphics>();
+    if g.ambient_occlusion { g.ambient_occlusion_level.name() } else { AO_CHOICES[0] }.to_string()
+}
+
+/// The page's, the INI's and the test aids' Ambient occlusion: one of [`AO_CHOICES`] (any
+/// case), the row's older on/off as Quality and Off, or an older slider's number (0 Off, 1
+/// Quality); false otherwise.
+fn take_ao(world: &mut World, text: &str) -> bool {
+    let names: Vec<String> = AO_CHOICES.iter().map(|c| (*c).to_string()).collect();
+    let choice = nvf_play::settings::choice_of(text, &names, |v| choice_index(v, AO_CHOICES.len()))
+        .or_else(|| nvf_play::settings::parse_switch(text).map(|on| if on { AO_CHOICES.len() - 1 } else { 0 }));
+    let Some(choice) = choice else { return false };
+    let mut g = world.resource_mut::<Graphics>();
+    let level = if choice == 1 { AoLevel::Performance } else { AoLevel::Quality };
+    // Off keeps the level for the next On, as Sun shadows keeps its mode.
+    if choice == 0 {
+        if g.ambient_occlusion {
+            g.ambient_occlusion = false;
+        }
+    } else if !g.ambient_occlusion || g.ambient_occlusion_level != level {
+        g.ambient_occlusion = true;
+        g.ambient_occlusion_level = level;
+    }
+    true
+}
+
+/// The Volumetric clouds row's key and note (volumetric_clouds.rs `CloudLevel`).
+const CLOUDS_KEY: &str = "volumetric-clouds";
+const CLOUDS_NOTE: &str = "The weather's clouds drawn with depth, lit by the sun: Off, or Performance, Normal or High, each finer and dearer than the last. A prototype. Not in the original.";
+
+/// The Volumetric clouds row's choice now: Off, or the level the clouds are drawn at.
+fn clouds_chosen(world: &World) -> String {
+    let g = world.resource::<Graphics>();
+    if g.volumetric_clouds { g.volumetric_clouds_level.name() } else { CLOUD_CHOICES[0] }.to_string()
+}
+
+/// The page's, the INI's and the test aids' Volumetric clouds: one of [`CLOUD_CHOICES`] (any
+/// case), or the row's older on/off as Normal and Off (it was never a slider, so no other
+/// number is read); false otherwise.
+fn take_clouds(world: &mut World, text: &str) -> bool {
+    let level = match text.trim() {
+        t if t.eq_ignore_ascii_case(CloudLevel::Performance.name()) => Some(CloudLevel::Performance),
+        t if t.eq_ignore_ascii_case(CloudLevel::Normal.name()) => Some(CloudLevel::Normal),
+        t if t.eq_ignore_ascii_case(CloudLevel::High.name()) => Some(CloudLevel::High),
+        t => match nvf_play::settings::parse_switch(t) {
+            Some(on) => on.then_some(CloudLevel::Normal),
+            None => return false,
+        },
+    };
+    let mut g = world.resource_mut::<Graphics>();
+    // Off keeps the level, as the Ambient occlusion row does.
+    let want = (level.is_some(), level.unwrap_or(g.volumetric_clouds_level));
+    if (g.volumetric_clouds, g.volumetric_clouds_level) != want {
+        (g.volumetric_clouds, g.volumetric_clouds_level) = want;
+    }
+    true
 }
 
 /// The Cloud shadows row's note (#2670; docs/design/sun-visibility.md): the label says the
@@ -1286,7 +1564,9 @@ fn register_pipeline_waits(app: &mut App) {
         "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-effects", "water-mirror", "sun-shadows", "grade",
-        "terrain-height-blend", "terrain-anti-tiling", "cloud-shadows", "terrain-shadows", "heat-haze", MESH_BLEND_KEY,
+        "terrain-height-blend", "terrain-anti-tiling", "terrain-parallax", "cloud-shadows", "terrain-shadows", "heat-haze", CLOUDS_KEY, VOLUMETRIC_LIGHT_KEY, MESH_BLEND_KEY, "distant-lights",
+        // ALC shadows' first point and spot light shadow views specialize their passes.
+        "light-shadows",
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }
@@ -1465,6 +1745,52 @@ fn take_aa(w: &mut World, text: &str) -> bool {
     }
 }
 
+/// The Full-detail scenery row's key (#2701).
+pub(crate) const FULL_DETAIL_KEY: &str = "full-detail";
+
+fn full_detail_names() -> Vec<String> {
+    crate::full_detail::FullDetail::CHOICES.iter().map(|c| c.0.to_string()).collect()
+}
+
+fn full_detail_chosen(w: &World) -> String {
+    w.resource::<Graphics>().full_detail.name().to_string()
+}
+
+/// The full-detail ring `text` names (or a slider's part stands for).
+fn take_full_detail(w: &mut World, text: &str) -> bool {
+    use crate::full_detail::FullDetail;
+    match nvf_play::settings::choice_of(text, &full_detail_names(), |v| choice_index(v, FullDetail::CHOICES.len())) {
+        Some(i) => {
+            w.resource_mut::<Graphics>().full_detail = FullDetail::CHOICES[i].1;
+            true
+        }
+        None => false,
+    }
+}
+
+/// The Distant objects row's key (#3014).
+pub(crate) const DISTANT_OBJECTS_KEY: &str = "distant-objects";
+
+fn distant_objects_names() -> Vec<String> {
+    crate::distant_objects::DistantObjects::CHOICES.iter().map(|c| c.0.to_string()).collect()
+}
+
+fn distant_objects_chosen(w: &World) -> String {
+    w.resource::<Graphics>().distant_objects.name().to_string()
+}
+
+/// The distant objects' reach `text` names (or a slider's part stands for).
+fn take_distant_objects(w: &mut World, text: &str) -> bool {
+    use crate::distant_objects::DistantObjects;
+    match nvf_play::settings::choice_of(text, &distant_objects_names(), |v| choice_index(v, DistantObjects::CHOICES.len())) {
+        Some(i) => {
+            w.resource_mut::<Graphics>().distant_objects = DistantObjects::CHOICES[i].1;
+            true
+        }
+        None => false,
+    }
+}
+
 fn shadow_filter_chosen(w: &World) -> String {
     let f = w.resource::<Graphics>().shadow_filter;
     graphics::SHADOW_FILTERS[graphics::SHADOW_FILTERS.iter().position(|&(_, m)| m == f).unwrap_or(1)].0.to_string()
@@ -1493,6 +1819,27 @@ fn take_shadow_resolution(w: &mut World, text: &str) -> bool {
     match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::SHADOW_RESOLUTIONS.len())) {
         Some(i) => {
             graphics::set_shadow_resolution_choice(w, i);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The ALC shadows row's note (light_shadows.rs; ALC: All Lights Cast, the user-visible
+/// name since 2026-11-19, once Lamp shadows; the INI key stays `light-shadows`).
+const LIGHT_SHADOWS_NOTE: &str = "ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the shadow distance, so walls stop their light. Performance redraws less often. Costs frame rate. Not in the original.";
+
+fn light_shadows_chosen(w: &World) -> String {
+    let choice = w.get_resource::<crate::light_shadows::LightShadows>().map_or(0, |l| l.choice);
+    crate::light_shadows::CHOICES[choice.min(crate::light_shadows::CHOICES.len() - 1)].to_string()
+}
+
+/// The ALC shadows choice `text` names.
+fn take_light_shadows(w: &mut World, text: &str) -> bool {
+    let names: Vec<String> = crate::light_shadows::CHOICES.iter().map(|c| c.to_string()).collect();
+    match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, crate::light_shadows::CHOICES.len())) {
+        Some(i) => {
+            w.insert_resource(crate::light_shadows::LightShadows { choice: i });
             true
         }
         None => false,
@@ -1860,6 +2207,12 @@ fn set_overlay(world: &mut World, on: bool) {
 }
 
 #[cfg(test)]
+pub(crate) fn register_mobile_test_rows(app: &mut App) {
+    register_graphics(app);
+    register_frame_cap(app);
+}
+
+#[cfg(test)]
 mod fsr_settings_tests {
     use super::*;
 
@@ -1900,7 +2253,7 @@ mod fsr_settings_tests {
         let world = app.world_mut();
         // Anti-Aliasing is a list since the menu overhaul.
         settings::pick(world, aa, "Off");
-        settings::restore(world, ao, 0.0);
+        settings::pick(world, ao, "Off");
         assert!(!settings::pick(world, fsr, "Off"));
         assert!(world.resource_mut::<GraphicsResume>().request(0.0));
         settings::pick(world, aa, "TAA");
@@ -1909,7 +2262,7 @@ mod fsr_settings_tests {
         settings::restore(world, aa, 0.0);
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
         world.resource_mut::<GraphicsResume>().reset();
-        settings::flip(world, ao);
+        settings::pick(world, ao, "Performance");
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
         world.resource_mut::<GraphicsResume>().reset();
         settings::pick(world, fsr, "FSR 3.1");
@@ -1917,6 +2270,52 @@ mod fsr_settings_tests {
         world.resource_mut::<GraphicsResume>().reset();
         settings::restore(world, fsr, 0.0);
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0), "Defaults also restores named choices");
+    }
+
+    /// The Ambient occlusion row is a list of Off, Performance and Quality like Sun shadows:
+    /// the choice sets the switch and the level, Off keeps the level for the next On, and the
+    /// INI's older on/off (and a slider's 0 or 1) still loads as Quality or Off.
+    #[test]
+    fn ambient_occlusion_is_a_list_of_off_performance_and_quality() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla)).insert_resource(graphics::MsaaSetting(Msaa::Off));
+        register_graphics(&mut app);
+        let row = app.world().resource::<nvf_play::settings::Settings>().index(AO_KEY).unwrap();
+        let chosen = |app: &App| (app.world().resource::<nvf_play::settings::Settings>().choices(row).unwrap().chosen)(app.world());
+        let state = |app: &App| {
+            let g = app.world().resource::<Graphics>();
+            (g.ambient_occlusion, g.ambient_occlusion_level)
+        };
+        let names = (app.world().resource::<nvf_play::settings::Settings>().choices(row).unwrap().names)(app.world());
+        assert_eq!(names, ["Off", "Performance", "Quality"]);
+        assert_eq!(chosen(&app), "Off", "vanilla starts without it");
+        assert!(nvf_play::settings::pick(app.world_mut(), row, "Performance"));
+        assert_eq!(state(&app), (true, AoLevel::Performance));
+        assert_eq!(chosen(&app), "Performance");
+        assert!(nvf_play::settings::pick(app.world_mut(), row, "Off"));
+        assert_eq!(state(&app), (false, AoLevel::Performance), "Off keeps the level");
+        assert!(nvf_play::settings::pick(app.world_mut(), row, "Quality"));
+        assert_eq!(state(&app), (true, AoLevel::Quality));
+        // The INI: the names in any case, the switch's older values, a slider's numbers.
+        for (text, want) in [
+            ("performance", (true, AoLevel::Performance)),
+            ("0", (false, AoLevel::Performance)),
+            ("1", (true, AoLevel::Quality)),
+            ("off", (false, AoLevel::Quality)),
+            ("true", (true, AoLevel::Quality)),
+            ("false", (false, AoLevel::Quality)),
+            ("on", (true, AoLevel::Quality)),
+            ("no", (false, AoLevel::Quality)),
+            ("yes", (true, AoLevel::Quality)),
+            ("0.5", (true, AoLevel::Performance)),
+        ] {
+            assert!(take_ao(app.world_mut(), text), "{text}");
+            assert_eq!(state(&app), want, "{text}");
+        }
+        assert!(!take_ao(app.world_mut(), "ultra"));
+        assert_eq!(state(&app), (true, AoLevel::Performance), "a value not taken changes nothing");
+        assert!(AO_NOTE.contains("Off, Performance") && AO_NOTE.ends_with("Not in the original."));
     }
 
     #[test]
@@ -2019,6 +2418,51 @@ mod fsr_settings_tests {
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
         register_graphics(&mut app);
         app
+    }
+
+    #[test]
+    fn android_player_defaults_allow_the_settings_export_but_explicit_overrides_do_not() {
+        use clap::Parser;
+        use nvf_play::settings_menu::write_menu;
+        use window_mode::WindowChoice::{Borderless, Windowed};
+
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let dir = std::env::temp_dir().join(format!("nvf-android-start-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app = rows_app();
+        app.insert_resource(SettingsFile(Some(dir.join("NVForever.ini"))));
+        let export = dir.join("settings-menu.json");
+
+        let line = crate::android_startup_line(Vec::new());
+        let mut restart = crate::restart_args(&line[1..]);
+        restart.extend(["--load", "quicksave"].map(String::from));
+        for line in [line, crate::android_startup_line(restart)] {
+            let args = Args::try_parse_from(&line).unwrap();
+            assert!(args.play);
+            assert_eq!(args.msaa, 1);
+            assert!(args.window == Borderless);
+            app.insert_resource(given_switches(&args, &line));
+            write_menu(app.world());
+            assert!(export.is_file(), "a normal Android start publishes the settings catalogue");
+            std::fs::remove_file(&export).unwrap();
+        }
+
+        let explicit = crate::android_startup_line(["--play", "--msaa=1", "--window=borderless"].map(String::from).to_vec());
+        let args = Args::try_parse_from(&explicit).unwrap();
+        assert_eq!(args.msaa, 1);
+        assert!(args.window == Borderless);
+        let given = given_switches(&args, &explicit);
+        assert!(given.given.iter().any(|flag| flag == "--window"));
+        app.insert_resource(given);
+        write_menu(app.world());
+        assert!(!export.exists(), "an explicit switch setting the same value still blocks export");
+
+        let custom = crate::android_startup_line(vec!["--play".into()]);
+        let args = Args::try_parse_from(&custom).unwrap();
+        assert_eq!(args.msaa, 4);
+        assert!(args.window == Windowed);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn row(app: &App, key: &str) -> usize {
@@ -2606,6 +3050,89 @@ dlss-model=Preset K
         }
     }
 
+    /// #2701: the Full-detail scenery row is off by default (the vanilla look) and takes each
+    /// size by its name, in any case; another name is refused.
+    #[test]
+    fn the_full_detail_row_is_off_by_default_and_takes_each_size() {
+        use crate::full_detail::FullDetail;
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = rows_app();
+        let _ = row(&app, FULL_DETAIL_KEY);
+        assert_eq!(full_detail_chosen(app.world()), "Off");
+        for (name, f) in FullDetail::CHOICES {
+            assert!(take_full_detail(app.world_mut(), name), "{name}");
+            assert_eq!(app.world().resource::<Graphics>().full_detail, f);
+            assert_eq!(full_detail_chosen(app.world()), name);
+        }
+        assert!(take_full_detail(app.world_mut(), "7 X 7"));
+        assert_eq!(app.world().resource::<Graphics>().full_detail, FullDetail::Seven);
+        assert!(!take_full_detail(app.world_mut(), "11 x 11"));
+        assert_eq!(app.world().resource::<Graphics>().full_detail, FullDetail::Seven, "unchanged");
+    }
+
+    /// #3014: the Distant objects row is off by default (both presets) and takes each reach
+    /// by its name, in any case; another name is refused.
+    #[test]
+    fn the_distant_objects_row_is_off_by_default_and_takes_each_reach() {
+        use crate::distant_objects::DistantObjects;
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = rows_app();
+        let _ = row(&app, DISTANT_OBJECTS_KEY);
+        assert_eq!(distant_objects_chosen(app.world()), "Off");
+        for (name, d) in DistantObjects::CHOICES {
+            assert!(take_distant_objects(app.world_mut(), name), "{name}");
+            assert_eq!(app.world().resource::<Graphics>().distant_objects, d);
+            assert_eq!(distant_objects_chosen(app.world()), name);
+        }
+        assert!(take_distant_objects(app.world_mut(), "8 CELLS"));
+        assert_eq!(app.world().resource::<Graphics>().distant_objects, DistantObjects::Eight);
+        assert!(!take_distant_objects(app.world_mut(), "16 cells"));
+        assert_eq!(app.world().resource::<Graphics>().distant_objects, DistantObjects::Eight, "unchanged");
+    }
+
+    /// The Volumetric clouds row is a list of Off and its levels: the choice sets the switch and
+    /// the level, Off keeps the level, and the INI's older on/off loads as Normal and Off.
+    #[test]
+    fn volumetric_clouds_are_a_list_of_off_and_the_levels() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = rows_app();
+        let i = row(&app, CLOUDS_KEY);
+        let s = app.world().resource::<Settings>().list()[i];
+        assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, "Volumetric clouds (experimental)", CLOUDS_NOTE, "--graphics-only"));
+        assert!(CLOUDS_NOTE.chars().count() <= 200 && CLOUDS_NOTE.ends_with("Not in the original."));
+        let list = app.world().resource::<Settings>().choices(i).expect("a list");
+        assert_eq!((list.names)(app.world()), ["Off", "Performance", "Normal", "High"]);
+        assert_eq!((list.chosen)(app.world()), "Off", "off at the start");
+        let state = |app: &App| {
+            let g = app.world().resource::<Graphics>();
+            (g.volumetric_clouds, g.volumetric_clouds_level)
+        };
+        for (name, level) in [("Performance", CloudLevel::Performance), ("High", CloudLevel::High), ("Normal", CloudLevel::Normal)] {
+            assert!(nvf_play::settings::pick(app.world_mut(), i, name));
+            assert_eq!((state(&app), (list.save)(app.world()).as_str()), ((true, level), name));
+        }
+        // The INI: the names in any case, the switch's older values.
+        for (text, want) in [
+            ("high", (true, CloudLevel::High)),
+            ("0", (false, CloudLevel::High)),
+            ("1", (true, CloudLevel::Normal)),
+            (" PERFORMANCE ", (true, CloudLevel::Performance)),
+            ("off", (false, CloudLevel::Performance)),
+            ("true", (true, CloudLevel::Normal)),
+            ("false", (false, CloudLevel::Normal)),
+            ("on", (true, CloudLevel::Normal)),
+            ("no", (false, CloudLevel::Normal)),
+            ("yes", (true, CloudLevel::Normal)),
+        ] {
+            assert!(take_clouds(app.world_mut(), text), "{text}");
+            assert_eq!(state(&app), want, "{text}");
+        }
+        for text in ["ultra", "0.5", "2", ""] {
+            assert!(!take_clouds(app.world_mut(), text), "{text}");
+        }
+        assert_eq!(state(&app), (true, CloudLevel::Normal), "a value not taken changes nothing");
+    }
+
     /// #2377: the command-line switches moved out of the notes into `Setting::switches`; each
     /// row of the Graphics tab still names the switches its note named, in the note's order
     /// (`--shadow-distance` of Longer sun shadows too: it was not "a part of" there), and no
@@ -2623,10 +3150,11 @@ dlss-model=Preset K
             ("anti-aliasing", &["--msaa", "--graphics-only"]),
             ("shadow-filter", &[]),
             ("shadow-resolution", &[]),
+            ("light-shadows", &["--light-shadows"]),
             (FRAME_GENERATION_KEY, &["--frame-generation"]),
             (FRAMES_KEY, &[]),
             ("latency-reduction", &["--latency-reduction"]),
-            ("ambient-occlusion", &["--graphics"]),
+            ("ambient-occlusion", &["--graphics", "--ambient-occlusion"]),
             ("fine-shadows", &["--shadow-distance", "--graphics"]),
             ("cloud-shadows", &["--graphics", "--graphics-only"]),
             ("terrain-shadows", &["--graphics", "--graphics-only"]),
@@ -2636,15 +3164,26 @@ dlss-model=Preset K
             ("neon-glow", &["--graphics-only"]),
             ("sharpen", &["--graphics"]),
             ("anisotropic", &["--graphics"]),
+            (crate::graphics::AUTHORED_MATERIALS_KEY, &["--graphics-only"]),
+            (crate::graphics::AUTHORED_REFLECTIONS_KEY, &["--graphics-only"]),
             ("terrain-height-blend", &["--graphics", "--graphics-only"]),
             ("terrain-anti-tiling", &["--graphics", "--graphics-only"]),
+            ("terrain-parallax", &["--graphics-only"]),
             ("light-shafts", &["--graphics"]),
             ("heat-haze", &["--graphics-only"]),
             ("desert-haze", &["--graphics", "--graphics-only"]),
+            ("volumetric-clouds", &["--graphics-only"]),
+            ("aerial-perspective", &["--graphics", "--graphics-only"]),
+            ("night-sky-detail", &["--graphics", "--graphics-only"]),
+            ("distant-lights", &["--graphics", "--graphics-only"]),
+            (VOLUMETRIC_LIGHT_KEY, &["--graphics-only"]),
+            (VOLUMETRIC_LIGHT_STRENGTH_KEY, &[]),
             ("water-reflections", &["--graphics"]),
             ("water-effects", &["--graphics", "--graphics-only"]),
             ("water-mirror", &["--graphics-only"]),
             (MESH_BLEND_KEY, &["--graphics-only"]),
+            (FULL_DETAIL_KEY, &["--graphics-only"]),
+            (DISTANT_OBJECTS_KEY, &["--graphics-only"]),
         ];
         for (key, switches) in want {
             let s = settings.list()[row(&app, key)];
@@ -2654,6 +3193,96 @@ dlss-model=Preset K
         assert!(settings.list().iter().all(|s| !s.note.contains("--")), "no Graphics row's note names a switch");
         assert_eq!(nvf_play::settings::note_switches(FPS_COUNTER_SWITCHES), ["--fps"]);
         assert!(nvf_play::settings::note_switches(FPS_SPLIT_SWITCHES).is_empty());
+    }
+
+    /// #3032 stage 3: the Volumetric light switch is off in a vanilla start and switches
+    /// `Graphics::volumetric_light`; its strength slider runs 0 to 200 % in steps of 10 from
+    /// 100 % and is greyed while the switch is off (`settings_layout::NEEDS`); Sun shafts are
+    /// greyed while the light is wanted at a strength above 0.
+    #[test]
+    fn the_volumetric_light_rows_switch_scale_and_grey() {
+        use crate::medium_air_demand::AirStrengthSetting;
+        let mut app = rows_app();
+        let (on_row, strength_row, shafts) = (row(&app, VOLUMETRIC_LIGHT_KEY), row(&app, VOLUMETRIC_LIGHT_STRENGTH_KEY), row(&app, "light-shafts"));
+        let s = app.world().resource::<Settings>().list()[on_row];
+        assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, "Volumetric light (experimental)", VOLUMETRIC_LIGHT_NOTE, "--graphics-only"));
+        assert!(s.slider.is_none() && !(s.get)(app.world()), "a switch, off in a vanilla start");
+        let k = app.world().resource::<Settings>().list()[strength_row];
+        assert_eq!((k.group, k.label, k.note, k.switches), (GROUP_GRAPHICS, "Volumetric light strength", VOLUMETRIC_LIGHT_STRENGTH_NOTE, ""));
+        let slider = k.slider.expect("a slider");
+        // 0..=1 in twentieths: 21 values, 0 % to 200 % in steps of 10 %.
+        assert_eq!(nvf_play::settings::slider_values(&slider), 21);
+        assert_eq!((slider.text(0.0), slider.text(slider.step), slider.text(1.0)), ("0%".to_string(), "10%".to_string(), "200%".to_string()));
+        assert_eq!((slider.get)(app.world()), 0.5, "100 % by default (no resource yet: the default)");
+        assert_eq!(slider.text((slider.get)(app.world())), "100%");
+        // The greyed states: the slider while the switch is off, Sun shafts while it is on.
+        let status = |app: &App, i: usize| app.world().resource::<Settings>().disabled_status(app.world(), i);
+        assert_eq!(status(&app, strength_row), Some("Needs Volumetric Light."));
+        assert_eq!(status(&app, shafts), None);
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), on_row), Some(true));
+        assert!(app.world().resource::<Graphics>().volumetric_light);
+        assert_eq!(status(&app, strength_row), None);
+        // The demand follows in the next frame (medium_air_demand.rs; not on a device that cannot).
+        assert_eq!(status(&app, shafts), None, "not wanted yet");
+        app.insert_resource(crate::medium_air_demand::AirWanted(true));
+        assert_eq!(status(&app, shafts), Some("Replaced by Volumetric Light."));
+        // At 0 % the shafts draw, and the row says nothing.
+        assert_eq!(nvf_play::settings::set_slider(app.world_mut(), strength_row, 0.0), Some(0.0));
+        assert_eq!(status(&app, shafts), None, "0 %");
+        assert_eq!((shafts_status(true, true, 0.0), shafts_status(false, true, 1.0)), (Some("Replaced by Volumetric Light."), None), "the aid has a strength of its own");
+        // The slider sets the strength: 150 % is the part 0.75, strength 1.5.
+        assert_eq!(nvf_play::settings::set_slider(app.world_mut(), strength_row, 0.75), Some(0.75));
+        assert_eq!(*app.world().resource::<AirStrengthSetting>(), AirStrengthSetting(1.5));
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), on_row), Some(false));
+        app.insert_resource(crate::medium_air_demand::AirWanted(false));
+        assert_eq!(status(&app, shafts), None);
+        assert_eq!(nvf_play::settings::set_slider(app.world_mut(), strength_row, 0.25), None, "greyed: not moved");
+    }
+
+    /// #3032 stage 3: both rows are kept in the INI by their keys and read back at the start.
+    #[test]
+    fn the_volumetric_light_rows_are_kept_in_the_ini() {
+        use crate::medium_air_demand::AirStrengthSetting;
+        let dir = std::env::temp_dir().join(format!("nvf-volumetric-light-rows-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        let mut app = ini_app(&path, "[Settings]\nvolumetric-light=1\nvolumetric-light-strength=0.75\n", UpscalerChoice::Off, GivenSwitches::default());
+        assert!(app.world().resource::<Graphics>().volumetric_light, "the stored switch turns it on at the start");
+        assert_eq!(*app.world().resource::<AirStrengthSetting>(), AirStrengthSetting(1.5), "the stored 150 %");
+        let i = row(&app, VOLUMETRIC_LIGHT_STRENGTH_KEY);
+        nvf_play::settings::set_slider(app.world_mut(), i, 0.25);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, VOLUMETRIC_LIGHT_STRENGTH_KEY), Some("0.25".to_string()), "{ini}");
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, VOLUMETRIC_LIGHT_KEY), Some("1".to_string()), "{ini}");
+        let again = ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default());
+        assert_eq!(*again.world().resource::<AirStrengthSetting>(), AirStrengthSetting(0.5), "50 % at the next start");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #3322 review: in the game the Terrain parallax row follows the run's Authored
+    /// materials state, not the row's saved value (the launcher's NEEDS rule, for the next
+    /// start): free while the run has them, even with the row turned off; greyed with a
+    /// restart note while the row is on but the run started without them.
+    #[test]
+    fn the_terrain_parallax_row_follows_this_runs_authored_materials() {
+        assert_eq!(parallax_status(true, true), None);
+        assert_eq!(parallax_status(true, false), None, "turned off for the next start: still drawn this run");
+        assert_eq!(parallax_status(false, true), Some(PARALLAX_RESTART));
+        assert_eq!(parallax_status(false, false), Some(PARALLAX_NEEDS));
+        assert_eq!(nvf_settings_layout_why("terrain-parallax"), Some(PARALLAX_NEEDS), "the same words as the shared NEEDS rule");
+        assert!(PARALLAX_RESTART.len() <= 40);
+        let mut app = rows_app();
+        let i = row(&app, "terrain-parallax");
+        let status = |app: &App| app.world().resource::<nvf_play::settings::Settings>().disabled_status(app.world(), i);
+        assert_eq!(status(&app), None, "Authored materials on, as this run's");
+        app.world_mut().resource_mut::<Graphics>().authored_materials = false;
+        assert_eq!(status(&app), None, "the saved row off does not grey it while this run has them");
+        assert!(!app.world().resource::<nvf_play::settings::Settings>().list()[i].note.contains("original"), "the page note says what the row adds, not what the original lacks (observer check 268: it draws none)");
+
+        fn nvf_settings_layout_why(key: &str) -> Option<&'static str> {
+            nvf_play::settings_layout::needs(key).first().map(|r| r.why)
+        }
     }
 
     /// #2661: the mesh terrain blend's row stands among the Graphics switches, off in a
@@ -2683,6 +3312,23 @@ dlss-model=Preset K
         assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, MESH_BLEND_KEY), Some("0".to_string()), "{ini}");
         assert!(!ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default()).world().resource::<Graphics>().mesh_terrain_blend, "and off again at the next");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #2981 reflections: the Reflections on authored materials row follows Authored
+    /// materials, on in a vanilla start, switches `Graphics::authored_reflections` and is
+    /// start-only (no pipeline wait: the run's state is fixed in main.rs).
+    #[test]
+    fn the_reflections_row_follows_authored_materials_and_switches_the_next_start() {
+        let mut app = rows_app();
+        let i = row(&app, crate::graphics::AUTHORED_REFLECTIONS_KEY);
+        assert_eq!(i, row(&app, crate::graphics::AUTHORED_MATERIALS_KEY) + 1, "right after Authored materials");
+        let s = app.world().resource::<Settings>().list()[i];
+        assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, "Reflections on authored materials", AUTHORED_REFLECTIONS_NOTE, "--graphics-only"));
+        assert_eq!(nvf_play::settings::note_over_budget(s.note), None);
+        assert!((s.get)(app.world()), "on in a vanilla start");
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(false));
+        assert!(!app.world().resource::<Graphics>().authored_reflections);
+        assert!(app.world().resource::<Graphics>().authored_materials, "the materials row is its own");
     }
 
     /// A settings page with the INI at `path` holding `text`, `apply_stored` run once.
@@ -2851,6 +3497,42 @@ mod viewmodel_fov_tests {
 }
 
 #[cfg(test)]
+mod tree_distance_tests {
+    use super::*;
+    use clap::Parser;
+    use nvf_play::settings::Settings;
+
+    /// #3016: the Tree distance row is a slider of the distant LOD's far limit in steps of
+    /// 0.02 (2,500 units at the defaults), starting at `--tree-distance`'s 40,000 on a step,
+    /// shown in units; its note keeps to the budget.
+    #[test]
+    fn the_row_reaches_the_far_limit_and_starts_at_the_flag() {
+        let args = Args::try_parse_from(crate::with_default_mode(vec!["nvforever".to_string()])).unwrap();
+        let mut app = App::new();
+        app.insert_resource(DrawDistances::new(&args));
+        register_distances(&mut app);
+        let settings = app.world().resource::<Settings>();
+        let s = settings.list()[settings.index("tree-distance").unwrap()];
+        let slider = s.slider.expect("a slider");
+        assert_eq!(nvf_play::settings::note_over_budget(s.note), None);
+        assert_eq!(s.switches, "--tree-distance");
+        assert_eq!(nvf_play::settings::slider_values(&slider), 50);
+        assert!(!nvf_play::settings::few_step_slider(&s));
+        let start = (slider.get)(app.world());
+        assert_eq!(start, 0.32);
+        assert_eq!(slider.fit(start), start, "the default is on a step");
+        // No test builds DrawDistancePlugin: shown against the default far limit, 125,000.
+        assert_eq!(slider.text(start), "40,000 units");
+        assert_eq!(slider.text(slider.fit(start + slider.step)), "42,500 units");
+        assert_eq!(slider.text(slider.fit(start - slider.step)), "37,500 units");
+        assert_eq!(slider.text(slider.fit(0.08)), "10,000 units");
+        assert_eq!(slider.text(slider.fit(1.0)), "125,000 units");
+        assert_eq!(slider.fit(0.0), 0.02, "the least is one step");
+        assert_eq!(slider.text(slider.fit(0.0)), "2,500 units");
+    }
+}
+
+#[cfg(test)]
 mod terrain_wireframe_tests {
     use super::*;
     use crate::terrain_wireframe::{TerrainWireframe, KEY, NOTE};
@@ -2892,5 +3574,123 @@ mod terrain_wireframe_tests {
 
     fn row_of(app: &App, key: &str) -> usize {
         app.world().resource::<Settings>().index(key).unwrap()
+    }
+}
+
+/// Register the Display group's window rows (`resolution`, `borderless`, `monitor`).
+fn register_window_display(app: &mut App) {
+    add_choice_list(
+        app,
+        Setting {
+            key: "resolution",
+            group: GROUP_PICTURE,
+            label: "Resolution",
+            note: "The window's size, or in full screen the monitor's (its own size: borderless). A new one goes back after 20 seconds unless you keep it.",
+            switches: "--size",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: window_mode::resolution_names,
+            chosen: window_mode::resolution_chosen,
+            pick: window_mode::resolution_pick,
+            save: window_mode::resolution_save,
+            load: window_mode::resolution_load,
+            ask_keep: true,
+        },
+    );
+    add_setting(
+        app,
+        Setting {
+            key: "borderless",
+            group: GROUP_PICTURE,
+            label: "Full screen",
+            note: "On: the game fills its monitor without a frame, at the full screen resolution above. Off: a window of the window resolution.",
+            // [design, #3884] In a test run (`given_switches` win), an explicit `--size`
+            // asks for a window of that size, so a saved `borderless=1` in `NVForever.ini`
+            // does not override it into borderless full screen (which ignores `--size`).
+            switches: "--window --size",
+            get: |w| w.resource::<Args>().window == window_mode::WindowChoice::Borderless,
+            set: window_mode::set_borderless,
+            slider: None,
+        },
+    );
+    add_choice_list(
+        app,
+        Setting {
+            key: "monitor",
+            group: GROUP_PICTURE,
+            label: "Monitor",
+            note: "The display the game opens on in full screen (the main display until you pick one).",
+            switches: "--window",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: window_mode::monitor_names,
+            chosen: window_mode::monitor_chosen,
+            pick: window_mode::monitor_pick,
+            save: window_mode::monitor_save,
+            load: window_mode::monitor_load,
+            ask_keep: false,
+        },
+    );
+}
+
+#[cfg(test)]
+mod display_precedence_tests {
+    use super::*;
+    use clap::Parser;
+    use nvf_play::settings::{apply_stored, SettingsFile};
+    use window_mode::WindowChoice;
+
+    fn run_with_ini(cli: &[&str], ini_text: &str, tag: &str) -> Args {
+        let dir = std::env::temp_dir().join(format!("nvf-display-prec-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        std::fs::write(&path, ini_text).unwrap();
+        let line: Vec<String> = cli.iter().map(|s| (*s).to_string()).collect();
+        let args = Args::try_parse_from(&line).unwrap();
+        let given = given_switches(&args, &line);
+        let mut app = App::new();
+        app.insert_resource(args);
+        app.init_resource::<window_mode::FullScreenSize>();
+        app.init_resource::<window_mode::MonitorModes>();
+        app.init_resource::<window_mode::MonitorChoice>();
+        app.insert_resource(SettingsFile(Some(path)));
+        app.insert_resource(given);
+        register_window_display(&mut app);
+        apply_stored(app.world_mut());
+        let out = app.world().resource::<Args>().clone();
+        let _ = std::fs::remove_dir_all(&dir);
+        out
+    }
+
+    /// #3884: in a timed/test run (`--run-seconds`), an explicit `--size` keeps the run
+    /// windowed at that size instead of letting a saved `borderless=1` in `NVForever.ini`
+    /// switch the window to borderless full screen (which ignores `--size`). Interactive
+    /// runs without `--run-seconds` still honor the INI, and an explicit `--window
+    /// borderless` still enters borderless full screen.
+    #[test]
+    fn explicit_size_in_a_test_run_is_not_overridden_by_saved_borderless() {
+        let ini = "[Settings]\nborderless=1\nresolution=1920x1080;desktop\n";
+        let timed_sized = run_with_ini(&["nvforever", "--play", "--size", "1280x720", "--run-seconds", "16"], ini, "timed-sized");
+        assert_eq!(timed_sized.window, WindowChoice::Windowed);
+        assert_eq!(timed_sized.size, "1280x720");
+
+        let timed_borderless = run_with_ini(
+            &["nvforever", "--play", "--size", "1280x720", "--window", "borderless", "--run-seconds", "16"],
+            "[Settings]\nborderless=0\nresolution=1920x1080;desktop\n",
+            "timed-borderless",
+        );
+        assert_eq!(timed_borderless.window, WindowChoice::Borderless);
+        assert_eq!(timed_borderless.size, "1280x720");
+
+        let interactive = run_with_ini(&["nvforever", "--play"], ini, "interactive");
+        assert_eq!(interactive.window, WindowChoice::Borderless);
+        assert_eq!(interactive.size, "1920x1080");
     }
 }

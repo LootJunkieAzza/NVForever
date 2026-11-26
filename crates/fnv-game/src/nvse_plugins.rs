@@ -7,6 +7,15 @@ use crate::game::{Game, RunCtx};
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 
+impl Game<'_> {
+    /// Whether `item` has been marked unique via `ToggleItemUnique` (and therefore
+    /// excluded as an optional repair-part source in the item repair menu)
+    /// [documented: GECK wiki ToggleItemUnique / IsItemUnique].
+    pub fn is_item_unique(&self, item: FormId) -> bool {
+        self.gaps.unique_items.contains(&item)
+    }
+}
+
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
     match args.get(k)? {
         XVal::Ref(0) => None,
@@ -44,12 +53,6 @@ fn list(g: &mut Game, items: Vec<XVal>) -> XVal {
 /// five plugins of the owner's Data\NVSE\Plugins and the extender's own nvse_1_4 and
 /// nvse_steam_loader give 1, "jip_nvse.dll" 0].
 const DLLS: [&str; 7] = ["jip_nvse", "johnnyguitar", "showoffnvse", "knvse", "mcm", "nvse_1_4", "nvse_steam_loader"];
-
-/// ALCH ENIT flag bits by LU's flag ID: 0 none, 1 and 3 bit 0 (No Auto-Calc), 2 bit 1
-/// (Food Item) [observed: plugins1 and plugins2, Cram and Beer (flags 3) read 0 1 1 1,
-/// Nuka-Cola, a poison (flags 1) and the stimpak (flags 5) 0 1 0 1, Silver Sting (0)
-/// 0 0 0 0; hypothesis: what IDs 1 and 3 stand for].
-const INGESTIBLE_BITS: [Option<u32>; 4] = [None, Some(0), Some(1), Some(0)];
 
 /// ShowOff's easing of `t` (0–1) by name and mode, 0 in, 1 out, 2 in-out, the Penner
 /// curves; an unknown name gives -1 [observed: plugins1 and plugins2, quad, cubic, quart,
@@ -129,6 +132,20 @@ fn bounce_out(t: f64) -> f64 {
     }
 }
 
+impl Game<'_> {
+    /// The session display name set for map marker `r` by `SetMapMarkerName`, if any.
+    pub fn map_marker_name_override(&self, r: FormId) -> Option<&str> {
+        self.gaps.marker_names.get(&r).map(String::as_str)
+    }
+
+    /// The session reputation override set for map marker `r` by `SetMapMarkerRep`:
+    /// `Some(Some(rep))` replaces the marker's reputation, `Some(None)` clears it, and
+    /// `None` leaves the authored `WMI1` record intact.
+    pub fn map_marker_reputation_override(&self, r: FormId) -> Option<Option<FormId>> {
+        self.gaps.marker_reputations.get(&r).copied()
+    }
+}
+
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
@@ -136,9 +153,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     let v = match name {
         // ---- LU ----
         // IDLE MODL; the setter for the session [observed: plugins1].
-        "getidleanimpath" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "MODL", "")) {
-            Some(XVal::Str(s)) => XVal::Str(s),
-            _ => XVal::Str(String::new()),
+        "getidleanimpath" => match form(args, 0) {
+            Some(f) if g.idle_def(f).is_some() => XVal::Str(g.idle_animation_path(f).unwrap_or_default().to_string()),
+            Some(f) => match crate::nvse::record_value(g, f, "MODL", "") {
+                Some(XVal::Str(s)) => XVal::Str(s),
+                _ => XVal::Str(String::new()),
+            },
+            None => XVal::Str(String::new()),
         },
         "setidleanimpath" => {
             if let Some(f) = form(args, 0) {
@@ -184,11 +205,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             XVal::Num(if a == FormId::PLAYER_REF { f64::from(g.player.perks.get(&p).copied().unwrap_or(0)) } else { 0.0 })
         }
+        // `ingestible flag`: bitmask test `(ENIT.flags & flag) != 0` (1 No Auto-Calc, 2
+        // Food Item, 4 Medicine) [observed: plugins1 and plugins2; Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters,
+        // `w6d2p2_25_ingestible_flag_and_skill_magazine`
+        // (`tools/capture/nvse/catalogs/wave6d2_get_ingestible_flag_bitmask.json`):
+        // `stim=1,0,1,1,1,1|cram=1,0|set4=0->1(ef2=1)->0|mag=1,0`].
         "getingestibleflag" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            let flags = crate::nvse::record_value(g, f, "ENIT", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u32;
-            let k = num(args, 1, -1.0);
-            yes((0.0..4.0).contains(&k) && INGESTIBLE_BITS[k as usize].is_some_and(|b| flags >> b & 1 != 0))
+            let flags = form(args, 0).and_then(|f| g.ingestible_def(f)).map_or(0, |d| u32::from(d.flags));
+            let k = num(args, 1, 0.0);
+            let mask = if k.is_finite() && k > 0.0 && k <= f64::from(u32::MAX) && k.fract() == 0.0 { k as u32 } else { 0 };
+            yes(mask != 0 && (flags & mask) != 0)
         }
         // [observed: plugins1, 2]
         "getdefaultmessagetime" => XVal::Num(crate::nvse_lutana::message_time(g)),
@@ -246,19 +274,46 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let p: Vec<f64> = (0..6).map(|k| num(args, k, 0.0)).collect();
             XVal::Num(((p[3] - p[0]).powi(2) + (p[4] - p[1]).powi(2) + (p[5] - p[2]).powi(2)).sqrt())
         }
-        // Forms only the masters define [observed: plugins1, the stimpak 0 and 0;
-        // hypothesis: NVForever does not follow overrides by index here].
-        "getformoverrideindex" | "isformoverridden" => zero,
+        // Load-order override queries backed by `GameData::form_overrides`
+        // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden;
+        // observed: plugins1, non-overridden Stimpak returns 0 and 0;
+        // observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528,
+        // clean-room script probe jg_01_form_override_index_edge: overridden pistol=5,
+        // null=0, TempCloneForm=255, IsFormOverridden(clone)=0; no DLL or source consulted].
+        "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden(f))),
+        "getformoverrideindex" => {
+            let Some(f) = form(args, 0).or(subject) else { return Some(Ok(XVal::Num(0.0))) };
+            let idx = if let Some(i) = g.data.form_override_index(f) {
+                f64::from(i)
+            } else if f.0 >> 24 >= 0xFE {
+                255.0
+            } else if g.world.placed.get(f).is_some() {
+                f64::from(f.0 >> 24)
+            } else {
+                0.0
+            };
+            XVal::Num(idx)
+        }
         // ZNAM; Set… for the session, none leaving the sound [observed: plugins2, the
-        // beep reads back, a null set does not clear it].
-        "getputdownsound" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "ZNAM", "")) {
-            Some(XVal::Ref(r)) => XVal::Ref(r),
-            _ => XVal::Ref(0),
+        // beep reads back, a null set does not clear it]. WEAP shares live slots 12/13
+        // with GetWeaponSound / SetWeaponSound.
+        "getputdownsound" => match form(args, 0) {
+            Some(f) if g.is_weapon_form(f) => XVal::Ref(g.weapon_sound(f, 13).map_or(0, |s| s.0)),
+            Some(f) => match crate::nvse::record_value(g, f, "ZNAM", "") {
+                Some(XVal::Ref(r)) => XVal::Ref(r),
+                _ => XVal::Ref(0),
+            },
+            None => XVal::Ref(0),
         },
         "setpickupsound" | "setputdownsound" => {
             if let (Some(f), Some(s)) = (form(args, 0), form(args, 1)) {
-                let sub = if name == "setpickupsound" { "YNAM/" } else { "ZNAM/" };
-                g.field_overrides.insert((f, sub.into()), XVal::Ref(s.0));
+                if g.is_weapon_form(f) {
+                    let slot = if name == "setpickupsound" { 12 } else { 13 };
+                    g.set_weapon_sound(f, slot, Some(s));
+                } else if g.is_sound_form(s) {
+                    let sub = if name == "setpickupsound" { "YNAM/" } else { "ZNAM/" };
+                    g.field_overrides.insert((f, sub.into()), XVal::Ref(s.0));
+                }
             }
             zero
         }
@@ -310,7 +365,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- record setters the getters read (`crate::nvse::field`), for the session ----
         // `list item` [documented: SetRepairList].
         "setrepairlist" => {
-            if let (Some(l), Some(f)) = (form(args, 0), form(args, 1)) {
+            if let (Some(l), Some(f)) = (form(args, 0), form(args, 1).or_else(|| subject.map(|r| base(g, r)))) {
                 g.field_overrides.insert((f, "REPL/".into()), XVal::Ref(l.0));
             }
             zero
@@ -318,9 +373,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `mask item`: BMDT biped flags and general flags, as GetEquipmentSlotsMask and
         // GetEquipmentBipedMask read them [documented].
         "setequipmentslotsmask" | "setequipmentbipedmask" => {
-            if let Some(f) = form(args, 1) {
-                let path = if name == "setequipmentslotsmask" { "BMDT/biped_flags" } else { "BMDT/general_flags" };
-                g.field_overrides.insert((f, path.into()), XVal::Num(num(args, 0, 0.0).max(0.0).trunc()));
+            if let Some(f) = form(args, 1).or_else(|| subject.map(|r| base(g, r))) {
+                let mask = num(args, 0, 0.0).max(0.0).trunc();
+                if g.is_armo(f) {
+                    if name == "setequipmentslotsmask" {
+                        g.set_armo_slots(f, mask as u32);
+                    } else {
+                        g.set_armo_general_flags(f, (mask as u32 & 0xFF) as u8);
+                    }
+                } else {
+                    let path = if name == "setequipmentslotsmask" { "BMDT/biped_flags" } else { "BMDT/general_flags" };
+                    g.field_overrides.insert((f, path.into()), XVal::Num(mask));
+                }
             }
             zero
         }
@@ -330,8 +394,17 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             _ => XVal::Ref(0),
         },
         "setbipedmodellist" => {
-            if let Some(f) = form(args, 0) {
-                g.field_overrides.insert((f, "BIPL/".into()), XVal::Ref(form(args, 1).map_or(0, |l| l.0)));
+            if let Some(f) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"ARMO")) {
+                match args.get(1) {
+                    None => {
+                        g.field_overrides.insert((f, "BIPL/".into()), XVal::Ref(0));
+                    }
+                    Some(_) => {
+                        if let Some(l) = form(args, 1).filter(|&l| g.data.sig(g.unclone(l)) == Some(*b"FLST")) {
+                            g.field_overrides.insert((f, "BIPL/".into()), XVal::Ref(l.0));
+                        }
+                    }
+                }
             }
             zero
         }
@@ -343,7 +416,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let r = form(args, 1).or(subject).unwrap_or(FormId(0));
             let b = base(g, r);
             let b = g.template_source(b, r, |d| d.template_base).map_or(b, |(s, _)| s);
-            let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
+            let flags = u64::from(g.actor_base_flags_raw(b));
             let k = num(args, 0, -1.0);
             yes((0.0..32.0).contains(&k) && flags >> (k as u64) & 1 != 0)
         }
@@ -362,21 +435,38 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 _ => XVal::Ref(0),
             }
         }
+        // No model argument clears the combination's form, so first person draws the
+        // third-person model the weapon has for it (weapon-mods.md §2, §8) [hypothesis: WAP's
+        // script files set MODL and MWD1–MWD7 with SetWeaponModel and then call this with no
+        // model for each of 0–7, for new first-person models; observed: WAP Year One's
+        // gr_10mmP.txt]. A model argument that is no form (an empty reference, a missing
+        // master's form) changes nothing, as before [hypothesis: the original's no-op].
         "setweapon1stpersonmodel" => {
-            let (Some(w), Some(m)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            let Some(w) = form(args, 0) else { return Some(Ok(zero)) };
             let sub = match num(args, 1, -1.0) as i64 {
                 0 => "WNAM/".to_string(),
                 k @ 1..=7 => format!("WNM{k}/"),
                 _ => return Some(Ok(zero)),
             };
-            g.field_overrides.insert((w, sub), XVal::Ref(m.0));
+            let model = match args.get(2) {
+                None => 0,
+                Some(_) => match form(args, 2) {
+                    Some(m) => m.0,
+                    None => return Some(Ok(zero)),
+                },
+            };
+            g.field_overrides.insert((w, sub), XVal::Ref(model));
             zero
         }
         // `armor modelID(1-4) index3D`, success(0/1) [documented: ClearArmorAltTexture].
         // NVForever keeps no alternate textures on armour models [hypothesis], so there is
-        // nothing at any index to clear (0), while clearing them all (-1) succeeds
-        // [observed: plugin-odds, armour 00020423 model 1: index -1 gave 1, index 0 gave
-        // 0]; no form or a model ID outside 1-4 gives 0 [hypothesis].
+        // nothing at any index to clear (0), while clearing them all (-1) succeeds on
+        // modelID 1..=4 and fails (0) on modelID 0 or 5 or index 0 or 99 [observed:
+        // plugin-odds, armour 00020423 model 1: index -1 gave 1, index 0 gave 0; observed
+        // 2026-11-24: `w6t2_30_jg5_get_weapons_for_mod_and_armor_alt_tex`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `clr(1m1=1,10=0,4m1=1,0m1=0,5m1=0,199=0)`; zero DLL, PDB, or third-party source
+        // consulted]; no form gives 0 [hypothesis].
         "cleararmoralttexture" => {
             yes(form(args, 0).is_some() && (1.0..=4.0).contains(&num(args, 1, 0.0)) && num(args, 2, 0.0) == -1.0)
         }
@@ -384,7 +474,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setjohnnyonstartquesteventhandler" | "setjohnnyonstopquesteventhandler" => {
             let start = name == "setjohnnyonstartquesteventhandler";
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let quest = form(args, 3);
+            let quest = form(args, 3).filter(|&id| id != FormId(0x0000_003B));
             g.gaps.quest_handlers.retain(|(s, h, q)| !(*s == start && *h == f && *q == quest));
             if num(args, 0, 1.0) != 0.0 {
                 g.gaps.quest_handlers.push((start, f, quest));
@@ -394,15 +484,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ACBS flags, the low 16 bits; the setter for the session [observed: data2,
         // Sunny 17, Boone 144, Doc and the player 0; Sunny + 8 reads 25 and back].
         "getactorbaseflagslow" => {
-            let b = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
-            let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
-            XVal::Num((flags & 0xFFFF) as f64)
+            let b = form(args, 0).or(subject).map(|f| g.actor_flags_target(f)).unwrap_or(FormId(0));
+            XVal::Num(f64::from(g.actor_base_flags_raw(b) & 0xFFFF))
         }
         "setactorbaseflagslow" => {
-            if let Some(b) = form(args, 1).or(subject).map(|f| base(g, f)) {
-                let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
-                let new = (flags & !0xFFFF) | (num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF);
-                g.field_overrides.insert((b, "ACBS/flags".into()), XVal::Num(new as f64));
+            if let Some(b) = form(args, 1).or(subject).map(|f| g.actor_flags_target(f)) {
+                g.set_actor_base_flags(b, false, (num(args, 0, 0.0).max(0.0) as u64 & 0xFFFF) as u16);
             }
             zero
         }
@@ -435,8 +522,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let vals = vec![XVal::Ref(item.0), XVal::Num(full * cond), XVal::Num(f64::from(mods))];
             list(g, vals)
         }
-        // On an inventory reference [observed: data2, the pistol's 0].
-        "getnounequip" => zero,
+        // On an inventory reference of a currently equipped item: 1 when the world holds a
+        // NoUnequip lock (EquipItem / EquipItemAlt NoUnequipFlag or SetNoUnequip 1), else 0
+        // [documented: GECK wiki GetNoUnequip; observed: data2, unlocked pistol reads 0].
+        "getnounequip" => {
+            let Some((actor, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(zero)) };
+            let equipped = g.world.peek(actor).and_then(|s| s.inventory.as_ref()).is_some_and(|inv| inv.is_equipped(item));
+            yes(equipped && g.world.equip_lock(actor, item) == Some(fnv_sim::world::EquipLock::NoUnequip))
+        }
         // ACTI WNAM; none leaves it [observed: data2].
         "setactivatorwatertype" => {
             if let (Some(w), Some(f)) = (form(args, 0), form(args, 1)) {
@@ -498,19 +591,44 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.list_edits.insert(l, members);
             XVal::Num(1.0)
         }
-        // Neither the stimpak nor the pistol reads unique, and toggling changes nothing
-        // the getter sees [observed: data3].
-        "isitemunique" | "toggleitemunique" => zero,
+        // `IsItemUnique item` / `ToggleItemUnique item/list 1/0`: tracks session unique
+        // status on repairable equipment forms (WEAP/ARMO, or FLST members of those types)
+        // so unique items are excluded as repair-part sources (`Game::player_repair_list`)
+        // [documented: GECK wiki ToggleItemUnique, IsItemUnique; observed: data3, ALCH
+        // stimpak ignores toggle and remains 0].
+        "isitemunique" => yes(form(args, 0).is_some_and(|f| g.is_item_unique(base(g, f)))),
+        "toggleitemunique" => {
+            if let Some(target) = form(args, 0) {
+                let on = num(args, 1, 0.0) != 0.0;
+                let tb = base(g, target);
+                let items: Vec<FormId> = if g.data.sig(tb) == Some(*b"FLST") {
+                    crate::functions::list_members(g, tb).into_iter().map(|m| base(g, m)).collect()
+                } else {
+                    vec![tb]
+                };
+                for item in items {
+                    if matches!(g.data.sig(g.unclone(item)).as_ref(), Some(b"WEAP" | b"ARMO")) {
+                        if on {
+                            g.gaps.unique_items.insert(item);
+                        } else {
+                            g.gaps.unique_items.remove(&item);
+                        }
+                    }
+                }
+            }
+            zero
+        }
         // The XP as given, no perk adjusting it [documented: RewardXPExact; observed:
         // data3, 10 + 5 reads 15 in the same frame].
         "rewardxpexact" => {
             g.player.xp += num(args, 0, 0.0).trunc();
             zero
         }
-        // `set|remove function flag [code]` [documented: SetOnActorValueChangeEventHandler].
+        // `set|remove function flag [code]` [documented: SetOnActorValueChangeEventHandler;
+        // observed 2026-11-24: -1 is a wildcard like omitted].
         "setonactorvaluechangeeventhandler" => {
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let code = args.get(3).and_then(|v| v.num().ok()).map(|c| c as u16);
+            let code = args.get(3).and_then(|v| v.num().ok()).filter(|&c| c >= 0.0).map(|c| c as u16);
             let exact = (num(args, 2, 0.0) as i64) & 1 != 0;
             g.gaps.av_handlers.retain(|(h, c, _)| !(*h == f && *c == code));
             if num(args, 0, 1.0) != 0.0 {
@@ -523,19 +641,39 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // 00171DBB from the frame after ForcePlayIdle and still 4 frames after
         // ForceStopIdle or StopIdle; hypothesis: kept until another plays].
         "getplayedidle" => XVal::Ref(subject.and_then(|a| g.extra.get(&a)).and_then(|e| e.last_idle).map_or(0, |i| i.0)),
-        // kNVSE: `idle`, played at once as PlayIdle's are [documented: ForcePlayIdle].
+        // kNVSE: `idle [playerPOV]`, played at once as PlayIdle's are; optional
+        // `playerPOV` 1 targets third person and 2 targets first person
+        // [documented: GECK wiki ForcePlayIdle].
         "forceplayidle" => {
             if let (Some(a), Some(i)) = (subject, form(args, 0)) {
-                if g.ask_idle(a, i, crate::idles::IdleSource::Script) {
+                let pov = match num(args, 1, 0.0) as i64 {
+                    1 => Some(crate::idles::IdlePov::Third),
+                    2 => Some(crate::idles::IdlePov::First),
+                    _ => None,
+                };
+                if g.ask_idle_pov(a, i, crate::idles::IdleSource::Script, pov) {
                     g.extra.entry(a).or_default().last_idle = Some(i);
                 }
             }
             zero
         }
-        // The special idle stops (the engine takes it at its next frame).
+        // The special idle stops (the engine takes it at its next frame); optional
+        // `playerPOV` 1/2 scopes `ForceStopIdle` to one player rig [documented: ForceStopIdle].
         "stopidle" | "forcestopidle" => {
             if let Some(a) = subject {
-                g.gaps.idle_stops.push(a);
+                let pov = if name == "forcestopidle" {
+                    match num(args, 0, 0.0) as i64 {
+                        1 => Some(crate::idles::IdlePov::Third),
+                        2 => Some(crate::idles::IdlePov::First),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                match pov {
+                    Some(p) => g.gaps.idle_stop_pov.push((a, p)),
+                    None => g.gaps.idle_stops.push(a),
+                }
             }
             zero
         }

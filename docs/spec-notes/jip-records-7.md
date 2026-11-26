@@ -8,21 +8,33 @@ are kept on the other machine); choices the pages leave open are tagged [hypothe
 Setters change the form for the session and are read by this batch's getters and the
 earlier ones (GetAmmoSpeed, GetAmmoConsumedPercent, GetAmmoCasing, GetNumAmmoEffects,
 GetNthAmmoEffect, GetAmmoEffectTraitNumeric, GetClimateNumWeatherTypes,
-GetClimateNthWeather…). The setters of a trait return 0 [hypothesis: as the record
-setters of batch 5 were observed to, jip-records-5.md].
+GetClimateNthWeather…). The setters of a trait return 0 [observed: jip7 below; Fallout:
+New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, read-only `PrintToConsole` probe
+`b3_jip_ex_04_set_ammo_trait_ret` (`tools/capture/nvse/catalogs/wave4b_extenders.json`,
+#3679, calling `SetAmmoTraitNumeric rAm 0 1.5` on 10mm Ammo `0x4241`):
+`PROBE|b3_jip_ex_04_set_ammo_trait_ret|s0=1.00,ret=0,s1=1.50`; no DLL or source
+consulted].
 
 ## 1. Ammunition and ammo effects
 
 | Function | NVForever |
 |---|---|
-| SetAmmoTraitNumeric `ammo trait value` | 0 speed (DATA), 1 projectiles per shot (DAT2), 2 ammo consumed percent (DAT2), 3 clip rounds (DATA) [documented: the page's table, which lists 0-3 though its argument says 0-2] |
-| SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; left out, none [documented] |
-| AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; hypothesis: the 0 cases]; GetNumAmmoEffects, GetNthAmmoEffect, ApplyAmmoEffects and GetCalculatedWeaponDegradation read the changed list |
-| SetAmmoEffectTraitNumeric `effect trait value` | AMEF DATA: 0 type, 1 operation, 2 value [documented] |
+| SetAmmoTraitNumeric `ammo trait value` | 0 speed (DATA), 1 projectiles per shot (DAT2), 2 ammo consumed percent (DAT2), 3 clip rounds (DATA) [documented: the page's table, which lists 0-3 though its argument says 0-2]; accepts `TempCloneForm` `AMMO` clones [design] |
+| SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; left out, none [documented]; accepts `TempCloneForm` `AMMO` clones, and `SetAmmoProjectile` validates `PROJ` (following clones) when a non-null form is supplied [hypothesis] |
+| AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_16_ammo_effect_add_remove_ret (AddAmmoEffect/RemoveAmmoEffect): 1,0,1,0; no DLL or source consulted]; accepts `TempCloneForm` `AMMO` and `AMEF` clones [design]; `GetNumAmmoEffects`, `GetNthAmmoEffect`, `ApplyAmmoEffects`, `GetCalculatedWeaponDegradation`, and `Game::ammo_traits` / `Game::ammo_effect_defs` read the changed list |
+| SetAmmoEffectTraitNumeric `effect trait value` | AMEF DATA: 0 type, 1 operation, 2 value [documented]; accepts `TempCloneForm` `AMEF` clones [design] |
 
-Combat builds each ammunition's effects once, when the data loads (`fnv_combat::data`,
-`ammo`), so a list changed by these functions does not reach a shot's damage, DT or
-spread (follow-up: combat's ammo effects through `Game::ammo_effects`).
+Session `AMMO` and `AMEF` overrides are exposed canonically through `Game::ammo_traits`,
+`Game::ammo_flag`, `Game::ammo_effect_traits`, `Game::ammo_effect_defs`, and
+`Game::apply_ammo_effects_value` (`crates/fnv-game/src/nvse_jip7.rs`), and `TempCloneForm`
+snapshots all effective `AMMO` / `AMEF` fields (`Game::snapshot_ammo_traits`) so pre-clone
+edits carry over while post-clone edits on the original or parent clone remain isolated
+[design]. `fnv-combat` provides `AmmoEffect::from_numeric` and `CombatForms::chain_with_ammo`
+for live overridden `AmmoStats` / `AmmoEffect` evaluation in shot chains, damage, spread,
+and weapon wear [design]. Wiring engine combat (`engine/nvf-play`) to read
+`Game::ammo_traits` at shot creation remains a follow-up, and original-game capture parity
+for wrong-type `SetAmmoProjectile` rejection and clone-of-clone isolation remain unqualified.
 
 ## 2. Projectiles and explosions
 
@@ -31,10 +43,18 @@ spread (follow-up: combat's ammo effects through `Game::ammo_effects`).
 | SetProjectileTraitNumeric `projectile trait value` | DATA: 0 type, 1 gravity, 2 speed, 3 range, 4 tracer chance, 5 explosion proximity, 6 explosion timer, 7 muzzle flash duration, 8 fade duration, 9 impact force, 10-12 rotation x/y/z, 13 bouncy mult; 14 the detection sound level (VNAM) [documented: the page's table] |
 | SetProjectileLight `projectile [light]` | DATA's light; left out, none [documented] |
 | SetProjectileMuzzleFlash `projectile path` | NAM1, the muzzle flash model |
-| SetExplosionTraitNumeric `explosion trait value` | DATA: 0 force, 1 damage, 2 radius, 3 IS radius, 4 radiation level, 5 dissipation time, 6 radiation radius, 7 sound level [documented] |
+| SetExplosionTraitNumeric `explosion trait value` | DATA: 0 force, 1 damage, 2 radius, 3 IS radius, 4 radiation level, 5 dissipation time, 6 radiation radius, 7 sound level [documented]; accepts `TempCloneForm` `EXPL` clones and feeds `Game::explosion_traits`, `Game::add_explosion_radiation_zone`, `Game::explosive_from_explosion`, `Game::explosion_hit_damage`, and `Game::explosion_placed` radius overrides [design] |
 
-The engine's projectiles and explosions still read the records as loaded (follow-up: the
-game's projectile and explosion data through the session's changes).
+The engine's projectiles and explosions still read most visual/audio fields as loaded;
+session `DATA/speed`, `DATA/impact_force`, and `DATA/flags` overrides
+(`SetProjectileTraitNumeric`, `SetProjectileFlag`) are exposed clone-first through
+`Game::projectile_launch_traits`, `Game::projectile_flags_override`,
+`Game::projectile_flags`, and `Game::projectile_can_be_disabled`, `EXPL` session trait
+and flag overrides are exposed through `Game::explosion_traits`, and
+`fnv_combat::data::ProjectileStats::apply_flags` (alongside `WeaponStats::apply_flags1`
+for `WEAP` `DNAM/flags1`) projects bitmasks onto typed combat records [design]
+(follow-up: wire the remaining engine projectile, weapon, and explosion visual/audio/blast
+readers through these views).
 
 ## 3. Impact data and materials
 
@@ -58,7 +78,7 @@ table; the bits: xEdit IPCT and the decal data].
 | Get/SetWeatherTexture `weather layer [path]` | the cloud layers 0-3: DNAM, CNAM, ANAM, BNAM [documented: layers 0-3; the fields: xEdit WTHR] |
 | SetWeatherTransitionTimeOverride `[seconds]` | kept (`Game::weather_transition_override`); none or 0 removes it [documented] |
 | ClimateAddWeatherType `climate weather chance [global]` | adds to WLST, or sets the chance and global of a weather already there [documented]; 1 [documented: `successful`] |
-| ClimateRemoveWeatherType `climate weather` | 1 when it was there [hypothesis: 0 otherwise] |
+| ClimateRemoveWeatherType `climate weather` | 1 when it was there, 0 otherwise [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_18_climate_remove_missing_weather (ClimateRemoveWeatherType): 0; no DLL or source consulted] |
 
 The sky still reads the climates' weathers and the weathers' textures as loaded, and its
 transitions take their own time (follow-up: the sky through these changes).
@@ -69,7 +89,8 @@ transitions take their own time (follow-up: the sky through these changes).
 |---|---|
 | SetArmorClass `armor class` | 1 light, 2 medium, 3 heavy [documented]: BMDT's general flags Medium (bit 3) and Heavy (bit 7), read by `Game::armor_class` |
 | SetArmorRCT `armor path` | BMCT, the ragdoll constraint template |
-| SetArmorConditionPenalty `[multiplier]` | kept; returns the value before the call; left out, unchanged; 1.0 until set [documented; observed: jip7 armor.condpenalty]; any number is taken (3, -1) [observed: jip7b armor.condpenalty.neg] |
+| Get/SetBipedModelList `armor [list]` | ARMO BIPL (`nvse_plugins.rs`); validates `ARMO` target and `FLST` list, treats non-`FLST` and explicit null (`0`) as no-ops, and clears only when `list` is omitted [documented: GECK wiki GetBipedModelList, SetBipedModelList; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to game install or Saves), `w6d2p5_04_biped_model_list_omit` (`tools/capture/nvse/catalogs/wave6d2_set_biped_model_list_validate.json`): `PROBE\|w6d2p5_04_biped_model_list_omit\|set=1,badEqFl=1,badZ=0,nullZ=0,omitZ=1`; zero DLL, PDB, or third-party source consulted] |
+| SetArmorConditionPenalty `[multiplier]` | kept; returns the value before the call; left out, unchanged; defaults to Stewie's `Tweaks::armor_condition_penalty` (1.0 by default) until a script sets it [documented; observed: jip7 armor.condpenalty; design: docs/design/tweaks.md]; any finite float is stored raw without clamping (5.0, 3.0, -1.0) [observed: jip7b armor.condpenalty.neg; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_19_armor_cond_penalty_clamp (SetArmorConditionPenalty): 1.000,1.000,5.000,5.000,-1.000; no DLL or source consulted] |
 | SetDamageToArmorMaxPercent `[share]` | kept, 0-1 only (2 and -1 set nothing); returns the value before the call; left out, unchanged; 1 until set [observed: jip7 armor.maxpercent, jip7b armor.maxpercent.range] |
 
 Combat still uses the fixed multiplier 1.0 and no cap (`fnv_combat::condition`), and the
@@ -87,8 +108,7 @@ operation 0-2, projectile type 1-16, sound level 0-2, orientation 0-2, a climate
 0-100, impact flags 0-15, the colour up to 255255255); and a whole number for every field
 that is not an f32 [hypothesis: the game keeps its record fields in range]. Also:
 SetWeatherTransitionTimeOverride's seconds (0 and up), SetArmorConditionPenalty's
-multiplier (0-2: past 2 the page's formula `1.0 - (0.5 - condition) × multiplier` goes below
-zero at 0% condition [hypothesis]) and SetDamageToArmorMaxPercent's share (0-1
+multiplier (any finite float stored unclamped, observed above) and SetDamageToArmorMaxPercent's share (0-1
 [documented]). The later batches use the same check.
 
 ## Probed in the original (2026-11-08, #1006)

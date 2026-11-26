@@ -9,6 +9,11 @@ const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?
       <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
     </dependentAssembly>
   </dependency>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <heapType xmlns="http://schemas.microsoft.com/SMI/2020/WindowsSettings">SegmentHeap</heapType>
+    </windowsSettings>
+  </application>
 </assembly>
 "#;
 
@@ -20,7 +25,10 @@ fn main() {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("assets/nvforever.ico");
         // Common Controls 6, so the system's dialogs before the window (rfd's Task Dialog: the
-        // reports popup's own button words) are the current ones; nothing else changes.
+        // reports popup's own button words) are the current ones. `heapType` SegmentHeap: the
+        // default heap gave memory back to the system in one go under its lock, a 17-21 ms
+        // stall of every allocating thread at some cell crossings
+        // (docs/design/streaming-hitches.md section 3.6). Nothing else changes.
         res.set_manifest(MANIFEST);
         res.compile().expect("embedding the program icon (needs the Windows SDK's rc.exe)");
     }

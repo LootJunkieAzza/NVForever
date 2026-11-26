@@ -53,6 +53,7 @@ use crate::functions::actor as fa;
 use crate::game::Game;
 use fnv_sim::refs::RefTable;
 use fnv_sim::FormId;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// The highest Rad Resistance that counts, percent [hypothesis: as Damage Resistance's
@@ -249,6 +250,14 @@ impl Game<'_> {
         Some(z)
     }
 
+    /// Leave the radiation zone of `explosion` at `pos` using its live session traits
+    /// (`Game::explosion_traits`, including `SetExplosionTraitNumeric` overrides for
+    /// `radiation_level`, `radiation_dissipation_time`, `radiation_radius`, and `radius`).
+    pub fn add_explosion_radiation_zone(&mut self, explosion: FormId, pos: [f32; 3]) -> Option<RadZone> {
+        let t = self.explosion_traits(explosion)?;
+        self.add_radiation_zone(explosion, pos, t.radiation_level, t.radiation_radius, t.radius, t.radiation_dissipation_time)
+    }
+
     /// The radiation zones explosions left that have not faded yet.
     pub fn radiation_zones(&self) -> &[RadZone] {
         &self.senses.rad_zones
@@ -267,20 +276,51 @@ impl Game<'_> {
         self.senses.radiation.water.is_some_and(|w| self.data.water_damage.contains_key(&w.water))
     }
 
-    /// A space's markers with SetRadiationExtraData's levels: a marker's own level
-    /// replaced, and a reference of the space that had none given one at its XRDS radius
-    /// (0 without one, so it gives nothing); a level of 0 or less takes the marker away.
+    /// A reference's XRDS radius: SetRadius's override, else its placed record's XRDS.
+    pub fn ref_radius(&self, r: FormId) -> Option<f32> {
+        self.other.lutana.ref_radius.get(&r).copied().or_else(|| self.world.placed.get(r).and_then(|p| p.radius))
+    }
+
+    /// The radiation markers active in `space`, applying `SetRadiationExtraData` levels
+    /// (`showoff.radiation`) and `SetRadius` radii (`other.lutana.ref_radius`) over the
+    /// static ESM markers (`data.radiation_markers`). Zero-allocation borrow when neither
+    /// override map has entries.
+    pub fn radiation_markers_in(&self, space: FormId) -> Cow<'_, [RadMarker]> {
+        let list = self.data.radiation_markers.get(&space).map(Vec::as_slice).unwrap_or_default();
+        if self.showoff.radiation.is_empty() && self.other.lutana.ref_radius.is_empty() {
+            return Cow::Borrowed(list);
+        }
+        Cow::Owned(self.edited_markers(list, space))
+    }
+
+    /// A space's markers with SetRadiationExtraData's levels and SetRadius's radii: an
+    /// existing marker's radius uses SetRadius when set (dropped when <= 0), a
+    /// SetRadiationExtraData override replaces its level (<= 0 takes the marker away),
+    /// and a reference that had no XRAD gets one at its live XRDS radius (`ref_radius`).
     pub(crate) fn edited_markers(&self, list: &[RadMarker], space: FormId) -> Vec<RadMarker> {
-        let mut out: Vec<RadMarker> = list.iter().filter(|m| !self.showoff.radiation.contains_key(&m.id)).cloned().collect();
+        let mut out: Vec<RadMarker> = list
+            .iter()
+            .filter(|m| !self.showoff.radiation.contains_key(&m.id))
+            .filter_map(|m| {
+                let radius = self.other.lutana.ref_radius.get(&m.id).copied().unwrap_or(m.radius).max(0.0);
+                (radius > 0.0).then_some(RadMarker { radius, ..*m })
+            })
+            .collect();
         let mut set: Vec<(FormId, f32)> = self.showoff.radiation.iter().map(|(&r, &l)| (r, l)).collect();
         set.sort_by_key(|x| x.0);
         for (id, level) in set {
-            let Some(p) = self.world.placed.get(id) else { continue };
-            let Some(cell) = p.cell else { continue };
-            if level <= 0.0 || self.world.placed.world_of(cell).unwrap_or(cell) != space {
+            if level <= 0.0 {
                 continue;
             }
-            out.push(RadMarker { id, pos: p.pos, level, radius: p.radius.unwrap_or(0.0).max(0.0) });
+            let place = self.world.peek(id).map(|s| (s.cell, s.pos)).or_else(|| self.world.placed.get(id).map(|p| (p.cell, p.pos)));
+            let Some((Some(cell), pos)) = place else { continue };
+            if self.world.placed.world_of(cell).unwrap_or(cell) != space {
+                continue;
+            }
+            let radius = self.ref_radius(id).unwrap_or(0.0).max(0.0);
+            if radius > 0.0 {
+                out.push(RadMarker { id, pos, level, radius });
+            }
         }
         out
     }
@@ -294,17 +334,9 @@ impl Game<'_> {
         let (markers, marker, zone) = match place {
             Some((Some(cell), pos)) => {
                 let space = self.world.placed.world_of(cell).unwrap_or(cell);
-                let list = data.radiation_markers.get(&space).map(Vec::as_slice).unwrap_or_default();
-                // SetRadiationExtraData's levels over the records' (`nvse_showoff3`).
-                let edited;
-                let list = if self.showoff.radiation.is_empty() {
-                    list
-                } else {
-                    edited = self.edited_markers(list, space);
-                    edited.as_slice()
-                };
+                let list = self.radiation_markers_in(space);
                 let world = &self.world;
-                let (m, marker) = marker_level(list, pos, |id| world.is_enabled(id).unwrap_or(true));
+                let (m, marker) = marker_level(&list, pos, |id| world.is_enabled(id).unwrap_or(true));
                 let (z, zone) = zone_level(&self.senses.rad_zones, space, pos);
                 // The strongest counts, a marker on a tie (radiation.md §2.1).
                 if z > m {
@@ -353,7 +385,6 @@ impl Game<'_> {
     /// follow its Rads [design: docs/design/tweaks.md; NVForever gives no actor but the
     /// player radiation otherwise].
     fn tick_actor_radiation(&mut self, dt: f64) {
-        let data = self.data;
         let accumulation = setting(self, "fRadiationAccumulationRate", 1.0);
         let actors: Vec<FormId> = self.awareness.actors.keys().copied().filter(|&a| a != FormId::PLAYER_REF).collect();
         for a in actors {
@@ -362,9 +393,9 @@ impl Game<'_> {
             }
             let Some((Some(cell), pos)) = self.world.peek(a).map(|s| (s.cell, s.pos)) else { continue };
             let space = self.world.placed.world_of(cell).unwrap_or(cell);
-            let list = data.radiation_markers.get(&space).map(Vec::as_slice).unwrap_or_default();
+            let list = self.radiation_markers_in(space);
             let world = &self.world;
-            let (m, _) = marker_level(list, pos, |id| world.is_enabled(id).unwrap_or(true));
+            let (m, _) = marker_level(&list, pos, |id| world.is_enabled(id).unwrap_or(true));
             let (z, _) = zone_level(&self.senses.rad_zones, space, pos);
             let level = m.max(z);
             if level <= 0.0 {

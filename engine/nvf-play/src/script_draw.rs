@@ -154,7 +154,7 @@ fn dormant_in(play: &PlayWorld, sim: &SimState, cell: RenderCell) -> Vec<Dormant
     };
     ids.into_iter()
         .filter_map(|r| {
-            let p = placement(play.lo, play.schema, r.0)?;
+            let p = play.index.placement(play.lo, play.schema, r.0)?;
             // A primitive enabled by a script still shows nothing (level-design.md §4.1).
             if &p.sig != b"REFR" || p.deleted() || !p.draws_base_model() || enabled_at_start(play, &p, 0) {
                 return None;
@@ -501,6 +501,7 @@ pub(crate) mod tests {
             segments: Vec::new(),
             external_emittance: false,
             look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+            missing_diffuse: None,
         };
         let model = PreparedModel {
             nodes: vec![node("Torso", None, Vec3::new(0.0, 0.0, 69.0)), node("Head", Some(0), Vec3::new(45.0, 0.0, 0.0))],

@@ -41,8 +41,9 @@ Electric 1; 202 say None.
 
 The rule [hypothesis: the wiki does not give the formula]: a hit from a weapon whose
 resistance is not None and not Damage Resistance is cut by the target's value of that
-actor value as a percent, capped at fMaxArmorRating (85), in place of DR. DT still applies
-first. None and Damage Resistance keep the DR rule as before. The value is the target's
+actor value as a percent, capped at fMaxArmorRating (85), as well as by DR. DT still applies
+first. DR cutting an Energy Resistance weapon's hits is [observed 2026-11-21:
+damage-armour.md §4]; until then this note had the resistance in place of DR. The value is the target's
 actor value: 0 for most actors in Energy, Fire, EMP and Electric unless an ability or
 armour enchantment raises it, and Poison Resistance from Endurance ((END − 1) × 5,
 actor-values). This applies to shots and blows, from anyone on anyone; explosions keep

@@ -512,6 +512,25 @@ class IntegrationTest(unittest.TestCase):
             with self.assertRaises(SystemExit), mock.patch.object(cli, "context", side_effect=AssertionError("must not create output")):
                 cli.main(["compare", "battle", "--exe-base", str(args.exe_base), "--exe-candidate", str(args.exe_base)])
 
+    def test_soak_whose_events_leave_no_window_is_refused_before_launch(self):
+        def parse(*extra):
+            return cli.parser().parse_args(["compare", "soak", "--exe-base", "a", "--exe-candidate", "b", *extra])
+        why = cli.soak_window_refusal(parse())
+        self.assertIn("an event every 20 s leaves no uninterrupted 10 s settle and 30 s measurement window", why)
+        self.assertIsNone(cli.soak_window_refusal(parse("--event-every", "60")))
+        self.assertIsNone(cli.soak_window_refusal(parse("--settle-seconds", "4", "--measure-seconds", "10")))
+        self.assertIsNotNone(cli.soak_window_refusal(parse("--event-every", "40")))
+        tour = cli.parser().parse_args(["compare", "tour", "--exe-base", "a", "--exe-candidate", "b"])
+        self.assertIsNone(cli.soak_window_refusal(tour))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, candidate = root / "a.exe", root / "b.exe"
+            base.write_text("x")
+            candidate.write_text("y")
+            with self.assertRaises(SystemExit) as refused, mock.patch.object(cli, "context", side_effect=AssertionError("must not create output")):
+                cli.main(["compare", "soak", "--exe-base", str(base), "--exe-candidate", str(candidate)])
+            self.assertIn("compare soak:", str(refused.exception))
+
     def test_registered_future_scene_uses_generic_parser_and_dispatch(self):
         configured = {"configure": lambda p: p.add_argument("--aid", action="append", default=[]),
                       "run": lambda a, ctx: ({"status": "ok", "frames": None}, ["# fake scene"], 0)}

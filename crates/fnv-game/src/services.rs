@@ -27,8 +27,11 @@
 //!   dealer sells Alcohol and Chems; observed in FalloutNV.esm], falling back to the
 //!   wiki's flags when the equip type is none of the four; AMMO and IMOD Weapons
 //!   [hypothesis: Mick (Weapons, Armor, Repair) stocks bare boxes of ammunition and no
-//!   Misc, observed]; everything else (MISC, KEYM, NOTE, LIGH, CHIP, CCRD, CMNY)
-//!   Miscellaneous [hypothesis for all but MISC].
+//!   Misc, observed]; everything else that can be bartered (MISC, NOTE, LIGH, CHIP, CCRD,
+//!   CMNY) Miscellaneous [hypothesis for all but MISC]. Keys (KEYM) are not sold by
+//!   vendors (`item_service` returns `None`, `Game::sells` returns `false`, #3432)
+//!   [hypothesis: issue #3432 reports that keys do not appear in barter in the original
+//!   engine].
 //! - **Offers services now** [`Game::offers_services_now`]: the actor's current package
 //!   has "Offers Services" ("If the actor is a service provider, he will offer services
 //!   so long as this package is running" [documented: GECK wiki Category:Packages]); not
@@ -86,15 +89,15 @@ pub fn name(flag: u32) -> &'static str {
     NAMES.iter().find(|(b, _)| *b == flag).map_or("?", |(_, n)| n)
 }
 
-/// The service category an item is sold under (one flag), `None` for what is no item
-/// (module notes).
+/// The service category an item is sold under (one flag), `None` for keys (not sold by
+/// vendors, #3432) and for what is no item (module notes).
 pub fn item_service(data: &GameData, item: FormId) -> Option<u32> {
     Some(match &data.sig(item)? {
         b"WEAP" | b"AMMO" | b"IMOD" => WEAPONS,
         b"ARMO" => ARMOR,
         b"BOOK" => BOOKS,
         b"ALCH" => ingestible_service(data.ingestibles.get(&item)),
-        b"MISC" | b"KEYM" | b"NOTE" | b"LIGH" | b"CHIP" | b"CCRD" | b"CMNY" => MISC,
+        b"MISC" | b"NOTE" | b"LIGH" | b"CHIP" | b"CCRD" | b"CMNY" => MISC,
         _ => return None,
     })
 }
@@ -117,8 +120,8 @@ impl Game<'_> {
     /// AI data's as SetServiceFlag left them (`nvse_lutana`). 0 for what is no actor.
     pub fn services(&self, actor: FormId) -> u32 {
         let Some(b) = crate::functions::base_of(self, actor) else { return 0 };
-        let Some((_, ai)) = self.template_source(b, actor, |d| d.template_ai) else { return 0 };
-        if ai.autocalc_service {
+        let Some((ai_id, ai)) = self.template_source(b, actor, |d| d.template_ai) else { return 0 };
+        if &ai.sig == b"NPC_" && self.acbs_flag(ai_id, ai, crate::actor_values::acbs::AUTOCALC_SERVICE, |d| d.autocalc_service) {
             let class = self.traits_class(actor);
             if let Some(s) = class.and_then(|c| self.data.class_services.get(&c)) {
                 return *s;
@@ -130,15 +133,30 @@ impl Game<'_> {
         self.other.lutana.services.get(&b).copied().unwrap_or(ai.services)
     }
 
-    /// Whether `vendor` sells `item`: the item's category is among its services. Caps and
-    /// what is no item are always let through (the barter menu handles the caps itself).
+    /// The service category `item` is sold under in this session, reading live
+    /// ingestible flags and equip-type overrides (`SetIngestibleFlag`, `SetEffectFlag`,
+    /// `SetEquipType`) and `TempCloneForm` clones.
+    pub fn item_service(&self, item: FormId) -> Option<u32> {
+        let base = self.unclone(item);
+        match &self.data.sig(base)? {
+            b"ALCH" => Some(ingestible_service(self.ingestible_def(item).as_ref())),
+            _ => item_service(self.data, base),
+        }
+    }
+
+    /// Whether `vendor` sells `item`: the item's category is among its services. Keys
+    /// (`KEYM`, including `TempCloneForm` clones) are never sold (#3432). Caps and what
+    /// is no item are always let through (the barter menu handles the caps itself).
     pub fn sells(&self, vendor: FormId, item: FormId) -> bool {
+        if self.data.sig(self.unclone(item)) == Some(*b"KEYM") {
+            return false;
+        }
         self.refused_category(vendor, item).is_none()
     }
 
     /// The category `vendor` does not sell `item` under, when it does not.
     pub fn refused_category(&self, vendor: FormId, item: FormId) -> Option<u32> {
-        let c = item_service(self.data, item)?;
+        let c = self.item_service(item)?;
         (self.services(vendor) & c == 0).then_some(c)
     }
 

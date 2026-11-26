@@ -15,6 +15,7 @@ import package::{
             MESH_FLAGS_SHADOW_RECEIVER_BIT,
             MESH_FLAGS_SIGN_DETERMINANT_MODEL_3X3_BIT,
             MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT,
+            NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT,
         },
     },
     ssr::raymarch,
@@ -189,7 +190,9 @@ fn apply_normal_mapping(
     if (standard_material_flags & pbr_types::STANDARD_MATERIAL_FLAGS_TWO_COMPONENT_NORMAL_MAP) != 0u {
         // Only use the xy components and derive z for 2-component normal maps.
         Nt = vec3<f32>(Nt.rg * 2.0 - 1.0, 0.0);
-        Nt.z = sqrt(1.0 - Nt.x * Nt.x - Nt.y * Nt.y);
+        // NVForever two-channel normal clamp: XY outside the unit disk (BC5 endpoints,
+        // filtering) gives Z 0 instead of a NaN (#2981, engine/vendor/README.md).
+        Nt.z = sqrt(max(1.0 - Nt.x * Nt.x - Nt.y * Nt.y, 0.0));
     } else {
         Nt = Nt * 2.0 - 1.0;
     }
@@ -308,6 +311,10 @@ fn calculate_contact_shadow(
 
     let depth_size = vec2<f32>(textureDimensions(view_bindings::depth_prepass_texture));
     var rm = raymarch::depth_ray_march_new_from_depth(depth_size);
+    // NVForever (main pass viewport): drawn below its output size (FSR, DLSS), the view fills
+    // only `main_pass_viewport` of the depth texture (`DepthRayMarch::depth_uv_scale`).
+    rm.depth_uv_scale = view_bindings::view.main_pass_viewport.zw / depth_size;
+    rm.depth_uv_offset = view_bindings::view.main_pass_viewport.xy / depth_size;
     raymarch::depth_ray_march_from_cs(&rm, position_world_to_ndc(world_position));
     raymarch::depth_ray_march_to_ws(&rm, world_position + light_dir * view_bindings::contact_shadows_settings.length);
     rm.linear_steps = contact_shadow_steps;
@@ -474,10 +481,22 @@ fn apply_pbr_lighting(
         @else   // LIGHTMAP
         let enable_diffuse = true;
 
-        var shadow: f32 = 1.0;
+        // NVForever shadow early-out: where this light adds nothing (beyond its range, or
+        // behind the shading normal) its shadow is 0 and no map is read nor contact
+        // marched; the contribution there is 0 either way (Bevy's range falloff and N.L,
+        // and the display sum's), so the picture is unchanged.
+        let nvf_to_light = view_bindings::clustered_lights.data[light_id].position_radius.xyz - in.world_position.xyz;
+        @if(STANDARD_MATERIAL_CLEARCOAT)
+        let nvf_lit = true;
+        @else
+        let nvf_lit = dot(nvf_to_light, nvf_to_light) * view_bindings::clustered_lights.data[light_id].color_inverse_square_range.w < 1.0
+            && (dot(in.N, nvf_to_light) > 0.0 || view_bindings::clustered_lights.data[light_id].position_radius.w > 0.0);
+        var shadow: f32 = select(0.0, 1.0, nvf_lit);
         if ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u
                 && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
-            shadow = shadows::fetch_point_shadow(light_id, in.world_position, in.world_normal, in.frag_coord.xy);
+            if nvf_lit {
+                shadow = shadows::fetch_point_shadow(light_id, in.world_position, in.world_normal, in.frag_coord.xy);
+            }
         }
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
@@ -528,17 +547,29 @@ fn apply_pbr_lighting(
         @else   // LIGHTMAP
         let enable_diffuse = true;
 
-        var shadow: f32 = 1.0;
+        // NVForever shadow early-out: where this light adds nothing (beyond its range, or
+        // behind the shading normal) its shadow is 0 and no map is read nor contact
+        // marched; the contribution there is 0 either way (Bevy's range falloff and N.L,
+        // and the display sum's), so the picture is unchanged.
+        let nvf_to_light = view_bindings::clustered_lights.data[light_id].position_radius.xyz - in.world_position.xyz;
+        @if(STANDARD_MATERIAL_CLEARCOAT)
+        let nvf_lit = true;
+        @else
+        let nvf_lit = dot(nvf_to_light, nvf_to_light) * view_bindings::clustered_lights.data[light_id].color_inverse_square_range.w < 1.0
+            && (dot(in.N, nvf_to_light) > 0.0 || view_bindings::clustered_lights.data[light_id].position_radius.w > 0.0);
+        var shadow: f32 = select(0.0, 1.0, nvf_lit);
         if ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u
                 && (view_bindings::clustered_lights.data[light_id].flags &
                     mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
-            shadow = shadows::fetch_spot_shadow(
-                light_id,
-                in.world_position,
-                in.world_normal,
-                view_bindings::clustered_lights.data[light_id].shadow_map_near_z,
-                in.frag_coord.xy,
-            );
+            if nvf_lit {
+                shadow = shadows::fetch_spot_shadow(
+                    light_id,
+                    in.world_position,
+                    in.world_normal,
+                    view_bindings::clustered_lights.data[light_id].shadow_map_near_z,
+                    in.frag_coord.xy,
+                );
+            }
         }
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
@@ -597,15 +628,46 @@ fn apply_pbr_lighting(
         @else   // LIGHTMAP
         let enable_diffuse = true;
 
+        // NVForever shadow early-out: a receiver facing away from the light gets shadow 0
+        // without reading the cascades or marching (its contribution is 0 there: N.L).
+        @if(STANDARD_MATERIAL_CLEARCOAT)
+        let nvf_faces = true;
+        @else
+        let nvf_faces = dot(in.N, (*light).direction_to_light) > 0.0;
         var shadow: f32 = 1.0;
         if ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u
-                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
-            shadow = shadows::fetch_directional_shadow(i, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
+                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u
+                // NVForever (no directional shadows): mesh_types.wesl.
+                && (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u) {
+            if nvf_faces {
+                shadow = shadows::fetch_directional_shadow(i, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
+            } else {
+                shadow = 0.0;
+            }
             shadow *= in.directional_shadow_factor;
+        }
+
+        // NVForever (crown shadow, nvforever tree.wesl): SpeedTree leaf cards are no shadow
+        // receivers (in the shadow pass they face the light, in the main pass the camera, so
+        // their own cards would blacken them in mismatched blocks), yet other objects must
+        // shade them. They take the directional shadow at the point where the ray towards
+        // the light leaves the tree's crown sphere: past their own cards, before anything
+        // else in the way.
+        @if(NVF_CROWN_SHADOW)
+        if in.nvf_crown.w > 0.0
+                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u
+                && (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u {
+            let nvf_l = view_bindings::lights.directional_lights[i].direction_to_light;
+            let nvf_oc = in.world_position.xyz - in.nvf_crown.xyz;
+            let nvf_b = dot(nvf_oc, nvf_l);
+            let nvf_disc = nvf_b * nvf_b - (dot(nvf_oc, nvf_oc) - in.nvf_crown.w * in.nvf_crown.w);
+            let nvf_lift = select(0.0, max(sqrt(max(nvf_disc, 0.0)) - nvf_b, 0.0), nvf_disc > 0.0);
+            shadow = shadows::fetch_directional_shadow(i, vec4<f32>(in.world_position.xyz + nvf_l * nvf_lift, 1.0), nvf_l, view_z, in.frag_coord.xy);
         }
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
         if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && shadow > 0.0 &&
+                (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u &&
                 (view_bindings::lights.directional_lights[i].flags &
                     mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_CONTACT_SHADOWS_ENABLED_BIT) != 0u {
             let L = view_bindings::lights.directional_lights[i].direction_to_light;
@@ -630,7 +692,9 @@ fn apply_pbr_lighting(
         // F0 = vec3<f32>(0.0)
         var transmitted_shadow: f32 = 1.0;
         if ((in.flags & (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)) == (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)
-                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
+                && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u
+                // NVForever (no directional shadows): mesh_types.wesl.
+                && (in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u) {
             transmitted_shadow = shadows::fetch_directional_shadow(i, diffuse_transmissive_lobe_world_position, -in.world_normal, view_z, in.frag_coord.xy);
         }
 

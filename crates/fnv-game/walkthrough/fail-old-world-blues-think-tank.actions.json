@@ -1216,6 +1216,40 @@
       "label": "MQ04 60"
     },
     {
+      "op": "note",
+      "text": "As in old-world-blues: stand-in for a player who times the patrols or has built for stealth. The pilot walks one path and does not wait out a robobrain's round, so its Sneak is set to 100 and it goes crouched to the safe (round 15: running, seen by robobrain 0300B936 at 542 units; the failure switch then empties the safe)."
+    },
+    {
+      "op": "set_av",
+      "of": "player",
+      "name": "Sneak",
+      "value": 100
+    },
+    {
+      "op": "note",
+      "text": "Round 17 (2026-11-21): Sneak 100 and crouched, without the suit, a robobrain still spotted the player (NVDLC03X13SpottedMsg): Test failed, MQ04 stayed at 60, Klein never set MQ05 20 and the Forbidden Zone door (NVDLC03ForbiddenZoneDoorREF, unlocked only by MQ05 stage 20) stayed locked. So the player puts on the Aural Stealth Suit the quest script just made (as old-world-blues does) and has the three patrol robobrains out of the way (a stand-in: fought by the pilot, one saw the player mid-fight and failed the test, round 19 [observed]): SCPT 0x01010918 fails the basic test only for a living robobrain that detects the player [observed: its GameMode]."
+    },
+    {
+      "op": "call",
+      "line": "player.EquipItem NVDLC03AuralStealthsuit"
+    },
+    {
+      "op": "call",
+      "line": "X13Robot1REF.KillActor"
+    },
+    {
+      "op": "call",
+      "line": "X13Robot2REF.KillActor"
+    },
+    {
+      "op": "call",
+      "line": "X13Robot3REF.KillActor"
+    },
+    {
+      "op": "player_sneak",
+      "sneaking": true
+    },
+    {
       "op": "move_player",
       "to": "X13TestSafeREF"
     },
@@ -1223,6 +1257,10 @@
       "op": "remove_all_items",
       "from": "X13TestSafeREF",
       "to": "player"
+    },
+    {
+      "op": "player_sneak",
+      "sneaking": false
     },
     {
       "op": "advance_seconds",

@@ -250,6 +250,9 @@ struct DistanceWithPenetration {
 
 struct DepthRaymarchDistanceFn {
     depth_tex_size: vec2<f32>,
+    // NVForever (main pass viewport): see `DepthRayMarch::depth_uv_scale`.
+    depth_uv_scale: vec2<f32>,
+    depth_uv_offset: vec2<f32>,
 
     march_behind_surfaces: bool,
     depth_thickness: f32,
@@ -261,7 +264,8 @@ fn depth_raymarch_distance_fn_evaluate(
     distance_fn: ptr<function, DepthRaymarchDistanceFn>,
     ray_point_cs: vec3<f32>,
 ) -> DistanceWithPenetration {
-    let interp_uv = ndc_to_uv(ray_point_cs.xy);
+    // NVForever (main pass viewport): the view's UV to the depth texture's.
+    let interp_uv = ndc_to_uv(ray_point_cs.xy) * (*distance_fn).depth_uv_scale + (*distance_fn).depth_uv_offset;
 
     let ray_depth = 1.0 / ray_point_cs.z;
 
@@ -407,6 +411,14 @@ struct DepthRayMarch {
 
     /// Size of the depth buffer we're marching in, in pixels.
     depth_tex_size: vec2<f32>,
+
+    /// NVForever (main pass viewport): where the view's 0..1 UV lies in the depth texture's,
+    /// `texture_uv = view_uv * depth_uv_scale + depth_uv_offset`. A camera drawn below its
+    /// output size (`MainPassResolutionOverride`: FSR, DLSS) fills only the top-left
+    /// `main_pass_viewport` of a full-size depth texture; Bevy's march read the whole texture
+    /// as the view and hit false occluders. (1, 1) and (0, 0) by default: unchanged.
+    depth_uv_scale: vec2<f32>,
+    depth_uv_offset: vec2<f32>,
 }
 
 fn depth_ray_march_new_from_depth(depth_tex_size: vec2<f32>) -> DepthRayMarch {
@@ -416,6 +428,9 @@ fn depth_ray_march_new_from_depth(depth_tex_size: vec2<f32>) -> DepthRayMarch {
     res.bisection_steps = 0u;
     res.linear_march_exponent = 1.0;
     res.depth_tex_size = depth_tex_size;
+    // NVForever (main pass viewport).
+    res.depth_uv_scale = vec2(1.0);
+    res.depth_uv_offset = vec2(0.0);
     res.depth_thickness_linear_z = 1.0;
     res.march_behind_surfaces = false;
     res.use_sloppy_march = false;
@@ -502,7 +517,8 @@ fn depth_ray_march_march(raymarch: ptr<function, DepthRayMarch>) -> DepthRayMarc
     let ray_end_uv = ndc_to_uv((*raymarch).ray_end_cs.xy);
 
     let ray_uv_delta = ray_end_uv - ray_start_uv;
-    let ray_len_px = ray_uv_delta * (*raymarch).depth_tex_size;
+    // NVForever (main pass viewport): the ray's length in the pixels the view was drawn in.
+    let ray_len_px = ray_uv_delta * (*raymarch).depth_uv_scale * (*raymarch).depth_tex_size;
 
     let min_px_per_step = 1u;
     let step_count = max(
@@ -515,6 +531,9 @@ fn depth_ray_march_march(raymarch: ptr<function, DepthRayMarch>) -> DepthRayMarc
 
     var distance_fn: DepthRaymarchDistanceFn;
     distance_fn.depth_tex_size = (*raymarch).depth_tex_size;
+    // NVForever (main pass viewport).
+    distance_fn.depth_uv_scale = (*raymarch).depth_uv_scale;
+    distance_fn.depth_uv_offset = (*raymarch).depth_uv_offset;
     distance_fn.march_behind_surfaces = (*raymarch).march_behind_surfaces;
     distance_fn.depth_thickness = depth_thickness;
     distance_fn.use_sloppy_march = (*raymarch).use_sloppy_march;

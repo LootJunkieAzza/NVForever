@@ -40,7 +40,10 @@ fn text(args: &[XVal], k: usize) -> String {
 /// The session state of batch 3.
 #[derive(Debug, Clone, Default)]
 pub struct Lu3State {
-    /// Perks whose entries a script changed: a copy of the record with the changes.
+    /// Perks whose definition a script changed for the session (entries, `SetPerkLevel`,
+    /// `SetPerkFlag`, `LNSetIsPlayable`): a copy of the record with the changes. Carried
+    /// across same-run loads via `Game::take_session` / `put_session`, not saved
+    /// [hypothesis: session-only, like other record setters].
     pub perk_edits: HashMap<FormId, PerkDef>,
     /// CopyFaceGenFrom's backup of an actor's look before its first copy, to undo it:
     /// its race, its sex and how many face matches it had.
@@ -54,6 +57,16 @@ impl Game<'_> {
     /// record's.
     pub fn perk_def(&self, perk: FormId) -> Option<&PerkDef> {
         self.lu3.perk_edits.get(&perk).or_else(|| self.data.perks.get(&perk))
+    }
+
+    /// Mutable session copy of a perk's definition (cloned from the authored record on
+    /// first edit); `None` when `perk` is not a `PERK` form.
+    pub(crate) fn perk_def_mut(&mut self, perk: FormId) -> Option<&mut PerkDef> {
+        if !self.lu3.perk_edits.contains_key(&perk) {
+            let def = self.data.perks.get(&perk)?.clone();
+            self.lu3.perk_edits.insert(perk, def);
+        }
+        self.lu3.perk_edits.get_mut(&perk)
     }
 
     /// Each frame (`Game::tick`): the player's cell changed, so OnCellExit with the cell
@@ -115,11 +128,7 @@ pub(crate) fn nth_entry_of<'g>(g: &'g Game, perk: FormId, i: f64) -> Option<&'g 
 
 /// The perk's Nth entry to change for the session (a copy made the first time).
 pub(crate) fn perk_entry_mut<'g>(g: &'g mut Game, perk: FormId, i: f64) -> Option<&'g mut crate::data::PerkEntry> {
-    if !g.lu3.perk_edits.contains_key(&perk) {
-        let def = g.data.perks.get(&perk)?.clone();
-        g.lu3.perk_edits.insert(perk, def);
-    }
-    let d = g.lu3.perk_edits.get_mut(&perk)?;
+    let d = g.perk_def_mut(perk)?;
     let k = nth_entry(d, i)?;
     d.entries.get_mut(k)
 }
@@ -144,7 +153,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- the Anim Object's idle (ANIO DATA) [documented: Get/SetAnimObjectIdle];
-        // the setter takes an IDLE only [hypothesis].
+        // the setter takes an IDLE only (see docs/spec-notes/ext-lutana.md §10).
         "getanimobjectidle" | "getanioidle" => {
             let Some(a) = form(args, 0).filter(|&a| of_sig(g, a, &[b"ANIO"])) else { return Some(Ok(XVal::Ref(0))) };
             match crate::nvse::record_value(g, a, "DATA", "") {
@@ -169,13 +178,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 .collect();
             XVal::Array(g.ext.new_array(ArrayKind::StringMap, entries))
         }
-        // The colours are floats of 0 to 255 [documented: the schema's LSCT; the page's
-        // example sets 59.3]; a value that is no number sets nothing.
+        // Raw floats stored verbatim as f32 (no 0..255 clamping, and NaN stored verbatim)
+        // [documented: the schema's LSCT; observed: Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23/24, GSDocMitchellHouse (0x00103DF9),
+        // 10 official base masters, `jip_09_lsct_text_rgb_clamp`
+        // (`tools/capture/nvse/catalogs/wave4a_extenders.json`):
+        // `PROBE|jip_09_lsct_text_rgb_clamp|n0=3,init=(255.0,180.0,53.0),over=(59.3,181.0,300.0),neg=(-10.0,100.0,50.0)`
+        // and `w4d_25_lsct_rgb_nan_and_password_key`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679 / #3803):
+        // `PROBE|w4d_25_lsct_rgb_nan_and_password_key|lsct(0=255.0,180.0,53.0|nan=-nan(ind),123.5,45.0)|door(0->1)|termRef(0->1)`;
+        // no DLL or source consulted].
         "setloadscreentypetextrgb" => {
             if let Some(t) = form(args, 0).filter(|&t| of_sig(g, t, &[b"LSCT"])) {
                 for (k, p) in ["font_1_red", "font_1_green", "font_1_blue"].iter().enumerate() {
-                    if let Some(v) = crate::nvse::field_number(num(args, k + 1, f64::NAN), 0.0, 255.0) {
-                        g.field_overrides.insert((t, format!("DATA/{p}")), XVal::Num(v));
+                    if let Some(XVal::Num(v)) = args.get(k + 1) {
+                        g.field_overrides.insert((t, format!("DATA/{p}")), XVal::Num(f64::from(*v as f32)));
                     }
                 }
             }
@@ -276,8 +293,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `newBase` on a reference: its base for the session, of another type too
         // [documented: SetBaseForm, JIP LN 56.70]. The drawn reference changes when its
-        // 3D is built again [hypothesis: the page says it updates loaded 3D; engine
-        // follow-up].
+        // 3D is built again (see docs/spec-notes/ext-lutana.md §10; engine follow-up).
         "setbaseform" => {
             if let (Some(r), Some(b)) = (subject, form(args, 0)) {
                 if g.data.sig(b).is_some() && r != FormId::PLAYER_REF {
@@ -326,31 +342,28 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (a, Some(p)) = (subject.unwrap_or(FormId::PLAYER_REF), form(args, 0).filter(|&p| g.data.perks.contains_key(&p))) else { return Some(Ok(zero)) };
             let max = g.data.perks.get(&p).map_or(1, |d| d.ranks.max(1));
             let rank = (num(args, 1, 0.0).max(0.0) as u8).min(max);
+            // rank == 0 (or negative, clamped to 0) leaves the held rank unchanged
+            // [observed: lu3 perkrank; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+            // JIP LN 57.30, 2026-11-23, GSDocMitchellHouse (0x00103DF9), 10 official
+            // base masters, `b3_lut_13_set_perk_rank_clamp`
+            // (`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3679):
+            // `PROBE|b3_lut_13_set_perk_rank_clamp|r0=0,after9=1,after0=1`; no DLL or
+            // source consulted].
             if rank == 0 {
                 return Some(Ok(zero));
             }
             if a != FormId::PLAYER_REF {
                 let held = &mut g.extra.entry(a).or_default().perks;
-                if rank == 0 {
-                    held.remove(&p);
-                } else {
-                    held.insert(p, rank);
-                }
+                held.insert(p, rank);
                 g.sync_perk_abilities_of(a);
             } else if num(args, 2, 0.0) != 0.0 {
-                if rank == 0 {
-                    g.player.teammate_perks.remove(&p);
-                } else {
-                    g.player.teammate_perks.insert(p);
-                }
+                g.player.teammate_perks.insert(p);
             } else {
                 let before = g.player.perks.get(&p).copied().unwrap_or(0);
                 if rank > before {
                     while g.player.perks.get(&p).copied().unwrap_or(0) < rank {
                         crate::perks::gain_rank(g, p);
                     }
-                } else if rank == 0 {
-                    g.player.perks.remove(&p);
                 } else if rank < before {
                     g.player.perks.insert(p, rank);
                 }

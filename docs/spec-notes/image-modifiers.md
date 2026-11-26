@@ -98,9 +98,27 @@ at once), `fnv_game` (`Game::image_modifiers`, the three script functions),
 - Between keys the value moves in a straight line; before the first and after the last
   key it holds [hypothesis: xEdit calls the lists interpolators, the curve is not
   documented].
-- **Applying one that is already playing starts it again** (one instance per record)
-  [hypothesis; the game may stack instances. VCG00 applies Addiction01ISFX at stages 27
-  and 30, half a second apart].
+- **Applying one that is already playing stacks another instance in application order**
+  [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-23, GSDocMitchellHouse
+  (`0x00103DF9`), 10 official base masters, clean-room script probes
+  `w1_3656_objectives_unholster_imod` (`imod` twice + `rimod` twice on `WhiteNonAnimated`
+  `0x000C9AFA`; `imod GetHit` `0x00000162` 0.4 s + ~1.5 s wait) and
+  `b3_core_ex_06_on_apply_imod_event` (`ApplyImageSpaceModifier`/`RemoveImageSpaceModifier`
+  on `0x00144C41`) in #3679; and 2026-11-24 with JIP LN 57.30, `w4d_24_active_imods_order`
+  (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679): applying non-animatable
+  `0x00054E13`, `0x001736A8`, `0x00054E13` yields `n=3,0=00054E13,1=001736A8,2=00054E13`
+  from `GetActiveIMODs`; no DLL or source consulted: re-applying an active IMAD fires
+  `OnApplyIMOD` with `IsImageSpaceActive == 1` and stacks another instance; a single
+  `RemoveImageSpaceModifier` removes all matching instances and fires `OnRemoveIMOD` once
+  per removed instance (twice for two stacked instances). VCG00 also applies
+  Addiction01ISFX at stages 27 and 30, half a second apart]. Because the probes measured
+  event counts and `GetActiveIMODs` order rather than whether the original blends duplicate
+  instances visually, NVForever keeps each stacked instance (animatable and non-animatable)
+  in `Game::image_modifiers` in exact application order, caps stacked instances per form at
+  `Game::MAX_IMOD_STACK = 64` (evicting the oldest matching entry at capacity so repeated
+  re-applies cannot grow unbounded), and draws **one instance per `IMAD` form** (the most
+  recently applied entry) in `nvforever::imagespace::screen_effect` so unmodded visuals stay
+  unchanged [design].
 - **A modifier's time passes with the game outside menus and loading screens,
   conversations included** [hypothesis: `Game::tick` ages modifiers where it advances a
   conversation's lines]. Not known: whether an animated modifier goes on behind a
@@ -479,3 +497,61 @@ adapters), give a factor per value (`ScreenModifiers::hdr_ratio`):
 
 Log lines: `eye adaptation: … modifiers +1.00 EV` when a Target LUM change starts and
 ends; `eye adaptation: speed S EV/s (Eye Adapt Speed E)` when the speed changes.
+
+
+## Live nonanimated trait edits
+
+[documented: GECK wiki SetImageSpaceModTrait,
+https://geckwiki.com/index.php/SetImageSpaceModTrait] Traits 1–2 edit the radial blur
+centre X/Y; 3–36 edit the 17 HDR/bloom multiply/add pairs (`\x00IAD`..`\x10IAD` /
+`@IAD`..`PIAD`); 37–44 edit the cinematic multiply/add pairs; 45–46 edit blur and double
+vision; 47–50 edit tint RGBA; 51–54 edit fade RGBA (`NAM3`); 55–59 edit radial blur
+strength/ramps (`RNAM`, `SNAM`, `UNAM`, `NAM1`, `NAM2`); 60–62 edit depth of field
+strength/distance/range (`WNAM`, `XNAM`, `YNAM`); 63 edits full-screen motion blur
+strength (`NAM4`).
+
+[design, mapped; engine design choice] For a nonanimatable modifier actually selected
+for the screen or lens, evaluate its ordinary record and then apply the current session's
+assigned values across traits 1–63 (with a fast exit when no trait overrides exist in the
+session). Follow the existing IMAD getter and decoder: 3–36 map directly to the 17
+`Hdr` multiply/add pairs (`ScreenModifiers::hdr`, feeding eye adaptation, light glow,
+sunlight dimmer, and emissive fog scale), 37–38 are saturation,
+39–40 are contrast average luminance (`0x12`/`0x52` IAD), 41–42 are contrast
+(`0x13`/`0x53` IAD), and 43–44 are brightness [hypothesis: this trait-to-field order
+is the existing getter's, not a capture of the original setter]. Tint RGBA (47–50) are
+all 0–255: divide each assigned value by 255; the getter reads TNAM alpha ×255 like its
+RGB [observed: original FNV 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-20 —
+`GetImageSpaceModTrait` on unchanged non-animated `FalloutNV.esm` IMADs returned
+traits 47–50 as `[106.0, 141.0, 149.0, 120.0]` for `WastelandMegatonNightISFX`
+(`0x00054E13`, authored TNAM `106/255, 141/255, 149/255, 120/255`),
+`[101.0, 154.0, 150.0, 160.0]` for `WastelandNightISFX` (`0x00091890`, authored TNAM
+`101/255, 154/255, 150/255, 160/255`), and `[102.0, 149.0, 153.0, 100.0]` for
+`WastelandNorthNightISFX` (`0x0003920C`, authored TNAM `102/255, 149/255, 153/255, 100/255`);
+`SetImageSpaceModTrait` round-trips on the same records read back `0.35000002` for trait 50 = `0.35`,
+`128.0` for trait 50 = `128.0`, and `200.000015` for trait 47 = `200.0`].
+Separately, in an installed mod (Radiation Visuals), the controller writes 47–49 as 0–255
+and 50 as its effect strength times its tint strength (default 0.3) times 255, and a
+contributor playtest in NVForever with that mod (2026-11-18) visually confirmed on three
+builds in irradiated water that before this PR the cyan effect persisted, with trait 50
+read as 0–1 alpha the whole screen turned cyan, and with 47–50 all read as 0–255 the tint
+looked correct.
+Fade RGB (51–53) divide by 255 like the getter; NAM3 alpha (54) keeps its normalized
+getter units (unobserved).
+Leave every unassigned component, other effect, sound, duration and track alone.
+[engine design choice] Read only bounded fields of active modifiers; do not clone the
+record cache, mutate the load order or scan unrelated forms each frame. Nonfinite values
+(and finite `f64` values that overflow `f32` to infinity) which cannot be represented as
+finite renderer floats are left off the visual override; the existing core setter/getter
+state and admission policy are unchanged.
+
+[hypothesis] This maps the installed radiation controller's edit/apply/update/
+remove cycle (and other nonanimated trait edits) onto the existing grade and HDR
+consumers. Native first-key versus whole-track editing for animatable records remains
+open; this bridge leaves animated evaluation unchanged.
+Existing session-only trait lifetime is preserved, and removal must restore the
+current base/other effects rather than replay a cached grade. Authored fixtures
+exercise compiled setter calls and getter-to-setter round trips through
+actual ImageSpaceGrade and ScreenModifiers::hdr output, warm-cache updates, nonfinite
+and f32-overflow guards, removal, re-entry, lens isolation, missing runtime and fresh
+restore.
+No native, GPU or full installed-mod acceptance follows from CPU controls.

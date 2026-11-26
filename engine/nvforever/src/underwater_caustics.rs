@@ -4,6 +4,17 @@
 //! Receivers beyond this 5x5 ring are omitted. Opaque depth cannot provide shadowing or
 //! material identity: this is a restrained scene-color gain. Camera fog attenuates
 //! only that added gain; the scene is not fogged a second time.
+//!
+//! Where in the frame [design]: without a temporal upscaler, after tonemapping and
+//! before the game's TAA, which smooths the pattern with the rest of the picture
+//! ([`caustics_pass`]). While FSR or DLSS upscales, at its render size on the HDR picture
+//! before the upscaler instead ([`caustics_before_upscaler`]), the way the ambient
+//! occlusion's picture placement does it (ssao.rs `ao_before_fsr`): the upscaler then
+//! accumulates the gain with the scene it lights, and the pass costs the render size's
+//! pixels, not the display's. After the upscaler the gain would be drawn unsmoothed every
+//! frame, from a depth that was drawn jittered at the render size and expanded by nearest
+//! texels (upscaler/prep.rs). `NVF_CAUSTICS_BEFORE_UPSCALER=0` keeps the post placement
+//! under an upscaler too, for comparisons.
 
 use bevy::core_pipeline::prepass::ViewPrepassTextures;
 use bevy::core_pipeline::tonemapping::tonemapping;
@@ -29,7 +40,7 @@ struct UnderwaterCaustics {
     sun: Vec4,
     // Surface height, minimum cell x/y, cell size.
     water: Vec4,
-    // Effective camera fog near, far and alpha; written by underwater_fog in Update.
+    // Effective camera fog near, far and alpha; written by underwater_fog in PostUpdate.
     fog: Vec4,
     // Matching-height, loaded water planes, one bit per cell (row-major).
     wet: UVec4,
@@ -50,14 +61,27 @@ fn wet_index(cell: (i32, i32), origin: (i32, i32)) -> Option<usize> {
     ((0..5).contains(&x) && (0..5).contains(&y)).then_some((y * 5 + x) as usize)
 }
 
+/// Whether the gain goes into the HDR picture before a temporal upscaler while one upscales
+/// ([`caustics_before_upscaler`]); `NVF_CAUSTICS_BEFORE_UPSCALER=0` keeps it after
+/// tonemapping at the display size, as builds before this change did, for comparisons. Read once.
+static BEFORE_UPSCALER: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| !std::env::var("NVF_CAUSTICS_BEFORE_UPSCALER").is_ok_and(|v| v.trim() == "0"));
+
 pub struct UnderwaterCausticsPlugin;
 impl Plugin for UnderwaterCausticsPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "underwater_caustics.wesl");
         app.add_plugins((ExtractComponentPlugin::<UnderwaterCaustics>::default(), UniformComponentPlugin::<UnderwaterCaustics>::default()))
-            // WaterPlugin updates underwater_fog in Update. PostUpdate therefore
-            // captures this frame's effective fog, including the depth-density scale.
-            .add_systems(PostUpdate, follow_camera.after(bevy::camera::CameraUpdateSystems).after(bevy::transform::TransformSystems::Propagate));
+            // UnderwaterFogPlugin updates underwater_fog in PostUpdate after
+            // TransformSystems::Propagate; order follow_camera after it so caustics
+            // capture this frame's effective fog, including the depth-density scale.
+            .add_systems(
+                PostUpdate,
+                follow_camera
+                    .after(bevy::camera::CameraUpdateSystems)
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .after(crate::underwater::underwater_fog),
+            );
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         // Ordered against every other pass that flips the view target after tonemapping
         // (`post_process_write`). Core3d runs on the multi-threaded executor and these
@@ -68,17 +92,30 @@ impl Plugin for UnderwaterCausticsPlugin {
         // shows a stale picture: the occlusion's `ao_pass` (no upscaler) and `taa_pass`
         // were unordered with this pass. Before the temporal resolve, so it smooths the
         // pattern's jitter along with the rest of the picture.
-        render_app.add_systems(RenderStartup, init).add_systems(Render, prepare.in_set(RenderSystems::PrepareResources)).add_systems(
-            Core3d,
-            caustics_pass
-                .in_set(Core3dSystems::PostProcess)
-                .after(tonemapping)
-                .after(crate::ssao::ao_pass)
-                .before(crate::taa::taa_pass)
-                .before(bevy::anti_alias::fxaa::fxaa)
-                .before(bevy::anti_alias::smaa::smaa)
-                .before(crate::imagespace::blur_pass),
-        );
+        render_app
+            .add_systems(RenderStartup, init)
+            .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources))
+            .add_systems(
+                Core3d,
+                caustics_pass
+                    .in_set(Core3dSystems::PostProcess)
+                    .after(tonemapping)
+                    .after(crate::ssao::ao_pass)
+                    .before(crate::taa::taa_pass)
+                    .before(bevy::anti_alias::fxaa::fxaa)
+                    .before(bevy::anti_alias::smaa::smaa)
+                    .before(crate::imagespace::blur_pass),
+            )
+            // After the occlusion's multiply into the same picture, for the same reason as
+            // above: both load and store the view's main texture.
+            .add_systems(
+                Core3d,
+                caustics_before_upscaler
+                    .in_set(Core3dSystems::EarlyPostProcess)
+                    .after(crate::ssao::ao_before_fsr)
+                    .before(crate::fsr::fsr_pass)
+                    .before(crate::dlss::dlss_pass),
+            );
     }
 }
 
@@ -178,15 +215,21 @@ fn follow_camera(
 #[derive(Resource)]
 struct Pipelines {
     layouts: [BindGroupLayoutDescriptor; 2],
+    /// Before the upscaler: the single-sampled depth and the uniform (no picture read).
+    multiply_layout: BindGroupLayoutDescriptor,
     base: RenderPipelineDescriptor,
     sampler: Sampler,
-    variants: HashMap<(TextureFormat, bool), CachedRenderPipelineId>,
+    /// By the picture's format, multisampling, and whether it is the before-upscaler variant.
+    variants: HashMap<(TextureFormat, bool, bool), CachedRenderPipelineId>,
 }
 #[derive(Component)]
 struct CausticsView {
     pipeline: CachedRenderPipelineId,
     format: TextureFormat,
     multi: bool,
+    /// The variant that multiplies the gain into the HDR picture before the upscaler, while
+    /// one upscales this view ([`caustics_before_upscaler`]).
+    before_upscaler: Option<CachedRenderPipelineId>,
 }
 
 fn init(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
@@ -204,8 +247,13 @@ fn init(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServ
             ),
         )
     };
+    let multiply_layout = BindGroupLayoutDescriptor::new(
+        "underwater_caustics_multiply_layout",
+        &BindGroupLayoutEntries::sequential(ShaderStages::FRAGMENT, (texture_depth_2d(), uniform_buffer::<UnderwaterCaustics>(true))),
+    );
     commands.insert_resource(Pipelines {
         layouts: [layout(false), layout(true)],
+        multiply_layout,
         base: RenderPipelineDescriptor {
             label: Some("underwater_caustics_pipeline".into()),
             vertex: fullscreen.to_vertex_state(),
@@ -220,33 +268,119 @@ fn init(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServ
         variants: HashMap::default(),
     });
 }
+/// The pipeline of a variant, queued the first time it is asked for.
+fn variant(pipelines: &mut Pipelines, cache: &PipelineCache, format: TextureFormat, multi: bool, before_upscaler: bool) -> CachedRenderPipelineId {
+    let key = (format, multi, before_upscaler);
+    if let Some(id) = pipelines.variants.get(&key) {
+        return *id;
+    }
+    let mut descriptor = pipelines.base.clone();
+    descriptor.layout = vec![if before_upscaler { pipelines.multiply_layout.clone() } else { pipelines.layouts[multi as usize].clone() }];
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        // Before the upscaler the shader returns the factor and the blend multiplies the
+        // picture by it; the picture's alpha is kept.
+        let blend = before_upscaler.then_some(BlendState {
+            color: BlendComponent { src_factor: BlendFactor::Zero, dst_factor: BlendFactor::Src, operation: BlendOperation::Add },
+            alpha: BlendComponent { src_factor: BlendFactor::Zero, dst_factor: BlendFactor::One, operation: BlendOperation::Add },
+        });
+        fragment.targets = vec![Some(ColorTargetState { format, blend, write_mask: ColorWrites::ALL })];
+        if multi {
+            fragment.shader_defs.push("MULTISAMPLED".into());
+        }
+        if before_upscaler {
+            fragment.shader_defs.push("BEFORE_UPSCALER".into());
+            fragment.entry_point = Some("multiply".into());
+        }
+    }
+    let id = cache.queue_render_pipeline(descriptor);
+    pipelines.variants.insert(key, id);
+    id
+}
+
+#[allow(clippy::type_complexity)]
 fn prepare(
     mut commands: Commands,
     cache: Res<PipelineCache>,
     mut pipelines: ResMut<Pipelines>,
-    views: Query<(Entity, &ExtractedView, &Msaa), With<UnderwaterCaustics>>,
+    views: Query<(Entity, &ExtractedView, &Msaa, Has<crate::upscaler::prep::PreparedUpscale>), With<UnderwaterCaustics>>,
+    mut placed_before: Local<HashMap<Entity, bool>>,
 ) {
-    for (entity, view, msaa) in &views {
+    placed_before.retain(|entity, _| views.contains(*entity));
+    for (entity, view, msaa, upscaled) in &views {
         let format = view.target_format;
         let multi = msaa.samples() > 1;
-        let key = (format, multi);
-        let pipeline = if let Some(id) = pipelines.variants.get(&key) {
-            *id
-        } else {
-            let mut descriptor = pipelines.base.clone();
-            descriptor.layout = vec![pipelines.layouts[multi as usize].clone()];
-            if let Some(fragment) = descriptor.fragment.as_mut() {
-                fragment.targets = vec![Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })];
-                if multi {
-                    fragment.shader_defs.push("MULTISAMPLED".into());
-                }
+        let pipeline = variant(&mut pipelines, &cache, format, multi, false);
+        // An upscaled view is single-sampled and HDR (upscaler/prep.rs `prepare`).
+        let before = *BEFORE_UPSCALER && upscaled && !multi;
+        let before_upscaler = before.then(|| variant(&mut pipelines, &cache, format, false, true));
+        if placed_before.insert(entity, before) != Some(before) {
+            if before {
+                info!("underwater caustics: on the HDR picture at the render size, before the upscaler");
+            } else if upscaled {
+                info!("underwater caustics: after tonemapping at the display size, after the upscaler");
             }
-            let id = cache.queue_render_pipeline(descriptor);
-            pipelines.variants.insert(key, id);
-            id
-        };
-        commands.entity(entity).insert(CausticsView { pipeline, format, multi });
+        }
+        commands.entity(entity).insert(CausticsView { pipeline, format, multi, before_upscaler });
     }
+}
+
+/// While a temporal upscaler upscales: the gain worked out at its render size from the depth
+/// as drawn (before the upscaler's common passes expand it) and multiplied into the
+/// render-size rectangle of the HDR picture the upscaler reads, and, under FSR, of FSR's
+/// opaque copy, so its reactive masks compare the two as before (ssao.rs `ao_before_fsr`
+/// does the same). The upscaler then accumulates the pattern with the scene: jittered with
+/// it and smoothed by it. It brightens the HDR light before tonemapping.
+#[allow(clippy::type_complexity)]
+fn caustics_before_upscaler(
+    view: ViewQuery<(
+        &ViewTarget,
+        &ViewPrepassTextures,
+        &CausticsView,
+        &DynamicUniformIndex<UnderwaterCaustics>,
+        &crate::upscaler::prep::PreparedUpscale,
+        Option<&crate::fsr::PreparedFsr>,
+    )>,
+    pipelines: Res<Pipelines>,
+    cache: Res<PipelineCache>,
+    uniforms: Res<ComponentUniforms<UnderwaterCaustics>>,
+    device: Res<RenderDevice>,
+    mut ctx: RenderContext,
+) {
+    let (target, prepass, prepared, index, upscale, fsr) = view.into_inner();
+    let Some(pipeline) = prepared.before_upscaler else { return };
+    if !crate::ssao::format_matches(target, prepared.format) || crate::ssao::depth_multisampled(prepass) != Some(false) {
+        return;
+    }
+    let Some(depth) = prepass.depth_only_view() else { return };
+    let Some(pipeline) = cache.get_render_pipeline(pipeline) else { return };
+    let Some(binding) = uniforms.uniforms().binding() else { return };
+    let layout = cache.get_bind_group_layout(&pipelines.multiply_layout);
+    let group = device.create_bind_group("underwater_caustics_multiply_group", &layout, &BindGroupEntries::sequential((depth, binding)));
+    // FSR's opaque copy, only where FSR draws: DLSS has none.
+    let opaque = fsr.map(|fsr| fsr.opaque().create_view(&default()));
+    let picture: &wgpu::TextureView = target.main_texture_view();
+    let size = upscale.render_size.as_vec2();
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let span = diagnostics.time_span(ctx.command_encoder(), "nvf_underwater_caustics");
+    // Loaded, not cleared (wgpu's default operations clear): the blend multiplies what is there.
+    let ops = Operations { load: LoadOp::Load, store: StoreOp::Store };
+    let targets = std::iter::once(("underwater_caustics_picture", picture)).chain(opaque.as_ref().map(|opaque| ("underwater_caustics_fsr_opaque", opaque)));
+    for (label, view) in targets {
+        let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+            label: Some(label),
+            color_attachments: &[Some(RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_viewport(0.0, 0.0, size.x, size.y, 0.0, 1.0);
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &group, &[index.index()]);
+        pass.draw(0..3, 0..1);
+    }
+    span.end(ctx.command_encoder());
 }
 #[allow(clippy::type_complexity)]
 fn caustics_pass(
@@ -258,6 +392,10 @@ fn caustics_pass(
     mut ctx: RenderContext,
 ) {
     let (target, prepass, prepared, index, _) = view.into_inner();
+    // Applied before the upscaler already ([`caustics_before_upscaler`]).
+    if prepared.before_upscaler.is_some() {
+        return;
+    }
     if !crate::ssao::format_matches(target, prepared.format) || crate::ssao::depth_multisampled(prepass) != Some(prepared.multi) {
         return;
     }
@@ -318,6 +456,35 @@ mod tests {
         cell.data_flags = 2;
         cell.water_type = None;
         assert_eq!(cell_water_height(&cell, Some(50.0), None), None);
+    }
+
+    /// [design] The shader composes and validates (naga) in every variant `variant` builds,
+    /// and each binds only what its layout has: the post variants the depth, the uniform,
+    /// the picture and its sampler; the before-upscaler variant the single-sampled depth and
+    /// the uniform alone, its entry point `multiply`.
+    #[test]
+    fn every_variant_composes_with_the_bindings_of_its_layout() {
+        use crate::mesh_blend_shader_tests::{compose, texture_bindings, vendored_modules};
+        use bevy::shader::ShaderDefVal;
+        let mut modules = vendored_modules();
+        for (name, source) in [
+            ("nvforever/underwater_caustics", include_str!("underwater_caustics.wesl")),
+            ("nvforever/caustics", include_str!("caustics.wesl")),
+            ("nvf_assets/first_person_depth", include_str!("../../nvf-assets/src/first_person_depth.wesl")),
+        ] {
+            modules.push((format!("embedded://{name}.wesl"), source.into()));
+        }
+        for (multi, before) in [(false, false), (true, false), (false, true)] {
+            let defs = vec![ShaderDefVal::Bool("MULTISAMPLED".into(), multi), ShaderDefVal::Bool("BEFORE_UPSCALER".into(), before)];
+            let source = compose(&modules, "embedded://nvforever/underwater_caustics.wesl", &defs);
+            let module = wgpu::naga::front::wgsl::parse_str(&source).unwrap();
+            let entries: Vec<_> = module.entry_points.iter().map(|e| e.name.as_str()).collect();
+            assert_eq!(entries, [if before { "multiply" } else { "fragment" }], "multi={multi} before={before}");
+            let bound: std::collections::BTreeSet<_> = module.global_variables.iter().filter_map(|(_, v)| v.binding.as_ref().map(|b| (b.group, b.binding))).collect();
+            let expected: std::collections::BTreeSet<_> = if before { [(0, 0), (0, 1)].into() } else { [(0, 0), (0, 1), (0, 2), (0, 3)].into() };
+            assert_eq!(bound, expected, "multi={multi} before={before}");
+            assert_eq!(texture_bindings(&source).len(), if before { 1 } else { 2 }, "multi={multi} before={before}");
+        }
     }
 
     #[test]

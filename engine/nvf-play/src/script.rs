@@ -107,6 +107,11 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::Instant;
 
+/// Frames a new game's or a load's Script Runner files wait at most for the player's
+/// models [engineering choice: about 5 s at 60 FPS; the models are usually in place within
+/// a few frames] (#4491).
+const NEW_GAME_FILES_WAIT: u32 = 300;
+
 /// MenuMode code while a message box is open (`fnv_game::game::menus::MESSAGE`): shipped
 /// scripts read the chosen button in `Begin MenuMode 1001` blocks [observed: FalloutNV
 /// SCPT 0x00105236, the Goodsprings chemistry set] as well as in GameMode (SCPT
@@ -295,6 +300,10 @@ pub struct Runtime {
     /// residents leave it alone, `Core::prepare` in `nvforever::residents`). A restore that
     /// fails installs no runtime ([`run_scripts`]), so `false` is always a new game.
     pub restored_from_save: bool,
+    /// Monotonic counter incremented only after a save restore commits (failed loads leave
+    /// this unchanged), so engine UI services can separate committed session epochs from
+    /// transient loading gates [design: docs/spec-notes/local-map-ui-service.md].
+    pub(crate) session_epoch: u64,
     /// `--new-game`: the opening starts on the first frame scripts run.
     opening_pending: bool,
     /// A run without a save: the Script Runner's new-game files (`gn_`, `ln_`) run on the
@@ -303,11 +312,18 @@ pub struct Runtime {
     /// another run that never runs them (#1548) [hypothesis: the original runs them when
     /// a new game starts, docs/spec-notes/ext-script-runner.md §2].
     new_game_files: bool,
+    /// Frames the new game's files have waited for the player's models.
+    new_game_files_waited: u32,
+    /// A save's Script Runner files (`Moment::Load`) wait for the player's models too.
+    load_files: bool,
     /// An actor the player woke by talking to it, and when (`Game::time`): the
     /// conversation starts once it is off its bed ([`Runtime::talk_when_awake`]).
     wake_talk: Option<(FormId, f64)>,
     /// The quest the opening starts (`crate::game_start`).
     start: GameStart,
+    /// The corner message of a New Game whose `sCharGenQuest` named no quest of the load
+    /// order (#3229), taken by `crate::game_start::notice`.
+    pub opening_notice: Option<String>,
     /// Where the player was last frame, and frames left whose time does not count (a
     /// door's loading screen).
     location: Option<Location>,
@@ -522,6 +538,20 @@ fn source_compile_mode(unattended: bool) {
     }
 }
 
+/// The game INI text the script VM's INI functions read (`fnv_game::nvse_settings`),
+/// lowest precedence first. `--mo2` sets the profile's own INIs and `initweaks.ini`
+/// (#1526 phase 2b); empty otherwise, so a setting reads as missing.
+static INI_TEXTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Give the script VM the game INI text to read (start-up, before the scripts load).
+pub fn set_ini_texts(texts: Vec<String>) {
+    *INI_TEXTS.lock().unwrap_or_else(|e| e.into_inner()) = texts;
+}
+
+fn ini_texts() -> Vec<String> {
+    INI_TEXTS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// Build the script data on its own thread (decoding every unit takes about a second;
 /// render streaming and physics start meanwhile).
 fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
@@ -536,7 +566,15 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
             let step = Instant::now();
             let table = FunctionTable::load(&path).map_err(|e| e.to_string())?;
             info!("script build: function table: {:.0} ms", step.elapsed().as_secs_f64() * 1e3);
-            let data: &'static GameData = Box::leak(Box::new(GameData::build(d.lo, d.schema, table, &json, refs)));
+            let data: &'static GameData = Box::leak(Box::new({
+                let mut data = GameData::build(d.lo, d.schema, table, &json, refs);
+                if d.index.merge_region_lists {
+                    data.enable_hnvse_region_merge(d.lo, d.schema);
+                }
+                // The game INI text the extender's INI functions read (`--mo2`'s profile).
+                data.ini_texts = ini_texts();
+                data
+            }));
             info!("script build: the whole thread: {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
             Ok((data, t.elapsed().as_secs_f64()))
         })();
@@ -656,13 +694,22 @@ fn inventory_sources(_data: &GameData, sim: &SimState, game: &Game<'_>) -> std::
 }
 
 impl Runtime {
-    fn new(data: &'static GameData, sim: &mut SimState, new_game: bool, packages: bool) -> Runtime {
+    fn new(
+        data: &'static GameData,
+        sim: &mut SimState,
+        new_game: bool,
+        packages: bool,
+        tweaks: Option<&fnv_game::tweaks::Tweaks>,
+    ) -> Runtime {
         // Message boxes are menus until the player closes them (the default,
         // `GameConfig::modal_message_boxes`). With actors living by their packages, the
         // packages' scripts and idles run from the first frame (the residents ask for the
         // same interval when they start).
         let cfg = GameConfig { frame_seconds: 1.0 / 60.0, package_interval: packages.then_some(PACKAGE_INTERVAL), ..GameConfig::default() };
-        let game = Game::new(data, World::new(sim.forms, sim.refs, sim.world.config()), cfg);
+        let mut game = Game::new(data, World::new(sim.forms, sim.refs, sim.world.config()), cfg);
+        if let Some(tweaks) = tweaks {
+            game.bind_stewie_stat_settings(tweaks);
+        }
         // The simulation's world is the one played (`with_world`): its placed actors carry
         // their template's items too (template flag "Inventory"), each picked at the
         // level it reads leveled lists at, as `Game::new` picks them (not level 1).
@@ -682,10 +729,14 @@ impl Runtime {
             skip: BTreeSet::new(),
             closing: None,
             restored_from_save: false,
+            session_epoch: 0,
             opening_pending: new_game,
             new_game_files: false,
+            new_game_files_waited: 0,
+            load_files: false,
             wake_talk: None,
             start: GameStart::default(),
+            opening_notice: None,
             location: None,
             frozen_frames: 0,
             came_through: false,
@@ -729,13 +780,15 @@ impl Runtime {
         let changed: Vec<FormId> = s.sim.refs.keys().chain(s.fade_moves.keys()).copied().collect::<BTreeSet<_>>().into_iter().collect();
         let data = self.game.data;
         let cfg = self.game.cfg;
-        let session = self.game.take_session();
         // The game restores on the played world, so that what it does there stays (the
         // moves above), and hands it back for `sim`; it keeps a stand-in between turns
         // (`with_world`).
         let stand_in = World::new(sim.forms, sim.refs, world.config());
-        self.game = Game::restore(data, world, cfg, &s)?;
-        self.game.put_session(session);
+        // A refused snapshot must not drain the active game's session.
+        let mut restored = Game::restore(data, world, cfg, &s)?;
+        let session = self.game.take_session();
+        restored.put_session(session);
+        self.game = restored;
         // The engine's seats are not saved, so a load stands the player and every NPC up
         // (docs/design/save-load.md §3.4): `Game::restore` clears each saved furniture use,
         // or GetSitting and its kin go on reading the seat (#1573, #2797).
@@ -750,8 +803,10 @@ impl Runtime {
         sim.world.set_inventory_sources(inventory_sources(data, sim, &self.game));
         self.opening_pending = false;
         self.new_game_files = false;
+        self.load_files = false;
         self.player_cell = None;
         self.restored_from_save = true;
+        self.session_epoch = self.session_epoch.saturating_add(1);
         with_world(self, sim, |rt| {
             // `Game::restore` above reached only the stand-in, and the Script Runner's files
             // and the LoadGame events run ahead of the first tick.
@@ -778,7 +833,20 @@ impl Runtime {
                 let at = if state.stages_done.contains(&0) { " at stage 0" } else { "" };
                 info!("new game: {name} started{at} (now at stage {})", state.stage());
             }
-            Err(e) => warn!("new game: {}={}: {e}; no opening quest started", crate::game_start::CHARGEN_KEY, self.start.chargen_quest),
+            Err(e) => {
+                warn!("new game: {}={}: {e}", crate::game_start::CHARGEN_KEY, self.start.chargen_quest);
+                // #3229: never a silent empty start; the New Vegas opening instead, with a
+                // notice naming the setting.
+                let fallback = GameStart { chargen_quest: crate::game_start::DEFAULT_CHARGEN_QUEST.into(), ..self.start.clone() };
+                match fallback.quest(g) {
+                    Ok(q) if g.start_chargen_quest(q) => {
+                        info!("new game: falling back to {}: the New Vegas opening starts", crate::game_start::DEFAULT_CHARGEN_QUEST);
+                        self.opening_notice = Some(crate::game_start::fallback_notice(&self.start.chargen_quest));
+                    }
+                    Ok(_) => warn!("new game: {} did not start; no opening quest started", crate::game_start::DEFAULT_CHARGEN_QUEST),
+                    Err(e) => warn!("new game: {}: {e}; no opening quest started", crate::game_start::DEFAULT_CHARGEN_QUEST),
+                }
+            }
         }
     }
 
@@ -928,10 +996,79 @@ impl Runtime {
                 self.activate_again = Some(*t);
                 self.choices_passed = Some(*t);
             }
+            Some(fnv_game::activate_choices::Picked::Closed(t)) => info!("activate: the player closed the perks' choices on {}", g.data.name(*t)),
             None => return false,
         }
         self.snapshot_inventory();
         true
+    }
+
+    /// E on an actor it otherwise does nothing to (hostile, or a creature with nothing to
+    /// say: `crate::activate`): the perks' choices on it open, if any are offered now
+    /// (Robotics Expert's, #3479). Never the default action. Whether the list opened.
+    fn choices_only(&mut self, target: FormId) -> bool {
+        if self.game.activation_refused(target) || self.game.parent_activate_only(target) || !self.game.open_activate_menu_only(target) {
+            return false;
+        }
+        let labels: Vec<&str> = self.game.activate_menu.iter().flat_map(|m| m.choices.iter().map(|c| c.label.as_str())).collect();
+        info!("activate: {} offers the perks' choices {labels:?} and no default action", self.game.data.name(target));
+        true
+    }
+
+    /// A living creature shown by name only (`Action::Name`, #3669): if its script has an
+    /// OnActivate block, run that block through [`Game::activate`] (`ActMode::Hand`). The
+    /// default activation behind it stays "nothing": any `Outcome::Talk` on `target`
+    /// emitted by the block's own plain `Activate` is skipped so it neither opens a
+    /// conversation nor posts a "has nothing to say" message. Returns `None` when
+    /// `target`'s script has no OnActivate block.
+    fn script_only(&mut self, target: FormId) -> Option<Result<ByHand, String>> {
+        let has_block = self.game.ref_script(target).and_then(|s| self.game.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
+        if !has_block {
+            return None;
+        }
+        if self.game.activation_refused(target) {
+            return Some(Ok(ByHand::Refused));
+        }
+        if self.game.parent_activate_only(target) {
+            info!("activate: {} is set off by its activate parents only", self.game.data.name(target));
+            return Some(Ok(ByHand::Refused));
+        }
+        self.observe_inventory();
+        let player = FormId::PLAYER_REF;
+        let from = self.game.events.len();
+        info!("script: activating {target} runs its OnActivate block instead of the default action");
+        let r = self.game.activate(player, target, ActMode::Hand).map(|done| {
+            if matches!(done["result"].as_str(), Some("prevented" | "destroyed")) { ByHand::Refused } else { ByHand::Script }
+        });
+        // A name-only creature has no Talk default action (#3669): suppress any
+        // Outcome::Talk on `target` emitted by the block's own `Activate` (e.g.
+        // CRBrahminScript calling plain `Activate` when standing or weapon-out).
+        let self_talks: Vec<usize> = self
+            .game
+            .events
+            .iter()
+            .enumerate()
+            .skip(from)
+            .filter_map(|(i, e)| match &e.kind {
+                EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
+                    Outcome::Talk { actor } if actor == target => Some(i),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        self.skip.extend(self_talks);
+        let r = match r {
+            Ok(done) => Ok(self.talk_after_except(from, Some(target)).unwrap_or(done)),
+            r => r,
+        };
+        self.snapshot_inventory();
+        Some(r)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_event_skipped(&self, index: usize) -> bool {
+        self.skip.contains(&index)
     }
 
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
@@ -989,6 +1126,29 @@ impl Runtime {
         r
     }
 
+    /// The player talks to `actor` through bars or a fence (#3233,
+    /// `crate::activate::see_through`): only the conversation opens (`Game::start_dialogue`).
+    /// Not an activation: no OnActivate block, perks' choices, companion wheel or default
+    /// action; an actor asleep is not woken through the bars [design].
+    fn talk_only(&mut self, actor: FormId) -> Result<ByHand, String> {
+        if self.game.asleep(actor) {
+            info!("dialogue: {} is asleep behind the bars: not woken", self.game.data.name(actor));
+            return Ok(ByHand::Refused);
+        }
+        self.observe_inventory();
+        let g = &mut self.game;
+        let r = g.start_dialogue(actor, None).map(|info| {
+            if g.dialogue.is_some() {
+                info!("dialogue: the player talks to {} through the bars: its greeting is {}", g.data.name(actor), g.data.name(info));
+                ByHand::Talk
+            } else {
+                ByHand::Greeted
+            }
+        });
+        self.snapshot_inventory();
+        r
+    }
+
     /// The player's activations among the events from index `from` on whose default
     /// action is to talk (`Outcome::Talk`: a living actor): the conversation starts with
     /// the actor's greeting (`Game::start_dialogue`). An actor with nothing to say starts
@@ -998,6 +1158,10 @@ impl Runtime {
     /// shown like a SayTo line and the player stays free. Returns [`ByHand::Talk`] when a
     /// conversation started, else [`ByHand::Greeted`] when a greeting was said.
     fn talk_after(&mut self, from: usize) -> Option<ByHand> {
+        self.talk_after_except(from, None)
+    }
+
+    fn talk_after_except(&mut self, from: usize, skip_actor: Option<FormId>) -> Option<ByHand> {
         let player = FormId::PLAYER_REF;
         let wanted: Vec<(usize, FormId)> = self
             .game
@@ -1007,7 +1171,7 @@ impl Runtime {
             .skip(from)
             .filter_map(|(i, e)| match &e.kind {
                 EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
-                    Outcome::Talk { actor } => Some((i, actor)),
+                    Outcome::Talk { actor } if skip_actor != Some(actor) => Some((i, actor)),
                     _ => None,
                 },
                 _ => None,
@@ -1111,7 +1275,7 @@ impl Runtime {
     /// Something the player does to the game between ticks (a choice on the dialogue
     /// screen, a skipped response): inventory changes the menus made are seen first, and
     /// what the action's scripts change is the scripts' own.
-    pub(crate) fn player_action<R>(&mut self, f: impl FnOnce(&mut Game<'static>) -> R) -> R {
+    pub fn player_action<R>(&mut self, f: impl FnOnce(&mut Game<'static>) -> R) -> R {
         self.observe_inventory();
         let r = f(&mut self.game);
         self.snapshot_inventory();
@@ -1121,7 +1285,7 @@ impl Runtime {
     /// The player activates `r` as E does, wherever the crosshair is (test aids). Nobody
     /// else applies a default action's outcome here: its trace events become effects like
     /// a script's.
-    pub(crate) fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
+    pub fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
         let from = self.game.events.len();
         let done = self.by_hand(r)?;
         if !matches!(done, ByHand::Talk | ByHand::Greeted | ByHand::Wheel) {
@@ -1147,7 +1311,17 @@ impl Runtime {
                 let (r, m) = (resolve(g, r)?, resolve(g, m)?);
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: MOVE_TO, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
                 let args: Vec<ArgValue> = std::iter::once(ArgValue::Value(Value::Ref(m.0))).chain(off.iter().map(|v| ArgValue::Value(Value::Num(f64::from(*v))))).collect();
+                // A MoveTo the game refuses fails the aid, as a `call:` does (#2841: a
+                // scenario's forbid on failed steps must see it). Only the aid's own call
+                // counts: a script the move sets off (a destination's OnLoad) may fail a
+                // call of its own in the same frame.
+                let from = g.events.len();
                 g.call_function(&ctx, &args);
+                let opcode = format!("0x{MOVE_TO:04X}");
+                let own = |k: &EventKind| matches!(k, EventKind::CallFailed { unit, opcode: o, .. } if unit == "test aid" && *o == opcode);
+                if let Some(EventKind::CallFailed { error, .. }) = g.events[from..].iter().map(|e| &e.kind).find(|k| own(k)) {
+                    return Err(format!("MoveTo: {error}"));
+                }
             }
             ScriptAid::Stop(q) => {
                 let q = resolve(g, q)?;
@@ -1233,9 +1407,7 @@ impl Runtime {
                 let r = resolve(g, r)?;
                 let code = match group.parse::<u16>() {
                     Ok(c) => c,
-                    Err(_) => (0..=u16::from(u8::MAX))
-                        .find(|c| g.anim_group_name(*c).is_some_and(|n| n.eq_ignore_ascii_case(group)))
-                        .ok_or_else(|| format!("{group} is not an animation group"))?,
+                    Err(_) => g.anim_group_code(group).ok_or_else(|| format!("{group} is not an animation group"))?,
                 };
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: PLAY_GROUP, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
                 g.call_function(&ctx, &[ArgValue::Enum(code), ArgValue::Value(Value::Num(f64::from(*flag)))]);
@@ -1386,6 +1558,29 @@ pub enum ByHand {
 /// seconds].
 pub const WAKE_TALK_SECONDS: f64 = 8.0;
 
+/// The player talks to `target` through bars or a fence (`Runtime::talk_only`): only
+/// the conversation opens. Without the scripts there is none.
+pub fn talk_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
+    match script.and_then(|s| s.rt.as_mut()) {
+        Some(rt) => with_world(rt, sim, |rt| rt.talk_only(FormId(target))),
+        None => Err("the scripts are not running".into()),
+    }
+}
+
+/// The perks' choices alone on `target` (`Runtime::choices_only`): whether their list
+/// opened.
+pub fn choices_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> bool {
+    script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.choices_only(FormId(target))))
+}
+
+/// A living creature shown by name only whose script has an OnActivate block
+/// (`Runtime::script_only`, #3669): runs its OnActivate block while keeping the default
+/// activation behind it "nothing". `None` when scripts are off or `target` has no
+/// OnActivate block.
+pub fn script_activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Option<Result<ByHand, String>> {
+    script.and_then(|s| s.rt.as_mut()).and_then(|rt| with_world(rt, sim, |rt| rt.script_only(FormId(target))))
+}
+
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
     match script.and_then(|s| s.rt.as_mut()) {
@@ -1456,10 +1651,10 @@ impl EffectCtx for PlayCtx<'_> {
         (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), self.game.message_seconds(message).map(|s| s as f32))
     }
 
-    fn skill_look(&self, code: u16) -> (String, Option<String>) {
+    fn skill_name(&self, code: u16) -> String {
         let info = self.data.actor_value_info(code);
         let name = info.map(|i| i.name.clone()).filter(|n| !n.trim().is_empty());
-        (name.unwrap_or_else(|| fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string()), info.and_then(|i| i.icon.clone()))
+        name.unwrap_or_else(|| fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string())
     }
 
     fn pops_in(&self, r: FormId) -> bool {
@@ -1526,6 +1721,10 @@ impl std::io::Write for TraceFile {
 
     fn flush(&mut self) -> std::io::Result<()> {
         self.0.flush()
+    }
+
+    fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        self.0.write_vectored(bufs)
     }
 }
 
@@ -1739,6 +1938,33 @@ mod trace_ownership_tests {
         assert!(next_bytes.contains("next-run") && !next_bytes.contains("parent-before-child"));
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn finished_trace_releases_ownership_while_a_duplicated_handle_remains_open() {
+        let root = std::env::temp_dir().join(format!("nvf-duplicated-trace-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let path = root.join("script-trace.jsonl");
+        let mut parent = TraceLog::create(&path).unwrap();
+        parent.write(&serde_json::json!({"kind":"finished-owner"}));
+        let duplicate = parent.out.get_ref().try_clone().unwrap();
+        let overlap = TraceLog::create(&path).unwrap();
+        assert_ne!(overlap.path, path, "an active writer retains its lock despite duplication");
+        drop(overlap);
+        drop(parent);
+        let mut next = TraceLog::create(&path).unwrap();
+        assert_eq!(next.path, path, "a finished writer must not leave its lock with a duplicated handle");
+        next.write(&serde_json::json!({"kind":"next-owner"}));
+        drop(duplicate);
+        let overlap = TraceLog::create(&path).unwrap();
+        assert_ne!(overlap.path, path, "closing an old duplicate must not release the new writer's lock");
+        drop((overlap, next));
+        let bytes = std::fs::read_to_string(&path).unwrap();
+        let rows: Vec<serde_json::Value> = bytes.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["format"], "nvforever.play.script_log/1");
+        assert_eq!(rows[1]["kind"], "next-owner");
+        assert!(!bytes.contains("finished-owner") && !bytes.contains('\0'));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 // ---- plugin and systems --------------------------------------------------------------
@@ -1760,7 +1986,17 @@ impl Plugin for ScriptPlugin {
             .init_resource::<PlayerTimeScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game, exit_to_main_menu_event, crate::query_job::exit_when_done).chain().in_set(PlaySet::Scripts))
-            .add_systems(Last, (crate::aid::report, crate::query_job::report, write_final));
+            .add_systems(
+                Last,
+                (
+                    crate::aid::report,
+                    crate::query_job::report,
+                    // After Bevy's window-closed exit (`ExitSystems` writes AppExit in Last):
+                    // closing the window runs `gx_` exit scripts and writes the final summary,
+                    // as Quit, `qqq`, and timed exits do (#2203).
+                    (run_exit_scripts, write_final).chain().after(bevy::window::ExitSystems),
+                ),
+            );
     }
 }
 
@@ -1865,15 +2101,20 @@ fn time_multiplier(
         player_scale.0 = exempt;
     }
     // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
-    let vats_scale = kill_cam.and_then(|k| k.time_scale()).unwrap_or_else(|| vats.map_or(1.0, |v| v.time_scale()));
-    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
+    let kill_scale = kill_cam.and_then(|k| k.time_scale());
+    let vats_scale = kill_scale.unwrap_or_else(|| vats.as_deref().map_or(1.0, |v| v.time_scale()));
+    // Sounds follow VATS's own sound scale: while targets are chosen, no slower than firing
+    // (`VatsMode::sound_scale`, #3784).
+    let vats_sound = kill_scale.unwrap_or_else(|| vats.as_deref().map_or(1.0, |v| v.sound_scale()));
+    let others = scale.map_or(1.0, |s| s.0.max(0.0)) * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
+    let engine = others * vats_scale;
     let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);
     }
     if let Some(mut sound) = sound {
         let script_sound = if rt.game.ui.time_keeps_sound { 1.0 } else { asked };
-        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(engine) * script_sound));
+        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(others * vats_sound) * script_sound));
     }
 }
 
@@ -1971,9 +2212,16 @@ pub(crate) fn start_world_aids(
     }
 }
 
-/// The run's furniture, terminal and door messages, a refused load and the save's engine part
-/// still to put back (`crate::save::PendingEngine`).
-type UsesAndLoads<'w> = (MessageWriter<'w, crate::furniture::UseFurniture>, MessageWriter<'w, crate::terminal::OpenTerminal>, Option<ResMut<'w, crate::doors::Doors>>, MessageWriter<'w, crate::save::LoadRefused>, Option<Res<'w, crate::save::PendingEngine>>);
+/// Furniture, terminal and door messages, refused loads, the pending engine save
+/// state, and the application settings to bind before startup and restore scripts.
+type UsesAndLoads<'w> = (
+    MessageWriter<'w, crate::furniture::UseFurniture>,
+    MessageWriter<'w, crate::terminal::OpenTerminal>,
+    Option<ResMut<'w, crate::doors::Doors>>,
+    MessageWriter<'w, crate::save::LoadRefused>,
+    Option<Res<'w, crate::save::PendingEngine>>,
+    Option<Res<'w, crate::tweaks::TweakSettings>>,
+);
 
 /// [`run_scripts`]'s loading screen, keys, menu files, the pause menu's page and the
 /// count of MenuMode frames under its Mods page (`crate::tiles::mods`), and the main menu
@@ -2032,11 +2280,11 @@ pub(crate) fn run_scripts(
     mut hud: ResMut<ScriptHud>,
     mut corner: ResMut<crate::corner_messages::CornerMessages>,
     mut quest_lines: ResMut<crate::quest_messages::QuestMessages>,
-    (mut changed, mut fades, mut repose): (MessageWriter<RefChanged>, MessageWriter<crate::fade::RefFade>, MessageWriter<crate::RefRepose>),
+    (mut changed, mut fades, mut repose, mut script_sounds): (MessageWriter<RefChanged>, MessageWriter<crate::fade::RefFade>, MessageWriter<crate::RefRepose>, Option<ResMut<crate::sfx::ScriptSounds>>),
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
-    (mut sit, mut terminals, mut doors, mut refused, pending_engine): UsesAndLoads,
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine, tweak_settings): UsesAndLoads,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
@@ -2060,7 +2308,8 @@ pub(crate) fn run_scripts(
             }
             Some(Ok((data, secs))) => {
                 st.loader = None;
-                let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
+                let tweaks = tweak_settings.as_deref().map(|settings| &settings.game);
+                let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages, tweaks);
                 // A save loaded later keeps the game's configuration (`Runtime::restore_save`).
                 rt.game.cfg.answer_ok_boxes = st.no_messages;
                 rt.start = st.start.clone();
@@ -2087,6 +2336,9 @@ pub(crate) fn run_scripts(
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
                             restored = true;
+                            if let Some(tweaks) = tweaks {
+                                rt.game.bind_stewie_stat_settings(tweaks);
+                            }
                             // SUP's GetSaveName and GetLoadedSaveSize read the last save
                             // loaded (`fnv_game::nvse_sup4`).
                             let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -2119,7 +2371,7 @@ pub(crate) fn run_scripts(
                             rt.frozen_frames = 2;
                             // The drawn world follows the restored simulation.
                             for id in changed_refs {
-                                changed.write(RefChanged { form_id: id.0, restored: true });
+                                changed.write(RefChanged::restored(id.0));
                             }
                         }
                         Err(e) => {
@@ -2140,6 +2392,9 @@ pub(crate) fn run_scripts(
                     script_runner(&mut rt, &mut sim, Moment::Restart);
                     // The new game's files wait for its first frame (`new_game_files`).
                     rt.new_game_files = true;
+                    // The player's trees are told from the start, so a new-game file's
+                    // first question about the player's model finds them.
+                    rt.game.scene.watch(FormId::PLAYER_REF);
                 }
                 let from_source = data.issues.count("script_compiled_from_source");
                 let failed = data.issues.count("script_source_does_not_compile");
@@ -2208,9 +2463,10 @@ pub(crate) fn run_scripts(
     }
     if mods_ticks.frames > 0 {
         info!("scripts: the Mods page closed after {} MenuMode frames", mods_ticks.frames);
-        mods_ticks.frames = 0;
         if let Some(rt) = st.rt.as_mut() {
-            with_world(rt, &mut sim, |rt| rt.game.page_menu_event(fnv_game::game::menus::START, false));
+            with_world(rt, &mut sim, |rt| crate::tiles::mods::close(&mut rt.game, &mut mods_ticks));
+        } else {
+            *mods_ticks = Default::default();
         }
     }
     if paused.0 || screen.active() {
@@ -2295,6 +2551,16 @@ pub(crate) fn run_scripts(
     let mut loading_menu = false;
     let mut aid_lines = Vec::new();
     let mut walks = Vec::new();
+    // Apply any pre-`run_scripts` `ClearMessageQueue` (e.g. `PlaySet::Activation` or
+    // dialogue result scripts) to `CornerMessages` without discarding the `Game::events`
+    // watermark, and sync `corner.total()` when no undrained events are pending [design].
+    if rt.game.hud.take_corner_clear() {
+        let dropped = corner.clear();
+        info!("corner messages: cleared {dropped} message(s) (ClearMessageQueue)");
+    }
+    if rt.game.events.is_empty() {
+        rt.game.hud.sync_corner_queue(corner.total());
+    }
     with_world(rt, &mut sim, |rt| {
         // The original's main menu is its start menu: its MenuMode 1013 blocks run there
         // before the game, where MCM mods add themselves to MCM's list; NVForever comes
@@ -2309,7 +2575,9 @@ pub(crate) fn run_scripts(
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let n = rt.game.dispatch_event("LoadGame", vec![fnv_script::vm::XVal::Str(name)], None) + rt.game.dispatch_event("PostLoadGame", vec![fnv_script::vm::XVal::Num(1.0)], None);
                 info!("scripts: LoadGame and PostLoadGame after the start menu's frames ({n} handlers ran)");
-                log_script_runner(rt.game.run_script_runner(Moment::Load), Moment::Load);
+                // Its Script Runner files wait for the player's models, as a new game's do.
+                rt.load_files = true;
+                rt.game.scene.watch(FormId::PLAYER_REF);
             }
         }
         rt.observe_inventory();
@@ -2329,8 +2597,29 @@ pub(crate) fn run_scripts(
             info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }
         rt.follow_player();
-        if std::mem::take(&mut rt.new_game_files) {
-            log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
+        // The new game's files run once the player's models are in place, as in the
+        // original, where a new game's scripts start with the player loaded [observed: B42
+        // Inertia's `ln_B42Inertia.txt` asks `Player.GetNifScale "NeckController" 2` one
+        // frame after it runs; on NVForever's first frame the first-person tree was not yet
+        // told, the answer was 0 and its "Install latest Compatibility Skeleton" box showed,
+        // log nvforever-20261125-152502-11852.log; from a save the same question reads 1,
+        // log nvforever-20261125-153358-7876.log]. At most NEW_GAME_FILES_WAIT frames.
+        if rt.new_game_files || rt.load_files {
+            let ready = !rt.game.scene.uses_separate_player_models()
+                || rt.game.scene.has_tree(FormId::PLAYER_REF, fnv_game::nif_blocks::ModelView::FirstPerson);
+            rt.new_game_files_waited += 1;
+            if ready || rt.new_game_files_waited > NEW_GAME_FILES_WAIT {
+                if !ready {
+                    info!("script runner: new game files run without the player's first-person model after {NEW_GAME_FILES_WAIT} frames");
+                }
+                rt.new_game_files_waited = 0;
+                if std::mem::take(&mut rt.load_files) {
+                    log_script_runner(rt.game.run_script_runner(Moment::Load), Moment::Load);
+                }
+                if std::mem::take(&mut rt.new_game_files) {
+                    log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
+                }
+            }
         }
         if std::mem::take(&mut rt.opening_pending) {
             // The extender's NewGame event as the new game begins; a `--cell` start is
@@ -2428,6 +2717,8 @@ pub(crate) fn run_scripts(
     // by hand earlier in the frame).
     let events = std::mem::take(&mut rt.game.events);
     let skip = std::mem::take(&mut rt.skip);
+    let corner_clear_at = rt.game.hud.take_corner_clear_event_index();
+    let corner_cleared = rt.game.hud.take_corner_clear();
     rt.stats.events += events.len() as u64;
     // References a `Disable 1` held enabled while they faded, disabled now: their visuals,
     // collision and enable children follow.
@@ -2437,7 +2728,11 @@ pub(crate) fn run_scripts(
     let culled = std::mem::take(&mut rt.game.script_looks.critical_changed);
     let move_fades = std::mem::take(&mut rt.game.script_looks.fades);
     let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests, game: &rt.game };
-    let mut effects = script_events::effects(&events, &skip, &ctx);
+    let mut effects = script_events::effects_with_corner_clear(&events, &skip, corner_clear_at.unwrap_or(0), &ctx);
+    if corner_cleared {
+        let dropped = corner.clear();
+        info!("corner messages: cleared {dropped} message(s) (ClearMessageQueue)");
+    }
     // Objects a script moved, turned or resized: their collision follows (`crate::phys`).
     for r in rt.game.turned.union(&console_turned) {
         repose.write(crate::RefRepose { form_id: r.0 });
@@ -2493,6 +2788,21 @@ pub(crate) fn run_scripts(
         info!("script: EnableLoadingMenu with no move of the player: no loading screen (a screen without travel is not built)");
     }
     let mut sent = BTreeSet::new();
+    // References a script had an actor other than the player pick up this frame (Ringo
+    // taking his own ammo at the start of Ghost Town Gunfight, #3918): not the player's
+    // deed. A pick-up by the player in the same frame wins.
+    let mut takers: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+    for e in &events {
+        if let EventKind::Activated { reference, by, outcome: Some(v) } = &e.kind {
+            if v["result"] == "picked_up" {
+                let other = (*by != FormId::PLAYER_REF).then_some(by.0);
+                let t = takers.entry(reference.0).or_insert(other);
+                if other.is_none() {
+                    *t = None;
+                }
+            }
+        }
+    }
     let feet = phys.player.as_ref().map(|c| c.feet);
     for e in effects {
         // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
@@ -2500,7 +2810,7 @@ pub(crate) fn run_scripts(
         match e {
             ScriptEffect::RefChanged(id) => {
                 if sent.insert(id) {
-                    changed.write(RefChanged::new(id));
+                    changed.write(RefChanged { taker: takers.get(&id).copied().flatten(), ..RefChanged::new(id) });
                 }
             }
             ScriptEffect::Fade { form_id, fade_in } => {
@@ -2534,6 +2844,11 @@ pub(crate) fn run_scripts(
             }
             ScriptEffect::OpenContainer(c) => {
                 open.write(OpenContainer { container: c });
+            }
+            ScriptEffect::ItemAddedSound(item) => {
+                if let Some(s) = script_sounds.as_deref_mut() {
+                    s.items_added.push(item);
+                }
             }
             ScriptEffect::Notify(mut note) => {
                 // The player string codes (`&PCName;`) as they read now; ShowMessage's
@@ -2571,6 +2886,7 @@ pub(crate) fn run_scripts(
             }
         }
     }
+    rt.game.hud.sync_corner_queue(corner.total());
 }
 
 /// The control groups scripts turned off or on this frame reach the player's controls
@@ -2700,6 +3016,48 @@ fn log_event(data: &GameData, e: &Event) {
     }
 }
 
+/// At exit: JIP's Script Runner `gx_` files (`fnv_game::script_runner::Moment::Exit`),
+/// run once in the played world before `write_final` and process teardown so cached mod
+/// INI and JSON writes flush synchronously to disk [design]. No-op when no `gx_` files
+/// exist or exit scripts have already run.
+fn run_exit_scripts(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>, mut sim: ResMut<SimState>) {
+    if exit.read().next().is_none() {
+        return;
+    }
+    let st = &mut *script;
+    let Some(rt) = st.rt.as_mut() else {
+        return;
+    };
+    let from = rt.game.events.len();
+    let runs = with_world(rt, &mut sim, |rt| rt.game.run_exit_scripts());
+    if runs.is_empty() {
+        return;
+    }
+    log_script_runner(runs, Moment::Exit);
+    let events = rt.game.events.split_off(from);
+    rt.stats.events += events.len() as u64;
+    if let Some(log) = st.mod_log.as_mut() {
+        crate::mod_log::frame(log, &mut rt.game, &events);
+    }
+    for e in &events {
+        log_event(rt.game.data, e);
+    }
+    if let Some(log) = st.trace.as_mut() {
+        let t = secs(rt.started);
+        let gt = rt.game.time;
+        for e in &events {
+            if let Ok(mut v) = serde_json::to_value(e) {
+                v["t"] = serde_json::json!(t);
+                v["gt"] = serde_json::json!(gt);
+                log.write(&v);
+            }
+        }
+        if !events.is_empty() {
+            let _ = log.out.flush();
+        }
+    }
+}
+
 /// At exit: the trace's final line and a summary in the log.
 fn write_final(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>) {
     if exit.read().next().is_none() {
@@ -2767,7 +3125,7 @@ pub fn asks_nothing(buttons: usize) -> bool {
     buttons <= 1
 }
 
-#[cfg(any(test, feature = "test-support", feature = "report-test-support"))]
+#[cfg(any(test, feature = "test-support", feature = "report-test-support", feature = "test-fixtures"))]
 impl ScriptState {
     /// A runtime over an empty load order, for tests of what works the open menu: nothing
     /// has run, no menu is open.
@@ -2797,10 +3155,14 @@ impl ScriptState {
             skip: BTreeSet::new(),
             closing: None,
             restored_from_save: false,
+            session_epoch: 0,
             opening_pending: false,
             new_game_files: false,
+            new_game_files_waited: 0,
+            load_files: false,
             wake_talk: None,
             start: GameStart::default(),
+            opening_notice: None,
             location: None,
             frozen_frames: 0,
             came_through: false,
@@ -2823,6 +3185,16 @@ impl ScriptState {
     #[cfg(test)]
     pub(crate) fn answered(&self) -> bool {
         self.rt.as_ref().is_some_and(|rt| rt.closing.is_some())
+    }
+}
+
+// Shared only with the wrapper's dev-dependency: private Runtime fields and the
+// actual authored constructor stay owned by this module.
+#[cfg(feature = "test-fixtures")]
+#[doc(hidden)]
+pub mod fixtures {
+    pub fn over_plugins(plugins: &[fnv_esm::Plugin]) -> super::ScriptState {
+        super::ScriptState::over_plugins(plugins)
     }
 }
 
@@ -2895,6 +3267,38 @@ mod restore_tests {
         assert!(e.contains("unsupported snapshot format"), "{e}");
         assert!(sim.world.peek(ACTOR).is_none() && sim.world.peek(MARKER).is_none());
         assert!(!rt.restored_from_save);
+    }
+
+    /// The session fields that `take_session` drains survive a `Game::restore` refusal.
+    #[test]
+    fn a_refused_restore_keeps_active_save_file_session_sentinels() {
+        use fnv_game::nvse_sup4::{SaveFile, SaveFiles};
+        let (mut rt, mut sim, good) = in_fade();
+        rt.game.save_files = SaveFiles {
+            saved: Some(SaveFile { name: "owned-active-save".into(), bytes: 41 }),
+            loaded: Some(SaveFile { name: "owned-active-load".into(), bytes: 73 }),
+        };
+        let before = rt.game.save_files.clone();
+        let played = sim.world.snapshot();
+        let stand_in = rt.game.world.snapshot();
+        let mut refused = good.clone();
+        refused.format = "fnv.game.state/unsupported-test".into();
+        // World restoration is valid: the refusal is in Game::restore, after the
+        // old ordering had already drained these active session fields.
+        fnv_sim::World::restore(sim.forms, sim.refs, &refused.sim).unwrap();
+        let error = rt.restore_save(&mut sim, refused).unwrap_err();
+        assert!(error.contains("unsupported snapshot format"), "{error}");
+        assert_eq!(rt.game.save_files, before, "a refused Game restore must not drain the active session");
+        assert_eq!(sim.world.snapshot(), played);
+        assert_eq!(rt.game.world.snapshot(), stand_in);
+        assert!(!rt.restored_from_save);
+        assert_eq!(rt.session_epoch, 0, "a refused restore must not advance the committed session epoch");
+        // The successful neighbor still transfers this same active session.
+        rt.restore_save(&mut sim, good).unwrap();
+        assert_eq!(rt.game.save_files, before);
+        assert!(rt.restored_from_save);
+        assert_eq!(rt.session_epoch, 1, "a committed restore advances the session epoch");
+        assert_eq!(sim.world.peek(ACTOR).unwrap().cell, Some(MARKER_CELL));
     }
 
     #[test]
@@ -2989,6 +3393,101 @@ mod runtime_start_tests {
         assert!(!runtime_waits(false, false), "the menu is open, paused, or was never asked for");
     }
 }
+
+#[cfg(test)]
+mod exit_script_tests {
+    use super::*;
+    use fnv_game::mod_files::{set_roots, Roots};
+
+    static ROOTS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn fresh_app() -> App {
+        let mut app = App::new();
+        let st = ScriptState::over_no_plugins();
+        let (forms, refs) = {
+            let rt = st.rt.as_ref().unwrap();
+            (rt.game.world.forms, rt.game.world.placed)
+        };
+        let sim = SimState { forms, refs, world: World::new(forms, refs, fnv_sim::SimConfig::default()) };
+        app.add_message::<AppExit>()
+            .insert_resource(st)
+            .insert_resource(sim)
+            .add_systems(Last, (run_exit_scripts, write_final).chain().after(bevy::window::ExitSystems));
+        app
+    }
+
+    #[test]
+    fn app_exit_runs_gx_scripts_once_and_flushes_cached_ini_to_disk() {
+        let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().join(format!("nvf-play-gx-exit-{}-{stamp}", std::process::id()));
+        let data = base.join("game/Data");
+        let layer = base.join("mods");
+        let scripts = data.join("NVSE/Plugins/Scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::create_dir_all(&layer).unwrap();
+        std::fs::write(
+            scripts.join("gx_flush.txt"),
+            "SaveCachedIni \"play_exit_test.ini\"\r\nCloseFileSO \"play_exit_test.ini\"\r\nPrintC \"play-gx-ran\"\r\n",
+        )
+        .unwrap();
+        set_roots(Roots { read: vec![layer.clone(), data], write: Some(layer.clone()), ..Roots::default() });
+
+        let mut app = fresh_app();
+        // Seed cached INI value in memory (not written to disk until gx_flush.txt runs).
+        {
+            let mut st = app.world_mut().resource_mut::<ScriptState>();
+            let rt = st.rt.as_mut().unwrap();
+            rt.game
+                .run_source("GetINIFloatOrCreate_Cached \"General:fPlayExit\" \"play_exit_test.ini\" 19.25\n", Default::default())
+                .unwrap();
+        }
+        let ini_path = layer.join("Config/play_exit_test.ini");
+
+        // An update without AppExit must not trigger exit scripts.
+        app.update();
+        assert!(!ini_path.is_file(), "gx_ script must not run before AppExit");
+
+        // AppExit triggers run_exit_scripts once and flushes cached INI to disk.
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert!(ini_path.is_file(), "AppExit must run gx_ script and flush cached INI");
+        let text = std::fs::read_to_string(&ini_path).unwrap();
+        assert!(text.contains("19.25"), "flushed INI text: {text:?}");
+        let events_after_first = app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events;
+        assert!(events_after_first >= 1, "gx_ PrintC event should be counted before write_final");
+
+        // Repeated AppExit is idempotent and does not re-execute gx_flush.txt.
+        std::fs::remove_file(&ini_path).unwrap();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert!(!ini_path.exists(), "repeated AppExit must not re-run gx_ scripts");
+        assert_eq!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events, events_after_first);
+
+        set_roots(Roots::default());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn app_exit_without_gx_scripts_is_a_vanilla_no_op() {
+        let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().join(format!("nvf-play-gx-empty-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        set_roots(Roots { read: vec![base.clone()], ..Roots::default() });
+
+        let mut app = fresh_app();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert_eq!(app.world().resource::<ScriptState>().rt.as_ref().unwrap().stats.events, 0);
+
+        set_roots(Roots::default());
+        std::fs::remove_dir_all(&base).ok();
+    }
+}
+
+#[cfg(test)]
+mod stewie_profile_tests;
 
 #[cfg(test)]
 mod clearance_tests;

@@ -42,7 +42,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     let v = match name {
         // `GetWeaponItemMod slot [weapon]` (1–3): WMI1–3; the effect and values: DNAM
         // effect_modN, value_a_modN, value_b_modN [documented: their pages; the fields are
-        // the schema's].
+        // the schema's; observed 2026-11-24: `w6t2_32_showoff_matrix_edges_and_get_weapon_mod_flags`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `imod(4.00,0.40)` for `Weap10mmPistol` (`0x434F`) slots 1 and 2].
         "getweaponitemmod" | "getweaponitemmodeffect" | "getweaponitemmodvalue1" | "getweaponitemmodvalue2" => {
             let slot = int(args, 0, 0);
             if !(1..=3).contains(&slot) {
@@ -120,18 +122,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         "getnextrefforitem" => XVal::Ref(0),
         // [documented: IsOwned; HasOwnership] whether an actor owns a reference: the
-        // reference's owner (XOWN) or its cell's, the NPC itself or a faction it is in
-        // (at the rank XRNK asks).
+        // reference's live owner (SetOwnership/ClearOwnership/SetOwnershipTemp/XOWN) or
+        // its cell's, the NPC itself or a faction it is in (at the live required rank
+        // SetOwningFactionRequiredRank/XRNK asks).
         "isowned" | "hasownership" => {
             let (r, actor) = if name == "isowned" { (subject, form(args, 0)) } else { (form(args, 0), subject) };
             let (Some(r), Some(actor)) = (r, actor) else { return Some(Ok(XVal::Num(0.0))) };
-            let owner = g.world.placed.get(r).and_then(|p| p.owner).or_else(|| g.cell_of(r).and_then(|c| g.cell_ownership(c)).map(|o| o.owner));
-            let owns = owner.is_some_and(|o| {
-                o == base(g, actor) || {
-                    let need = g.data.owner_ranks.get(&r).copied().unwrap_or(0);
-                    crate::functions::actor::faction_rank(g, actor, o) >= need
-                }
-            });
+            let owns = g.ownership(r).is_some_and(|o| g.counts_as_owner(actor, &o));
             XVal::Num(f64::from(u8::from(owns)))
         }
         // [documented: GetPressedKeys; GetDisabledKeys] scancodes as arrays.
@@ -187,10 +184,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             num(field(g, item(g, 0), "BMDT", path))
         }
         // [documented: GetObjectEffect] the item's object effect (EITM).
-        "getobjecteffect" => match field(g, item(g, 0), "EITM", "") {
-            Some(XVal::Ref(r)) => XVal::Ref(r),
-            _ => XVal::Ref(0),
-        },
+        "getobjecteffect" => XVal::Ref(g.object_effect(item(g, 0)).map_or(0, |e| e.0)),
         // [documented: GetNameOfClass] the actor's class's name.
         "getnameofclass" => {
             let class = form(args, 0).or(subject).and_then(|f| g.traits_class(f));

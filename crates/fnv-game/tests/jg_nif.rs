@@ -106,8 +106,9 @@ fn distances_and_bounds() {
     assert!((n(&mut g, "PlayerREF.Get3DDistanceFromHitToNiNode \"Bip01 Head\"") - 40.0).abs() < 1e-3);
     // The root's bound without a block.
     assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound\nSetFunctionValue aR[2] * 1000 + aR[3]"), 60_070.0);
-    // A block it does not have: the root's.
-    assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\nSetFunctionValue aR[2] * 1000 + aR[3]"), 60_070.0);
+    // A missing block returns a 4-element zero-radius array [observed: w4c_b3_11b_jgnif_nodes_bounds].
+    assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\nSetFunctionValue (ar_Size aR)"), 4.0);
+    assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\nSetFunctionValue aR[3]"), 0.0);
 }
 
 #[test]
@@ -124,10 +125,14 @@ fn particles_properties_and_switches() {
     assert_eq!(n(&mut g, "PlayerREF.GetParticleEmitterSpawnRate \"ParticleEmitter\""), 1000.0);
     let edits = g.scene.take_edits();
     assert!(edits.contains(&SceneEdit::Particle { r: P, node: "ParticleEmitter".into(), id: 20, v: 1000.0 }));
-    // The properties: read, set, kept over the next tree the engine tells.
+    // The properties: read, set, kept over the next tree the engine tells, and queued for the engine.
+    g.scene.take_edits();
     assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1"), 128.0);
     assert_eq!(n(&mut g, "PlayerREF.SetAlphaPropertyValue \"Glass\" 1 64"), 1.0);
     assert_eq!(n(&mut g, "PlayerREF.SetStencilPropertyValue \"Glass\" 1 3"), 1.0);
+    let prop_edits = g.scene.take_edits();
+    assert!(prop_edits.contains(&SceneEdit::AlphaProperty { r: P, node: "Glass".into(), item: 1, v: 64.0 }));
+    assert!(prop_edits.contains(&SceneEdit::StencilProperty { r: P, node: "Glass".into(), item: 1, v: 3.0 }));
     g.scene.set_tree(P, tree());
     assert_eq!(n(&mut g, "PlayerREF.GetAlphaPropertyValue \"Glass\" 1") * 10.0 + n(&mut g, "PlayerREF.GetStencilPropertyValue \"Glass\" 1"), 643.0);
     // The switch shows its second child alone.
@@ -184,11 +189,17 @@ fn the_camera() {
     // No engine yet: zeros.
     assert_eq!(n(&mut g, "GetCameraTranslation fX fY fZ 0\nSetFunctionValue fX + fY + fZ"), 0.0);
     let at = g.ref_pos_rot(P).unwrap().0;
-    // The camera 100 behind the player, facing north with a 90° view, square.
+    // First person: world returns camera position, local returns (0, 0, 0)
+    // [observed: w6_t1_10a_jg_cam_trans].
+    g.ui.camera.view = Some(CameraView { pos: [at[0], at[1] - 3.7, at[2] + 118.0], heading: 0.0, pitch: 0.0, roll: 0.0, fov_y: std::f32::consts::FRAC_PI_2, aspect: 1.0, first_person: true });
+    assert_eq!(n(&mut g, "GetCameraTranslation fX fY fZ 1\nSetFunctionValue fX + fY + fZ"), 0.0);
+    // Third person: camera 100 behind the player, facing north with a 90° view, square.
     g.ui.camera.view = Some(CameraView { pos: [at[0], at[1] - 100.0, at[2]], heading: 0.0, pitch: 0.0, roll: 0.0, fov_y: std::f32::consts::FRAC_PI_2, aspect: 1.0, first_person: false });
     assert_eq!(n(&mut g, "GetCameraTranslation fX fY fZ 1\nSetFunctionValue fY"), -100.0);
-    // The player's place is at the screen's centre, 100 ahead.
-    assert_eq!(n(&mut g, "let fOn := WorldToScreen fX fY fZ 0 0 0 0 PlayerREF\nSetFunctionValue fOn * 1000 + fX * 100 + fY * 10 + fZ / 100"), 1000.0 + 50.0 + 5.0 + 1.0);
+    // The player's place is at the screen's centre, 100 ahead -> D3D9 NDC zOut 0.95095
+    // [observed: w6_t1_10d_jg_w2s_depth].
+    let w2s = n(&mut g, "let fOn := WorldToScreen fX fY fZ 0 0 0 0 PlayerREF\nSetFunctionValue fOn * 1000 + fX * 100 + fY * 10 + fZ");
+    assert!((w2s - (1000.0 + 50.0 + 5.0 + 0.95095)).abs() < 1e-4, "w2s={w2s}");
     // The overrides for the engine to put on the third-person camera.
     q(&mut g, "SetCameraTranslate 1 10 -50 20\nSetCameraRotate 1 3 90");
     assert_eq!(g.ui.camera.translate_override, Some([10.0, -50.0, 20.0]));
@@ -212,4 +223,127 @@ fn nif_translation_world_flag_composes_reference_and_parent_instead_of_returning
     assert_eq!(n(&mut g,"ar_Size (PlayerREF.GetNifBlockTranslation \"MissingOwnedNode\" 1)"),-1.0);
     let axis=fnv_game::nvse::call(&mut g,&Default::default(),"getnifblocktranslation",Some(P),&[XVal::Str("OwnedHand".into()),XVal::Str("Z".into()),XVal::Num(1.0)]).unwrap().unwrap();
     assert_eq!(axis,XVal::Num(336.0));
+}
+
+#[test]
+fn camera_overlay_refs_resolve_and_accept_nif_edits() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Built-in JohnnyGuitar camera overlay EditorIDs resolve to distinct valid REFRs and round-trip.
+    let pre_is = q(&mut g, "SetFunctionValue (EditorIDToFormID \"JG_CameraOverlayRef_PreIS\")");
+    let pre_ui = q(&mut g, "SetFunctionValue (EditorIDToFormID \"jg_cameraoverlayref_preui\")");
+    assert_eq!(pre_is, XVal::Ref(fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS.0));
+    assert_eq!(pre_ui, XVal::Ref(fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_UI.0));
+    assert_ne!(pre_is, pre_ui);
+
+    assert_eq!(
+        q(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (GetEditorID rCam)"),
+        XVal::Str("JG_CameraOverlayRef_PreIS".into()),
+    );
+    assert_eq!(
+        q(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreUI\"\nSetFunctionValue (GetEditorID rCam)"),
+        XVal::Str("JG_CameraOverlayRef_PreUI".into()),
+    );
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (IsFormValid rCam) * 10 + (IsReference rCam)"),
+        11.0,
+    );
+
+    // Synthetic camera-overlay attachment and SetNifBlockTranslation (alias SetNifTrans)
+    // run cleanly without raising NoReference and queue the expected first-person translation edit.
+    g.scene.take_edits();
+    q(
+        &mut g,
+        "ref rCamera\n\
+         let rCamera := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\n\
+         AttachModel rCamera 3 \"Scene Root|synthetic\\overlay.nif\"\n\
+         rCamera.SetNifTrans \"OverlayNode\" 0 7.5 0 2\n\
+         rCamera.SetParticleEmitterSpawnRate \"OverlayEmitter\" 0",
+    );
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+        "unexpected script errors: {:?}",
+        g.events,
+    );
+    let edits = g.scene.take_edits();
+    assert!(
+        edits.iter().any(|e| matches!(
+            e,
+            SceneEdit::Translation { r, node, v }
+                if *r == fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS && node == "OverlayNode" && *v == [0.0, 7.5, 0.0]
+        )),
+        "expected Translation edit on PreIS overlay ref, got {edits:?}",
+    );
+
+    // Reserved range sits strictly in [CAMERA_OVERLAY_BASE, LAMBDA_BASE), disjoint from temp_item.
+    for id in [fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS, fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_UI] {
+        assert!((fnv_game::game::CAMERA_OVERLAY_BASE..fnv_game::game::LAMBDA_BASE).contains(&id.0));
+        assert!(g.temp_item(id).is_none());
+    }
+
+    // A loaded plugin record occupying the same FormID wins over the synthetic fallback in
+    // form_sig (IsReference / GetType) and GetEditorID.
+    let mut f_loaded = fixture();
+    let slot = fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS;
+    f_loaded.data.sigs.insert(slot, *b"MISC");
+    f_loaded.data.edids.insert("loadedatoverlayslot".into(), slot);
+    f_loaded.data.edid_of.insert(slot, "LoadedAtOverlaySlot".into());
+    let mut g_loaded = game(&f_loaded);
+    assert_eq!(
+        n(
+            &mut g_loaded,
+            "ref rSlot\nlet rSlot := EditorIDToFormID \"LoadedAtOverlaySlot\"\nSetFunctionValue (IsFormValid rSlot) * 10 + (IsReference rSlot)",
+        ),
+        10.0,
+        "loaded MISC record must win in form_sig (valid, not REFR)",
+    );
+    assert_eq!(
+        q(
+            &mut g_loaded,
+            "ref rSlot\nlet rSlot := EditorIDToFormID \"LoadedAtOverlaySlot\"\nSetFunctionValue (GetEditorID rSlot)",
+        ),
+        XVal::Str("LoadedAtOverlaySlot".into()),
+    );
+}
+
+#[test]
+fn camera_overlay_refs_support_model_has_block_and_vanilla_watch_fast_path() {
+    let f = fixture();
+    let mut g = game(&f);
+    let pre_is = fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_IS;
+    let pre_ui = fnv_game::nvse_jg_nif::CAMERA_OVERLAY_PRE_UI;
+
+    // Vanilla fast-path: neither overlay ref is watched until a script touches it.
+    assert!(!g.scene.is_watched(pre_is));
+    assert!(!g.scene.is_watched(pre_ui));
+
+    // ModelHasBlock on an overlay ref marks it watched and returns 0 before publication.
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (ModelHasBlock rCam \"OverlayNode\")"),
+        0.0,
+    );
+    assert!(g.scene.is_watched(pre_is));
+    assert!(!g.scene.is_watched(pre_ui));
+
+    // Once the engine publishes the overlay tree, ModelHasBlock matches exact block names.
+    g.scene.set_tree(
+        pre_is,
+        vec![
+            node("Scene Root", None, [0.0; 3], NodeInfo::default()),
+            node("OverlayNode", Some(0), [0.0, 7.5, 0.0], NodeInfo::default()),
+        ],
+    );
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (ModelHasBlock rCam \"OverlayNode\")"),
+        1.0,
+    );
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (ModelHasBlock rCam \"overlaynode\")"),
+        0.0,
+    );
+    assert_eq!(
+        n(&mut g, "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (ModelHasBlock rCam \"Missing\")"),
+        0.0,
+    );
 }

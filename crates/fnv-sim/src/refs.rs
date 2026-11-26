@@ -317,7 +317,10 @@ impl RefTable {
                 if r.header.flags & record_flags::DELETED != 0 {
                     return (None, true, issues);
                 }
-                let pr = load_ref(lo, schema, pi, FormId(fid), r, FormId(e.cell), e.persistent, &mut issues);
+                let pr = load_ref(lo, schema, pi, FormId(fid), r, FormId(e.cell), e.persistent, &mut issues).map(|mut pr| {
+                    pr.base = FormId(ix.resolve_base(fid, pr.base.0));
+                    pr
+                });
                 (pr, false, issues)
             })
             .collect();

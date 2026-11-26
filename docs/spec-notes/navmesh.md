@@ -57,6 +57,26 @@ NVER u32, then repeated:
 
 NVForever builds its graph from NAVM alone (§4); NAVI is read and checked only.
 
+What NVCI holds in FalloutNV.esm [observed: NAVI 0x00014B92 decoded by hand, 2026-11-23,
+#3473]: 4,771 entries; 4,102 list standard connections, 31 preferred ones, 666 neither.
+Of the 12,494 standard connections, 12,476 are listed back by the other navmesh. Whether
+they add any join the NAVM edge links (NVEX) do not already make was not checked.
+
+**Two navmeshes of one cell that touch without a link** (#3473). SSHQ01, the Sunset
+Sarsaparilla HQ: the prize room, Allen Marks' holotape room and their stairs are navmesh
+0x0010489C; the rest of the cell is 0x0010AF20. Neither has an edge link to the other,
+and neither lists the other in NVCI (0x0010489C lists no connections at all; 0x0010AF20
+only five doors) [observed]. Seen from above, the top of the stairs lies along the main
+navmesh's open edge: the main navmesh's triangle 314 has a boundary edge from
+(-4253, -8101, 6944) to (-4323, -8104, 6944); the stair navmesh's triangles 46 and 48
+have boundary edges along y -8085 to -8107 at z 6913 to 6839, 17 to 31 units off the main
+edge across the ground and 31 units or more below it [observed: `fnvtool nav near --space
+SSHQ01 --at=-4265,-8093,6930`]. So nothing in the records joins them, and the nav graph
+(§4) has the two apart: no AI path leads up the stairs. A player walks up them. Whether
+the original's actors climb them (it joins such edges by a rule of its own, or its actors
+cannot reach the rooms either) is observer check 279; NVForever joins nothing the records
+do not join [design: no rule is invented before that answer].
+
 ## 2. What the masters hold [observed]
 
 - **6,129 navmeshes** win after load order (4,771 definitions in FalloutNV.esm, 146 in
@@ -115,6 +135,14 @@ the actor jumps or drops over them (actor-jumps.md §3).
   to the triangle beyond it: internal, portal (NVEX type 0 or 3), ledge (types 1 and 2) or
   outline. Building the whole load order's graph takes 0.33 s; 106 links stay unresolved
   (the out-of-range ones in §2).
+- **One-way portals** [observed 2026-11-15; repair is engine choice]: 15 portal edges of
+  the load order land on an edge of another triangle that does not link back: the edge is
+  open, or links to a triangle that has no such edge (a stale link). That edge is linked
+  back when both ends match within 1 unit (`NavGraph::join_one_way_portals`, the build
+  stats' `portals_joined_back`). Lonesome Road's Ashton silo lift: the far door's
+  one-triangle navmesh 0x0100A556 links onto the lift floor (0x0100A555 triangles 12 and
+  15), whose edges there link to triangle 16 of 0x0100A554, far off. Without the repair the
+  door is an island of one triangle and no path reaches it.
 - **Doors join spaces**: each NVDP triangle connects to where the door's teleport (REFR
   XTEL [documented: xEdit]) arrives: the destination door's own NVDP triangle when it is in
   the destination's space, else the triangle under the arrival point. 1,357 doors join;

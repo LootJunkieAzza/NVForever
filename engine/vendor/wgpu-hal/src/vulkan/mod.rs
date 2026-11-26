@@ -223,6 +223,22 @@ pub fn with_latency_swapchain<R>(call: impl FnOnce(vk::SwapchainKHR) -> R) -> Op
     swapchain::with_latency_swapchain(call)
 }
 
+/// NVForever (2026-11-19): test aid `NVF_PLAY_TEST_SPIRV_SALT=<n>` (a number, not 0). Every
+/// shader module's SPIR-V is handed to the driver with `n` XORed into its header's generator
+/// word, which only names the tool that wrote it [documented: SPIR-V specification 2.3,
+/// "Physical Layout"], so the module means the same, but a driver's own shader cache sees
+/// new code and compiles every pipeline afresh: a first launch after a driver update, on
+/// demand. A new number each run gives a cold driver cache each run.
+pub(crate) fn spirv_salt() -> Option<u32> {
+    static SALT: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+    *SALT.get_or_init(|| {
+        std::env::var("NVF_PLAY_TEST_SPIRV_SALT")
+            .ok()
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .filter(|&n| n != 0)
+    })
+}
+
 /// NVForever (2026-11-16): how many swapchains have been created so far in the process (any
 /// device, any surface). It moves on once `vkCreateSwapchainKHR` has returned, so a caller that
 /// sees it move knows that a layer tracking the new swapchain (Streamline's Reflex) has seen it.

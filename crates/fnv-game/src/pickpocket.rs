@@ -234,9 +234,10 @@ impl Game<'_> {
         if self.extra.get(&r).is_some_and(|e| e.teammate || e.out_cold()) {
             return Some(Refusal::NotAllowed);
         }
-        let creature = base_of(self, r).and_then(|b| self.data.actors.get(&b)).is_some_and(|d| &d.sig == b"CREA");
-        if creature && !self.base_data_def(r).is_some_and(|d| d.allow_pickpocket) {
-            return Some(Refusal::NotAllowed);
+        if let Some((id, d)) = self.base_data_source(r) {
+            if &d.sig == b"CREA" && !self.acbs_flag(id, d, crate::actor_values::acbs::ALLOW_PICKPOCKET, |d| d.allow_pickpocket) {
+                return Some(Refusal::NotAllowed);
+            }
         }
         let fighting_player = self.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
         // The player's tweak lets a fleeing actor's pockets be picked [design: docs/design/tweaks.md].
@@ -356,6 +357,14 @@ impl Game<'_> {
         }
     }
 
+    /// Build a planted [`Explosive`] payload from an `EXPL` form (or `TempCloneForm` of
+    /// one) using its live session traits (`Game::explosion_traits`, respecting
+    /// `SetExplosionTraitNumeric` damage and `SetExplosionTraitForm` `EITM` overrides).
+    pub fn explosive_from_explosion(&self, explosion: FormId, resist: Option<u16>) -> Option<Explosive> {
+        let t = self.explosion_traits(explosion)?;
+        Some(Explosive { damage: f64::from(t.damage), resist, enchantment: t.enchantment })
+    }
+
     /// The player placed `item` in `victim`'s pocket, a live explosive (the engine knows
     /// the weapons' projectiles; `blast` its explosion): it goes live, one per call. Not
     /// on a child or an essential actor: it stays an ordinary item there [documented:
@@ -433,7 +442,7 @@ impl Game<'_> {
             .into_iter()
             .flatten()
             .filter(|ei| {
-                let Some(m) = data.magic_effects.get(&ei.effect) else { return false };
+                let Some(m) = self.magic_effect_def(ei.effect) else { return false };
                 let harmful = m.has(crate::data::MagicEffectDef::DETRIMENTAL) || m.has(crate::data::MagicEffectDef::HOSTILE);
                 harmful && ei.magnitude > 0 && ei.actor_value.or(m.actor_value) == Some(crate::actor_values::HEALTH)
             })

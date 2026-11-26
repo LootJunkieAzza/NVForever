@@ -366,8 +366,14 @@ pub struct TraitSheet {
 
 impl TraitSheet {
     pub fn of_player(g: &Game) -> TraitSheet {
-        let mut traits: Vec<FormId> = g.data.perks.iter().filter(|(_, p)| p.is_trait && p.playable && !p.hidden).map(|(&id, _)| id).collect();
-        traits.sort_by_key(|id| (g.data.perks[id].name.to_lowercase(), *id));
+        let mut traits: Vec<FormId> = g
+            .data
+            .perks
+            .keys()
+            .copied()
+            .filter(|id| g.perk_def(*id).is_some_and(|p| p.is_trait && p.playable && !p.hidden))
+            .collect();
+        traits.sort_by_key(|id| (g.perk_def(*id).map(|p| p.name.to_lowercase()).unwrap_or_default(), *id));
         let chosen = traits.iter().copied().filter(|t| g.player.perks.contains_key(t)).collect();
         let max = g.world.setting_f32("iTraitMenuMaxNumTraits").map_or(DEFAULT_MAX_TRAITS, |v| v.max(0.0) as usize);
         // The trait's editor ID [observed: `WildWasteland` in FalloutNV.esm], taken only
@@ -416,7 +422,7 @@ impl TraitSheet {
 /// Whether the player meets a perk's requirements (a perk without readable conditions
 /// is taken to have none).
 pub fn requirements_met(g: &mut Game, perk: FormId) -> bool {
-    let Some(conds) = g.data.perks.get(&perk).and_then(|p| p.conditions.clone()) else { return true };
+    let Some(conds) = g.perk_def(perk).and_then(|p| p.conditions.clone()) else { return true };
     g.conditions_pass(&conds, Some(FormId::PLAYER_REF), None, "trait requirement")
 }
 
@@ -470,7 +476,7 @@ fn requirement(g: &Game, c: &Condition) -> Option<String> {
 /// Conditions joined with OR are written with "or" between them [hypothesis: no
 /// screenshot shows one].
 pub fn requirement_line(g: &Game, perk: FormId) -> String {
-    let p = g.data.perks.get(&perk);
+    let p = g.perk_def(perk);
     let mut line = match p {
         Some(p) if p.min_level > 1 => format!("Level {}", p.min_level),
         _ => String::new(),

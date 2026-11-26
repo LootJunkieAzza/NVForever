@@ -72,6 +72,10 @@ fn malformed_prior_values_are_preserved_verbatim_while_launch_keeps_typed_fallba
     assert_eq!(lease.effective_values()[0], 0.0);
     assert_eq!(g.projectile_launch_traits(PROJ).unwrap().speed, None);
     assert_eq!(g.projectile_launch_traits(PROJ).unwrap().impact_force, None);
+    assert_eq!(g.projectile_launch_traits(PROJ).unwrap().flags, None);
+    g.field_overrides.insert(key("flags"), XVal::Num(nan));
+    assert_eq!(g.projectile_launch_traits(PROJ).unwrap().flags, None);
+    g.field_overrides.remove(&key("flags"));
     edit(&mut g); lease.restore(&mut g).unwrap();
     assert_eq!(g.field_overrides[&key("speed")], XVal::Str("authored prior entry".into()));
     assert!(matches!(g.field_overrides.get(&key("impact_force")), Some(XVal::Num(n)) if n.to_bits()==nan.to_bits()));

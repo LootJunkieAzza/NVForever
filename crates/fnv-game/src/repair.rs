@@ -182,19 +182,20 @@ impl crate::game::Game<'_> {
     /// An item's [`JuryKind`]: a weapon by the game's records, armour by the world's.
     pub fn jury_kind(&self, item: FormId) -> Option<JuryKind> {
         use fnv_sim::forms::{ArmorClass, ItemKind};
-        if let (Some(&skill), Some(&anim)) = (self.data.weapon_skills.get(&item), self.data.weapon_anim_types.get(&item)) {
+        let orig = self.unclone(item);
+        if let (Some(&skill), Some(&anim)) = (self.data.weapon_skills.get(&orig), self.data.weapon_anim_types.get(&orig)) {
             return Some(JuryKind::Weapon { skill, anim });
         }
-        let it = self.world.forms.item(item)?;
+        let it = self.world.resolve_item(item)?;
         if it.kind != ItemKind::Armor {
             return None;
         }
-        let class = match it.armor_class {
+        let class = match self.world.effective_armor_class(item).unwrap_or(it.armor_class) {
             ArmorClass::Light => 0,
             ArmorClass::Medium => 1,
             ArmorClass::Heavy => 2,
         };
-        Some(JuryKind::Armor { class, place: ArmorPlace::of(it.slots.unwrap_or(0)) })
+        Some(JuryKind::Armor { class, place: ArmorPlace::of(self.world.effective_slots(item).unwrap_or(0)) })
     }
 
     /// Whether the player is at a workbench: the crosshair (as it last was in play) on a
@@ -217,6 +218,7 @@ impl crate::game::Game<'_> {
                 }
             }
         }
+        list.retain(|&c| !self.is_item_unique(c));
         list
     }
 }

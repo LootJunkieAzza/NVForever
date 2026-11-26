@@ -22,9 +22,10 @@ struct NvfAmbientOcclusion {
     // the fragment's distance (plus one unit) within which a texel's distance counts as the
     // same surface.
     params: vec4<f32>,
-    // x: the strength the factor was made with, for a later multibounce; y: the weight of
-    // the factor on the light of lamps that cast no shadow (0..1, ssao_lighting.rs `LAMPS`;
-    // 0 leaves them whole); z, w unused.
+    // x: the strength the factor was made with; y: the weight of the factor on the light of
+    // lamps that cast no shadow (0..1, ssao_lighting.rs `LAMPS`; 0 leaves them whole); z: 1
+    // for the multi-bounce fit on the ambient (`nvf_ao_multibounce`, ssao_lighting.rs
+    // `MULTIBOUNCE`), 0 for the factor alone; w unused.
     extra: vec4<f32>,
 }
 
@@ -82,6 +83,25 @@ fn nvf_ambient_visibility(frag: vec2<f32>, dist: f32) -> f32 {
     // Never NaN nor outside 0..1 (comparisons with NaN are false); kept above 0 for pow.
     let safe = select(1.0, clamp(open, 0.0001, 1.0), open >= 0.0);
     return pow(safe, nvf_ao.params.x);
+}
+
+// The ambient's factor per colour channel with the light the surface bounces back into its
+// own creases: the multi-bounce fit of Jimenez, Wu, Pesce and Jarabo [documented: "Practical
+// Real-Time Strategies for Accurate Indirect Occlusion", SIGGRAPH 2016 course, the cubic fit
+// of the visibility after several bounces against the one-bounce visibility, per albedo],
+// so a light surface's creases stay lighter than a dark one's and colours do not go muddy.
+// Never below the factor itself; exactly the factor while the uniform's `extra.z` is 0, and
+// where the factor is 1 (open surface), 1. `albedo` is the surface's diffuse colour.
+fn nvf_ao_multibounce(visibility: f32, albedo: vec3<f32>) -> vec3<f32> {
+    let x = visibility;
+    if !(nvf_ao.extra.z > 0.5) {
+        return vec3(x);
+    }
+    let a = clamp(albedo, vec3(0.0), vec3(1.0));
+    let k2 = 2.0404 * a - 0.3324;
+    let k1 = -4.7951 * a + 0.6417;
+    let k0 = 2.7552 * a + 0.6903;
+    return clamp(max(vec3(x), ((x * k2 + k1) * x + k0) * x), vec3(0.0), vec3(1.0));
 }
 
 // The factor on the light of lamps (point and spot lights) that cast no shadow at this

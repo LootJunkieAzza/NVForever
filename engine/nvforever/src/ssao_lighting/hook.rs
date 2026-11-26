@@ -15,7 +15,10 @@ pub enum Place {
 /// stands in the patched `apply_pbr_lighting`.
 pub const AMBIENT_LINE: &str = "        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion;\n";
 
-/// The same line kept without the def, and its twin with the occlusion under it. `-view_z`
+/// The same line kept without the def, and its twin with the occlusion under it, per colour
+/// channel by the multi-bounce fit with the surface's diffuse colour
+/// (ssao_lighting.wesl `nvf_ao_multibounce`; `diffuse_color` is `apply_pbr_lighting`'s own,
+/// declared before the lights). `-view_z`
 /// is the fragment's view distance from its own world position (so the first-person arms,
 /// drawn at a squeezed depth, still compare their real distance with the texels', which the
 /// occlusion pass unsqueezed).
@@ -24,7 +27,7 @@ pub const AMBIENT_LINE_HOOKED: &str = "        // NVForever ambient occlusion (n
         @if(!NVF_AMBIENT_OCCLUSION)
         let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion;
         @if(NVF_AMBIENT_OCCLUSION)
-        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion * nvf_ao_ambient;
+        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion * nvf_ao_multibounce(nvf_ao_ambient, diffuse_color);
 ";
 
 /// The start of `apply_pbr_lighting`'s point light loop, after `view_z` is declared.
@@ -35,11 +38,14 @@ pub const LAMP_ANCHOR: &str = "    // Point lights (direct)\n";
 /// lamps that cast no shadow here (`NVF_PLAY_DEBUG_AO_LAMPS`), `mix(1, g, w)`.
 pub const LAMP_TEXT: &str = "    // NVForever ambient occlusion (nvforever ssao_lighting.rs): the ambient's factor, read
     // once, and from it the factor on the light of lamps that cast no shadow here (1 while
-    // NVF_PLAY_DEBUG_AO_LAMPS is 0).
-    @if(NVF_AMBIENT_OCCLUSION)
+    // NVF_PLAY_DEBUG_AO_LAMPS is 0). First-person shapes (the arms, the weapon, the Pip-Boy;
+    // nvf_assets nif_material.rs FIRST_PERSON_DEPTH) take none: only the world is occluded.
+    @if(NVF_AMBIENT_OCCLUSION && !FIRST_PERSON_DEPTH)
     let nvf_ao_ambient = nvf_ambient_visibility(in.frag_coord.xy, -view_z);
+    @if(NVF_AMBIENT_OCCLUSION && FIRST_PERSON_DEPTH)
+    let nvf_ao_ambient = 1.0;
     @if(NVF_AMBIENT_OCCLUSION)
-    let nvf_ao_lamps = nvf_lamp_visibility(nvf_ao_ambient);
+    let nvf_ao_lamps = nvf_ao_multibounce(nvf_lamp_visibility(nvf_ao_ambient), diffuse_color);
 
 ";
 
@@ -55,7 +61,7 @@ pub const POINT_LINE_HOOKED: &str = "        @if(!NVF_AMBIENT_OCCLUSION)
         if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow; }
         // NVForever ambient occlusion (nvforever ssao_lighting.rs): lamps without a shadow here.
         @if(NVF_AMBIENT_OCCLUSION)
-        if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow * select(nvf_ao_lamps, 1.0, (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u); }
+        if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow * select(nvf_ao_lamps, vec3(1.0), (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u); }
 ";
 
 /// A spot light's part of the display-value sum.
@@ -66,7 +72,7 @@ pub const SPOT_LINE_HOOKED: &str = "        @if(!NVF_AMBIENT_OCCLUSION)
         if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow; }
         // NVForever ambient occlusion (nvforever ssao_lighting.rs): lamps without a shadow here.
         @if(NVF_AMBIENT_OCCLUSION)
-        if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow * select(nvf_ao_lamps, 1.0, (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u); }
+        if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow * select(nvf_ao_lamps, vec3(1.0), (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u); }
 ";
 
 /// The end of `main_pass_post_lighting_processing`: after the fog, the tonemapping in the
@@ -82,8 +88,9 @@ pub const DEBUG_FUNCTION: &str = "\nfn main_pass_post_lighting_processing(";
 /// exactly what `nvf_ambient_visibility` gave the fragment: the same position, the same
 /// distance (`view_z` as `apply_pbr_lighting` forms it).
 pub const DEBUG_TEXT: &str = "    // NVForever ambient occlusion (nvforever ssao_lighting.rs): the debug view draws the
-    // factor this fragment's ambient light took, after everything else.
-    @if(NVF_AMBIENT_OCCLUSION)
+    // factor this fragment's ambient light took, after everything else (first-person shapes
+    // take none and keep their colour).
+    @if(NVF_AMBIENT_OCCLUSION && !FIRST_PERSON_DEPTH)
     if nvf_ao_debug() {
         let nvf_view_z = dot(vec4<f32>(
             view_bindings::view.view_from_world[0].z,
@@ -110,7 +117,7 @@ pub const HOOK_EDITS: [(&str, &str, Place); 6] = [
     (
         "import bevy_render::maths::{E, powsafe};\n",
         "// NVForever ambient occlusion (nvforever ssao_lighting.rs).
-@if(NVF_AMBIENT_OCCLUSION) import nvforever::ssao_lighting::{nvf_ambient_visibility, nvf_ao_debug, nvf_lamp_visibility};
+@if(NVF_AMBIENT_OCCLUSION) import nvforever::ssao_lighting::{nvf_ambient_visibility, nvf_ao_debug, nvf_ao_multibounce, nvf_lamp_visibility};
 ",
         Place::After,
     ),

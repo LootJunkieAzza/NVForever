@@ -100,3 +100,103 @@ fn source_merchant_clear_and_setter_reach_actual_barter_stock_before_and_after_r
         open_and_assert(&mut app, merchant, 0x311, 0x903);
     }
 }
+
+#[test]
+fn show_barter_menu_hides_keys_for_misc_vendor_and_jip_item_list() {
+    const VENDOR_BASE: u32 = 0x805;
+    const VENDOR_REF: u32 = 0x305;
+    const STOCK_BASE: u32 = 0x825;
+    const STOCK_REF: u32 = 0x315;
+    const PLAYER_MISC: u32 = 0x910;
+    const VENDOR_MISC: u32 = 0x911;
+    const SHOP_KEY: u32 = 0x912;
+
+    let inventory = |item: u32| sub(b"CNTO", [item.to_le_bytes(), 1i32.to_le_bytes()].concat());
+    let aidt_misc = sub(b"AIDT", [&[0u8; 8][..], &fnv_game::services::MISC.to_le_bytes(), &[0u8; 8]].concat());
+    let misc_item = |id: u32, name: &str| {
+        record(b"MISC", id, &[sub(b"EDID", z(name)), sub(b"FULL", z(name)), sub(b"DATA", [10i32.to_le_bytes(), 1f32.to_le_bytes()].concat())])
+    };
+    let key_item = record(
+        b"KEYM",
+        SHOP_KEY,
+        &[sub(b"EDID", z("ShopKey")), sub(b"FULL", z("Shop Key")), sub(b"DATA", [25i32.to_le_bytes(), 0f32.to_le_bytes()].concat())],
+    );
+    let refs = [
+        record(
+            b"ACHR",
+            VENDOR_REF,
+            &[
+                sub(b"EDID", z("MiscVendorRef")),
+                sub(b"NAME", VENDOR_BASE.to_le_bytes().to_vec()),
+                sub(b"DATA", vec![0; 24]),
+                sub(b"XMRC", STOCK_REF.to_le_bytes().to_vec()),
+            ],
+        ),
+        record(b"REFR", STOCK_REF, &[sub(b"EDID", z("MiscStockRef")), sub(b"NAME", STOCK_BASE.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]),
+    ]
+    .concat();
+    let cell = [record(b"CELL", 0x200, &[sub(b"DATA", vec![1])]), group(0x200u32.to_le_bytes(), 6, &group(0x200u32.to_le_bytes(), 8, &refs))].concat();
+    let bytes = [
+        record(b"TES4", 0, &[sub(b"HEDR", [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat())]),
+        top(
+            b"NPC_",
+            &[
+                record(b"NPC_", FormId::PLAYER_BASE.0, &[inventory(PLAYER_MISC), inventory(SHOP_KEY)]),
+                record(b"NPC_", VENDOR_BASE, &[aidt_misc, inventory(SHOP_KEY)]),
+            ]
+            .concat(),
+        ),
+        top(b"CONT", &record(b"CONT", STOCK_BASE, &[inventory(VENDOR_MISC), inventory(SHOP_KEY)])),
+        top(b"MISC", &[misc_item(PLAYER_MISC, "PlayerJunk"), misc_item(VENDOR_MISC, "VendorJunk")].concat()),
+        top(b"KEYM", &key_item),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+    ]
+    .concat();
+
+    let plugins = [Plugin::parse(&bytes, "BarterKeys.esm".into()).unwrap()];
+    let mut script = crate::script::ScriptState::over_plugins(&plugins);
+    let rt = script.rt.as_mut().unwrap();
+    let forms = rt.game.world.forms;
+    let refs = rt.game.world.placed;
+    let sim = SimState { forms, refs, world: std::mem::replace(&mut rt.game.world, fnv_sim::World::new(forms, refs, Default::default())) };
+    let mut app = App::new();
+    app.insert_resource(script)
+        .insert_resource(sim)
+        .insert_resource(State::new(PlayState::Playing))
+        .init_resource::<NextState<PlayState>>()
+        .init_resource::<ActiveMenu>()
+        .init_resource::<FreshMenu>()
+        .add_message::<OpenContainer>()
+        .add_message::<crate::pickpocket::OpenPickpocket>()
+        .add_message::<OpenInventory>()
+        .add_message::<OpenBarter>()
+        .add_systems(Update, (scripts_open_barter, open_menus, publish_jip_menus).chain());
+
+    source(&mut app, "MiscVendorRef.ShowBarterMenu 0\n");
+    app.update();
+
+    {
+        let active = app.world().resource::<ActiveMenu>();
+        let m = active.0.as_ref().expect("barter menu opened");
+        assert_eq!(m.list(Side::Player).rows.iter().map(|r| r.item.0).collect::<Vec<_>>(), vec![PLAYER_MISC]);
+        assert_eq!(m.list(Side::Container).rows.iter().map(|r| r.item.0).collect::<Vec<_>>(), vec![VENDOR_MISC]);
+        assert!(m.trade.as_ref().unwrap().withheld.is_empty(), "keys are excluded directly, not logged as withheld services");
+    }
+
+    // Switch both columns to Misc category and verify JIP's BarterMenu item lists also exclude the key.
+    app.world_mut().resource_scope(|world, mut active: Mut<ActiveMenu>| {
+        let mut sim = world.resource_mut::<SimState>();
+        let m = active.0.as_mut().unwrap();
+        m.apply(&mut sim.world, Command::SetCategory(Side::Player, model::Category::Misc));
+        m.apply(&mut sim.world, Command::SetCategory(Side::Container, model::Category::Misc));
+    });
+    app.update();
+
+    let active = app.world().resource::<ActiveMenu>();
+    let m = active.0.as_ref().unwrap();
+    assert_eq!(m.list(Side::Player).rows.iter().map(|r| r.item.0).collect::<Vec<_>>(), vec![PLAYER_MISC]);
+    assert_eq!(m.list(Side::Container).rows.iter().map(|r| r.item.0).collect::<Vec<_>>(), vec![VENDOR_MISC]);
+    let view = app.world().resource::<crate::script::ScriptState>().rt.as_ref().unwrap().game.other.jip12.item_menus.get(&crate::script::MENU_BARTER).expect("barter item menu view published");
+    assert_eq!(view.lists[0].rows.iter().map(|(_, id, _)| id.0).collect::<Vec<_>>(), vec![PLAYER_MISC]);
+    assert_eq!(view.lists[1].rows.iter().map(|(_, id, _)| id.0).collect::<Vec<_>>(), vec![VENDOR_MISC]);
+}

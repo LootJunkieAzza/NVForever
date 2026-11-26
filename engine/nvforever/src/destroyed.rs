@@ -18,7 +18,7 @@
 use crate::world::{base_object_with_model, ref_affine, spawn_model, CellEntity, Streamer, WorldData};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use fnv_world::placed::{base_object, placement};
+use fnv_world::placed::base_object;
 use nvf_assets::model::ModelCtx;
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
@@ -46,7 +46,8 @@ pub struct DestroyedPlugin;
 
 impl Plugin for DestroyedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (staged_shapes, swap_models).after(crate::world::stream));
+        // Before the full-detail ring gives its cells' new meshes their range.
+        app.add_systems(Update, (staged_shapes, swap_models).after(crate::world::stream).before(crate::full_detail::fade_ring));
     }
 }
 
@@ -79,6 +80,7 @@ fn swap_models(
     mut emittance: ResMut<crate::emittance::EmittanceState>,
     drawn: Query<(Entity, &RefVisual, &ChildOf), crate::lights::NotLightSource>,
     cells: Query<&Transform, With<CellEntity>>,
+    (ring_cells, mut ring): (Query<(&Transform, &crate::full_detail::RingCell)>, Option<ResMut<crate::full_detail::FullDetailRing>>),
 ) {
     *wait -= time.delta_secs();
     if *wait > 0.0 {
@@ -101,15 +103,18 @@ fn swap_models(
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
-    if changed.is_empty() {
-        return;
+    if !changed.is_empty() {
+        streamer.model_overrides = want.clone();
     }
-    streamer.model_overrides = want.clone();
-    for r in changed {
+    for &r in &changed {
+        // The full-detail ring's copies are redrawn below, once their model is prepared.
+        if let Some(ring) = ring.as_deref_mut().filter(|ring| ring.radius > 0 || !ring.cells.is_empty()) {
+            ring.pending_swaps.insert(r);
+        }
         // Its entities directly under a cell (a static model's shapes, a rig's root).
         let mine: Vec<(Entity, Entity)> = drawn.iter().filter(|(_, v, c)| v.0 == r && cells.contains(c.parent())).map(|(e, _, c)| (e, c.parent())).collect();
         let Some(&(_, cell_e)) = mine.first() else { continue };
-        let (Ok(cell), Some(p)) = (cells.get(cell_e), placement(world.lo, world.schema, r)) else { continue };
+        let (Ok(cell), Some(p)) = (cells.get(cell_e), world.index.placement(world.lo, world.schema, r)) else { continue };
         let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
         for (e, _) in &mine {
             commands.entity(*e).try_despawn();
@@ -126,6 +131,56 @@ fn swap_models(
         };
         let rt = Affine3A::from_translation(-cell.translation) * ref_affine(&p);
         let Streamer { hide, stats, .. } = &mut *streamer;
-        spawn_model(&mut commands, cell_e, &world, &p, r, &base, rt, &mut models, &mut emittance, hide, stats);
+        spawn_model(&mut commands, cell_e, &world, &p, r, &base, rt, &mut models, &mut emittance, hide, stats, crate::world::SpawnMode::Full);
     }
+    // The ring's copies (full_detail.rs, #2701): drawn only, never preparing a model on this
+    // thread. A reference whose new model is not prepared stays pending (asked of the worker
+    // threads, tried again at the next look); a new model that draws nothing (missing,
+    // empty) leaves the old copy in place (`full_detail::swap_outcome`).
+    let Some(ring) = ring.as_deref_mut().filter(|r| !r.pending_swaps.is_empty()) else { return };
+    let started = std::time::Instant::now();
+    for r in std::mem::take(&mut ring.pending_swaps) {
+        let Some(p) = world.index.placement(world.lo, world.schema, r) else { continue };
+        let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
+        let base = match streamer.model_overrides.get(&r) {
+            Some(m) => base_object_with_model(base, m),
+            None => base,
+        };
+        // Its copies by ring cell (drawn or still spawning, never a retiring one), and the
+        // ring cells where its model spawned no shape before. A reference of a type the
+        // ring never draws (an actor) has neither: a swap never draws it there.
+        let mut targets: HashMap<Entity, Vec<Entity>> = HashMap::new();
+        for (e, _, c) in drawn.iter().filter(|(_, v, c)| v.0 == r && ring_cells.contains(c.parent()) && ring.owns(c.parent())) {
+            targets.entry(c.parent()).or_default().push(e);
+        }
+        for e in ring.retry_holders(r) {
+            targets.entry(e).or_default();
+        }
+        if targets.is_empty() {
+            // No ring copy now: a ring cell drawn later takes the model as it is then.
+            continue;
+        }
+        let ready = base.world_model_path().is_none_or(|path| models.models_ready([(path.as_str(), base.world_alt_textures.as_slice())]));
+        if !ready {
+            ring.pending_swaps.insert(r);
+            continue;
+        }
+        let flagged = crate::full_detail::flagged(world.lo, &p);
+        for (cell_e, old) in targets {
+            let Ok((cell, _)) = ring_cells.get(cell_e) else { continue };
+            let rt = Affine3A::from_translation(-cell.translation) * ref_affine(&p);
+            let drew = spawn_model(&mut commands, cell_e, &world, &p, r, &base, rt, &mut models, &mut emittance, &streamer.hide, ring.redraw_stats(), crate::world::SpawnMode::Scenery);
+            if crate::full_detail::swap_outcome(true, Some(drew)) == crate::full_detail::SwapOutcome::Replaced {
+                for e in &old {
+                    commands.entity(*e).try_despawn();
+                }
+            }
+            // The cell's record for it changes only when it now draws, or had nothing drawn.
+            if drew || old.is_empty() {
+                ring.drew(cell_e, r, flagged, drew);
+            }
+            ring.redrawn(cell_e);
+        }
+    }
+    ring.stats.ms += started.elapsed().as_secs_f64() * 1000.0;
 }

@@ -651,6 +651,16 @@ PAGELESS += [
     _x("GetVATSRightAreaFree", "GECK1", "float", ref="reference", cat="VATS Functions"),
 ]
 
+# NVSE degree atan2 inherited from OBSE [documented:
+# https://obse.silverlock.org/obse_command_doc.html (`(atan2:float) datan2 arg1:float arg2:float`,
+# "ATan2 and DATan2 use degrees"); cross-referenced on
+# https://geckwiki.com/index.php?title=Fatan2 ("significantly faster than dATan2")].
+PAGELESS += [
+    {"name": "dATan2", "page": None, "origin": "NVSE", "returns": {"type": "float", "name": None},
+     "params": [{"name": "y", "type": "float", "kind": "float"}, {"name": "x", "type": "float", "kind": "float"}],
+     "categories": ["Functions (NVSE)", "Math Functions"]},
+]
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says

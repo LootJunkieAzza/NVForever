@@ -12,7 +12,7 @@
 //! ([`Game::take_phys_requests`]).
 
 use crate::game::{Game, RunCtx};
-use crate::nif_blocks::{apply, extrinsic_angles, mul, node_place, rotation, Mat};
+use crate::nif_blocks::{apply, extrinsic_angles, mul, node_place, rotation, transpose, Mat};
 use crate::package::{Location, LocationKind, PackageDef, PackageType};
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
@@ -194,10 +194,6 @@ fn mat9(m: &[f32; 9]) -> Mat {
     [[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]]
 }
 
-fn transpose(m: &Mat) -> Mat {
-    [[m[0][0], m[1][0], m[2][0]], [m[0][1], m[1][1], m[2][1]], [m[0][2], m[1][2], m[2][2]]]
-}
-
 /// The rotation of angles (radians) taken about the turning axes X, then Y, then Z
 /// (Rx·Ry·Rz).
 fn intrinsic(a: [f32; 3]) -> Mat {
@@ -212,8 +208,8 @@ fn angles_of(m: &Mat) -> [f32; 3] {
 /// The material code's place in JIP's table, 0 stone, 1 dirt, 2 grass, 3 glass, 4 metal,
 /// 5 wood, 6 organic, 7 cloth, 8 water, 9 hollow metal [documented: GetGroundMaterial],
 /// by the impact material the collision code (nif.xml's `Fallout3HavokMaterial`, mod 32)
-/// stands for: the table of `fnv_combat::fx::impact_material` [hypothesis, from the
-/// names]; no code (terrain) dirt.
+/// stands for: the table of `fnv_combat::fx::impact_material` (see
+/// docs/spec-notes/jip-physics-13.md §2); no code (terrain) dirt.
 pub fn material_id(code: Option<u32>) -> i32 {
     let Some(code) = code else { return 1 };
     match code % 32 {
@@ -313,7 +309,6 @@ impl Game<'_> {
     /// A Travel package to near `target`, made for a script, run on `actor` as its script
     /// package (AddScriptPackage's place).
     fn force_travel(&mut self, actor: FormId, target: FormId, flags: f64) -> Result<(), String> {
-        let id = self.travel_handle()?;
         let flags = flags as u32;
         let mut f = 0;
         if flags & 1 != 0 {
@@ -323,9 +318,19 @@ impl Game<'_> {
             f |= crate::package::flags::ALWAYS_SNEAK;
         }
         let def = PackageDef { ty: PackageType::Travel, flags: f, location: Some(Location { kind: LocationKind::NearReference(Some(target)), radius: TRAVEL_RADIUS }), ..PackageDef::default() };
-        self.other.jip13.made_packages = id.0 - MADE_PACKAGE_BASE + 1;
-        let leaked: &PackageDef = Box::leak(Box::new(def));
-        self.package_overrides.insert(id, leaked);
+        // The same journey asked again (a script calling every frame) keeps the package it
+        // already made for the actor: each one made lives for the session (#3150).
+        let had = self.extra.get(&actor).and_then(|x| x.script_package).filter(|id| id.0 >= MADE_PACKAGE_BASE && self.package_overrides.get(id).is_some_and(|d| **d == def));
+        let id = match had {
+            Some(id) => id,
+            None => {
+                let id = self.travel_handle()?;
+                self.other.jip13.made_packages = id.0 - MADE_PACKAGE_BASE + 1;
+                let leaked: &PackageDef = Box::leak(Box::new(def));
+                self.package_overrides.insert(id, leaked);
+                id
+            }
+        };
         self.extra.entry(actor).or_default().script_package = Some(id);
         if self.runs_packages() {
             self.set_package(actor, Some(id));
@@ -341,7 +346,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     let v = match name {
         // ---- the collision objects' velocities ----
         // On the node's moving body, in revolutions a second [documented]; world axes
-        // for the one-axis getter [hypothesis].
+        // for the one-axis getter (see docs/spec-notes/jip-physics-13.md §1).
         "getangularvelocity" | "getangvel" => {
             let (Some(r), Some(node), Some(a)) = (subject, text(args, 0), axis(args, 1)) else { return Some(Ok(zero)) };
             match g.moving_body(r, &node) {
@@ -405,9 +410,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.console_requests.push(crate::functions::console::ConsoleRequest::SetVel { on: r, axis: ['X', 'Y', 'Z'][a], speed: v as f32 });
             zero
         }
-        // 0 for an actor [documented]; a moving body's mass up to 100, 100 for one that
-        // does not move [hypothesis: the page's "100 translates as no movement"], 0
-        // without collision.
+        // 0 for an actor [documented]; a moving body's mass up to 100, and 0 for static
+        // (non-dynamic) bodies or without collision [observed: Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters, `w4c_b4_06_jip13_physics_queries`: static door `0x103E61`
+        // returned `0.0`].
         "getrigidbodymass" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             if is_actor(g, r) {
@@ -416,7 +423,6 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let bodies = g.bodies_at(r, "*");
             match bodies.iter().filter(|(_, b)| b.dynamic).map(|(_, b)| b.mass).reduce(f32::max) {
                 Some(m) => XVal::Num(f64::from(m.min(100.0))),
-                None if !bodies.is_empty() => XVal::Num(100.0),
                 None => zero,
             }
         }
@@ -549,7 +555,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- pushes ----
         // Knocked down and thrown away from (or, negative, toward) the actor's place moved
         // by the offsets [documented]; not the dead [documented]. The speed is
-        // PushActorAway's for the force [hypothesis].
+        // PushActorAway's for the force (see docs/spec-notes/jip-physics-13.md §3).
         "pushactorawayalt" => {
             let (Some(r), Some(force)) = (subject, num(args, 0)) else { return Some(Ok(zero)) };
             if g.is_dead(r) {
@@ -565,7 +571,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // Along a Z angle, or away from a reference [documented], without a fall; the
-        // speed is PushActorAway's for the force [hypothesis].
+        // speed is PushActorAway's for the force (see docs/spec-notes/jip-physics-13.md §3).
         "pushactornoragdoll" => {
             let (Some(r), Some(force)) = (subject, num(args, 0)) else { return Some(Ok(zero)) };
             let dir = match form(args, 2).and_then(|o| g.ref_pos_rot(o)).zip(g.ref_pos_rot(r)) {
@@ -612,7 +618,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // ---- moves ----
         // To the node's place in the target's 3D, plus the offsets [documented]; 0 while
-        // the target's 3D is not known yet (its first ask) [hypothesis].
+        // the target's 3D is not known yet (its first ask; see docs/spec-notes/jip-physics-13.md §4).
         "movetonode" => {
             let (Some(r), Some(t), Some(node)) = (subject, form(args, 0), text(args, 1)) else { return Some(Ok(zero)) };
             let Some((pos, _)) = node_place(g, t, &node, true) else { return Some(Ok(zero)) };
@@ -622,7 +628,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             yes(true)
         }
         // To the reticle's point within the range (10,000 by default) [documented]; 0
-        // when it points at nothing within it [hypothesis].
+        // when it points at nothing within it (see docs/spec-notes/jip-physics-13.md §4).
         "movetoreticle" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let range = num(args, 0).filter(|&x| x > 0.0).unwrap_or(10_000.0) as f32;
@@ -717,8 +723,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // The reference kept at the target's node (its root without one), its angles too
         // (1), raised by the offset [documented: the arguments]; without a target it is let
-        // go [hypothesis: the page says only "moves the calling reference to a specified
-        // node"; kept there frame after frame as the angles lock suggests].
+        // go (see docs/spec-notes/jip-physics-13.md §4).
         "synchronizeposition" | "syncpos" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             match form(args, 0) {

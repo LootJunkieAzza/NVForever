@@ -162,6 +162,65 @@ pub fn image_space(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Cinemati
     })
 }
 
+/// Apply JIP `SetImageSpaceTrait` session overrides (traits `0..=32`) onto an image
+/// space's [`Cinematic`] grade [documented: GECK wiki GetImageSpaceTrait /
+/// SetImageSpaceTrait; design: traits 18..=24 (GetHit / NightEye) have no rendered
+/// `Cinematic` consumer and are ignored here, while traits 29..=31 (Cinematic tint RGB)
+/// convert from 0–255 to 0–1]. Non-finite values are ignored.
+pub fn apply_image_space_traits(
+    mut base: Cinematic,
+    overrides: impl IntoIterator<Item = (i64, f64)>,
+) -> Cinematic {
+    for (trait_id, raw) in overrides {
+        let v = raw as f32;
+        if !v.is_finite() {
+            continue;
+        }
+        match trait_id {
+            0 => base.hdr.v[HDR_EYE_ADAPT_SPEED] = v,
+            1 => base.hdr.v[HDR_BLUR_RADIUS] = v,
+            2 => base.hdr.blur_passes = v,
+            3 => base.hdr.v[HDR_EMISSIVE_MULT] = v,
+            4 => base.hdr.v[HDR_TARGET_LUM] = v,
+            5 => base.hdr.v[HDR_UPPER_LUM_CLAMP] = v,
+            6 => base.hdr.v[HDR_BRIGHT_SCALE] = v,
+            7 => base.hdr.v[HDR_BRIGHT_CLAMP] = v,
+            8 => base.hdr.v[HDR_LUM_RAMP_NO_TEX] = v,
+            9 => base.hdr.v[HDR_LUM_RAMP_MIN] = v,
+            10 => base.hdr.v[HDR_LUM_RAMP_MAX] = v,
+            11 => base.hdr.v[HDR_SUNLIGHT_DIMMER] = v,
+            12 => base.hdr.v[HDR_GRASS_DIMMER] = v,
+            13 => base.hdr.v[HDR_TREE_DIMMER] = v,
+            14 => base.hdr.v[HDR_SKIN_DIMMER] = v,
+            15 => base.hdr.v[HDR_BLOOM_BLUR_RADIUS] = v,
+            16 => base.hdr.v[HDR_BLOOM_ALPHA_INTERIOR] = v,
+            17 => base.hdr.v[HDR_BLOOM_ALPHA_EXTERIOR] = v,
+            // 18..=20: GetHit; 21..=24: NightEye (no Cinematic consumer).
+            25 => base.saturation = v,
+            26 => base.contrast_avg_lum = v,
+            27 => base.contrast = v,
+            28 => base.brightness = v,
+            29 => base.tint[0] = v / 255.0,
+            30 => base.tint[1] = v / 255.0,
+            31 => base.tint[2] = v / 255.0,
+            32 => base.tint_amount = v,
+            _ => {}
+        }
+    }
+    base
+}
+
+/// Read an IMGS record's [`Cinematic`] grade with session `SetImageSpaceTrait` overrides
+/// applied on top of its authored DNAM values.
+pub fn image_space_with_traits(
+    lo: &LoadOrder,
+    schema: &Schema,
+    fid: u32,
+    overrides: impl IntoIterator<Item = (i64, f64)>,
+) -> Option<Cinematic> {
+    Some(apply_image_space_traits(image_space(lo, schema, fid)?, overrides))
+}
+
 /// The HDR and bloom values of an IMGS DNAM (`skin`: the 152-byte layout with the skin
 /// dimmer at byte 56). HDR at bytes 0-55: eye adapt speed, blur radius, blur passes,
 /// emissive mult, target lum, upper lum clamp, bright scale, bright clamp, lum ramp no
@@ -403,5 +462,64 @@ mod tests {
         // The Big MT's day adapter ×2.25: 2.475 / 1.21.
         let big_mt = [m(3.0, 0.0), m(2.25, 0.0), m(2.0, 0.0), m(2.0, 0.0), None, None];
         assert!((sun_scale(dimmer(&big_mt, 12.0), &c, 12.0) - 2.475 / 1.21).abs() < 1e-5);
+    }
+
+    #[test]
+    fn apply_image_space_traits_overlays_hdr_bloom_and_cinematic_values() {
+        let base = Cinematic::default();
+        let out = apply_image_space_traits(
+            base,
+            [
+                (0, 0.45),
+                (1, 5.0),
+                (2, 3.0),
+                (3, 2.2),
+                (4, 1.8),
+                (6, 2.5),
+                (11, 1.35),
+                (14, 0.75),
+                (15, 0.04),
+                (16, 0.85),
+                (17, 0.25),
+                // GetHit & NightEye (18..=24) have no Cinematic fields and must not alter anything.
+                (18, 9.0),
+                (21, 128.0),
+                (24, 3.0),
+                // Cinematic (25..=32); tint RGB converts 0..=255 -> 0..=1.
+                (25, 0.75),
+                (26, 0.42),
+                (27, 1.25),
+                (28, 1.15),
+                (29, 255.0),
+                (30, 127.5),
+                (31, 0.0),
+                (32, 0.35),
+                // Non-finite, out-of-f32-range, and out-of-range slots are ignored.
+                (25, f64::NAN),
+                (28, f64::INFINITY),
+                (25, 1e300),
+                (28, -1e300),
+                (99, 42.0),
+            ],
+        );
+        assert_eq!(out.hdr.v[HDR_EYE_ADAPT_SPEED], 0.45);
+        assert_eq!(out.hdr.v[HDR_BLUR_RADIUS], 5.0);
+        assert_eq!(out.hdr.blur_passes, 3.0);
+        assert_eq!(out.hdr.v[HDR_EMISSIVE_MULT], 2.2);
+        assert_eq!(out.hdr.v[HDR_TARGET_LUM], 1.8);
+        assert_eq!(out.hdr.v[HDR_BRIGHT_SCALE], 2.5);
+        assert_eq!(out.hdr.v[HDR_SUNLIGHT_DIMMER], 1.35);
+        assert_eq!(out.hdr.v[HDR_SKIN_DIMMER], 0.75);
+        assert_eq!(out.hdr.v[HDR_BLOOM_BLUR_RADIUS], 0.04);
+        assert_eq!(out.hdr.v[HDR_BLOOM_ALPHA_INTERIOR], 0.85);
+        assert_eq!(out.hdr.v[HDR_BLOOM_ALPHA_EXTERIOR], 0.25);
+        assert_eq!(out.saturation, 0.75);
+        assert_eq!(out.contrast_avg_lum, 0.42);
+        assert_eq!(out.contrast, 1.25);
+        assert_eq!(out.brightness, 1.15);
+        assert!((out.tint[0] - 1.0).abs() < 1e-6);
+        assert!((out.tint[1] - 0.5).abs() < 1e-6);
+        assert!((out.tint[2] - 0.0).abs() < 1e-6);
+        assert_eq!(out.tint_amount, 0.35);
     }
 }

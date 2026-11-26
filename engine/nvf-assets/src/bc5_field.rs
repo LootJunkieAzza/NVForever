@@ -157,7 +157,7 @@ fn owned_data(out: &Path, schema: Arc<fnv_nif::Schema>) -> Result<GameData, Stri
             return Err(format!("different owned VFS payload {path}"));
         }
     }
-    Ok(GameData { schema, vfs: Arc::new(vfs) })
+    Ok(GameData::new(Arc::new(vfs), schema))
 }
 
 fn mesh() -> Mesh {

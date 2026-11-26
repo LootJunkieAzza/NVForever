@@ -2,6 +2,7 @@
 //! simulation (forms and references in memory) and physics world (no game data).
 
 use super::*;
+use bevy::camera::primitives::Aabb;
 use crate::phys::PhysState;
 use crate::PlayData;
 use bevy::ecs::message::Messages;
@@ -12,8 +13,14 @@ use fnv_sim::refs::{Lock, PlacedRef, Teleport};
 use fnv_sim::{FormStore, RefTable, SimConfig, World};
 use fnv_world::{Cell, WorldIndex};
 
+mod creature_onactivate_tests;
+mod crosshair_bars_tests;
+mod crosshair_bed_item_tests;
 mod crosshair_prompt_tests;
+mod crosshair_sleeper_tests;
 mod crosshair_water_tests;
+mod perk_choice_tests;
+mod reticle_limb_tests;
 
 const STIMPAK: u32 = 0x100;
 const KEY: u32 = 0x101;
@@ -23,6 +30,10 @@ const HIDDEN_DOOR: u32 = 0x131; // no FULL, as OffDoorHidden01 (#1598)
 const TRIGGER: u32 = 0x140;
 const CHAIR: u32 = 0x150;
 const LEVER: u32 = 0x160; // a named activator with a model
+const BED: u32 = 0x152;
+const SETTLER: u32 = 0x170; // an NPC
+const NPC: u32 = 0x171; // a living NPC behind bars (#3233)
+const ROBOT: u32 = 0x172; // a creature with nothing to say (#3479)
 const CELL_EXT: u32 = 0x200;
 const CELL_INT: u32 = 0x201;
 const WORLD: u32 = 0x3C;
@@ -35,6 +46,10 @@ const TRIGGER_REF: u32 = 0x306; // unnamed activator
 const CHAIR_REF: u32 = 0x307;
 const LEVER_REF: u32 = 0x308;
 const LEVER_TRIGGER_REF: u32 = 0x309; // LEVER placed as a box primitive (a trigger)
+const BED_REF: u32 = 0x30A;
+const SETTLER_REF: u32 = 0x30B; // ACHR of SETTLER
+const NPC_REF: u32 = 0x30C; // a living NPC (ACHR of NPC)
+const ROBOT_REF: u32 = 0x30D; // ACRE of ROBOT
 
 fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
     BaseForm { id: FormId(id), sig: *b"MISC", edid: Some(format!("Edid{id:X}")), name: name.map(Into::into), script: None, prompt: None, voice_filter: false, data }
@@ -96,6 +111,10 @@ fn sim() -> SimState {
         base(TRIGGER, None, BaseData::Activator),
         base(CHAIR, Some("Chair"), BaseData::Furniture),
         base(LEVER, Some("Lever"), BaseData::Activator),
+        base(BED, Some("Bed"), BaseData::Furniture),
+        BaseForm { sig: *b"NPC_", ..base(SETTLER, Some("Settler"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })) },
+        BaseForm { sig: *b"NPC_", ..base(NPC, Some("Rick Lancer"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })) },
+        BaseForm { sig: *b"CREA", ..base(ROBOT, Some("Robot"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })) },
         base(FormId::PLAYER_BASE.0, Some("Courier"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })),
     ] {
         // [design, #2538] World::lock_source identifies doors through FormStore::sig.
@@ -120,8 +139,12 @@ fn sim() -> SimState {
     // A nameless activator with a prompt (#2160: Hoover Dam's control panel).
     let panel = PlacedRef { prompt: Some("Activate".into()), ..placed(0x777C, TRIGGER, CELL_EXT) };
     refs.refs.insert(panel.id, panel);
+    let settler = PlacedRef { sig: *b"ACHR", ..placed(SETTLER_REF, SETTLER, CELL_EXT) };
+    refs.refs.insert(settler.id, settler);
     let box_trigger = PlacedRef { primitive: Some(fnv_sim::refs::Primitive { sphere: false, bounds: [30.0, 25.0, 31.0] }), ..placed(LEVER_TRIGGER_REF, LEVER, CELL_EXT) };
-    for r in [stim, safe, door, sealed, prompted, hidden, hidden_travel, hidden_prompted, box_trigger, placed(LEVER_REF, LEVER, CELL_EXT), placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT)] {
+    refs.refs.insert(FormId(ROBOT_REF), PlacedRef { sig: *b"ACRE", ..placed(ROBOT_REF, ROBOT, CELL_EXT) });
+    refs.refs.insert(FormId(NPC_REF), PlacedRef { sig: *b"ACHR", ..placed(NPC_REF, NPC, CELL_EXT) });
+    for r in [stim, safe, door, sealed, prompted, hidden, hidden_travel, hidden_prompted, box_trigger, placed(LEVER_REF, LEVER, CELL_EXT), placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT), placed(BED_REF, BED, CELL_EXT)] {
         refs.refs.insert(r.id, r);
     }
     let forms: &'static FormStore = Box::leak(Box::new(forms));
@@ -163,7 +186,7 @@ fn boxed(half: f32) -> CollisionObject {
 
 /// The player at the origin looking east (+x) at eye height 100; references with
 /// collision boxes at the given x (half size 10, at eye height).
-fn scene(colliding: &[(u32, f32)]) -> App {
+pub(crate) fn scene(colliding: &[(u32, f32)]) -> App {
     let mut world = PhysWorld::new(PhysParams::default());
     for &(id, x) in colliding {
         world.add_ref(&RefPose { form_id: id, position: [x, 0.0, 100.0], rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 }, &[boxed(10.0)]);
@@ -226,7 +249,7 @@ fn a_restored_change_still_reaches_the_drawn_world() {
     app.update();
     assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Inherited));
     app.world_mut().resource_mut::<SimState>().world.activate(FormId::PLAYER_REF, FormId(STIM_REF)).unwrap();
-    app.world_mut().resource_mut::<Messages<RefChanged>>().write(RefChanged { form_id: STIM_REF, restored: true });
+    app.world_mut().resource_mut::<Messages<RefChanged>>().write(RefChanged::restored(STIM_REF));
     app.update();
     assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Hidden));
 }
@@ -242,7 +265,7 @@ fn describe_by_type_lock_and_destination() {
     assert_eq!(describe(&sim, ix, TRIGGER_REF), None, "unnamed activators are not offered");
     // With an Activation Prompt it is offered, by the prompt alone (#2160).
     assert_eq!(describe(&sim, ix, 0x777C), Some((String::new(), Action::Activate)));
-    let t = Targeted { form_id: 0x777C, name: String::new(), action: Action::Activate, distance: 50.0, source: pick::Source::Bounds, crime: false, empty: false };
+    let t = Targeted { form_id: 0x777C, name: String::new(), action: Action::Activate, distance: 50.0, source: pick::Source::Bounds, crime: false, empty: false, through: None };
     let p = crate::reticle::Prompt::of(&t, &sim);
     assert_eq!((p.action.as_str(), p.name.as_str()), ("Activate", ""));
     assert_eq!(describe(&sim, ix, 0x7779), None, "nor an unnamed door leading nowhere (#1598)");
@@ -519,4 +542,27 @@ fn load_door_lock_prompt_uses_partner_level_and_key() {
     assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Unlock);
     sim.world.unlock(FormId(DOOR_REF)).unwrap();
     assert!(matches!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Travel { .. }));
+}
+
+#[test]
+fn restored_unloaded_changes_are_summarised_while_live_and_drawn_changes_log_individually() {
+    assert!(!log_ref_change_individually(true, 0), "restored unloaded refs go to the single summary line");
+    assert!(log_ref_change_individually(true, 1), "restored drawn refs keep per-ref info");
+    assert!(log_ref_change_individually(false, 0), "live refs keep per-ref info even when 0 entities updated");
+    assert!(log_ref_change_individually(false, 3), "live drawn refs keep per-ref info");
+
+    // End-to-end: a batch mixing restored undrawn refs, restored drawn refs, and live
+    // changes still updates every drawn entity cleanly.
+    let mut app = scene(&[]);
+    let stim = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Inherited));
+    app.world_mut().resource_mut::<SimState>().world.activate(FormId::PLAYER_REF, FormId(STIM_REF)).unwrap();
+    let mut msgs = app.world_mut().resource_mut::<Messages<RefChanged>>();
+    msgs.write(RefChanged::restored(STIM_REF));
+    msgs.write(RefChanged::restored(0x0099_0001));
+    msgs.write(RefChanged::restored(0x0099_0002));
+    msgs.write(RefChanged::new(0x0099_0003));
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Hidden));
 }

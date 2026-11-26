@@ -778,3 +778,50 @@ fn a_created_actor_keeps_to_where_it_was_made() {
     let sb = s.ai.agents[&made].sandbox.as_ref().expect("the guard's wander");
     assert_eq!(sb.area(), (fnv_nav::Place { space: Space::Interior(YARD), pos: POST }, RADIUS));
 }
+
+/// A created actor's editor location (where it was made, #2278) survives a save and a
+/// load: the saved body goes through JSON, the world and the game are restored from it,
+/// and the actor's package near the editor location resolves there again (#3042). A
+/// created actor of a save from before that field existed takes the place it was saved
+/// at, so its package resolves too instead of "the actor has no editor location".
+#[test]
+fn a_created_actor_keeps_where_it_was_made_across_a_save_and_load() {
+    use fnv_ai::goal::editor_place_of;
+    use fnv_game::game::GameSnapshot;
+    let f = fixture();
+    let mut s = sim(&f, &[]);
+    let made = s.game.world.place(FormId(N_SPAWNED), Some(FormId(YARD)), POST, [0.0; 3], 1).unwrap();
+    s.game.world.get(made).unwrap().pos = FAR;
+    let made_place = fnv_nav::Place { space: Space::Interior(YARD), pos: POST };
+    assert_eq!(editor_place_of(&s.game, made), Some(made_place));
+    let saved = serde_json::to_value(s.game.checked_snapshot().unwrap()).unwrap();
+    let load = |body: &Json| -> Game<'_> {
+        let snapshot: GameSnapshot = serde_json::from_value(body.clone()).unwrap();
+        let world = World::restore(&f.forms, &f.refs, &snapshot.sim).unwrap();
+        Game::restore(&f.data, world, s.game.cfg, &snapshot).unwrap()
+    };
+    let game = load(&saved);
+    assert_eq!(editor_place_of(&game, made), Some(made_place), "where it was made, after the load");
+    let mut back = Sim { game, ai: Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() }), nav: nav() };
+    back.ai.add(&back.game, made).unwrap();
+    back.run(60.0);
+    let events = back.ai.events.iter().filter(|e| e.actor == made).map(|e| &e.event).collect::<Vec<_>>();
+    assert!(!format!("{events:?}").contains("no editor location"), "{events:?}");
+    let sb = back.ai.agents[&made].sandbox.as_ref().expect("the guard's wander");
+    assert_eq!(sb.area(), (made_place, RADIUS));
+    // A save written before `made_at` was saved: the actor's entry has none.
+    let mut old = saved;
+    let entry = old["sim"]["refs"].as_object_mut().unwrap().get_mut(&format!("{made}")).expect("the actor's entry");
+    assert!(entry.as_object_mut().unwrap().remove("made_at").is_some());
+    let game = load(&old);
+    let saved_place = fnv_nav::Place { space: Space::Interior(YARD), pos: FAR };
+    assert_eq!(editor_place_of(&game, made), Some(saved_place), "the place it was saved at");
+    // Its package resolves there too: the guard wanders round the saved place.
+    let mut legacy = Sim { game, ai: Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() }), nav: nav() };
+    legacy.ai.add(&legacy.game, made).unwrap();
+    legacy.run(60.0);
+    let events = legacy.ai.events.iter().filter(|e| e.actor == made).map(|e| &e.event).collect::<Vec<_>>();
+    assert!(!format!("{events:?}").contains("no editor location"), "{events:?}");
+    let sb = legacy.ai.agents[&made].sandbox.as_ref().expect("the older save's guard wander");
+    assert_eq!(sb.area(), (saved_place, RADIUS));
+}

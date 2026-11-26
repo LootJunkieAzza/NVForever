@@ -119,7 +119,8 @@ def configure_test(p, name):
         p.add_argument("--batch", type=int, default=25, help="markers per launch")
         p.add_argument("--every", type=float, default=30.0, help="seconds between one marker's ask and the next's")
         p.add_argument("--hang", type=float, default=180.0, help="seconds without progress that count as a hang")
-        p.add_argument("--start", default="GSGeneralStore", help="the cell each launch starts in (--cell)")
+        p.add_argument("--start", default="Goodsprings",
+                       help="the cell each launch starts in (--cell); an exterior: interiors refuse fast travel (#3434)")
     elif name == "tour":
         p.add_argument("--world", default="WastelandNV")
         p.add_argument("--path", choices=["towns", "ring"], default="towns",
@@ -442,6 +443,20 @@ def write_comparison(out: Path, index: dict) -> None:
     (out / "comparison.md").write_text("\n".join(comparison_report(index)) + "\n", encoding="utf-8")
 
 
+def soak_window_refusal(a) -> str | None:
+    """Why `compare soak` cannot measure, before any launch (#3276): its events (a
+    container, a door, a fight, one every --event-every seconds) interrupt the gameplay,
+    and every launch's window must hold --settle-seconds then --measure-seconds of it
+    uninterrupted (`telemetry.window`). With the defaults (an event every 20 s, a 10 s
+    settle and a 30 s measure) no lap had one: 8 launches, all excluded [observed in
+    #3276, 2026-11-17]. `None`: the window can fit between two events."""
+    if a.test != "soak" or a.settle_seconds + a.measure_seconds < a.event_every:
+        return None
+    return (f"compare soak: an event every {a.event_every:g} s leaves no uninterrupted {a.settle_seconds:g} s settle and "
+            f"{a.measure_seconds:g} s measurement window, so every launch would be excluded; give --event-every above "
+            f"{a.settle_seconds + a.measure_seconds:g}, or shorter --settle-seconds/--measure-seconds, or compare tour")
+
+
 def main(argv=None) -> int:
     a = parser().parse_args(argv)
     if a.cmd == "list":
@@ -458,6 +473,8 @@ def main(argv=None) -> int:
             raise SystemExit("measurement must be positive and telemetry duration must be in (0, 60] seconds")
         if a.settle_seconds + a.measure_seconds > a.telemetry_seconds:
             raise SystemExit("settle and measurement exceed the capture duration before loading")
+        if (why := soak_window_refusal(a)) is not None:
+            raise SystemExit(why)
         for aid in a.aid:
             if "=" not in aid or not aid.split("=", 1)[0]:
                 raise SystemExit("test aids must use NAME=VALUE")

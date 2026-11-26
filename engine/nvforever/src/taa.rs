@@ -21,11 +21,19 @@
 //! On the tonemapped picture after the ambient occlusion, before bloom, sharpening and
 //! the image-space grade and its blur. On the main camera only, while it carries
 //! [`TemporalAa`].
+//!
+//! Turned off while the game runs (the anti-aliasing choice, or a temporal upscaler taking
+//! over: `graphics.rs` `apply`), the camera keeps its render-world entity and Bevy's sync
+//! takes only [`TemporalAa`] off it; the pass's own state on that entity is dropped the
+//! same frame ([`drop_stale`], #2955), and the pass runs only on a view that still carries
+//! [`TemporalAa`]. Turned on again, its history starts over on its first pass that runs.
 
 use crate::fly::FlyCam;
 use bevy::core_pipeline::prepass::ViewPrepassTextures;
 use bevy::core_pipeline::tonemapping::tonemapping;
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
+use bevy::ecs::schedule::ScheduleConfigs;
+use bevy::ecs::system::ScheduleSystem;
 use bevy::math::{DMat4, DVec3};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -94,12 +102,18 @@ impl Plugin for TaaPlugin {
         render_app
             .init_resource::<Histories>()
             .add_systems(RenderStartup, init_pipelines)
-            .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources).after(bevy::core_pipeline::core_3d::prepare_prepass_textures))
+            .add_systems(Render, prepare_systems())
             .add_systems(
                 Core3d,
                 taa_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).after(crate::ssao::ao_pass).before(crate::imagespace::blur_pass),
             );
     }
+}
+
+/// The render world's preparation, as [`TaaPlugin`] adds it to `Render`: the state of views
+/// whose TAA was turned off dropped ([`drop_stale`]), then this frame's ([`prepare`]).
+fn prepare_systems() -> ScheduleConfigs<ScheduleSystem> {
+    (drop_stale::<TaaView>, prepare).chain().in_set(RenderSystems::PrepareResources).after(bevy::core_pipeline::core_3d::prepare_prepass_textures)
 }
 
 /// The 2,3 Halton point `i` (1-based), each part in 0..1.
@@ -168,6 +182,30 @@ pub(crate) struct TaaPipelines {
 /// Which history texture holds the last frame, whether it was written, and its size.
 #[derive(Resource, Default)]
 struct Histories(HashMap<Entity, (bool, bool, UVec2)>);
+
+/// One frame of a view's history (`state`: whether texture A holds the last frame, whether
+/// it was written, its size): whether the history starts over this frame (the camera asks,
+/// nothing was written yet, or the size changed) and whether A is read. When the pass runs
+/// the two textures swap.
+fn history_step(state: &mut (bool, bool, UVec2), runs: bool, wants_reset: bool, size: UVec2) -> (bool, bool) {
+    let (a_holds_last, written, last_size) = *state;
+    let reset = wants_reset || !written || last_size != size;
+    *state = if runs { (!a_holds_last, true, size) } else { (a_holds_last, false, size) };
+    (reset, a_holds_last)
+}
+
+/// A view whose TAA was turned off keeps its render entity, and Bevy's sync takes only
+/// [`TemporalAa`] off it: drop the pass state `V` ([`TaaView`]) and the history with it,
+/// or the pass would go on blending the frozen history of the last TAA frame into every
+/// frame, under an upscaler or the other anti-aliasing (#2955). Generic over the state so
+/// a test can stand in for the GPU resources.
+fn drop_stale<V: Component>(mut commands: Commands, stale: Query<Entity, (With<V>, Without<TemporalAa>)>, mut histories: ResMut<Histories>) {
+    for entity in &stale {
+        commands.entity(entity).remove::<V>();
+        histories.0.remove(&entity);
+        info!("taa: off for a view: its pass state and history dropped");
+    }
+}
 
 #[derive(Component)]
 pub(crate) struct TaaView {
@@ -259,13 +297,14 @@ fn prepare(
             )
         };
         let (a, b) = (history("taa_history_a"), history("taa_history_b"));
-        let state = histories.0.entry(entity).or_insert((false, false, UVec2::ZERO));
-        let (a_holds_last, written, last_size) = *state;
+        let state = histories.0.entry(entity).or_insert_with(|| {
+            info!("taa: on for a view: its history starts over");
+            (false, false, UVec2::ZERO)
+        });
         // The pass runs this frame when its pipeline is ready and the view and its depth
         // single-sampled (the same test as `taa_pass`).
         let runs = cache.get_render_pipeline(pipeline).is_some() && *msaa == Msaa::Off && prepass.and_then(crate::ssao::depth_multisampled) == Some(false);
-        let reset = taa.params.z > 0.5 || !written || last_size != size;
-        *state = if runs { (!a_holds_last, true, size) } else { (a_holds_last, false, size) };
+        let (reset, a_holds_last) = history_step(state, runs, taa.params.z > 0.5, size);
         let (read, write) = if a_holds_last { (a, b) } else { (b, a) };
         let mut uniform = UniformBuffer::from(TaaUniform {
             reproject: taa.reproject,
@@ -278,9 +317,13 @@ fn prepare(
     histories.0.retain(|e, _| seen.contains(e));
 }
 
+/// The views the pass runs on: those that carry [`TemporalAa`] this frame, not only a
+/// [`TaaView`] left from an earlier frame (#2955).
+type PassViews = With<TemporalAa>;
+
 /// This frame blended into the history: into the picture and into the next history.
 pub(crate) fn taa_pass(
-    view: ViewQuery<(&ViewTarget, &TaaView, &ViewPrepassTextures, &Msaa)>,
+    view: ViewQuery<(&ViewTarget, &TaaView, &ViewPrepassTextures, &Msaa), PassViews>,
     pipelines: Res<TaaPipelines>,
     cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
@@ -323,6 +366,7 @@ pub(crate) fn taa_pass(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
 
     #[test]
     fn halton_steps_cover_the_pixel() {
@@ -340,5 +384,116 @@ mod tests {
         let m = clip_from_world(&gt, &proj);
         let r = (m * m.inverse()).as_mat4();
         assert!(r.abs_diff_eq(Mat4::IDENTITY, 1e-5));
+    }
+
+    /// Stands in for [`TaaView`], whose textures need a GPU.
+    #[derive(Component)]
+    struct PassState;
+
+    /// One render frame of the view `e` the way `prepare` takes it: `drop_stale` first, then,
+    /// where the view carries `TemporalAa`, the history step (from a new entry when there is
+    /// none) and the pass state put on. Returns whether the history started over, or `None`
+    /// without TAA.
+    fn frame(world: &mut World, e: Entity) -> Option<bool> {
+        world.run_system_once(drop_stale::<PassState>).unwrap();
+        if !world.entity(e).contains::<TemporalAa>() {
+            return None;
+        }
+        let mut histories = world.resource_mut::<Histories>();
+        let state = histories.0.entry(e).or_insert((false, false, UVec2::ZERO));
+        let (reset, _) = history_step(state, true, false, UVec2::new(1280, 720));
+        world.entity_mut(e).insert(PassState);
+        Some(reset)
+    }
+
+    /// Whether `taa_pass`'s view query (its filter) takes the view.
+    fn pass_runs_on(world: &mut World, e: Entity) -> bool {
+        world.query_filtered::<Entity, (With<PassState>, PassViews)>().iter(world).any(|v| v == e)
+    }
+
+    #[test]
+    fn taa_off_drops_the_pass_state_and_on_again_starts_the_history_over() {
+        let mut world = World::new();
+        world.init_resource::<Histories>();
+        let e = world.spawn(TemporalAa::default()).id();
+        // On: the first frame starts the history, the next keeps it.
+        assert_eq!(frame(&mut world, e), Some(true));
+        assert_eq!(frame(&mut world, e), Some(false));
+        assert!(pass_runs_on(&mut world, e));
+        // Off on the same render entity (the sync takes only TemporalAa off it): the pass
+        // no longer takes it even before the sweep, and the sweep drops its state.
+        world.entity_mut(e).remove::<TemporalAa>();
+        assert!(!pass_runs_on(&mut world, e), "a left-over pass state alone must not run the pass");
+        assert_eq!(frame(&mut world, e), None);
+        assert!(!world.entity(e).contains::<PassState>(), "the stale pass state stayed on the view");
+        assert!(!world.resource::<Histories>().0.contains_key(&e), "the stale history stayed");
+        assert_eq!(frame(&mut world, e), None);
+        // On again: the first frame starts the history over instead of reading the frozen one.
+        world.entity_mut(e).insert(TemporalAa::default());
+        assert_eq!(frame(&mut world, e), Some(true));
+        assert!(pass_runs_on(&mut world, e));
+        assert_eq!(frame(&mut world, e), Some(false));
+    }
+
+    /// The hookup the plugin uses: `drop_stale` (for the real `TaaView`) is in the render
+    /// world's preparation and runs before `prepare`.
+    #[test]
+    fn the_render_world_drops_the_stale_state_before_prepare() {
+        let mut world = World::new();
+        let mut schedule = Schedule::default();
+        schedule.add_systems(prepare_systems());
+        assert_drops_before_prepare(&mut world, &mut schedule);
+    }
+
+    /// The `Render` schedule [`TaaPlugin`] itself registers, on a render sub-app without a
+    /// GPU: registering `prepare` without `drop_stale` (or before it) fails here.
+    #[test]
+    fn the_plugin_registers_drop_stale_before_prepare() {
+        let mut app = App::new();
+        app.init_resource::<bevy::asset::io::embedded::EmbeddedAssetRegistry>();
+        app.insert_sub_app(RenderApp, bevy::app::SubApp::new());
+        app.add_plugins(TaaPlugin);
+        let render = app.sub_app_mut(RenderApp);
+        render.world_mut().resource_scope(|world, mut schedules: Mut<Schedules>| {
+            let schedule = schedules.get_mut(Render).expect("TaaPlugin adds systems to Render");
+            assert_drops_before_prepare(world, schedule);
+        });
+    }
+
+    /// `drop_stale::<TaaView>` and `prepare` are both in `schedule`, the first before.
+    fn assert_drops_before_prepare(world: &mut World, schedule: &mut Schedule) {
+        use std::any::TypeId;
+        schedule.initialize(world).expect("the preparation's schedule builds");
+        let order: Vec<TypeId> = schedule.systems().expect("initialized").map(|(_, system)| system.system_type()).collect();
+        let at = |id: TypeId| order.iter().position(|t| *t == id);
+        let drop = at(IntoSystem::into_system(drop_stale::<TaaView>).system_type()).expect("drop_stale::<TaaView> is not in the preparation");
+        let prepare = at(IntoSystem::into_system(prepare).system_type()).expect("prepare is not in the preparation");
+        assert!(drop < prepare, "drop_stale must run before prepare");
+    }
+
+    /// `taa_pass` itself (not only [`PassViews`]) reads [`TaaView`] only on views with
+    /// [`TemporalAa`].
+    #[test]
+    fn the_pass_query_takes_only_views_that_carry_taa() {
+        let mut world = World::new();
+        let mut pass = IntoSystem::into_system(taa_pass);
+        let access = pass.initialize(&mut world);
+        let (taa, view) = (world.component_id::<TemporalAa>().expect("registered"), world.component_id::<TaaView>().expect("registered"));
+        let set = access.to_filtered_access_set();
+        let reads_view: Vec<_> = set.filtered_accesses().iter().filter(|a| a.access().has_read(view)).collect();
+        assert!(!reads_view.is_empty(), "taa_pass reads TaaView");
+        assert!(reads_view.iter().all(|a| a.with_filters().any(|c| c == taa)), "taa_pass must take only views with TemporalAa");
+    }
+
+    #[test]
+    fn the_history_starts_over_when_asked_unwritten_or_resized() {
+        let (size, bigger) = (UVec2::new(1280, 720), UVec2::new(1600, 900));
+        let mut state = (false, false, UVec2::ZERO);
+        assert_eq!(history_step(&mut state, true, false, size), (true, false), "nothing written yet");
+        assert_eq!(history_step(&mut state, true, false, size), (false, true), "the textures swap");
+        assert_eq!(history_step(&mut state, true, true, size), (true, false), "the camera cut");
+        assert!(history_step(&mut state, true, false, bigger).0, "resized");
+        assert!(!history_step(&mut state, false, false, bigger).0);
+        assert!(history_step(&mut state, true, false, bigger).0, "a frame without the pass leaves nothing written");
     }
 }

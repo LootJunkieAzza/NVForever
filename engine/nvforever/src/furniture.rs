@@ -246,7 +246,7 @@ impl Furnishings {
                 None => (rest, None),
             };
             let furniture = hex(target).ok_or_else(bad)?;
-            let placed = fnv_world::placed::placement(world.lo, world.schema, furniture).ok_or_else(|| format!("--npc-sit {spec}: no placed reference {furniture:08X}"))?;
+            let placed = world.index.placement(world.lo, world.schema, furniture).ok_or_else(|| format!("--npc-sit {spec}: no placed reference {furniture:08X}"))?;
             let base = placed.base.filter(|b| f.bases.contains_key(b)).ok_or_else(|| format!("--npc-sit {spec}: {furniture:08X} is not furniture"))?;
             let record = f.bases[&base].clone();
             // Where the actor starts, to pick the entry point it will come up to.
@@ -326,7 +326,7 @@ impl Furnishings {
     /// answers the idle conditions that are about the game's state ([`game_value`]).
     fn plan(&mut self, world: &WorldData, ctx: &mut ActorCtx, furniture: u32, from: [f32; 3], who: Who, game: furn::World) -> Result<Plan, PlanError> {
         let missing = |what: &str| refused(Refusal::MissingContent, what);
-        let placed = fnv_world::placed::placement(world.lo, world.schema, furniture).ok_or_else(|| missing("no such reference"))?;
+        let placed = world.index.placement(world.lo, world.schema, furniture).ok_or_else(|| missing("no such reference"))?;
         let base = placed.base.ok_or_else(|| missing("no base"))?;
         let record = self.bases.get(&base).ok_or_else(|| missing("not furniture"))?.clone();
         let model = record.model.clone().ok_or_else(|| missing("the furniture has no model"))?;

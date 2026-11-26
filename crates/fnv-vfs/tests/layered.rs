@@ -103,3 +103,34 @@ fn an_absent_layer_is_skipped() {
     assert_eq!(vfs.loose_roots(), [data].as_slice());
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// Authored material maps (#2981, docs/spec-notes/pbr-materials.md) resolve per file like
+/// any other texture: a mods folder's copy under `textures\pbr\` replaces Data's, through
+/// NVForever's own mods folder as through a Mod Organizer 2 layer, and the path is listed
+/// once.
+#[test]
+fn a_pbr_file_in_a_mods_root_beats_data() {
+    let root = std::env::temp_dir().join(format!("nvf-vfs-layered-pbr-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let data = root.join("Data");
+    let mods = root.join("mods");
+    for d in [&data, &mods] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    file(&data, "textures/pbr/walls/brick07_orm.dds", "data-orm");
+    file(&data, "textures/pbr/walls/brick07_n.dds", "data-n");
+    file(&mods, "Textures/PBR/Walls/Brick07_ORM.dds", "mod-orm");
+
+    let check = |vfs: &Vfs| {
+        assert_eq!(vfs.read(r"textures\pbr\walls\brick07_orm.dds").unwrap().unwrap(), b"mod-orm");
+        assert_eq!(vfs.source_of(r"textures\pbr\walls\brick07_orm.dds"), Some("loose"));
+        assert!(vfs.loose_path(r"textures\pbr\walls\brick07_orm.dds").unwrap().starts_with(&mods));
+        // The member the mod does not ship still comes from Data.
+        assert_eq!(vfs.read("textures/pbr/walls/brick07_n.dds").unwrap().unwrap(), b"data-n");
+        assert!(vfs.loose_path("textures/pbr/walls/brick07_n.dds").unwrap().starts_with(&data));
+        assert_eq!(vfs.paths(|k| k.starts_with(r"textures\pbr\")), [r"textures\pbr\walls\brick07_n.dds", r"textures\pbr\walls\brick07_orm.dds"]);
+    };
+    check(&Vfs::open_for_plugins_in(&data, Some(&mods), &["FalloutNV.esm"]).unwrap());
+    check(&Vfs::open_for_plugins_layered(&data, std::slice::from_ref(&mods), &["FalloutNV.esm"]).unwrap());
+    std::fs::remove_dir_all(&root).unwrap();
+}

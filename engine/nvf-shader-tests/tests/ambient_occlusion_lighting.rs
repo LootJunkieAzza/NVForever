@@ -35,6 +35,8 @@ fn every_material_that_reads_the_occlusion_compiles_with_and_without_the_def() {
         ("nvforever/terrain.wesl", &[][..]),
         ("nvforever/grass.wesl", &[][..]),
         ("nvforever/tree.wesl", &["TREE_LEAVES"][..]),
+        // The leaf cards' main pass takes the sun's shadow outside their crown (tree.rs).
+        ("nvforever/tree.wesl", &["TREE_LEAVES", "NVF_CROWN_SHADOW"][..]),
         // Bevy's own fragment: the bark (tree.rs `BarkWind` has a vertex shader only) and
         // every StandardMaterial that writes depth.
         ("bevy_pbr/render/pbr.wesl", &[][..]),
@@ -46,7 +48,10 @@ fn every_material_that_reads_the_occlusion_compiles_with_and_without_the_def() {
             }
             let compiled = compiler.compile(shader, &defs);
             assert_eq!(binds(&compiled, 43), on, "{shader} {defs:?}: the uniform at binding 43");
-            assert_eq!(binds(&compiled, 44), on, "{shader} {defs:?}: the texture at binding 44");
+            // First-person shapes take no occlusion (ssao_lighting/hook.rs `LAMP_TEXT`): the
+            // texture is not read, the uniform still is (the multi-bounce and lamps switches).
+            let first_person = defs.contains(&"FIRST_PERSON_DEPTH");
+            assert_eq!(binds(&compiled, 44), on && !first_person, "{shader} {defs:?}: the texture at binding 44");
             assert!(
                 compiled.module.entry_points.iter().any(|e| e.stage == naga::ShaderStage::Fragment),
                 "{shader} {defs:?}: a fragment entry point"

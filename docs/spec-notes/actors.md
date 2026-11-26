@@ -2375,9 +2375,37 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   is holstered, since h2h weapons hang on the forearm either way; hypothesis: the
   both-hands case, no such addon checked]. An NPC is dressed again when its weapon
   changes to one with other addons (`outfits::same_worn`). The player's third-person body
-  wears them too. The first-person arms keep the bare hand [hypothesis: the first-person
-  weapon model is drawn over it, as before]. The placement was left as it was: the
-  frames show the gauntlet in the same place in both.
+  wears them too. The placement was left as it was: the frames show the gauntlet in the
+  same place in both.
+- **The first-person arms and a fist weapon's addon** (#3226). 21 weapons of
+  FalloutNV.esm and the add-ons have a BIPL and no MODL (nor WNAM): the Bladed Gauntlet
+  (`WeapBladedGauntlet` 0x001519E0 → `ARMABladedGuantlet`, Right Hand,
+  `bladedguantlet.nif`: shapes `rightglove:0` and `bladedguantlet:0`, both skinned to
+  `Bip01 R ForeTwist`, the hand and the finger bones), its unique and poisoned variants,
+  the brass and spiked knuckles (and `WeapNVSpikedKnucklesUnique`), the deathclaw
+  gauntlets (with Lonesome Road's two), the mantis gauntlets (Honest Hearts' poisoned one,
+  Gun Runners' Arsenal's unique one), Honest Hearts' three yao guai gauntlets, Old World
+  Blues' five gloves (`NVDLC03WeapGlovesScientist`, …) and the Securitrons'
+  `WeapNVSecuritronPowerFist`; their MOD4 is a ground object, so the addon is the only
+  model they name besides it [documented: record decode of the ten plugins; asset
+  inspection of `bladedguantlet.nif`, `fnvtool nif decode`]. An ARMA has a male and a
+  female biped model and no first-person one [documented: GECK wiki ArmorAddon;
+  `schemas/fnv/objects.json` ARMA], and none of these addon models has a `…1st.nif`
+  beside it [documented: asset inspection, archive listings]. For the Bladed Gauntlet a
+  player's log showed the addon on the third-person body and on neither the
+  first-person arms nor in the hand there (#3226, [observed]); the other 20 have the
+  same record shape, so the same rule applies to them [hypothesis: drawn the same, not
+  seen running]. Rule (`fnv_actor::first_person::wears_weapon_addons`,
+  `first_person_worn`): the first-person arms wear a held weapon's addons when the
+  weapon has no model for that view (`Weapon::model_for` with no mods: no WNAM, no
+  MODL), with the third-person body's slot rules (the race's right hand and an outfit's
+  right glove give way to it); a weapon with a model of its own (the power fist's and
+  ballistic fist's rigid gauntlets, the boxing gloves, the Shishkebab, the zap and
+  displacer gloves, the dog-tag fists) keeps the bare hand under that model in first
+  person, as before [hypothesis: the original draws the addon on the first-person arms
+  as on the body; for the weapons with a model, that model is drawn over the bare hand;
+  an in-game first-person look at the Bladed Gauntlet and the power fist would settle
+  both].
 - That NPCs show holstered weapons at the pelvis or on the back is [hypothesis, from the
   holster clips]; an in-game screenshot of an NPC with a holstered pistol and one with a
   rifle would settle it.

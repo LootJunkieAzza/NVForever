@@ -86,9 +86,17 @@ const RADIATION_SEARCH: f32 = 20000.0;
 /// each with its lock as the game holds it), or that no door at all joins the two places
 /// (`NavGraph::joined_by_doors`) [design, #2405: "0 triangles searched" alone was read as
 /// a missing navmesh, for a locked door in the same room and for a sealed scene cell
-/// alike]. With the doors named.
+/// alike]. With the doors named. A place with no navmesh near it is named with its cell
+/// or worldspace [design, #2756: Jean-Baptiste's "(0, 0, 0)", logged while he was in
+/// Freeside, read as a goal looked for in his own worldspace; it is his marker's place in
+/// FreesideSilverRush, the data's own].
 fn why_unreachable(game: &Game, nav: &NavGraph, from: Place, to: Place, params: &PathParams, e: &PathError) -> (String, Vec<u32>) {
     let mut why = e.to_string();
+    if let PathError::NoTriangle { which, .. } = e {
+        let space = if *which == "start" { from.space } else { to.space };
+        let (fnv_nav::Space::World(f) | fnv_nav::Space::Interior(f)) = space;
+        why.push_str(&format!(" in {}", game.data.name(FormId(f))));
+    }
     if !matches!(e, PathError::Unreachable { .. }) {
         return (why, Vec::new());
     }
@@ -125,11 +133,8 @@ fn radiated_near(game: &Game, space: fnv_nav::Space, at: [f32; 3]) -> Vec<([f32;
         fnv_nav::Space::World(w) | fnv_nav::Space::Interior(w) => FormId(w),
     };
     let mut out: Vec<([f32; 3], f32)> = game
-        .data
-        .radiation_markers
-        .get(&key)
-        .into_iter()
-        .flatten()
+        .radiation_markers_in(key)
+        .iter()
         .filter(|m| m.radius > 0.0 && goal::dist(m.pos, at) <= RADIATION_SEARCH + m.radius && game.world.is_enabled(m.id).unwrap_or(true))
         .map(|m| (m.pos, m.radius))
         .collect();
@@ -791,6 +796,10 @@ pub struct Ai {
     /// player's nearest approach to the lead's point so far and when it last grew
     /// nearer, so that a walk that gets no nearer (something solid in the way) ends.
     lead_progress: BTreeMap<FormId, (f32, f64)>,
+    /// When each actor's latest conversation from a Dialogue package ended (game
+    /// seconds): it does not walk the player into its trigger location again for
+    /// [`LEAD_AGAIN_SECONDS`] after it (#3464).
+    talk_ended: BTreeMap<FormId, f64>,
     /// Progress a loaded save kept, by actor, until the actor takes up that package again
     /// ([`crate::progress`]).
     pub(crate) restored: BTreeMap<FormId, crate::progress::Progress>,
@@ -869,7 +878,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, closing_doors: Vec::new(), locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, closing_doors: Vec::new(), locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), talk_ended: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -1231,6 +1240,8 @@ impl Ai {
     /// Prospector Saloon after VMS16's MoveTo to the gas station, owner playtest].
     pub fn relocate(&mut self, game: &mut Game, actor: FormId) {
         let Some(place) = goal::place_of_ref(game, actor) else { return };
+        // From the new place a package set aside as out of reach may be reachable (#3472).
+        game.unblock_packages_of(actor);
         let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
         self.script_moved.insert(actor, game.time);
         self.set_using(game, actor, None);
@@ -1897,6 +1908,9 @@ impl Ai {
                         self.face(game, actor, t, dt);
                     }
                 } else {
+                    if talk.target == FormId::PLAYER_REF {
+                        self.talk_ended.insert(actor, game.time);
+                    }
                     self.talk_done(game, actor);
                     self.log(game, actor, AiEvent::TalkOver { package });
                 }
@@ -1933,7 +1947,15 @@ impl Ai {
                 // (`Game::player_lead`) and the conversation opens there [hypothesis:
                 // when the walk starts, and that it ends inside the location;
                 // docs/spec-notes/packages.md §3].
-                let leads = on_the_spot && talk.control_target && talk.target == FormId::PLAYER_REF && talk.trigger.has_room(game);
+                // Not again soon after a conversation with the same actor [our choice,
+                // #3464]: Harland's room in the REPCONN basement has a trigger on the way
+                // out that calls ResetAI on him (REPCONHarlandResetTrigger), and with an
+                // activate distance of 1200 his package, taken up afresh, walked the
+                // player straight back into the doorway trigger and greeted again, every
+                // time: the player could not leave. Without the walk he talks where the
+                // player stands, once (its end script then holds the doorway's evp).
+                let recent = self.talk_ended.get(&actor).is_some_and(|&t| game.time - t < LEAD_AGAIN_SECONDS);
+                let leads = on_the_spot && talk.control_target && talk.target == FormId::PLAYER_REF && talk.trigger.has_room(game) && !recent;
                 if near && triggered {
                     self.talk_start(game, actor, package, &talk, away);
                 } else if near && leads {
@@ -2119,7 +2141,7 @@ impl Ai {
     #[allow(clippy::too_many_arguments)]
     fn follow_speed(&self, game: &Game, actor: FormId, package: FormId, away: f32, keep: f32, lead_away: f32, target_pace: Option<f32>) -> (f32, bool) {
         let behind = (away - keep).max(lead_away - keep);
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || behind > FOLLOW_RUN_BEHIND;
+        let running = game.package_def(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || behind > FOLLOW_RUN_BEHIND;
         let speed = match target_pace {
             Some(v) if !running => keep_step_speed(v, away, keep, self.pace(game, actor, false), self.pace(game, actor, true)),
             _ => self.pace(game, actor, running) * catch_up(behind),
@@ -2169,7 +2191,7 @@ impl Ai {
     /// aside like any other that cannot be reached.
     #[allow(clippy::too_many_arguments)]
     fn approach(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, talk: &Talk, target: Place, first: bool) {
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
+        let running = game.package_def(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
         let own = Ai::walk_pace_of(game, actor, running, speed);
@@ -2216,6 +2238,15 @@ impl Ai {
         // (an actor, a talking activator) is not held back. The actor stays as it is
         // (waiting, or at the end of its walk) and tries again every update.
         let needs_sight = talk.target == FormId::PLAYER_REF;
+        // The player in another space than the actor (a load door just took them out,
+        // which moves the player's cell at once while the walkers' places catch up a
+        // frame later) is not talked to. Gomorrah's entrance guard started its weapons
+        // check with a player leaving by the inner door, the door's script having reset
+        // iInGomorrah; the hand-over set it again and the next way in kept the controls
+        // the outer door took (#2835).
+        if needs_sight && !same_space(game, actor, talk.target) {
+            return;
+        }
         if needs_sight && !game.greet_sight(actor, talk.target) {
             if self.unseen_greets.insert(actor) {
                 self.log(game, actor, AiEvent::TalkUnseen { package, target: talk.target, away });
@@ -2467,7 +2498,7 @@ impl Ai {
     fn settle(&mut self, game: &mut Game, actor: FormId) {
         let a = &self.agents[&actor];
         let Some(package) = a.package else { return };
-        let Some(def) = game.data.package_defs.get(&package) else { return };
+        let Some(def) = game.package_def(&package) else { return };
         let at = Place { space: a.walker.space, pos: a.walker.feet };
         // A guard wanders round its location's place; "near current location" and the
         // other places without one, round where it settled [design, #2027].
@@ -2503,8 +2534,7 @@ impl Ai {
     /// is below `fRadiationResistanceAvoidLevel` (50 in FalloutNV.esm) [hypothesis: the
     /// setting's name: who resists that much need not keep away].
     fn avoids_radiation(&self, game: &mut Game, actor: FormId) -> bool {
-        let data = game.data;
-        let Some(def) = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| data.package_defs.get(&p)) else { return false };
+        let Some(def) = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| game.package_def(&p)) else { return false };
         if !crate::social::allows(def, fallout::AVOID_RADIATION) {
             return false;
         }
@@ -2560,7 +2590,7 @@ impl Ai {
         // Open locked doors do not refuse nav triangles [hypothesis,
         // docs/spec-notes/navmesh.md; observer check 206].
         params.open_doors.extend(self.locked_doors.iter().copied().filter(|&d| {
-            game.world.peek(FormId(d)).is_none() && game.world.placed.get(FormId(d)).is_some_and(|r| r.open_by_default)
+            game.world.peek(FormId(d)).is_none() && game.world.default_open(FormId(d))
         }));
         params.open_doors.extend(game.world.changed().filter(|(_, s)| s.open).map(|(id, _)| id.0));
         // A creature flagged "Can't Open Doors" [documented: GECK wiki
@@ -2718,7 +2748,7 @@ impl Ai {
 
     /// The package is new: work out its goal and set off.
     fn begin(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId) {
-        let Some(def) = game.data.package_defs.get(&package) else { return };
+        let Some(def) = game.package_def(&package) else { return };
         let goal = goal::resolve(game, nav, actor, def);
         // A Use Weapon package's weapon use, unless a script's comes first.
         if def.ty == PackageType::UseWeapon && game.weapon_use(actor).is_none_or(|w| w.source != Source::Script) {
@@ -2802,7 +2832,7 @@ impl Ai {
     /// records, PrimmDeputyScript; owner's playtest list 7 item 30, he stood beside the
     /// marker]. Farther, it stays where it stands.
     fn begin_in_place(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId) {
-        let Some(def) = game.data.package_defs.get(&package) else { return };
+        let Some(def) = game.package_def(&package) else { return };
         let goal = goal::resolve(game, nav, actor, def);
         let feet = Place { space: self.agents[&actor].walker.space, pos: self.agents[&actor].walker.feet };
         let at = |place: &Goal| match place {
@@ -2910,7 +2940,7 @@ impl Ai {
         // Pretend In Combat: it goes as in a fight, running [our choice; documented: the
         // actor "move[s] from cover point to cover point", Combat Package Flags, which
         // is not built].
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN) || d.has(flags::PRETEND_IN_COMBAT));
+        let running = game.package_def(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN) || d.has(flags::PRETEND_IN_COMBAT));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
         let own = Ai::walk_pace_of(game, actor, running, speed);
@@ -2956,7 +2986,8 @@ impl Ai {
     #[allow(clippy::too_many_arguments)]
     fn no_way(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place, patrol_point: Option<FormId>, e: PathError, params: &PathParams) {
         if !matches!(e, PathError::Unreachable { .. }) {
-            return self.unreachable(game, actor, package, e.to_string());
+            let (why, _) = why_unreachable(game, nav, from, to, params, &e);
+            return self.unreachable(game, actor, package, why);
         }
         if !params.opens_doors && nav.can_reach(from, to, &PathParams { opens_doors: true, ..params.clone() }) {
             self.log(game, actor, AiEvent::DoorsClosedToIt { package });
@@ -3543,8 +3574,24 @@ fn nearest_point(route: &Route, feet: Place) -> usize {
 /// ([`Ai::lead_player`]) [our choice].
 pub const LEAD_STUCK_SECONDS: f64 = 1.5;
 
+/// How long after a conversation from a Dialogue package its actor does not walk the
+/// player into its trigger location again ([`Ai::lead_player`], #3464) [our choice:
+/// longer than a walk out of a room; observer check 280 asks what the original does].
+pub const LEAD_AGAIN_SECONDS: f64 = 30.0;
+
 /// How much nearer the point counts as progress on that walk, in units [our choice].
 const LEAD_GAIN: f32 = 8.0;
+
+/// Whether two references are in the same space now, as the world has their cells: one
+/// worldspace (any of its exterior cells), or one interior cell. Unknown cells count as the
+/// same.
+fn same_space(game: &Game, a: FormId, b: FormId) -> bool {
+    let cell = |r: FormId| game.world.peek(r).and_then(|s| s.cell).or_else(|| game.world.placed.get(r).and_then(|p| p.cell));
+    match (cell(a), cell(b)) {
+        (Some(x), Some(y)) => x == y || game.world.placed.world_of(x).is_some_and(|w| game.world.placed.world_of(y) == Some(w)),
+        _ => true,
+    }
+}
 
 #[cfg(test)]
 mod tests {

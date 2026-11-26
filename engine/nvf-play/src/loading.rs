@@ -15,11 +15,14 @@
 //!   (`PhysState::loading_done`), the renderer has drawn its cells (it reports through
 //!   [`Loading::render_busy`]) and no actor in view still waits for its parts
 //!   ([`Loading::actors_busy`]), [`SETTLE_SECS`] later so that textures and meshes reach
-//!   the graphics card behind the picture.
+//!   the graphics card behind the picture. With ALC shadows on it also waits while their
+//!   maps are drawn behind it ([`Loading::lamp_shadows_busy`]), and with Volumetric clouds on,
+//!   for a second at most, until every part of their picture has been cast ([`Loading::clouds_busy`]).
 //! - A run that starts in the world ([`StartCover`]) is held under the screen from its
-//!   first frame until the same is in and the scripts are made (a save put back into
-//!   them); the test aids' clock and `--run-seconds` count from when it comes down
-//!   (docs/design/loading-screen.md §1a).
+//!   first frame until the same is in, the scripts are made (a save put back into
+//!   them) and the residents in view are drawn ([`Loading::start_actors`], for at most
+//!   [`PLACE_CAP_SECS`]); the test aids' clock and `--run-seconds` count from when it
+//!   comes down (docs/design/loading-screen.md §1a).
 //! - The picture and its text are a loading screen record of the plugins
 //!   (`fnv_world::loadscreen`): one that belongs to the destination, or one for anywhere.
 //!   As the original lays it out [observed: loading-screens.md §4]: the picture stretched
@@ -60,6 +63,12 @@ pub const SHOW_FRAMES: u32 = 2;
 pub const SETTLE_SECS: f64 = 0.25;
 pub const SETTLE_FRAMES: u32 = 3;
 
+/// The most real seconds a settled screen stays up for the volumetric clouds
+/// ([`Loading::clouds_busy`]), counted with the settle time from when everything else was in
+/// [design: their nine casts take 0.15 s at 60 frames a second, inside the settle time, and fit
+/// the limit down to about nine frames a second; a screen must never hang on them].
+pub const CLOUDS_HOLD_SECS: f64 = 1.0;
+
 /// Real seconds after which a loading screen comes down whatever is still missing
 /// (logged as a warning), so a cell that never loads cannot hold the game forever.
 pub const TIMEOUT_SECS: f64 = 120.0;
@@ -75,6 +84,13 @@ pub const PICTURE_FRAMES: u32 = 3;
 /// Real seconds the world waits for that at most [engineering choice: a start must not
 /// depend on it; about twice the 2-2.9 s measured, and the scripts take about 5 s beside it].
 pub const PICTURE_CAP_SECS: f64 = 5.0;
+/// Real seconds the start's screen waits for its residents to be drawn under it
+/// ([`StartActors`]), from the first frame they may be drawn ([`StartActors::drawing`]): then
+/// it lets them go, and those left are drawn after the screen, a few a frame, as before
+/// [engineering choice: a start
+/// must never hang on them; the 15-17 bodies of a Novac start took about 1 s of frames
+/// after the screen, observed 2026-11-19].
+pub const PLACE_CAP_SECS: f64 = 3.0;
 
 /// Move the player to another place behind a loading screen; see [`Travel`] for the
 /// fields. Sent by activation and scripts; [`LoadingPlugin`] turns it into the `Travel`.
@@ -142,6 +158,14 @@ pub struct Loading {
     /// yet. Set by nvforever every frame (`readahead::actors_waiting`); stays false
     /// without it.
     pub actors_busy: bool,
+    /// The residents in view drawn under the start's screen, and those still to draw. Set
+    /// by nvforever every frame while the start's screen is up (`residents::drive`); stays
+    /// `None` without residents.
+    pub start_actors: Option<StartActors>,
+    /// Since when the start's screen has waited for its residents while they may be drawn
+    /// (real time), and whether [`PLACE_CAP_SECS`] has passed.
+    placing_since: Option<f64>,
+    placing_capped: bool,
     /// A screen is up for a [`CoverRequest`].
     cover: bool,
     /// What the game was in when a [`CoverRequest`] came (its state, and whether the
@@ -174,6 +198,16 @@ pub struct Loading {
     pub pipelines_busy: bool,
     /// Hidden Pip-Boy draws or their teardown still need the cover [design: nvforever/pipboy_arm.rs].
     pub pipboy_warming: bool,
+    /// The lamps' shadow maps are still being drawn behind the screen, so they are whole when
+    /// it comes down. Set by nvforever every frame (`light_shadows`, its pre-draw, which gives
+    /// up after a few seconds of its own); stays false without it.
+    pub lamp_shadows_busy: bool,
+    /// The volumetric clouds are asked for but not yet drawn behind the screen with every texel
+    /// cast since the last cut (nvforever `medium.rs` `clouds_gate`, set every frame). A settled
+    /// screen waits for them up to [`CLOUDS_HOLD_SECS`]; stays false without them.
+    pub clouds_busy: bool,
+    /// They are so drawn, for the log as the screen comes down (false also without them).
+    pub clouds_ready: bool,
     /// Since when only pipelines have been waited for (real time), and whether
     /// [`PIPELINE_CAP_SECS`] has passed this screen.
     pipelines_since: Option<f64>,
@@ -190,9 +224,27 @@ pub struct Loading {
     pub last_phases: Option<LoadPhases>,
 }
 
+/// The residents (nvforever `residents.rs`) under the start's screen: drawn behind it,
+/// so that the first seconds of play do not spawn them a few a frame (docs/design/
+/// loading-screen.md §1a).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StartActors {
+    /// Residents drawn under the screen so far.
+    pub placed: usize,
+    /// Residents in view not drawn yet.
+    pub left: usize,
+    /// They are drawn under the screen, which waits for them; off with test aid
+    /// `NVF_START_ACTORS_UNDER_SCREEN=0`, which draws them after it, as before.
+    pub under_screen: bool,
+    /// They may be drawn now (the cells around the player in, drawn and in physics, the
+    /// scripts made). The screen waits for them before too, held by those, but
+    /// [`PLACE_CAP_SECS`] counts only from here.
+    pub drawing: bool,
+}
+
 /// Where a loading screen's time went (issue #2407): for each thing it waited for
-/// ([`missing`]: cells to draw, cells in physics, actors to draw, pipelines, the scripts,
-/// the Pip-Boy warm-up), the real seconds from the screen coming up to the last frame it was
+/// ([`missing`]: cells to draw, cells in physics, actors to draw, actors to place,
+/// pipelines, the scripts, the Pip-Boy warm-up), the real seconds from the screen coming up to the last frame it was
 /// still missing, and the longest frame under the screen. A wait that ends last is what held
 /// the screen; a long frame is work on the main thread (a cell built, a save read) where a
 /// long wait made of short frames is work elsewhere (reads from the disk, the model and
@@ -210,6 +262,10 @@ pub struct LoadPhases {
     /// time queued for an archive (`fnv_vfs::read_stats`; from its first frame counted).
     pub reads: fnv_vfs::ReadStats,
     reads_from: Option<fnv_vfs::ReadStats>,
+    /// The pipelines compiled under the screen and where their time went, summed over the
+    /// compile threads (vendored bevy_render `nvf_pipeline_time`, #2407).
+    pub pipelines: bevy::render::render_resource::NvfPipelineTime,
+    pipelines_from: Option<bevy::render::render_resource::NvfPipelineTime>,
 }
 
 impl LoadPhases {
@@ -217,6 +273,8 @@ impl LoadPhases {
     fn note(&mut self, wait: &[&'static str], at: f64, frame: f64) {
         let now = fnv_vfs::read_stats();
         self.reads = now.since(self.reads_from.get_or_insert(now));
+        let piped = bevy::render::render_resource::nvf_pipeline_time();
+        self.pipelines = piped.since(self.pipelines_from.get_or_insert(piped));
         self.frames += 1;
         self.total = self.total.max(at);
         self.longest_frame = self.longest_frame.max(frame);
@@ -228,19 +286,26 @@ impl LoadPhases {
         }
     }
 
-    /// The log line's text: `up 3.40 s; cells to draw 3.10 s, pipelines 0.40 s; longest frame 0.90 s of 41; read 812 files, 95.0 MB, 0.30 s reading, 0.10 s queued for an archive`.
+    /// The log line's text: `up 3.40 s; cells to draw 3.10 s, pipelines 0.40 s; longest frame 0.90 s of 41; read 812 files, 95.0 MB, 0.30 s reading, 0.10 s queued for an archive; 45 pipelines compiled: 1.20 s queued for a thread, 0.30 s for the shader cache, 0.10 s composing, 0.40 s making modules, 2.00 s creating`
+    /// (the pipelines' seconds are summed over the compile threads).
     pub fn text(&self) -> String {
         let waits = if self.until.is_empty() { "nothing waited for".to_string() } else { self.until.iter().map(|(n, t)| format!("{n} {t:.2} s")).collect::<Vec<_>>().join(", ") };
-        let r = &self.reads;
+        let (r, p) = (&self.reads, &self.pipelines);
         format!(
-            "up {:.2} s; {waits}; longest frame {:.2} s of {}; read {} files, {:.1} MB, {:.2} s reading, {:.2} s queued for an archive",
+            "up {:.2} s; {waits}; longest frame {:.2} s of {}; read {} files, {:.1} MB, {:.2} s reading, {:.2} s queued for an archive; {} pipelines compiled: {:.2} s queued for a thread, {:.2} s for the shader cache, {:.2} s composing, {:.2} s making modules, {:.2} s creating",
             self.total,
             self.longest_frame,
             self.frames,
             r.files,
             r.bytes as f64 / 1e6,
             r.read_ns as f64 / 1e9,
-            r.queued_ns as f64 / 1e9
+            r.queued_ns as f64 / 1e9,
+            p.pipelines,
+            p.queued_ms / 1e3,
+            p.lock_ms / 1e3,
+            p.compose_ms / 1e3,
+            p.naga_ms / 1e3,
+            p.create_ms / 1e3
         )
     }
 }
@@ -261,6 +326,17 @@ impl Loading {
     /// Whether a loading screen is up for travel (not for a [`CoverRequest`]).
     pub fn travelling(&self) -> bool {
         self.trip.is_some()
+    }
+
+    /// Whether the start's or the travel's screen has everything in and only waits out
+    /// [`SETTLE_SECS`] before it comes down (nvforever `pipeline_prewarm` stops drawing the
+    /// cells unculled then, so the first frame seen is culled).
+    pub fn settling(&self) -> bool {
+        match (&self.trip, &self.start) {
+            (Some(trip), _) => trip.sent && trip.ready.is_some(),
+            (None, Some(start)) => start.ready.is_some(),
+            (None, None) => false,
+        }
     }
 
     /// Whether the world holds off loading until the start's screen has been drawn. The hold
@@ -287,6 +363,12 @@ impl Loading {
     /// Whether a long frame would not be seen: a screen is up, or nothing is shown yet.
     pub fn unseen_frames(&self) -> bool {
         self.active() || self.unseen
+    }
+
+    /// Whether the start's screen has stopped waiting for its residents
+    /// ([`PLACE_CAP_SECS`]): those left are drawn after it.
+    pub fn placing_capped(&self) -> bool {
+        self.placing_capped
     }
 }
 
@@ -586,6 +668,9 @@ fn missing(loading: &Loading, phys: Option<&PhysState>, scripts: Option<&crate::
     if loading.actors_busy {
         out.push("actors to draw");
     }
+    if start && loading.start_actors.is_some_and(|a| a.under_screen && a.left > 0) {
+        out.push(ACTORS_TO_PLACE);
+    }
     if start && scripts.is_some_and(|s| s.loading() || s.pending_game_waiting()) {
         out.push("the scripts");
     }
@@ -595,11 +680,38 @@ fn missing(loading: &Loading, phys: Option<&PhysState>, scripts: Option<&crate::
     if loading.pipboy_warming {
         out.push("the Pip-Boy warm-up");
     }
+    if loading.lamp_shadows_busy {
+        out.push("ALC shadows");
+    }
     out
 }
 
 /// What [`missing`] names for pipelines.
 const PIPELINES: &str = "pipelines";
+/// What [`missing`] names for the start's residents still to draw under its screen.
+const ACTORS_TO_PLACE: &str = "actors to place";
+
+/// Take [`ACTORS_TO_PLACE`] off `wait` once the start's screen has waited for it
+/// [`PLACE_CAP_SECS`] while they may be drawn (`drawing`; from the first such frame,
+/// `since`, afresh once the wait ends or drawing stops), and from then on. Returns whether
+/// the cap has just passed.
+fn cap_placing(since: &mut Option<f64>, capped: &mut bool, wait: &mut Vec<&'static str>, drawing: bool, now: f64) -> bool {
+    if !wait.contains(&ACTORS_TO_PLACE) {
+        *since = None;
+        return false;
+    }
+    if !*capped {
+        if !drawing {
+            *since = None;
+            return false;
+        }
+        if now - *since.get_or_insert(now) < PLACE_CAP_SECS {
+            return false;
+        }
+    }
+    wait.retain(|w| *w != ACTORS_TO_PLACE);
+    !std::mem::replace(capped, true)
+}
 
 /// Take pipelines off `wait` once they alone have held the screen for [`PIPELINE_CAP_SECS`].
 /// Returns whether that has just happened.
@@ -615,14 +727,51 @@ fn cap_pipelines(since: &mut Option<f64>, capped: &mut bool, wait: &mut Vec<&'st
     !std::mem::replace(capped, true)
 }
 
-/// [`missing`] with the pipelines' cap applied.
+/// [`missing`] with the residents' and the pipelines' caps applied.
 fn waiting_for(loading: &mut Loading, phys: Option<&PhysState>, scripts: Option<&crate::script::ScriptState>, start: bool, now: f64) -> Vec<&'static str> {
     let mut wait = missing(loading, phys, scripts, start);
+    let drawing = loading.start_actors.is_some_and(|a| a.drawing);
+    if cap_placing(&mut loading.placing_since, &mut loading.placing_capped, &mut wait, drawing, now) {
+        let left = loading.start_actors.map_or(0, |a| a.left);
+        warn!("loading screen: {left} residents in view still not drawn after {PLACE_CAP_SECS:.0} s; going on without them (drawn after the screen)");
+    }
     if cap_pipelines(&mut loading.pipelines_since, &mut loading.pipelines_capped, &mut wait, now) {
         warn!("loading screen: pipelines not ready after {PIPELINE_CAP_SECS:.0} s; going on without them");
         loading.pipeline_cap_note = true;
     }
     wait
+}
+
+/// What [`LoadPhases`] names for the clouds.
+const CLOUDS: &str = "the clouds";
+
+/// Whether a settled screen stays up for the volumetric clouds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloudsHold {
+    /// Nothing to wait for: off, nothing to draw, failed, or drawn as wanted.
+    Free,
+    Hold,
+    /// Still not drawn as wanted, and the limit has passed: the screen goes without them.
+    Limit,
+}
+
+/// [`CloudsHold`] for clouds still `busy`, a screen `ready` since then (real time, frames:
+/// [`settled`]) and the time `now`. Always ends: the time is the screen's own.
+fn clouds_hold(busy: bool, ready: Option<(f64, u32)>, now: f64) -> CloudsHold {
+    match ready {
+        _ if !busy => CloudsHold::Free,
+        Some((since, _)) if now - since < CLOUDS_HOLD_SECS => CloudsHold::Hold,
+        _ => CloudsHold::Limit,
+    }
+}
+
+/// Whether a settled screen stays up this frame ([`clouds_hold`]); says so when the limit ends it.
+fn held_for_clouds(busy: bool, ready: Option<(f64, u32)>, now: f64) -> bool {
+    let hold = clouds_hold(busy, ready, now);
+    if let (CloudsHold::Limit, Some((since, frames))) = (hold, ready) {
+        debug!("loading screen: the volumetric clouds not drawn with every texel cast after {:.2} s and {frames} frames; going on without them", now - since);
+    }
+    hold == CloudsHold::Hold
 }
 
 /// Whether `ready` has held for the settle time, counting this frame; `false` resets it.
@@ -636,12 +785,24 @@ fn settled(ready: &mut Option<(f64, u32)>, ok: bool, now: f64) -> bool {
     *frames >= SETTLE_FRAMES && now - *since >= SETTLE_SECS
 }
 
+/// The line the start's screen logs as it comes down about its residents (`StartActors`):
+/// `loading screen: start residents: 16 drawn under the screen, 0 in view left for after it`.
+fn start_actors_line(a: &StartActors, capped: bool) -> String {
+    let why = match (a.under_screen, capped) {
+        (false, _) => " (test aid NVF_START_ACTORS_UNDER_SCREEN=0: all drawn after it)",
+        (true, true) => " (the screen stopped waiting for them after its cap)",
+        (true, false) => "",
+    };
+    format!("loading screen: start residents: {} drawn under the screen, {} in view left for after it{why}", a.placed, a.left)
+}
+
 /// What a finished loading screen says under the Click to Exit tweak (our words) [design: docs/design/tweaks.md].
 const PRESS_LINE: &str = "Press any key to continue";
 
 /// Everything is in: take the screen down and let the game go on. A travel's screen waits
 /// for the destination's cells (drawn and in physics) and its actors; the start's
-/// ([`StartCover`]) for those and the scripts too (made, and a save put back).
+/// ([`StartCover`]) for those, the scripts (made, and a save put back) and its residents
+/// in view drawn ([`StartActors`]) too.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn finish(
     mut commands: Commands,
@@ -671,13 +832,27 @@ fn finish(
     }
     let now = real.elapsed_secs_f64();
     let starting = loading.start.is_some();
+    let sent = loading.trip.as_ref().is_some_and(|t| t.sent);
+    // What the screen that is up waits for, its caps applied: a travel's once it has gone
+    // out, else the start's (none before a travel goes out).
+    let wait = if sent {
+        Some(waiting_for(&mut loading, phys.as_deref(), None, false, now))
+    } else if starting && loading.trip.is_none() {
+        Some(waiting_for(&mut loading, phys.as_deref(), scripts.as_deref(), true, now))
+    } else {
+        None
+    };
     // Timed from the screen that is up: the start's for a travel under it.
     if let Some(origin) = loading.start.map(|s| s.started).or(loading.trip.map(|t| t.started)) {
-        let wait = if loading.trip.as_ref().is_some_and(|t| !t.sent) { vec!["the travel to go out"] } else { missing(&loading, phys.as_deref(), scripts.as_deref(), starting && loading.trip.is_none()) };
-        loading.phases.note(&wait, now - origin, real.delta_secs_f64());
+        let mut noted = wait.clone().unwrap_or_else(|| vec!["the travel to go out"]);
+        if wait.is_some() && loading.clouds_busy {
+            noted.push(CLOUDS);
+        }
+        loading.phases.note(&noted, now - origin, real.delta_secs_f64());
     }
-    if loading.trip.as_ref().is_some_and(|t| t.sent) {
-        let wait = waiting_for(&mut loading, phys.as_deref(), None, false, now);
+    let wait = wait.unwrap_or_default();
+    let clouds = loading.clouds_busy;
+    if sent {
         let trip = loading.trip.as_mut().expect("trip");
         let waited = now - trip.started;
         if !settled(&mut trip.ready, wait.is_empty(), now) {
@@ -686,6 +861,9 @@ fn finish(
             } else {
                 return;
             }
+        } else if !starting && held_for_clouds(clouds, trip.ready, now) {
+            // (Under the start's screen the start waits for them, once.)
+            return;
         }
         loading.trip = None;
         if starting {
@@ -694,7 +872,6 @@ fn finish(
         }
         info!("loading screen down after {waited:.2} s");
     } else if starting && loading.trip.is_none() {
-        let wait = waiting_for(&mut loading, phys.as_deref(), scripts.as_deref(), true, now);
         let hold = loading.start.as_mut().expect("start");
         let waited = now - hold.started;
         if !settled(&mut hold.ready, wait.is_empty(), now) {
@@ -703,9 +880,14 @@ fn finish(
             } else {
                 return;
             }
+        } else if held_for_clouds(clouds, hold.ready, now) {
+            return;
         }
         loading.start = None;
         info!("loading screen down after {waited:.2} s (the start: cells, actors and scripts ready); the test aids and --run-seconds count from now");
+        if let Some(a) = loading.start_actors.take() {
+            info!("{}", start_actors_line(&a, loading.placing_capped));
+        }
         // The player's tweak: a loaded save starts in the pause menu [design: docs/design/tweaks.md]; asked as
         // ShowPauseMenu asks (`crate::pause`).
         if let Some(rt) = scripts.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.restored_from_save && rt.game.tweaks.pause_on_load) {
@@ -718,8 +900,12 @@ fn finish(
     }
     let phases = std::mem::take(&mut loading.phases);
     info!("loading screen phases: {}", phases.text());
+    if loading.clouds_ready {
+        info!("loading screen: the volumetric clouds were drawn behind it, every texel cast");
+    }
     loading.last_phases = Some(phases);
     (loading.pipelines_since, loading.pipelines_capped) = (None, false);
+    (loading.placing_since, loading.placing_capped) = (None, false);
     if loading.click_to_exit {
         loading.waiting_click = true;
         for e in &roots {
@@ -762,6 +948,55 @@ mod tests {
         assert!(missing(&loading, None, None, true).contains(&"the Pip-Boy warm-up"));
         loading.pipboy_warming = false;
         assert!(missing(&loading, None, None, true).is_empty());
+    }
+
+    #[test]
+    fn a_screen_waits_for_the_lamp_shadows_pre_draw() {
+        let mut loading = Loading { lamp_shadows_busy: true, ..default() };
+        assert_eq!(missing(&loading, None, None, false), vec!["ALC shadows"]);
+        loading.lamp_shadows_busy = false;
+        assert!(missing(&loading, None, None, false).is_empty());
+    }
+
+    /// The volumetric clouds hold a settled screen while not every texel has been cast, and never
+    /// past the limit of real time, however many frames that is.
+    #[test]
+    fn the_clouds_hold_a_settled_screen_up_to_their_limit() {
+        use CloudsHold::{Free, Hold, Limit};
+        assert_eq!(clouds_hold(false, Some((10.0, 3)), 10.0), Free, "off, nothing to draw, failed or drawn");
+        assert_eq!(clouds_hold(false, Some((10.0, 500)), 99.0), Free, "nothing said after the limit either");
+        assert_eq!(clouds_hold(true, Some((10.0, 3)), 10.25), Hold);
+        assert_eq!(clouds_hold(true, Some((10.0, 9)), 10.0 + CLOUDS_HOLD_SECS - 0.01), Hold, "just before the limit, at nine frames a second");
+        assert_eq!(clouds_hold(true, Some((10.0, 4)), 10.0 + CLOUDS_HOLD_SECS), Limit, "the limit");
+        assert_eq!(clouds_hold(true, Some((10.0, 10_000)), 10.5), Hold, "no limit of frames");
+        assert_eq!(clouds_hold(true, None, 10.0), Limit, "no count to wait by: not waited for");
+        assert!(held_for_clouds(true, Some((10.0, 3)), 10.25) && !held_for_clouds(true, Some((10.0, 3)), 10.0 + CLOUDS_HOLD_SECS) && !held_for_clouds(false, Some((10.0, 3)), 10.25));
+        // Not one of the waits that start the settle time again.
+        assert!(missing(&Loading { clouds_busy: true, ..default() }, None, None, true).is_empty());
+    }
+
+    /// Clouds that never come do not hang a travel's or the start's screen, and are named in its
+    /// phases.
+    #[test]
+    fn a_screen_never_hangs_on_the_clouds() {
+        for start in [false, true] {
+            let mut app = app();
+            if start {
+                app.insert_resource(StartCover);
+            }
+            app.update();
+            if !start {
+                let t = Travel { world: None, interior: None, feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
+                app.world_mut().write_message(TravelRequest(t));
+            }
+            app.world_mut().resource_mut::<Loading>().clouds_busy = true;
+            app.update();
+            assert!(app.world().resource::<Loading>().active());
+            until_down(&mut app);
+            assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+            let l = app.world().resource::<Loading>();
+            assert!(l.last_phases.as_ref().is_some_and(|p| p.until.iter().any(|(w, _)| *w == CLOUDS)), "start {start}: {:?}", l.last_phases);
+        }
     }
 
     #[test]
@@ -1042,6 +1277,139 @@ mod tests {
         }
         assert!(app.world().resource::<Loading>().starting());
         assert_eq!(app.world().resource::<crate::pause::PlayClock>().stopped_secs(), 0.0);
+    }
+
+    /// The residents nvforever draws under the start's screen: it waits while any in view
+    /// is still to draw, names the wait in its phases, and logs at the end how many were
+    /// drawn under it.
+    #[test]
+    fn the_start_is_held_until_its_residents_in_view_are_placed() {
+        let mut app = app();
+        app.insert_resource(StartCover);
+        app.update();
+        app.world_mut().resource_mut::<Loading>().start_actors = Some(StartActors { placed: 0, left: 5, under_screen: true, drawing: false });
+        let t0 = std::time::Instant::now();
+        while t0.elapsed().as_secs_f64() < SETTLE_SECS * 2.0 {
+            app.update();
+        }
+        let l = app.world().resource::<Loading>();
+        assert!(l.starting(), "held while residents in view are still to draw, before they may be");
+        assert_eq!(l.placing_since, None, "the cap counts only once they may be drawn");
+        app.world_mut().resource_mut::<Loading>().start_actors = Some(StartActors { placed: 3, left: 2, under_screen: true, drawing: true });
+        let t0 = std::time::Instant::now();
+        while t0.elapsed().as_secs_f64() < SETTLE_SECS * 2.0 {
+            app.update();
+        }
+        let l = app.world().resource::<Loading>();
+        assert!(l.starting(), "held while residents in view are still to draw");
+        assert!(l.placing_since.is_some(), "the cap counts while they are drawn");
+        assert!(missing(l, None, None, true).contains(&ACTORS_TO_PLACE));
+        assert!(l.phases.until.iter().any(|(w, _)| *w == ACTORS_TO_PLACE), "named in the phases: {:?}", l.phases.until);
+        assert!(!missing(l, None, None, false).contains(&ACTORS_TO_PLACE), "not a travel's wait");
+        app.world_mut().resource_mut::<Loading>().start_actors = Some(StartActors { placed: 5, left: 0, under_screen: true, drawing: true });
+        until_down(&mut app);
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+        let l = app.world().resource::<Loading>();
+        assert_eq!(l.start_actors, None, "taken at the end");
+        assert!(l.last_phases.as_ref().is_some_and(|p| p.until.iter().any(|(w, _)| *w == ACTORS_TO_PLACE)));
+        assert!(!l.placing_capped());
+    }
+
+    /// Test aid `NVF_START_ACTORS_UNDER_SCREEN=0`: the residents are counted but not waited
+    /// for, so the start comes down as it did before they were drawn under it.
+    #[test]
+    fn with_the_aid_off_the_start_does_not_wait_for_its_residents() {
+        let mut app = app();
+        app.insert_resource(StartCover);
+        app.update();
+        app.world_mut().resource_mut::<Loading>().start_actors = Some(StartActors { placed: 0, left: 16, under_screen: false, drawing: false });
+        assert!(missing(app.world().resource::<Loading>(), None, None, true).is_empty());
+        until_down(&mut app);
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+        assert_eq!(start_actors_line(&StartActors { placed: 0, left: 16, under_screen: false, drawing: false }, false), "loading screen: start residents: 0 drawn under the screen, 16 in view left for after it (test aid NVF_START_ACTORS_UNDER_SCREEN=0: all drawn after it)");
+        assert_eq!(start_actors_line(&StartActors { placed: 16, left: 0, under_screen: true, drawing: true }, false), "loading screen: start residents: 16 drawn under the screen, 0 in view left for after it");
+    }
+
+    #[test]
+    fn the_residents_hold_the_start_up_to_their_cap() {
+        let (mut since, mut capped) = (None, false);
+        // Waited for before they may be drawn (the cells in physics, the scripts): no count
+        // starts, however long that takes (#3081 review: a slow cold start).
+        let mut wait = vec!["cells in physics", ACTORS_TO_PLACE];
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, false, 1.0));
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, false, 1.0 + PLACE_CAP_SECS * 3.0));
+        assert_eq!((since, capped), (None, false));
+        assert_eq!(wait, ["cells in physics", ACTORS_TO_PLACE], "still held");
+        let mut wait = vec!["cells to draw", ACTORS_TO_PLACE, PIPELINES];
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, true, 10.0));
+        assert_eq!(wait, ["cells to draw", ACTORS_TO_PLACE, PIPELINES], "held at first, the other waits kept");
+        assert_eq!(since, Some(10.0), "counted from the first frame they may be drawn");
+        // Counted from there, whatever else it waits for.
+        let mut wait = vec![ACTORS_TO_PLACE];
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, true, 10.0 + PLACE_CAP_SECS - 0.1));
+        assert_eq!(wait, [ACTORS_TO_PLACE], "held just before the cap");
+        let mut wait = vec![ACTORS_TO_PLACE, PIPELINES];
+        assert!(cap_placing(&mut since, &mut capped, &mut wait, true, 10.0 + PLACE_CAP_SECS), "the cap is noted once");
+        assert_eq!(wait, [PIPELINES], "let go at the cap; the pipelines keep their own");
+        // nvforever stops drawing them under the screen once it has passed.
+        let mut wait = vec![ACTORS_TO_PLACE];
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, false, 40.0), "not noted twice");
+        assert!(wait.is_empty(), "still let go");
+        // Nothing to place: no count starts.
+        let (mut since, mut capped) = (None, false);
+        assert!(!cap_placing(&mut since, &mut capped, &mut vec![PIPELINES], true, 5.0));
+        assert_eq!((since, capped), (None, false));
+    }
+
+    /// The count ends with the wait for them: a second wait on the same screen (residents
+    /// in view again after a travel under it) gets the whole cap, and so does one that
+    /// could not be drawn for a while.
+    #[test]
+    fn the_residents_cap_counts_afresh_once_the_wait_ends() {
+        let (mut since, mut capped) = (None, false);
+        assert!(!cap_placing(&mut since, &mut capped, &mut vec![ACTORS_TO_PLACE], true, 10.0));
+        assert!(!cap_placing(&mut since, &mut capped, &mut vec!["cells to draw"], true, 12.0));
+        assert_eq!(since, None, "the wait ended");
+        let mut wait = vec![ACTORS_TO_PLACE];
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, true, 12.5));
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, true, 10.0 + PLACE_CAP_SECS + 0.1));
+        assert_eq!(wait, [ACTORS_TO_PLACE], "held: counted from 12.5, not 10");
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, false, 14.0));
+        assert_eq!(since, None, "not drawn for a while: counted afresh");
+        assert!(!cap_placing(&mut since, &mut capped, &mut wait, true, 15.0));
+        assert!(cap_placing(&mut since, &mut capped, &mut wait, true, 15.0 + PLACE_CAP_SECS));
+        assert!(wait.is_empty());
+    }
+
+    /// The cap in a start: residents that are never drawn (their parts never read) do not
+    /// hold the screen past it; it comes down, says so, and nvforever stops drawing them
+    /// under it.
+    #[test]
+    fn a_start_whose_residents_are_never_placed_comes_down_at_the_cap() {
+        let mut app = app();
+        app.insert_resource(StartCover);
+        app.update();
+        app.world_mut().resource_mut::<Loading>().start_actors = Some(StartActors { placed: 1, left: 4, under_screen: true, drawing: true });
+        for _ in 0..5 {
+            app.update();
+        }
+        let since = app.world().resource::<Loading>().placing_since;
+        assert!(since.is_some(), "the count started");
+        assert!(app.world().resource::<Loading>().starting());
+        // As if it had waited for them the whole cap already.
+        app.world_mut().resource_mut::<Loading>().placing_since = since.map(|s| s - PLACE_CAP_SECS);
+        app.update();
+        assert!(app.world().resource::<Loading>().placing_capped(), "capped");
+        until_down(&mut app);
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+        let l = app.world().resource::<Loading>();
+        assert!(!l.placing_capped() && l.placing_since.is_none(), "the next screen counts afresh");
+        // The phases end the wait for them at the cap, not when the screen came down (it
+        // settled after the cap).
+        let p = l.last_phases.as_ref().expect("phases");
+        let placing = p.until.iter().find(|(w, _)| *w == ACTORS_TO_PLACE).map(|(_, t)| *t).expect("named in the phases");
+        assert!(p.total - placing >= SETTLE_SECS, "{p:?}");
+        assert_eq!(start_actors_line(&StartActors { placed: 1, left: 4, under_screen: true, drawing: false }, true), "loading screen: start residents: 1 drawn under the screen, 4 in view left for after it (the screen stopped waiting for them after its cap)");
     }
 
     #[test]

@@ -45,7 +45,7 @@ use super::draw::{Fit, Look, Piece, Source};
 use super::input::{frame_keys, log_report, Devices};
 use super::list::{self, BarPiece, ListView, RowTile, Wanted};
 use super::menus::{self, SizesWritten, Tiled};
-use super::stats_menu::{self, find_named, modal_over, shows_whole, FlatChanges, PageFonts};
+use super::stats_menu::{self, find_named, modal_over, resolve_tile, shows_whole, FlatChanges, PageFonts};
 use super::vanilla::TileMenus;
 use crate::pipboy::data::{self, Act, BarPart, Body, ButtonKind, DataState, Mark, Prepared, Right};
 use crate::pipboy::sounds::TabHovered;
@@ -326,7 +326,7 @@ pub fn built(ui: &Ui, cut: Option<&str>, tab: Option<usize>) -> Tiled {
             return Tiled::No(format!("{path} missing"));
         }
     }
-    if let Some(missing) = paths.iter().find(|p| ui.find_tile(p).is_none()) {
+    if let Some(missing) = paths.iter().find(|p| resolve_tile(ui, p).is_none()) {
         return Tiled::No(format!("{missing} missing"));
     }
     let rows = list::template_has(ui, MAP_MENU, ROW_TEMPLATE, ROW, &[("text", ROW_TEXT), ("image", ROW_MARK)]);
@@ -402,6 +402,11 @@ pub(crate) struct WorldShown {
     pub want: Vec2,
     pub label: Option<String>,
     pub detail: Option<String>,
+    /// The World Map's companions: each teammate's FormID, texture coordinates, display
+    /// name, and knocked-out state; empty on the Local Map.
+    pub companions: Vec<(u32, [f32; 2], String, bool)>,
+    /// Font number for companion names (2 by default, 1 with `bCompanionsUseLocationFontOnMap`).
+    pub companion_font: u8,
 }
 
 impl WorldShown {
@@ -438,6 +443,8 @@ impl WorldShown {
             want: w.want,
             label: label.map(str::to_string),
             detail: detail.map(str::to_string),
+            companions: if local { Vec::new() } else { w.companions.clone() },
+            companion_font: w.companion_font,
         })
     }
 
@@ -658,7 +665,7 @@ impl Shown {
 /// Sets a trait by path as the game's code does (`Ui::write_changed`): what a script set
 /// meanwhile stands until the model changes.
 fn put(ui: &mut Ui, path: &str, name: &str, v: Value) {
-    if let Some(t) = ui.find_tile(path) {
+    if let Some(t) = resolve_tile(ui, path) {
         ui.write_changed(t, name, v);
     }
 }
@@ -700,7 +707,8 @@ fn write_model(ui: &mut Ui, s: &Shown, w: &mut Written) -> Result<(), String> {
         put(ui, kind.path(), "_enabled", on(ours));
         let rows: &[RowShown] = if ours { &s.rows } else { &[] };
         let wanted: Vec<Wanted<'_, u32>> = rows.iter().map(|r| Wanted { key: &r.key, name: ROW }).collect();
-        if !list::reconcile(ui, kind.path(), ROW_TEMPLATE, &mut w.rows[kind.index()], &wanted) {
+        let list_path = resolve_tile(ui, kind.path()).map(|t| ui.path_of(t)).unwrap_or_else(|| kind.path().to_string());
+        if !list::reconcile(ui, &list_path, ROW_TEMPLATE, &mut w.rows[kind.index()], &wanted) {
             return Err(format!("{ROW_TEMPLATE} made no {}'s row", kind.words().1));
         }
         for (row, r) in w.rows[kind.index()].iter().zip(rows) {
@@ -720,7 +728,8 @@ fn write_model(ui: &mut Ui, s: &Shown, w: &mut Written) -> Result<(), String> {
     let objectives = s.pane.objectives();
     let keys: Vec<usize> = (0..objectives.len()).collect();
     let wanted: Vec<Wanted<'_, usize>> = keys.iter().map(|k| Wanted { key: k, name: ROW }).collect();
-    if !list::reconcile(ui, OBJECTIVES, ROW_TEMPLATE, &mut w.objectives, &wanted) {
+    let objectives_path = resolve_tile(ui, OBJECTIVES).map(|t| ui.path_of(t)).unwrap_or_else(|| OBJECTIVES.to_string());
+    if !list::reconcile(ui, &objectives_path, ROW_TEMPLATE, &mut w.objectives, &wanted) {
         return Err(format!("{ROW_TEMPLATE} made no objective's row"));
     }
     for (row, r) in w.objectives.iter().zip(objectives) {
@@ -823,6 +832,78 @@ fn with_map_picture(ui: &Ui, mut pieces: Vec<Piece>, picture: Option<Piece>) -> 
         let at = pieces.iter().position(|q| q.depth > p.depth || stats_menu::inside(ui, q.tile, p.tile)).unwrap_or(pieces.len());
         pieces.insert(at, p);
     }
+    pieces
+}
+
+/// The World Map's companion names painted outside the file's tree (`map_menu.xml` has no
+/// companion template [observed: `data.rs`]): centred above each teammate's place on the
+/// map picture, clipped to the map's window, in `s.companion_font` (font 2 by default
+/// [documented: Stewie's Tweaks readme, `bCompanionsUseLocationFontOnMap`], font 1 with
+/// the tweak), red while knocked out (`bMapShowUnconsciousCompanions`), under the player's
+/// arrow [design: mirrors the hand-built World Map in `pipboy::data`].
+fn map_companion_pieces(ui: &Ui, s: &WorldShown) -> Vec<Piece> {
+    if s.local || s.companions.is_empty() {
+        return Vec::new();
+    }
+    let Some(clip) = ui.find_tile(WORLD_CLIP).filter(|&t| shown_up(ui, t)) else { return Vec::new() };
+    let Some(window) = map_window_of(ui, WORLD_CLIP) else { return Vec::new() };
+    let cut = super::layout::Rect {
+        left: f64::from(window.min.x),
+        top: f64::from(window.min.y),
+        width: f64::from(window.width()),
+        height: f64::from(window.height()),
+    };
+    let tile_depth = |t: TileId| {
+        let mut depth = 0.0;
+        let mut at = Some(t);
+        while let Some(id) = at {
+            depth += num(ui, id, "depth");
+            at = ui.tile(id).parent;
+        }
+        depth
+    };
+    let cursor = ui.find_tile(WORLD_CURSOR);
+    let colour_tile = cursor.unwrap_or(clip);
+    let [r, g, bl] = super::draw::base_colour(ui, colour_tile, [1.0, 1.0, 1.0]);
+    let depth = cursor.map(|c| tile_depth(c) - 0.1).unwrap_or_else(|| ui.find_tile(WORLD_PICTURE).map_or(5.5, |p| tile_depth(p) + 5.5));
+    let font = super::draw::font_number(f64::from(s.companion_font));
+    s.companions
+        .iter()
+        .map(|(_, uv, name, down)| {
+            let at = s.view.to_window(*uv);
+            let colour = if *down { [1.0, 0.25, 0.2, 1.0] } else { [r, g, bl, 1.0] };
+            Piece {
+                tile: clip,
+                look: Look::Text { string: name.clone(), font, wrap: None, alignment: super::layout::Alignment::Center },
+                rect: super::layout::Rect {
+                    left: f64::from(window.min.x + at.x),
+                    top: f64::from(window.min.y + at.y - data::COMPANION_NAME_RISE),
+                    width: 0.0,
+                    height: 0.0,
+                },
+                clip: Some(cut),
+                colour,
+                depth,
+                tex: None,
+                turn: None,
+                crop: None,
+            }
+        })
+        .collect()
+}
+
+/// Insert companion name pieces into `pieces` right under the player's arrow (`WORLD_CURSOR`),
+/// or at their depth order when the arrow is absent [design].
+fn with_map_companions(ui: &Ui, mut pieces: Vec<Piece>, companions: Vec<Piece>) -> Vec<Piece> {
+    if companions.is_empty() {
+        return pieces;
+    }
+    let at = ui
+        .find_tile(WORLD_CURSOR)
+        .and_then(|c| pieces.iter().position(|p| p.tile == c))
+        .or_else(|| pieces.iter().position(|p| p.depth > companions[0].depth))
+        .unwrap_or(pieces.len());
+    pieces.splice(at..at, companions);
     pieces
 }
 
@@ -1010,7 +1091,7 @@ fn keep_world(ui: &mut Ui, s: &WorldShown) {
 /// [design: as `inventory_menu::keep`].
 fn keep_hints(ui: &mut Ui, hints: &[HintShown]) {
     for (name, slot) in BUTTONS {
-        let Some(t) = ui.find_tile(&button_path(name)) else { continue };
+        let Some(t) = resolve_tile(ui, &button_path(name)) else { continue };
         let hint = hints.iter().find(|h| h.slot == slot);
         keep(ui, t, "visible", if hint.is_some() { 1.0 } else { 0.0 });
         if let Some(h) = hint {
@@ -1028,14 +1109,14 @@ fn keep_hints(ui: &mut Ui, hints: &[HintShown]) {
 /// frame, `data::trace_over_tiles`).
 fn keep_lists(ui: &mut Ui, s: &Shown) {
     for kind in ListKind::ALL.into_iter().filter(|k| k.tab() == s.tab) {
-        if let Some(t) = ui.find_tile(kind.path()) {
+        if let Some(t) = resolve_tile(ui, kind.path()) {
             keep(ui, t, "visible", if kind == s.list { 1.0 } else { 0.0 });
         }
     }
-    if let Some(t) = ui.find_tile(WAVE_RECT) {
+    if let Some(t) = resolve_tile(ui, WAVE_RECT) {
         keep(ui, t, "visible", if matches!(s.pane, Pane::Wave { .. }) { 1.0 } else { 0.0 });
     }
-    if let Some(t) = ui.find_tile(WAVE_IMAGE) {
+    if let Some(t) = resolve_tile(ui, WAVE_IMAGE) {
         keep(ui, t, "visible", 0.0);
     }
 }
@@ -1046,7 +1127,7 @@ fn keep_lists(ui: &mut Ui, s: &Shown) {
 /// how far it can scroll and 1 [design]. Returns how far it can scroll: the text's measured height
 /// past its window's.
 fn write_text_pane(ui: &mut Ui, first: f32) -> f64 {
-    let (Some(rect), Some(words), Some(bar)) = (ui.find_tile(TEXT_RECT), ui.find_tile(DATA_TEXT), ui.find_tile(TEXT_BAR)) else { return 0.0 };
+    let (Some(rect), Some(words), Some(bar)) = (resolve_tile(ui, TEXT_RECT), resolve_tile(ui, DATA_TEXT), resolve_tile(ui, TEXT_BAR)) else { return 0.0 };
     // The window the text is seen through: what clips it (its rect, and any clip above that is
     // smaller), as readiness and a page of it read it; the rect's height without a clip.
     let window = text_clip(ui, words).map_or_else(|| num(ui, rect, "height"), |c| c.height);
@@ -1066,8 +1147,8 @@ fn text_clip(ui: &Ui, words: TileId) -> Option<super::layout::Rect> {
 /// The right pane's scroll bar, while it shows one that scrolls: the objectives' or the text's.
 fn pane_bar(ui: &Ui, pane: &Pane) -> Option<TileId> {
     match pane {
-        Pane::Objectives(_) => ui.find_tile(OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)),
-        Pane::Text(_) => ui.find_tile(TEXT_BAR),
+        Pane::Objectives(_) => resolve_tile(ui, OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)),
+        Pane::Text(_) => resolve_tile(ui, TEXT_BAR),
         _ => None,
     }
 }
@@ -1087,7 +1168,8 @@ fn ensure_tabs(ui: &mut Ui, tabs: &mut Vec<RowTile<usize>>) -> Result<bool, Stri
     }
     let keys = [0, 1, 2, 3, 4];
     let wanted: Vec<Wanted<'_, usize>> = keys.iter().map(|key| Wanted { key, name: TAB_ROW }).collect();
-    if !list::reconcile(ui, TABLINE, TAB_TEMPLATE, tabs, &wanted) {
+    let tabline = resolve_tile(ui, TABLINE).map(|t| ui.path_of(t)).unwrap_or_else(|| TABLINE.to_string());
+    if !list::reconcile(ui, &tabline, TAB_TEMPLATE, tabs, &wanted) {
         return Err(format!("{TAB_TEMPLATE} made no tab"));
     }
     ui.update();
@@ -1118,7 +1200,7 @@ fn keep(ui: &mut Ui, t: TileId, name: &str, want: f64) {
 /// The tabs' `_x` and the line's `_LeftLineLength`, by the tabs' own widths, as ITEMS'
 /// (`inventory_menu::tab_xs`).
 fn place_tabs(ui: &mut Ui, tabs: &[RowTile<usize>]) {
-    let Some(line) = ui.find_tile(TABLINE) else { return };
+    let Some(line) = resolve_tile(ui, TABLINE) else { return };
     let widths: Vec<f64> = tabs.iter().map(|r| num(ui, r.tile, "width")).collect();
     let (gap, xs) = super::inventory_menu::tab_xs(num(ui, line, "width"), &widths);
     keep(ui, line, "_LeftLineLength", gap);
@@ -1229,7 +1311,7 @@ pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) 
     let mut wanted: Vec<(DataTile, (f64, f64))> = Vec::new();
     if world.is_none() {
         let (many, one) = kind.words();
-        let list_tile = ui.find_tile(kind.path()).ok_or_else(|| format!("the {many} list is gone"))?;
+        let list_tile = resolve_tile(ui, kind.path()).ok_or_else(|| format!("the {many} list is gone"))?;
         let scrolls = list::child(ui, list_tile, list::SCROLLBAR).is_some_and(|b| num(ui, b, "_number_of_items") > 1.0);
         for (i, row) in rows.iter().enumerate() {
             let Some(piece) = list::child(ui, row.tile, ROW_TEXT).and_then(|t| texts.get(&t)) else { continue };
@@ -1254,7 +1336,7 @@ pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) 
         }
     }
     for (name, slot) in BUTTONS {
-        let Some(b) = ui.find_tile(&button_path(name)) else { continue };
+        let Some(b) = resolve_tile(ui, &button_path(name)) else { continue };
         if !ui.tile(b).get("visible").is_some_and(Value::truthy) || !ui.tile(b).get("target").is_some_and(Value::truthy) {
             continue;
         }
@@ -1336,7 +1418,7 @@ fn shown_box(ui: &Ui, t: TileId) -> Option<Rect> {
 fn hint_boxes(ui: &Ui) -> Vec<Rect> {
     BUTTONS
         .iter()
-        .filter_map(|(name, _)| ui.find_tile(&button_path(name)))
+        .filter_map(|(name, _)| resolve_tile(ui, &button_path(name)))
         .filter(|&b| ui.tile(b).get("visible").is_some_and(Value::truthy) && ui.tile(b).get("target").is_some_and(Value::truthy))
         .filter_map(|b| shown_box(ui, b))
         .collect()
@@ -1389,7 +1471,7 @@ fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashM
         // Radio's panel is checked by [`wave_box`].
         Pane::None | Pane::Wave { .. } => Ok(None),
         Pane::Objectives(_) => {
-            let bar = ui.find_tile(OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)).ok_or("the objectives' scroll bar is gone")?;
+            let bar = resolve_tile(ui, OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)).ok_or("the objectives' scroll bar is gone")?;
             let window = pane_window(ui, bar, ("the objectives'", "the objectives have"))?;
             if !w.objectives.is_empty() {
                 let shows = w.objectives.iter().filter_map(|r| list::child(ui, r.tile, ROW_TEXT)).filter_map(|t| texts.get(&t)).any(|p| shows_whole(p).is_some() && within(window, p, true));
@@ -1404,15 +1486,16 @@ fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashM
         // map_menu.xml, scrollbar_vert.xml's `visible`].
         Pane::Text(words) if words.trim().is_empty() => Ok(None),
         Pane::Text(_) => {
-            let text = ui.find_tile(DATA_TEXT).ok_or("the text is gone")?;
+            let text = resolve_tile(ui, DATA_TEXT).ok_or("the text is gone")?;
             let window = pane_window(ui, text, ("the text's", "the text has"))?;
             if !texts.get(&text).is_some_and(|p| within(window, p, false)) {
                 return Err("the text does not show in its window".into());
             }
             // A text that scrolls shows its bar's marker, to drag; one that fits needs no bar.
+            // Use `tile_box` so a `<hotrect>` marker container works identically to an `<image>` [design].
             if w.pane_most > 0.0 {
-                let marker = ui.find_tile(TEXT_BAR).and_then(|b| list::child(ui, b, list::MARKER)).ok_or("the text's scroll bar is gone")?;
-                let shown = super::layout::layout(ui, marker, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker).is_some_and(|i| i.visible);
+                let marker = resolve_tile(ui, TEXT_BAR).and_then(|b| list::child(ui, b, list::MARKER)).ok_or("the text's scroll bar is gone")?;
+                let shown = super::layout::tile_box(ui, marker, &|_, _, _| (0.0, 0.0), true).is_some_and(|b| b.visible);
                 if !shown {
                     return Err("the text scrolls and its scroll bar is not shown".into());
                 }
@@ -1420,7 +1503,7 @@ fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashM
             Ok(Some(window))
         }
         Pane::Image(file) => {
-            let image = ui.find_tile(DATA_IMAGE).ok_or("the picture is gone")?;
+            let image = resolve_tile(ui, DATA_IMAGE).ok_or("the picture is gone")?;
             // Painted whole: on the canvas and inside what clips it (a clip above that cuts it off,
             // even wholly, leaves a piece on the canvas).
             if !file.is_empty() && !pieces.iter().any(|p| p.tile == image && on_canvas(&p.rect) && shows_whole(p).is_some()) {
@@ -1429,7 +1512,7 @@ fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashM
             Ok(None)
         }
         Pane::Audio { .. } => {
-            let time = ui.find_tile(AUDIO_TIME).ok_or("the audio note's time is gone")?;
+            let time = resolve_tile(ui, AUDIO_TIME).ok_or("the audio note's time is gone")?;
             if !texts.get(&time).is_some_and(|p| shows_whole(p).is_some()) {
                 return Err("the audio note's time is not shown".into());
             }
@@ -1467,7 +1550,9 @@ fn on_canvas(r: &super::layout::Rect) -> bool {
 /// are its own ([`DataState::publish_drawn`]). `(whose, has)`: the pane's possessive and its "has",
 /// for the reasons.
 fn pane_window(ui: &Ui, inside: TileId, (whose, has): (&str, &str)) -> Result<Rect, String> {
-    let item = super::layout::layout(ui, inside, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == inside).ok_or_else(|| format!("{whose} window is not laid out"))?;
+    // Use `tile_box` so a `<hotrect>` scrollbar container (`lb_scrollbar` in modded `list_box.xml`)
+    // resolves its inherited clip window identically to a vanilla `<image>` scrollbar [design].
+    let item = super::layout::tile_box(ui, inside, &|_, _, _| (0.0, 0.0), true).ok_or_else(|| format!("{whose} window is not laid out"))?;
     let c = item.clip.ok_or_else(|| format!("{has} no window"))?;
     let canvas = (f64::from(crate::pipboy::CANVAS.x), f64::from(crate::pipboy::CANVAS.y));
     if c.width <= 0.0 || c.height <= 0.0 || c.left < 0.0 || c.top < 0.0 || c.left + c.width > canvas.0 || c.top + c.height > canvas.1 {
@@ -1576,12 +1661,23 @@ pub struct MapTiles {
     told: Option<(usize, Result<(), String>)>,
     written: Written,
 }
+impl MapTiles {
+    pub fn list_scroll(&self) -> Option<f64> {
+        self.written.shown.as_ref().filter(|s| s.tab >= data::QUESTS)?;
+        Some(self.written.views[self.written.list().index()].value)
+    }
+    pub(crate) fn scroll_list_by(&mut self, by: crate::pipboy::scrollbar::ScrollBy) -> bool {
+        if self.list_scroll().is_none() { return false; }
+        let view = self.written.view();
+        by.value(view.value, view.counts.most(), view.counts.visible).is_some_and(|to| view.scroll_to(to))
+    }
+}
 
 /// The tiles of [`required_paths`] for tab `tab`, or why the page cannot be drawn.
 fn check_file(ui: &Ui, cut: Option<&str>, tab: Option<usize>) -> Result<Vec<TileId>, String> {
     match built(ui, cut, tab) {
         Tiled::No(reason) => Err(reason),
-        Tiled::Yes => Ok(required_paths(tab).iter().filter_map(|p| ui.find_tile(p)).collect()),
+        Tiled::Yes => Ok(required_paths(tab).iter().filter_map(|p| resolve_tile(ui, p)).collect()),
     }
 }
 
@@ -1647,7 +1743,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     // The tab's list; the World Map has none.
     let list_tile = match world {
         Some(_) => None,
-        None => Some(ui.find_tile(kind.path()).ok_or_else(|| format!("the {} list is gone", kind.words().0))?),
+        None => Some(resolve_tile(ui, kind.path()).ok_or_else(|| format!("the {} list is gone", kind.words().0))?),
     };
     if changed || made || late {
         write_tabs(ui, &w.tabs, s.tab);
@@ -1667,20 +1763,23 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         place_tabs(ui, &w.tabs);
         // The clip windows on before the panes read what clips them.
         super::item_menu::mark_menu(ui, MAP_MENU, &[QUESTS_LIST, NOTES_LIST, CHALLENGE_LIST, STATIONS_LIST]);
+        if let Some(objectives) = resolve_tile(ui, OBJECTIVES) {
+            list::unclip_row_children(ui, objectives, w.objectives.iter().map(|r| r.tile));
+        }
         if let Some(list_tile) = list_tile {
             list::settle_list(ui, list_tile, &w.rows[kind.index()], ROW_TEXT, &mut w.views[kind.index()], s.selected, s.group, s.pointer_pick, s.navigated);
         }
         w.pane_most = match &s.pane {
             Pane::Objectives(_) => {
-                let objectives = ui.find_tile(OBJECTIVES).ok_or("the objectives list is gone")?;
+                let objectives = resolve_tile(ui, OBJECTIVES).ok_or("the objectives list is gone")?;
                 let heights = list::measure_rows(ui, &w.objectives, ROW_TEXT);
                 write_pane(ui, objectives, &heights, s.pane_first)
             }
             Pane::Text(_) => write_text_pane(ui, s.pane_first),
             _ => 0.0,
         };
-        let title = ui.find_tile(TITLE).ok_or("the title is gone")?;
-        let line = ui.find_tile(LINE).ok_or("the heading's line is gone")?;
+        let title = resolve_tile(ui, TITLE).ok_or("the title is gone")?;
+        let line = resolve_tile(ui, LINE).ok_or("the heading's line is gone")?;
         stats_menu::write_frame_of(ui, title, line, s.device, &mut w.flat);
     }
     keep_hints(ui, &s.hints);
@@ -1708,8 +1807,10 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     ui.update();
     if late {
         let mut pieces = fonts.set_out(ui, menu);
-        if let Some(paths) = s.world.as_ref().map(WorldShown::paths) {
+        if let Some(world) = s.world.as_ref() {
+            let paths = world.paths();
             pieces = with_map_picture(ui, pieces, map_picture_piece(ui, paths.clip, paths.picture));
+            pieces = with_map_companions(ui, pieces, map_companion_pieces(ui, world));
         }
         let places = tab_places(ui, &w.tabs);
         if w.places_told.as_ref() != Some(&places) {
@@ -2176,6 +2277,7 @@ fn rebuild_menu(game: &mut fnv_game::Game<'_>) {
 pub(crate) struct Feed {
     /// The page took input last frame, in this frame of the Pip-Boy.
     taking: Option<Frame>,
+    touch_drag: bool,
 }
 
 /// What the page's tile input reads of the Pip-Boy.
@@ -2186,6 +2288,9 @@ pub(crate) struct FeedPip<'w> {
     aid: Res<'w, PipBoyAid>,
     paused: Option<Res<'w, crate::pause::Paused>>,
     bindings: Option<Res<'w, crate::bindings::Bindings>>,
+    touch:Option<Res<'w,crate::pipboy::touch_items::TouchItems>>,
+    admission: crate::pipboy::touch_items::Admission<'w>,
+
 }
 
 /// What the page's tile input sends: where the hand-built page sends the same.
@@ -2209,12 +2314,32 @@ fn pane_part(piece: BarPiece) -> Option<BarPart> {
     })
 }
 
+pub(crate) fn touch_target(tiles:&MapTiles,ui:&Ui,menu:TileId,point:Vec2,data:&DataState)->Option<crate::pipboy::touch_scroll::NativeTarget>{
+    use crate::pipboy::touch_scroll::{NativeRow,NativeTarget};
+    NativeTarget::at(ui,menu,point,|tile|match data_tile(ui,&tiles.written,tile) {
+        Some(DataTile::Row(index))=> {let list=tiles.written.list().index();tiles.written.rows[list].get(index).map(|r|NativeRow::Data{list,key:r.key})},
+        Some(DataTile::Button(slot))=> {let shown=tiles.written.shown.as_ref()?;let hint=shown.hints.iter().find(|h|h.slot==slot)?;
+            Some(NativeRow::DataButton{kind:hint.kind as u8,list:shown.list.index(),group:shown.group,key:shown.selected.and_then(|i|shown.rows.get(i)).map(|r|r.key),context:data.touch_action_context(shown.tab)})},
+        _=>None,
+    },|_|None,|_|true)
+        .map(|target| target.with_control(|tile|matches!(data_tile(ui,&tiles.written,tile),Some(DataTile::ListBar(BarPiece::Marker)|DataTile::PaneBar(BarPiece::Marker)))))
+}
+pub(crate) fn touch_navigation(tiles:&MapTiles,ui:&Ui)->Vec<crate::pipboy::tab_swipe::Region> {
+    use crate::pipboy::tab_swipe::{native_region,Kind};
+    let title=ui.find_tile(TITLE);
+    tiles.pieces.iter().filter_map(|p| {
+        let kind=if Some(p.tile)==title {Kind::Sections}
+            else if matches!(data_tile(ui,&tiles.written,p.tile),Some(DataTile::Tab(_))) {Kind::Subtabs}
+            else {return None};
+        native_region(p,kind)
+    }).collect()
+}
 /// The page's tile input, on a frame it takes it ([`takes`]): see the module notes.
 pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from: FeedPip, mut tiles: ResMut<MapTiles>, devices: Devices, mut out: FeedOut, mut state: Local<Feed>) {
     if !switch.map {
         return;
     }
-    let FeedPip { pip, screen, aid, paused, bindings } = from;
+    let FeedPip { pip, screen, aid, paused, bindings, touch, admission } = from;
     let Some(rt) = script.rt.as_mut() else { return };
     let game = &mut rt.game;
     let over_data = pip.open() && pip.page == Page::Data && modal_over(game.menu);
@@ -2243,14 +2368,24 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     };
     // With Controller chosen the hand-built page ignores the mouse pointer; so does this one.
     let controller = bindings.as_ref().is_some_and(|b| b.device == crate::bindings::InputDevice::Controller);
-    let pointer = screen.as_ref().and_then(|s| s.pointer).filter(|_| !controller);
+    let mut mobile=crate::pipboy::touch_scroll::native_frame(touch.as_deref(),&devices.mouse);
+    if !admission.allows_contact(touch.as_ref().and_then(|t|t.contact_id())) { mobile=Default::default(); }
+    if mobile.tap {
+        let target=mobile.at.and_then(|at|touch_target(&tiles,&game.ui_tree,menu,at,data));
+        mobile.tap=touch.as_ref().is_some_and(|t|t.native_release_valid(target));
+    }
+    if mobile.control && mobile.started {
+        let target=mobile.at.and_then(|at|touch_target(&tiles,&game.ui_tree,menu,at,data));
+        mobile.started=target.is_some_and(|t|t.control()) && touch.as_ref().is_some_and(|t|t.native_release_valid(target));
+    }
+    let pointer = mobile.at.or_else(||screen.as_ref().and_then(|s| s.pointer)).filter(|_| !controller);
     let at = pointer.map(|p| (f64::from(p.x), f64::from(p.y)));
     if state.taking != Some(pip.frame) {
-        *state = Feed { taking: Some(pip.frame) };
+        *state = Feed { taking: Some(pip.frame), touch_drag: false };
     }
     let aid_press = aid.click == 1 && !aid.right;
-    let held = aid_press || devices.mouse.pressed(MouseButton::Left);
-    let mut input = fnv_ui::input::Input { at, press: aid_press || devices.mouse.just_pressed(MouseButton::Left), ..Default::default() };
+    let held = mobile.held || aid_press || devices.mouse.pressed(MouseButton::Left);
+    let mut input = fnv_ui::input::Input { at, press: mobile.press() || aid_press || devices.mouse.just_pressed(MouseButton::Left), ..Default::default() };
     let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::MAP), tab: pip.tab() };
     let physical = frame_keys(&mut input, &devices, game, pad_menu);
     let report = fnv_game::ui_input::step(game, &[menu], &input, &fnv_ui::input::no_measure);
@@ -2268,9 +2403,10 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         .collect();
     let over = report.over.map(|(from, to)| (from.and_then(|t| data_tile(ui, w, t)), to.and_then(|t| data_tile(ui, w, t))));
     let hints: Vec<(Slot, ButtonKind)> = w.shown.as_ref().map(|s| s.hints.iter().map(|h| (h.slot, h.kind)).collect()).unwrap_or_default();
-    if !held {
+    if !held || (state.touch_drag && !mobile.control) {
         tiles.drag = None;
         tiles.pane_drag = None;
+        state.touch_drag = false;
     }
     let mut row_acted = false;
     let mut pressed_marker = false;
@@ -2292,12 +2428,13 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             }
             DataTile::ListBar(BarPiece::Marker) => {
                 pressed_marker = true;
-                let list_tile = ui.find_tile(tiles.written.list().path());
+                let list_tile = resolve_tile(ui, tiles.written.list().path());
                 tiles.drag = at.filter(|_| held && by_pointer).zip(list_tile).and_then(|((_, y), l)| list::marker_grab(ui, menu, l, y));
+                state.touch_drag = mobile.control && tiles.drag.is_some();
             }
             DataTile::ListBar(piece) => {
                 let value = tiles.written.view().value;
-                if let Some(v) = ui.find_tile(tiles.written.list().path()).and_then(|l| list::after_piece(ui, l, piece, value)) {
+                if let Some(v) = resolve_tile(ui, tiles.written.list().path()).and_then(|l| list::after_piece(ui, l, piece, value)) {
                     tiles.written.view().scroll_to(v);
                 }
             }
@@ -2305,6 +2442,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
                 pressed_marker = true;
                 let pane = tiles.written.shown.as_ref().map_or(&Pane::None, |s| &s.pane);
                 tiles.pane_drag = at.filter(|_| held && by_pointer).and_then(|(_, y)| pane_grab(ui, menu, pane, y));
+                state.touch_drag = mobile.control && tiles.pane_drag.is_some();
             }
             DataTile::PaneBar(piece) => {
                 if let Some(part) = pane_part(piece) {
@@ -2321,7 +2459,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             data.push_act(Act::PaneTo(v as f32));
         }
     }
-    if let Some((was, is)) = over {
+    if let Some((was, is)) = over.filter(|_| !mobile.control) {
         let w = &tiles.written;
         // Off the selected row: no longer boxed, as the hand-built row's pointer leaving.
         if let Some(DataTile::Row(j)) = was.filter(|_| was != is) {
@@ -2379,8 +2517,8 @@ fn row_act(w: &Written, tab: usize, i: usize, what: RowAct) -> Option<Act> {
 /// scrollbar_vert.xml's `_drag_value`].
 fn pane_grab(ui: &Ui, menu: TileId, pane: &Pane, y: f64) -> Option<list::Drag> {
     let owner = match pane {
-        Pane::Objectives(_) => ui.find_tile(OBJECTIVES)?,
-        Pane::Text(_) => ui.find_tile(TEXT_RECT)?,
+        Pane::Objectives(_) => resolve_tile(ui, OBJECTIVES)?,
+        Pane::Text(_) => resolve_tile(ui, TEXT_RECT)?,
         _ => return None,
     };
     list::marker_grab_on(ui, menu, owner, pane_bar(ui, pane)?, y)
@@ -2398,6 +2536,7 @@ pub(crate) fn setup(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("map_menu/tab_swipe_tests.rs");
     use crate::pipboy::frame::Hint;
     use fnv_ui::MemSource;
 
@@ -2439,7 +2578,7 @@ mod tests {
         for (name, size) in [("icon_21.dds", 512), ("icon_22.dds", 1024)] {
             std::fs::write(owned.0.join("textures").join(name), crate::interface::tests::authored_rgba_dds(size, size)).unwrap();
         }
-        let data = nvf_assets::GameData { vfs: Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()), schema: Arc::new(fnv_nif::Schema::default()) };
+        let data = nvf_assets::GameData::new(Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
         let pictures = crate::interface::Pictures::load(Some(&data));
         let mut fonts = ImageFonts { data, images: Assets::default(), pictures };
         // Independently authored ratio-driven marker: the invisible child requests the
@@ -3251,6 +3390,8 @@ mod tests {
                 want: on.unwrap_or(view.mid()),
                 label,
                 detail: Some("Town: Liked".into()),
+                companions: Vec::new(),
+                companion_font: 2,
             }),
             ..shown(0, 0, 0)
         }
@@ -3490,6 +3631,8 @@ mod tests {
                 want: view.place(1000.0, 2000.0),
                 label: Some("Door 7".into()),
                 detail: None,
+                companions: Vec::new(),
+                companion_font: 2,
             }),
             ..shown(0, 0, 0)
         }
@@ -3628,7 +3771,20 @@ mod tests {
         // The prepared Local Map is read with its parts; a Local Map without a place is not drawn.
         let p = data::view::LocalProjection { centre: [0.0, 0.0], mag: 1.0, scale: 8.0, origin: [-100.0, 100.0], extent: Vec2::new(200.0, 200.0) };
         let view = data::MapView::local(WORLD_W, p);
-        let parts = data::WorldParts { view, texture: String::new(), mag: 1.0, quests: Vec::new(), custom: None, arrow: Some(([0.5, 0.5], 0.0)), ends: Vec::new(), outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))), rows: None, want: Vec2::ZERO };
+        let parts = data::WorldParts {
+            view,
+            texture: String::new(),
+            mag: 1.0,
+            quests: Vec::new(),
+            custom: None,
+            arrow: Some(([0.5, 0.5], 0.0)),
+            ends: Vec::new(),
+            outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))),
+            rows: None,
+            want: Vec2::ZERO,
+            companions: Vec::new(),
+            companion_font: 2,
+        };
         let map = data::MapShown::for_test(Vec::new(), Some(parts), Vec2::ZERO, None, None);
         let prepared = |tab, map: data::MapShown| Prepared { view: data::View { tab, place: String::new(), when: String::new(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None }, keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
         let s = Shown::of(&prepared(data::LOCAL, map.clone()), true).unwrap();
@@ -3696,16 +3852,33 @@ mod tests {
     #[test]
     fn the_prepared_world_map_is_read_with_its_parts_and_the_local_map_is_not() {
         let view = data::MapView::world(WORLD_W, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
-        let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv, detail: None, recent: false, outside: None };
-        let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None, rows: None, want: Vec2::new(5.0, 6.0) };
-        let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts), Vec2::new(5.0, 6.0), Some("P2"), None);
+        let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), custom_icon: None, highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv, detail: None, recent: false, outside: None };
+        let parts = data::WorldParts {
+            view,
+            texture: "w.dds".into(),
+            mag: 1.0,
+            quests: vec![(9, [0.1, 0.2])],
+            custom: None,
+            arrow: Some(([0.5, 0.5], 1.0)),
+            ends: Vec::new(),
+            outline: None,
+            rows: None,
+            want: Vec2::new(5.0, 6.0),
+            companions: Vec::new(),
+            companion_font: 2,
+        };
+        let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts.clone()), Vec2::new(5.0, 6.0), Some("P2"), None);
         let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None };
         let p = |tab, map| Prepared { view: view_of(tab, map), keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
         let s = Shown::of(&p(data::WORLD, map.clone()), true).unwrap();
         let w = s.world.expect("the World Map's parts");
         assert_eq!(w.markers.iter().map(|m| (m.form, m.selected)).collect::<Vec<_>>(), vec![(1, false), (2, true)], "a mark without texture coordinates is not the World Map's");
         assert_eq!((w.picture, w.window, w.usable, w.cursor, w.label.as_deref()), (view.picture(), WORLD_W, Vec2::splat(1000.0), Vec2::new(5.0, 6.0), Some("P2")));
-        assert_eq!(w.markers[0].icon, data::MapMark { icon: Some((1, true)), highlighted: false, at: Vec2::ZERO, form: 1, name: String::new(), uv: None, detail: None, recent: false, outside: None }.picture());
+        assert_eq!(w.markers[0].icon, data::MapMark { icon: Some((1, true)), custom_icon: None, highlighted: false, at: Vec2::ZERO, form: 1, name: String::new(), uv: None, detail: None, recent: false, outside: None }.picture());
+        let custom_mark = data::MapMark { icon: Some((1, true)), custom_icon: Some("Interface\\Icons\\Owned\\custom.dds".into()), highlighted: false, at: Vec2::ZERO, form: 1, name: "P1".into(), uv: Some([0.1, 0.1]), detail: None, recent: false, outside: None };
+        let custom_map = data::MapShown::for_test(vec![custom_mark], Some(parts), Vec2::new(5.0, 6.0), Some("P1"), None);
+        let custom_shown = Shown::of(&p(data::WORLD, custom_map), true).unwrap().world.expect("custom world");
+        assert_eq!(custom_shown.markers[0].icon, "Interface\\Icons\\Owned\\custom.dds");
         assert!(s.rows.is_empty() && s.pane == Pane::None);
         // The question box up: the same page, drawn under it.
         let mut boxed = p(data::WORLD, map.clone());
@@ -3908,5 +4081,175 @@ mod tests {
         assert!(Shown::of(&short, true).is_err());
         let text = Prepared { view: data::View { body: Body::List { rows: Vec::new(), first: 0, boxed: None, right: Right::Text { text: "x".into(), first: 0.0 } }, ..view }, keys: Vec::new(), ..p };
         assert_eq!(Shown::of(&text, true), Err("the right pane is not the tab's".to_string()));
+    }
+    #[test]
+    fn native_data_button_release_keeps_its_original_selected_record_and_action() {
+        use bevy::{prelude::*, input::{InputPlugin, touch::{TouchInput, TouchPhase}}};
+        use crate::pipboy::{self, touch_items::TouchItems};
+        #[derive(Resource, Default)] struct Seen(Vec<Act>);
+        #[derive(Resource)] struct Repaint(Option<bool>);
+        fn project(mut touch: ResMut<TouchItems>) { touch.project(Some); }
+        fn change(mut change: ResMut<Repaint>, touch: Res<TouchItems>, mut script: ResMut<ScriptState>, mut tiles: ResMut<MapTiles>) {
+            if touch.pointer_frame().tap {
+                if let Some(kind_change) = change.0.take() {
+                    let mut drawing = tiles.written.shown.as_ref().unwrap().clone();
+                    if kind_change { drawing.hints[0].kind = ButtonKind::NotesFilter; } else { drawing.selected = Some(1); }
+                    let menu = run(&mut script.rt.as_mut().unwrap().game.ui_tree, Some(drawing), &mut tiles).unwrap(); tiles.shown = Some(menu);
+                }
+            }
+        }
+        fn read(mut data: ResMut<DataState>, mut seen: ResMut<Seen>) { seen.0.extend(data.take_touch_test_actions().into_iter().filter(|a| matches!(a, Act::Button(_)))); }
+        for kind_change in [false, true] {
+            let (mut ui, mut tiles) = (tree(), MapTiles::default()); let menu = run(&mut ui, Some(shown(2,0,2)), &mut tiles).unwrap(); tiles.shown = Some(menu);
+            let hits = fnv_ui::input::hit_candidates(&ui, menu, &fnv_ui::input::no_measure);
+            let region = hits.iter().find(|h| matches!(data_tile(&ui, &tiles.written, h.under), Some(DataTile::Button(Slot::X)))).unwrap().region();
+            let point = Vec2::new((region.left+region.width*0.5) as f32, (region.top+region.height*0.5) as f32);
+            let button = fnv_ui::input::hit(&ui, &[menu], (point.x as f64, point.y as f64), &fnv_ui::input::no_measure).unwrap().tile;
+            let mut script = ScriptState::over_no_plugins(); { let game = &mut script.rt.as_mut().unwrap().game; game.ui_files = Some(Box::new(MemSource::default())); game.ui_tree = ui; game.menu = Some(fnv_game::game::menus::MAP); }
+            let mut pip = PipBoy::default(); pip.phase = pipboy::Phase::Up; pip.page = Page::Data; pip.tabs[Page::Data.index()] = data::QUESTS;
+            let mut app = App::new(); app.add_plugins((MinimalPlugins, InputPlugin))
+                .init_resource::<TouchItems>().init_resource::<DataState>().init_resource::<pipboy::PipBoyAid>().init_resource::<pipboy::PointerMoved>()
+                .init_resource::<Seen>().insert_resource(Repaint(Some(kind_change)))
+                .add_message::<PipBoyInput>().add_message::<TabHovered>()
+                .insert_resource(script).insert_resource(tiles).insert_resource(pip)
+                .insert_resource(TileMenus { map: true, ..Default::default() });
+            let camera = app.world_mut().spawn_empty().id();
+            app.insert_resource(PipBoyScreen { image: Handle::default(), camera, on_model: false, pointer: None, scale: 1. })
+                .add_plugins(pipboy::touch_scroll::TouchPointerPlugin)
+                .add_systems(Update, (change, feed, read).chain()).add_systems(Last, project);
+            app.update();
+            let send = |app: &mut App, id, phase| { assert!(app.world_mut().resource_mut::<TouchItems>().event(&TouchInput { window: Entity::PLACEHOLDER, id, phase, position: point, force: None }, 100)); };
+            send(&mut app, 203, TouchPhase::Started); app.update(); app.update();
+            send(&mut app, 203, TouchPhase::Ended); for _ in 0..4 { app.update(); }
+            assert!(app.world().resource::<Repaint>().0.is_none()); assert!(app.world().resource::<Seen>().0.is_empty());
+            let ui = &app.world().resource::<ScriptState>().rt.as_ref().unwrap().game.ui_tree;
+            assert_eq!(fnv_ui::input::hit(ui, &[menu], (point.x as f64,point.y as f64), &fnv_ui::input::no_measure).unwrap().tile, button, "the same native button tile survives the repaint");
+            send(&mut app, 204, TouchPhase::Started); send(&mut app, 204, TouchPhase::Ended); for _ in 0..4 { app.update(); }
+            assert_eq!(app.world().resource::<Seen>().0, vec![Act::Button(if kind_change {ButtonKind::NotesFilter} else {ButtonKind::ShowLocation})]);
+        }
+    }
+
+    include!("map_menu/touch_map_tests.rs");
+
+    #[test]
+    fn hotrect_scrollbar_and_nested_objectives_list_stay_on_tiles() {
+        // Synthetic restructured list_box/scrollbar_vert where `lb_scrollbar` and
+        // `scrollbar_vert_marker` are `<hotrect>` containers instead of `<image>` tiles.
+        let hotrect_bars = |x: String| {
+            x.replace(r#"<image name="lb_scrollbar">"#, r#"<hotrect name="lb_scrollbar">"#)
+                .replace(r#"<image name="scrollbar_vert_down"/></image>"#, r#"<image name="scrollbar_vert_down"/></hotrect>"#)
+                .replace(
+                    r#"<image name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height></image>"#,
+                    r#"<hotrect name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height><image name="ThumbFill"><width>6</width><height>10</height></image></hotrect>"#,
+                )
+                .replace(
+                    r#"<image name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height>
+                <visible><copy src="parent()" trait="_number_of_items"/><gt>1</gt></visible></image>"#,
+                    r#"<hotrect name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height>
+                <visible><copy src="parent()" trait="_number_of_items"/><gt>1</gt></visible><image name="ThumbFill"><width>6</width><height>10</height></image></hotrect>"#,
+                )
+        };
+        let (mut ui, mut t) = (tree_changed(hotrect_bars), MapTiles::default());
+        let menu = run(&mut ui, Some(shown(3, 0, 7)), &mut t).expect("Quests tab with hotrect scrollbar must stay on tiles");
+        let pane = t.written.counted.pane.expect("objectives clip window");
+        assert_eq!((pane.min.x, pane.min.y, pane.width(), pane.height()), (490.0, 240.0, 380.0, 200.0));
+        assert_eq!(t.written.objectives.len(), 7);
+        // Dragging the `<hotrect>` objectives scrollbar marker still works cleanly.
+        let marker = resolve_tile(&ui, &format!("{OBJECTIVES}/{}/{}", list::SCROLLBAR, list::MARKER)).unwrap();
+        let top = super::super::layout::tile_box(&ui, marker, &|_, _, _| (0.0, 0.0), true).unwrap().rect.top;
+        let drag = pane_grab(&ui, menu, &Pane::Objectives(Vec::new()), top + 3.0).expect("hotrect marker grab");
+        assert_eq!(list::value_under(&ui, drag, top + 33.0), Some(23.0));
+
+        // Scrolling Misc text note with a `<hotrect>` scrollbar marker also stays on tiles.
+        run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text(lines(9)))), &mut t)
+            .expect("Misc scrolling text with hotrect scrollbar marker must stay on tiles");
+        let text_marker = resolve_tile(&ui, &format!("{TEXT_BAR}/{}", list::MARKER)).unwrap();
+        let text_top = super::super::layout::tile_box(&ui, text_marker, &|_, _, _| (0.0, 0.0), true).unwrap().rect.top;
+        let text_drag = pane_grab(&ui, menu, &Pane::Text(lines(9)), text_top + 3.0).expect("hotrect text marker grab");
+        assert_eq!(list::value_under(&ui, text_drag, text_top + 43.0), Some(28.0));
+
+        // Wrapping `MM_QuestObjectivesList` in a container `<rect>` under `MM_DataRect` stays on tiles.
+        let nested_objectives = |x: String| {
+            hotrect_bars(x)
+                .replace(
+                    r#"<hotrect name="MM_QuestObjectivesList">"#,
+                    r#"<rect name="ObjectivesWrap"><hotrect name="MM_QuestObjectivesList">"#,
+                )
+                .replace(
+                    r#"<hotrect name="MM_DataTextRect">"#,
+                    r#"</rect><hotrect name="MM_DataTextRect">"#,
+                )
+        };
+        let (mut ui, mut t) = (tree_changed(nested_objectives), MapTiles::default());
+        run(&mut ui, Some(shown(2, 0, 2)), &mut t).expect("nested objectives list must stay on tiles");
+        assert_eq!(t.written.objectives.len(), 2);
+        let obj = resolve_tile(&ui, OBJECTIVES).unwrap();
+        assert_eq!(ui.path_of(obj), "MapMenu/GLOW_BRANCH/MM_MainRect/MM_DataRect/ObjectivesWrap/MM_QuestObjectivesList");
+
+        // Regression guards: a `<hotrect>` scrollbar without a clipwindow or off-canvas still falls back.
+        let no_clip = |x: String| {
+            hotrect_bars(x).replace(
+                r#"<hotrect name="MM_QuestObjectivesList"><width>380</width><height>200</height><clipwindow>&true;</clipwindow>"#,
+                r#"<hotrect name="MM_QuestObjectivesList"><width>380</width><height>200</height>"#,
+            )
+        };
+        assert_eq!(
+            run(&mut tree_changed(no_clip), Some(shown(2, 0, 1)), &mut MapTiles::default()),
+            Err("the objectives have no window".to_string())
+        );
+        let off_canvas = |x: String| hotrect_bars(x).replace(r#"<rect name="MM_DataRect"><x>450</x><y>200</y>"#, r#"<rect name="MM_DataRect"><x>450</x><y>700</y>"#);
+        assert_eq!(
+            run(&mut tree_changed(off_canvas), Some(shown(2, 0, 1)), &mut MapTiles::default()),
+            Err("the objectives' window does not fit".to_string())
+        );
+    }
+
+    #[test]
+    fn the_world_map_draws_companion_names_in_the_tile_tree_clip_window() {
+        let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
+        let mut s = world(1.0, [0.5, 0.5], vec![marker(10, [0.25, 0.5], false)]);
+        {
+            let w = s.world.as_mut().unwrap();
+            w.companions = vec![(0x101, [0.25, 0.5], "Scout Alpha".into(), false), (0x102, [0.75, 0.5], "Scout Bravo".into(), true)];
+            w.companion_font = 2;
+        }
+        run(&mut ui, Some(s.clone()), &mut t).unwrap();
+        let clip = ui.find_tile(WORLD_CLIP).unwrap();
+        let cursor = ui.find_tile(WORLD_CURSOR).unwrap();
+        let comp_pieces: Vec<&Piece> = t.pieces.iter().filter(|p| p.tile == clip && matches!(p.look, Look::Text { .. })).collect();
+        assert_eq!(comp_pieces.len(), 2, "both companions emitted as text pieces on the tiled World Map");
+        assert_eq!(comp_pieces[0].look, Look::Text { string: "Scout Alpha".into(), font: 2, wrap: None, alignment: super::super::layout::Alignment::Center });
+        assert_eq!(comp_pieces[1].look, Look::Text { string: "Scout Bravo".into(), font: 2, wrap: None, alignment: super::super::layout::Alignment::Center });
+        assert_eq!(comp_pieces[1].colour, [1.0, 0.25, 0.2, 1.0], "knocked-out companion drawn in red");
+        assert_ne!(comp_pieces[0].colour, [1.0, 0.25, 0.2, 1.0], "conscious companion uses Pip-Boy colour");
+        let clip_rect = comp_pieces[0].clip.expect("companion text clipped to World Map window");
+        assert_eq!((clip_rect.left, clip_rect.top, clip_rect.width, clip_rect.height), (40.0, 90.0, 855.0, 500.0));
+        // Positioned by the viewport, centred above its map point.
+        let view = s.world.as_ref().unwrap().view;
+        let expected_at = view.to_window([0.25, 0.5]);
+        assert!((comp_pieces[0].rect.left - f64::from(40.0 + expected_at.x)).abs() < 1e-3);
+        assert!((comp_pieces[0].rect.top - f64::from(90.0 + expected_at.y - data::COMPANION_NAME_RISE)).abs() < 1e-3);
+        // Ordered under the player's arrow.
+        let last_comp = t.pieces.iter().rposition(|p| p.tile == clip && matches!(p.look, Look::Text { .. })).unwrap();
+        if let Some(cursor_pos) = t.pieces.iter().position(|p| p.tile == cursor) {
+            assert!(last_comp < cursor_pos, "companion names stand under the player's arrow");
+        }
+        // Location-font tweak switches companion font to 1, and zoom moves the pieces with the viewport.
+        let mut zoomed = world(2.0, [0.5, 0.5], vec![marker(10, [0.25, 0.5], false)]);
+        {
+            let w = zoomed.world.as_mut().unwrap();
+            w.companions = vec![(0x101, [0.25, 0.5], "Scout Alpha".into(), false)];
+            w.companion_font = 1;
+        }
+        run(&mut ui, Some(zoomed.clone()), &mut t).unwrap();
+        let z_pieces: Vec<&Piece> = t.pieces.iter().filter(|p| p.tile == clip && matches!(p.look, Look::Text { .. })).collect();
+        assert_eq!(z_pieces.len(), 1);
+        assert_eq!(z_pieces[0].look, Look::Text { string: "Scout Alpha".into(), font: 1, wrap: None, alignment: super::super::layout::Alignment::Center });
+        let z_at = zoomed.world.as_ref().unwrap().view.to_window([0.25, 0.5]);
+        assert!((z_pieces[0].rect.left - f64::from(40.0 + z_at.x)).abs() < 1e-3);
+        // Local Map emits no companion pieces.
+        let (mut ui_local, mut t_local) = (tree_changed(with_local), MapTiles::default());
+        run(&mut ui_local, Some(local(None, 1.0)), &mut t_local).unwrap();
+        assert!(t_local.pieces.iter().all(|p| !matches!(&p.look, Look::Text { string, .. } if string == "Scout Alpha")));
     }
 }

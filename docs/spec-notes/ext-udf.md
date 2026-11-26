@@ -77,8 +77,13 @@ returns; a variable holding something other than a function script.
 - **Return with a value** (`return x`) is shown only in NVSEScript, the newer language;
   the ordinary-language examples use SetFunctionValue and then a bare `return`
   [documented: User Defined Function]. Plain `Return` stops the script there
-  [documented: Return]; that a value set before it still counts: [hypothesis, by the
-  fnShuffle example]. Whether `Return x` compiles in the ordinary language: open (probe
+  [documented: Return], and a value set before it still counts [observed: `udf.return_stops`
+  below; also 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), fresh game, Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 with the 10 official base masters, clean-room black-box
+  script probe `core_07_udf_setfunctionvalue_then_return` (`#3678` / PR `#3679`,
+  `tools/capture/nvse/catalogs/wave4a_extenders.json`: `SetFunctionValue 77; Return;
+  SetFunctionValue 99` -> `77`); no DLL or source consulted]. Whether `Return x` compiles in
+  the ordinary language: open (probe
   udf/02).
 
 ## 4. The calling script: GetCallingScript
@@ -100,7 +105,12 @@ MapTo].
 - **Block form**: `(begin function {params} … end)` in parentheses, as an inline
   expression [documented: Lambda].
 - **One-line form**: `{params} => expr`. The expression's value is returned as if by
-  SetFunctionValue [documented: Lambda]. `({} => expr)` with no parameters. The
+  SetFunctionValue [documented: Lambda; observed: 2026-11-23, `GSDocMitchellHouse`
+  (`0x00103DF9`), fresh game, Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 with the 10
+  official base masters, clean-room black-box script probe
+  `core_23_lambda_inline_expr_return` (`#3678` / PR `#3679`,
+  `tools/capture/nvse/catalogs/wave4a_extenders.json`: `({ int a } => a * 3 + 1)` called
+  with `5` -> `16`); no DLL or source consulted]. `({} => expr)` with no parameters. The
   expression runs to the end of what holds the lambda, an assignment included: `({} =>
   iInventory = iRefresh = 1)` sets both when the lambda runs [observed:
   JustAssortedMods.esp 4.6 ships that line in JLMScript, once stored in a ref and once as
@@ -157,6 +167,25 @@ what it does to the call: open.
   `CallAfterSeconds 0` runs next frame [documented: CallAfterSeconds; CallForSeconds].
 - **Not saved**: loading a game drops every queued call; scripts re-queue them on load
   [documented: each page]. This is a persistence rule NVForever must copy (ext-save.md).
+
+[design] `crates/fnv-game/src/delayed.rs` tracks remaining seconds (`AfterSeconds`,
+`ForSeconds`, `WhilePerSeconds`) and remaining frames (`AfterFrames`) rather than an
+absolute deadline on `Game::time` / `Game::frame`. Each eligible frame (`runs_now`)
+decrements seconds by `cfg.frame_seconds` (0 while `FreezeTime` holds) so `runWhen` 1
+and 2 count down in MenuMode as documented, while paused menus (`menus::CONSOLE` 3,
+`menus::TITLE` 4, `menus::START` 1013, and `start_frames`) hold both `runWhen == 2`
+timers and `flags & 16` (`DontRunWhilePaused`) condition callbacks without advancing
+their countdown or evaluating/dropping their condition.
+
+[observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), fresh game, Fallout: New
+Vegas 1.4.0.525 + xNVSE 6.4.9 with the 10 official base masters, clean-room black-box
+script probe `core_30_call_after_seconds_runwhen` (`CallAfterSeconds`, `#3678` / PR `#3679`,
+`tools/capture/nvse/catalogs/wave4a_extenders.json`: `CallAfterSeconds 0.5 rFn 2` and
+`CallAfterSeconds 0.5 rFn 3` both schedule cleanly without compile or runtime error (`ok`));
+no DLL or source consulted].
+[hypothesis] Whether `runWhen` values above 2 behave identically to `runWhen == 2`,
+whether `FreezeTime` halts `CallAfterSeconds` in MenuMode, and the exact sub-frame
+tie-breaking at `0.0` seconds have not been observed in the original game.
 
 ## 7. Open (to observe), collected
 

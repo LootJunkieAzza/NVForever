@@ -284,6 +284,9 @@ pub struct Placement {
     pub warnings: Vec<String>,
     /// Bevy's task pools' thread budget; `None`: Bevy's own sizing, as before.
     pub pool_threads: Option<usize>,
+    /// What [`Placement::size_rayon`] did, a line of its own (the `cpu placement:` line
+    /// stays as the smoke scenarios match it).
+    pub rayon_line: Option<String>,
 }
 
 impl Placement {
@@ -292,7 +295,36 @@ impl Placement {
             bevy::log::warn!("{w}");
         }
         bevy::log::info!("{}", self.line);
+        if let Some(l) = &self.rayon_line {
+            bevy::log::info!("{l}");
+        }
     }
+
+    /// Size rayon's global pool to the placement's budget, when the process was
+    /// restricted (#3148). Rayon sizes its pool from `available_parallelism`, which still
+    /// counts every logical processor under CPU sets (module notes, #1416), so a 16-LP
+    /// domain of a 32-LP chip got 32 workers for the load-time data building (the forms,
+    /// the references, the scripts' compile). Call once, right after [`place`], before
+    /// the first rayon use; the outcome is logged with the placement's line.
+    /// Nothing is done without a restriction, or when the player set
+    /// `RAYON_NUM_THREADS` (their choice stands).
+    pub fn size_rayon(&mut self) {
+        let Some(threads) = rayon_threads(self.pool_threads, std::env::var_os("RAYON_NUM_THREADS").is_some()) else { return };
+        match rayon_pool(threads).build_global() {
+            Ok(()) => self.rayon_line = Some(format!("cpu placement: rayon's pool {threads} threads, as the task pools")),
+            Err(e) => self.warnings.push(format!("cpu placement: rayon's pool keeps its own size ({e})")),
+        }
+    }
+}
+
+/// The threads rayon's global pool gets: the task pools' budget when the process was
+/// restricted, `None` (rayon's own sizing) otherwise or when the player named a count.
+fn rayon_threads(pool_threads: Option<usize>, player_set: bool) -> Option<usize> {
+    pool_threads.filter(|n| *n > 0 && !player_set)
+}
+
+fn rayon_pool(threads: usize) -> rayon::ThreadPoolBuilder {
+    rayon::ThreadPoolBuilder::new().num_threads(threads).thread_name(|i| format!("nvf-rayon-{i}"))
 }
 
 /// `[Settings] cpu-cache-placement` of the INI this run reads (`SettingsFile::for_run`).
@@ -310,10 +342,10 @@ pub fn place(cli: Option<Mode>) -> Placement {
             "--cpu-cache-placement" => "cpu placement: off by setting (--cpu-cache-placement off)".to_string(),
             _ => format!("cpu placement: off by setting (NVForever.ini [Settings] {INI_KEY}=off)"),
         };
-        return Placement { line, warnings, pool_threads: None };
+        return Placement { line, warnings, pool_threads: None, rayon_line: None };
     }
     let (line, pool_threads) = os::place();
-    Placement { line, warnings, pool_threads }
+    Placement { line, warnings, pool_threads, rayon_line: None }
 }
 
 #[cfg(not(windows))]
@@ -539,6 +571,16 @@ mod tests {
         let d = decide(&t, false);
         assert_eq!(d, Decision::Restrict(dom(96, 0, 16)));
         assert_eq!(pool_threads(&dom(96, 0, 16)), 16);
+        // Rayon's pool takes the same budget (#3148): only under a restriction, and not
+        // over the player's own RAYON_NUM_THREADS.
+        assert_eq!(rayon_threads(Some(16), false), Some(16));
+        assert_eq!(rayon_threads(Some(16), true), None);
+        assert_eq!(rayon_threads(None, false), None);
+        // A pool built the way the global one is has that many workers (a local pool
+        // here: the global one can be built once a process).
+        let pool = rayon_pool(3).build().unwrap();
+        assert_eq!(pool.current_num_threads(), 3);
+        assert_eq!(pool.install(|| std::thread::current().name().map(str::to_string)).as_deref().map(|n| n.starts_with("nvf-rayon-")), Some(true));
         assert_eq!(
             restricted_line(&t, &dom(96, 0, 16), 16),
             "cpu placement: L3 domains 96 MiB (16 LPs), 32 MiB (16 LPs); restricted to the 96 MiB domain (16 LPs), task pools 16"

@@ -29,7 +29,8 @@ stops it with nothing written); the game uses DLSS from its next start.
 ## Getting the files from the settings: Download DLSS…
 
 [design: `settings.rs`, `nvf-dlss-files` `download/files.rs`] While any of the eight upscaling and frame
-generation files is missing, the Upscaler row (pause menu, **Settings > Graphics**) offers
+generation files is missing, the Upscaler row (pause menu, **Settings > Display**, Upscaling
+and Anti-Aliasing) offers
 **Download DLSS…** beside Off, FSR 3.1 and DLSS (Windows only, with the Vulkan renderer).
 Choosing it changes nothing in the row; it opens a dialog:
 
@@ -180,7 +181,8 @@ Streamline's Reflex (`sl.reflex.dll`) rather than its own calls; without them it
 
 ## Turning it on
 
-In the pause menu, **Settings > Graphics**, set **Upscaler** to **DLSS**, and
+In the pause menu, **Settings > Display** (Upscaling and Anti-Aliasing), set **Upscaler** to
+**DLSS**, and
 **Upscaling mode** to Native AA (DLSS at full resolution, also called DLAA), Quality,
 Balanced, Performance or Ultra Performance. Each mode shows the share of the screen's width and
 height the world is drawn at, for example Quality (67%): Native AA for full resolution with
@@ -259,8 +261,14 @@ It needs:
   Display > Graphics > Change default graphics settings), then a restart of Windows;
 - an upscaler: FSR 3.1 or DLSS, any mode (frame generation reads the upscaler's depth and
   motion);
-- **Display sync: Off**: on Vulkan, NVIDIA's frame generation does not run with vertical sync.
-  A G-Sync screen still shows the frames as they come;
+- **Display sync: Off or Variable refresh**: on Vulkan, NVIDIA's frame generation does not run
+  with vertical sync. With Variable refresh the game turns vsync off while it runs and keeps the
+  frames a few under the screen's refresh rate (through NVIDIA's Reflex), so a G-Sync screen
+  shows each frame as it comes; that is the choice for a G-Sync screen. A frame now and then
+  still comes in a little early and tears near the bottom of the screen; to stop that, set
+  **Vertical sync: On** for the game in the NVIDIA Control Panel (Manage 3D settings >
+  Program settings > `nvforever.exe`). The driver's vsync works with frame generation where
+  the game's own cannot;
 - the game's window in front: while another window is in front, no frames are generated.
 
 When it cannot run, the DLSS choice is greyed out with the reason: "The DLSS Frame Generation
@@ -271,8 +279,9 @@ not generated; menus and loading screens show real frames only. The performance 
 rate shows the frames shown and, in brackets, the real ones. The log's `DLSS-G:` lines say what
 happened.
 
-The **Frame rate limit** counts the frames shown: with frame generation on, real frames are held
-to the limit divided by the frames shown for each (144 at 2x: 72 real frames a second). In menus,
+The **Frame rate limit** counts the frames shown: with frame generation on, the whole limit goes
+to NVIDIA Reflex, which holds the frames shown, generated ones included, so real frames come at
+the limit divided by the frames shown for each (144 at 2x: 72 real frames a second). In menus,
 and whenever no frames are being generated (another window in front), real frames get the whole
 limit. A limit divided that far that fewer than 60 real frames a second are left (144 at 4x: 36)
 can feel choppy; the Generated frames row then says so. Fewer generated frames, or a limit nearer

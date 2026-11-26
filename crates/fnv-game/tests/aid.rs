@@ -51,6 +51,22 @@ const CHEM_HELD: u32 = 0x86C;
 const POISON_FX: u32 = 0x85A;
 const POISON: u32 = 0x86D;
 const WITHDRAWAL_HELD: u32 = 0x873;
+const NAMED_FX: u32 = 0x85B;
+const SCRIPT_FX: u32 = 0x85C;
+const LIMB_COND_FX: u32 = 0x85D;
+const PSYCHO: u32 = 0x86E;
+const REGEN: u32 = 0x85F;
+const DAMAGE_HEALTH: u32 = 0x85E;
+const RADS200: u32 = 0x879;
+const RADS400: u32 = 0x875;
+const REGEN_CAST: u32 = 0x876;
+const HEAL_ABILITY: u32 = 0x877;
+const HURT_ABILITY: u32 = 0x878;
+const RAD1: u32 = 0x881;
+const RAD2: u32 = 0x882;
+const RAD_CHILD: u32 = 0x893;
+const DRBAG: u32 = 0x86F;
+const HYDRA: u32 = 0x874;
 
 const P: FormId = FormId::PLAYER_REF;
 const STRENGTH: u16 = 5;
@@ -174,6 +190,15 @@ fn plugin_bytes() -> Vec<u8> {
         mgef(DAMAGE_RADS, "DamageRads", 4, 0, 54),
         mgef(RESTORE_HUNGER, "RestoreHunger", 0, 0, 74),
         mgef(REDUCE_END, "ReduceEndurance", 2 | 4, 0, 7),
+        // Script effects (archetype 1): one flagged Display Name Only (bit 13), as
+        // Psycho's "Damage +25%", and one not, as a Nuka-Cola's cap.
+        mgef(NAMED_FX, "PsychoMagicEffect", 1 << 13, 1, -1),
+        mgef(SCRIPT_FX, "PlainScriptEffect", 0, 1, -1),
+        // Self and No Duration, as the masters' Regeneration.
+        mgef(REGEN, "Regen", 0x10 | 0x80, 0, 16),
+        mgef(DAMAGE_HEALTH, "DamageHealth", 1 | 4, 0, 16),
+        // Limb Condition (archetype 35): NVRestoreLimbs for Doctor's Bag (instant) and Hydra (over time).
+        mgef(LIMB_COND_FX, "RestoreLimbs", 0, 35, -1),
     ]
     .concat();
     let alchs = [
@@ -196,16 +221,28 @@ fn plugin_bytes() -> Vec<u8> {
         alch(BLOOD, "Blood", 0, 0, 0.0, vec![effect_if(RESTORE_HEALTH, 4, 5, 16, vec![has_perk(LEAD_BELLY, 1.0)]), effect(RESTORE_HEALTH, 1, 0, 16)]),
         alch(CHEM_HELD, "ChemHeld", 0, WITHDRAWAL_HELD, 0.0, vec![effect(MOD_STR, 2, 4, 5)]),
         alch(POISON, "TestVenom", 0, 0, 0.0, vec![effect(POISON_FX, 5, 0, 16)]),
+        alch(PSYCHO, "Psycho", 0, 0, 0.0, vec![effect(NAMED_FX, 0, 240, -1), effect(SCRIPT_FX, 0, 240, -1), effect(MOD_STR, 1, 240, 5)]),
+        alch(DRBAG, "DrBag", 4, 0, 0.0, vec![effect(LIMB_COND_FX, 36, 0, -1)]),
+        alch(HYDRA, "Hydra", 0, 0, 0.0, vec![effect(LIMB_COND_FX, 10, 6, -1)]),
     ]
     .concat();
     let spels = [
         spel(WITHDRAWAL, "BuffWithdrawal", 10, vec![effect(REDUCE_STR, 1, 0, 5)]),
         spel(ABILITY, "StrongAbility", 4, vec![effect(MOD_STR, 1, 0, 5)]),
         spel(THIRST1, "Dehydration200", 1, vec![effect(REDUCE_STR, 1, 0, 5)]),
+        // Stages of radiation sickness that regenerate Health with the perk (Disease).
+        spel(RADS200, "Radiation200", 1, vec![effect(REDUCE_STR, 1, 0, 5), effect_if(REGEN, 2, 0, 16, vec![has_perk(RAD_CHILD, 1.0)])]),
+        spel(RADS400, "Radiation400", 1, vec![effect(REDUCE_STR, 2, 0, 5), effect_if(REGEN, 4, 0, 16, vec![has_perk(RAD_CHILD, 1.0)])]),
+        // The same base effect cast once, and abilities that are no regeneration.
+        spel(REGEN_CAST, "RegenCast", 0, vec![effect(REGEN, 5, 0, 16)]),
+        spel(HEAL_ABILITY, "HealAbility", 4, vec![effect(RESTORE_HEALTH, 10, 0, 16)]),
+        spel(HURT_ABILITY, "HurtAbility", 4, vec![effect(DAMAGE_HEALTH, 10, 0, 16)]),
         spel(WITHDRAWAL_HELD, "HeldWithdrawal", 10, vec![effect_if(REDUCE_STR, 1, 0, 5, vec![lucky()]), effect_if(REDUCE_END, 1, 0, 7, vec![lucky()])]),
     ]
     .concat();
     let stages = record(b"DEHY", 0, WATER1, &[sub(b"EDID", z("Water1")), sub(b"DATA", u32s(&[200, THIRST1]))]);
+    let rads =
+        [(RAD1, "Rad1", 200, RADS200), (RAD2, "Rad2", 400, RADS400)].map(|(id, edid, at, spell)| record(b"RADS", 0, id, &[sub(b"EDID", z(edid)), sub(b"DATA", u32s(&[at, spell]))])).concat();
     let settings = [
         gmst(0x8A0, "fHCStarvationRate", 25.0),
         gmst(0x8A1, "fHCSleepDeprivationRate", 50.0),
@@ -213,7 +250,7 @@ fn plugin_bytes() -> Vec<u8> {
         gmst(0x8A3, "fAVDCarryWeightMult", 10.0),
     ]
     .concat();
-    let perks = [perk(CHEMIST, "Chemist", 25, 3, 2.0), perk(RESISTANT, "ChemResistant", 23, 3, 0.5), perk(LEAD_BELLY, "LeadBelly", 44, 3, 0.5)].concat();
+    let perks = [perk(CHEMIST, "Chemist", 25, 3, 2.0), perk(RESISTANT, "ChemResistant", 23, 3, 0.5), perk(LEAD_BELLY, "LeadBelly", 44, 3, 0.5), perk(RAD_CHILD, "RadChild", 24, 3, 1.0)].concat();
     let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     [
@@ -222,6 +259,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NPC_", &player),
         top(b"PERK", &perks),
         top(b"DEHY", &stages),
+        top(b"RADS", &rads),
         top(b"MGEF", &mgefs),
         top(b"SPEL", &spels),
         top(b"ALCH", &alchs),
@@ -333,6 +371,39 @@ fn a_stimpak_on_a_limb_gives_it_the_whole_amount() {
     assert!(near(av(&mut g, HEALTH), 79.0));
     assert!(near(av(&mut g, PERCEPTION_CONDITION), 89.0));
     assert!(near(av(&mut g, PERCEPTION_CONDITION + 1), 50.0));
+}
+
+/// A Doctor's Bag aimed at one limb in Hardcore heals only that limb to full; un-aimed it
+/// restores every limb by `36 * potency`, and a duration Limb Condition item (Hydra) still
+/// restores all limbs over time (#3431).
+#[test]
+fn a_doctors_bag_aimed_at_a_limb_heals_only_that_limb() {
+    let f = fixture();
+    let mut g = game(&f);
+    let head = PERCEPTION_CONDITION;
+    let left_arm = PERCEPTION_CONDITION + 2;
+    let left_leg = PERCEPTION_CONDITION + 4;
+    // Aimed at left arm: only left arm heals to 100; head and left leg stay crippled.
+    for limb in [head, left_arm, left_leg] {
+        add_actor_value_damage(&mut g, P, limb, 100.0);
+    }
+    g.ingest_on(P, FormId(DRBAG), Some(left_arm));
+    assert!(near(av(&mut g, head), 0.0), "head must stay untouched when left arm is targeted");
+    assert!(near(av(&mut g, left_arm), 100.0), "targeted left arm heals to full");
+    assert!(near(av(&mut g, left_leg), 0.0), "left leg must stay untouched");
+    // Aimed at head: only head heals to 100; left leg stays at 0.
+    g.ingest_on(P, FormId(DRBAG), Some(head));
+    assert!(near(av(&mut g, head), 100.0));
+    assert!(near(av(&mut g, left_leg), 0.0));
+    // Un-aimed (body): restores every damaged limb by floor(36 * 1.3) = 46 at Medicine 15.
+    add_actor_value_damage(&mut g, P, head, 100.0);
+    g.ingest_on(P, FormId(DRBAG), None);
+    assert!(near(av(&mut g, head), 46.0));
+    assert!(near(av(&mut g, left_leg), 46.0));
+    // Duration Limb Condition (Hydra): restores all limbs over time even if a limb was passed.
+    g.ingest_on(P, FormId(HYDRA), Some(head));
+    g.frames(120);
+    assert!(av(&mut g, head) > 65.0 && av(&mut g, left_leg) > 65.0);
 }
 
 /// Without Recover and with a duration the magnitude is restored every second while
@@ -996,4 +1067,237 @@ fn a_poison_needs_a_weapon_that_takes_it() {
     assert!(!g.is_poison(FormId(STIM)) && !g.is_poison(FormId(BUFF)));
     assert_eq!(g.use_poison(FormId(POISON)), PoisonUse::NoWeapon);
     assert!(g.player.weapon_poisons.is_empty() && g.player.poison_asked.is_none());
+}
+
+/// #3119: the preview names a Script effect flagged Display Name Only (Psycho's), not one
+/// without the flag, beside the values; an item with none names nothing.
+#[test]
+fn the_preview_names_script_effects_shown_by_name() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.aid_preview_names(P, FormId(PSYCHO)), vec![FormId(NAMED_FX)]);
+    assert_eq!(g.aid_preview(P, FormId(PSYCHO)), vec![(STRENGTH, 1.0)]);
+    assert!(g.aid_preview_names(P, FormId(STIM)).is_empty());
+    let m = &g.data.magic_effects[&FormId(NAMED_FX)];
+    assert!(m.shows_name());
+    assert!(!g.data.magic_effects[&FormId(SCRIPT_FX)].shows_name());
+}
+
+/// What a regeneration of `magnitude` gives in `seconds` (aid-items.md §3).
+fn regen(magnitude: f64, seconds: f64) -> f64 {
+    magnitude * seconds * fnv_game::aid::REGENERATION_RATE
+}
+
+/// The player at Health 100 hurt by `hurt`, with `rads`, in their stage (and the perk).
+fn irradiated(f: &Fixture, hurt: f64, rads: f64, rad_child: bool) -> Game<'_> {
+    let mut g = game(f);
+    if rad_child {
+        g.player.perks.insert(FormId(RAD_CHILD), 1);
+    }
+    set_actor_value_current(&mut g, P, RAD_LEVEL, rads).unwrap();
+    g.frames(1);
+    add_actor_value_damage(&mut g, P, HEALTH, hurt);
+    g
+}
+
+/// #3471: with Rad Child a stage of radiation sickness gives Health back by the second,
+/// up to the maximum; the next stage's rate takes over, and it stops with the perk or
+/// below the first stage (aid-items.md §3).
+#[test]
+fn rad_child_regenerates_by_the_second_in_a_stage() {
+    let f = fixture();
+    // Without the perk, nothing.
+    let mut g = irradiated(&f, 80.0, 250.0, false);
+    g.frames(600);
+    assert!(near(av(&mut g, HEALTH), 20.0));
+    // The perk is noticed within a second (the conditions' check).
+    g.player.perks.insert(FormId(RAD_CHILD), 1);
+    g.frames(62);
+    let h = av(&mut g, HEALTH);
+    g.frames(600);
+    let now = av(&mut g, HEALTH);
+    assert!((now - h - regen(2.0, 10.0)).abs() < 1e-3, "{h} -> {now}");
+    // The second stage: its rate alone.
+    set_actor_value_current(&mut g, P, RAD_LEVEL, 450.0).unwrap();
+    g.frames(2);
+    let h = av(&mut g, HEALTH);
+    g.frames(300);
+    let now = av(&mut g, HEALTH);
+    assert!((now - h - regen(4.0, 5.0)).abs() < 1e-3, "{h} -> {now}");
+    // Back to the first.
+    set_actor_value_current(&mut g, P, RAD_LEVEL, 399.0).unwrap();
+    g.frames(2);
+    let h = av(&mut g, HEALTH);
+    g.frames(60);
+    let now = av(&mut g, HEALTH);
+    assert!((now - h - regen(2.0, 1.0)).abs() < 1e-3, "{h} -> {now}");
+    // Not past the maximum.
+    g.pass_hours(10.0, false);
+    assert_eq!(av(&mut g, HEALTH), 100.0);
+    g.frames(60);
+    assert_eq!(av(&mut g, HEALTH), 100.0);
+    // The perk gone: it stops.
+    add_actor_value_damage(&mut g, P, HEALTH, 50.0);
+    g.player.perks.remove(&FormId(RAD_CHILD));
+    g.frames(62);
+    let h = av(&mut g, HEALTH);
+    g.frames(300);
+    assert_eq!(av(&mut g, HEALTH), h);
+    // Rads under the first stage: it stops at once.
+    let mut g = irradiated(&f, 50.0, 250.0, true);
+    g.frames(60);
+    assert!(av(&mut g, HEALTH) > 50.0);
+    set_actor_value_current(&mut g, P, RAD_LEVEL, 199.0).unwrap();
+    g.frames(2);
+    let h = av(&mut g, HEALTH);
+    g.frames(300);
+    assert_eq!(av(&mut g, HEALTH), h);
+    // Nor does a body regenerate.
+    let mut g = irradiated(&f, 50.0, 250.0, true);
+    g.extra.entry(P).or_default().dead = true;
+    let h = av(&mut g, HEALTH);
+    g.frames(60);
+    assert_eq!(av(&mut g, HEALTH), h);
+}
+
+/// #3471: saved while active, the regeneration goes on at its rate, neither lost nor
+/// twice; one saved as a single restoration (before the fix) goes on by the second too.
+#[test]
+fn a_regeneration_is_saved() {
+    use fnv_game::aid::ChangeKind;
+    let f = fixture();
+    let mut g = irradiated(&f, 80.0, 250.0, true);
+    g.frames(120);
+    let before = av(&mut g, HEALTH);
+    for old in [false, true] {
+        let mut s = g.snapshot();
+        for e in s.effects.iter_mut().filter(|e| old && e.effect == FormId(REGEN)) {
+            e.change.as_mut().unwrap().kind = ChangeKind::Once;
+        }
+        let text = serde_json::to_string(&s).unwrap();
+        let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+        let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+        let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+        assert!(near(av(&mut h, HEALTH), before), "old {old}");
+        h.frames(300);
+        assert_eq!(h.effects.iter().filter(|e| e.target == P && e.effect == FormId(REGEN)).count(), 1);
+        let now = av(&mut h, HEALTH);
+        assert!((now - before - regen(2.0, 5.0)).abs() < 1e-3, "old {old}: {before} -> {now}");
+    }
+}
+
+/// #3471: a wait gives the regeneration of the seconds of play its hours stand for, up
+/// to the maximum, and checks the conditions first.
+#[test]
+fn a_wait_regenerates_for_its_seconds() {
+    let f = fixture();
+    let mut g = irradiated(&f, 80.0, 250.0, true);
+    let h = av(&mut g, HEALTH);
+    let passed = g.pass_hours(0.1, false);
+    assert!(near(passed.seconds, 12.0));
+    let now = av(&mut g, HEALTH);
+    assert!((now - (h + regen(2.0, 12.0)).min(100.0)).abs() < 1e-6, "{h} -> {now}");
+    g.pass_hours(1.0, false);
+    let next = av(&mut g, HEALTH);
+    assert!((next - (now + regen(2.0, 120.0)).min(100.0)).abs() < 1e-6, "{now} -> {next}");
+    // The perk just gone: the wait does not heal.
+    let mut g = irradiated(&f, 80.0, 250.0, true);
+    g.frames(1);
+    g.player.perks.remove(&FormId(RAD_CHILD));
+    let h = av(&mut g, HEALTH);
+    g.pass_hours(1.0, false);
+    assert_eq!(av(&mut g, HEALTH), h);
+}
+
+/// #3471: what is no permanent regeneration acts once, as before.
+#[test]
+fn other_restorations_still_act_once() {
+    let f = fixture();
+    let mut g = game(&f);
+    add_actor_value_damage(&mut g, P, HEALTH, 60.0);
+    g.apply_magic_item(P, FormId(REGEN_CAST), None, false);
+    assert!(near(av(&mut g, HEALTH), 45.0));
+    call(&mut g, 0x101C, &[form(HEAL_ABILITY)]);
+    assert!(near(av(&mut g, HEALTH), 55.0));
+    call(&mut g, 0x101C, &[form(HURT_ABILITY)]);
+    g.frames(120);
+    assert!(near(av(&mut g, HEALTH), 45.0));
+}
+
+/// `[Sleep Healing] bMiscStatRequiresSleepDuration`: with a minimum sleep duration set,
+/// Times Slept increments only when the sleep meets that duration unless the option is off.
+#[test]
+fn sleep_misc_stat_requires_duration_gates_times_slept() {
+    use fnv_game::misc_stats::TIMES_SLEPT;
+    let f = fixture();
+
+    // Default (sleep_heal_min_hours = 0): any sleep counts.
+    let mut g = game(&f);
+    assert_eq!(g.tweaks.sleep_heal_min_hours, 0);
+    assert!(g.tweaks.sleep_misc_stat_requires_duration);
+    g.begin_rest(true, 1);
+    assert_eq!(g.misc_stat(TIMES_SLEPT), 1.0);
+
+    // Min duration 6h, bMiscStatRequiresSleepDuration = true: 3h does not count, 6h does.
+    let mut g = game(&f);
+    g.tweaks.sleep_heal_min_hours = 6;
+    g.tweaks.sleep_misc_stat_requires_duration = true;
+    g.begin_rest(true, 3);
+    assert_eq!(g.misc_stat(TIMES_SLEPT), 0.0, "short sleep skipped");
+    g.rest.end();
+    g.begin_rest(true, 6);
+    assert_eq!(g.misc_stat(TIMES_SLEPT), 1.0, "full duration sleep counts");
+
+    // Min duration 6h, bMiscStatRequiresSleepDuration = false: 3h still counts.
+    let mut g = game(&f);
+    g.tweaks.sleep_heal_min_hours = 6;
+    g.tweaks.sleep_misc_stat_requires_duration = false;
+    g.begin_rest(true, 3);
+    assert_eq!(g.misc_stat(TIMES_SLEPT), 1.0);
+}
+
+/// `[Grabbing Items Is Crime] fMinValue`: grabbing an owned item counts as stealing only
+/// when the grabbed stack's base value (unit value × count) meets `fMinValue`.
+#[test]
+fn grab_triggers_theft_respects_min_value_and_stack_count() {
+    const VAL0: u32 = 0x901;
+    const VAL5: u32 = 0x902;
+    const VAL15: u32 = 0x903;
+    let misc = |id: u32, edid: &str, value: i32| {
+        record(b"MISC", 0, id, &[sub(b"EDID", z(edid)), sub(b"DATA", [value.to_le_bytes(), 1.0f32.to_le_bytes()].concat())])
+    };
+    let bytes = [
+        tes4(),
+        top(b"MISC", &[misc(VAL0, "Worthless", 0), misc(VAL5, "Cheap", 5), misc(VAL15, "Costly", 15)].concat()),
+        top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))])),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &record(b"CELL", 0, CELL, &[sub(b"EDID", z("Room"))])))),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "GrabVal.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&data, world, GameConfig::default());
+
+    // Tweak off: never triggers.
+    assert!(!g.grab_triggers_theft(FormId(VAL15), 1));
+
+    // fMinValue = 0.0: even worthless items trigger.
+    g.tweaks.grabbing_is_theft = true;
+    g.tweaks.grabbing_is_theft_min_value = 0.0;
+    assert!(g.grab_triggers_theft(FormId(VAL0), 1));
+    assert!(g.grab_triggers_theft(FormId(VAL5), 1));
+
+    // fMinValue = 10.0: single 5-cap item skipped; stack of 2x5 = 10 triggers; single 15 triggers.
+    g.tweaks.grabbing_is_theft_min_value = 10.0;
+    assert!(!g.grab_triggers_theft(FormId(VAL0), 1));
+    assert!(!g.grab_triggers_theft(FormId(VAL5), 1));
+    assert!(g.grab_triggers_theft(FormId(VAL5), 2));
+    assert!(g.grab_triggers_theft(FormId(VAL15), 1));
 }

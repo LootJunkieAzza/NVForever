@@ -50,11 +50,11 @@ impl Game<'_> {
     /// Whether `item` is a poison: an ingestible with effects, all of them Detrimental and
     /// Hostile [documented: GECK wiki Ingestible].
     pub fn is_poison(&self, item: FormId) -> bool {
-        if !self.data.ingestibles.contains_key(&item) {
+        if self.ingestible_def(item).is_none() {
             return false;
         }
-        let Some(effects) = self.data.effect_items.get(&item).filter(|e| !e.is_empty()) else { return false };
-        effects.iter().all(|e| self.data.magic_effects.get(&e.effect).is_some_and(|m| m.has(MagicEffectDef::DETRIMENTAL) && m.has(MagicEffectDef::HOSTILE)))
+        let Some(effects) = self.data.effect_items.get(&self.unclone(item)).filter(|e| !e.is_empty()) else { return false };
+        effects.iter().all(|e| self.magic_effect_def(e.effect).is_some_and(|m| m.has(MagicEffectDef::DETRIMENTAL) && m.has(MagicEffectDef::HOSTILE)))
     }
 
     /// Whether `weapon` takes a poison: a Melee Weapons or Unarmed weapon [hypothesis, module notes].

@@ -168,3 +168,106 @@ fn a_failing_condition_changes_nothing_and_is_not_listed() {
     assert_eq!(figure(g, PERCEPTION), (7.0, 5.0));
     assert_eq!(worn_changes(g), vec![(GLASSES, vec![(PERCEPTION, 2.0)])]);
 }
+
+/// #3119: an item's effect text is its values, then the names of effects shown by name;
+/// either alone stands by itself, and an empty name is left out.
+#[test]
+fn effect_text_puts_the_names_after_the_values() {
+    assert_eq!(with_names("STR +2".into(), ["Damage +25%".to_string()]), "STR +2, Damage +25%");
+    assert_eq!(with_names(String::new(), ["Damage +25%".to_string()]), "Damage +25%");
+    assert_eq!(with_names("HP +40".into(), Vec::<String>::new()), "HP +40");
+    assert_eq!(with_names(String::new(), ["".to_string(), "Low-Light Vision".to_string()]), "Low-Light Vision");
+    assert_eq!(with_names(String::new(), Vec::<String>::new()), "");
+}
+
+/// #3118: the Perks list shows a perk the player has unless it is Hidden; Playable (the
+/// level-up menu's) does not matter. Lord Death's DATA is 00 00 03 00 00 (3 ranks, not
+/// Playable, not Hidden) [observed: `fnvtool esm decode`]; Psycho's effect perk is Hidden;
+/// a 4-byte DATA (Ant Sight) has no Hidden byte.
+#[test]
+fn a_perk_is_listed_unless_hidden_playable_or_not() {
+    let lord_death = PerkData::of(&[0, 0, 3, 0, 0]);
+    assert!(lord_death.listed(), "not Playable, not Hidden: listed");
+    assert_eq!(lord_death.ranks, 3);
+    assert!(PerkData::of(&[0, 2, 10, 1, 0]).listed(), "Playable, not Hidden: listed as before");
+    assert!(!PerkData::of(&[0, 0, 1, 0, 1]).listed(), "Hidden: left out");
+    assert!(!PerkData::of(&[0, 0, 1, 1, 1]).listed(), "Playable and Hidden: left out");
+    assert!(PerkData::of(&[0, 0, 1, 0]).listed(), "4-byte DATA, not Playable: listed");
+    assert_eq!(PerkData::of(&[]).ranks, 1, "no DATA: one rank");
+}
+
+/// #3400: an actor value's short name (AVIF ANAM) is read in the load order's code page,
+/// as FULL is: on a Russian install Windows-1251's "Крас." (Charisma's abbreviation, say),
+/// not the Latin-1 letters "Êðàñ." the font has no glyphs for.
+#[test]
+fn a_short_name_is_read_in_the_code_page() {
+    use fnv_util::text::CodePage;
+    let anam = [0xCA, 0xF0, 0xE0, 0xF1, b'.', 0];
+    assert_eq!(zstring(&anam, CodePage::Windows1251), "Крас.");
+    assert_eq!(zstring(b"CHR\0junk", CodePage::Windows1252), "CHR", "stops at the first NUL");
+    assert_ne!(zstring(&anam, CodePage::Windows1252), "Крас.");
+}
+
+#[test]
+fn pipboy_stats_snapshot_resolves_ttw_ini_karma_titles_for_levels_1_through_50() {
+    fn glob(fid: u32, edid: &str, v: f32) -> Vec<u8> {
+        record(b"GLOB", fid, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", v.to_le_bytes().to_vec())])
+    }
+    let globs = [
+        glob(0x900, "KarmaVeryEvil", -750.0),
+        glob(0x901, "KarmaEvil", -250.0),
+        glob(0x902, "KarmaGood", 250.0),
+        glob(0x903, "KarmaVeryGood", 750.0),
+    ]
+    .concat();
+    let player = record(b"NPC_", 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let bytes = [tes4(), top(b"GLOB", &globs), top(b"NPC_", &player)].concat();
+    let plugins: &'static [fnv_esm::Plugin] = Box::leak(Box::new([fnv_esm::Plugin::parse(&bytes, "Karma.esm".into()).unwrap()]));
+    let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).unwrap()));
+    let schema: &'static Schema = Box::leak(Box::new(Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap()));
+    let mut forms = Forms::new(lo, schema);
+    let mut sim = SimState::new(lo, schema, &fnv_world::WorldIndex::default());
+    let mut script = ScriptState::over_plugins(plugins);
+
+    // No TTW.ini and no sKarmicTitle* setting in the synthetic plugin: the title is the
+    // alignment word, and the tile's setting title is None.
+    {
+        let g = &mut script.rt.as_mut().unwrap().game;
+        g.player.level = Some(45);
+        gf::set_actor_value_current(g, P, av::KARMA, -500.0).unwrap();
+    }
+    let vanilla = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(vanilla.karma_title.as_deref(), Some("Evil"));
+    assert_eq!(vanilla.karma_setting_title, None);
+
+    // Synthetic TTW.ini with level 1..=50 titles across Good, Neutral, and Evil.
+    let mut ini = String::from("[Karma Titles]\n");
+    for lvl in 1..=50 {
+        ini.push_str(&format!("sKarmicTitleGood{lvl}=SynthGood{lvl}\n"));
+        ini.push_str(&format!("sKarmicTitleNeutral{lvl}=SynthNeutral{lvl}\n"));
+        ini.push_str(&format!("sKarmicTitleEvil{lvl}=SynthEvil{lvl}\n"));
+    }
+    script.rt.as_mut().unwrap().game.mod_files.write_bytes("NVSE/Plugins/TTW.ini", ini.as_bytes());
+
+    let evil_45 = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(evil_45.karma_title.as_deref(), Some("SynthEvil45"));
+    assert_eq!(evil_45.karma_setting_title.as_deref(), Some("SynthEvil45"));
+
+    {
+        let g = &mut script.rt.as_mut().unwrap().game;
+        g.player.level = Some(50);
+        gf::set_actor_value_current(g, P, av::KARMA, 800.0).unwrap();
+    }
+    let good_50 = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(good_50.karma_title.as_deref(), Some("SynthGood50"));
+    assert_eq!(good_50.karma_setting_title.as_deref(), Some("SynthGood50"));
+
+    {
+        let g = &mut script.rt.as_mut().unwrap().game;
+        g.player.level = Some(31);
+        gf::set_actor_value_current(g, P, av::KARMA, 0.0).unwrap();
+    }
+    let neutral_31 = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(neutral_31.karma_title.as_deref(), Some("SynthNeutral31"));
+    assert_eq!(neutral_31.karma_setting_title.as_deref(), Some("SynthNeutral31"));
+}

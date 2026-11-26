@@ -320,12 +320,24 @@ fn climate_trait(g: &Game, c: FormId, t: i64) -> f64 {
 
 fn set_climate_trait(g: &mut Game, c: FormId, t: i64, v: f64) {
     const SUN: [&str; 4] = ["sunrise_begin", "sunrise_end", "sunset_begin", "sunset_end"];
+    if g.data.sig(g.unclone(c)) != Some(*b"CLMT") || !v.is_finite() {
+        return;
+    }
     match t {
-        0..=3 => set(g, c, "TNAM", SUN[t as usize], XVal::Num((v / 10.0).trunc().clamp(0.0, 255.0))),
+        0..=3 => {
+            let units = ((v.trunc() as i64 as u32) / 10).min(143);
+            set(g, c, "TNAM", SUN[t as usize], XVal::Num(f64::from(units)));
+        }
         4 => set(g, c, "TNAM", "volatility", XVal::Num(v.trunc().clamp(0.0, 255.0))),
         5 | 6 => {
             let now = get_num(g, c, "TNAM", "moons_phase_length") as u64;
-            let new = if t == 5 { (now & 0x3F) | (((v as u64) & 3) << 6) } else { (now & 0xC0) | ((v as u64) & 0x3F) };
+            let new = if t == 5 {
+                let moons = (v.trunc() as i64).clamp(0, 3) as u64;
+                (now & 0x3F) | (moons << 6)
+            } else {
+                let phase = (v.trunc() as i64).clamp(0, 63) as u64;
+                (now & 0xC0) | phase
+            };
             set(g, c, "TNAM", "moons_phase_length", XVal::Num(new as f64));
         }
         _ => {}
@@ -413,12 +425,7 @@ impl Game<'_> {
     /// `nvse_gaps`) [documented: GetIsPoisoned, "under the influence of a poison-type
     /// effect"; hypothesis: the rule].
     fn jip4_poisoned(&self, a: FormId) -> bool {
-        self.effects.iter().filter(|e| e.target == a).any(|e| {
-            self.data.sig(e.source) == Some(*b"ALCH") && {
-                let list = self.data.effect_items.get(&e.source).map(Vec::as_slice).unwrap_or_default();
-                !list.is_empty() && list.iter().all(|x| self.data.magic_effects.get(&x.effect).is_some_and(|m| m.flags & 0x5 == 0x5))
-            }
-        })
+        self.effects.iter().filter(|e| e.target == a).any(|e| self.is_poison(e.source))
     }
 }
 
@@ -536,7 +543,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getcellnoisetexture" => XVal::Str(get_str(g, f0, "XNAM", "")),
         "setcellclimate" | "setcelllightingtemplate" => {
             let sub = if name == "setcellclimate" { "XCCM" } else { "LTMP" };
-            set(g, f0, sub, "", XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
+            let next = XVal::Ref(form(args, 1).map_or(0, |r| r.0));
+            let prev = if name == "setcelllightingtemplate" {
+                g.field_overrides.get(&(f0, "LTMP/".into())).cloned()
+            } else {
+                None
+            };
+            set(g, f0, sub, "", next.clone());
+            if name == "setcelllightingtemplate" && prev != Some(next) {
+                g.bump_lighting_revision();
+            }
             zero
         }
         "setcellnoisetexture" => {
@@ -555,17 +571,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             set(g, f0, "NNAM", "", XVal::Str(text(args, 1)));
             zero
         }
-        // Sounds: the IDs are SNDD flags' bits (SNDX in older records) [documented:
-        // GetSoundFlag; the schema's SOUN].
-        "getsoundflag" => {
-            let sub = if json(g, f0, "SNDD", "").is_some() { "SNDD" } else { "SNDX" };
-            yes(get_bit(g, f0, sub, "flags", k))
-        }
         // [documented: GetGameDifficulty, SetGameDifficulty: 0 very easy … 4 very hard].
         "getgamedifficulty" => XVal::Num(g.difficulty.code() as f64),
         "setgamedifficulty" => {
             if let Some(d) = crate::difficulty::Difficulty::from_code(num(args, 0, -1.0) as i64) {
-                g.difficulty = d;
+                // Kept as the player's choice too (`crate::difficulty` module notes), so the
+                // engine does not put its own level back.
+                g.script_set_difficulty(d);
             }
             zero
         }
@@ -626,12 +638,18 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             zero
         }
-        // The cell, place and angles (degrees) the reference has in the plugins; 0 for a
-        // reference made in the game [documented: GetEditorPosition; hypothesis: the
-        // angles in degrees, as GetAngle].
+        // The cell, place and angles (degrees) the reference has in the plugins; returns 0
+        // and preserves all six output variables unchanged for a reference with no editor
+        // placement such as the player or a runtime-created reference [documented:
+        // GetEditorPosition; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN
+        // 57.30, 2026-11-24, `w6_t1_03_pos_ex_and_editor_pos`
+        // (`tools/capture/nvse/catalogs/wave6_t1_editor_pos.json`, `jip-traits-4.md` §10):
+        // `edDoc=00103DF9(dpos=0.00,0.00,0.00|rot=0.000,0.000,22.918|start=0.000,0.000,22.918)|edPc=00000000(111.0,222.0,333.0,444.0,555.0,666.0)`].
         "geteditorposition" => {
-            let p = subject.and_then(|r| g.world.placed.get(r)).map(|p| (p.cell, p.pos, p.rot));
-            let (cell, pos, rot) = p.unwrap_or((None, [0.0; 3], [0.0; 3]));
+            let Some(p) = subject.and_then(|r| g.world.placed.get(r)) else {
+                return Some(Ok(XVal::Ref(0)));
+            };
+            let (cell, pos, rot) = (p.cell, p.pos, p.rot);
             let d = |a: f32| f64::from(a.to_degrees());
             let outs = [f64::from(pos[0]), f64::from(pos[1]), f64::from(pos[2]), d(rot[0]), d(rot[1]), d(rot[2])];
             let ret = XVal::Ref(cell.map_or(0, |c| c.0));

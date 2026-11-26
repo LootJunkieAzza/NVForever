@@ -26,10 +26,31 @@ use std::sync::Arc;
 
 /// What an offset image is made of: the `.egt` (archive path) and the texture
 /// coefficients' bits.
-#[derive(Clone, PartialEq, Eq, Hash)]
-struct OffsetKey {
-    egt: String,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OffsetKey {
+    pub egt: String,
     fgts: Vec<u64>,
+}
+
+impl OffsetKey {
+    pub fn new(egt: String, fgts: &[f64]) -> OffsetKey {
+        OffsetKey { egt, fgts: fgts.iter().map(|v| v.to_bits()).collect() }
+    }
+
+    pub fn fgts(&self) -> Vec<f64> {
+        self.fgts.iter().map(|&b| f64::from_bits(b)).collect()
+    }
+}
+
+/// Seconds an offset image made ahead (`readahead.rs`) is kept for its NPC: as long as
+/// a part read ahead waits for its actor (`nvf_assets::actor`'s `FETCHED_KEEP_SECS`)
+/// [engineering choice].
+const AHEAD_KEEP_SECS: f64 = 30.0;
+
+/// Make the offset image of `egt` for the texture coefficients `fgts`: on a worker
+/// thread for the read-ahead ([`FaceGenCache::offer_offset`]), or when an NPC is drawn.
+pub fn make_offset(egt: &Egt, fgts: &[f64]) -> Result<Image, String> {
+    offset_image(egt.columns, egt.rows, &offset_planes(egt, fgts))
 }
 
 /// Parsed FaceGen files and the offset images made from them; `None` remembers that a
@@ -40,10 +61,20 @@ pub struct FaceGenCache {
     egt: HashMap<String, Option<Arc<Egt>>>,
     /// Offset images made, while something holds them.
     made: HashMap<OffsetKey, AssetId<Image>>,
+    /// Offset images made ahead on a worker thread (`readahead.rs`), held until their
+    /// NPC is drawn or for [`AHEAD_KEEP_SECS`] (seconds of game time when made); and
+    /// those that could not be made (a broken `.egt`: made again when drawn, which says
+    /// why).
+    ahead: HashMap<OffsetKey, (Handle<Image>, f64)>,
+    ahead_failed: std::collections::HashSet<OffsetKey>,
+    /// Offset images made ahead on a worker thread, and of them those an NPC was drawn with.
+    pub offsets_ahead: usize,
+    pub offsets_ahead_used: usize,
     pub morphed_shapes: usize,
-    /// Face offset images made.
+    /// Face offset images made for a drawn NPC (on the main thread, or ahead and taken).
     pub faces_tinted: usize,
-    /// Body and hand skin offset images made (the race's body and hand `.egt`).
+    /// Body and hand skin offset images made for a drawn NPC (the race's body and hand
+    /// `.egt`), likewise.
     pub skins_tinted: usize,
     /// Materials given an offset image.
     pub shapes_tinted: usize,
@@ -53,6 +84,9 @@ pub struct FaceGenCache {
     pub egt_time: std::time::Duration,
     /// EGMs whose vertex count does not cover the shape they sit beside.
     pub mismatched: usize,
+    /// Copies of materials made the game's own for good (#2981, [`Self::role_legacy`]), by
+    /// source, while both exist (weak: the ids only).
+    legacy_copies: HashMap<AssetId<NifMaterial>, AssetId<NifMaterial>>,
 }
 
 /// `meshes\a\b.nif` → `meshes\a\b.<ext>`.
@@ -200,13 +234,19 @@ impl FaceGenCache {
     /// The offset image of `egt` for `fgts`: the one made already, else a new one.
     /// `None`: the `.egt` is missing or unreadable.
     fn offset(&mut self, ctx: &mut ActorCtx, skin: bool, egt: String, fgts: &[f64]) -> Option<Handle<Image>> {
-        let key = OffsetKey { egt, fgts: fgts.iter().map(|v| v.to_bits()).collect() };
+        let key = OffsetKey::new(egt, fgts);
+        // Made ahead: the NPC's material holds it from here on.
+        if let Some((image, _)) = self.ahead.remove(&key) {
+            self.offsets_ahead_used += 1;
+            *(if skin { &mut self.skins_tinted } else { &mut self.faces_tinted }) += 1;
+            return Some(image);
+        }
         if let Some(image) = self.made.get(&key).and_then(|id| ctx.models.images.get_strong_handle(*id)) {
             return Some(image);
         }
         let file = self.egt(&ctx.models.data, &key.egt)?;
         let start = std::time::Instant::now();
-        let image = offset_image(file.columns, file.rows, &offset_planes(&file, fgts));
+        let image = make_offset(&file, fgts);
         self.offset_time += start.elapsed();
         let image = match image {
             Ok(i) => i,
@@ -223,9 +263,72 @@ impl FaceGenCache {
         Some(image)
     }
 
-    /// A copy of `material` whose shader adds the FaceGen offset `offset` to its texture.
+    /// `material` made the game's own for good (#2981, `nvf_assets::authored::make_legacy`):
+    /// for a shape whose role (race skin, a head's face, the hair model) is known only once
+    /// its part is worn, and which takes no authored set, whether or not a tint follows. A
+    /// material without a legacy look (it could never take a set) is returned as it is; the
+    /// copy is shared by every actor wearing the same source.
+    pub fn role_legacy(&mut self, materials: &mut Assets<NifMaterial>, material: &Handle<NifMaterial>) -> Handle<NifMaterial> {
+        if !materials.get(material).is_some_and(|m| m.extension.legacy.is_some()) {
+            return material.clone();
+        }
+        if let Some(h) = self.legacy_copies.get(&material.id()).and_then(|&id| materials.get_strong_handle(id)) {
+            return h;
+        }
+        let Some(mut m) = materials.get(material).cloned() else { return material.clone() };
+        nvf_assets::authored::make_legacy(&mut m);
+        let h = materials.add(m);
+        self.legacy_copies.retain(|source, copy| materials.contains(*source) && materials.contains(*copy));
+        self.legacy_copies.insert(material.id(), h.id());
+        h
+    }
+
+    /// The parsed `.egt` at `path` when it has been read (`None` also when it is absent).
+    pub fn egt_read(&self, path: &str) -> Option<Arc<Egt>> {
+        self.egt.get(path).cloned().flatten()
+    }
+
+    /// Whether drawing an NPC needs no offset image of `key` made on the main thread: made
+    /// already (ahead or for another NPC), its `.egt` known absent, or failed ahead.
+    pub fn offset_ready(&self, images: &Assets<Image>, key: &OffsetKey) -> bool {
+        self.ahead.contains_key(key)
+            || self.ahead_failed.contains(key)
+            || matches!(self.egt.get(&key.egt), Some(None))
+            || self.made.get(key).is_some_and(|id| images.contains(*id))
+    }
+
+    /// An offset image made ahead on a worker thread ([`make_offset`]), at game time
+    /// `now`: held for its NPC ([`AHEAD_KEEP_SECS`]).
+    pub fn offer_offset(&mut self, images: &mut Assets<Image>, key: OffsetKey, image: Result<Image, String>, now: f64) {
+        if self.offset_ready(images, &key) {
+            return;
+        }
+        match image {
+            Ok(image) => {
+                let image = images.add(image);
+                self.made.retain(|_, id| images.contains(*id));
+                self.made.insert(key.clone(), image.id());
+                self.ahead.insert(key, (image, now));
+                self.offsets_ahead += 1;
+            }
+            Err(_) => {
+                self.ahead_failed.insert(key);
+            }
+        }
+    }
+
+    /// Let go of the offset images made ahead that no NPC took within [`AHEAD_KEEP_SECS`]
+    /// of game time `now` (an NPC that left view before it was drawn).
+    pub fn expire_ahead(&mut self, now: f64) {
+        self.ahead.retain(|_, (_, made)| now - *made < AHEAD_KEEP_SECS);
+    }
+
+    /// A copy of `material` whose shader adds the FaceGen offset `offset` to its texture. A
+    /// FaceGen tint target is skin, which takes no authored set (#2981): a part's shape
+    /// found to be one only here (by the race's skin texture) goes back to the game's look.
     pub fn tinted(&mut self, materials: &mut Assets<NifMaterial>, material: &Handle<NifMaterial>, offset: &Handle<Image>) -> Option<Handle<NifMaterial>> {
         let mut m = materials.get(material)?.clone();
+        nvf_assets::authored::make_legacy(&mut m);
         m.extension.facegen_offset = Some(offset.clone());
         self.shapes_tinted += 1;
         Some(materials.add(m))
@@ -271,6 +374,37 @@ fn offset_image(columns: usize, rows: usize, planes: &[Vec<f32>; 3]) -> Result<I
 mod tests {
     use super::*;
 
+    /// #2981: a shape found to be skin, the face or the hair model is made the game's own for
+    /// good, whether it wore a set or only kept a legacy look; one copy per source; a material
+    /// that could never take a set is left as it is.
+    #[test]
+    fn role_legacy_drops_the_set_and_the_legacy_look_for_good() {
+        use nvf_assets::authored::{is_authored, LegacyLook, AUTHORED_MARK};
+        let mut images = Assets::<Image>::default();
+        let mut materials = Assets::<NifMaterial>::default();
+        let look = LegacyLook { normal: None, specular: None, roughness: 0.7, reflectance: 0.3, metallic: 0.0, tangents: false, specular_tint: Color::WHITE, parallax: Default::default(), scripted_tint: None };
+        let mut authored = nvf_assets::nif_material(StandardMaterial::default());
+        let orm = images.add(Image::default());
+        authored.base.metallic_roughness_texture = Some(orm.clone());
+        authored.base.occlusion_texture = Some(orm);
+        authored.base.perceptual_roughness = 1.0;
+        authored.extension.emissive_rule.w = AUTHORED_MARK;
+        authored.extension.legacy = Some(look.clone());
+        let mut eligible = nvf_assets::nif_material(StandardMaterial::default());
+        eligible.extension.legacy = Some(look);
+        let never = nvf_assets::nif_material(StandardMaterial::default());
+        let (authored, eligible, never) = (materials.add(authored), materials.add(eligible), materials.add(never));
+        let mut cache = FaceGenCache::default();
+        let a = cache.role_legacy(&mut materials, &authored);
+        let m = materials.get(&a).unwrap();
+        assert!(a != authored && !is_authored(m) && m.base.metallic_roughness_texture.is_none() && m.extension.legacy.is_none());
+        assert_eq!(m.base.perceptual_roughness, 0.7, "the legacy values are back");
+        assert_eq!(cache.role_legacy(&mut materials, &authored), a, "one copy per source");
+        let e = cache.role_legacy(&mut materials, &eligible);
+        assert!(e != eligible && materials.get(&e).unwrap().extension.legacy.is_none(), "no later swap can give it a set");
+        assert_eq!(cache.role_legacy(&mut materials, &never), never);
+    }
+
     #[test]
     fn absent_whole_egm_discovers_shape_files_and_missing_files_finish_readiness() {
         let mut cache = FaceGenCache::default();
@@ -284,6 +418,34 @@ mod tests {
         assert!(cache.has(&shape));
         cache.offer("head.egt".into(), FaceGenFile::Egt(None));
         assert!(cache.has("head.egt"));
+    }
+
+    #[test]
+    fn an_offset_made_ahead_is_held_for_its_npc_and_let_go_after_the_wait() {
+        let mut cache = FaceGenCache::default();
+        let mut images = Assets::<Image>::default();
+        let key = OffsetKey::new("head.egt".into(), &[0.5, -1.0]);
+        assert_eq!(key.fgts(), vec![0.5, -1.0]);
+        assert!(!cache.offset_ready(&images, &key));
+        let egt = Egt { rows: 2, columns: 2, symmetric: 1, asymmetric: 0, basis_version: 0, modes: vec![(1.0, [vec![1, 2, 3, 4], vec![0; 4], vec![-1; 4]])] };
+        cache.offer_offset(&mut images, key.clone(), make_offset(&egt, &key.fgts()), 10.0);
+        assert!(cache.offset_ready(&images, &key));
+        assert_eq!((cache.offsets_ahead, cache.faces_tinted, cache.skins_tinted), (1, 0, 0), "textured counts the images drawn, not made ahead");
+        // Offered again (a second read-ahead of the same NPC): not made twice.
+        cache.offer_offset(&mut images, key.clone(), make_offset(&egt, &key.fgts()), 11.0);
+        assert_eq!(cache.offsets_ahead, 1);
+        cache.expire_ahead(10.0 + AHEAD_KEEP_SECS - 1.0);
+        assert!(cache.ahead.contains_key(&key), "kept while its NPC may still come");
+        cache.expire_ahead(10.0 + AHEAD_KEEP_SECS);
+        assert!(!cache.ahead.contains_key(&key), "let go once its NPC did not come");
+        // A broken file: nothing to wait for (drawing it makes it again and says why).
+        let broken = OffsetKey::new("broken.egt".into(), &[1.0]);
+        cache.offer_offset(&mut images, broken.clone(), Err("bad".into()), 12.0);
+        assert!(cache.offset_ready(&images, &broken));
+        // A missing `.egt`: no offset to make.
+        let absent = OffsetKey::new("absent.egt".into(), &[1.0]);
+        cache.offer("absent.egt".into(), FaceGenFile::Egt(None));
+        assert!(cache.offset_ready(&images, &absent));
     }
 
     #[test]

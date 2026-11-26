@@ -40,10 +40,27 @@ impl<'a> Game<'a> {
         self.world.set_player_level(self.list_player_level());
     }
 
-    /// The level `r` reads leveled lists at (`fnv_sim::World::level_at`): fixed when its
-    /// cell was loaded, else what it would be fixed at now.
+    /// The encounter zone's current level, once visited (`None` before first entry).
+    /// With `bNoLockEncounterZoneLevels` enabled, a visited zone recomputes its level
+    /// against the current player level (respecting `min_level` and `Match PC Below
+    /// Minimum Level`, including session `SetZoneMinLevel` / `SetZoneFlag` overrides)
+    /// instead of staying frozen at its first-visit level [design: docs/design/tweaks.md].
+    pub fn zone_level(&self, zone: FormId) -> Option<u16> {
+        let locked = self.world.zone_level(zone)?;
+        if self.tweaks.no_lock_encounter_zone_levels {
+            let def = self.world.effective_zone_def(zone).unwrap_or_default();
+            Some(fnv_sim::zones::level_on_entry(&def, self.list_player_level()))
+        } else {
+            Some(locked)
+        }
+    }
+
+    /// The level `r` reads leveled lists at (`fnv_sim::World::level_at_with_zone_lock`):
+    /// fixed when its cell was loaded, else what it would be fixed at now (recomputing a
+    /// zone's level against the current player level when `bNoLockEncounterZoneLevels` is
+    /// enabled).
     pub fn leveled_at(&self, r: FormId) -> LevelAt {
-        self.world.level_at(r, self.list_player_level())
+        self.world.level_at_with_zone_lock(r, self.list_player_level(), !self.tweaks.no_lock_encounter_zone_levels)
     }
 
     /// The reference whose FormID seeds the leveled picks of `r`: itself until
@@ -75,12 +92,16 @@ impl<'a> Game<'a> {
 
     /// Minor actor flags from the same runtime list view as drawing and gameplay.
     pub fn runtime_minor_flags(&self, base: FormId, seed: FormId, at: LevelAt) -> crate::templates::MinorFlags {
-        self.runtime_template_source(base, seed, at, |d| d.template_base).map_or(Default::default(), |(_, d)| crate::templates::MinorFlags {
-            not_pushable: d.not_pushable,
-            no_head_track: d.no_head_track,
-            no_head: d.no_head,
-            no_right_arm: d.no_right_arm,
-            no_left_arm: d.no_left_arm,
+        use crate::actor_values::acbs;
+        self.runtime_template_source(base, seed, at, |d| d.template_base).map_or(Default::default(), |(id, d)| {
+            let crea = &d.sig == b"CREA";
+            crate::templates::MinorFlags {
+                not_pushable: self.acbs_flag(id, d, acbs::NOT_PUSHABLE, |d| d.not_pushable),
+                no_head_track: self.acbs_flag(id, d, acbs::NO_HEAD_TRACK, |d| d.no_head_track),
+                no_head: crea && self.acbs_flag(id, d, acbs::NO_HEAD, |d| d.no_head),
+                no_right_arm: crea && self.acbs_flag(id, d, acbs::NO_RIGHT_ARM, |d| d.no_right_arm),
+                no_left_arm: crea && self.acbs_flag(id, d, acbs::NO_LEFT_ARM, |d| d.no_left_arm),
+            }
         })
     }
 
@@ -97,7 +118,7 @@ impl<'a> Game<'a> {
     /// [`Game::voice_base`] with `r`'s level read from `world`: for callers that hold the
     /// world themselves between frames (the engine, `script::with_world`).
     pub fn voice_base_in(&self, world: &fnv_sim::World, base: FormId, r: FormId) -> FormId {
-        let at = world.level_at(r, self.list_player_level());
+        let at = world.level_at_with_zone_lock(r, self.list_player_level(), !self.tweaks.no_lock_encounter_zone_levels);
         // Seeded as the drawn actor and its carried items are: by the reference until
         // ResurrectActor rolled its picks again, so a resurrected actor speaks with the
         // voice of the entry it now shows.
@@ -110,17 +131,19 @@ impl<'a> Game<'a> {
     /// (`fnv_sim::zones`). A placed actor whose carried items come from a leveled pick takes
     /// them from the pick at that level, unless they were rolled already.
     pub(crate) fn fix_cell_levels(&mut self, cell: FormId) {
+        self.world.set_no_lock_encounter_zone_levels(self.tweaks.no_lock_encounter_zone_levels);
         let player_level = self.list_player_level();
         let placed = self.world.placed;
         // A script's zone for the cell or its worldspace first (`nvse_jg5::cell_zone`).
         let mut zones: Vec<FormId> = crate::nvse_jg5::cell_zone(self, cell).into_iter().collect();
         let refs: Vec<FormId> = placed.by_cell.get(&cell).cloned().unwrap_or_default();
         for &r in &refs {
-            zones.extend(placed.get(r).and_then(|p| p.encounter_zone));
+            zones.extend(self.world.ref_own_zone(r));
         }
         for z in zones {
             if let Some(level) = self.world.enter_zone(z, player_level) {
-                let min_level = self.world.forms.zones.get(&z).map_or(0, |d| d.min_level);
+                self.zone_levels_set += 1;
+                let min_level = self.zone(z).map_or(0, |d| d.min_level);
                 self.push_level_news(LevelNews::Zone { zone: z, level, min_level, player_level });
             }
         }
@@ -151,7 +174,7 @@ impl<'a> Game<'a> {
         let (base, list) = self.chain_end(p.base, crate::templates::Picks::at(self.pick_seed(r), at));
         if let Some(list) = list {
             let (at_display, _) = self.chain_end(p.base, crate::templates::Picks::new(self.pick_seed(r)));
-            self.push_level_news(LevelNews::Actor { actor: r, list, at, base, at_display, zone: placed.zone_of(r) });
+            self.push_level_news(LevelNews::Actor { actor: r, list, at, base, at_display, zone: self.world.zone_of(r) });
         }
     }
 
@@ -172,8 +195,9 @@ impl<'a> Game<'a> {
     }
 
     /// `r` is made anew by a cell reset: its level is fixed again at the player's level
-    /// now (its zone's level stays as it was).
+    /// now (its zone's level stays as it was unless `bNoLockEncounterZoneLevels` is on).
     pub(crate) fn refix_level(&mut self, r: FormId) {
+        self.world.set_no_lock_encounter_zone_levels(self.tweaks.no_lock_encounter_zone_levels);
         self.world.unfix_level(r);
         let player_level = self.list_player_level();
         self.fix_ref_level(r, player_level, true);

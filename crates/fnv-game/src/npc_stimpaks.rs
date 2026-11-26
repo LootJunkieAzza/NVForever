@@ -103,9 +103,8 @@ pub fn pick(health: f64, max: f64, carried: &[(FormId, f64)]) -> Option<FormId> 
 impl Game<'_> {
     /// The stimpaks `actor` carries and the health each would restore it now.
     pub fn carried_stimpaks(&mut self, actor: FormId) -> Vec<(FormId, f64)> {
-        let data = self.data;
         let Some(inv) = self.world.peek(actor).and_then(|s| s.inventory.as_ref()) else { return Vec::new() };
-        let items: Vec<FormId> = inv.iter().filter(|(i, n)| *n > 0 && data.ingestibles.get(i).is_some_and(|d| d.equip_type == EQUIP_STIMPAK)).map(|(i, _)| i).collect();
+        let items: Vec<FormId> = inv.iter().filter(|(i, n)| *n > 0 && self.ingestible_def(*i).is_some_and(|d| d.equip_type == EQUIP_STIMPAK)).map(|(i, _)| i).collect();
         items.into_iter().map(|i| (i, self.aid_preview(actor, i).iter().filter(|(c, _)| *c == crate::actor_values::HEALTH).map(|(_, a)| a).sum())).collect()
     }
 

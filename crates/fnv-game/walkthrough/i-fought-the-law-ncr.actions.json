@@ -6,6 +6,9 @@
   ],
   "actions": [
     {"op": "note", "text": "Path, the NCR's side: as i-fought-the-law to Johnson Nash (stage 35); Lieutenant Hayes in Primm (VMS02AnyNPCAboutNCR, LtHayesPrisonAttack: allied with the NCR, Sergeant Lee enabled, stage 40); Sergeant Lee's greeting (the prison attack starts: stage 50); Eddie killed by the player (kill stands in for the fight; the quest script and Eddie's death script then set stage 105). Travel is move_player. Sergeant Lee's greeting is a Goodbye line of 20 s; wait_talk returns before such a line ends (soft stall of §9), so the chain waits it out with advance_seconds."},
+    {"op": "note", "text": "Dawes at the NCRCF gate lets the player into the visitor center for 100 caps (INFO 0x0015438C: NCRCFVisitorsCenterDoorRef unlocked, VFreeformNCRCF.bPermissionToEnter 1)."},
+    {"op": "add_item", "to": "player", "item": "Caps001", "count": 100},
+    {"op": "say_info", "info": "0x0015438C", "speaker": "placed:NCRCFDawes"},
     {"op": "move_player", "to": "NCRCFEddieREF"},
     {"op": "talk", "actor": "NCRCFEddieREF", "label": "eddie greeting"},
     {"op": "choose", "topic": "VFreeformNCRCFNCRCFEddieTopic001", "label": "eddie 001"},

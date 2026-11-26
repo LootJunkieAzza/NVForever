@@ -85,6 +85,11 @@ fn strips_data() -> Vec<u8> {
 }
 
 fn build(blocks: &[(&str, Vec<u8>)], strings: &[&str], roots: &[i32]) -> Vec<u8> {
+    build_sized(blocks, strings, roots, &[])
+}
+
+/// [`build`] with some blocks' entries in the size table replaced: `(block, size)`.
+fn build_sized(blocks: &[(&str, Vec<u8>)], strings: &[&str], roots: &[i32], wrong: &[(usize, u32)]) -> Vec<u8> {
     let mut types: Vec<&str> = Vec::new();
     for (t, _) in blocks {
         if !types.contains(t) {
@@ -102,8 +107,8 @@ fn build(blocks: &[(&str, Vec<u8>)], strings: &[&str], roots: &[i32]) -> Vec<u8>
     for (t, _) in blocks {
         w.u16(types.iter().position(|x| x == t).unwrap() as u16);
     }
-    for (_, b) in blocks {
-        w.u32(b.len() as u32);
+    for (i, (_, b)) in blocks.iter().enumerate() {
+        w.u32(wrong.iter().find(|(k, _)| *k == i).map_or(b.len() as u32, |(_, n)| *n));
     }
     w.u32(strings.len() as u32).u32(strings.iter().map(|s| s.len()).max().unwrap_or(0) as u32);
     for s in strings {
@@ -406,5 +411,33 @@ proptest::proptest! {
             data.truncate(c % (data.len() + 1));
         }
         read_everything(&data, &s);
+    }
+}
+
+/// #3198: a file whose block-size table is wrong for one block (its strips data listed
+/// 40 bytes short, as a mod's meshes are) is split by decoding its blocks in order when a
+/// schema is given: the blocks and the real footer come out, and the file says the table
+/// was ignored. Without a schema the table is all there is, and the footer it points at
+/// is refused as before. A correct table is used as it is.
+#[test]
+fn a_wrong_size_table_is_ignored_when_the_blocks_decode() {
+    let s = schema();
+    let blocks = [("BSFadeNode", node(1)), ("NiTriStrips", tri_strips(2)), ("NiTriStripsData", strips_data())];
+    let good = NifFile::parse(&sample(), Some(&s)).unwrap();
+    assert!(!good.size_table_ignored);
+    let short = blocks[2].1.len() as u32 - 40;
+    let data = build_sized(&blocks, &["Root", "Shape"], &[0], &[(2, short)]);
+    let f = NifFile::parse(&data, Some(&s)).expect("split by decoding");
+    assert!(f.size_table_ignored);
+    assert_eq!(f.blocks.len(), 3);
+    assert_eq!(f.footer.roots, vec![0]);
+    assert_eq!(f.blocks[2].range.len(), blocks[2].1.len());
+    for i in 0..3 {
+        assert!(f.decode_block(&s, &data, i).is_ok(), "block {i}");
+    }
+    assert_eq!(f.rewrite(&data), data, "the file is written back as it was");
+    // Without a schema only the table can cut it: the footer is read 40 bytes early.
+    if let Ok(t) = NifFile::parse(&data, None) {
+        assert!(!t.size_table_ignored && t.trailing > 0, "{} trailing", t.trailing);
     }
 }

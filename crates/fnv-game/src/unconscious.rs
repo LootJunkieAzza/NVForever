@@ -299,7 +299,11 @@ impl Game<'_> {
             }
             return self.furniture_use(r).is_none() && self.dialogue.is_none();
         }
-        self.def_following(r, |_| false).is_some_and(|d| !d.no_knockdowns && !d.immobile)
+        self.source_following(r, |_| false).is_some_and(|(id, d)| {
+            let no_knockdowns = self.acbs_flag(id, d, crate::actor_values::acbs::NO_KNOCKDOWNS, |d| d.no_knockdowns);
+            let immobile = &d.sig == b"CREA" && self.acbs_flag(id, d, crate::actor_values::acbs::IMMOBILE, |d| d.immobile);
+            !no_knockdowns && !immobile
+        })
     }
 
     /// `source.PushActorAway target force`: `target` is knocked down ([`Cause::Pushed`])
@@ -507,6 +511,29 @@ impl Game<'_> {
         let Some(k) = self.knockout(r) else { return Err(ReviveRefusal::NotDown) };
         self.begin_getting_up(r, k);
         Ok(())
+    }
+
+    /// Revive every living teammate knocked out at zero health on cell change under the
+    /// Revive Unconscious Companions tweak (`bReviveWhenChangingCells`, without consuming a
+    /// Stimpak) [design: docs/design/tweaks.md]. Returns the revived companions' FormIDs.
+    pub fn revive_companions_on_cell_change(&mut self) -> Vec<FormId> {
+        if !self.tweaks.revive_companions || !self.tweaks.revive_on_cell_change {
+            return Vec::new();
+        }
+        let down: Vec<(FormId, KnockOut)> = self
+            .extra
+            .iter()
+            .filter_map(|(&r, e)| {
+                let k = e.knocked_out?;
+                (k.cause == Cause::Essential && k.lying() && self.is_teammate(r) && !self.is_dead(r)).then_some((r, k))
+            })
+            .collect();
+        let mut revived = Vec::with_capacity(down.len());
+        for (r, k) in down {
+            self.begin_getting_up(r, k);
+            revived.push(r);
+        }
+        revived
     }
 
     /// Seconds a knocked-out essential actor `r` lies at least: [`ESSENTIAL_DOWN`], or for

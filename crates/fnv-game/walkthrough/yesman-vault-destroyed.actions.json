@@ -443,6 +443,8 @@
       "op": "trigger_enter",
       "trigger": "scripted:0x0016AC74"
     },
+    {"op": "note", "text": "Mr. House's monitor at the bunker's vault door: the player turns him down; his last line (INFO 0x0014B658) unlocks SecuritronVaultDoorRef 0x0012AF42 and opens it, the way to the power regulators."},
+    {"op": "say_info", "info": "0x0014B658", "speaker": "SVMrHouseRef"},
     {
       "op": "move_player",
       "to": "SVPowerRegulator01Ref"

@@ -123,6 +123,9 @@ const MITTENS: u32 = 0x121; // ARMA, both hands, one glove model
 const MITTEN_LIST: u32 = 0x122; // FLST: MITTENS
 const PARKA: u32 = 0x123; // upper body; BIPL MITTEN_LIST
 const HOLOGRAM: u32 = 0x124; // head, hair, upper body, both hands on its own record; no BIPL
+const GAUNTLET: u32 = 0x125; // ARMA, right hand, the Bladed Gauntlet's only drawn model
+const GAUNTLET_LIST: u32 = 0x126; // FLST: GAUNTLET
+const BLADED: u32 = 0x127; // WEAP, no MODL, BIPL GAUNTLET_LIST
 const BASE: u32 = 0x200; // man: outfit + armour + gloves, beard
 const HATTED: u32 = 0x201; // cowboy hat
 const HELMETED: u32 = 0x202;
@@ -197,13 +200,18 @@ fn plugin_bytes() -> Vec<u8> {
         &armo_with(b"ARMA", GLOVE_L, "LeatherGloveL", slot::LEFT_HAND, 0.0, "armor\\leather\\glovel.nif", None, None),
         &armo_with(b"ARMA", FIST_HAND, "ARMAPowerfist", slot::RIGHT_HAND, 0.0, "weapons\\hand2hand\\powerfist.nif", None, None),
         &armo_with(b"ARMA", MITTENS, "ParkaMittens", slot::LEFT_HAND | slot::RIGHT_HAND, 0.0, "armor\\parka\\mittens.nif", None, None),
+        &armo_with(b"ARMA", GAUNTLET, "ARMABladedGuantlet", slot::RIGHT_HAND, 0.0, "weapons\\hand2hand\\bladedguantlet.nif", None, None),
     ]);
-    let weap = record(b"WEAP", POWER_FIST, &[sub(b"EDID", z("WeapPowerFist")), sub(b"MODL", z("weapons\\hand2hand\\powerfistrigid.nif")), sub(b"BIPL", fid(FIST_LIST))]);
+    let weap = cat(&[
+        &record(b"WEAP", POWER_FIST, &[sub(b"EDID", z("WeapPowerFist")), sub(b"MODL", z("weapons\\hand2hand\\powerfistrigid.nif")), sub(b"BIPL", fid(FIST_LIST))]),
+        &record(b"WEAP", BLADED, &[sub(b"EDID", z("WeapBladedGauntlet")), sub(b"MOD4", z("weapons\\hand2hand\\bladedgauntlet_GO.NIF")), sub(b"BIPL", fid(GAUNTLET_LIST))]),
+    ]);
     let flst = cat(&[
         &record(b"FLST", BARE_HANDS, &[sub(b"EDID", z("BaseHands")), sub(b"LNAM", fid(HAND_R)), sub(b"LNAM", fid(HAND_L))]),
         &record(b"FLST", LEATHER_GLOVES, &[sub(b"EDID", z("LeatherGloves")), sub(b"LNAM", fid(GLOVE_L))]),
         &record(b"FLST", FIST_LIST, &[sub(b"EDID", z("WeaponPowerfist")), sub(b"LNAM", fid(FIST_HAND))]),
         &record(b"FLST", MITTEN_LIST, &[sub(b"EDID", z("ParkaMittens")), sub(b"LNAM", fid(MITTENS))]),
+        &record(b"FLST", GAUNTLET_LIST, &[sub(b"EDID", z("WeaponBladedGauntlet")), sub(b"LNAM", fid(GAUNTLET))]),
     ]);
     let cnto = |item: u32| sub(b"CNTO", cat(&[&fid(item), &1i32.to_le_bytes()]));
     let npc = |id: u32, edid: &str, flags: u32, tf: u16, extra: Vec<Subrecord>| {
@@ -391,6 +399,41 @@ fn a_held_weapons_addon_takes_the_hand() {
     assert_eq!(body(&a), vec!["armor parka.nif", "armor mittens.nif"]);
     let a = r.resolve_wearing(FormId(RANGER), FormId(0x907), Some(&[FormId(PARKA), FormId(POWER_FIST)])).unwrap();
     assert_eq!(body(&a), vec!["body:left_hand lefthand.nif", "armor parka.nif", "armor powerfist.nif"]);
+}
+
+#[test]
+fn the_first_person_arms_wear_a_fist_weapons_only_model() {
+    // A hand-to-hand weapon with no model of its own (the Bladed Gauntlet: no MODL, no
+    // first-person model, BIPL `ARMABladedGuantlet`, Right Hand) is drawn in first person
+    // by its addon, as on the third-person body; one with a model (the power fist's rigid
+    // gauntlet) is drawn by that model over the arms' bare hand (#3226).
+    use fnv_actor::first_person;
+    let f = fixture();
+    assert!(f.actors.issues.is_empty(), "{:?}", f.actors.issues.to_json());
+    assert_eq!(f.actors.weapons[&FormId(BLADED)].model, None);
+    assert!(first_person::wears_weapon_addons(&f.actors.weapons[&FormId(BLADED)]));
+    assert!(!first_person::wears_weapon_addons(&f.actors.weapons[&FormId(POWER_FIST)]));
+    let r = Resolver { actors: &f.actors, forms: &f.forms };
+    // (the first-person rig's parts, the addons it wears)
+    let first = |wearing: &[u32]| {
+        let wearing: Vec<FormId> = wearing.iter().copied().map(FormId).collect();
+        let worn = first_person::first_person_worn(&f.actors, &wearing);
+        let a = r.resolve_wearing(FormId(RANGER), FormId(0x909), Some(&worn)).unwrap();
+        let (fa, _) = first_person::appearance(&f.actors, &a, |p| p.ends_with("hand1st.nif"));
+        let addons: Vec<u32> = first_person::worn_addons(&f.actors, &worn, &fa).into_iter().map(|x| x.0).collect();
+        (roles(&fa), addons)
+    };
+    let parts = |p: &[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // The gauntlet takes the right hand: the race's bare hand is not drawn under it.
+    assert_eq!(first(&[LEATHER, BLADED]), (parts(&["armor leather.nif", "armor glovel.nif", "armor bladedguantlet.nif"]), vec![GLOVE_L, GAUNTLET]));
+    // A worn addon on its slot gives way, as on the third-person body: the parka's
+    // mittens (both hands) are not drawn, the race's bare left hand is.
+    assert_eq!(first(&[PARKA, BLADED]), (parts(&["body:left_hand lefthand1st.nif", "armor parka.nif", "armor bladedguantlet.nif"]), vec![GAUNTLET]));
+    // The power fist keeps the bare hand in first person; its addon is the third-person
+    // body's only.
+    assert_eq!(first(&[LEATHER, POWER_FIST]), (parts(&["body:right_hand righthand1st.nif", "armor leather.nif", "armor glovel.nif"]), vec![GLOVE_L]));
+    // Unequipped: the gauntlet is gone and the bare hand back.
+    assert_eq!(first(&[LEATHER]), (parts(&["body:right_hand righthand1st.nif", "armor leather.nif", "armor glovel.nif"]), vec![GLOVE_L]));
 }
 
 #[test]

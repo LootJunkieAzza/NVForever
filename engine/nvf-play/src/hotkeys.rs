@@ -100,6 +100,33 @@ pub fn index_of(c: Control) -> Option<usize> {
     CONTROLS.iter().position(|&k| k == c)
 }
 
+/// Normalise a `SetItemHotkeyIconPath` override to a path relative to `textures\` (lower
+/// case, backslashes, collapsed separators, no leading separator or redundant
+/// `data\textures\` / `textures\` prefix), returning `None` when empty [design:
+/// `crate::interface::Pictures` prepends `textures\` when opening a picture's own file].
+pub fn normalize_icon_path(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let norm = fnv_vfs::normalize(trimmed);
+    let rel = norm.strip_prefix("data\\textures\\").or_else(|| norm.strip_prefix("textures\\")).unwrap_or(&norm);
+    let rel = rel.trim_start_matches('\\');
+    (!rel.is_empty()).then(|| rel.to_string())
+}
+
+/// The normalised hotkey icon override for `item`: first any explicit
+/// `SetItemHotkeyIconPath` override, else the item's resolved ySI icon when `yUI.ini`
+/// enables `[General] bSortingIcons = 1` and `[Sorting and Icons] bReplaceHotkeyIcons = 1`
+/// [documented: SetItemHotkeyIconPath, yUI v1.4d `Data\NVSE\Plugins\yUI.ini`; design:
+/// `normalize_icon_path`, `docs/spec-notes/yui-ini.md`].
+pub fn icon_override(item: FormId, script: Option<&crate::script::ScriptState>) -> Option<String> {
+    let game = &script?.rt.as_ref()?.game;
+    game.item_hotkey_icon_path(item)
+        .and_then(normalize_icon_path)
+        .or_else(|| game.ysi_hotkey_icon_path(item).and_then(|p| normalize_icon_path(&p)))
+}
+
 /// What using a slot did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Used {
@@ -279,5 +306,94 @@ mod tests {
         let mut empty = bevy::ecs::world::World::new();
         empty.insert_resource(Hotkeys::default());
         assert!((SAVE_HOOK.save)(&empty).is_none());
+    }
+
+    #[test]
+    fn hotkey_icon_path_normalization_strips_textures_prefix_and_normalizes_slashes() {
+        assert_eq!(normalize_icon_path(""), None);
+        assert_eq!(normalize_icon_path("   "), None);
+        assert_eq!(normalize_icon_path("/"), None);
+        assert_eq!(normalize_icon_path("textures\\"), None);
+        assert_eq!(normalize_icon_path("data\\textures\\"), None);
+
+        let expected = "interface\\icons\\custom_hotkey.dds";
+        for raw in [
+            "interface\\icons\\custom_hotkey.dds",
+            "Interface/Icons/Custom_Hotkey.dds",
+            "\\Interface\\Icons\\Custom_Hotkey.dds",
+            "/Interface/Icons/Custom_Hotkey.dds",
+            "textures\\interface\\icons\\custom_hotkey.dds",
+            "Textures/Interface/Icons/Custom_Hotkey.dds",
+            "/textures/interface/icons/custom_hotkey.dds",
+            "textures\\\\interface\\\\icons//custom_hotkey.dds",
+            "data\\textures\\interface\\icons\\custom_hotkey.dds",
+            "  Textures\\Interface\\Icons\\Custom_Hotkey.dds  ",
+        ] {
+            let norm = normalize_icon_path(raw).unwrap_or_else(|| panic!("expected path for {raw:?}"));
+            assert_eq!(norm, expected, "raw={raw:?}");
+            let located = crate::interface::Pictures::default().locate(&norm, None, &|_| None);
+            assert_eq!(located.texture, "textures\\interface\\icons\\custom_hotkey.dds", "no double textures\\ prefix for {raw:?}");
+        }
+    }
+
+    #[test]
+    fn icon_override_reads_updates_and_clears_from_script_runtime() {
+        let mut script = crate::script::ScriptState::over_no_plugins();
+        let item = FormId(0x0000_434F);
+        assert_eq!(icon_override(item, None), None);
+        assert_eq!(icon_override(item, Some(&script)), None);
+
+        let rt = script.rt.as_mut().unwrap();
+        rt.game.showoff.hotkey_icons.insert(item, "Textures/Interface/Icons/First.dds".into());
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\first.dds"));
+
+        script.rt.as_mut().unwrap().game.showoff.hotkey_icons.insert(item, "interface\\icons\\second.dds".into());
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\second.dds"));
+
+        script.rt.as_mut().unwrap().game.showoff.hotkey_icons.remove(&item);
+        assert_eq!(icon_override(item, Some(&script)), None);
+    }
+
+    #[test]
+    fn icon_override_honors_yui_replace_hotkey_icons_and_set_item_hotkey_precedence() {
+        let mut script = crate::script::ScriptState::over_no_plugins();
+        let item = FormId(0x0000_434F);
+        {
+            let rt = script.rt.as_mut().unwrap();
+            rt.game.small.ysi_icon.insert(item, "Textures/Interface/Icons/ySI_Pistol.dds".into());
+            // Without yUI.ini (vanilla): ySI icon does not replace hotkey icons.
+            rt.game.set_yui_config(None);
+        }
+        assert_eq!(icon_override(item, Some(&script)), None);
+
+        // bSortingIcons = 0 disables bReplaceHotkeyIcons.
+        script.rt.as_mut().unwrap().game.set_yui_config(Some(fnv_game::yui_ini::YuiConfig {
+            sorting_icons: false,
+            replace_hotkey_icons: true,
+            ..Default::default()
+        }));
+        assert_eq!(icon_override(item, Some(&script)), None);
+
+        // bSortingIcons = 1 with bReplaceHotkeyIcons = 0 keeps vanilla hotkey icons.
+        script.rt.as_mut().unwrap().game.set_yui_config(Some(fnv_game::yui_ini::YuiConfig {
+            sorting_icons: true,
+            replace_hotkey_icons: false,
+            ..Default::default()
+        }));
+        assert_eq!(icon_override(item, Some(&script)), None);
+
+        // bSortingIcons = 1 and bReplaceHotkeyIcons = 1 surfaces normalized ySI icon.
+        script.rt.as_mut().unwrap().game.set_yui_config(Some(fnv_game::yui_ini::YuiConfig {
+            sorting_icons: true,
+            replace_hotkey_icons: true,
+            ..Default::default()
+        }));
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\ysi_pistol.dds"));
+
+        // Explicit SetItemHotkeyIconPath takes precedence over ySI icon; clearing falls back to ySI.
+        script.rt.as_mut().unwrap().game.showoff.hotkey_icons.insert(item, "interface\\icons\\explicit.dds".into());
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\explicit.dds"));
+        script.rt.as_mut().unwrap().game.showoff.hotkey_icons.remove(&item);
+        assert_eq!(icon_override(item, Some(&script)).as_deref(), Some("interface\\icons\\ysi_pistol.dds"));
     }
 }

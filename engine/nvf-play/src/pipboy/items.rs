@@ -68,7 +68,7 @@
 use super::frame::{self, Align, Card, Ctx, Hint, Kit, LINE, MAIN, THICK};
 use super::hotkey_panel::HotkeyHold;
 use crate::hotkeys::Hotkeys;
-use super::labels::label;
+use super::labels::built_in_label;
 use super::{Page, PageBody, PipBoy};
 use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{self, Category, Command, MenuModel, Mode, Row, Side};
@@ -95,6 +95,8 @@ const ROW_W: f32 = 400.0 - ROW_X - 5.0;
 const NAME_X: f32 = 40.0;
 const NAME_Y: f32 = 20.0;
 const WRAP: f32 = 300.0;
+/// Width reserved for a ySI row icon when ySI is active (0 in vanilla).
+const YSI_ICON_ADVANCE: f32 = 30.0;
 const MARK: Rect = Rect { min: Vec2::new(15.0, 18.0), max: Vec2::new(40.0, 43.0) };
 /// A row is 51 high and its name's further lines 35 below the first [hypothesis: as the
 /// barter menu's rows, measured there, barter-menu.md §3].
@@ -244,18 +246,18 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
     if let Some((_, title, v)) = &i.first {
         out.push(tile(0.0, 0.0, w, title, v.clone()));
     }
-    out.push(tile(col(1.0), 0.0, w, label("sInventoryWeightUpper", "WG"), i.weight.clone().unwrap_or_else(|| "--".into())));
-    out.push(tile(col(2.0), 0.0, w, label("sInventoryValue", "VAL"), i.value.clone().unwrap_or_else(|| "--".into())));
+    out.push(tile(col(1.0), 0.0, w, built_in_label("sInventoryWeightUpper"), i.weight.clone().unwrap_or_else(|| "--".into())));
+    out.push(tile(col(2.0), 0.0, w, built_in_label("sInventoryValue"), i.value.clone().unwrap_or_else(|| "--".into())));
     if let Some(s) = i.strength {
-        out.push(tile(col(2.0), -h, w, label("sInventoryStrReq", "STR"), s.to_string()));
+        out.push(tile(col(2.0), -h, w, built_in_label("sInventoryStrReq"), s.to_string()));
     }
     if let Some(d) = &i.dps {
-        out.push(tile(0.0, -h, w, label("sInventoryDamagePerSecond", "DPS"), d.clone()));
+        out.push(tile(0.0, -h, w, built_in_label("sInventoryDamagePerSecond"), d.clone()));
     }
     let mut row = 1.0;
     if i.condition.is_some() || i.beside.is_some() {
         if let Some(cnd) = i.condition {
-            out.push(Tile { meter: Some(cnd.clamp(0.0, 1.0)), ..tile(0.0, h, w, label("sInventoryCondition", "CND"), String::new()) });
+            out.push(Tile { meter: Some(cnd.clamp(0.0, 1.0)), ..tile(0.0, h, w, built_in_label("sInventoryCondition"), String::new()) });
         }
         if let Some(b) = &i.beside {
             out.push(tile(col(1.0), h, 2.0 * w + 10.0, b, String::new()));
@@ -270,7 +272,7 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
                 out.push(tile(0.0, (row + n as f32) * h, 3.0 * w + 20.0, "", line.to_string()));
             }
         } else {
-            out.push(tile(0.0, row * h, 3.0 * w + 20.0, label("sInventoryEffects", "EFFECTS"), e.clone()));
+            out.push(tile(0.0, row * h, 3.0 * w + 20.0, built_in_label("sInventoryEffects"), e.clone()));
         }
     }
     out
@@ -344,7 +346,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 let w = &w;
                 // Binoculars and the like are weapons without damage: no DAM or STR
                 // [hypothesis].
-                i.first = (w.base_damage > 0).then(|| (FirstStat::Damage, label("sInventoryDamage", "DAM"), w.base_damage.to_string()));
+                i.first = (w.base_damage > 0).then(|| (FirstStat::Damage, built_in_label("sInventoryDamage"), w.base_damage.to_string()));
                 i.strength = (w.strength_req > 0).then_some(w.strength_req);
                 i.badge = w.skill.as_deref().and_then(skill_badge).map(str::to_string);
                 i.skill_req = i.badge.is_some().then_some(w.skill_req);
@@ -388,7 +390,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
         }
         Some(ItemKind::Armor) => {
             if let Some(a) = cf.and_then(|f| f.armor.get(&r.item)) {
-                i.first = Some((FirstStat::Threshold, label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
+                i.first = Some((FirstStat::Threshold, built_in_label("sInventoryDamageThreshold"), format!("{:.0}", a.dt)));
                 // The player's tweak compares with the worn pieces in the same slots, which
                 // it would replace (DR is 0 on New Vegas armour, so DT only) [design: docs/design/tweaks.md].
                 let worn = sim.world.equipment(FormId::PLAYER_REF).unwrap_or_default();
@@ -404,10 +406,17 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
         _ => {}
     }
     if let Some(forms) = forms {
-        let preview = script.as_mut().and_then(|s| s.rt.as_mut()).filter(|_| r.kind == Some(ItemKind::Aid)).map(|rt| crate::script::with_world(rt, sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, r.item)));
-        if let Some(lines) = preview {
+        let preview = script
+            .as_mut()
+            .and_then(|s| s.rt.as_mut())
+            .filter(|_| r.kind == Some(ItemKind::Aid))
+            .map(|rt| crate::script::with_world(rt, sim, |rt| (rt.game.aid_preview(FormId::PLAYER_REF, r.item), rt.game.aid_preview_names(FormId::PLAYER_REF, r.item))));
+        if let Some((lines, named)) = preview {
             let changes: Vec<super::stats::model::Change> = lines.into_iter().filter(|(_, amount)| amount.abs() >= 0.5).map(|(code, amount)| super::stats::model::Change { value: forms.short_name(code), amount: amount.abs(), detrimental: amount < 0.0 }).collect();
-            i.effects = (!changes.is_empty()).then(|| super::stats::model::changes_text(&changes));
+            // Script effects shown by name (Psycho's "Damage +25%", Cateye's "Low-Light
+            // Vision") after the values (#3119).
+            let text = super::stats::read::with_names(super::stats::model::changes_text(&changes), named.iter().map(|m| forms.text(m.0).name.clone()));
+            i.effects = (!text.is_empty()).then_some(text);
             return i;
         }
         // The player's tweak: a skill book says what it teaches [design: docs/design/tweaks.md]: the skill and the
@@ -456,7 +465,7 @@ pub fn keys(
     (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
     active: Res<ActiveMenu>,
     keys: crate::pad::ActionButtons<KeyCode>,
-    mut wheel: MessageReader<MouseWheel>,
+    (mut wheel,touch_wheel,physical): (MessageReader<MouseWheel>,Option<Res<super::touch_scroll::WheelFrame>>,Option<Res<super::touch_scroll::PhysicalPriority>>),
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
@@ -524,6 +533,7 @@ pub fn keys(
             MouseScrollUnit::Pixel => w.y / 20.0,
         };
     }
+    if physical.as_ref().is_none_or(|p|!p.active) {*lines += touch_wheel.as_ref().map_or(0.0,|w|w.lines(&pip));}
     let whole = lines.trunc();
     if whole != 0.0 {
         send(Command::Scroll(-whole as i32));
@@ -548,15 +558,25 @@ fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<Activ
 /// A left click selects the row (and on the selected row acts on it); with a hotkey's key
 /// held, it puts the row's item in that slot instead (`super::hotkey_panel`). A right
 /// click selects the row without acting and drops one, with Shift the stack (module notes).
+fn on_touch_row_press(press: On<PointerPress>, rows: Query<&RowButton>, active: Res<ActiveMenu>, mut touch: Option<ResMut<super::touch_items::TouchItems>>, admission: super::touch_items::Admission) {
+    if press.pointer.id!=super::touch_items::POINTER || press.button!=PointerButton::Primary || !admission.allows() {return;}
+    if let (Some(touch),Ok(row),Some(menu))=(touch.as_deref_mut(),rows.get(press.entity),active.0.as_ref()) {touch.capture_row(menu,row.0);}
+}
+
+#[cfg(test)]
+pub(super) fn binding_fixture_row(world: &mut World, index: usize) -> Entity {
+    world.spawn(RowButton(index)).observe(on_row_over).observe(on_touch_row_press).observe(on_row_click).id()
+}
 fn on_row_click(
     click: On<PointerClick>,
-    rows: Query<&RowButton>,
-    active: Res<ActiveMenu>,
+    (rows, active): (Query<&RowButton>, Res<ActiveMenu>),
     keys: crate::pad::ActionButtons<KeyCode>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
     mut out: MessageWriter<MenuInput>,
+    (touch,admission): (Option<Res<super::touch_items::TouchItems>>,super::touch_items::Admission),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    if click.pointer.id==super::touch_items::POINTER && (!admission.allows() || touch.as_ref().is_some_and(|t|t.suppress_click())) {return;}
     let keys = keys.snapshot();
     let deselect = tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
     if hold.controller.is_some() {
@@ -586,6 +606,15 @@ fn on_row_click(
     }
 }
 
+type ItemsDrawState<'w, 's> = (Res<'w, PipBoy>, Local<'s, String>, Local<'s, Option<crate::pad::Labels>>, Option<ResMut<'w, super::scrollbar::ItemsScroll>>);
+
+/// Cached heading figures and hotkey-panel icons from the last draw of the ITEMS page.
+#[derive(Default)]
+pub struct DrawnState {
+    heading: Option<Heading>,
+    panel_icons: Option<super::hotkey_panel::PanelIcons>,
+}
+
 /// Fill the ITEMS page's body when it is new or the inventory changed.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
@@ -603,8 +632,8 @@ pub fn draw(
     play: Option<Res<crate::PlayWorld>>,
     mut forms: Local<Option<super::stats::read::Forms>>,
     (repair, modding, mut script): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>, Option<ResMut<crate::script::ScriptState>>),
-    (hold, hotkeys): (Res<HotkeyHold>, Res<Hotkeys>),
-    (pip, mut logged, mut drawn_with): (Res<PipBoy>, Local<String>, Local<Option<crate::pad::Labels>>),
+    (hold, hotkeys, mut drawn): (Res<HotkeyHold>, Res<Hotkeys>, Local<DrawnState>),
+    (pip, mut logged, mut drawn_with, mut scroll): ItemsDrawState<'_, '_>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
@@ -612,7 +641,23 @@ pub fn draw(
     // The hints' set and keys follow the input device: a change of labels draws again.
     let labels = crate::pad::labels();
     let relabelled = drawn_with.replace(labels) != Some(labels);
-    if added.get(body).is_err() && !relabelled && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() {
+    // The heading's HP and DT, read every frame the page is up: an aid item used from the
+    // list heals a frame after the list changed (the scripts run before the menu), and a
+    // heal over time or a wear change touches no menu state, so the page draws again when
+    // they differ from what it drew (#3120), as the STATS page does with its snapshot.
+    let shown = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory) && modding.0.is_none() && repair.0.is_none();
+    let now = shown.then(|| heading(sim.bypass_change_detection(), script.as_mut().map(|s| s.bypass_change_detection()), combat.as_deref()));
+    let refigured = now.is_some() && drawn.heading != now;
+    let now_panel_icons = (shown && hold.slot.is_some()).then(|| {
+        let selected_now = active.0.as_ref().and_then(|m| m.list(Side::Player).rows.get(m.selected[Side::Player as usize]));
+        let script_ref = script.as_mut().map(|s| &*s.bypass_change_detection());
+        super::hotkey_panel::panel_icons(&hotkeys, &hold, selected_now, sim.bypass_change_detection(), combat.as_deref(), script_ref)
+    });
+    let reiconed = now_panel_icons.is_some() && drawn.panel_icons != now_panel_icons;
+    if now_panel_icons.is_none() {
+        drawn.panel_icons = None;
+    }
+    if added.get(body).is_err() && !relabelled && !refigured && !reiconed && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() && scroll.as_ref().is_none_or(|s| !s.is_changed()) {
         return;
     }
     if forms.is_none() {
@@ -647,13 +692,9 @@ pub fn draw(
     if let (Some(r), Some((_, i))) = (selected, &info) {
         info!("pipboy items: {} selected: {:?}", r.name, i);
     }
-    // The heading's HP and DT: the STATS page's health, and the damage threshold a hit on
-    // the player meets (worn armour at its condition and the DT actor value,
-    // `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
-    // screenshots; hypothesis: the figure is the one combat uses].
-    let hp = super::stats::read::player_hp(sim, script.as_deref_mut());
-    let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
-    let (hp, dt) = (hp_text(hp), dt_text(dt));
+    let (hp, dt) = now.unwrap_or_else(|| heading(sim, script.as_deref_mut(), combat.as_deref()));
+    drawn.heading = Some((hp.clone(), dt.clone()));
+    drawn.panel_icons = now_panel_icons;
     let offer = super::repair::current(&active, sim, script.as_deref());
     // The tab's hints for the selected row (the hotkey panel hides them).
     let tab = TABS[pip.tab().min(TABS.len() - 1)];
@@ -672,23 +713,25 @@ pub fn draw(
     // The rows' heights and the first row drawn: the selection is always drawn, rows of
     // two lines taking more room (owner's playtest list 7 item 15).
     let heights = row_heights(&mut c, m);
-    let first = if m.pointer_pick { m.scroll[Side::Player as usize].min(heights.len()) } else { first_shown(&heights, m.scroll[Side::Player as usize], m.selected[Side::Player as usize], LIST.height()) };
-    if active.is_changed() {
+    let first = scroll.as_mut().map(|s| s.bypass_change_detection().resolve(m, &heights, LIST.height())).unwrap_or_else(|| {
+        if m.pointer_pick { m.scroll[Side::Player as usize].min(heights.len()) } else { first_shown(&heights, m.scroll[Side::Player as usize], m.selected[Side::Player as usize], LIST.height()) }
+    });
+    if active.is_changed() || refigured {
         info!("pipboy items: heading HP {hp}, DT {dt}; rows {first}.. of {} drawn", heights.len());
     }
     commands.entity(body).despawn_children().with_children(|p| {
         let cards = [
-            Card::new(WG.0, WG.1, label("sInventoryWeight", "Wg"), wg_text(m)),
-            Card::new(HP.0, HP.1, label("sHitPointsShort", "HP"), hp),
-            Card::new(DT.0, DT.1, label("sInventoryDamageThreshold", "DT"), dt),
-            Card::new(CAPS.0, CAPS.1, label("sInventoryCaps", "Caps"), caps.to_string()),
+            Card::new(WG.0, WG.1, built_in_label("sInventoryWeight"), wg_text(m)),
+            Card::new(HP.0, HP.1, built_in_label("sHitPointsShort"), hp),
+            Card::new(DT.0, DT.1, built_in_label("sInventoryDamageThreshold"), dt),
+            Card::new(CAPS.0, CAPS.1, built_in_label("sInventoryCaps"), caps.to_string()),
         ];
         frame::heading(p, &mut c, Page::Items.title(), &cards);
-        list(p, &mut c, m, first, &heights);
+        list(p, &mut c, m, first, &heights, pip.tab());
         // The hotkey panel hides the picture, the badge and the hints (`IM_ButtonRect`).
         if let (true, Some(k)) = (panel, hold.slot) {
             info!("pipboy hotkeys: panel drawn, key {} chosen{}", k + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
-            super::hotkey_panel::draw(p, &mut c, &hotkeys, &hold, selected, sim, combat.as_deref());
+            super::hotkey_panel::draw(p, &mut c, &hotkeys, &hold, selected, sim, combat.as_deref(), script.as_deref());
         } else {
             // The selected item's own lines for its Repair and Mod hints.
             let (repair_row, mod_row) = hint_rows(labels);
@@ -757,7 +800,7 @@ pub fn page_hints(tab: Category, row: Option<&Row>, repair: (&'static str, bool)
     };
     if tab == Category::Weapons {
         // X, with a controller LB (`inventory_menu.xml`'s, `crate::pad::menu_buttons`).
-        out.push(Hint::new(label("sInventoryMod", "Mod"), key(KeyCode::KeyX), !mod_slots));
+        out.push(Hint::new(built_in_label("sInventoryMod"), key(KeyCode::KeyX), !mod_slots));
     }
     out
 }
@@ -815,6 +858,19 @@ pub(crate) fn hp_text(hp: Option<(f64, f64)>) -> String {
     hp.map_or_else(|| "--".to_string(), |(v, max)| format!("{}/{}", super::stats::model::whole(v), super::stats::model::whole(max)))
 }
 
+/// The heading's HP and DT figures as drawn.
+type Heading = (String, String);
+
+/// The heading's HP and DT figures: the STATS page's health, and the damage threshold a hit
+/// on the player meets (worn armour at its condition and the DT actor value,
+/// `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
+/// screenshots; hypothesis: the figure is the one combat uses].
+pub(crate) fn heading(sim: &mut SimState, mut script: Option<&mut crate::script::ScriptState>, combat: Option<&crate::combat::Combat>) -> Heading {
+    let hp = super::stats::read::player_hp(sim, script.as_deref_mut());
+    let dt = combat.map(|c| crate::combat::target_armor(c, script, sim, FormId::PLAYER_REF).0);
+    (hp_text(hp), dt_text(dt))
+}
+
 /// The DT card's figure: one decimal, "--" unread.
 pub(crate) fn dt_text(dt: Option<f32>) -> String {
     dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}"))
@@ -830,7 +886,9 @@ pub(crate) fn wg_text(m: &MenuModel) -> String {
 
 /// Each row's height as drawn: a name broken over more lines makes its row taller.
 fn row_heights(c: &mut Ctx, m: &MenuModel) -> Vec<f32> {
-    m.list(Side::Player).rows.iter().map(|r| ROW_H + LINE_PITCH * c.lines(2, &row_text(r), Some(WRAP)).len().saturating_sub(1) as f32).collect()
+    let rows = &m.list(Side::Player).rows;
+    let wrap = WRAP - if rows.iter().any(|r| r.ysi.is_some()) { YSI_ICON_ADVANCE } else { 0.0 };
+    rows.iter().map(|r| ROW_H + LINE_PITCH * c.lines(2, &row_text(r), Some(wrap)).len().saturating_sub(1) as f32).collect()
 }
 
 /// The first row to draw: the list's own first row, or a later one when the rows from
@@ -845,17 +903,26 @@ pub fn first_shown(heights: &[f32], first: usize, selected: usize, room: f32) ->
     first
 }
 
-fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, heights: &[f32]) {
+/// A dim row's strength: half, as the original draws ammo the weapon cannot fire
+/// [observed: observer check 288, text about half as bright].
+const DIM_ROW: f32 = 0.5;
+
+fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, heights: &[f32], tab: usize) {
     let bright = c.bright();
     let line = amber(LINE);
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
     let mut y = MAIN.min.y + LIST.min.y;
     let rows = &m.list(Side::Player).rows;
+    let icon_advance = if rows.iter().any(|r| r.ysi.is_some()) { YSI_ICON_ADVANCE } else { 0.0 };
+    let name_x = NAME_X + icon_advance;
+    let wrap = WRAP - icon_advance;
     let selected = m.selected[Side::Player as usize];
     let mut fit = 0;
     for i in first..rows.len() {
         let r = &rows[i];
-        let lines = c.lines(2, &row_text(r), Some(WRAP));
+        // Ammo the weapon cannot fire at half brightness (`Row::dim`, #3442).
+        let bright = if r.dim { bright.with_alpha(bright.alpha() * DIM_ROW) } else { bright };
+        let lines = c.lines(2, &row_text(r), Some(wrap));
         let h = heights[i];
         if y + h > MAIN.min.y + LIST.max.y {
             break;
@@ -870,16 +937,26 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, 
                 p.spawn((at(mk.min.x, mk.min.y, mk.width(), mk.height()), BackgroundColor(bright)));
             }
         }
-        for (k, l) in lines.iter().enumerate() {
-            c.set(p, 2, l, x0 + NAME_X, y + NAME_Y - THICK + LINE_PITCH * k as f32, Align::Left, bright);
+        if let Some(icon) = r.ysi.as_ref().and_then(|d| d.icon.as_deref()) {
+            c.image(p, icon, at(x0 + NAME_X, y + 14.0, 24.0, 24.0), bright);
         }
-        p.spawn((at(x0, y, ROW_W, h), RowButton(i), Pickable::default())).observe(on_row_over).observe(on_row_click);
+        for (k, l) in lines.iter().enumerate() {
+            c.set(p, 2, l, x0 + name_x, y + NAME_Y - THICK + LINE_PITCH * k as f32, Align::Left, bright);
+        }
+        p.spawn((at(x0, y, ROW_W, h), RowButton(i), Pickable::default())).observe(on_row_over).observe(on_touch_row_press).observe(on_row_click);
         y += h;
     }
     // The scroll bar, only while some rows do not show.
     if let Some((from, part)) = scroll_part(first, fit, rows.len()) {
         let (x, top) = (MAIN.min.x + LIST.min.x, MAIN.min.y + LIST.min.y);
-        p.spawn((at(x, top, SCROLLBAR, LIST.height()), Pickable::IGNORE)).with_children(|b| super::data::scroll_bar(b, c, 0.0, LIST.height(), from, part));
+        p.spawn((at(x, top, SCROLLBAR, LIST.height()), Pickable::IGNORE)).with_children(|b| {
+            super::data::scroll_bar(b, c, 0.0, LIST.height(), from, part);
+            let (marker_top, marker_height) = super::data::bar_marker(LIST.height(), from, part);
+            let (track_top, track_bottom) = super::data::bar_track(LIST.height());
+            let track = Rect::new(0.0, track_top, SCROLLBAR, track_bottom);
+            let marker = Rect::new(0.0, marker_top, SCROLLBAR, (marker_top+marker_height).min(track.max.y));
+            super::scrollbar::hits(b, Page::Items, tab, Rect::new(0.0,0.0,SCROLLBAR,LIST.height()), track, marker, Vec2::new(x,top));
+        });
     }
 }
 
@@ -980,12 +1057,13 @@ mod tests {
             condition: None,
             icon: None,
             price: None,
-            bartered: false, loaded: false,
+            bartered: false, loaded: false, dim: false,
             mods: 0,
             mods_value: 0,
             folder: None,
             reference: None,
             live: false,
+            ysi: None,
         };
         assert_eq!(row_text(&r), "Stimpak (9)");
         r.count = 1;
@@ -993,7 +1071,31 @@ mod tests {
     }
 
     fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
-        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false }
+        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, dim: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false, ysi: None }
+    }
+
+    #[test]
+    fn stewie_single_item_query_matches_actual_pipboy_stack_figures() {
+        use fnv_script::vm::XVal;
+        let mut script = crate::script::ScriptState::over_no_plugins();
+        let mut sim = SimState::over_placed([]);
+        let mut r = row(Some(fnv_sim::forms::ItemKind::Misc));
+        r.count = 4;
+        r.weight = Some(2.5);
+        r.value = Some(7);
+        for (one, weight, value) in [(false, "10.00", "28"), (true, "2.50", "7"), (false, "10.00", "28")] {
+            {
+                let game = &mut script.rt.as_mut().unwrap().game;
+                let settings = fnv_game::tweaks::Tweaks { single_item_figures: one, ..Default::default() };
+                game.bind_stewie_stat_settings(&settings);
+                for name in ["StewVal", "StewieGetValue"] {
+                    assert_eq!(game.run_query(&format!("Begin Function {{}}\nSetFunctionValue ({name} \"bIndividialItemStats:Tweaks\")\nEnd\n"), Default::default()).unwrap(), XVal::Num(f64::from(u8::from(one))));
+                }
+            }
+            let info = info_of(&r, None, &mut sim, None, Some(&mut script));
+            assert_eq!(info.weight.as_deref(), Some(weight));
+            assert_eq!(info.value.as_deref(), Some(value));
+        }
     }
 
     fn shown(h: &[Hint]) -> Vec<(String, bool)> {
@@ -1058,8 +1160,8 @@ mod tests {
         let keys_misc_ammo: Vec<_> = [Category::Misc, Category::Ammo].map(|tab| shown(&page_hints(tab, Some(&misc(tab)), ("Repair", false), false, false))).into();
         let keys_empty = shown(&page_hints(Category::Weapons, None, ("Repair", false), false, true));
 
-        assert_eq!(weapons, [hint("Equip A)", false), hint("Drop X)", false), hint("Repair Y)", false), hint("Hotkey RB)", false), hint("Mod LB)", false)]);
-        assert_eq!(bare, ("Repair", true, "Mod", true, false));
+        assert_eq!(weapons, [hint("Equip A)", false), hint("Drop X)", false), hint("Repair Y)", false), hint("Hotkey RB)", false), hint("Modify LB)", false)]);
+        assert_eq!(bare, ("Repair", true, "Modify", true, false));
         assert_eq!(apparel, [hint("Unequip A)", false), hint("Drop X)", false), hint("Maintain Y)", true), hint("Hotkey RB)", false)]);
         assert_eq!(aid, [hint("Use A)", false), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey RB)", false)]);
         assert_eq!(book, "Use");
@@ -1070,14 +1172,14 @@ mod tests {
         assert!(quest);
         assert_eq!(empty, (5, true), "an empty Weapons tab: all five controller hints, all dim");
 
-        assert_eq!(keys_weapons, [hint("Repair R)", false), hint("Mod X)", false)]);
-        assert_eq!(keys_bare, [hint("Repair R)", true), hint("Mod X)", true)]);
+        assert_eq!(keys_weapons, [hint("Repair R)", false), hint("Modify X)", false)]);
+        assert_eq!(keys_bare, [hint("Repair R)", true), hint("Modify X)", true)]);
         assert_eq!(keys_apparel, [hint("Maintain R)", true)]);
         assert_eq!(keys_aid, [hint("Repair R)", true)]);
         for h in &keys_misc_ammo {
             assert_eq!(h, &[hint("Repair R)", true)]);
         }
-        assert_eq!(keys_empty, [hint("Repair R)", true), hint("Mod X)", true)]);
+        assert_eq!(keys_empty, [hint("Repair R)", true), hint("Modify X)", true)]);
     }
 
     /// Five hints 46 apart from the Repair button's place end above the figures' highest
@@ -1157,7 +1259,7 @@ mod tests {
         };
         let t = info_tiles(&weapon);
         let titles: Vec<&str> = t.iter().map(|t| t.title.as_str()).collect();
-        assert_eq!(titles, ["DAM", "WG", "VAL", "STR", "DPS", "CND", "40mm Grenade (1/19)"]);
+        assert_eq!(titles, ["DAM", "WEIGHT", "Value", "Strength Req.", "DPS", "Condition", "40mm Grenade (1/19)"]);
         assert_eq!(t[4].rect.min, Vec2::new(0.0, -h));
         assert_eq!(t[1].rect.min, Vec2::new(w + 10.0, 0.0));
         assert_eq!(t[3].rect.min, Vec2::new(2.0 * (w + 10.0), -h));
@@ -1167,7 +1269,7 @@ mod tests {
         let aid = Info { value: Some("675".into()), effects: Some("HP +40".into()), ..Info::default() };
         let t = info_tiles(&aid);
         assert_eq!(t[0].value, "--");
-        assert_eq!((t[2].title.as_str(), t[2].rect.min.y), ("EFFECTS", h));
+        assert_eq!((t[2].title.as_str(), t[2].rect.min.y), ("Effects", h));
         // Armour: effects under the condition row.
         let armour = Info { condition: Some(1.0), beside: Some("Medium".into()), effects: Some("AGL -1".into()), ..Info::default() };
         assert_eq!(info_tiles(&armour).last().map(|t| t.rect.min.y), Some(2.0 * h));

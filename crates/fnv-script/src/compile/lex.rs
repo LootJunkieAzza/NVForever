@@ -304,7 +304,15 @@ impl XTok {
     }
 }
 
-/// Operators of the extender's expressions, longest first [documented: NVSE Expressions].
+/// Operators of the extender's expressions, longest first [documented: NVSE Expressions;
+/// observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas 1.4.0.525 +
+/// xNVSE 6.4.9 (10 official base masters), #3678 / PR #3679 probes
+/// `b3_syn_01_shift_compound_assign` (`let iA <<= 4; let iB >>= 2` -> `Error: Too many
+/// operators.`, RHS fallback `4, 2`) and `w1_3495_compound_assign_and_datan2` (`CompileScript`
+/// probes: bare `x <<= 2`/`x >>= 2` fail to precompile; `let x <<= 2`/`let x >>= 2` log
+/// `Error: Too many operators.` and assign RHS `2`; binary `3 << 2 = 12`, `20 >> 2 = 5`);
+/// design: NVForever rejects `let x <<= y` / `let x >>= y` at compile time rather than
+/// assigning the RHS].
 const XOPS: [&str; 33] = [
     "<-", "=>", ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&", "||", ":", "|",
     "&", "+", "-", "*", "/", "%", "^", "<", ">", "=",
@@ -331,6 +339,13 @@ pub fn xtokens(line: &str) -> Vec<XTok> {
         if word_char(c) {
             let n = cs[i..].iter().take_while(|&&w| word_char(w)).count();
             let text: String = cs[i..i + n].iter().collect();
+            if let Some(prev) = out.last_mut() {
+                if prev.kind == XKind::Word && prev.text.ends_with('.') && !is_number(&prev.text) && (c.is_ascii_alphabetic() || c == '_') {
+                    prev.text.push_str(&text);
+                    i += n;
+                    continue;
+                }
+            }
             let kind = if is_number(&text) { XKind::Num } else { XKind::Word };
             out.push(XTok { kind, text, sign: false });
             i += n;
@@ -407,6 +422,8 @@ mod tests {
         assert_eq!(t, ["let", "a", "[", "0", "]", ":=", "b", "->", "key", "+", "$", "c", "::", "2", "!=", "!", "d"]);
         let t = xtokens("x += 1.5, \"s\"");
         assert_eq!(t.iter().map(|t| t.kind).collect::<Vec<_>>(), [XKind::Word, XKind::Op, XKind::Num, XKind::Comma, XKind::Str]);
+        let t: Vec<String> = xtokens("let SomeRef. Flag := 1").into_iter().map(|t| t.text).collect();
+        assert_eq!(t, ["let", "SomeRef.Flag", ":=", "1"]);
     }
 
     #[test]

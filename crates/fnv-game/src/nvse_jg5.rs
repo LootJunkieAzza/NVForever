@@ -30,8 +30,6 @@ pub struct Jg5State {
     /// A model's alternate textures a script changed, a whole copy of the record's, by
     /// form and subrecord (read through [`alt_textures`]).
     pub alt_textures: HashMap<(FormId, [u8; 4]), Vec<AltTexture>>,
-    /// SetWorldspaceEncounterZone's zones (None: removed), read through [`cell_zone`].
-    pub world_zones: HashMap<FormId, Option<FormId>>,
     /// SetRegionMapName's map blocks: the name and the header's priority (read through
     /// [`region_map`]).
     pub region_maps: HashMap<FormId, (String, u8)>,
@@ -155,26 +153,14 @@ fn alt_mut<'a>(g: &'a mut Game, f: FormId, sub: [u8; 4]) -> &'a mut Vec<AltTextu
 
 /// The encounter zone of a cell as it stands now: SetCellEncounterZone's (`nvse_jg2`),
 /// else the cell's own (CELL XEZN), else SetWorldspaceEncounterZone's for its
-/// worldspace, else the worldspace's (WRLD XEZN) [hypothesis: as
-/// `fnv_sim::RefTable::cell_zone`, a script's change in place of the record's].
+/// worldspace, else the worldspace's (WRLD XEZN) (`fnv_sim::World::cell_zone_of`).
 pub fn cell_zone(g: &Game, cell: FormId) -> Option<FormId> {
-    if let Some(z) = g.other.cell_zones.get(&cell) {
-        return *z;
-    }
-    let placed = g.world.placed;
-    if let Some(z) = placed.cell_zones.get(&cell) {
-        return Some(*z);
-    }
-    let w = placed.world_of(cell)?;
-    world_zone(g, w)
+    g.world.cell_zone_of(cell)
 }
 
 /// A worldspace's encounter zone: SetWorldspaceEncounterZone's, else WRLD XEZN.
 fn world_zone(g: &Game, w: FormId) -> Option<FormId> {
-    match g.other.jg5.world_zones.get(&w) {
-        Some(z) => *z,
-        None => g.world.placed.world_zones.get(&w).copied(),
-    }
+    g.world.world_zone_of(w)
 }
 
 /// A region's map block (its name and priority): SetRegionMapName's, else the record's
@@ -255,8 +241,7 @@ pub fn player_region_name(g: &Game) -> Option<String> {
     if interior(g, cell) {
         return None;
     }
-    let regions = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v)));
-    regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.trim().is_empty()))
+    g.cell_regions(cell).into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.trim().is_empty()))
 }
 
 pub(crate) fn location_name(g: &Game, r: FormId) -> String {
@@ -277,8 +262,7 @@ pub(crate) fn location_name(g: &Game, r: FormId) -> String {
 /// The first map name among the regions an exterior cell is in, in CELL XCLR order
 /// ([`location_name`]).
 pub(crate) fn region_map_name(g: &Game, cell: FormId) -> Option<String> {
-    let regions: Vec<FormId> = g.data.record_fields.get(&cell).into_iter().flatten().filter(|(s, _)| s == b"XCLR").flat_map(|(_, v)| v.as_array().cloned().unwrap_or_else(|| vec![v.clone()])).filter_map(|v| hex_form(Some(&v))).collect();
-    regions.into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.is_empty()))
+    g.cell_regions(cell).into_iter().find_map(|reg| region_map(g, reg).map(|m| m.0).filter(|n| !n.is_empty()))
 }
 
 /// The functions of this file; `None` for any other name.
@@ -325,7 +309,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // index takes the texture set, or a new one is added for it [documented:
         // SetWeaponAltTexture, SetArmorAltTexture and their notes]; 1 when done. A new
         // entry has no shape name, and a form that is not a texture set changes nothing
-        // [hypothesis].
+        // (see docs/spec-notes/ext-jg5.md).
         "setweaponalttexture" | "setarmoralttexture" => {
             let armor = name == "setarmoralttexture";
             let f = of_sig(g, form(args, 0), if armor { b"ARMO" } else { b"WEAP" });
@@ -341,13 +325,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(1.0)
         }
         // `weapon index`: that 3D index's alternate texture removed, every one for -1
-        // [documented: ClearWeaponAltTexture]; 1 when one was removed [hypothesis].
+        // [documented: ClearWeaponAltTexture]; -1 returns 1 even when no overrides exist,
+        // while a specific empty index returns 0 [observed: Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters, `w4c_b6_06_clear_weap_alt_tex`: `emp5=0,all=1`].
         "clearweaponalttexture" => {
             let (Some(f), Some(at)) = (of_sig(g, form(args, 0), b"WEAP"), index(args, 1)) else { return Some(Ok(zero)) };
-            if alt_textures(g, f, *b"MODS").iter().all(|a| at != -1 && i64::from(a.index) != at) {
+            if at == -1 {
+                alt_mut(g, f, *b"MODS").clear();
+                return Some(Ok(XVal::Num(1.0)));
+            }
+            if alt_textures(g, f, *b"MODS").iter().all(|a| i64::from(a.index) != at) {
                 return Some(Ok(zero));
             }
-            alt_mut(g, f, *b"MODS").retain(|a| at != -1 && i64::from(a.index) != at);
+            alt_mut(g, f, *b"MODS").retain(|a| i64::from(a.index) != at);
             XVal::Num(1.0)
         }
         // ---- armour ----
@@ -402,15 +393,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if form(args, 1).is_some() && z.is_none() {
                 return Some(Ok(zero));
             }
-            g.other.jg5.world_zones.insert(w, z);
+            g.world.set_world_zone(w, z);
             XVal::Num(1.0)
         }
         // ---- regions ----
         // `region`: the map name (RDMP) [documented: GetRegionMapName]; a region without
-        // map data fails the call [observed: jg5, 0x123CE3, "script call failed";
-        // hypothesis: a form that is no region too]. `region name`: a region without map
+        // map data fails the call [observed: jg5, 0x123CE3, "script call failed"] (a non-region
+        // also fails; see docs/spec-notes/ext-jg5.md). `region name`: a region without map
         // data gains it [documented: SetRegionMapName; observed: jg5], at priority 0
-        // [hypothesis]; 1 when done [observed: jg5].
+        // (see docs/spec-notes/ext-jg5.md); 1 when done [observed: jg5].
         "getregionmapname" => match of_sig(g, form(args, 0), b"REGN").and_then(|r| region_map(g, r)) {
             Some(m) => XVal::Str(m.0),
             None => return failed(name),
@@ -432,19 +423,30 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // SetExplosionSound], read by GetExplosionTraitForm; `projectile which sound`:
         // 1 the projectile's sound, 2 countdown, 3 disable (PROJ DATA) [documented:
         // SetProjectileSound]. A form that is not a sound changes nothing [hypothesis].
-        "setexplosionsound" | "setprojectilesound" => {
-            let expl = name == "setexplosionsound";
-            let f = of_sig(g, form(args, 0), if expl { b"EXPL" } else { b"PROJ" });
-            let key = match (expl, index(args, 1)) {
-                (true, Some(1)) => "DATA/sound_1",
-                (true, Some(2)) => "DATA/sound_2",
-                (false, Some(1)) => "DATA/sound",
-                (false, Some(2)) => "DATA/sound_countdown",
-                (false, Some(3)) => "DATA/sound_disable",
+        "setexplosionsound" => {
+            let f = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"EXPL"));
+            let key = match index(args, 1) {
+                Some(1) => "DATA/sound_1",
+                Some(2) => "DATA/sound_2",
                 _ => "",
             };
-            if let (Some(f), Some(s), false) = (f, of_sig(g, form(args, 2), b"SOUN"), key.is_empty()) {
+            let s = form(args, 2).filter(|&s| g.data.sig(g.unclone(s)) == Some(*b"SOUN"));
+            if let (Some(f), Some(s), false) = (f, s, key.is_empty()) {
                 g.field_overrides.insert((f, key.into()), XVal::Ref(s.0));
+            }
+            zero
+        }
+        "setprojectilesound" => {
+            let p = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"PROJ"));
+            let s = form(args, 2).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"SOUN"));
+            let key = match index(args, 1) {
+                Some(1) => "DATA/sound",
+                Some(2) => "DATA/sound_countdown",
+                Some(3) => "DATA/sound_disable",
+                _ => "",
+            };
+            if let (Some(p), Some(s), false) = (p, s, key.is_empty()) {
+                g.field_overrides.insert((p, key.into()), XVal::Ref(s.0));
             }
             zero
         }
@@ -475,20 +477,31 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             list(g, out.into_iter().map(|r| XVal::Ref(r.0)))
         }
         // `mod`: the weapons whose mod slots (WMI1-3) hold it, in FormID order
-        // [documented: GetWeaponsForMod; hypothesis: the order].
+        // [documented: GetWeaponsForMod; hypothesis: the order (native `w0=00176E5B` is not
+        // ascending FormID)]; non-IMOD returns ar_Null (`ar_Size == -1`) and valid IMOD
+        // `0x129878` returns 3 weapons [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
+        // 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters, `w4c_b3_02_region_loc_weapmod` (`badModN=-1`) and
+        // `w6t2_30_jg5_get_weapons_for_mod_and_armor_alt_tex`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `wMod(n=3,w0=00176E5B,bad=-1)`].
         "getweaponsformod" => {
-            let m = of_sig(g, form(args, 0), b"IMOD");
-            let mut ws: Vec<FormId> = match m {
-                Some(m) => g.data.sigs.iter().filter(|(_, s)| *s == b"WEAP").map(|(&w, _)| w).filter(|&w| ["WMI1", "WMI2", "WMI3"].iter().any(|s| matches!(field(g, w, s, ""), Some(XVal::Ref(r)) if r == m.0))).collect(),
-                None => Vec::new(),
-            };
+            let Some(m) = of_sig(g, form(args, 0), b"IMOD") else { return Some(Ok(XVal::Array(0))) };
+            let mut ws: Vec<FormId> = g
+                .data
+                .sigs
+                .iter()
+                .filter(|(_, s)| *s == b"WEAP")
+                .map(|(&w, _)| w)
+                .filter(|&w| ["WMI1", "WMI2", "WMI3"].iter().any(|s| matches!(field(g, w, s, ""), Some(XVal::Ref(r)) if r == m.0)))
+                .collect();
             ws.sort();
             list(g, ws.into_iter().map(|w| XVal::Ref(w.0)))
         }
         // `effect`: the actor effect's type (SPEL SPIT), 0 actor effect, 1 disease,
         // 2 power, 3 lesser power, 4 ability, 5 poison, 10 addiction; -1 for anything
         // else [documented: GetActorEffectType].
-        "getactoreffecttype" => XVal::Num(of_sig(g, form(args, 0), b"SPEL").and_then(|s| g.data.spell_types.get(&s)).map_or(-1.0, |&t| t as f64)),
+        "getactoreffecttype" => XVal::Num(form(args, 0).and_then(|s| g.spell_type(s)).map_or(-1.0, |t| t as f64)),
         // ---- camera shots ----
         // `shot [flags]`: CAMS DATA flags, bits 0-5 [documented: Get/SetCameraShotFlags].
         "getcamerashotflags" => XVal::Num(form(args, 0).and_then(|s| camera_shot(g, s)).map_or(0.0, |c| f64::from(c.flags))),
@@ -517,7 +530,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // jg5, CamDefaultShoot]. The setter gives 1 when it set the trait [observed: jg5,
         // traits 1 and 6]; a code is kept as given even outside the field's table
         // [observed: jg5, location 7 reads 7], the kill camera keeping the shot's last
-        // valid one; a number that is not finite changes nothing [hypothesis].
+        // valid one; a number that is not finite changes nothing (see docs/spec-notes/ext-jg5.md).
         "getcamerashottraitnumeric" => {
             let (shot, t) = (form(args, 0), index(args, 1));
             if let Some(&code) = shot.zip(t).and_then(|k| g.other.jg5.shot_codes.get(&k)) {
@@ -602,9 +615,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             })
         }
         // `r g b`: the colour packed as R × 65536 + G × 256 + B [documented: GetRGBColor;
-        // observed: jg5, 255 128 1 reads 16744449, 1 0 0 65536, 0 0 1 1]; channels are
-        // taken whole, as given [hypothesis: the probes stayed in 0-255].
-        "getrgbcolor" => XVal::Num(num(args, 0, 0.0).trunc() * 65536.0 + num(args, 1, 0.0).trunc() * 256.0 + num(args, 2, 0.0).trunc()),
+        // observed: jg5, 255 128 1 reads 16744449, 1 0 0 65536, 0 0 1 1]; any channel
+        // outside 0..=255 returns 0 [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9
+        // + JohnnyGuitarNVSE 528, clean-room script probe jg_16_rgb_color_out_of_range:
+        // (256,0,0), (0,256,0), (-1,0,0) -> 0,0,0; no DLL or source consulted].
+        "getrgbcolor" => {
+            let (r, g, b) = (num(args, 0, 0.0).trunc(), num(args, 1, 0.0).trunc(), num(args, 2, 0.0).trunc());
+            let ok = |c: f64| c.is_finite() && (0.0..=255.0).contains(&c);
+            XVal::Num(if ok(r) && ok(g) && ok(b) { r * 65536.0 + g * 256.0 + b } else { 0.0 })
+        }
         _ => return None,
     };
     let _ = ctx;

@@ -63,10 +63,12 @@ pub struct Tweaks {
     // ---- actors ----
     /// `bLootUnconsciousVictims`: an unconscious actor can be searched.
     pub loot_unconscious: bool,
-    /// `bReviveUnconsciousCompanions` (`fUnconsciousTime`): a Stimpak revives a knocked-out
-    /// companion; such a companion lies at least this many seconds (0 keeps ours).
+    /// `bReviveUnconsciousCompanions` (`fUnconsciousTime`, `bReviveWhenChangingCells`): a
+    /// Stimpak revives a knocked-out companion; such a companion lies at least this many
+    /// seconds (0 keeps ours), and optionally revives automatically when changing cells.
     pub revive_companions: bool,
     pub revive_down_seconds: f32,
+    pub revive_on_cell_change: bool,
     /// `bPickpocketWornItems`: what an actor wears can be pickpocketed.
     pub pickpocket_worn_items: bool,
     // ---- combat ----
@@ -181,8 +183,10 @@ pub struct Tweaks {
     /// `bAllowAidAtMaxHealth`: the STATS page's Stimpak and Doctor's Bag are used at full
     /// health and with no limb hurt.
     pub aid_at_full_health: bool,
-    /// `bGrabbingItemsIsCrime`: grabbing someone else's thing counts as stealing it.
+    /// `bGrabbingItemsIsCrime` (`fMinValue`): grabbing someone else's thing counts as
+    /// stealing it when the grabbed stack's base value is at least `grabbing_is_theft_min_value`.
     pub grabbing_is_theft: bool,
+    pub grabbing_is_theft_min_value: f32,
     /// `bLockNeedsKeyShowName`: "requires a key" names the key.
     pub lock_needs_key_name: bool,
     /// `bNoSkillTags`: dialogue topics show no [Speech 50]-style tag.
@@ -217,8 +221,10 @@ pub struct Tweaks {
     pub no_companion_kill_xp: bool,
     /// `bNoDisarmCompanions`: a crippled arm does not disarm a teammate.
     pub no_disarm_companions: bool,
-    /// `bNoSelfExplosionDamage`: the player's own blasts do not hurt the player.
+    /// `bNoSelfExplosionDamage`: the player's own blasts do not hurt the player, and
+    /// optionally also spare living non-hostile actors (`no_self_explosion_non_hostiles`).
     pub no_self_explosion_damage: bool,
+    pub no_self_explosion_non_hostiles: bool,
     /// `bSneakCriticalsOnlyMeleeWeapons`: sneak criticals with melee only.
     pub sneak_criticals_melee_only: bool,
     /// `bAllowTeammatesUseMeltdown`: teammates' energy kills use the player's Meltdown.
@@ -317,6 +323,13 @@ pub struct Tweaks {
     // ---- batch 28 ----
     /// `bNoScaleNpcDamageByCondition`: NPCs' weapons hit as if whole.
     pub npc_weapons_whole: bool,
+    /// Named NVForever option `npc-weapon-mods` (off by default; #3876): non-player NPCs
+    /// roll a level-scaled chance (10%-60%, +2%/level) for their main weapon to include
+    /// random weapon mods from its valid `WMI1`-`WMI3` slots [documented: JIP LN NVSE
+    /// Plugin 57.30 `jip_nvse.ini` `[GamePatches]` `bNPCWeaponMods`; no DLL or source
+    /// consulted; design: `docs/spec-notes/npc-weapon-mods.md`]. Never read from
+    /// `jip_nvse.ini`.
+    pub npc_weapon_mods: bool,
     /// `bLethalHitsIncreaseLimbChallenges`: a killing knockdown still counts for the
     /// knockdown challenges.
     pub lethal_knockdowns_count: bool,
@@ -368,9 +381,12 @@ pub struct Tweaks {
     /// `bContactMines` (`bPlayer`, `bNPCs`): a mine stood on goes off with no fuse.
     pub contact_mines_player: bool,
     pub contact_mines_npcs: bool,
-    /// `bSleepHealingMinDuration` (`iMinDuration`): a sleep heals Health and limbs only
-    /// from this hour slept on; 0 heals from the first.
+    /// `bSleepHealingMinDuration` (`iMinDuration`, `bMiscStatRequiresSleepDuration`): a
+    /// sleep heals Health and limbs only from this hour slept on (0 heals from the first),
+    /// and when `sleep_misc_stat_requires_duration` is set, Times Slept only increments when
+    /// the sleep meets that duration.
     pub sleep_heal_min_hours: u32,
+    pub sleep_misc_stat_requires_duration: bool,
     /// `bBarterAffectsRepairCosts`: percent of a vendor's repair price the player's
     /// Barter 100 takes off (less in proportion below; [`barter_repair_factor`]).
     pub barter_repair_discount: f32,
@@ -566,6 +582,8 @@ pub struct Tweaks {
     /// `bFastTravelCostsSpecialNukaBottles`: fast travel takes a Nuka-Cola Quantum,
     /// Quartz or Victory, and is refused without one.
     pub travel_costs_bottle: bool,
+    /// `bAllowUnsafeFastTravel`: fast travel from places that forbid it (indoors).
+    pub unsafe_fast_travel: bool,
     /// `bArmorCausesSinking`: medium and heavy body armour pull a swimmer down.
     pub armor_sinks: bool,
     /// `bRememberBobbyPinHealth`: the bobby pin keeps its wear from lock to lock.
@@ -633,11 +651,17 @@ pub struct Tweaks {
     pub weapon_requirements_matter: bool,
     /// `bImprovedHacking`'s options: a lone symbol does nothing; a word tried before
     /// does nothing; a bracket pair with full attempts removes a dud; removing a dud
-    /// spares the words tried.
+    /// spares the words tried; denied guesses turn into `.` in the dump (optionally
+    /// keeping matching characters, Stewie 9.50); compact one-line guess logs; bonus
+    /// attempts on Replenished instead of resetting to 4.
     pub hack_no_single_chars: bool,
     pub hack_no_repeat_words: bool,
     pub hack_dud_when_full: bool,
     pub hack_spare_guessed: bool,
+    pub hack_mark_guesses_as_duds: bool,
+    pub hack_keep_matching_chars: bool,
+    pub hack_compact_guesses: bool,
+    pub hack_replenish_bonus: u8,
     /// `bLocationalMeleeDamage`/`bNonPlayerAttacks`: an NPC's blow on the player takes
     /// the struck part's damage multiplier.
     pub npc_melee_part_damage: bool,
@@ -679,6 +703,53 @@ pub struct Tweaks {
     /// `bReloadingWithNoAmmoSwapsAmmoTypes`: reloading with none of the ammo in use left
     /// swaps to another carried type.
     pub empty_reload_swaps_ammo: bool,
+    /// `bMenuSearch`: Stewie menu search-bar tile publication (`ui_search_bar`) on
+    /// supported menus.
+    pub menu_search: bool,
+    /// `bSynchronizeContainerCategories`: a container's or barter's two lists change
+    /// category together.
+    pub sync_categories: bool,
+    /// `bSynchronizeContainerCategories` (`bPreventSwitchWhenEmptyingCategory`): keep the
+    /// emptied synchronized category selected instead of switching back to All.
+    pub prevent_switch_when_emptying_category: bool,
+    /// `bBarterCheckActorBuySellFlags`: a merchant takes from the player only what its
+    /// service list says it deals in (Stimpaks follow Stimpaks, ignoring Chems).
+    pub vendor_lists_both: bool,
+    /// `bArmorConditionLabel`: the body armour's condition row under the weapon's on the
+    /// HUD (queried live by mods via `StewVal`/`StewieGetValue`).
+    pub armor_condition: bool,
+    /// `bNoLockEncounterZoneLevels`: encounter zones do not freeze their level on first
+    /// visit; entering or querying a zone recomputes its level against the current player
+    /// level [documented: lStewieAl's Tweaks 10.05
+    /// (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini`
+    /// `[Tweaks]`: `; don't freeze the level of encounter zones when they are first
+    /// visited` / `bNoLockEncounterZoneLevels = 0`; no DLL or source consulted].
+    pub no_lock_encounter_zone_levels: bool,
+    /// `bFasterSleepWait`: pass hours faster while waiting or sleeping [documented:
+    /// lStewieAl's Tweaks 10.05 (`https://www.nexusmods.com/newvegas/mods/66347`)
+    /// `nvse_stewie_tweaks.ini` `[Tweaks]`: `; increase the hour countdown speed while
+    /// waiting or sleeping` / `bFasterSleepWait = 1`; no DLL or source consulted; design:
+    /// NVForever's `wait::FASTER_HOUR_SECONDS` pace while keeping `wait::HOUR_SECONDS`
+    /// unchanged when off].
+    pub faster_sleep_wait: bool,
+    /// `bUseWASDAsArrowKeys`: add WASD as arrow keys and Space to accept across menus
+    /// where letter bindings otherwise take precedence (Barter columns/accept, Quantity
+    /// slider, Sleep/Wait accept, Recipe filters/accept) while keeping arrow keys intact
+    /// [documented: lStewieAl's Tweaks 10.05
+    /// (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini`
+    /// `[Tweaks]`: `; allow use of WASD keys as arrows in menus, and space to accept` /
+    /// `bUseWASDAsArrowKeys = 1`; no DLL or source consulted; design: NVForever's own
+    /// per-menu key routing while keeping vanilla bindings unchanged when off].
+    pub wasd_as_arrow_keys: bool,
+    /// `fCraftedItemHealthPct`: fixed percent condition (`0.0..=100.0`; `0.0` disables
+    /// the override and preserves vanilla crafting) of crafted weapons and armour
+    /// [documented: lStewieAl's Tweaks 10.05
+    /// (`https://www.nexusmods.com/newvegas/mods/66347`) `nvse_stewie_tweaks.ini`
+    /// `[Tweaks]`: `; set the condition of the items returned from crafting (default is
+    /// 80%)` / `fCraftedItemHealthPct = 80.000000`; no DLL or source consulted; design:
+    /// off at `0.0` by default so unmodded vanilla crafting stays unchanged, clamped to
+    /// `0.01..=1.0`, and `bRepairScalesCraftingCondition` keeps precedence when enabled].
+    pub crafted_item_health_pct: f32,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -695,11 +766,52 @@ pub fn crafted_condition(repair: f32) -> f32 {
     0.5 + repair.clamp(0.0, 100.0) / 200.0
 }
 
+/// Effective condition (`0.01..=1.0`) for a crafted weapon or armour, or `None` for
+/// vanilla full condition. `bRepairScalesCraftingCondition` takes precedence over
+/// `fCraftedItemHealthPct`; `0.0` or non-finite leaves vanilla crafting unchanged [design].
+pub fn crafted_output_condition(tweaks: &Tweaks, repair: f32) -> Option<f32> {
+    if tweaks.repair_scales_crafting {
+        return Some(crafted_condition(repair));
+    }
+    if tweaks.crafted_item_health_pct.is_finite() && tweaks.crafted_item_health_pct > 0.0 {
+        return Some((tweaks.crafted_item_health_pct / 100.0).clamp(0.01, 1.0));
+    }
+    None
+}
+
 impl crate::game::Game<'_> {
     /// `r` wears power armour on the upper body (for the tweaks).
     pub fn wears_power_armor(&self, r: fnv_sim::FormId) -> bool {
         use fnv_sim::forms::ItemKind;
-        self.world.equipment(r).unwrap_or_default().into_iter().filter_map(|i| self.world.forms.item(i)).any(|it| it.kind == ItemKind::Armor && it.power_armor && it.slots.is_some_and(|s| s & crate::detection::UPPER_BODY != 0))
+        self.world.equipment(r).unwrap_or_default().into_iter().any(|i| {
+            self.world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor)
+                && self.world.effective_power_armor(i)
+                && self.world.effective_slots(i).is_some_and(|s| s & crate::detection::UPPER_BODY != 0)
+        })
+    }
+
+    /// Whether the player's own explosion spares `target` under `bNoSelfExplosionDamage`
+    /// (the player always when enabled; also living non-hostile actors when
+    /// `no_self_explosion_non_hostiles` is enabled) [design: docs/design/tweaks.md].
+    pub fn own_explosion_spares(&mut self, target: fnv_sim::FormId) -> bool {
+        if !self.tweaks.no_self_explosion_damage {
+            return false;
+        }
+        if target == fnv_sim::FormId::PLAYER_REF {
+            return true;
+        }
+        self.tweaks.no_self_explosion_non_hostiles && !self.is_dead(target) && !crate::rest::hostile_to_player(self, target)
+    }
+
+    /// Whether grabbing an owned loose stack of base form `base` (`count` units) triggers
+    /// theft under `[Grabbing Items Is Crime] fMinValue` [design: docs/design/tweaks.md].
+    pub fn grab_triggers_theft(&self, base: fnv_sim::FormId, count: u32) -> bool {
+        if !self.tweaks.grabbing_is_theft {
+            return false;
+        }
+        let unit = self.world.forms.item(base).and_then(|it| it.value).unwrap_or(0).max(0) as f64;
+        let stack_value = unit * f64::from(count.max(1));
+        stack_value >= f64::from(self.tweaks.grabbing_is_theft_min_value)
     }
 
     /// The player's Disarm Requires Skill tweak: the chances (percent) that the player
@@ -779,6 +891,7 @@ impl Default for Tweaks {
             loot_unconscious: false,
             revive_companions: false,
             revive_down_seconds: 0.0,
+            revive_on_cell_change: false,
             pickpocket_worn_items: false,
             no_sneak_criticals: false,
             reload_only_when_empty: false,
@@ -826,6 +939,7 @@ impl Default for Tweaks {
             drowning_drains_ap: false,
             aid_at_full_health: false,
             grabbing_is_theft: false,
+            grabbing_is_theft_min_value: 0.0,
             lock_needs_key_name: false,
             no_skill_tags: false,
             no_npc_addiction: false,
@@ -843,6 +957,7 @@ impl Default for Tweaks {
             no_companion_kill_xp: false,
             no_disarm_companions: false,
             no_self_explosion_damage: false,
+            no_self_explosion_non_hostiles: false,
             sneak_criticals_melee_only: false,
             teammates_meltdown: false,
             speed_scales_jump: false,
@@ -884,6 +999,7 @@ impl Default for Tweaks {
             skip_lock_margin: 0.0,
             pick_up_disarmed: false,
             npc_weapons_whole: false,
+            npc_weapon_mods: false,
             lethal_knockdowns_count: false,
             crippling_never_disarms: false,
             no_spin_up: false,
@@ -907,6 +1023,7 @@ impl Default for Tweaks {
             contact_mines_player: false,
             contact_mines_npcs: false,
             sleep_heal_min_hours: 0,
+            sleep_misc_stat_requires_duration: true,
             barter_repair_discount: 0.0,
             armor_condition_penalty: 1.0,
             vats_ignores_companions: false,
@@ -995,6 +1112,7 @@ impl Default for Tweaks {
             modding_needs_skill: false,
             planting_needs_skill: false,
             travel_costs_bottle: false,
+            unsafe_fast_travel: false,
             armor_sinks: false,
             remember_pin_health: false,
             force_spares_lock: false,
@@ -1024,6 +1142,10 @@ impl Default for Tweaks {
             hack_no_repeat_words: false,
             hack_dud_when_full: false,
             hack_spare_guessed: false,
+            hack_mark_guesses_as_duds: false,
+            hack_keep_matching_chars: false,
+            hack_compact_guesses: false,
+            hack_replenish_bonus: 0,
             npc_melee_part_damage: false,
             disarm_needs_skill: false,
             disarm_mult: 1.0,
@@ -1042,6 +1164,15 @@ impl Default for Tweaks {
             marker_shift_removes: false,
             marker_removed_on_it: false,
             empty_reload_swaps_ammo: false,
+            menu_search: false,
+            sync_categories: false,
+            prevent_switch_when_emptying_category: true,
+            vendor_lists_both: false,
+            armor_condition: false,
+            no_lock_encounter_zone_levels: false,
+            faster_sleep_wait: false,
+            wasd_as_arrow_keys: false,
+            crafted_item_health_pct: 0.0,
         }
     }
 }
@@ -1065,5 +1196,24 @@ mod tests {
         assert_eq!(crafted_condition(100.0), 1.0);
         assert_eq!(crafted_condition(130.0), 1.0);
         assert_eq!(crafted_condition(-5.0), 0.5);
+    }
+
+    #[test]
+    fn crafted_output_condition_honors_default_pct_and_repair_precedence() {
+        let mut t = Tweaks::default();
+        assert_eq!(crafted_output_condition(&t, 50.0), None, "default 0% leaves vanilla crafting unchanged");
+
+        t.crafted_item_health_pct = 80.0;
+        assert_eq!(crafted_output_condition(&t, 50.0), Some(0.8));
+
+        t.crafted_item_health_pct = 0.25;
+        assert_eq!(crafted_output_condition(&t, 50.0), Some(0.01), "clamped above zero");
+
+        t.crafted_item_health_pct = 150.0;
+        assert_eq!(crafted_output_condition(&t, 50.0), Some(1.0), "clamped to 100%");
+
+        t.crafted_item_health_pct = 80.0;
+        t.repair_scales_crafting = true;
+        assert_eq!(crafted_output_condition(&t, 50.0), Some(0.75), "Repair scaling keeps precedence");
     }
 }

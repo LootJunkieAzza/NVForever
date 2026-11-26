@@ -107,7 +107,7 @@ engine's damage, value, spread, DT/DR and projectile speed do not read it yet.
 
 | Function | NVForever |
 |---|---|
-| GetActorTotalArmorDR, GetActorTotalArmorDT | the sum over the worn armour of each piece's DNAM DR or DT times its condition share (1 − (0.5 − condition) × 1.0 below half, as SetArmorConditionPenalty documents) [documented: "calculated DR of all armor"; hypothesis: the condition is part of it]. DR in the unit GetArmorArmorRating reads |
+| GetActorTotalArmorDR, GetActorTotalArmorDT | the sum over the worn armour of each piece's DNAM DR or DT times its condition share (`Game::armor_condition_mult`: `1 − (0.5 − condition) × penalty` clamped at 0 below half, using SetArmorConditionPenalty's penalty else Stewie's `Tweaks::armor_condition_penalty`, default 1.0) [documented: "calculated DR of all armor"; hypothesis: the condition is part of it; design: docs/design/tweaks.md]. DR in the unit GetArmorArmorRating reads |
 | ApplyAmmoEffects `ammo type value` | the value through each of the ammo's effects (RCIL, record order) of that type: add, multiply, subtract [documented: the page's two examples, 2 → 3.5 with ×1.75, 30 → 20 with −10] |
 | SetAmmoEffectTraitNumericAlt `effect trait value` | 0 the type (0–9, One111's four extra types 6–9 allowed), 1 the operation (0–2), 2 the value; 1 when set [documented]. GetAmmoEffectTraitNumeric reads the change |
 | GetProjectileRefAmmo | the ammunition the shot was fired with: the one the shooter's weapon uses when it is the weapon fired (`nvse_proj::Shot::ammo`) [hypothesis: the engine does not say which round it fired] |

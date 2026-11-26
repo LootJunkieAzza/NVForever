@@ -81,6 +81,7 @@ fn plugin_bytes() -> Vec<u8> {
     let enchs = [ench(PUNCH, "TestPunch"), ench(KICK, "TestKick")].concat();
     let armos = [armo(HAT, "TestHat", HAT_SLOT, 10, 5.0), armo(HELMET, "TestHelmet", HAT_SLOT | HEAD, 20, 8.0), armo(GLOVES, "TestGloves", HAND, 2, 1.0)].concat();
     let flst = record(b"FLST", 0, ARMOR_LIST, &[sub(b"EDID", z("TestArmorList")), sub(b"LNAM", HELMET.to_le_bytes().to_vec()), sub(b"LNAM", HAT.to_le_bytes().to_vec())]);
+    let dehy = record(b"DEHY", 0, 0x950, &[sub(b"EDID", z("TestDehydrationStage")), sub(b"DATA", u32s(&[200, TWO_SPELL]))]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let refs = [placed(b"ACHR", MARK, "MarkRef", NPC, [100.0, 200.0, 0.0]), placed(b"REFR", HAT_REF, "HatRef", HAT, [0.0, 50.0, 0.0])].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
@@ -93,6 +94,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NPC_", &npcs),
         top(b"ARMO", &armos),
         top(b"FLST", &flst),
+        top(b"DEHY", &dehy),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
     .concat()
@@ -197,6 +199,7 @@ fn equipped_items_and_armour() {
     let mut g = game(&f);
     q(&mut g, "player.AddItem TestHat 1\nplayer.EquipItem TestHat");
     assert_eq!(n(&mut g, "player.GetEquippedEx TestArmorList"), f64::from(HAT));
+    assert_eq!(n(&mut g, "player.TestEquippedSlots TestHat"), 1.0, "the currently equipped armor itself overlaps [observed: w6d2p3_52]");
     assert_eq!(n(&mut g, "player.TestEquippedSlots TestHelmet"), 1.0, "the hat slot is taken");
     assert_eq!(n(&mut g, "player.TestEquippedSlots TestGloves"), 0.0);
     assert_eq!((n(&mut g, "player.IsEquippedWeaponScoped"), n(&mut g, "player.IsEquippedWeaponSilenced")), (0.0, 0.0), "no weapon");
@@ -220,6 +223,17 @@ fn base_forms_factions_and_unarmed() {
     assert_eq!(n(&mut g, "SetActorUnarmedEffect TestKick TestNpc"), 1.0);
     assert_eq!(n(&mut g, "MarkRef.GetActorUnarmedEffect"), f64::from(KICK));
     assert_eq!(n(&mut g, "SetActorUnarmedEffect TestFaction TestNpc"), 0.0, "not an effect");
+    // Hardcore stage effect: non-SPEL and explicit null 0 are no-ops; omitted arg clears
+    // [observed: w6d2_30_actor_unarmed_and_hardcore_stage_effect].
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), f64::from(TWO_SPELL));
+    q(&mut g, "SetHardcoreStageEffect TestDehydrationStage TestHat");
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), f64::from(TWO_SPELL));
+    q(&mut g, "SetHardcoreStageEffect TestDehydrationStage 0");
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), f64::from(TWO_SPELL));
+    q(&mut g, "SetHardcoreStageEffect TestDehydrationStage");
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), 0.0);
+    q(&mut g, "SetHardcoreStageEffect TestDehydrationStage TwoSpell");
+    assert_eq!(n(&mut g, "GetHardcoreStageEffect TestDehydrationStage"), f64::from(TWO_SPELL));
 }
 
 #[test]
@@ -246,4 +260,90 @@ fn engine_channels_and_the_dead() {
     q(&mut g, "MarkRef.Kill");
     q(&mut g, "ClearDeadActors");
     assert_eq!(n(&mut g, "MarkRef.GetDisabled"), 1.0);
+}
+
+#[test]
+fn condition_penalties_honor_stewie_tweaks_and_script_overrides() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut g = game(&f);
+
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 960.0);
+
+    // Equip a 20%-condition TestHat (DNAM DR 10, DT 5).
+    let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();
+    inv.add_extra(FormId(HAT), 1, Extra { condition: Some(0.2), ..Default::default() });
+    assert!(inv.set_equipped(FormId(HAT)));
+
+    let inv_eff = |g: &mut Game, fn_name: &str| -> f64 {
+        let script = format!("array_var a\nref r\nlet a := player.GetInvRefsForItem TestHat\nlet r := a[0]\nSetFunctionValue (r.{fn_name})");
+        match q(g, &script) {
+            XVal::Num(x) => x,
+            v => panic!("{fn_name}: {v:?}"),
+        }
+    };
+
+    // Default penalty 1.0: share = 1 - (0.5 - 0.2) * 1.0 = 0.7 -> DR 7.0, DT 3.5.
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDR") - 7.0).abs() < 1e-6);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDT") - 3.5).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDR") - 7.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDT") - 3.5).abs() < 1e-6);
+
+    // Stewie's bCustomArmorConditionPenalty (0.0 -> no penalty, 2.0 -> doubled slope).
+    g.tweaks.armor_condition_penalty = 0.0;
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty"), 0.0);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDR") - 10.0).abs() < 1e-6);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDT") - 5.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDR") - 10.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDT") - 5.0).abs() < 1e-6);
+
+    g.tweaks.armor_condition_penalty = 2.0;
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty"), 2.0);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDR") - 4.0).abs() < 1e-6);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDT") - 2.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDR") - 4.0).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDT") - 2.0).abs() < 1e-6);
+
+    // Explicit script SetArmorConditionPenalty overrides the tweak default.
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty 0.5"), 2.0);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDR") - 8.5).abs() < 1e-6);
+    assert!((inv_eff(&mut g, "GetArmorEffectiveDT") - 4.25).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDR") - 8.5).abs() < 1e-6);
+    assert!((n(&mut g, "player.GetActorTotalArmorDT") - 4.25).abs() < 1e-6);
+
+    // Extreme multiplier clamps effective DR/DT at 0.0 instead of going negative.
+    q(&mut g, "SetArmorConditionPenalty 5.0");
+    assert_eq!(inv_eff(&mut g, "GetArmorEffectiveDR"), 0.0);
+    assert_eq!(inv_eff(&mut g, "GetArmorEffectiveDT"), 0.0);
+    assert_eq!(n(&mut g, "player.GetActorTotalArmorDR"), 0.0);
+    assert_eq!(n(&mut g, "player.GetActorTotalArmorDT"), 0.0);
+
+    // Weapon condition multiplier honors Stewie's bNoWeaponConditionDamagePenalty and bRemoveWeaponDamageBuffer.
+    assert!((g.weapon_condition_mult(0.5) - (1.0 - 0.25 * 0.67)).abs() < 1e-6);
+    g.tweaks.no_condition_damage_penalty = true;
+    assert_eq!(g.weapon_condition_mult(0.0), 1.0);
+    assert_eq!(g.weapon_condition_mult(0.5), 1.0);
+    g.tweaks.no_condition_damage_penalty = false;
+    assert_eq!(g.weapon_condition_mult(0.8), 1.0);
+    g.tweaks.no_condition_damage_buffer = true;
+    assert!((g.weapon_condition_mult(0.8) - (1.0 - 0.2 * 0.67)).abs() < 1e-6);
+    g.tweaks.no_condition_damage_buffer = false;
+    q(&mut g, "SetConditionDamagePenalty 3.0");
+    assert_eq!(g.weapon_condition_mult(0.0), 0.0);
+}
+
+#[test]
+fn get_actor_velocity_alt_honors_get_local_flag() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Player facing East (Z = 90 deg) moving at world velocity (100, 20, 5):
+    // world mode (0) -> (100, 20, 5), local mode (1) -> (-20 right, 100 forward, 5 up).
+    q(&mut g, "player.SetAngle Z 90");
+    g.tick();
+    let pos = g.ref_pos_rot(FormId::PLAYER_REF).unwrap().0;
+    g.jip2.velocity.insert(FormId::PLAYER_REF, (pos, [100.0, 20.0, 5.0]));
+    let script_w = "float vx\nfloat vy\nfloat vz\nint ok = player.GetActorVelocityAlt vx vy vz 0\nSetFunctionValue (sv_Construct \"%g %.1f %.1f %.1f\" ok vx vy vz)";
+    let script_l = "float vx\nfloat vy\nfloat vz\nint ok = player.GetActorVelocityAlt vx vy vz 1\nSetFunctionValue (sv_Construct \"%g %.1f %.1f %.1f\" ok vx vy vz)";
+    assert_eq!(q(&mut g, script_w), XVal::Str("1 100.0 20.0 5.0".into()));
+    assert_eq!(q(&mut g, script_l), XVal::Str("1 -20.0 100.0 5.0".into()));
 }

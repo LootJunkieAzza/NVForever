@@ -225,7 +225,9 @@ Check [observed]: both readers give 125,359 samples (5.223 s) for the first Kimb
   `VoiceIndex::voice_of`) still use the record's own voice type there.
 - The game chooses the folder from the speaker's voice type at run time. The reader does
   the same and does not fall back to another voice's file (§3.1's 15 responses then have
-  no sound) [hypothesis].
+  no sound) [hypothesis]. A recording is the exception: a Voice note's response missing
+  from its speaker's folder is taken from the line's fixed speaker's (ANAM), the one case
+  observed being the Dog Command Tape (holotapes.md §3; #3022) [hypothesis].
 
 ## 8. Line length in the runtime
 

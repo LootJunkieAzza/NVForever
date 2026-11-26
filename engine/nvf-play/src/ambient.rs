@@ -207,6 +207,13 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, setting
         return None;
     }
     let Resolved { s, name, path } = resolve(sfx, vfs, FormId(sound))?;
+    // A loop the game's own record names and no archive has (`AMBLimestoneLP`, #2757) is
+    // no fault: said once at debug level, never read.
+    if crate::game_files::games_own(sound) && amb.files.peek(&path).is_none() && !vfs.exists(&path) {
+        crate::game_files::say_missing(true, &format!("ambient: {name}: {path}: not in the game's files"));
+        amb.files.mark_broken(path);
+        return None;
+    }
     // Read off the main thread (#1993): `file_pending` holds the start back until it is in.
     let crate::file_bytes::Got::Ready(bytes) = amb.files.fetch(&path, vfs, "ambient") else { return None };
     let bytes = bytes?;
@@ -517,7 +524,7 @@ fn region_sounds(
             // The region the cell's acoustic space names (the `Audio…` regions hold the
             // sounds), then the cell's own regions (audio.md §6).
             let space = audio::cell_audio(d.lo, d.schema, cell).acoustic_space.and_then(|s| places.forms.spaces.get(&s)?.region);
-            let all: Vec<u32> = space.into_iter().chain(audio::cell_regions(d.lo, d.schema, cell)).collect();
+            let all: Vec<u32> = space.into_iter().chain(audio::cell_regions_merged(d.lo, d.schema, cell, d.index.merge_region_lists)).collect();
             let mut with: Vec<u32> = all.iter().copied().filter(|r| places.forms.region_sounds.contains_key(r)).collect();
             with.dedup();
             debug!("ambient: cell {cell:08X}: regions {:08X?}, with sounds {:08X?}", all, with);

@@ -51,8 +51,13 @@ ESM gap audit row 14 (docs/handoff/esm-gap-audit-2026-10-21.md). Code:
   voice type from the speaker or its template; [voice](voice.md)), played one after
   another in record order, at full volume, not placed, in the Voice category (the voice
   volume and the "Dialogue voice" switch apply) [hypothesis: the tape plays through the
-  Pip-Boy as a conversation's line does]. A response without a file is skipped and
-  logged.
+  Pip-Boy as a conversation's line does]. When the speaker's voice type has no file for
+  a response, the line's fixed speaker's (INFO ANAM) is tried
+  (`VoiceBank::recording_file`): Dead Money's Dog Command Tape (NOTE 0x0100DFCF) names
+  Dog as its speaker while its line (INFO 0x0100DFC7) is God's, "spoken in God's voice",
+  and its one file is in God's folder (`nvdlc01creatureuniquegod`) [observed:
+  DeadMoney - Main.bsa, #3022; hypothesis: the original plays that file]. A response
+  with neither file is skipped and logged.
 - **Picking.** Use on a Sound or Voice note's row (click, Enter, Space, the test aid's
   `key=use` or `note=<FormID>`) starts it from its beginning; one holotape plays at a
   time, so another pick stops the one playing (or paused) first; using the one playing

@@ -18,7 +18,8 @@
 //! Depth of field (image-modifiers.md §8): the modifiers' and the engine's own (VATS
 //! focused on the mark, aiming down the sights by the game settings), the strongest, mixed
 //! into the blur passes by each point's depth; logged as "depth of field: …" when it
-//! changes.
+//! changes. Photo mode's, while its Blur is up, is a lens blur instead (`crate::bokeh`:
+//! discs sized by each point's circle of confusion, three passes of their own).
 //!
 //! Motion blur (image-modifiers.md §9): the modifiers' strongest, or the iron sights'
 //! setting, smears each point along its own motion on the screen over a short exposure,
@@ -97,6 +98,12 @@ pub struct ImageSpaceGrade {
     pub motion: Vec4,
     /// Clip space of this frame to clip space of the last one (`update_motion`).
     pub reproject: Mat4,
+    /// Photo mode's look (`nvf_play::photo_mode::PhotoLook`): warmth (-1 cool to 1 warm),
+    /// vignette (0 to 1), film grain (0 to 1), letterbox aspect (width over height, 0 none).
+    pub photo: Vec4,
+    /// Photo mode's lens blur (`crate::bokeh`): the aperture (0 off, to 1), the focus
+    /// (game units along the view), the largest disc (a part of the screen height).
+    pub bokeh: Vec4,
 }
 
 /// VATS mode's grade for the interface's colour `rgb` (the settings page's HUD colour):
@@ -135,6 +142,8 @@ impl Default for ImageSpaceGrade {
             dof_mode: Vec4::ZERO,
             motion: Vec4::ZERO,
             reproject: Mat4::IDENTITY,
+            photo: Vec4::ZERO,
+            bokeh: Vec4::ZERO,
         }
     }
 }
@@ -239,9 +248,65 @@ impl ScreenModifiers {
         self.hdr.map(|(_, g)| g)
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_hdr_for_test(&mut self, base: Hdr, graded: Hdr) {
+        self.hdr = Some((base, graded));
+    }
+
     fn record(&mut self, world: &WorldData, form: u32) -> Option<&ImageModifier> {
         self.records.entry(form).or_insert_with(|| image_modifier(world.lo, world.schema, form)).as_ref()
     }
+}
+
+/// Current assigned trait values for nonanimated records (image-modifiers.md).
+/// Keep the decoded record immutable: another session/lens must not inherit edits.
+fn live_modifier_effect(m: &ImageModifier, seconds: f32, game: Option<&fnv_game::Game<'_>>) -> ScreenEffect {
+    let mut effect = m.at(seconds);
+    let Some(game) = game.filter(|g| !m.animatable && !g.traits.values.is_empty()) else { return effect };
+    for trait_id in 1..=63 {
+        let Some(value) = game.traits.image_modifier_override(fnv_sim::FormId(m.form_id), trait_id) else { continue };
+        let value = value as f32;
+        if !value.is_finite() { continue; }
+        match trait_id {
+            1 => effect.radial.center[0] = value,
+            2 => effect.radial.center[1] = value,
+            3..=36 => {
+                let slot = ((trait_id - 3) / 2) as usize;
+                if (trait_id - 3) % 2 == 0 {
+                    effect.cinematic.hdr[slot].mult = value;
+                } else {
+                    effect.cinematic.hdr[slot].add = value;
+                }
+            }
+            37 => effect.cinematic.saturation.mult = value,
+            38 => effect.cinematic.saturation.add = value,
+            // Match the IMAD getter's IAD signatures and the record decoder's field order.
+            39 => effect.cinematic.contrast_avg_lum.mult = value,
+            40 => effect.cinematic.contrast_avg_lum.add = value,
+            41 => effect.cinematic.contrast.mult = value,
+            42 => effect.cinematic.contrast.add = value,
+            43 => effect.cinematic.brightness.mult = value,
+            44 => effect.cinematic.brightness.add = value,
+            45 => effect.blur_radius = value,
+            46 => effect.double_vision = value,
+            // Tint RGBA are all 0–255, alpha included (image-modifiers.md).
+            47..=50 => effect.tint[(trait_id - 47) as usize] = value / 255.0,
+            // Fade RGB are 0–255; alpha keeps the getter's normalized units (image-modifiers.md).
+            51..=53 => effect.fade[(trait_id - 51) as usize] = value / 255.0,
+            54 => effect.fade[3] = value,
+            55 => effect.radial.strength = value,
+            56 => effect.radial.ramp_up = value,
+            57 => effect.radial.start = value,
+            58 => effect.radial.ramp_down = value,
+            59 => effect.radial.down_start = value,
+            60 => effect.dof.strength = value,
+            61 => effect.dof.distance = value,
+            62 => effect.dof.range = value,
+            63 => effect.motion_blur = value,
+            _ => unreachable!(),
+        }
+    }
+    effect
 }
 
 /// `--imod <Editor ID or 0xFormID>[@seconds]`.
@@ -280,7 +345,19 @@ impl Plugin for ImageSpacePlugin {
 fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&nvf_play::script::ScriptState>, now: f32) -> (ScreenEffect, Vec<u32>, String, String) {
     let mut playing: Vec<(u32, f32)> = Vec::new();
     if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
-        playing.extend(rt.game.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)));
+        // Draw at most one active instance per IMAD form (keeping the most recently
+        // applied entry, preserving pre-stacking visuals for unmodded scripts such as
+        // VCG00's Addiction01ISFX while Game counts stacked instances for OnRemoveIMOD)
+        // [design].
+        for m in &rt.game.image_modifiers {
+            let form = m.modifier.0;
+            let elapsed = m.elapsed as f32;
+            if let Some(slot) = playing.iter_mut().find(|(f, _)| *f == form) {
+                slot.1 = elapsed;
+            } else {
+                playing.push((form, elapsed));
+            }
+        }
     }
     for f in mods.forced.clone() {
         let seconds = f.at.unwrap_or_else(|| {
@@ -317,7 +394,7 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
         if m.finished(seconds) {
             continue;
         }
-        effects.push(m.at(seconds));
+        effects.push(live_modifier_effect(m, seconds, script.and_then(|s| s.rt.as_ref()).map(|rt| &rt.game)));
         forms.push(form);
     }
     // The strongest depth of field and motion blur are the ones shown (`combine`).
@@ -419,6 +496,11 @@ fn engine_dof(s: &DofSettings, vats_grade: f32, vats_focus: Option<f32>, aim_ble
         (Dof { strength: TALK_DOF_STRENGTH * blend, distance: TALK_DOF_DISTANCE, range: TALK_DOF_RANGE, use_target: true, flags: DOF_BACK }, f.max(0.0), "dialogue")
     });
     [vats, sights, talk].into_iter().flatten().reduce(|a, b| if b.0.strength > a.0.strength { b } else { a })
+}
+
+/// The log line's text for photo mode's lens blur (rounded as [`dof_text`]).
+fn bokeh_text(aperture: f32, focus: f32) -> String {
+    format!("lens blur (bokeh), aperture {aperture:.2}, focus {:.0}, discs up to {:.1}% of the screen height (photo mode)", (focus / 10.0).round() * 10.0, aperture * crate::bokeh::MAX_COC * 100.0)
 }
 
 /// The log line's text for a depth of field (rounded, so a fade logs a few lines).
@@ -550,7 +632,7 @@ pub(crate) fn black_over(fade: [f32; 4], f: f32) -> [f32; 4] {
 
 /// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn update_grade(
+pub(crate) fn update_grade(
     time: Res<Time>,
     sky: Res<SkyState>,
     world: Option<Res<WorldData>>,
@@ -564,7 +646,7 @@ fn update_grade(
         Option<Res<crate::death_cam::DeathCam>>,
         Option<Res<nvf_play::vats_mode::VatsMode>>,
     ),
-    (sim, aim, wheel, talk, creator): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::dialogue_zoom::DialogueZoom>>, Option<Res<nvf_play::creator::CreatorMenu>>),
+    (sim, aim, wheel, talk, creator, photo): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::dialogue_zoom::DialogueZoom>>, Option<Res<nvf_play::creator::CreatorMenu>>, Option<Res<nvf_play::photo_mode::PhotoMode>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<(&mut ImageSpaceGrade, Has<LensGrade>)>,
     sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
@@ -626,7 +708,17 @@ fn update_grade(
             (dof, focus, source) = (d, f, name.to_string());
         }
     }
-    let text = dof_text(&dof, focus, &source);
+    // Photo mode's own depth of field, while its Blur is up, wins over every other: its
+    // lens blur (`crate::bokeh`), in place of the Gaussian one.
+    let photo_dof = photo.as_deref().and_then(|p| p.depth_of_field());
+    if photo_dof.is_some() {
+        (dof, focus) = (Dof::default(), -1.0);
+    }
+    let bokeh = photo_dof.map_or(Vec4::ZERO, |p| Vec4::new(p.strength, p.focus, crate::bokeh::MAX_COC, 0.0));
+    let text = match photo_dof {
+        Some(p) => bokeh_text(p.strength, p.focus),
+        None => dof_text(&dof, focus, &source),
+    };
     if text != mods.dof_shown {
         info!("depth of field: {text}");
         mods.dof_shown = text;
@@ -648,15 +740,19 @@ fn update_grade(
         modifier_sounds(&mut mods, w, &forms, sounds);
     }
     let r = &effect.radial;
+    // Photo mode's sliders on top of the grade (`nvf_play::photo_mode`), and no motion blur
+    // while its camera moves for the shot [design].
+    let (photo_b, photo_s, photo_c) = photo.as_deref().and_then(|p| p.look()).unwrap_or((1.0, 1.0, 1.0));
+    let motion = if photo.as_deref().is_some_and(|p| p.on) { 0.0 } else { motion };
     let g = ImageSpaceGrade {
         tint: Vec4::new(c.tint[0], c.tint[1], c.tint[2], c.tint_amount),
         fade: Vec4::from_array(effect.fade),
         radial: Vec4::new(r.strength, r.ramp_up, r.start, r.ramp_down),
         radial2: Vec4::new(r.down_start, r.center[0], r.center[1], effect.double_vision),
-        saturation: c.saturation,
-        contrast: c.contrast,
+        saturation: c.saturation * photo_s,
+        contrast: c.contrast * photo_c,
         contrast_avg_lum: c.contrast_avg_lum,
-        brightness: c.brightness,
+        brightness: c.brightness * photo_b,
         // The world behind the wait menu is blurred (docs/spec-notes/wait-menu.md §2).
         // The dying player's view blurs (`death_cam.rs`), and the world behind the weapon
         // wheel (docs/design/weapon-wheel.md §5).
@@ -674,11 +770,14 @@ fn update_grade(
         dof_mode: Vec4::new(if dof.use_target { 1.0 } else { 0.0 }, f32::from(dof.flags), near.unwrap_or(1.0), 0.0),
         motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),
         reproject: Mat4::IDENTITY,
+        photo: Vec4::from_array(photo.as_deref().map_or([0.0; 4], |p| p.finish())),
+        bokeh,
     };
     // A 3D scope's lens: a neutral grade with only the lens's modifiers on it.
     let lens = match &world {
         Some(w) if !mods.lens_held.is_empty() => {
-            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| m.at(0.0))).collect();
+            let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+            let effects: Vec<ScreenEffect> = mods.lens_held.clone().into_iter().filter_map(|f| mods.record(w, f).map(|m| live_modifier_effect(m, 0.0, game))).collect();
             let e = combine(&effects);
             let c = graded(&fnv_world::imagespace::Cinematic::default(), &e);
             let r = &e.radial;
@@ -765,13 +864,17 @@ pub(crate) struct BlurPipelines {
     layouts: [BindGroupLayoutDescriptor; 2],
     sampler: Sampler,
     base: RenderPipelineDescriptor,
-    by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; 3]>,
+    by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; BLUR_ENTRIES.len()]>,
 }
 
 /// The blur pipelines of a view, whether its depth is multisampled, and the picture's
 /// format they were built for.
 #[derive(Component)]
-pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 3], bool, TextureFormat);
+pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; BLUR_ENTRIES.len()], bool, TextureFormat);
+
+/// The blur shader's passes, in the order they run: the motion blur, photo mode's lens
+/// blur (`crate::bokeh`), then the modifiers' blur across and down.
+const BLUR_ENTRIES: [&str; 6] = ["motion_blur", "bokeh_prefilter", "bokeh", "bokeh_fill", "blur_across", "blur_down"];
 
 fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
     let screen = || (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true));
@@ -803,7 +906,7 @@ fn prepare_blur(
         let ids = match pipelines.by_format.get(&(format, multi)) {
             Some(ids) => *ids,
             None => {
-                let ids = ["motion_blur", "blur_across", "blur_down"].map(|entry| {
+                let ids = BLUR_ENTRIES.map(|entry| {
                     let mut d = pipelines.base.clone();
                     d.layout = vec![pipelines.layouts[multi as usize].clone()];
                     if let Some(f) = d.fragment.as_mut() {
@@ -823,9 +926,9 @@ fn prepare_blur(
     }
 }
 
-/// Smear the picture by its motion while a motion blur is on, then blur it across and
-/// down while a modifier blurs or a depth of field is on (a view without a depth prepass
-/// is not blurred).
+/// Smear the picture by its motion while a motion blur is on, draw photo mode's lens blur
+/// while its Blur is up, then blur it across and down while a modifier blurs or a depth of
+/// field is on (a view without a depth prepass is not blurred).
 pub(crate) fn blur_pass(
     view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<ImageSpaceGrade>, &ImageSpaceGrade, &BlurPipelineIds, &ViewPrepassTextures)>,
     pipelines: Res<BlurPipelines>,
@@ -835,16 +938,22 @@ pub(crate) fn blur_pass(
     mut ctx: RenderContext,
 ) {
     let (target, index, grade, ids, prepass) = view.into_inner();
-    let (smear, blur) = (grade.motion.x > 0.0, grade.blur > 0.0 || grade.dof.x != 0.0);
-    if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
+    let (smear, bokeh, blur) = (grade.motion.x > 0.0, grade.bokeh.x > 0.0, grade.blur > 0.0 || grade.dof.x != 0.0);
+    if !(smear || bokeh || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
         return;
     }
     let Some(depth) = prepass.depth_only_view() else { return };
-    let (Some(motion), Some(across), Some(down)) = (cache.get_render_pipeline(ids.0[0]), cache.get_render_pipeline(ids.0[1]), cache.get_render_pipeline(ids.0[2])) else { return };
+    let wanted = [smear, bokeh, bokeh, bokeh, blur, blur];
+    let mut passes = Vec::with_capacity(wanted.len());
+    for (id, on) in ids.0.iter().zip(wanted) {
+        if on {
+            let Some(p) = cache.get_render_pipeline(*id) else { return };
+            passes.push(p);
+        }
+    }
     let Some(binding) = uniforms.uniforms().binding() else { return };
     let layout = cache.get_bind_group_layout(&pipelines.layouts[ids.1 as usize]);
-    let passes = [(motion, smear), (across, blur), (down, blur)];
-    for pipeline in passes.into_iter().filter(|p| p.1).map(|p| p.0) {
+    for pipeline in passes {
         let post = target.post_process_write();
         let bind_group = device.create_bind_group("imagespace_blur_bind_group", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding.clone(), depth)));
         let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
@@ -863,7 +972,7 @@ pub(crate) fn blur_pass(
 
 #[cfg(test)]
 mod tests {
-    use super::{black_over, dof_text, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, TALK_DOF_DISTANCE, TALK_DOF_RANGE, TALK_DOF_STRENGTH, WAIT_MENU_BLUR};
+    use super::{black_over, bokeh_text, dof_text, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, TALK_DOF_DISTANCE, TALK_DOF_RANGE, TALK_DOF_STRENGTH, WAIT_MENU_BLUR};
     use bevy::prelude::*;
 
     /// What `update_grade` writes this frame: the screen's own blur and what stays sharp.
@@ -1029,6 +1138,11 @@ mod tests {
     }
 
     #[test]
+    fn photo_modes_lens_blur_line() {
+        assert_eq!(bokeh_text(0.35, 1996.0), "lens blur (bokeh), aperture 0.35, focus 2000, discs up to 0.6% of the screen height (photo mode)");
+    }
+
+    #[test]
     fn black_lays_over_a_fade() {
         // Nothing on the screen: black to the amount asked.
         assert_eq!(black_over([0.0; 4], 0.0), [0.0; 4]);
@@ -1040,3 +1154,7 @@ mod tests {
         assert!((a - 0.75).abs() < 1e-6 && (r - 1.0 / 3.0).abs() < 1e-6, "{r} {a}");
     }
 }
+
+#[cfg(test)]
+#[path = "imagespace_live_trait_tests.rs"]
+mod live_trait_tests;

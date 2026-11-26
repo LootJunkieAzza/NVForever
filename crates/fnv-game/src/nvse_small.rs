@@ -70,6 +70,9 @@ pub struct FrameLoop {
 /// The session state of the plugins of this file.
 #[derive(Debug, Default)]
 pub struct SmallState {
+    /// Loaded application settings are authoritative after engine handoff.
+    /// Session-only: a restored Game must be rebound before startup scripts.
+    pub(crate) stewie_stat_settings_loaded: bool,
     /// Seconds of play, menus included: each frame's own length added up (the engine
     /// changes `frame_seconds` every frame, so the frame count times it is no clock).
     pub real_seconds: f64,
@@ -92,8 +95,7 @@ pub struct SmallState {
     /// weapon, trait 1-19).
     pub oc_settings: HashMap<u8, f64>,
     pub oc_state: HashMap<(FormId, FormId, u8), f64>,
-    /// yUI's ySI traits: a form's sorting tag, and an icon by tag (or by form when it
-    /// has no tag).
+    /// yUI's ySI traits: a form's sorting tag and icon by tag (or by form when untagged).
     pub ysi_tag: HashMap<FormId, String>,
     pub ysi_icon_by_tag: HashMap<String, String>,
     pub ysi_icon: HashMap<FormId, String>,
@@ -102,6 +104,9 @@ pub struct SmallState {
     /// INI settings that last a session [observed: TaleOfTwoWastelands.esm
     /// TTWGenericHandlerScript, `TTW_EnableRadioFix 1` next to SetNumericINISetting].
     pub ttw_radio_fix: bool,
+    /// `ManOnFireNVSE.ini` cached configuration and per-actor exposure accumulator
+    /// (`crate::man_on_fire`).
+    pub man_on_fire: crate::man_on_fire::ManOnFireState,
 }
 
 /// CRC-32 (the IEEE polynomial, reflected, as zip and PNG use) [decision: the page's
@@ -215,6 +220,135 @@ impl Game<'_> {
     /// ([`SmallState::real_seconds`]).
     pub(crate) fn time_real(&self) -> f64 {
         self.small.real_seconds
+    }
+
+    /// Cached `Data\NVSE\Plugins\yUI.ini` (with `Data\menus\ySI\ySI.ini` overlay) settings,
+    /// or `None` when neither INI file is installed (`docs/spec-notes/yui-ini.md`).
+    pub fn yui_config(&self) -> Option<crate::yui_ini::YuiConfig> {
+        crate::ysi_filename::yui_config(self)
+    }
+
+    /// Override the session's cached `yUI.ini` configuration (primarily for isolated tests).
+    pub fn set_yui_config(&mut self, cfg: Option<crate::yui_ini::YuiConfig>) {
+        crate::ysi_filename::set_yui_config(self, cfg);
+    }
+
+    /// Whether `menus/ySI/ySI.xml` menu injection is permitted by `yUI.ini`
+    /// (`[General] bSortingIcons`; defaults to allowed when `yUI.ini` is absent so
+    /// standalone `ySI.xml` tests and installs keep working) [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_xml_enabled(&self) -> bool {
+        self.yui_config().is_none_or(|c| c.sorting_icons)
+    }
+
+    /// Whether `[General] bMatchingCursor` is enabled in `yUI.ini` (`false` when absent)
+    /// [documented: yUI v1.4d `Data\NVSE\Plugins\yUI.ini`].
+    pub fn yui_matching_cursor(&self) -> bool {
+        self.yui_config().is_some_and(|c| c.matching_cursor)
+    }
+
+    /// Whether ySI configuration, session `ySISetTrait` overrides, or injected `ySI` UI
+    /// tiles are active in this session. Returns `false` with zero menu overhead in vanilla
+    /// sessions without ySI, or when `yUI.ini` explicitly disables `[General] bSortingIcons`
+    /// [design: `docs/spec-notes/ysi-filename.md`, `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_active(&mut self) -> bool {
+        if self.yui_config().is_some_and(|c| !c.sorting_icons) {
+            return false;
+        }
+        !self.small.ysi_tag.is_empty()
+            || !self.small.ysi_icon.is_empty()
+            || !self.small.ysi_icon_by_tag.is_empty()
+            || self.ui_tree.find_tile("HUDMainMenu/ySI").is_some()
+            || self.ui_tree.find_tile("InventoryMenu/ySI").is_some()
+            || crate::ysi_filename::has_loaded_book(self)
+    }
+
+    /// Whether inventory/container/barter list sorting by ySI tags is active
+    /// (`[Sorting and Icons] bSortInventory`, gated by `bSortingIcons`) [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_sort_inventory(&mut self) -> bool {
+        self.ysi_active() && self.yui_config().is_none_or(|c| c.effective_sort_inventory())
+    }
+
+    /// Whether ySI row icons in inventory, container, barter, repair, and item-mod menus
+    /// are active (`[Sorting and Icons] bAddInventoryIcons`, gated by `bSortingIcons`)
+    /// [design: `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_add_inventory_icons(&mut self) -> bool {
+        self.ysi_active() && self.yui_config().is_none_or(|c| c.effective_add_inventory_icons())
+    }
+
+    /// Whether replacing hotkey icons with ySI icons is active (`[Sorting and Icons]
+    /// bReplaceHotkeyIcons`, gated by `bSortingIcons`; off when `yUI.ini` is absent so
+    /// vanilla hotkey icons remain unchanged) [design: `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_replace_hotkey_icons(&self) -> bool {
+        self.yui_config().is_some_and(|c| c.effective_replace_hotkey_icons())
+    }
+
+    /// Resolves an item's ySI icon filename for hotkey icon replacement when
+    /// `[General] bSortingIcons = 1` and `[Sorting and Icons] bReplaceHotkeyIcons = 1`
+    /// (`None` when disabled, when `yUI.ini` is absent, or when the item has no ySI icon)
+    /// [design: `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_hotkey_icon_path(&self, item: FormId) -> Option<String> {
+        if !self.ysi_replace_hotkey_icons() {
+            return None;
+        }
+        self.ysi_item_display_readonly(item).and_then(|d| d.icon)
+    }
+
+    /// Resolves an item's effective ySI sorting tag, icon texture filename, and XML template
+    /// name using the same precedence as `ySIGetTrait`: session `ySISetTrait` overrides take
+    /// precedence over `menus/ySI/*.json` rules (`ysi_filename`), and a tag's icon applies to
+    /// every form sharing that tag [design: `docs/spec-notes/ysi-filename.md`].
+    pub fn ysi_item_display(&mut self, item: FormId) -> Option<crate::ui_ysi::YsiItemDisplay> {
+        self.ysi_item_display_readonly(item)
+    }
+
+    fn ysi_item_display_readonly(&self, item: FormId) -> Option<crate::ui_ysi::YsiItemDisplay> {
+        let orig = self.unclone(item);
+        let base = if self.world.forms.item(orig).is_some() {
+            orig
+        } else {
+            self.unclone(crate::functions::base_of(self, item).unwrap_or(item))
+        };
+        let tag = if let Some(override_tag) = self.small.ysi_tag.get(&base) {
+            (!override_tag.is_empty()).then(|| override_tag.clone())
+        } else {
+            crate::ysi_filename::json_tag(self, base).filter(|t| !t.is_empty())
+        };
+        let (icon, rule_template) = match tag.as_deref() {
+            Some(t) => {
+                if let Some(override_icon) = self.small.ysi_icon_by_tag.get(t) {
+                    let icon = (!override_icon.is_empty()).then(|| override_icon.clone());
+                    let tpl = crate::ysi_filename::json_icon_spec(self, t).and_then(|(_, tpl)| tpl);
+                    (icon, tpl)
+                } else if let Some((filename, tpl)) = crate::ysi_filename::json_icon_spec(self, t) {
+                    ((!filename.is_empty()).then_some(filename), tpl)
+                } else {
+                    let icon = self
+                        .small
+                        .ysi_icon
+                        .get(&base)
+                        .filter(|s| !s.is_empty())
+                        .cloned();
+                    (icon, None)
+                }
+            }
+            None => {
+                let icon = self
+                    .small
+                    .ysi_icon
+                    .get(&base)
+                    .filter(|s| !s.is_empty())
+                    .cloned();
+                (icon, None)
+            }
+        };
+        if tag.is_none() && icon.is_none() {
+            return None;
+        }
+        let template =
+            crate::ui_ysi::row_template_or_default(rule_template.as_deref(), tag.is_some() || icon.is_some());
+        Some(crate::ui_ysi::YsiItemDisplay { tag, icon, template })
     }
 }
 
@@ -581,35 +715,37 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- Stewie's Tweaks ----
-        // `"key:section"` (StewVal): the value in the plugin's INI, a number when it reads
-        // as one [documented: StewieGetValue; hypothesis: the INI is
-        // Data\NVSE\Plugins\nvse_stewie_tweaks.ini]; 0 when there is none (the plugin is
-        // not installed).
+        // Recognized loaded settings follow their actual engine consumers;
+        // unbound games and other keys retain their existing layered-file query.
+        // Takes `Key:Section` and does NOT trim surrounding whitespace [observed: Fallout:
+        // New Vegas 1.4.0.525 + xNVSE 6.4.9 + lStewieAl's Tweaks 1005, 2026-11-24,
+        // `GSDocMitchellHouse`, `w4h_08_stewie_get_value_whitespace` (`wave4h_reconcile.json`,
+        // #3803): `PROBE|w4h_08_stewie_get_value_whitespace|sk(0=0,L=0,R=0,M=0)|ks(0=1,L=0,R=0,M=0)|bare(0=0,L=0,R=0)`];
+        // ASCII case-insensitive matching stays [hypothesis].
         "stewiegetvalue" | "stewval" => {
             let ks = text(args, 0);
             let Some((key, section)) = ks.split_once(':') else { return Some(Ok(zero)) };
-            let ini = g.mod_files.read_text("NVSE\\Plugins\\nvse_stewie_tweaks.ini");
-            match ini.and_then(|t| crate::mod_files::ini_get(&t, &section.trim().to_ascii_lowercase(), key.trim())) {
+            if let Some(value) = g.loaded_stewie_stat_value(key, section) {
+                return Some(Ok(XVal::Num(value)));
+            }
+            if let Some(value) = g.loaded_stewie_inventory_value(key, section) {
+                return Some(Ok(XVal::Num(value)));
+            }
+            match crate::stewie_inis::query_value(&g.mod_files, key, section) {
                 Some(v) => v.parse::<f64>().map(XVal::Num).unwrap_or(XVal::Str(v.trim_matches('"').to_string())),
                 None => zero,
             }
         }
         // ---- hNVSE ----
         // `cell`: an exterior cell's regions (CELL XCLR), in record order; an interior's
-        // none [documented: GetCellRegions].
+        // none [documented: GetCellRegions]. When `hNVSE.ini` sets `bMergeRegionLists=1`,
+        // overridden exterior cells return the deduplicated load-order union across
+        // plugins (`Game::cell_regions`).
         "getcellregions" => {
-            let mut out = Vec::new();
-            if let Some(fields) = form(args, 0).and_then(|c| g.data.record_fields.get(&c)) {
-                let interior = fields.iter().find(|(s, _)| s == b"DATA").and_then(|(_, v)| v.as_u64().or_else(|| v.get("value").and_then(|f| f.as_u64()))).is_some_and(|f| f & 1 != 0);
-                if !interior {
-                    for (s, v) in fields {
-                        if s == b"XCLR" {
-                            let ids = v.as_array().cloned().unwrap_or_else(|| vec![v.clone()]);
-                            out.extend(ids.iter().filter_map(json_form).map(|f| XVal::Ref(f.0)));
-                        }
-                    }
-                }
-            }
+            let out = match form(args, 0) {
+                Some(c) if !crate::nvse_jg5::interior(g, c) => g.cell_regions(c).into_iter().map(|f| XVal::Ref(f.0)).collect(),
+                _ => Vec::new(),
+            };
             list(g, out)
         }
         // `world nwX nwY seX seY`: the worldspace's map cells (WRLD MNAM), read by every
@@ -624,40 +760,130 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // ---- yUI ----
-        // `"tag"|"icon" [form]` and `trait value [form]`: ySI's sorting tag and icon of the
-        // form, else of the calling reference's base [documented: ySIGetTrait,
-        // ySISetTrait]. An icon set on a form with a tag goes to every form of that tag
-        // [documented: "Changing the icon texture of a Form will also change also icon
-        // texture of all Forms with the same sorting tag"]. Not read from ySI's own
-        // files [decision: ySI is not installed]: an unset trait reads "".
+        // `"tag"|"string"|"icon"|"filename" [form]` and `trait value [form]`: ySI's
+        // sorting tag and icon of the form, else of the calling reference's base
+        // [documented: GECK wiki ySIGetTrait, ySISetTrait; observed: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + yUI v1.4d (140), 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy,
+        // `w4e_01_ysi_string_alias`, `w4e_02_ysi_metadata_traits`,
+        // `w4e_03_ysi_unmatched_icon_fallback`, `w4e_04_ysi_worldref_arg_vs_dot`,
+        // `w4e_c01_ysi_armordt_sibling_formlist2` (`tools/capture/nvse/catalogs/wave4e_mods.json`,
+        // #3803) and `w4c_b4_15b_ysi_no_json_fallback` (`wave4c_extenders.json`, #3679);
+        // zero DLL, PDB, or third-party source consulted]:
+        // - Dot-receiver unwraps a placed world reference to its base form, whereas an
+        //   explicit form argument is NOT unwrapped (`w4e_04_ysi_worldref_arg_vs_dot`).
+        // - `"string"` is an exact alias for `"tag"` on both get and set (`w4e_01_ysi_string_alias`).
+        // - `"icon"` and `"filename"` share the exact same non-aborting path and tag-scoped
+        //   store (`w4e_c01_ysi_armordt_sibling_formlist2`): when `menus/ySI/*.json` packs
+        //   are loaded, an unmatched/untagged/non-item form falls back to
+        //   `"interface\\icons\\Misc_Unknown.dds"` (`w4e_03_ysi_unmatched_icon_fallback`),
+        //   while returning `""` when no ySI JSON packs exist (`w4c_b4_15b_ysi_no_json_fallback`).
+        // - Metadata trait names (`"template"`, `"systemcolor"`, `"category"`, `"name"`,
+        //   `"tab"`, `"count"`) return `""` on `ySIGetTrait` and `0` (rejected no-op) on
+        //   `ySISetTrait` (`w4e_02_ysi_metadata_traits`).
         "ysigettrait" | "ysisettrait" => {
+            const UNMATCHED_ICON: &str = "interface\\icons\\Misc_Unknown.dds";
             let set = name == "ysisettrait";
             let trait_name = text(args, 0).to_ascii_lowercase();
             let at = if set { 2 } else { 1 };
-            let f = form(args, at).or(subject).map(|f| crate::functions::base_of(g, f).unwrap_or(f));
+            // [observed: w4e_04] Explicit form arguments do NOT unwrap placed world
+            // references, and an explicit empty/null form argument does not fall back to
+            // implicit `self`; omitted form arguments use `subject` and unwrap to base.
+            let f = if args.get(at).is_some() {
+                form(args, at).map(|explicit| g.unclone(explicit))
+            } else {
+                subject.map(|s| {
+                    let orig = g.unclone(s);
+                    if g.world.forms.item(orig).is_some() {
+                        orig
+                    } else {
+                        g.unclone(crate::functions::base_of(g, s).unwrap_or(s))
+                    }
+                })
+            };
             let Some(f) = f else { return Some(Ok(if set { zero } else { XVal::Str(String::new()) })) };
-            let tag = g.small.ysi_tag.get(&f).cloned();
+            let effective_tag = |g: &mut Game<'_>, base: FormId| -> Option<String> {
+                if let Some(override_tag) = g.small.ysi_tag.get(&base) {
+                    (!override_tag.is_empty()).then(|| override_tag.clone())
+                } else {
+                    crate::ysi_filename::json_tag(g, base).filter(|t| !t.is_empty())
+                }
+            };
             if set {
                 let v = text(args, 1);
                 match trait_name.as_str() {
-                    "tag" => {
+                    // [observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + yUI 140,
+                    // 10 official base masters, `GSDocMitchellHouse`, committed probe
+                    // `w6t2_26_ysi_traits_set_get_and_metadata`
+                    // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+                    // `set(str=1,ic=1,tpl=0,cat=0,unk=0)|g1=W6T2Tag,fn=w6t2_ic.dds|meta(,,,,,)` —
+                    // `YSISetTrait "string"` aliases `"tag"` and returns 1]
+                    "tag" | "string" => {
                         g.small.ysi_tag.insert(f, v);
+                        yes(true)
                     }
-                    "icon" => match tag {
-                        Some(t) => {
-                            g.small.ysi_icon_by_tag.insert(t, v);
+                    // [documented: GECK wiki YSISetTrait ("icon"); observed 2026-11-24:
+                    // `w6t2_26_ysi_traits_set_get_and_metadata` (`wave6_t2_observed_matches.json`):
+                    // `YSISetTrait "icon" "w6t2_ic.dds" rStim` returns 1 and `YSIGetTrait "filename"`
+                    // reads back `"w6t2_ic.dds"`, confirming shared store and `(trait, value, form)`
+                    // order; hypothesis: calling `YSISetTrait "filename"` directly behaves identically]
+                    "icon" | "filename" => {
+                        match effective_tag(g, f) {
+                            Some(t) => {
+                                g.small.ysi_icon_by_tag.insert(t, v);
+                            }
+                            None => {
+                                g.small.ysi_icon.insert(f, v);
+                            }
                         }
-                        None => {
-                            g.small.ysi_icon.insert(f, v);
-                        }
-                    },
-                    _ => {}
+                        yes(true)
+                    }
+                    // [observed 2026-11-24: `w6t2_26_ysi_traits_set_get_and_metadata`
+                    // (`wave6_t2_observed_matches.json`): `"template"`, `"category"`, and unknown
+                    // `"__unknown__"` return 0 on yUI 140 (`tpl=0,cat=0,unk=0`); hypothesis: the
+                    // other 4 metadata names (`"systemcolor"`, `"name"`, `"tab"`, `"count"`) also
+                    // return 0 on `YSISetTrait`]
+                    "template" | "systemcolor" | "category" | "name" | "tab" | "count" => zero,
+                    _ => zero,
                 }
-                zero
             } else {
                 XVal::Str(match trait_name.as_str() {
-                    "tag" => tag.unwrap_or_default(),
-                    "icon" => tag.and_then(|t| g.small.ysi_icon_by_tag.get(&t).cloned()).or_else(|| g.small.ysi_icon.get(&f).cloned()).unwrap_or_default(),
+                    // [observed: w4e_01_ysi_string_alias] "string" returns the raw tag.
+                    "tag" | "string" => effective_tag(g, f).unwrap_or_default(),
+                    // [observed: w4e_03, w4e_04, w4e_c01, w4c_b4_15b] "icon" and "filename"
+                    // share the same non-aborting path, tag-scoped override store, and
+                    // loaded-JSON Misc_Unknown.dds / absent-JSON "" fallback.
+                    "icon" | "filename" => {
+                        let fallback = |g: &mut Game<'_>| {
+                            if crate::ysi_filename::has_loaded_book(g) {
+                                UNMATCHED_ICON.to_string()
+                            } else {
+                                String::new()
+                            }
+                        };
+                        match effective_tag(g, f) {
+                            Some(t) => g
+                                .small
+                                .ysi_icon_by_tag
+                                .get(&t)
+                                .cloned()
+                                .or_else(|| crate::ysi_filename::json_icon_filename(g, &t))
+                                .or_else(|| g.small.ysi_icon.get(&f).cloned())
+                                .unwrap_or_else(|| fallback(g)),
+                            None => g
+                                .small
+                                .ysi_icon
+                                .get(&f)
+                                .cloned()
+                                .unwrap_or_else(|| fallback(g)),
+                        }
+                    }
+                    // [observed 2026-11-24: `w6t2_26_ysi_traits_set_get_and_metadata`
+                    // (`wave6_t2_observed_matches.json`): `meta(,,,,,)` — all 6 icon-rule metadata
+                    // trait names return "" on yUI v1.4d (plugin version 140)]
+                    "template" | "systemcolor" | "category" | "name" | "tab" | "count" => {
+                        String::new()
+                    }
                     _ => String::new(),
                 })
             }
@@ -673,6 +899,30 @@ fn json_form(v: &serde_json::Value) -> Option<FormId> {
         serde_json::Value::Number(n) => n.as_u64().and_then(|x| u32::try_from(x).ok()).filter(|&x| x != 0).map(FormId),
         serde_json::Value::String(s) => s.strip_prefix("0x").and_then(|h| u32::from_str_radix(h, 16).ok()).filter(|&x| x != 0).map(FormId),
         _ => None,
+    }
+}
+
+impl Game<'_> {
+    /// An exterior cell's `XCLR` region FormIDs: the winning plugin's list by default
+    /// (vanilla behavior), or the deduplicated overriding-plugin-first union across
+    /// overriding plugins when `Data\NVSE\Plugins\hNVSE.ini` enabled
+    /// `[Main] bMergeRegionLists=1` at load time.
+    pub(crate) fn cell_regions(&self, cell: FormId) -> Vec<FormId> {
+        if self.data.hnvse_merge_region_lists {
+            if let Some(merged) = self.data.merged_cell_regions.get(&cell) {
+                return merged.clone();
+            }
+        }
+        let mut out = Vec::new();
+        if let Some(fields) = self.data.record_fields.get(&cell) {
+            for (s, v) in fields {
+                if s == b"XCLR" {
+                    let ids = v.as_array().cloned().unwrap_or_else(|| vec![v.clone()]);
+                    out.extend(ids.iter().filter_map(json_form));
+                }
+            }
+        }
+        out
     }
 }
 

@@ -87,9 +87,14 @@ impl Plugin for ScopeViewPlugin {
                 show.after(nvf_play::PlaySet::Ui).before(nvf_play::PlaySet::Sync),
                 night_vision.after(nvf_play::PlaySet::Sync),
                 sway.in_set(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>),
-                lens_camera.after(show),
+                // After the desert haze and the aerial perspective (fog.rs FogWriters): the
+                // lens copies the main camera's fog.
+                lens_camera.after(show).after(crate::fog::FogWriters),
             ),
-        );
+        )
+        // After underwater_fog in PostUpdate so the 3D scope lens receives the current
+        // frame's underwater fog or freshly restored weather/interior fog.
+        .add_systems(PostUpdate, sync_lens_fog.after(crate::underwater::underwater_fog));
     }
 }
 
@@ -278,7 +283,7 @@ fn draw_lens(commands: &mut Commands, model: &nvf_assets::model::PreparedModel, 
             Projection::Perspective(PerspectiveProjection { fov: 0.1, near: 5.0, far: crate::sky::OUTDOOR_FAR, aspect_ratio: 1.0, ..default() }),
             crate::sky::initial_fog(),
             bevy::core_pipeline::prepass::DepthPrepass,
-            RenderLayers::from_layers(&[0, crate::reflection::WATER_LAYER, crate::decals::DECAL_LAYER]),
+            RenderLayers::from_layers(&[0, crate::reflection::WATER_LAYER, crate::decals::DECAL_LAYER, crate::volumetric_clouds::FLAT_CLOUD_LAYER]),
             (crate::imagespace::ImageSpaceGrade::default(), crate::imagespace::LensGrade),
             Transform::IDENTITY,
         ))
@@ -355,6 +360,18 @@ fn lens_camera(
         *told = Some(deg);
         info!("scope lens camera: FOV {:.1}°, the lens {:.1}° across on screen, magnification {magnification:.2}", fov.to_degrees(), 2.0 * tan_a.atan().to_degrees());
     }
+}
+
+/// Keep the 3D scope lens's fog synchronized with the main camera after `underwater_fog`
+/// runs in `PostUpdate`, avoiding 1-frame stale underwater/above-water fog in the lens.
+#[allow(clippy::type_complexity)]
+pub(crate) fn sync_lens_fog(
+    main: Query<&DistanceFog, (crate::fly::WorldCamera, Without<LensCamera>)>,
+    mut lens: Query<&mut DistanceFog, With<LensCamera>>,
+) {
+    let Ok(mut fog) = lens.single_mut() else { return };
+    let Ok(main_fog) = main.single() else { return };
+    *fog = main_fog.clone();
 }
 
 /// Hold the night-vision scope's modifier on the screen while it gives night vision.

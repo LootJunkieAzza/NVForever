@@ -1,0 +1,24 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless TTW Project Impurity (MQA): from President Eden's FEV vial in the player's hands (stage 10) to the vial handed to Elder Lyons at the Citadel (stage 200, quest completed)",
+  "plugins": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm", "The Mod Configuration Menu.esp"],
+  "given": [
+    {"kind": "quest", "quest": "MQ09", "running": true, "completed": false, "stage": 60, "done": [1, 20, 30, 40, 50, 60]},
+    {"kind": "quest", "quest": "MQA", "running": true, "completed": false, "stage": 10, "done": [10]},
+    {"kind": "item_change", "of": "player", "item": "MQ09FEVVial", "change": 1}
+  ],
+  "actions": [
+    {"op": "note", "text": "Project Impurity starts when the player takes President Eden's FEV vial in Raven Rock (the FEV panel's activation sets MQA 10 [observed]; the MQ09 chain plays it). Given here: MQA 10, the vial held, and The American Dream at 60 (back to the Citadel). The ending played is the one that hands the vial to Elder Lyons (stage 200); the other, putting it into the purifier's FEV panel (MQAPanelScript), ends MQA 100 at Broken Steel's wake-up."},
+    {"op": "note", "text": "Travel stand-in: to Elder Lyons at the Citadel."},
+    {"op": "move_player", "to": "ElderLyonsREF"},
+    {"op": "talk", "actor": "ElderLyonsREF", "label": "lyons: so you're back"},
+    {"op": "choose", "topic": "MQ09LyonsGreetEnclaveGotMe", "label": "the enclave got me"},
+    {"op": "choose", "topic": "MQ09LyonsPresidentLetMeGo", "label": "the president let me go"},
+    {"op": "choose", "topic": "MQ09LyonsPresGaveMeVirus", "label": "he gave me the virus (MQA 200)"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_item_count", "of": "player", "item": "MQ09FEVVial", "label": "vial handed over (0)"},
+    {"op": "get_quest", "quest": "MQA", "fields": ["completed", "stage", "objective.10.completed", "objective.200.completed"], "label": "final: MQA completed"}
+  ]
+}

@@ -77,7 +77,7 @@
 
 use crate::player::Player;
 use crate::script::ScriptState;
-use crate::sfx::{pan_gains, Pan, Panned, PcmSound, PlaySound};
+use crate::sfx::{pan_gains, ActorSound, Pan, Panned, PcmSound, PlaySound};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
@@ -286,7 +286,8 @@ pub struct VoiceState {
     playing: HashMap<FormId, Playing>,
     /// Sounds started so far.
     pub started: u64,
-    /// Responses that started without a file.
+    /// Responses that started without a file, leaving out the silent ones ([`silent_text`]:
+    /// no words to say, so no file is expected; the reports' `audio` anomaly reads this).
     pub missing: u64,
     /// Responses that started out of the player's hearing (no sound, no subtitle).
     pub unheard: u64,
@@ -435,6 +436,13 @@ pub fn cut_to_one_cry(path: &str, seconds: f64, responses: usize, conversation: 
     !conversation && responses <= 1 && seconds > cry::LONG_SECONDS && cry::is_generic_death(path)
 }
 
+/// A response with no words in it: empty, or only dots and spaces (Generic's HELLO line
+/// 0x0017AF3D is `...` [observed: FalloutNV.esm]). Such a line has no voice file by design,
+/// so its having none is not counted as missing (#2758).
+pub fn silent_text(text: &str) -> bool {
+    text.chars().all(|c| c == '.' || c == '\u{2026}' || c.is_whitespace())
+}
+
 /// A sound whose line stopped this long before the sound's end is left to finish (the
 /// line's clock and the sound's are not the same clock); earlier, it is stopped.
 pub const TAIL_SECONDS: f64 = 0.25;
@@ -513,7 +521,7 @@ fn play(
     paused: Res<crate::pause::Paused>,
     // Not a line fading out after it was stopped (audio_out).
     sinks: Query<&AudioSink, (With<VoiceSound>, Without<Retiring>)>,
-    mut effects: MessageWriter<PlaySound>,
+    (mut effects, mut by_actors): (MessageWriter<PlaySound>, MessageWriter<ActorSound>),
     (sfx, sfx_settings): (Option<Res<crate::sfx::Sfx>>, Option<Res<crate::sfx::SfxSettings>>),
     mut cut_sounds: Option<ResMut<Assets<Panned<PcmSound>>>>,
     mut cover: Option<ResMut<crate::sound_cover::SoundCover>>,
@@ -632,7 +640,16 @@ fn play(
                 _ => None,
             };
             if settings.play && out_of_hearing.is_none() {
-                effects.write(PlaySound { sound, at });
+                // Where it is said it goes by its distances, as another actor's sounds do
+                // (audio.md §15.6): 105 lines name a 2D song.
+                match at {
+                    Some(at) => {
+                        by_actors.write(ActorSound { sound, at });
+                    }
+                    None => {
+                        effects.write(PlaySound { sound, at: None });
+                    }
+                }
             }
             st.started += 1;
             st.unheard += u64::from(out_of_hearing.is_some());
@@ -723,7 +740,8 @@ fn play(
                 (entity, seconds)
             }
             None => {
-                st.missing += 1;
+                let text = g.data.infos.get(&s.info).and_then(|d| d.responses.get(k)).map_or("", |r| r.text.as_str());
+                st.missing += u64::from(!silent_text(text));
                 if let Some(why) = &out_of_hearing {
                     info!("voice: {who} line {} response {number} is out of hearing ({why}): no subtitle", g.data.name(s.info));
                 }
@@ -785,6 +803,15 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<VoiceState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lines_with_no_words_are_silent() {
+        assert!(silent_text("..."));
+        assert!(silent_text(""));
+        assert!(silent_text(" \u{2026} "));
+        assert!(!silent_text("Hello."));
+        assert!(!silent_text("...Hello?"), "words after the dots are said");
+    }
 
     #[test]
     fn only_long_generic_death_lines_are_cut_to_one_cry() {

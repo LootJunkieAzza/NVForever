@@ -7,8 +7,12 @@
 //! bodies <fixed>/<kinematic>/<dynamic>, bodies awake <n>, contact pairs <n>, manifolds <n>,
 //! solver contacts <n>, joints <n>, solver ms <a>/<r>/<d>/<i>/<c>/<s>, actors <n>,
 //! nan actors <n>, ragdolls <n>,
-//! projectiles <n>[, gpu allocated <MB>, gpu reserved <MB>, gpu blocks <n>], startup frames
-//! <n>, hidden frames <n>, phase changes <n>, window <ms> ms, at <place>`
+//! projectiles <n>[, gpu allocated <MB>, gpu reserved <MB>, gpu blocks <n>], mesh alloc
+//! <ms> ms, mesh alloc worst <ms> ms, meshes written <n>, meshes freed <n>, slabs made <n>,
+//! slab mb <MB>, slab mb copied <MB>, startup frames <n>, hidden frames <n>, phase changes
+//! <n>, window <ms> ms, at <place>`
+//! (the mesh allocator's work over the window: vendored bevy_render `nvf_mesh_alloc`,
+//! #3057)
 //! with what the engine holds now and where the camera is (the crash report's place text);
 //! `bodies awake` to `joints` are the physics solver's load now, and `solver ms` rapier's
 //! stage timers summed since the start (`fnv_phys::Stats::solver_us`: set-up, solve,
@@ -395,6 +399,8 @@ struct Samples {
     actor_frames: Vec<(f32, usize, f64)>,
     /// This window, and every seen frame's time (milliseconds).
     window: Window,
+    /// The mesh allocator's counts at the last sample (#3057).
+    mesh_from: bevy::render::mesh::allocator::NvfMeshAlloc,
     all: Vec<f32>,
     /// After start-up, frames behind a loading screen and frames across a phase change
     /// (both left out of the frame times).
@@ -495,13 +501,16 @@ pub fn frame_stats(ms: &[f32]) -> (f32, f32, f32) {
 }
 
 /// What is loaded now: the physics world's cells, the placed references drawn (with a
-/// model), the actors with a rig, every entity ([`LoadedCounts`]).
+/// model), the actors with a rig, every entity ([`LoadedCounts`]). `refs` leaves out the
+/// full-detail ring's draw-only meshes (`nvf_play::DrawOnly`, full_detail.rs), counted
+/// apart in `ring_refs`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Loaded {
     pub cells: usize,
     pub refs: usize,
     pub actors: usize,
     pub entities: usize,
+    pub ring_refs: usize,
 }
 
 /// The counts a stress sample's `cells`, `refs drawn`, `actors` and `entities` are, read
@@ -510,14 +519,21 @@ pub struct Loaded {
 #[derive(SystemParam)]
 pub struct LoadedCounts<'w, 's> {
     entities: Query<'w, 's, Entity>,
-    refs: Query<'w, 's, (), With<RefVisual>>,
+    refs: Query<'w, 's, (), (With<RefVisual>, Without<nvf_play::DrawOnly>)>,
+    ring: Query<'w, 's, (), (With<RefVisual>, With<nvf_play::DrawOnly>)>,
     actors: Query<'w, 's, (), With<ActorRig>>,
     phys: Option<Res<'w, PhysState>>,
 }
 
 impl LoadedCounts<'_, '_> {
     pub fn read(&self) -> Loaded {
-        Loaded { cells: self.phys.as_deref().map_or(0, |p| p.cells.len()), refs: self.refs.iter().count(), actors: self.actors.iter().count(), entities: self.entities.iter().count() }
+        Loaded {
+            cells: self.phys.as_deref().map_or(0, |p| p.cells.len()),
+            refs: self.refs.iter().count(),
+            actors: self.actors.iter().count(),
+            entities: self.entities.iter().count(),
+            ring_refs: self.ring.iter().count(),
+        }
     }
 }
 
@@ -567,6 +583,19 @@ fn sample(
     let (mean, _, worst) = frame_stats(&window.frames);
     let frames = window.frames.len();
     let window = window.fields();
+    let mesh_now = bevy::render::mesh::allocator::nvf_mesh_alloc();
+    let m = mesh_now.since(&s.mesh_from);
+    s.mesh_from = mesh_now;
+    let mesh = format!(
+        ", mesh alloc {:.1} ms, mesh alloc worst {:.1} ms, meshes written {}, meshes freed {}, slabs made {}, slab mb {:.1}, slab mb copied {:.1}",
+        m.ms,
+        m.worst_ms,
+        m.written,
+        m.freed,
+        m.slabs_made,
+        m.slab_bytes as f64 / 1e6,
+        m.copied_bytes as f64 / 1e6
+    );
     let nan = actors.iter().filter(|r| r.nodes.first().and_then(|&e| globals.get(e).ok()).is_some_and(|g| !g.translation().is_finite())).count();
     let loaded = counts.read();
     let cells = loaded.cells;
@@ -576,8 +605,10 @@ fn sample(
         (format!("{}/{}/{}{solver}", st.bodies_fixed, st.bodies_kinematic, st.bodies_dynamic), p.world.ragdolls().count())
     });
     let gpu = cached.2.as_deref().map_or(String::new(), gpu_memory);
+    // The full-detail ring's draw-only meshes, only while it draws any (full_detail.rs).
+    let ring = if loaded.ring_refs > 0 { format!(", ring meshes {}", loaded.ring_refs) } else { String::new() };
     info!(
-        "stress sample: t {:.1} s, frames {frames}, frame mean {mean:.2} ms, frame worst {worst:.2} ms, entities {}, refs drawn {}, meshes {}, images {}, materials {}, models cached {}, textures cached {}, audio {}, cells {cells}, bodies {bodies}, actors {}, nan actors {nan}, ragdolls {ragdolls}, projectiles {}{gpu}{window}, at {}",
+        "stress sample: t {:.1} s, frames {frames}, frame mean {mean:.2} ms, frame worst {worst:.2} ms, entities {}, refs drawn {}, meshes {}, images {}, materials {}, models cached {}, textures cached {}, audio {}, cells {cells}, bodies {bodies}, actors {}, nan actors {nan}, ragdolls {ragdolls}, projectiles {}{ring}{gpu}{mesh}{window}, at {}",
         t,
         loaded.entities,
         loaded.refs,
@@ -641,6 +672,26 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<Samples>) {
         "stress actors: {drawn} drawn in {} frames ({ms:.0} ms, most in a frame {most:.1} ms); those frames mean {mean:.1} ms, worst {worst:.0} ms, {slow} over 100 ms",
         f.len()
     );
+}
+
+#[cfg(test)]
+mod ring_count_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// #2701: the loaded-reference count (stress samples, the overlay's loaded row) leaves
+    /// out the full-detail ring's draw-only meshes, which are counted apart.
+    #[test]
+    fn draw_only_meshes_are_counted_apart() {
+        let mut world = World::new();
+        world.spawn(RefVisual(1));
+        world.spawn(RefVisual(2));
+        world.spawn((RefVisual(3), nvf_play::DrawOnly));
+        let l = world.run_system_once(|c: LoadedCounts| c.read()).unwrap();
+        assert_eq!((l.refs, l.ring_refs), (2, 1));
+        // Every entity counts in the total, ring meshes too (running the system may add its own).
+        assert!(l.entities >= 3, "{}", l.entities);
+    }
 }
 
 #[cfg(test)]

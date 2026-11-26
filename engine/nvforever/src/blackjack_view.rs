@@ -423,6 +423,9 @@ fn faces(s: &Session, drawn: &mut Drawn, models: &mut ModelCtx, mats: &mut Query
                         };
                         let Some(mut mat) = models.materials.get(&mm.0).cloned() else { continue };
                         mat.base.base_color_texture = Some(tex);
+                        // The copy is of the material worn now, which may be another card's:
+                        // the new card's set, or none, is taken from the legacy look (#2981).
+                        nvf_assets::authored::retexture(&mut mat, &path, &mut models.textures, &models.data, &mut models.images, models.formats.as_deref());
                         let h = models.materials.add(mat);
                         materials.insert((e, card), h.clone());
                         h

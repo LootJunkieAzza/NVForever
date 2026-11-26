@@ -56,7 +56,7 @@ struct WaterParams {
     ripple: vec4<f32>,
     // shore fade: depth falloff start, end (units of water crossed), 1 when in use
     edge: vec4<f32>,
-    // x = Bevy y of the water whose drawn pixels are counted, y = 1 while counting
+    // x = counted plane height, y = enable, z/w = low/high halves of the probe generation
     seen_plane: vec4<f32>,
     // xyz = direction toward the sun (Bevy world), w = enabled daylight strength.
     water_sun: vec4<f32>,
@@ -68,8 +68,14 @@ struct WaterParams {
 @group(constants::MATERIAL_BIND_GROUP) @binding(3) var reflection_texture: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(4) var reflection_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(5) var ripple_texture: texture_2d<f32>;
-// Drawn water pixels at seen_plane's height (water.rs WaterMaterial::seen, #1060).
-@group(constants::MATERIAL_BIND_GROUP) @binding(6) var<storage, read_write> water_seen: atomic<u32>;
+// Reset/tagged before the draw and copied after it (reflection.rs WaterSample).
+struct WaterVisibility {
+    count: atomic<u32>,
+    generation: u32,
+    frame: u32,
+    time_bits: u32,
+};
+@group(constants::MATERIAL_BIND_GROUP) @binding(6) var<storage, read_write> water_seen: WaterVisibility;
 
 // Whether opaque surfaces (depth prepass) lie in front of this fragment in every sample
 // of its pixel: the depth test would throw the whole pixel away. Reverse z: nearer is
@@ -252,12 +258,16 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if hidden_by_scene(in.position) {
         discard;
     }
-    // One pixel in 16 (a 4 x 4 grid): water seen only through a gap narrower than that
-    // may count nothing and show the sky alone in it, an accepted cost for 16 times
-    // fewer atomic adds on one address.
+    // Keep the cost at one candidate pixel in 16 per frame. Rotate the grid so a
+    // thin strip of water cannot stay between the same four columns or rows forever.
     let grid = vec2<u32>(in.position.xy) & vec2(3u);
-    if water.seen_plane.y > 0.5 && abs(pos.y - water.seen_plane.x) < 2.0 && grid.x == 0u && grid.y == 0u {
-        atomicAdd(&water_seen, 1u);
+    let phase = vec2(globals.frame_count & 3u, (globals.frame_count >> 2u) & 3u);
+    if water.seen_plane.y > 0.5 && abs(pos.y - water.seen_plane.x) < 2.0 && all(grid == phase) {
+        let generation = u32(water.seen_plane.z) | (u32(water.seen_plane.w) << 16u);
+        // A material awaiting GPU preparation can still have the previous probe's uniform.
+        if generation == water_seen.generation {
+            atomicAdd(&water_seen.count, 1u);
+        }
     }
     let to_cam = view.world_position.xyz - pos;
     let dist = max(length(to_cam), 1e-3);

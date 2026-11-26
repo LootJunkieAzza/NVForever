@@ -11,6 +11,10 @@ use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Bound on queued non-player `RefreshAnimData` requests when no renderer drains them
+/// (mirrors `nvse_vheyes::QUEUE_LIMIT`) [design].
+const REFRESH_QUEUE_LIMIT: usize = 1024;
+
 /// What these commands keep for the session.
 #[derive(Debug, Default)]
 pub struct UnlistedState {
@@ -26,6 +30,65 @@ pub struct UnlistedState {
     /// AttachLight's lights, by reference and lower-case node: the light and the node
     /// the mirror holds it as.
     pub lights: BTreeMap<(FormId, String), (FormId, String)>,
+    /// Transient one-shot `RefreshAnimData` requests for the engine's animation consumers
+    /// (not saved) [design].
+    pub anim_refreshes: BTreeSet<FormId>,
+}
+
+impl UnlistedState {
+    pub(crate) fn queue_anim_refresh(&mut self, actor: FormId) {
+        let set = &mut self.anim_refreshes;
+        if actor != FormId::PLAYER_REF && !set.contains(&actor) {
+            let non_player = set.len().saturating_sub(usize::from(set.contains(&FormId::PLAYER_REF)));
+            if non_player >= REFRESH_QUEUE_LIMIT {
+                if let Some(evict) = set.iter().copied().find(|&id| id != FormId::PLAYER_REF) {
+                    set.remove(&evict);
+                }
+            }
+        }
+        set.insert(actor);
+    }
+
+    pub(crate) fn take_player_anim_refresh(&mut self) -> bool {
+        self.anim_refreshes.remove(&FormId::PLAYER_REF)
+    }
+
+    pub(crate) fn take_npc_anim_refreshes(&mut self) -> BTreeSet<FormId> {
+        let player = self.anim_refreshes.remove(&FormId::PLAYER_REF);
+        let npcs = std::mem::take(&mut self.anim_refreshes);
+        if player {
+            self.anim_refreshes.insert(FormId::PLAYER_REF);
+        }
+        npcs
+    }
+}
+
+impl Game<'_> {
+    /// Queue a one-shot animation-data refresh for `actor` (capped for non-player actors
+    /// so headless sessions never grow unboundedly; `PLAYER_REF` is never evicted) [design].
+    pub(crate) fn queue_anim_refresh(&mut self, actor: FormId) {
+        self.other.unlisted.queue_anim_refresh(actor);
+    }
+
+    /// Whether `actor` has a pending `RefreshAnimData` request.
+    pub fn anim_refresh_pending(&self, actor: FormId) -> bool {
+        self.other.unlisted.anim_refreshes.contains(&actor)
+    }
+
+    /// Consume the pending `RefreshAnimData` request for the player, if any.
+    pub fn take_player_anim_refresh(&mut self) -> bool {
+        self.other.unlisted.take_player_anim_refresh()
+    }
+
+    /// Consume all pending non-player `RefreshAnimData` requests for NPC animation systems.
+    pub fn take_npc_anim_refreshes(&mut self) -> BTreeSet<FormId> {
+        self.other.unlisted.take_npc_anim_refreshes()
+    }
+
+    /// Consume all pending `RefreshAnimData` requests (player and NPCs).
+    pub fn take_anim_refreshes(&mut self) -> BTreeSet<FormId> {
+        std::mem::take(&mut self.other.unlisted.anim_refreshes)
+    }
 }
 
 /// GetConditionDamagePenalty's answer: the same at every difficulty, with nothing that
@@ -181,7 +244,7 @@ impl Game<'_> {
 }
 
 /// The functions of this file; `None` for any other name.
-pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
+pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let zero = XVal::Num(0.0);
     let v = match name {
         // ---- lights (§2.1) ----
@@ -261,7 +324,17 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // Answers 0; Doc came no farther away in 4 s [observed: cmd1.moveaway,
         // cmd3.moveaway.*: 206 then 125 and 134 units as his package walked him]: no move
         // is built (§2.5).
-        "moveawayfromplayer" | "refreshanimdata" => zero,
+        "moveawayfromplayer" => zero,
+        // Answers 0 [observed: cmd1.refreshanim.*]; refreshes the actor's AnimGroupOverride
+        // folder matches immediately and queues a one-shot engine animation refresh so
+        // cached clips and kNVSE overrides re-evaluate on the next frame (§2.5) [design].
+        "refreshanimdata" => {
+            if let Some(r) = subject.or(ctx.self_ref) {
+                g.queue_anim_refresh(r);
+                g.refresh_anim_folders_for(r);
+            }
+            zero
+        }
         // `[killer]`: dead, the killer recorded, answers 0 [observed: cmd1.kill.alt, kill.dead
         // 1, kill.killer the player] (§2.4).
         "killactoralt" => {
@@ -351,4 +424,58 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         _ => return None,
     };
     Some(Ok(v))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refresh_queue_caps_non_player_entries_and_preserves_player() {
+        let mut unlisted = UnlistedState::default();
+        // Enqueue player first, then non-player actors spanning both below and above
+        // PLAYER_REF (0x14) so PLAYER_REF becomes the smallest remaining key during eviction.
+        unlisted.queue_anim_refresh(FormId::PLAYER_REF);
+        let mut inserted = Vec::new();
+        let mut raw = 0x10u32;
+        while inserted.len() < REFRESH_QUEUE_LIMIT + 32 {
+            let id = FormId(raw);
+            raw += 1;
+            if id == FormId::PLAYER_REF {
+                continue;
+            }
+            unlisted.queue_anim_refresh(id);
+            inserted.push(id);
+        }
+
+        assert!(unlisted.anim_refreshes.contains(&FormId::PLAYER_REF), "PLAYER_REF must never be evicted");
+        assert_eq!(unlisted.anim_refreshes.len(), REFRESH_QUEUE_LIMIT + 1);
+        for &evicted in &inserted[..32] {
+            assert!(!unlisted.anim_refreshes.contains(&evicted), "earliest non-player entry {evicted:?} evicted");
+        }
+        for &kept in &inserted[32..] {
+            assert!(unlisted.anim_refreshes.contains(&kept));
+        }
+
+        // Re-queueing an already-queued non-player actor at capacity must not evict any entry.
+        unlisted.queue_anim_refresh(inserted[32]);
+        assert_eq!(unlisted.anim_refreshes.len(), REFRESH_QUEUE_LIMIT + 1);
+        assert!(unlisted.anim_refreshes.contains(&inserted[32]));
+
+        // Draining NPCs yields exactly REFRESH_QUEUE_LIMIT entries and leaves PLAYER_REF intact.
+        let npcs = unlisted.take_npc_anim_refreshes();
+        assert_eq!(npcs.len(), REFRESH_QUEUE_LIMIT);
+        assert!(!npcs.contains(&FormId::PLAYER_REF));
+        assert!(unlisted.take_player_anim_refresh());
+        assert!(!unlisted.take_player_anim_refresh());
+
+        // Filling 1024 non-player entries first and then queueing PLAYER_REF must not evict any NPC.
+        for &id in &inserted[..REFRESH_QUEUE_LIMIT] {
+            unlisted.queue_anim_refresh(id);
+        }
+        unlisted.queue_anim_refresh(FormId::PLAYER_REF);
+        assert_eq!(unlisted.anim_refreshes.len(), REFRESH_QUEUE_LIMIT + 1);
+        assert_eq!(unlisted.take_npc_anim_refreshes().len(), REFRESH_QUEUE_LIMIT);
+        assert!(unlisted.take_player_anim_refresh());
+    }
 }

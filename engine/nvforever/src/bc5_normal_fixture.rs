@@ -35,7 +35,7 @@ pub fn inputs() -> (Inputs, World) {
     }
     std::fs::write(root.join("textures/old.dds"), dds(b"DXT5", 4, 4, [255; 16])).unwrap();
     let mut world = headless_world();
-    world.insert_resource(GameData { schema: Arc::new(fnv_nif::Schema::default()), vfs: Arc::new(fnv_vfs::Vfs::open(&root, &[]).unwrap()) });
+    world.insert_resource(GameData::new(Arc::new(fnv_vfs::Vfs::open(&root, &[]).unwrap()), Arc::new(fnv_nif::Schema::default())));
     world.init_resource::<TextureCache>();
     world.init_resource::<nvf_assets::model::ModelCache>();
     world.init_resource::<Assets<Image>>();

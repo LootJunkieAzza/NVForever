@@ -1,7 +1,7 @@
 {
  "format": "fnv.script.actions/1",
  "title": "Headless doctors' services (VDoctors, Doctors): Ada Straus at Novac heals the player (VDoctors 10), cures an addiction (20) and his radiation (30); Argyll at Nellis treats him for the Boomers (Doctors 10 and 20)",
- "given": [],
+ "given": [{"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}}],
  "actions": [
   {
    "op": "note",

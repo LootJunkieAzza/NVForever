@@ -141,12 +141,25 @@ impl IdleSource {
     }
 }
 
+/// Explicit player point-of-view override for `ForcePlayIdle` / `ForceStopIdle`
+/// (`playerPOV`: `1` third-person, `2` first-person) [documented: GECK wiki ForcePlayIdle,
+/// ForceStopIdle].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdlePov {
+    Third,
+    First,
+}
+
 /// An actor is to play an idle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct IdleRequest {
     pub actor: FormId,
     pub idle: FormId,
     pub source: IdleSource,
+    /// Optional explicit player rig target (`ForcePlayIdle` arg 2); `None` preserves
+    /// vanilla auto-routing by `Camera1st` track presence.
+    pub pov: Option<IdlePov>,
 }
 
 /// How often an idle's loop plays.
@@ -221,14 +234,29 @@ impl IdlePicker {
 }
 
 impl<'a> Game<'a> {
-    /// The current model file of an IDLE, including SetIdleAnimPath's session
-    /// replacement. The renderer must use the same path as script getters.
+    /// The authored IDLE definition for `idle`, resolving `TempCloneForm`
+    /// aliases back to their original IDLE record.
+    pub fn idle_def(&self, idle: FormId) -> Option<&'a IdleDef> {
+        let origin = self.unclone(idle);
+        self.data.idles.get(&origin)
+    }
+
+    /// The current model file of an IDLE (or its `TempCloneForm` alias),
+    /// including `SetIdleAnimPath` / `SetModelPath` session replacements snapshotted
+    /// at `TempCloneForm` creation time. The renderer must use the same path as script
+    /// getters [observed: `w4g_13_isidleplaying_and_idle_replace`].
     pub fn idle_animation_path(&self, idle: FormId) -> Option<&str> {
-        let def = self.data.idles.get(&idle)?;
-        match self.field_overrides.get(&(idle,"MODL/".into())) {
-            Some(fnv_script::vm::XVal::Str(path)) => Some(path.as_str()),
-            _ => def.model.as_deref(),
+        let def = self.idle_def(idle)?;
+        if let Some(fnv_script::vm::XVal::Str(path)) = self.field_overrides.get(&(idle, "MODL/".into())) {
+            return Some(path.as_str());
         }
+        def.model.as_deref()
+    }
+
+    /// Whether `idle` (or its `TempCloneForm` alias) currently names a `.kf`
+    /// animation file, accounting for `SetIdleAnimPath` overrides.
+    pub fn idle_has_file(&self, idle: FormId) -> bool {
+        self.idle_animation_path(idle).is_some_and(|m| m.trim().to_ascii_lowercase().ends_with(".kf"))
     }
 
     /// `actor` is to play `idle`: queued for the animating layer and traced. An IDLE
@@ -236,9 +264,14 @@ impl<'a> Game<'a> {
     /// [hypothesis: only idles with a file can be listed or played by name; the editor
     /// lists only those in collections, documented], which is traced instead.
     pub fn ask_idle(&mut self, actor: FormId, idle: FormId, source: IdleSource) -> bool {
-        let reason = match self.data.idles.get(&idle) {
+        self.ask_idle_pov(actor, idle, source, None)
+    }
+
+    /// Queue `idle` on `actor` with an optional explicit player view override (`ForcePlayIdle`).
+    pub fn ask_idle_pov(&mut self, actor: FormId, idle: FormId, source: IdleSource, pov: Option<IdlePov>) -> bool {
+        let reason = match self.idle_def(idle) {
             None => Some("not an idle animation"),
-            Some(d) if !d.has_file() => Some("names no animation file"),
+            Some(_) if !self.idle_has_file(idle) => Some("names no animation file"),
             Some(_) => None,
         };
         if let Some(reason) = reason {
@@ -246,7 +279,7 @@ impl<'a> Game<'a> {
             return false;
         }
         self.emit(EventKind::IdleAsked { actor, idle, source });
-        self.idle_requests.push(IdleRequest { actor, idle, source });
+        self.idle_requests.push(IdleRequest { actor, idle, source, pov });
         true
     }
 
@@ -262,8 +295,7 @@ impl<'a> Game<'a> {
     /// As [`Game::idle_allowed`], with `target` as the conditions' target (Run On
     /// Target): the one the actor talks with, for the talking gestures.
     fn idle_allowed_with(&mut self, actor: FormId, target: Option<FormId>, idle: FormId) -> bool {
-        let data = self.data;
-        match data.idles.get(&idle).map(|d| d.conditions.as_deref()) {
+        match self.idle_def(idle).map(|d| d.conditions.as_deref()) {
             Some(Some(c)) => c.is_empty() || self.conditions_pass(c, Some(actor), target, &format!("IDLE {idle}")),
             _ => false,
         }

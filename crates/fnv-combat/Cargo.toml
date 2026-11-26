@@ -1,6 +1,6 @@
 [package]
 name = "fnv-combat"
-description = "Combat for Fallout: New Vegas (headless): weapon, ammo, projectile, explosion and body-part data, and later the damage rules and attack cycle"
+description = "Combat for Fallout: New Vegas (headless): weapon, ammo, projectile, explosion and body-part data, the damage rules and the attack cycle"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

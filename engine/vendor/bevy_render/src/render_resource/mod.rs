@@ -9,6 +9,8 @@ mod buffer_vec;
 mod gpu_array_buffer;
 mod pipeline;
 mod pipeline_cache;
+// NVForever pipeline list (nvf_manifest.rs).
+mod nvf_manifest;
 mod pipeline_specializer;
 mod sparse_buffer_vec;
 mod specializer;
@@ -26,6 +28,7 @@ pub use buffer_vec::*;
 pub use gpu_array_buffer::*;
 pub use pipeline::*;
 pub use pipeline_cache::*;
+pub use nvf_manifest::{ManifestStats, PipelineManifest};
 pub use pipeline_specializer::*;
 pub use sparse_buffer_vec::*;
 pub use specializer::*;

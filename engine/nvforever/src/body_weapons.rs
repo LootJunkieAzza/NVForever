@@ -63,7 +63,7 @@ use nvf_assets::model::ModelCtx;
 use nvf_play::combat::Combat;
 use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 pub struct BodyWeaponsPlugin;
@@ -250,13 +250,46 @@ fn attach(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut stats: ResMut<BodyStats>,
-    mut own_attacks: Local<HashMap<String, bool>>,
+    mut own_attacks: Local<Option<std::sync::Arc<OwnAttacks>>>,
+    mut stances_asked: Local<HashSet<(String, &'static str)>>,
     mut fresh: Query<Fresh, Unchecked>,
 ) {
     let (Some(world), Some(combat)) = (world, combat) else { return };
-    if world.weapon_mode == WeaponMode::None || fresh.is_empty() {
+    if world.weapon_mode == WeaponMode::None {
         return;
     }
+    // [design] The folders with a creature's own attack clips are listed once, by a look
+    // through every file's path. That look ran in the frame the first creature with body
+    // weapons was drawn (15-18 ms [observed 2026-11-20, `profile hitch`]); it runs on a
+    // read thread from this system's first frame instead, and a creature drawn before it
+    // is done (a start's first frames) gets its arms the frame it is.
+    let on_read_thread = crate::stream_pace::on_read_threads();
+    let own = own_attacks.get_or_insert_with(|| {
+        let listed = std::sync::Arc::new(OwnAttacks::default());
+        if on_read_thread {
+            let (data, out) = ((*models.data).clone(), listed.clone());
+            nvf_assets::read_pool::read_pool()
+                .spawn(async move {
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| own_attack_folders(&data.vfs))) {
+                        Ok(folders) => {
+                            let _ = out.folders.set(folders);
+                        }
+                        Err(_) => out.failed.store(true, std::sync::atomic::Ordering::Relaxed),
+                    }
+                })
+                .detach();
+        }
+        listed
+    });
+    if fresh.is_empty() {
+        return;
+    }
+    if !on_read_thread || own.failed.load(std::sync::atomic::Ordering::Relaxed) {
+        // As before: listed in the frame of the first creature that needs it; also when the
+        // read thread's listing panicked, so creatures still get their body weapons.
+        own.folders.get_or_init(|| own_attack_folders(&models.data.vfs));
+    }
+    let Some(own_folders) = own.folders.get() else { return };
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     for (e, rig, held, own_stance, player) in &mut fresh {
         // A weapon in hand is `outfits::arm_creatures`'.
@@ -268,6 +301,33 @@ fn attach(
         // Its inventory once the rules have it.
         let Some(inv) = sim.world.peek(me).and_then(|s| s.inventory.as_ref()) else { continue };
         let Some(player) = player else { continue };
+        // [design] A body weapon's stance not loaded yet (a creature of the start's cells,
+        // or one the read-ahead did not list) is read on a read thread, and the creature
+        // gets its arms the frame the stances are in. Loading them here was 27-38 ms of
+        // the frame the first such creature was drawn [observed 2026-11-20, `profile
+        // hitch`: `body_weapons::attach`, with the folder list already off this thread].
+        if on_read_thread {
+            let mut waiting = false;
+            for (item, count) in inv.iter() {
+                let Some(ws) = combat.forms.weapons.get(&item).filter(|w| w.embedded && count > 0) else { continue };
+                let Some(prefix) = ws.anim_type.as_deref().and_then(AnimType::from_name).map(AnimType::prefix) else { continue };
+                if world.anims.stance_loaded(&rig.skeleton, prefix) {
+                    continue;
+                }
+                waiting = true;
+                if stances_asked.insert((fnv_vfs::normalize(&rig.skeleton), prefix)) {
+                    let (anims, data, skeleton, skel) = (world.anims.clone(), (*ctx.models.data).clone(), rig.skeleton.clone(), rig.skel.clone());
+                    nvf_assets::read_pool::read_pool()
+                        .spawn(async move {
+                            anims.stance(&mut nvf_assets::actor::ClipReader::new(data), &skeleton, &skel, prefix);
+                        })
+                        .detach();
+                }
+            }
+            if waiting {
+                continue;
+            }
+        }
         let folder = folder_of(&rig.skeleton);
         let mut arms = Vec::new();
         for (item, count) in inv.iter() {
@@ -295,10 +355,7 @@ fn attach(
             continue;
         }
         // Its own attack, where its folder has clips for it.
-        let has_own = *own_attacks.entry(folder.clone()).or_insert_with(|| {
-            let pre = format!("{folder}\\h2hattack");
-            !ctx.models.data.vfs.paths(|p| p.starts_with(&pre) && p.ends_with(".kf")).is_empty()
-        });
+        let has_own = own_folders.contains(&folder);
         if has_own {
             arms.push(BodyArm { weapon: None, name: "its own attack".into(), stance: None, limb: None, blast: 0.0, rule: Arm { melee: true, min_range: 0.0, max_range: 0.0, blast: 0.0, dps: 0.0, usable: true } });
         }
@@ -402,8 +459,24 @@ fn switch(
     }
 }
 
+/// [`own_attack_folders`]' list, filled by a read thread; `failed` when that listing
+/// panicked, and the frame's thread lists the folders itself.
+#[derive(Default)]
+struct OwnAttacks {
+    folders: std::sync::OnceLock<HashSet<String>>,
+    failed: std::sync::atomic::AtomicBool,
+}
+
 /// The folder of a skeleton path (`creatures\mistergutsy\skeleton.nif` →
 /// `meshes\creatures\mistergutsy`).
+/// The folders holding `h2hattack*.kf` clips, a creature's own attack: listed once.
+/// [design] #3072: a look through every file for each kind of creature with body weapons
+/// when it was first drawn [observed 2026-11-19, `profile hitch`: `attach` 11 ms].
+fn own_attack_folders(vfs: &fnv_vfs::Vfs) -> HashSet<String> {
+    let is_own = |p: &str| p.ends_with(".kf") && p.rsplit_once('\\').is_some_and(|(_, f)| f.starts_with("h2hattack"));
+    vfs.paths(is_own).into_iter().filter_map(|p| p.rsplit_once('\\').map(|(d, _)| d.to_string())).collect()
+}
+
 fn folder_of(skeleton: &str) -> String {
     let s = fnv_vfs::normalize(&fnv_actor::resolve::mesh_path(skeleton));
     s.rfind('\\').map_or(String::new(), |i| s[..i].to_string())

@@ -1074,8 +1074,13 @@ impl MaterialBindlessSlab {
         slot_capacity: u32,
     ) -> Result<MaterialBindGroupSlot, ()> {
         // Locate pre-existing resources, and determine how many free slots we need.
+        // NVForever slab accounting: the free slots this slab has left, for
+        // `check_allocation` to stop at the first resource that cannot fit. An
+        // empty slab takes any material (see below), so it has no such limit.
+        let room = (self.allocated_resource_count > 0)
+            .then(|| slot_capacity.saturating_sub(self.allocated_resource_count));
         let Some(allocation_candidate) =
-            self.check_allocation(&unprepared_bind_group.binding_resources)
+            self.check_allocation(&unprepared_bind_group.binding_resources, room)
         else {
             return Err(());
         };
@@ -1173,15 +1178,35 @@ impl MaterialBindlessSlab {
     fn check_allocation(
         &self,
         unprepared_binding_resources: &UnpreparedBindingResources,
+        room: Option<u32>,
     ) -> Option<BindlessAllocationCandidate> {
         let mut allocation_candidate = BindlessAllocationCandidate {
             pre_existing_resources: HashMap::default(),
             needed_free_slots: 0,
         };
+        // NVForever slab accounting: a resource the slab lacks takes one slot
+        // however many of the material's bindless indices bind it (the binding
+        // arrays hold each resource once, with a reference count). Upstream
+        // counts it once per index here and in `insert_resources`, but `free`
+        // gives a slot back only when the last reference goes, so a slab's
+        // count rose with every such material that came and went and the slab
+        // ended up refusing materials while nearly empty.
+        let mut missing: HashSet<BindingResourceId> = HashSet::default();
+        let mut miss = |candidate: &mut BindlessAllocationCandidate, id: BindingResourceId| {
+            if missing.insert(id) {
+                candidate.needed_free_slots += 1;
+            }
+        };
 
         for &(bindless_index, ref unprepared_binding_resource) in
             unprepared_binding_resources.iter()
         {
+            // NVForever slab accounting: this slab is already known not to fit
+            // the material (the caller would refuse it for the same count), so
+            // the rest of its resources are not looked up.
+            if room.is_some_and(|room| allocation_candidate.needed_free_slots > room) {
+                return None;
+            }
             let bindless_index = BindlessIndex(bindless_index);
             match *unprepared_binding_resource {
                 UnpreparedBindingResource::Buffer(ref buffer) => {
@@ -1192,13 +1217,14 @@ impl MaterialBindlessSlab {
                         );
                         return None;
                     };
-                    match binding_array.find(BindingResourceId::Buffer(buffer.id())) {
+                    let id = BindingResourceId::Buffer(buffer.id());
+                    match binding_array.find(id) {
                         Some(slot) => {
                             allocation_candidate
                                 .pre_existing_resources
                                 .insert(bindless_index, slot);
                         }
-                        None => allocation_candidate.needed_free_slots += 1,
+                        None => miss(&mut allocation_candidate, id),
                     }
                 }
 
@@ -1210,13 +1236,14 @@ impl MaterialBindlessSlab {
                         );
                         return None;
                     };
-                    match binding_array.find(BindingResourceId::ShaderBuffer(shader_buffer.id())) {
+                    let id = BindingResourceId::ShaderBuffer(shader_buffer.id());
+                    match binding_array.find(id) {
                         Some(slot) => {
                             allocation_candidate
                                 .pre_existing_resources
                                 .insert(bindless_index, slot);
                         }
-                        None => allocation_candidate.needed_free_slots += 1,
+                        None => miss(&mut allocation_candidate, id),
                     }
                 }
 
@@ -1229,41 +1256,38 @@ impl MaterialBindlessSlab {
                     ref texture_view,
                 ) => {
                     let bindless_resource_type = BindlessResourceType::from(texture_view_dimension);
+                    let id =
+                        BindingResourceId::TextureView(texture_view_dimension, texture_view.id());
                     match self
                         .textures
                         .get(&bindless_resource_type)
                         .expect("Missing binding array for texture")
-                        .find(BindingResourceId::TextureView(
-                            texture_view_dimension,
-                            texture_view.id(),
-                        )) {
-                        Some(slot) => {
-                            allocation_candidate
-                                .pre_existing_resources
-                                .insert(bindless_index, slot);
-                        }
-                        None => {
-                            allocation_candidate.needed_free_slots += 1;
-                        }
-                    }
-                }
-
-                UnpreparedBindingResource::Sampler(sampler_binding_type, ref sampler) => {
-                    let bindless_resource_type = BindlessResourceType::from(sampler_binding_type);
-                    match self
-                        .samplers
-                        .get(&bindless_resource_type)
-                        .expect("Missing binding array for sampler")
-                        .find(BindingResourceId::Sampler(sampler.id()))
+                        .find(id)
                     {
                         Some(slot) => {
                             allocation_candidate
                                 .pre_existing_resources
                                 .insert(bindless_index, slot);
                         }
-                        None => {
-                            allocation_candidate.needed_free_slots += 1;
+                        None => miss(&mut allocation_candidate, id),
+                    }
+                }
+
+                UnpreparedBindingResource::Sampler(sampler_binding_type, ref sampler) => {
+                    let bindless_resource_type = BindlessResourceType::from(sampler_binding_type);
+                    let id = BindingResourceId::Sampler(sampler.id());
+                    match self
+                        .samplers
+                        .get(&bindless_resource_type)
+                        .expect("Missing binding array for sampler")
+                        .find(id)
+                    {
+                        Some(slot) => {
+                            allocation_candidate
+                                .pre_existing_resources
+                                .insert(bindless_index, slot);
                         }
+                        None => miss(&mut allocation_candidate, id),
                     }
                 }
             }
@@ -1295,29 +1319,35 @@ impl MaterialBindlessSlab {
             let binding_resource_id = BindingResourceId::from(unprepared_binding_resource);
             let increment_allocated_resource_count = match unprepared_binding_resource {
                 UnpreparedBindingResource::Buffer(buffer) => {
-                    let slot = self
+                    let array = self
                         .buffers
                         .get_mut(&bindless_index)
-                        .expect("Buffer binding array should exist")
-                        .insert(binding_resource_id, buffer.clone());
+                        .expect("Buffer binding array should exist");
+                    // NVForever slab accounting: a slot is taken only when the
+                    // resource was not in the array yet, whether or not an
+                    // earlier index of this material put it there (here and in
+                    // the three arms below).
+                    let fresh = array.find(binding_resource_id).is_none();
+                    let slot = array.insert(binding_resource_id, buffer.clone());
                     allocated_resource_slots.insert(bindless_index, slot);
 
                     debug_assert!(pre_existing_slot
                         .is_none_or(|pre_existing_slot| *pre_existing_slot == slot));
-                    pre_existing_slot.is_none()
+                    fresh
                 }
 
                 UnpreparedBindingResource::ShaderBuffer(shader_buffer) => {
-                    let slot = self
+                    let array = self
                         .shader_buffers
                         .get_mut(&bindless_index)
-                        .expect("Shader buffer binding array should exist")
-                        .insert(binding_resource_id, shader_buffer.clone());
+                        .expect("Shader buffer binding array should exist");
+                    let fresh = array.find(binding_resource_id).is_none();
+                    let slot = array.insert(binding_resource_id, shader_buffer.clone());
                     allocated_resource_slots.insert(bindless_index, slot);
 
                     debug_assert!(pre_existing_slot
                         .is_none_or(|pre_existing_slot| *pre_existing_slot == slot));
-                    pre_existing_slot.is_none()
+                    fresh
                 }
 
                 UnpreparedBindingResource::Data(data_range) => {
@@ -1340,30 +1370,32 @@ impl MaterialBindlessSlab {
                 UnpreparedBindingResource::TextureView(texture_view_dimension, texture_view) => {
                     let bindless_resource_type =
                         BindlessResourceType::from(*texture_view_dimension);
-                    let slot = self
+                    let array = self
                         .textures
                         .get_mut(&bindless_resource_type)
-                        .expect("Texture array should exist")
-                        .insert(binding_resource_id, texture_view.clone());
+                        .expect("Texture array should exist");
+                    let fresh = array.find(binding_resource_id).is_none();
+                    let slot = array.insert(binding_resource_id, texture_view.clone());
                     allocated_resource_slots.insert(bindless_index, slot);
 
                     debug_assert!(pre_existing_slot
                         .is_none_or(|pre_existing_slot| *pre_existing_slot == slot));
-                    pre_existing_slot.is_none()
+                    fresh
                 }
 
                 UnpreparedBindingResource::Sampler(sampler_binding_type, sampler) => {
                     let bindless_resource_type = BindlessResourceType::from(*sampler_binding_type);
-                    let slot = self
+                    let array = self
                         .samplers
                         .get_mut(&bindless_resource_type)
-                        .expect("Sampler should exist")
-                        .insert(binding_resource_id, sampler.clone());
+                        .expect("Sampler should exist");
+                    let fresh = array.find(binding_resource_id).is_none();
+                    let slot = array.insert(binding_resource_id, sampler.clone());
                     allocated_resource_slots.insert(bindless_index, slot);
 
                     debug_assert!(pre_existing_slot
                         .is_none_or(|pre_existing_slot| *pre_existing_slot == slot));
-                    pre_existing_slot.is_none()
+                    fresh
                 }
             };
 
@@ -2905,5 +2937,147 @@ mod tests {
         // Can find an actual entry.
         let table = slab.get_bindless_index_table(BindlessIndex(2)).unwrap();
         assert_eq!(table.binding_number, BindingNumber(1));
+    }
+
+    // NVForever slab accounting (GPU-free: `wgpu`'s noop backend).
+    mod slab_accounting {
+        use super::*;
+        use crate::render_resource::{
+            Extent3d, Sampler, SamplerBindingType, SamplerDescriptor, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
+            TextureViewDimension, UnpreparedBindingResource,
+        };
+        use crate::test_utils::create_dummy_device;
+
+        /// A slab of a material type with three texture indices and a sampler index.
+        fn texture_slab() -> (BindlessDescriptor, MaterialBindlessSlab) {
+            let descriptor = BindlessDescriptor {
+                resources: vec![
+                    BindlessResourceType::Texture2d,
+                    BindlessResourceType::Texture2d,
+                    BindlessResourceType::Texture2d,
+                    BindlessResourceType::SamplerFiltering,
+                ]
+                .into(),
+                buffers: Default::default(),
+                index_tables: vec![BindlessIndexTableDescriptor {
+                    indices: BindlessIndex(0)..BindlessIndex(4),
+                    binding_number: BindingNumber(0),
+                }]
+                .into(),
+            };
+            let slab = MaterialBindlessSlab::new(&descriptor);
+            (descriptor, slab)
+        }
+
+        fn view(device: &RenderDevice) -> TextureView {
+            device
+                .create_texture(&TextureDescriptor {
+                    label: None,
+                    size: Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::Rgba8Unorm,
+                    usage: TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&TextureViewDescriptor::default())
+        }
+
+        /// A material that binds `views` at indices 0 to 2 and `sampler` at index 3.
+        fn material(views: [&TextureView; 3], sampler: &Sampler) -> BindGroupBuilder {
+            let mut builder = BindGroupBuilder::default();
+            for (index, view) in views.into_iter().enumerate() {
+                builder.binding_resources.push((
+                    index as u32,
+                    UnpreparedBindingResource::TextureView(TextureViewDimension::D2, view.clone()),
+                ));
+            }
+            builder.binding_resources.push((
+                3,
+                UnpreparedBindingResource::Sampler(SamplerBindingType::Filtering, sampler.clone()),
+            ));
+            builder
+        }
+
+        #[test]
+        fn a_resource_bound_at_several_indices_takes_one_slot() {
+            let (device, _queue) = create_dummy_device();
+            let (descriptor, mut slab) = texture_slab();
+            let sampler = device.create_sampler(&SamplerDescriptor::default());
+            let (a, b, c) = (view(&device), view(&device), view(&device));
+
+            // One view at three indices and a sampler are two resources, not four.
+            let first = slab
+                .try_allocate(&mut material([&a, &a, &a], &sampler), 3)
+                .unwrap();
+            assert_eq!(slab.allocated_resource_count, 2);
+            assert_eq!(slab.textures[&BindlessResourceType::Texture2d].len, 1);
+
+            // So a second material with a view of its own fits a slab of three slots.
+            let second = slab
+                .try_allocate(&mut material([&b, &b, &b], &sampler), 3)
+                .unwrap();
+            assert_eq!(slab.allocated_resource_count, 3);
+
+            // A third view has no slot left, and a refusal changes nothing.
+            assert!(slab
+                .try_allocate(&mut material([&c, &c, &c], &sampler), 3)
+                .is_err());
+            assert!(slab
+                .try_allocate(&mut material([&a, &c, &b], &sampler), 3)
+                .is_err());
+            assert_eq!(slab.allocated_resource_count, 3);
+            assert_eq!(slab.live_allocation_count, 2);
+
+            // Views the slab already holds need no slot, in any mix.
+            let mixed = slab
+                .try_allocate(&mut material([&a, &b, &a], &sampler), 3)
+                .unwrap();
+            assert_eq!(slab.allocated_resource_count, 3);
+            slab.free(mixed, &descriptor);
+            assert_eq!(slab.allocated_resource_count, 3);
+
+            // A freed material gives back what it took, and the slot is used again.
+            slab.free(first, &descriptor);
+            assert_eq!(slab.allocated_resource_count, 2);
+            let third = slab
+                .try_allocate(&mut material([&c, &c, &c], &sampler), 3)
+                .unwrap();
+            assert_eq!(slab.allocated_resource_count, 3);
+            slab.free(second, &descriptor);
+            slab.free(third, &descriptor);
+            assert_eq!(slab.allocated_resource_count, 0);
+            assert_eq!(slab.live_allocation_count, 0);
+        }
+
+        #[test]
+        fn the_count_does_not_rise_as_materials_come_and_go() {
+            let (device, _queue) = create_dummy_device();
+            let (descriptor, mut slab) = texture_slab();
+            let sampler = device.create_sampler(&SamplerDescriptor::default());
+            let kept = view(&device);
+            let keeper = slab
+                .try_allocate(&mut material([&kept, &kept, &kept], &sampler), 4)
+                .unwrap();
+            // Upstream's count rose by two with each of these and the slab was "full"
+            // after the first, with two of its four slots in use.
+            for _ in 0..64 {
+                let passing = view(&device);
+                let slot = slab
+                    .try_allocate(&mut material([&passing, &passing, &passing], &sampler), 4)
+                    .expect("a slab with free slots takes the material");
+                assert_eq!(slab.allocated_resource_count, 3);
+                slab.free(slot, &descriptor);
+                assert_eq!(slab.allocated_resource_count, 2);
+            }
+            slab.free(keeper, &descriptor);
+            assert_eq!(slab.allocated_resource_count, 0);
+        }
     }
 }

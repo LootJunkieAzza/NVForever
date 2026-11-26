@@ -202,7 +202,9 @@ in the engine: §7.
 3. **Occupied furniture**: one user per marker, per seat or per reference? Benches have
    one marker per seat; chairs three markers for one seat. Here: one user per reference
    unless every marker has ID 14 or 15 (benches, tables of stools), where it is one per
-   marker [design].
+   marker [design]. A bed in use is therefore never the player's to use, and the
+   crosshair on it targets its sleeper (simulation.md §5, crosshair activation; #3231)
+   [design].
 4. **GetSitting 1**, and whether the loop is chosen once or looked up again.
 5. **The blend keys** and how the game crosses from clip to loop.
 6. **Camera**: what the first-person view does while getting on. Here the view is the

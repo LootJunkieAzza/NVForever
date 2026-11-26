@@ -235,24 +235,37 @@ pub struct Drift {
     /// Where the target stood at the last measurement, and when (`Game::time`).
     pub from: [f32; 2],
     pub at: f64,
+    /// `speed` was measured at least once: until then it is only "standing, as far as is
+    /// known", and the first measurement is taken as it is ([`Drift::on`]).
+    pub measured: bool,
 }
 
 impl Drift {
     /// A target first seen at `at`: standing, as far as is known.
     pub fn begin(at: [f32; 3], now: f64) -> Self {
-        Self { speed: [0.0; 2], from: [at[0], at[1]], at: now }
+        Self { speed: [0.0; 2], from: [at[0], at[1]], at: now, measured: false }
     }
 
     /// Measured again with the target now at `at`: its speed since the last
     /// measurement, evened half and half with the one before; unchanged within
     /// [`DRIFT_SECONDS`] of the last (a way planned every frame measures nothing in
     /// one frame's step).
+    ///
+    /// The first measurement is taken as it is, not evened with the "standing" it began
+    /// with [design, #3256]: evened, a player walking backwards at 69 units/s first read
+    /// as 34.5, under [`CHASE_LEAD_MIN_SPEED`], so a chaser that had stood took its
+    /// target for standing, held at the end of a 20-unit run and set off again a quarter
+    /// of a second later: 47 to 78 stops and starts in 8 s for a feral ghoul, a gecko, a
+    /// cazador and a person with a lead pipe [observed: runs of main 069ef9bde on the
+    /// Searchlight Airport runway, 2026-11-21]. A running player (273, first read as
+    /// 136) passed the threshold either way, which is why only a walk showed it.
     pub fn on(self, at: [f32; 3], now: f64) -> Self {
         let dt = (now - self.at) as f32;
         if dt < DRIFT_SECONDS {
             return self;
         }
-        Self { speed: [0, 1].map(|i| ((at[i] - self.from[i]) / dt + self.speed[i]) * 0.5), from: [at[0], at[1]], at: now }
+        let share = if self.measured { 0.5 } else { 1.0 };
+        Self { speed: [0, 1].map(|i| (at[i] - self.from[i]) / dt * share + self.speed[i] * (1.0 - share)), from: [at[0], at[1]], at: now, measured: true }
     }
 }
 
@@ -477,7 +490,14 @@ impl Ai {
             // distance to set off again a few units later: it keeps on to where its
             // way ends, [`STOP_SHORT`] of the distance, and so keeps its target's pace
             // there [design, #2163].
-            let keeps_pace = matches!(a.search, Some(Search::Closing { target: t, drift, .. }) if t == target && drift.speed[0].hypot(drift.speed[1]) >= CHASE_LEAD_MIN_SPEED);
+            // Its target's speed as of now ([`Drift::on`]), not as of the last time the way
+            // was planned: after a short run from standing the speed had not been measured
+            // yet when the way ended, so the target counted as standing and the chaser held
+            // (#3256).
+            let keeps_pace = matches!(a.search, Some(Search::Closing { target: t, drift, .. }) if t == target && {
+                let d = drift.on(at, now);
+                d.speed[0].hypot(d.speed[1]) >= CHASE_LEAD_MIN_SPEED
+            });
             let close_in = (!sees && engage.is_some())
                 || engage.is_some_and(|(stop, resume)| away > if holding { resume } else if keeps_pace { stop * STOP_SHORT } else { stop });
             let stop = if sees { engage.map_or(0.0, |e| e.0) } else { away * BLIND_CLOSE_SHARE };

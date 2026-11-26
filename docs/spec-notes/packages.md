@@ -425,7 +425,18 @@ location, in cell (radius ignored), near reference; the radius is editable.
     something solid in the way, ends and the actor talks where the player stands
     (`fnv_ai::carry::LEAD_STUCK_SECONDS`) [our choice: the player is never held walking
     into a wall]. A trigger location that is a cell, or a reference with
-    neither radius nor box, keeps the plain case 2. Scripts count on it: Paladin Ramos's "Follow me" (INFO
+    neither radius nor box, keeps the plain case 2. Within `LEAD_AGAIN_SECONDS` (30 s) of a conversation
+    from its Dialogue package the same actor does not walk the player in again; it
+    talks where the player stands [our choice, #3464; observer check 280]. Harland in
+    the REPCONN basement (REPCONHarlandDialogPackage 0x00080773: wait location the
+    XMarker 0x0008F0C2 radius 0, trigger location the doorway trigger 0x00080775,
+    activate distance 1200, its end script sets the trigger's `HarlandTalked` to 2) has
+    a second trigger on the way out, REPCONHarlandResetTrigger 0x0008F725, 370 units past
+    the doorway: `OnTriggerEnter player` calls `HarlandREF.ResetAI` and sets
+    `HarlandTalked` to 0 [observed: `fnvtool script decompile --form 0x0008F6FE`]. The
+    package taken up afresh found the leaving player within 1200 units and outside the
+    doorway box, walked them back into it, greeted, and so on for every try: the player
+    could not leave. Scripts count on it: Paladin Ramos's "Follow me" (INFO
     000A3CE0, HVRamosEntryDialogPackage, activate distance 300) disables the controls
     and leaves the escort to the OnTrigger block of HVRamosTargetDialogTrigger, which
     moves Ramos and the player to HiddenValley02 and gives the controls back only
@@ -1600,3 +1611,34 @@ way]. Per actor [observed: `fnvtool ai show`, `nav path`, `nav graph`, `esm deco
 **Left open**: what closed Desmond's way at 10:11 in the pilot's run (rerun the chain
 and read the named door); whether the original's actors wait at a refusing door or set
 the package aside; the REPCONN ghouls (§11, observer check 204).
+
+### 11.2 Issue #2756's actors: goals off the navmesh and islands (2026-11-25)
+
+Players' reports of builds 0.7.0 and 0.8.0 named four more actors [observed: `fnvtool ai
+reach`, `ai show`, `ai run`, `nav near`, `nav path`, `esm decode`, FalloutNV.esm]:
+
+- **VFSJeanBaptisteCuttingREF**, `VFSJeanBaptisteStandInPlacePackage` (Travel, Must Reach
+  Location, the last of his list). Its marker `VFSJeanBaptisteMarkerREF` (0x0012411E) is
+  placed at exactly (0, 0, 0) in FreesideSilverRush; that cell's nearest navmesh triangle
+  is 3,007 units away. The goal is looked for in the marker's cell (the place of a
+  reference is its cell's space, `goal::place_of_ref`), not in Freeside where he stood
+  when the reports logged it; the line gave only the coordinates, which read as the
+  other. The log now names the space of a place with no navmesh near it ("… near the
+  goal (0, 0, 0) in FreesideSilverRush") [design]; smoke `ai-goal-off-navmesh-named`.
+  Nothing to walk to, so he stays where he is, as the package's name says [hypothesis].
+- **VHDPreBattleNCRTrooper3REF**, `VHDPreBattleExtGuardBarricade3`/`4` (Guard, radius 0).
+  Both markers stand at z 4825, 350 units above and 570 to 810 units across from the
+  nearest triangle (the barricade's top, off the navmesh); trooper 1's marker is on it.
+  The data's own.
+- **VRRCJerrythePunkREF**, `VRRCJerrySleep` (near his linked reference 0x00167FE2). The
+  marker's navmesh 0x00167FF2 is one triangle, every edge a boundary, 41 units from the
+  Red Rock navmesh 0x0014E72D: an island no edge or door joins.
+- **Boomer00FREF**, 0x00108061, 0x00108067, `NellisBoomerSideTowerGuard1/2/3AIPackage`
+  (Patrol at 14:00). `NellisSideTowerGuardMarkerREF` is on a tower's top (z 4685 to
+  4702, about 350 above the ground navmesh), a 26-triangle island with no door or link
+  down.
+
+Out of sight such an island gets them put there (§11, the no-door rule); in the loaded
+area they stay and say so. Whether the original's actors climb onto islands that the
+records do not join is the question of observer check 279 (#3473, the Sunset
+Sarsaparilla HQ's stairs); these follow its answer.

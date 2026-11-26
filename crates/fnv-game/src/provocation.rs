@@ -424,7 +424,7 @@ impl Game<'_> {
     /// (the victim is such a member and was not fighting someone else).
     pub fn evil_area_alert(&mut self, victim: FormId) -> bool {
         use crate::crime::faction_flags::{EVIL, TRACK_CRIME};
-        let flags = |g: &Game, f: FormId| g.data.faction_flags.get(&f).copied().unwrap_or(0);
+        let flags = |g: &Game, f: FormId| g.faction_flags(f);
         let evil: Vec<FormId> = factions_of(self, victim).into_iter().filter(|&f| flags(self, f) & EVIL != 0).collect();
         if evil.is_empty() || self.is_teammate(victim) {
             return false;
@@ -443,7 +443,7 @@ impl Game<'_> {
         for faction in evil {
             let mut alerted = 0;
             for (&m, &at) in &hearers {
-                if m == FormId::PLAYER_REF || m == victim || self.is_dead(m) || !self.present(m) || self.is_teammate(m) {
+                if m == FormId::PLAYER_REF || m == victim || self.is_dead(m) || !self.present(m) || self.is_teammate(m) || self.combat_disabled(m) {
                     continue;
                 }
                 let near = if indoors {
@@ -561,7 +561,7 @@ impl Game<'_> {
             }
             let watchers = watching.get(&victim).cloned().unwrap_or_default();
             for helper in watchers {
-                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) {
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.combat_disabled(helper) {
                     continue;
                 }
                 // The player's teammates take up its fights by their own rule
@@ -592,6 +592,13 @@ impl Game<'_> {
                 }
                 for &(attacker, at) in &foes {
                     if attacker == helper || self.provocations.holds(helper, attacker) {
+                        continue;
+                    }
+                    // Narrowed to the #3459 HELIOS One cross-faction creature bridge:
+                    // a creature fighting only under an assist grudge for another creature
+                    // does not pull a third-party watcher that is not a comrade of the
+                    // original creature into the fight [design, #3459].
+                    if victim != FormId::PLAYER_REF && self.cross_faction_creature_assist_relay(victim, attacker, helper) {
                         continue;
                     }
                     let would = match attacks.get(&(helper, attacker)) {
@@ -645,7 +652,7 @@ impl Game<'_> {
             .collect();
         let mut joined = 0;
         for (escort, charge) in escorts {
-            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) {
+            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) || self.combat_disabled(escort) {
                 continue;
             }
             // It must at least notice its charge [hypothesis: an escort keeps track of the
@@ -706,6 +713,33 @@ impl Game<'_> {
 }
 
 impl Game<'_> {
+    /// Whether `receiver` should stay out of a second-hop assist relay from `sender`
+    /// fighting `foe` [design, #3459]: narrowed to the HELIOS One cross-faction creature
+    /// bridge (`CrDogNCRAggressive` -> `CrDogNCRFollow` -> `HeliosExtLvlNCRTrooperGun`).
+    ///
+    /// Returns true only when `sender` fights `foe` (or the player, when `foe` is the
+    /// player's teammate) solely under `Why::Assist { victim: orig }` (`orig != PLAYER_REF`,
+    /// not `Assault` or `StartCombat`), both `sender` and `orig` are creatures (`CREA`),
+    /// and `receiver` is not a comrade of `orig`. Normal NPC assist relays, same-pack
+    /// creature relays, one-hop direct assists, and direct assaults on `sender` are
+    /// unaffected.
+    pub(crate) fn cross_faction_creature_assist_relay(&self, sender: FormId, foe: FormId, receiver: FormId) -> bool {
+        let key = if self.is_teammate(foe) && !self.provocations.holds(sender, foe) { FormId::PLAYER_REF } else { foe };
+        if self.awareness.forced.contains(&(sender, key)) {
+            return false;
+        }
+        let Some(Why::Assist { victim: orig }) = self.provocations.grudges.get(&(sender, key)).map(|g| g.why) else {
+            return false;
+        };
+        if orig == FormId::PLAYER_REF {
+            return false;
+        }
+        if crate::nvse_nx::is_creature(self, sender) != Some(true) || crate::nvse_nx::is_creature(self, orig) != Some(true) {
+            return false;
+        }
+        !self.comrades(receiver, orig)
+    }
+
     /// Actors that detect an attacker which would attack them too join the fight against
     /// it (module notes, "A danger to itself"). Returns how many joined.
     fn join_against_dangers(&mut self) -> usize {
@@ -735,10 +769,15 @@ impl Game<'_> {
                 if victim != FormId::PLAYER_REF && helper != victim {
                     continue;
                 }
-                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat {
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat || self.combat_disabled(helper) {
                     continue;
                 }
                 if self.provocations.holds(helper, attacker) || self.would_attack(helper, attacker) || !self.would_attack(attacker, helper) {
+                    continue;
+                }
+                // A Very Aggressive attacker whose aggro radius leaves `helper` (a Neutral
+                // bystander) out of reach is not attacking `helper` [design, #3459].
+                if crate::awareness::position(self, helper).is_some_and(|helper_at| self.neutral_out_of_reach(attacker, helper, helper_at)) {
                     continue;
                 }
                 if matches!(self.reaction_to(helper, attacker), ALLY | FRIEND) || self.stays_out(helper, attacker) || self.package_has(helper, crate::package::flags::DEFENSIVE_COMBAT) {
@@ -762,9 +801,25 @@ impl Game<'_> {
 
 /// `actor.GetFriendHit target`: the friendly hits `target` made on the actor that still
 /// count [documented: GECK wiki GetFriendHit, Friendly Fire].
+///
+/// In a parameterless CTDA condition (function index 288, empty CTDA parameter list in
+/// `FalloutNV.esm`, e.g. dialogue INFOs with `GetFriendHit > 0`), the implicit attacker
+/// is the condition's target (`Game::condition_target`, or `0` when absent) [hypothesis:
+/// `eval_conditions` supplies the conversation/interaction target in `condition_target`,
+/// matching `Exists` in `functions::fighting`; native behavior when `target` is absent
+/// or differs from the player is unobserved]. Ordinary script calls still require an
+/// explicit actor argument (`a.form(0)?`).
 pub fn get_friend_hit(g: &mut Game, ctx: &crate::functions::Ctx, a: &crate::functions::Args) -> Result<fnv_script::vm::Value, String> {
     let r = ctx.subject()?;
-    Ok(fnv_script::vm::Value::Num(g.friend_hits(r, a.form(0)?) as f64))
+    let by = if ctx.in_condition && a.0.is_empty() {
+        let Some(target) = g.condition_target else {
+            return Ok(fnv_script::vm::Value::ZERO);
+        };
+        target
+    } else {
+        a.form(0)?
+    };
+    Ok(fnv_script::vm::Value::Num(g.friend_hits(r, by) as f64))
 }
 
 /// `actor.GetAttacked`: 1 once someone attacked the actor, cleared when it drops out of

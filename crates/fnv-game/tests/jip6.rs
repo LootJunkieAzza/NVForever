@@ -23,6 +23,8 @@ const MESG: u32 = 0x906;
 const MESG2: u32 = 0x907;
 const MESSAGES: u32 = 0x908;
 const PLAIN: u32 = 0x909;
+const ROOM: u32 = 0x910;
+const ACTI_REF: u32 = 0x911;
 
 fn edid(sig: &[u8; 4], fid: u32, name: &str, rest: &[fnv_esm::raw::Subrecord]) -> Vec<u8> {
     record(sig, 0, fid, &[vec![sub(b"EDID", z(name))], rest.to_vec()].concat())
@@ -80,7 +82,10 @@ fn plugin_bytes() -> Vec<u8> {
         edid(b"MESG", MESG2, "TestBoxMessage", &[sub(b"DESC", z("A box")), sub(b"DNAM", u32s(&[1]))]),
     ]
     .concat();
-    [tes4(), top(b"NPC_", &npc), top(b"ACTI", &acti), top(b"EXPL", &expl), top(b"CREA", &crea), top(b"FLST", &flst), top(b"MESG", &mesg)].concat()
+    let refr = edid(b"REFR", ACTI_REF, "TestBoxRef", &[sub(b"NAME", ACTI.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let cell = [edid(b"CELL", ROOM, "TestRoom", &[sub(b"DATA", vec![1])]), group(ROOM.to_le_bytes(), 6, &group(ROOM.to_le_bytes(), 9, &refr))].concat();
+    let cells = top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell)));
+    [tes4(), top(b"NPC_", &npc), top(b"ACTI", &acti), top(b"EXPL", &expl), top(b"CREA", &crea), top(b"FLST", &flst), top(b"MESG", &mesg), cells].concat()
 }
 
 struct Fixture {
@@ -265,6 +270,80 @@ fn message_flags_time_and_disabling() {
     assert!(!g.crafting_messages_shown());
     q(&mut g, "ToggleCraftingMessages 1");
     assert!(g.crafting_messages_shown());
+}
+
+/// Session `SetDestructionDataHealth` must update `Game::destruction` (resolving placed
+/// references to their base), ignore non-destructible forms and non-finite inputs, reach
+/// live `damage_object` thresholds, reset on fresh-run restore, and survive same-run
+/// `Game::put_session` alongside other destruction edits (#2272).
+#[test]
+fn destruction_health_reaches_damage_and_survives_same_run_session() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // 1. Baseline base & reference resolution + non-destructible / non-finite guards.
+    assert_eq!(n(&mut g, "GetDestructionDataHealth TestBox"), 100.0);
+    assert_eq!(n(&mut g, "GetDestructionDataHealth TestBoxRef"), 100.0);
+    assert_eq!(n(&mut g, "GetDestructionDataNumStages TestBoxRef"), 2.0);
+    assert_eq!(n(&mut g, "GetDestructionDataHealth TestPlain"), 0.0);
+    q(&mut g, "SetDestructionDataHealth TestPlain 75");
+    assert_eq!(n(&mut g, "GetDestructionDataHealth TestPlain"), 0.0, "form without destruction data stays 0");
+    for bad in ["(Pow 10 400)", "((Pow 10 400) - (Pow 10 400))"] {
+        q(&mut g, &format!("SetDestructionDataHealth TestBox {bad}"));
+        assert_eq!(n(&mut g, "GetDestructionDataHealth TestBox"), 100.0, "{bad} must not overwrite health");
+    }
+
+    // 2. SetDestructionDataHealth on a placed reference updates its base and reaches damage_object.
+    assert_eq!(n(&mut g, "SetDestructionDataHealth TestBoxRef 200"), 0.0);
+    assert_eq!(n(&mut g, "GetDestructionDataHealth TestBox"), 200.0);
+    assert_eq!(n(&mut g, "GetDestructionDataHealth TestBoxRef"), 200.0);
+    assert_eq!(g.destruction(FormId(ACTI)).unwrap().health, 200);
+
+    // Hit 1: 60 damage out of 200 (70% remaining > 50% cap-damage stage 0) must NOT cap at 50.
+    let _hit1 = g.damage_object(FormId(ACTI_REF), 60.0).unwrap();
+    assert_eq!(g.extra.get(&FormId(ACTI_REF)).and_then(|e| e.damage), Some(60.0));
+    assert!(!g.extra.get(&FormId(ACTI_REF)).is_some_and(|e| e.destroyed));
+
+    // Hit 2: another 60 reaches 120/200 -> stage 0 (50% = 100 damage) caps damage at 100 and does NOT destroy
+    // (under the old authored health 100, two 60-damage hits would reach 100/100 and destroy the box).
+    let _hit2 = g.damage_object(FormId(ACTI_REF), 60.0).unwrap();
+    assert_eq!(g.extra.get(&FormId(ACTI_REF)).and_then(|e| e.damage), Some(100.0));
+    assert!(!g.extra.get(&FormId(ACTI_REF)).is_some_and(|e| e.destroyed));
+    assert_eq!(g.destruction_model(FormId(ACTI_REF)), None);
+
+    // Hit 3: 100 more reaches 200/200 -> stage 1 (0%) destroys the box and swaps to hulk model.
+    let hit3 = g.damage_object(FormId(ACTI_REF), 100.0).unwrap();
+    assert_eq!(g.extra.get(&FormId(ACTI_REF)).and_then(|e| e.damage), Some(200.0));
+    assert!(hit3.destroyed);
+    assert!(g.extra.get(&FormId(ACTI_REF)).is_some_and(|e| e.destroyed));
+    assert_eq!(g.destruction_model(FormId(ACTI_REF)), Some("clutter\\boxhulk.nif"));
+
+    // 3. Adding destruction data to TestPlain lets SetDestructionDataHealth set its health.
+    assert_eq!(n(&mut g, "AddDestructionStage TestPlain 0 50 1"), 0.0);
+    q(&mut g, "SetDestructionDataHealth TestPlain 80\nSetDestructionDataTargetable TestBox 0");
+    assert_eq!(n(&mut g, "GetDestructionDataHealth TestPlain"), 80.0);
+    assert_eq!(n(&mut g, "GetDestructionDataTargetable TestBox"), 0.0);
+
+    // 4a. Fresh-run restore (without Session transfer) resets session destruction edits to authored DEST.
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.checked_snapshot().unwrap()).unwrap()).unwrap();
+    let fresh_world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    let mut fresh = Game::restore(&f.data, fresh_world, GameConfig::default(), &snap).unwrap();
+    assert_eq!(n(&mut fresh, "GetDestructionDataHealth TestBox"), 100.0);
+    assert_eq!(n(&mut fresh, "GetDestructionDataTargetable TestBox"), 1.0);
+    assert_eq!(n(&mut fresh, "GetDestructionDataHealth TestPlain"), 0.0);
+    assert_eq!(n(&mut fresh, "GetDestructionDataNumStages TestPlain"), 0.0);
+
+    // 4b. Same-run restore with put_session preserves SetDestructionDataHealth and other destruction edits.
+    let session = g.take_session();
+    let world_session = g.world.take_session();
+    let mut same_world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    same_world.put_session(world_session);
+    let mut same_run = Game::restore(&f.data, same_world, GameConfig::default(), &snap).unwrap();
+    same_run.put_session(session);
+    assert_eq!(n(&mut same_run, "GetDestructionDataHealth TestBox"), 200.0);
+    assert_eq!(n(&mut same_run, "GetDestructionDataTargetable TestBox"), 0.0);
+    assert_eq!(n(&mut same_run, "GetDestructionDataHealth TestPlain"), 80.0);
+    assert_eq!(n(&mut same_run, "GetDestructionDataNumStages TestPlain"), 1.0);
 }
 
 

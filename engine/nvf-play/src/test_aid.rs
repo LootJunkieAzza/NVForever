@@ -21,6 +21,11 @@
 //!
 //! - `NVF_PLAY_TEST_SHOT_FLATNESS=1`: each of those shots also logs how much of the view is
 //!   one colour ([`one_colour_percent`]), for a scenario to check without reading the file.
+//! - `NVF_PLAY_TEST_SHOT_DIFF=1`: each of those shots also logs how far it is from the one before
+//!   and from the one before that ([`picture_difference`]), with the tolerance that gives another
+//!   pair as far apart in time ([`difference_tolerance`]), for a scenario that switches something
+//!   between shots of one still view. Only in tests, debug builds and builds with the `dev-aids`
+//!   feature (nvforever dev_aids.rs).
 //! - `NVF_PLAY_TEST_SHOTS=<seconds>[:<path.png>][,...]`: save a screenshot at each time,
 //!   to the path given, else as `play-<seconds>s.png` in `NVF_PLAY_TEST_SHOT_DIR`
 //!   (default: the current folder).
@@ -103,13 +108,38 @@
 //!   placed reference with a dynamic body for that long after its cell loads — offsets,
 //!   turns, speeds and the overlaps found after the first step (physics.md §4.3.1).
 //!
+//! - `NVF_PLAY_TEST_PBR_MOUNT_PACK=1` (nvf-assets pbr_field/reflect.rs) and
+//!   `NVF_PLAY_TEST_PBR_GROUND_PACK=1` (nvf-assets pbr_field/ground.rs, with nvforever
+//!   terrain.rs `ground_pack_diffuses`): generated authored sets written into a fresh folder
+//!   of the run under an explicit `NVFOREVER_HOME` and mounted over every other loose layer
+//!   for that run only; the ground pack gives every landscape texture the load order names a
+//!   height-only set (a ridged `_p` from a formula, depth 0.08) for the terrain parallax
+//!   (#3322), and with `=alpha` a diffuse too: one flat colour a texture, a checkerboard in
+//!   the alpha (#3789); `=alpha-height`: no sets, and a diffuse with the height map in its
+//!   alpha (#3486).
+//! - `NVF_PLAY_TEST_TERRAIN_PARALLAX_AB=<seconds>[:hold][:grazing|head-on][,...]` (nvforever
+//!   terrain_parallax_ab.rs): three screenshots at each time, the Terrain parallax switch
+//!   off, on, off (or left alone with `hold`), optionally from its own pose on a spot of
+//!   ground the march moves, and log lines for what lies under the view's centre and how the
+//!   ground's texture there moved between them (`moved`, `still`, `bare`, ...).
+//! - `NVF_PLAY_TEST_PICK_LOG=1` (activate.rs): each new crosshair target is logged with
+//!   what it was picked from: the raw first collision hit, every render box the view ray
+//!   enters (entry and exit distances, rough, bed) and the boxes set aside (#3323).
+//!
+//! - `NVF_PLAY_TEST_POSE_WATCH=[<seconds>:]<text>[,<text>...]` (nvforever's
+//!   `swimming.rs`): from that time on, a line whenever what a watched actor plays
+//!   changes (its name contains a text, any case): its base layer's and fading layer's
+//!   clips and weights, its set, its idle layers, whether it has a character and whether
+//!   that swims and rests on the bed (#2980). It only measures.
+//!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
 //! view (as with `--auto-walk`). Not the aids that only measure ([`MEASURING_AIDS`]:
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
 //! `NVF_PLAY_TEST_PROFILE_HITCH_MS`, `NVF_PLAY_TEST_PROFILE_HITCH_SPANS`,
 //! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
-//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`): with them alone the run is played by
+//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`, `NVF_PLAY_TEST_GAME_DIGEST`,
+//! `NVF_PLAY_TEST_POSE_WATCH`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
@@ -129,6 +159,8 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot, ScreenshotCaptured};
 use fnv_sim::FormId;
 use std::path::{Path, PathBuf};
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+use std::sync::Mutex;
 
 pub mod melee_knockback;
 pub(crate) mod activation_sweep;
@@ -458,7 +490,7 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 /// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
 /// at the name alone, so any value counts, and a load's new run drops it like any driving
 /// aid (`profile-slow-frames`).
-pub const MEASURING_AIDS: [&str; 9] = [
+pub const MEASURING_AIDS: [&str; 11] = [
     "NVF_PLAY_TEST_SAMPLE",
     "NVF_PLAY_TEST_PROFILE",
     "NVF_PLAY_TEST_PROFILE_COUNTS",
@@ -469,6 +501,10 @@ pub const MEASURING_AIDS: [&str; 9] = [
     "NVF_PLAY_TEST_HITVOL_COMPARE",
     // The mod log is for a mod list played by hand (`crate::mod_log`).
     crate::mod_log::ENV,
+    // Logs digests of the game's state at given times (nvforever game_digest.rs).
+    "NVF_PLAY_TEST_GAME_DIGEST",
+    // Logs what watched actors play (nvforever swimming.rs pose watch, #2980).
+    "NVF_PLAY_TEST_POSE_WATCH",
 ];
 
 /// Whether this environment variable is a test aid that drives the run (any
@@ -619,6 +655,7 @@ fn keys_and_controls(
         aids.held = Some(m);
     }
     if let Some(m) = aids.held {
+        intent.analog_scale = m.analog_scale;
         (intent.forward, intent.right, intent.walk) = (m.forward, m.right, m.walk);
     }
     let presses = take_due(&mut aids.presses, now);
@@ -760,6 +797,26 @@ fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands:
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let mut shot = commands.spawn(Screenshot::primary_window());
         shot.observe(save_to_disk(path));
+        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+        if std::env::var_os("NVF_PLAY_TEST_SHOT_DIFF").is_some() {
+            let name = name.clone();
+            shot.observe(move |ev: On<ScreenshotCaptured>| {
+                let size = ev.image.texture_descriptor.size;
+                let Some(data) = ev.image.data.as_deref() else { return };
+                let shot: Shot = ((size.width, size.height), data.to_vec());
+                let mut last = LAST_SHOTS.lock().expect("the last shots");
+                for ((was, pixels), which) in last.iter().rev().zip(["the shot before", "two shots before"]) {
+                    if *was == shot.0 {
+                        let (levels, changed) = picture_difference(pixels, data, was.0 as usize, was.1 as usize);
+                        info!("test aid: {name}: {levels:.2} levels of 255 from {which} (tolerance {:.2}), {changed:.1} % of the view changed", difference_tolerance(levels));
+                    }
+                }
+                if last.len() == 2 {
+                    last.remove(0);
+                }
+                last.push(shot);
+            });
+        }
         if std::env::var_os("NVF_PLAY_TEST_SHOT_FLATNESS").is_some() {
             shot.observe(move |ev: On<ScreenshotCaptured>| {
                 let size = ev.image.texture_descriptor.size;
@@ -769,6 +826,40 @@ fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands:
             });
         }
     }
+}
+
+/// A shot's size and pixels.
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+type Shot = ((u32, u32), Vec<u8>);
+
+/// The last two shots, the older first (`NVF_PLAY_TEST_SHOT_DIFF`; pictures of the window, kept
+/// while the aid is on).
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+static LAST_SHOTS: Mutex<Vec<Shot>> = Mutex::new(Vec::new());
+
+/// How far a picture may be from one it should equal, where two of the same kind as far apart in
+/// time differ by `levels` [engineering choice: half as much again, and a tenth of a level for a
+/// view that stood still].
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+fn difference_tolerance(levels: f64) -> f64 {
+    1.5 * levels + 0.1
+}
+
+/// Test aid `NVF_PLAY_TEST_SHOT_DIFF`: the mean absolute difference of two pictures of one size
+/// over the view, its lower fifth left out (the HUD), in levels of 255 over the three colour
+/// channels, and the share of its pixels (percent) with a channel that moved by 4 levels or more.
+/// Four bytes a pixel, row by row.
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+fn picture_difference(a: &[u8], b: &[u8], width: usize, height: usize) -> (f64, f64) {
+    let (mut sum, mut changed, mut seen) = (0u64, 0u64, 0u64);
+    for (p, q) in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0).take(width * (height * 4 / 5)) {
+        let d = [0, 1, 2].map(|i| p[i].abs_diff(q[i]));
+        sum += d.iter().map(|&d| u64::from(d)).sum::<u64>();
+        changed += u64::from(d.iter().any(|&d| d >= 4));
+        seen += 1;
+    }
+    let seen = seen.max(1) as f64;
+    (sum as f64 / (3.0 * seen), 100.0 * changed as f64 / seen)
 }
 
 /// Test aid `NVF_PLAY_TEST_SHOT_FLATNESS`: the share of the view, its lower fifth left out

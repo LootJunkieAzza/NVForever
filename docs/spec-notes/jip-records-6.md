@@ -18,6 +18,8 @@ data reads 0, none or "".
 
 | Function | NVForever |
 |---|---|
+| Get/SetDestructionDataHealth `object [health]` | DEST's `health` (`i32`); `SetDestructionDataHealth` returns 0 [observed: gaps8, 75 reads back], ignores forms without destruction data [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_13_dest_health_no_dest_form (GetDestructionDataHealth/SetDestructionDataHealth): 0,0,0; no DLL or source consulted], ignores NaN/infinity [hypothesis], and updates `Game::destruction` (`Jip6State::destruction`) |
+| GetDestructionDataNumStages `object` | count of DSTD stages on `Game::destruction` (reference resolves to its base) [documented: GetDestructionDataNumStages; observed: gaps3] |
 | Get/SetDestructionDataTargetable `object [0/1]` | DEST's flag VATS Targetable |
 | GetNthDestructionStageDebris / Explosion `object index` | DSTD's debris and explosion |
 | GetNthDestructionStageReplacement `object index` | the stage's DMDL path, "" without one |
@@ -27,7 +29,7 @@ data reads 0, none or "".
 | AddDestructionStage `object index healthPercent damageStage` | a new stage at the index: the stage's index; an index past the end adds nothing and gives -1; a form without destruction data gets it (not VATS targetable) with the one stage [observed: jip6 dest.add.*, jip6b dest.add.*; the page's "new stage count" is not what the game returns] |
 | RemoveDestructionStage `object index` | the removed stage's index, -1 when nothing was removed [observed: jip6 dest.remove.*] |
 
-After an add or a remove, each stage's DSTD index is its place in the list [hypothesis].
+After an add or a remove, each stage's DSTD index is its place in the list [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_14_dest_stage_add_reindex (AddDestructionStage/RemoveDestructionStage/GetDestructionDataNumStages/GetNthDestructionStageTrait): 4,0,77,0; no DLL or source consulted].
 NaN and infinity are not set, and AddDestructionStage with a NaN or infinite index adds
 nothing and gives -1 [hypothesis]. A health percentage takes any whole number: it wraps as an
 unsigned 32-bit value and is kept modulo 101 (150 reads 49, 1000 reads 91, -1 reads 67)
@@ -47,8 +49,11 @@ The setters return 0, except SetNthDestructionStageReplacement, which returns 1 
 jip6 dest.setrepl, jip6b dest.setexpl.result, dest.settarget.result].
 
 The game reads the changed data too (`Game::destruction`: object damage, the stages'
-models and explosions, VATS targeting, GetDestructionStage). The page says the changes
-reach only references made after the call [documented: AddDestructionStage, "no effect on
+models and explosions, VATS targeting, GetDestructionStage). Session destruction edits
+(`Jip6State::destruction`) are carried across same-run loads via `Game::take_session` /
+`put_session` and are not saved in `GameSnapshot` [documented: AddDestructionStage, "the
+changes will not be saved with the game"; hypothesis: carried across same-run loads]. The
+page says the changes reach only references made after the call [documented: AddDestructionStage, "no effect on
 existing references"]; NVForever reads a base's data each time a reference is damaged, so
 existing references take them too [decision: one store per base, nothing kept per
 reference].

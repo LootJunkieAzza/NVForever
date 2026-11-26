@@ -289,8 +289,11 @@ pub mod reason {
     /// Drawn under a billboard holder that turns to the camera (#2549, nvf-assets
     /// model.rs `BakedBillboards`); last, so earlier precedence is unchanged.
     pub const BILLBOARD: u32 = 1 << 26;
+    /// Reflects a window environment map (#2462, nvf-assets `NifSurface::env`): the blend
+    /// type has no environment bindings (its table has the landscape palette at 54 on).
+    pub const ENVIRONMENT_MAP: u32 = 1 << 27;
     /// Bits and the names the logs use (`excluded-<name>=`).
-    pub const NAMES: [(u32, &str); 27] = [
+    pub const NAMES: [(u32, &str); 28] = [
         (WORLD, "world"), (RIG, "rig"), (PARTICLES, "particles"), (POSED, "posed"),
         (DAMAGE_STAGES, "damage-stages"), (DEST, "dest"), (DISTANT, "distant"),
         (EMITTANCE, "emittance"), (MORPH, "morph"), (MISSING_SOURCE, "missing-source"),
@@ -300,6 +303,7 @@ pub mod reason {
         (FALLOFF, "falloff"), (HOLES_VALUE, "holes-value"), (HOLES_TEXTURE, "holes-texture"),
         (FACEGEN, "facegen"), (PIPBOY, "pipboy"), (ADD_LINEAR, "add-linear"), (SOFT, "soft"),
         (DEPTH_BIAS, "depth-bias-nonfinite"), (BILLBOARD, "billboard"),
+        (ENVIRONMENT_MAP, "environment-map"),
     ];
     /// The first reason in precedence order, `none` for an empty mask.
     pub fn first(mask: u32) -> &'static str {
@@ -397,6 +401,7 @@ pub fn material_reasons(m: &NifMaterial) -> u32 {
         (s.holes != nvf_assets::nif_material::NO_HOLES, HOLES_VALUE), (s.holes_texture.is_some(), HOLES_TEXTURE),
         (s.facegen_offset.is_some(), FACEGEN), (s.pipboy_screen, PIPBOY), (s.add_linear, ADD_LINEAR),
         (s.soft != Vec4::ZERO, SOFT), (!b.depth_bias.is_finite(), DEPTH_BIAS),
+        (s.env.x > 0.0 || s.env_cube.is_some(), ENVIRONMENT_MAP),
     ])
 }
 
@@ -603,9 +608,9 @@ const PASS_REASONS: [&str; 6] = ["first", "config", "publication", "pending", "s
 /// on a convertible shape or (another handle) on a census-only one, a temporary marker
 /// added, then each removal kind (the ordinary and marker removals on a shape still
 /// tracked). Several can fire in one frame.
-const SHAPE_SIGNALS: [&str; 11] = [
+const SHAPE_SIGNALS: [&str; 10] = [
     "blend-shape", "census", "ordinary-convertible", "ordinary-census-only", "marker-added",
-    "removed-blend-shape", "removed-census", "removed-ordinary", "removed-fading", "removed-faded", "removed-override",
+    "removed-blend-shape", "removed-census", "removed-ordinary", "removed-fading", "removed-override",
 ];
 /// At most this many `verify shape-trigger` lines per signal per run of the blend (only
 /// the five signals with a shape to name log one: at most 10 lines).
@@ -880,8 +885,8 @@ fn enabled_material(source: &NifMaterial, c: BlendConfig, surface: &crate::terra
     }
 }
 
-/// Temporary material owners (fades, actor alpha, overrides), whose copies never blend.
-type Temporary = (Has<nvf_play::fade::Fading>, Has<crate::effect_shaders::Faded>, Has<MaterialOverride>);
+/// Temporary material owners (fades/actor alpha under `Fading`, overrides), whose copies never blend.
+type Temporary = (Has<nvf_play::fade::Fading>, Has<MaterialOverride>);
 /// The see-through shadow markers (nif_material.rs `see_through_casts_no_shadow`).
 type ShadowMarks = (Has<NotShadowCaster>, Has<SeeThroughNoShadow>);
 /// Every shape the blend tracks: convertible ones ([`BlendShape`]) and census-only ones.
@@ -898,7 +903,7 @@ type Tracked<'w, 's> = Query<'w, 's, (Entity, Option<&'static mut BlendShape>, O
 /// (see [`pass_needed`]).
 type ShapeChanges<'w, 's> = Query<'w, 's, (), (Or<(With<BlendShape>, With<BlendCensus>)>, Or<(
     Changed<BlendShape>, Changed<BlendCensus>, (Changed<MeshMaterial3d<NifMaterial>>, With<BlendShape>),
-    Added<nvf_play::fade::Fading>, Added<crate::effect_shaders::Faded>, Added<MaterialOverride>,
+    Added<nvf_play::fade::Fading>, Added<MaterialOverride>,
 )>)>;
 
 /// [design] Census-only shapes (no `BlendShape`) whose ordinary material component was put
@@ -912,7 +917,7 @@ type CensusDrawn<'w, 's> = Query<'w, 's, (Entity, &'static MeshMaterial3d<NifMat
 /// The verify aid only: each tracked shape's signals ([`count_shape_signals`]).
 type Signals<'w, 's> = Query<'w, 's, (
     Entity, Option<Ref<'static, BlendShape>>, Option<Ref<'static, BlendCensus>>, Option<Ref<'static, MeshMaterial3d<NifMaterial>>>,
-    Option<Ref<'static, nvf_play::fade::Fading>>, Option<Ref<'static, crate::effect_shaders::Faded>>, Option<Ref<'static, MaterialOverride>>,
+    Option<Ref<'static, nvf_play::fade::Fading>>, Option<Ref<'static, MaterialOverride>>,
 ), Or<(With<BlendShape>, With<BlendCensus>)>>;
 
 /// The conversion's shape queries; one at a time.
@@ -926,7 +931,6 @@ struct Removals<'w, 's> {
     census: RemovedComponents<'w, 's, BlendCensus>,
     ordinary: RemovedComponents<'w, 's, MeshMaterial3d<NifMaterial>>,
     fading: RemovedComponents<'w, 's, nvf_play::fade::Fading>,
-    faded: RemovedComponents<'w, 's, crate::effect_shaders::Faded>,
     overridden: RemovedComponents<'w, 's, MaterialOverride>,
 }
 
@@ -940,6 +944,9 @@ struct Conversion<'w, 's> {
     blends: ResMut<'w, Assets<NifBlendMaterial>>,
     shapes: ShapeQueries<'w, 's>,
     removals: Removals<'w, 's>,
+    /// Above 60 fps a frame gets the same share of [`CLONE_WORK_PER_FRAME`]
+    /// (stream_pace.rs); `None` in tests that build no pace.
+    pace: Option<Res<'w, crate::stream_pace::StreamPace>>,
 }
 
 fn apply_variants(state: Res<BlendState>, mut conversion: Conversion) {
@@ -958,16 +965,15 @@ fn shape_mask(recorded: u32, temporary: bool, source: Option<&NifMaterial>) -> u
 /// [design] Whether any tracked shape's inputs changed since the conversion last ran
 /// ([`ShapeChanges`], [`CensusDrawn`], [`Removals`]), and which removal kinds fired (for
 /// the verify aid's counts). Every removal reader is drained each run.
-fn shapes_changed(shapes: &mut ShapeQueries, removals: &mut Removals, variants: &Variants) -> (bool, [bool; 6]) {
-    let mut removed = [!removals.shape.is_empty(), !removals.census.is_empty(), false, false, false, false];
+fn shapes_changed(shapes: &mut ShapeQueries, removals: &mut Removals, variants: &Variants) -> (bool, [bool; 5]) {
+    let mut removed = [!removals.shape.is_empty(), !removals.census.is_empty(), false, false, false];
     removals.shape.clear();
     removals.census.clear();
     {
         let tracked = shapes.p0();
         removed[2] = removals.ordinary.read().fold(false, |hit, e| hit | tracked.contains(e));
         removed[3] = removals.fading.read().fold(false, |hit, e| hit | tracked.contains(e));
-        removed[4] = removals.faded.read().fold(false, |hit, e| hit | tracked.contains(e));
-        removed[5] = removals.overridden.read().fold(false, |hit, e| hit | tracked.contains(e));
+        removed[4] = removals.overridden.read().fold(false, |hit, e| hit | tracked.contains(e));
     }
     let changed = removed.contains(&true) || !shapes.p1().is_empty()
         || shapes.p2().iter().any(|(e, drawn)| variants.census_drawn.get(&e) != Some(&drawn.0.id()));
@@ -977,17 +983,17 @@ fn shapes_changed(shapes: &mut ShapeQueries, removals: &mut Removals, variants: 
 /// The verify aid only, in a frame whose pass ran for `shapes`: which shape signals fired
 /// ([`SHAPE_SIGNALS`]), counted once each, and up to [`TRIGGER_LINES`] lines per signal naming a
 /// shape that fired one (its model, shape index and recorded reasons).
-fn count_shape_signals(shapes: &mut ShapeQueries, variants: &mut Variants, removed: [bool; 6]) {
+fn count_shape_signals(shapes: &mut ShapeQueries, variants: &mut Variants, removed: [bool; 5]) {
     let mut fired = [false; SHAPE_SIGNALS.len()];
     fired[5..].copy_from_slice(&removed);
-    for (e, shape, census, ordinary, fading, faded, overridden) in shapes.p3().iter() {
+    for (e, shape, census, ordinary, fading, overridden) in shapes.p3().iter() {
         let ordinary_changed = ordinary.as_ref().is_some_and(|o| o.is_changed());
         let hits = [
             shape.as_ref().is_some_and(|s| s.is_changed()),
             census.as_ref().is_some_and(|c| c.is_changed()),
             ordinary_changed && shape.is_some(),
             ordinary_changed && shape.is_none() && ordinary.as_ref().is_some_and(|o| variants.census_drawn.get(&e) != Some(&o.0.id())),
-            fading.is_some_and(|m| m.is_added()) || faded.is_some_and(|m| m.is_added()) || overridden.is_some_and(|m| m.is_added()),
+            fading.is_some_and(|m| m.is_added()) || overridden.is_some_and(|m| m.is_added()),
         ];
         for (i, hit) in hits.iter().enumerate() {
             if !hit { continue; }
@@ -1071,15 +1077,17 @@ struct Outcome { pending: bool, census: Census, commands: usize, created: usize,
 // quiet frame follows the coverage, stores `settled` again and refreshes a deferred ready
 // line from the last pass's census.
 fn apply_configured_variants(p: &mut Conversion, c: BlendConfig) {
-    let Conversion { commands, cache, variants, materials, blends, shapes, removals } = p;
+    let Conversion { commands, cache, variants, materials, blends, shapes, removals, pace } = p;
     let variants: &mut Variants = variants;
     let published = cache.published.as_ref().map(publication_key);
     let revision = published.map_or(0, |k| k.0);
-    let restricted = follow_coverage(cache, variants, blends, CLONE_WORK_PER_FRAME);
-    let create_budget = CLONE_WORK_PER_FRAME.saturating_sub(restricted);
+    let clone_work = pace.as_deref().map_or(CLONE_WORK_PER_FRAME, |p| p.count(CLONE_WORK_PER_FRAME));
+    let _spending = pace.as_deref().map(|p| p.spending());
+    let restricted = follow_coverage(cache, variants, blends, clone_work);
+    let create_budget = clone_work.saturating_sub(restricted);
     // A follow that used its whole budget may have left clones for the next frame: not a
     // divergence, so the verify aid checks only after a follow that finished.
-    if variants.verify.on && restricted < CLONE_WORK_PER_FRAME {
+    if variants.verify.on && restricted < clone_work {
         // The verify aid: the per-clone check of every recorded publication, as before.
         let restricted: usize = variants.publications.iter().map(|(id, publication)| restrict_clone(cache, blends, *id, publication)).sum();
         if restricted > 0 { variants.verify.diverged(&format!("coverage-clones={restricted}")); }
@@ -1190,8 +1198,8 @@ fn full_pass(
         }
     }
     variants.ordinary_seen.retain(|e, _| ordinary_live.contains(e));
-    for (entity, shape, tracked, drawn, (fading, faded, overridden), (no_shadow, see_through_mark)) in shapes.iter_mut() {
-        let temporary = fading || faded || overridden;
+    for (entity, shape, tracked, drawn, (fading, overridden), (no_shadow, see_through_mark)) in shapes.iter_mut() {
+        let temporary = fading || overridden;
         let recorded = tracked.map_or(0, |t| t.reasons);
         let Some(mut shape) = shape else {
             // Census only: never converted.
@@ -1610,7 +1618,7 @@ mod tests {
         let prefix = "mesh terrain blend: ready eligible-shapes=12 resident-cells=9 generation=3 variant=status shape=height resolution=512 shading=albedo";
         assert!(line.starts_with(&format!("{prefix} weight-version=1 stat-shapes=2 excluded-shapes=2 pending-material-shapes=1 excluded-world=0 excluded-rig=1 excluded-particles=1 excluded-posed=0")), "{line}");
         assert!(line.contains(" excluded-missing-source=1 excluded-temporary=0 excluded-alpha-mode=0"), "{line}");
-        assert!(line.ends_with(" excluded-depth-bias-nonfinite=0 excluded-billboard=0 admitted-blend=1 admitted-bias=1 admitted-decal=1 admitted-mask=0 admitted-alpha-cut=1 scol-shapes=1 detail=colour"), "round 7: SCOL shapes after the census; round 10a: the detail mode last: {line}");
+        assert!(line.ends_with(" excluded-depth-bias-nonfinite=0 excluded-billboard=0 excluded-environment-map=0 admitted-blend=1 admitted-bias=1 admitted-decal=1 admitted-mask=0 admitted-alpha-cut=1 scol-shapes=1 detail=colour"), "round 7: SCOL shapes after the census; round 10a: the detail mode last: {line}");
         let layered = crate::terrain_surface::PublishedSurface { detail: vec![((0, 0), 1), ((1, 0), 3)], ..surface.clone() };
         assert!(ready_line(&layered, 3, &parse("8:status:height:512:albedo").unwrap(), &census).ends_with(" scol-shapes=1 detail=layers detail-quadrants=2"));
         for (_, name) in reason::NAMES { assert!(line.contains(&format!(" excluded-{name}=")), "every reason is printed, zero included: {name}"); }
@@ -1704,6 +1712,13 @@ mod tests {
             (m(default(), NifSurface { add_linear: true, ..default() }), reason::ADD_LINEAR),
             (m(default(), NifSurface { soft: Vec4::X, ..default() }), reason::SOFT),
             (m(StandardMaterial { depth_bias: f32::NAN, ..default() }, default()), reason::DEPTH_BIAS),
+            // [design] #2841: a reflecting shape without the window flag (env_how z 0) is
+            // left out like a window one (z 1): the reflection wins over the blend
+            // (docs/design/graphics-enhanced.md "Selection").
+            (m(default(), NifSurface { env: Vec4::new(1.0, 1.0, 0.0, 0.0), env_how: Vec4::new(0.0, 2.0, 0.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
+            (m(default(), NifSurface { env: Vec4::new(1.0, 0.0, 0.0, 0.0), env_how: Vec4::new(0.0, 0.0, 1.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
+            // A strength-0 run (NVF_PLAY_DEBUG_ENV_STRENGTH=0) still binds the cube: still out.
+            (m(default(), NifSurface { env_how: Vec4::new(0.0, 2.0, 0.0, 1.0), env_cube: Some(image.clone()), ..default() }), reason::ENVIRONMENT_MAP),
         ];
         for (material, bit) in &cases {
             assert_eq!(material_reasons(material), *bit, "{}", reason::list(*bit));

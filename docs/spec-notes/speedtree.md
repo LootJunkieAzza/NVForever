@@ -92,7 +92,7 @@ one level:
 | 6004 | 0.01-0.8 | branch length, fraction of the tree size, over the position along the parent |
 | 6005 | 0.0009-0.08 | branch base radius, fraction of the tree size, over the position along the parent |
 | 6006 | 0-1 | radius along the branch (taper; 1 at the base, ~0 at the tip in all files) |
-| 6007 | −90 to 90 degrees | angle of the branch out of the plane across its parent, positive towards the parent's tip, over the position along the parent (trunk: −90; leaves: 90) |
+| 6007 | −90 to 90 degrees | branch angle over the position along the parent: out of the plane across the parent, positive towards the parent's tip; on a level springing from a stub (its shortest branch at least twice its parent's longest, §7), from the parent's axis instead (trunk: −90; leaves: 90) |
 
 A curve's value at x: the curve y(x) (a cubic Bézier through the control points, with
 the control handles at each point's tangent × length) scaled to [min, max], plus a
@@ -100,14 +100,21 @@ random offset in ±variance.
 
 Why these readings [hypothesis, checked against the billboards]: the billboard of each
 tree is a square side view fitted to the tree (§6), so the opaque part of the billboard
-gives the tree's width : height. With children = 6012 × branch length and the angle
-measured from the plane across the parent, the generated trees come out at
+gives the tree's width : height. With children = 6012 × branch length and the 6007
+angle read as in the table above (from the plane across the parent, from the parent's
+axis on a level springing from a stub), the generated trees come out at
 
 | Tree | Billboard width : height [observed] | Generated |
 |---|---|---|
 | WastelandShrub01 | 0.891 : 0.617 = 1.44 | 1.28 |
 | WhiteOak01 | 0.611 : 0.990 = 0.62 | 0.63 |
-| EuonymusBush01 | 0.846 : 0.650 = 1.30 | 2.19 (open question) |
+| EuonymusBush01 | 0.846 : 0.650 = 1.30 | 1.18 (2.19 before the stub reading, §7) |
+
+"Generated" is the generated tree's width (the larger of its x and y spans, leaf cards at
+their full width) over its height (up to the cards' top edges): what the renderer scales
+by (§5). `fnvtool spt shape "<Data>/Fallout - Meshes.bsa"` prints it for every tree (row
+`as_is`, `full_cards.aspect`) beside the other measures and readings of §7; the smoke
+scenario `spt-shape` checks the three rows.
 
 Reading 6013/6014 as child counts instead gave WastelandShrub01 about 20 leaf cards and
 EuonymusBush01 four, against the dense crowns of their billboards; measuring the angle
@@ -122,7 +129,8 @@ cards, each a picture of a whole twig cluster).
 `crates/fnv-spt` builds a tree from §3-§4 with its own deterministic random numbers seeded
 by tag 2005: tube branches (segments along and around from 6008/6009, at least 3 sides),
 6012 × length children spread along [6010, 6011] at golden-angle steps around the
-parent, each turned by the 6007 angle and bent randomly by the 6000 variance; leaf
+parent, each turned by the 6007 angle (from the parent's axis when the parent is a stub,
+§7) and bent randomly by the 6000 variance; leaf
 cards at the child positions of the last wood level, a leaf map picked at random per
 card, drawn facing the camera. The tree size is 1; the renderer scales the tree so its
 larger dimension (width or height) equals the TREE record's billboard size (larger of
@@ -197,10 +205,87 @@ distant tree pictures; not applied.
 
 - Meanings of 2001/2003/2006/2007; the remaining curves (6001-6003, 6017).
 - Whether the frequency counts over the whole branch or only [6010, 6011].
-- EuonymusBush01 comes out too wide (§4); WhiteOak01's OBND (1567 high) is twice its
-  billboard (768).
+- Whether the stub reading for EuonymusBush01 (below) is the original's rule or a fit;
+  WhiteOak01's OBND (1567 high) is twice its billboard (768).
 - How SNAM seeds beyond the first are used (WhiteOak01 has five: variants per reference?).
 - Leaf curvature and leaf angles (CNAM), 3000-3010, 9000-9014; whether dimming also
   depends on depth into the crown, not only height; the `.spt` wind section
   (16000s); the wind direction and how the original maps the CNAM speeds.
 - Fronds (13000/14000 sections).
+
+### EuonymusBush01's width (#3126)
+
+The generated bush came out 2.19 times as wide as tall, its billboard 1.30 (§4). A
+player's report placed a "very spread out" shrub in the Citadel's B ring (TTW); the
+records place the bush in `CementPlanterRd01` pots there (2 references) and about 150
+times in Tenpenny Tower's cells [observed: `fnvtool world refs` on Fallout3.esm, the
+#3126 triage].
+
+Parameters of the three trees [observed: `fnvtool spt shape` on the test install,
+2026-11-21; lengths in tree sizes, angles in degrees, ± the curve's variance]:
+
+| Tree | Trunk (level 0) | Level 1 | Level 2 |
+|---|---|---|---|
+| EuonymusBush01 | 0.01 long, 800 per unit (8 stems over 0-0.8) | 0.1-0.2 long, 10-40° ± 15 (40 at the base falling to 10), bend 40, 35 per unit over 0.2-0.75 | 0.02-0.04 ± 0.03 long, 50-60° ± 15, 400 per unit; cards 0.04-0.05 |
+| WastelandShrub01 | 0.1 long, bend 50, 400 per unit | 0.05-0.12 long, 0-75°, 100 per unit over 0.15-1 | 0.01-0.03 long, 0-45°, 200 per unit; cards 0.09-0.11 |
+| WhiteOak01 | 0.5 ± 0.15 long, 50 per unit over 0.25-0.93 | 0.12-0.18 ± 0.03 long, −10-60° ± 25, 15 per unit over 0.1-0.8 | 0.068-0.101 ± 0.03 long, −10-75° ± 15, 600 per unit; cards 0.08-0.1 |
+
+Width : height under the readings of `fnv_spt::probe` (full cards / card pivots only /
+wood only) [observed: the same run, fnvtool built from 46a60e632, before the change
+below]:
+
+| Reading | EuonymusBush01 | WastelandShrub01 | WhiteOak01 |
+|---|---|---|---|
+| as is (plane reading everywhere) | 2.19 / 2.29 / 2.29 | 1.28 / 1.20 / 1.20 | 0.63 / 0.53 / 0.53 |
+| level 1 angle from the parent's axis | 1.18 / 0.99 / 0.99 | 1.30 / 1.22 / 1.22 | 0.52 / 0.39 / 0.39 |
+| level 2 angle from the parent's axis | 2.10 / 2.29 / 2.29 | 1.30 / 1.20 / 1.20 | 0.70 / 0.59 / 0.59 |
+| no 6004 length spread | 2.34 / 2.52 / 2.52 | 1.28 / 1.20 / 1.20 | 0.63 / 0.54 / 0.54 |
+| no 6000 bend | 2.83 / 2.75 / 2.75 | 1.24 / 1.22 / 1.22 | 0.67 / 0.58 / 0.58 |
+| 6012 over [6010, 6011] only | 1.96 / 2.05 / 2.05 | 1.23 / 1.24 / 1.24 | 0.62 / 0.54 / 0.54 |
+
+Which variants reach the billboard's range: the leaf cards are small on the bush
+(0.04-0.05) and widen it less than they raise it (without them it is wider still, 2.29);
+its x and y spans are within 4 % of each other; dropping the length spread, the bend or
+counting 6012 over [6010, 6011] only leaves it at 1.96-2.83. Only the level-1 angle read
+from the axis brings it into the range, and its stems are the case the plane reading fits
+worst: 10-40° from the plane across an upright trunk is a plate of stems, 10-40° from the
+trunk's axis a vase. Read from the axis on every tree, WhiteOak01 drops to 0.52
+[observed, above], outside 10 % of its 0.62, while its branches on a 0.5 trunk fit the
+plane reading (0.63).
+
+Reading used [hypothesis: fitted to these three trees]: a level springs from a stub when
+its shortest branch (smallest 6004 length minus spread) is at least twice its parent's
+longest (largest length plus spread), and its 6007 angle is then measured from the
+parent's axis; every other level keeps the plane reading. The factor 2 is a margin of
+ours [design]: EuonymusBush01's stems are 10 times its trunk (0.1 over 0.01),
+WastelandShrub01's half (0.05 over 0.1), WhiteOak01's level-1 branches about a seventh
+of its trunk (0.09 over 0.65), so any factor above 0.5 and up to 10 splits them the same
+way; 2
+keeps a parent only a little shorter than its branches on the plane reading. Of the three
+TREE records' trees only EuonymusBush01's level 1 qualifies, so WastelandShrub01 and
+WhiteOak01 are built as before. The generator takes the spread as 1 − r on such a level,
+which builds the branches of the measured "level 1 from the axis" row up to rounding:
+EuonymusBush01 1.18 (within 10 % of 1.30), WastelandShrub01 1.28, WhiteOak01 0.63
+[observed: `fnvtool spt shape` built at 258a20341, the first version of this reading,
+which had no margin, 2026-11-21; the margin changes none of the three].
+
+Other files: under the first version (any parent shorter than its shortest branch) the
+reading also changed three `.spt` files that no TREE record of FalloutNV.esm uses,
+oasistreetop01 (3.52 → 1.19) and oasiselm01/02 (2.52 → 1.57) [observed: the 258a20341
+run];
+which of the ten files qualify under the factor 2 is in `stub_levels` of `fnvtool spt
+shape`. A mod (or TTW) whose TREE records use such a file gets the changed tree. The
+probe's `angle_from_plane_everywhere` gives the generator before the change.
+
+What changed in the game: both ratios are above 1, so the renderer sets the bush's width
+to BNAM × the reference's scale (§5) before and after, and only its height changes. In
+the Citadel planters (scale 0.87, BNAM 256) the bush is 223 units wide; it was about 102
+tall (223 ÷ 2.19) and is now about 189 (223 ÷ 1.18). If the original's bush is that wide,
+its billboard's 1.30 makes it about 171 tall: the bush was too flat rather than too wide
+[hypothesis until the same view of a planter in both games]. To confirm: the bush in a
+Tenpenny Tower or Citadel planter, the same view in both games.
+
+Separate from the aspect: the renderer sets the tree's larger side to the whole BNAM size
+(§5), while the billboards' opaque part covers 0.85-0.99 of the square (§4). If the
+billboard shows the tree at the BNAM size, the original bush is about 0.85 × BNAM wide,
+so NVForever's would be about 18 % larger [hypothesis].

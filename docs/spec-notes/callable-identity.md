@@ -17,8 +17,13 @@ extended-call guard stops an explicit empty call before argument evaluation.
 [engine design choice] Apply that same guard to `Call` and direct function
 admission. Omitted calls inherit the caller; nonempty UDF receivers retain their
 existing forwarding policy without a new actor/base-form restriction.
-[hypothesis] That the original `Call` with an explicit empty receiver fails rather than
-running on the caller; not observed in the original game.
+[observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), fresh game, Fallout: New
+Vegas 1.4.0.525 + xNVSE 6.4.9 with the 10 official base masters, clean-room black-box
+script probe `core_08_call_explicit_null_receiver` (reproducible via `#3678` / PR `#3679`,
+`tools/capture/nvse/catalogs/wave4a_extenders.json`: `ref rNull = 0; int r1 = rNull.Call rFn`);
+no DLL or source consulted] `rNull.Call rFn` with an explicit empty receiver (`ref rNull = 0`)
+logs a runtime error, skips execution, and returns `0` rather than running on
+the caller (`PROBE|core_08_call_explicit_null_receiver|0,0`).
 
 [engine design choice] Newly allocated lambda and text-compiled-function handles skip loaded
 forms, live travel-package overrides and owned callables, and stay within their
@@ -83,3 +88,12 @@ source execution: the receiver fixture's typed local selects the existing Auto
 route, and its admission checks require a successful source-compile entry.
 The paired source-less units require decoded SCDA with no source-compile entry.
 Both paths retain the same receiver, side-effect and no-mutation oracles.
+
+[design: `crates/fnv-game/src/game.rs`, `engine/nvf-play/src/bullet_snap.rs`, `docs/spec-notes/audio.md` §19, `docs/spec-notes/ext-jg-nif-camera.md`]
+Reserved engine-internal `0xFE` subranges are partitioned without overlap:
+- `CLONE_BASE`: `0xFE00_0000..0xFE20_0000` (cloned base forms)
+- `COMPILED_BASE`: `0xFE20_0000..0xFE40_0000` (text-compiled runtime scripts)
+- `TEMP_REF_BASE`: `0xFE40_0000..0xFE7E_0000` (`ForEach` temporary inventory references; `Game::temp_ref` and `Game::temp_item` enforce `< BULLET_SNAP_SOUND_BASE` so temporary references never collide with the reserved windows above)
+- `BULLET_SNAP_SOUND_BASE`: `0xFE7E_0000..0xFE7F_0000` (audio-only synthetic `SOUN` FormIDs for BulletSnap pass-by folders; loaded `SOUN` records always win and BulletSnap takes the next free slot inside the window)
+- `CAMERA_OVERLAY_BASE`: `0xFE7F_0000..0xFE80_0000` (built-in JohnnyGuitar camera overlay references)
+- `LAMBDA_BASE` / `MADE_PACKAGE_BASE`: `0xFE80_0000..0xFF00_0000` (runtime lambdas and generated travel packages)

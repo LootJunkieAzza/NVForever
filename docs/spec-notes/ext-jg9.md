@@ -14,8 +14,15 @@ smoke scenario `jg9-script-sounds-moves`.
 
 A path is "relative to the New Vegas folder" [documented: PlaySoundFile]. NVForever plays
 Data's files only: `Data\` is taken off and the rest is looked up as the archives spell
-it, in any case; a path outside Data, with a drive or `..`, plays nothing and returns 0
-[engineering choice]. A file NVForever cannot find returns 0 [hypothesis: isSuccess].
+it, in any case; a path outside Data, with a drive or `..`, plays nothing and returns 1
+[design]. `PlaySoundFile` returns 1 even when the file does not exist [observed: Fallout:
+New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN 57.30, 2026-11-23,
+`GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole`
+probe (zero writes to game install or Saves), `b3_jg9_01_sound_runspeed_compass_pipboy`
+(`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3679):
+`PROBE|b3_jg9_01_sound_runspeed_compass_pipboy|ps=1,ss=0,rsP=338.8,rsD=338.8,hostDir=-1,pb=0`;
+zero DLL, PDB, or third-party source consulted]. `PlaySoundFromPath` likewise returns 1
+for a missing file [observed: the original, 2026-11-10].
 
 Each file a script plays gets a sound of its own for the session: a form ID from
 `0xFFF00000` up, one per file, source and looping [engineering choice]. The engine's sfx
@@ -51,7 +58,7 @@ sounds are UIPipBoyHolotapeStart and UIPipBoyHolotapeStop [observed: FalloutNV.e
 ## 3. Terminal menu items
 
 AddTerminalMenuItem `terminal` adds a new, empty item [documented], at the end
-[hypothesis]. RemoveTerminalMenuItem `terminal index` removes one [documented]; the items
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_33_add_remove_terminal_menu_item (AddTerminalMenuItem/RemoveTerminalMenuItem): 1,1; no DLL or source consulted]. RemoveTerminalMenuItem `terminal index` removes one [documented]; the items
 after it move up, with a script's changes to them (Set…TerminalMenuItem…, `nvse_jg3`).
 What stands at each position is kept for the session (`terminal::slots`); every reader of
 a terminal's items goes through it. An open menu holds positions, so a removal also asks
@@ -100,8 +107,9 @@ controls are read.
 | GetCalculatedSpread | the actor's spread now [documented]: the player's as the crosshair has it, another's at its last shot; 0 before any |
 | GetGrenadeHoldTime | seconds the player has held a thrown weapon's trigger, kept after the throw until the next hold [documented] (`nvf-play` combat.rs) |
 | GetNearestCompassHostileDirection `[skipInvisible]` | 0 front … 7 front left [documented], eight equal sectors about the heading [hypothesis]; -1 with no hostile mark [observed, §7]; invisible is Invisibility or Chameleon above 0 (`nvf-play` compass.rs) |
-| GetCurrentSkyColor `type rOut gOut bOut` | the sky's colour of that type now [documented: 0 sky upper … 9 clouds upper], 0-255, by the weather colour types' order [hypothesis: the page's ids are NAM0's]; 0 in an interior [hypothesis] (`nvforever` sky.rs) |
+| GetCurrentSkyColor `type rOut gOut bOut` | the sky's colour of that type now [documented: 0 sky upper … 9 clouds upper], as normalized `0.0..=1.0` floats (populated in interiors too, returning `1`), by the weather colour types' order [hypothesis: the page's ids are NAM0's]; an out-of-range type (`< 0` or `>= 10`) returns `0` and leaves the output variables unchanged [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN 57.30 (`5730`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes to game install or Saves), `GSDocMitchellHouse` (`0x00103DF9`, interior) and Goodsprings (`0x000CDF51`, exterior), committed probes `w6_t1_09_jg_sky_color_interior` and `w6_t1_15b_raycast_ref_mat_reticle_sky` (`tools/capture/nvse/catalogs/wave6_t1_jg_sky_color.json`): `PROBE\|w6_t1_09_jg_sky_color_interior\|int=1\|t0=1(0.286,0.267,0.188)\|t9=1(1.000,1.000,1.000)\|t10=0(111.0,222.0,333.0)` and `sky0=1(0.281,0.356,0.622)\|sky10=0(r=111)`; no DLL, PDB, or third-party source consulted] (`nvforever` sky.rs) |
 | GetPlayerCamFOV `0/1/2` | the world FOV, the first person's, or the one the camera uses now [documented], as GetCameraFOV reads them (a SetCameraFOV value, else the settings page's Field of view / Viewmodel field of view, else the INI's); the first person's until the engine tells the view [observed: 55 in the probe's save, §7] |
+| GetPipBoyMode | 0 closed, 1/2 opening, 3 opened, 4/5 closing [documented: GECK wiki GetPipBoyMode; observed: 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `w4c_b3_06_toggle_pipboy_tab` (`tools/capture/nvse/catalogs/wave4c_extenders.json`, #3678 / PR #3679), toggling `TogglePipBoy 1003` and polling `GetPipBoyMode`: `init(pb=0)|open1003(mm=1003,pb=2)|close(mm=1003,pb=3)|reopenNoArg(mm=0,pb=0)`, plus 2026-11-23 `b3_jg9_01_sound_runspeed_compass_pipboy` (`wave4b_extenders.json`): `ps=1,ss=0,rsP=338.8,rsD=338.8,hostDir=-1,pb=0`; no DLL or source consulted]; NVForever reports 3 while `Game::menu_open(menus::PIPBOY)` holds (any Pip-Boy page, including underneath a tutorial overlay) and 0 otherwise [not built: opening/closing animation transition modes 1/2/4/5] |
 
 ## 7. Observed (set jg9 at 5d1ab3447, 2026-11-10)
 

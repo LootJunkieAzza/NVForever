@@ -61,6 +61,8 @@
     {"op": "choose", "topic": "VFreeformHooverDamVHDGeneralOliverTopic050", "label": "oliver 050"},
     {"op": "choose", "topic": "VFreeformHooverDamVHDGeneralOliverTopic057", "label": "oliver 057"},
     {"op": "wait_talk", "label": "oliver second talk over"},
+    {"op": "note", "text": "Oliver's speech is played as a talk: the combat dialogue trigger (VHDOliverCombatDialogTriggerREF, SCPT 0x00140C94) is told it was given (oliverspeechdone 1, as SCPT 0x0014C635 leaves it), or the player walking through it later is held: its OnTrigger runs DisablePlayerControls while the variable is 0."},
+    {"op": "set_ref_var", "ref": "VHDOliverCombatDialogTriggerREF", "var": "oliverspeechdone", "value": 1},
     {"op": "get_quest", "quest": "VHDIndependentBattle", "fields": ["stage", "done.90", "var.iYesManEndState"], "label": "milestone: VHDIndependentBattle 90"},
     {"op": "note", "text": "Stand-in for Yes Man's body walking up to the player (its added package): the player talks to it; the closing line ends the battle."},
     {"op": "talk", "actor": "0x001554EA", "label": "yes man closing"},

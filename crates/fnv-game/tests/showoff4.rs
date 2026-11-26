@@ -17,9 +17,14 @@ use serde_json::Value as Json;
 const STAT: u32 = 0x800;
 const LIST: u32 = 0x801;
 const FACT: u32 = 0x802;
+const WEAP: u32 = 0x803;
+const NPC: u32 = 0x804;
+const LVLN: u32 = 0x805;
 const ROOM: u32 = 0x900;
 const PARENT: u32 = 0x910;
 const CHILD: u32 = 0x911;
+const ACTOR: u32 = 0x912;
+const LEVELED_ACTOR: u32 = 0x913;
 
 struct Fixture {
     data: GameData,
@@ -39,15 +44,27 @@ fn fixture() -> Fixture {
     let stat = record(b"STAT", 0, STAT, &[sub(b"EDID", z("TestStatic"))]);
     let flst = record(b"FLST", 0, LIST, &[sub(b"EDID", z("TestList")), sub(b"LNAM", u32s(&[STAT]))]);
     let fact = record(b"FACT", 0, FACT, &[sub(b"EDID", z("TestFaction"))]);
+    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("TestWeapon")), sub(b"ICON", z("interface\\icons\\default_weap.dds"))]);
     let room = record(b"CELL", 0, ROOM, &[sub(b"EDID", z("TestRoom")), sub(b"DATA", vec![1])]);
-    let refs = [placed(PARENT, "TestParentRef", STAT, None), placed(CHILD, "TestChildRef", STAT, Some(PARENT))].concat();
+    let actor_ref = record(b"ACHR", 0, ACTOR, &[sub(b"EDID", z("TestActorRef")), sub(b"NAME", NPC.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let leveled_actor_ref = record(b"ACHR", 0, LEVELED_ACTOR, &[sub(b"EDID", z("TestLeveledActorRef")), sub(b"NAME", LVLN.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let refs = [placed(PARENT, "TestParentRef", STAT, None), placed(CHILD, "TestChildRef", STAT, Some(PARENT)), actor_ref, leveled_actor_ref].concat();
     let children = group(ROOM.to_le_bytes(), 6, &group(ROOM.to_le_bytes(), 9, &refs));
+    let npcs = [
+        record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]),
+        record(b"NPC_", 0, NPC, &[sub(b"EDID", z("TestNpc"))]),
+    ]
+    .concat();
+    let lvlo = [1i16.to_le_bytes().to_vec(), vec![0; 2], NPC.to_le_bytes().to_vec(), 1i16.to_le_bytes().to_vec(), vec![0; 2]].concat();
+    let lvln = record(b"LVLN", 0, LVLN, &[sub(b"EDID", z("TestLeveledNpc")), sub(b"LVLD", vec![0]), sub(b"LVLF", vec![0]), sub(b"LVLO", lvlo)]);
     let bytes = [
         tes4(),
         top(b"FACT", &fact),
+        top(b"WEAP", &weap),
         top(b"STAT", &stat),
         top(b"FLST", &flst),
-        top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))])),
+        top(b"NPC_", &npcs),
+        top(b"LVLN", &lvln),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[room, children].concat()))),
     ]
     .concat();
@@ -133,6 +150,33 @@ fn json_and_the_ini_cache_go_through_nvforevers_layer() {
     // A form is written as "@plugin:FormID" and read back as the form [documented].
     assert_eq!(n(&mut g, r#"WriteToJSON TestStatic "NVFTest\so4.json" "/form""#), 1.0);
     assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\so4.json" "/form""#), f64::from(STAT));
+    // WriteToJSON root creation vs missing intermediate segments (see docs/spec-notes/ext-showoff.md):
+    // 1. Missing file + single-level "/k" creates the root object `{ "k": 42 }` and returns 1,
+    //    while nested "/a/b/c" fails (returns 0) without creating missing intermediates or a file.
+    assert_eq!(n(&mut g, r#"WriteToJSON 42 "NVFTest\missing_single_def.json" "/k""#), 1.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\missing_single_def.json" "/k" 0 0"#), 42.0);
+    assert_eq!(n(&mut g, r#"WriteToJSON 42 "NVFTest\missing_single_exp.json" "/k" 0 1 1 0"#), 1.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\missing_single_exp.json" "/k" 0 1"#), 42.0);
+    assert_eq!(n(&mut g, r#"WriteToJSON 123 "NVFTest\missing_nested.json" "/a/b/c" 0 1 1 0"#), 0.0);
+    assert_eq!(n(&mut g, r#"TestExpr (ReadFromJSON "NVFTest\missing_nested.json" "/a/b/c" 0 1)"#), 0.0);
+    // 2. Missing file + empty root pointer "" writing a StringMap returns 1 and creates the file.
+    assert_eq!(n(&mut g, r#"WriteToJSON (ar_Map "k"::42) "NVFTest\missing_root.json" "" 0 1 1 0"#), 1.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\missing_root.json" "/k" 0 0"#), 42.0);
+    // 3. Existing `{}` file + "/k" returns 1 while nested "/a/b/c" returns 0 without mutating.
+    assert_eq!(n(&mut g, r#"WriteToJSON (ar_Construct "stringmap") "NVFTest\exist_obj.json" "" 0 0 1 0"#), 1.0);
+    assert_eq!(n(&mut g, r#"WriteToJSON 42 "NVFTest\exist_obj.json" "/k" 0 1 1 0"#), 1.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\exist_obj.json" "/k" 0 1"#), 42.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\exist_obj.json" "/k" 0 0"#), 42.0);
+    assert_eq!(n(&mut g, r#"WriteToJSON 99 "NVFTest\exist_obj.json" "/a/b/c" 0 1 1 0"#), 0.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\exist_obj.json" "/a/b/c" 0 0"#), 0.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\exist_obj.json" "/k" 0 0"#), 42.0);
+    // 4. Existing `null` root + nested "/a/b/c" returns 0, while single-level "/k" promotes root to `{}`.
+    assert_eq!(n(&mut g, "ref rNull\nSetFunctionValue (WriteToJSON rNull \"NVFTest\\exist_null.json\" \"\" 0 0 1 0)"), 1.0);
+    assert_eq!(n(&mut g, r#"WriteToJSON 99 "NVFTest\exist_null.json" "/a/b/c" 0 1 1 0"#), 0.0);
+    assert_eq!(n(&mut g, r#"WriteToJSON 42 "NVFTest\exist_null.json" "/k" 0 1 1 0"#), 1.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\exist_null.json" "/k" 0 1"#), 42.0);
+    assert_eq!(n(&mut g, r#"WriteToJSON 123 "NVFTest\so4.json" "/missing/b/c" 0 1 1 0"#), 0.0);
+    assert_eq!(n(&mut g, r#"ReadFromJSON "NVFTest\so4.json" "/missing/b/c" 0 1"#), 0.0);
     // A missing file gives no value [observed 2026-11-08: showoff4.readjson.missing].
     assert_eq!(n(&mut g, r#"TestExpr (ReadFromJSON "NVFTest\missing.json")"#), 0.0);
     assert_eq!(n(&mut g, r#"CreateFolder "NVFTest\Sub""#), 1.0);
@@ -200,4 +244,54 @@ fn enable_parents_can_be_changed_and_ignored() {
     q(&mut g, "TestChildRef.SetEnableParent");
     assert!(on(&g, CHILD), "its own flag again");
     assert_eq!(n(&mut g, "TestChildRef.GetParentRef"), 0.0);
+}
+
+#[test]
+fn hotkey_icon_override_is_stored_read_back_and_cleared() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), None);
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon 1)"), "");
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon)"), "interface\\icons\\default_weap.dds");
+
+    q(&mut g, r#"SetItemHotkeyIconPath TestWeapon "interface\icons\custom_hotkey.dds""#);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), Some("interface\\icons\\custom_hotkey.dds"));
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon 1)"), "interface\\icons\\custom_hotkey.dds");
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon)"), "interface\\icons\\custom_hotkey.dds");
+
+    // Live update replaces the existing override.
+    q(&mut g, r#"SetItemHotkeyIconPath TestWeapon "Textures/Interface/Icons/updated.dds""#);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), Some("Textures/Interface/Icons/updated.dds"));
+
+    // Whitespace-only overrides are ignored by engine consumers.
+    q(&mut g, r#"SetItemHotkeyIconPath TestWeapon "   ""#);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), None);
+
+    // Empty string removes the override and restores the item's default ICON.
+    q(&mut g, r#"SetItemHotkeyIconPath TestWeapon """#);
+    assert_eq!(g.item_hotkey_icon_path(FormId(WEAP)), None);
+    assert!(!g.showoff.hotkey_icons.contains_key(&FormId(WEAP)));
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon 1)"), "");
+    assert_eq!(s(&mut g, "SetFunctionValue (GetItemHotkeyIconPath TestWeapon)"), "interface\\icons\\default_weap.dds");
+}
+
+#[test]
+fn get_actor_fade_state_distinguishes_loaded_and_unloaded_actors() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Player is always loaded and not fading -> 0.
+    assert_eq!(n(&mut g, "player.GetActorFadeState"), 0.0);
+    // Unloaded NPC and placed leveled NPC (cell not in loaded_cells) -> -1 (preserves showoff4.fadestate.doc).
+    assert_eq!(n(&mut g, "TestActorRef.GetActorFadeState"), -1.0);
+    assert_eq!(n(&mut g, "TestLeveledActorRef.GetActorFadeState"), -1.0);
+    // Loaded NPC and placed leveled NPC (LVLN carrier resolved via template_source) -> 0.
+    g.loaded_cells.insert(FormId(ROOM));
+    assert_eq!(n(&mut g, "TestActorRef.GetActorFadeState"), 0.0);
+    assert_eq!(n(&mut g, "TestLeveledActorRef.GetActorFadeState"), 0.0);
+    // Non-actor ref in a loaded cell -> -1.
+    assert_eq!(n(&mut g, "TestParentRef.GetActorFadeState"), -1.0);
+    // Disabled NPC / leveled NPC in a loaded cell -> -1.
+    q(&mut g, "TestActorRef.Disable\nTestLeveledActorRef.Disable");
+    assert_eq!(n(&mut g, "TestActorRef.GetActorFadeState"), -1.0);
+    assert_eq!(n(&mut g, "TestLeveledActorRef.GetActorFadeState"), -1.0);
 }

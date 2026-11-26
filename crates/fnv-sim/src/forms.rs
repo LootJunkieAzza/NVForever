@@ -549,6 +549,27 @@ impl FormStore {
         self.settings.get(&edid.to_ascii_lowercase())?.as_f32()
     }
 
+    /// Override an existing load-order game setting's value when `edid` exists in
+    /// `self.settings` and `value` matches its kind (`Float`, `Int`, or `Str`). Unknown
+    /// keys and kind mismatches are ignored and return `false`.
+    pub fn apply_setting_override(&mut self, edid: &str, value: Setting) -> bool {
+        let k = edid.to_ascii_lowercase();
+        let Some(slot) = self.settings.get_mut(&k) else {
+            return false;
+        };
+        let fits = matches!(
+            (&*slot, &value),
+            (Setting::Float(_), Setting::Float(_))
+                | (Setting::Int(_), Setting::Int(_))
+                | (Setting::Str(_), Setting::Str(_))
+        );
+        if !fits {
+            return false;
+        }
+        *slot = value;
+        true
+    }
+
     /// A global's authored value by Editor ID.
     pub fn global_by_edid(&self, edid: &str) -> Option<(FormId, f32)> {
         let id = self.by_edid(edid)?;

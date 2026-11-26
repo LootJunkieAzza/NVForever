@@ -77,9 +77,12 @@ No skill book carries the flag (§1).
 
 ## 5. What the player sees and what counts
 
-- A corner message: "<Skill> increased to <value>" with the skill's icon (AVIF ICON)
-  [hypothesis: the original's line is not in the plugins — no MESG or GMST of the masters
-  names a book read — so wording and icon are NVForever's until the owner shows one].
+- A corner message: "<Skill> increased to <value>" with the default Vault Boy
+  corner-message icon (`glow_message_vaultboy_neutral.dds`, `icon: None`) rather than the
+  skill's 256 × 256 Pip-Boy `AVIF` `ICON` illustration [hypothesis: the original's line
+  and icon are not in the plugins — no MESG or GMST of the masters names a book read — so
+  wording and icon are NVForever's until observed in the running original game; issue
+  #3433].
 - **Books Read** (misc statistic 15) counts one per book the player reads [documented:
   GECK wiki GetPCMiscStat lists "Books Read" for New Vegas; hypothesis: one per skill book,
   books that teach nothing do not count]. A challenge on Books Read steps with it once the

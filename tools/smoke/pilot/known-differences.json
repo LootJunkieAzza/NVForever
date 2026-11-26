@@ -1,0 +1,7 @@
+[
+  {"chain": "intro", "label": "pack boxes after the first", "reason": "In the game the pre-order packs' message boxes are modal and are answered one by one before the step that counts them; headless no box holds anything up, so the count reads 0 there."},
+  {"chain": "intro", "label": "pack items given", "reason": "The packs' boxes are answered in the game (see 'pack boxes after the first'), which gives their items; headless they are never answered."},
+  {"chain": "intro", "label": "name menu open at 10", "reason": "Headless the name menu is read in the frame stage 10 is set, before it opens; in the game the step waits for the menu and finds it open."},
+  {"chain": "intro", "label": "race menu open at 36", "reason": "As 'name menu open at 10': the game finds the menu it waits for open."},
+  {"chain": "intro", "label": "VCG01 in the race menu", "reason": "Read while the race menu holds the game: Doc's lines after stage 40 wait for it in the game, not headless."}
+]

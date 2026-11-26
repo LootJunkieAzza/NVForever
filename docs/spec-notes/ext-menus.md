@@ -43,7 +43,30 @@ highlighted. Code: `crates/fnv-game/src/nvse_jip3.rs` (the functions),
   1014, 1016, 1023, 1027/1084, 1055-1058, 1075, 1077, 1083 and the VATS target; they read
   0.
 
-## 3. Checks
+## 3. RefreshItemsList
+
+- **RefreshItemsList** [documented: GECK wiki `RefreshItemsList`, forces the active menu
+  to reload and update its item lists after script inventory/equipment mutations].
+- [design] `nvse_jip3` sets a transient session-only flag (`Jip3State::refresh_items_list`,
+  not serialized into `Game::Session` / `GameSnapshot`) read and cleared one-shot by
+  `Game::take_refresh_items_list`.
+- [design] `engine/nvf-play/src/menu.rs` (`sync_refresh_items_list`, running in `MenuSystems`
+  before `publish_menu_picks`, `publish_jip_menus`, input, and draw) consumes the flag once
+  per frame without touching menu resources when false:
+  - When `ActiveMenu` is open (Pip-Boy Inventory `1002`, Container `1008`, or Barter `1053`),
+    calls `MenuModel::refresh(&mut sim.world)` so rows, counts, equipped marks, and
+    encumbrance rebuild immediately without closing the menu, preserving valid selection and
+    marking `ActiveMenu` changed for both hand-built and tile renderers.
+  - When `RecipeMenu` (`1077`) is open, calls `crafting::refresh_open`, clearing cached
+    `drawn` state for hand-built and tile renderers, preserving the selected recipe `FormId`
+    when still listed (clamping otherwise), and clamping or clearing any open quantity prompt.
+  - When neither menu is open, the flag is consumed as a no-op so it does not leak to later
+    menu opens.
+
+## 4. Checks
 
 - `cargo test --release -p fnv-game --test synthetic menu_getters` (closed menus read 0;
   target and inventory reference while open; the menu on top answers).
+- `cargo test -p fnv-game --test synthetic refresh_items_list_sets_one_shot_transient_request`
+- `cargo test -p nvf-play --lib menu::model::tests::refresh_items_list`
+- `cargo test -p nvf-play --lib crafting::tests::refresh_open`

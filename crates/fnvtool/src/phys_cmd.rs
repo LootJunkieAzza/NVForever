@@ -172,7 +172,12 @@ impl Meshes {
             },
         };
         let schema = fnv_nif::Schema::load_dir(&dir).with_context(|| dir.display().to_string())?;
-        let vfs = fnv_vfs::Vfs::open_default(data_dir).with_context(|| data_dir.display().to_string())?;
+        // Under `--mo2-profile` the mods' archives and loose meshes count too (TTW's
+        // Megaton lives in a mod's BSA); otherwise the base game's own archives.
+        let vfs = match crate::mo2_args::vfs(data_dir)? {
+            Some(v) => v,
+            None => fnv_vfs::Vfs::open_default(data_dir).with_context(|| data_dir.display().to_string())?,
+        };
         Ok(Some(Meshes { vfs, schema, cache: BTreeMap::new(), water: BTreeMap::new(), anims: BTreeMap::new() }))
     }
 

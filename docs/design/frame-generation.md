@@ -85,7 +85,22 @@ linear unchanged (`RawRGBToLinear`, transfer function 2).
 
 ### The HUD and menus
 
-AMD's "HUD-less" mode does it: the passes get the frame without the HUD (to interpolate) and
+**The UI as a layer of its own** (2026-11-23, `fg_ui_layer.rs`): after Bevy's `ui_pass` the
+camera's UI phase is drawn a second time, alone, into a display-sized texture cleared to
+transparent black. Every Bevy UI pipeline blends with `ALPHA_BLENDING`, so that texture holds
+the UI premultiplied by its coverage, and `frame = layer.rgb + (1 - layer.a) * frame without
+UI`. The passes then interpolate the frames without the HUD only (no HUD-less mode), and the
+layer is drawn over the generated frame (premultiplied "over"). The generated frame carries
+this real frame's HUD exactly, its see-through and faint parts included. Cost: the UI drawn
+twice and one full-screen blend a real frame. `NVF_FG_UI_LAYER=0` keeps the mode below, for
+comparisons.
+
+*Why it was needed* [observed: #3595, the HP bar's ticks doubled or
+smeared in motion]: the HUD-less mode below takes the HUD's pixel in proportion to how much the
+two frames differ, saturating at about 10% (`CalculateStaticContentFactor`), so the HUD's
+faint parts (glow, soft edges, see-through fills) were mixed with the interpolated scene.
+
+Before the layer (and with `NVF_FG_UI_LAYER=0`), AMD's "HUD-less" mode does it: the passes get the frame without the HUD (to interpolate) and
 the frame with it. Where the two differ, the generated frame takes this frame's HUD pixels
 (`computeInpainting`, weighted by how static they are). So the HUD is never interpolated: the
 generated frame shows the newer real frame's HUD. *Observed* (2026-11-07, Goodsprings, FSR
@@ -162,7 +177,9 @@ Limits and notes:
   apart). The real frame's present falls about 1 ms after the next frame's submit, so the
   render thread is not held [observed 2026-11-08: it kept the cap].
 - **Variable refresh** keeps vsync on (FIFO relaxed); the cap is the lower of the frame
-  generation cap and the page's cap.
+  generation cap and half the page's or variable refresh's cap: those count frames shown, two
+  for each real frame, as they do for DLSS-G (`frame_pace::own_cap`; until 2026-11-23 the
+  page's cap held the real frames here, so a limit of 60 showed 120).
 - **Vsync off** is not supported: the second present would replace the first at once.
 - **Screenshots** (`--screenshot`, F12): Bevy points the camera's output at a screenshot
   texture of its own, and only after the render graph copies it to the screenshot's buffer and

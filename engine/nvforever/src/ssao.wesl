@@ -451,6 +451,32 @@ fn multiply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     return vec4(safe, safe, safe, 1.0);
 }
 
+// Under multisampling (ssao.rs `resolve_depth`): the depth prepass resolved once to one
+// sample, written as depth into a single-sampled texture of the prepass's format, which the
+// passes then read with their single-sampled pipelines. The value is sample 0 as it is, so
+// every pass reads what it read from the multisampled depth, bit for bit; with variant
+// `nearest` the sample whose unsqueezed depth is the nearest, as `nearest_depth_at` takes it
+// (the first such sample, as its `max` keeps it). Without multisampling it is not run (its
+// layout takes only the multisampled depth); it is written for either depth so the shader's
+// test resolves one source.
+@fragment
+fn resolve_depth(in: FullscreenVertexOutput) -> @builtin(frag_depth) f32 {
+    let p = vec2<i32>(floor(in.position.xy));
+    var raw = textureLoad(depth, p, 0);
+    if (u32(ao.variant.z) & VARIANT_NEAREST) != 0u {
+        var best = unsqueeze(raw);
+        for (var s = 1; s < depth_samples(); s++) {
+            let r = textureLoad(depth, p, s);
+            let u = unsqueeze(r);
+            if u > best {
+                best = u;
+                raw = r;
+            }
+        }
+    }
+    return raw;
+}
+
 // In the lighting (ssao.rs `ao_lighting_pass`, ssao_lighting.rs): for each half-resolution
 // texel q the factor of the full pixel 2q, denoised by the same filter `apply` and
 // `multiply` use (`openness_at`, the old estimate's or a variant's included), with that

@@ -63,9 +63,21 @@ fn lighting_trait(id: f64) -> Option<(&'static str, String)> {
 }
 
 impl Game<'_> {
-    /// Interior lighting at an engine cell-application boundary, including the
-    /// existing CELL LTMP/LNAM and selected LGTM DATA session writes (#2272).
-    /// This does not define native current-cell refresh timing or persist edits.
+    /// Transient `(game_instance, revision)` token for live interior lighting session edits.
+    /// Changes whenever a fresh/restored `Game` is created or any session lighting setter
+    /// writes `CELL LTMP`, `CELL LNAM` (`SetCellFlag` 8..=16), `LGTM DATA`
+    /// (`SetLightingTemplateTraitNumeric`), or `CELL XCLL` (`SetInteriorLightingTraitNumeric`).
+    pub fn lighting_token(&self) -> (u64, u64) {
+        (self.lighting_instance, self.lighting_revision)
+    }
+
+    pub(crate) fn bump_lighting_revision(&mut self) {
+        self.lighting_revision = self.lighting_revision.wrapping_add(1);
+    }
+
+    /// Interior lighting at an engine cell-application or live-refresh boundary, including
+    /// session `CELL LTMP`/`LNAM`/`XCLL` and selected `LGTM DATA` writes (#2272).
+    /// This does not persist session edits across `Game::restore`.
     pub fn session_cell_lighting(&self, lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, cell: FormId) -> Option<fnv_world::lighting::CellLighting> {
         // Only explicit session choices replace LTMP/LNAM. The unchanged world
         // reader owns the base record's plugin-local -> global FormID mapping.
@@ -74,28 +86,60 @@ impl Game<'_> {
             _ => None,
         };
         let flags = self.field_overrides.get(&(cell, "LNAM/".into())).and_then(|v| v.num().ok()).map(|n| n as u32);
-        fnv_world::lighting::cell_lighting_with(lo, schema, cell.0, template, flags, |template, light| {
-            // Reuse the getters' field mapping for a LoadOrder-backed template.
-            // The world reader admits that record before this callback; runtime
-            // clone IDs are not resolved here. Casts retain the typed destinations.
-            for id in 1..=16 {
-                let (sub, path) = lighting_trait(f64::from(id)).expect("the documented sixteen lighting traits");
-                let Some(value) = crate::nvse::record_value(self, FormId(template), sub, &path).and_then(|v| v.num().ok()) else { continue };
-                match id {
-                    1..=3 => light.ambient[(id - 1) as usize] = value as u8,
-                    4..=6 => light.directional[(id - 4) as usize] = value as u8,
-                    7..=9 => light.fog_color[(id - 7) as usize] = value as u8,
-                    10 => light.fog_near = value as f32,
-                    11 => light.fog_far = value as f32,
-                    12 => light.directional_rotation_xy = value as i32,
-                    13 => light.directional_rotation_z = value as i32,
-                    14 => light.directional_fade = value as f32,
-                    15 => light.fog_clip_dist = value as f32,
-                    16 => light.fog_power = value as f32,
-                    _ => unreachable!(),
+        let has_own_override = (0u8..=15).any(|id| {
+            let path = crate::nvse_jg2::interior_trait(f64::from(id)).expect("the documented sixteen interior lighting traits");
+            self.field_overrides.contains_key(&(cell, format!("XCLL/{path}")))
+        });
+        fnv_world::lighting::cell_lighting_with_session(
+            lo,
+            schema,
+            cell.0,
+            template,
+            flags,
+            has_own_override,
+            |light| {
+                // Apply explicit SetInteriorLightingTraitNumeric (CELL XCLL) session overrides.
+                for id in 0u8..=15 {
+                    let path = crate::nvse_jg2::interior_trait(f64::from(id)).expect("the documented sixteen interior lighting traits");
+                    let Some(value) = self.field_overrides.get(&(cell, format!("XCLL/{path}"))).and_then(|v| v.num().ok()) else { continue };
+                    match id {
+                        0..=2 => light.ambient[id as usize] = value as u8,
+                        3..=5 => light.directional[(id - 3) as usize] = value as u8,
+                        6 => light.directional_rotation_xy = value as i32,
+                        7 => light.directional_rotation_z = value as i32,
+                        8 if (value as f32).is_finite() => light.directional_fade = value as f32,
+                        9..=11 => light.fog_color[(id - 9) as usize] = value as u8,
+                        12 if (value as f32).is_finite() => light.fog_near = value as f32,
+                        13 if (value as f32).is_finite() => light.fog_far = value as f32,
+                        14 if (value as f32).is_finite() => light.fog_power = value as f32,
+                        15 if (value as f32).is_finite() => light.fog_clip_dist = value as f32,
+                        _ => {}
+                    }
                 }
-            }
-        })
+            },
+            |template, light| {
+                // Reuse the getters' field mapping for a LoadOrder-backed template.
+                // The world reader admits that record before this callback; runtime
+                // clone IDs are not resolved here. Casts retain the typed destinations.
+                for id in 1u8..=16 {
+                    let (sub, path) = lighting_trait(f64::from(id)).expect("the documented sixteen lighting traits");
+                    let Some(value) = self.field_overrides.get(&(FormId(template), format!("{sub}/{path}"))).and_then(|v| v.num().ok()) else { continue };
+                    match id {
+                        1..=3 => light.ambient[(id - 1) as usize] = value as u8,
+                        4..=6 => light.directional[(id - 4) as usize] = value as u8,
+                        7..=9 => light.fog_color[(id - 7) as usize] = value as u8,
+                        10 if (value as f32).is_finite() => light.fog_near = value as f32,
+                        11 if (value as f32).is_finite() => light.fog_far = value as f32,
+                        12 => light.directional_rotation_xy = value as i32,
+                        13 => light.directional_rotation_z = value as i32,
+                        14 if (value as f32).is_finite() => light.directional_fade = value as f32,
+                        15 if (value as f32).is_finite() => light.fog_clip_dist = value as f32,
+                        16 if (value as f32).is_finite() => light.fog_power = value as f32,
+                        _ => {}
+                    }
+                }
+            },
+        )
     }
 
     /// A race's model path from its head (NAM0) or body (NAM1) part list, male (MNAM) or
@@ -260,7 +304,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getlightingtemplatetraitnumeric" | "setlightingtemplatetraitnumeric" => {
             let (Some(t), Some((sub, path))) = (of_sig(g, form(args, 0), b"LGTM"), lighting_trait(num(args, 1, 0.0))) else { return Some(Ok(zero)) };
             if name.starts_with("set") {
-                g.field_overrides.insert((t, format!("{sub}/{path}")), XVal::Num(num(args, 2, 0.0)));
+                let value = num(args, 2, 0.0);
+                let prev = g.field_overrides.insert((t, format!("{sub}/{path}")), XVal::Num(value));
+                let same = matches!(prev, Some(XVal::Num(p)) if p.to_bits() == value.to_bits());
+                if !same {
+                    g.bump_lighting_revision();
+                }
                 zero
             } else {
                 XVal::Num(field(g, t, sub, &path).and_then(|v| v.num().ok()).unwrap_or(0.0))

@@ -31,7 +31,13 @@ const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wesl";
 
 mod display_shader;
 pub(crate) use self::display_shader::display_patched;
+#[cfg(test)]
+pub(crate) use self::display_shader::{
+    spot_display_scale, spot_specular_scale, FIRST_PERSON_FLASHLIGHT_DIFFUSE,
+    FIRST_PERSON_FLASHLIGHT_SPECULAR,
+};
 pub use self::display_shader::unix_lines;
+pub(crate) mod reflection_gate;
 
 /// A light colour of a world view as display values (bytes / 255, or a model's stored
 /// colour): handed to Bevy unconverted, for the display-value sum (`display_shader`).
@@ -68,6 +74,11 @@ const BEVY_TONY: &str = "} @elif(TONEMAP_METHOD_TONY_MC_MAPFACE) {\n    color = 
 /// the eye adaptation's exposure (eye_adapt.rs), which Bevy applies in that pass.
 const GAME_CLIP: &str = "} @elif(TONEMAP_METHOD_TONY_MC_MAPFACE) {\n    color = min(color, vec3(1.0));";
 
+/// With HDR output (hdr.rs) the values above 1 stay: the image-space grade keeps them
+/// apart from its clipped picture and the HDR pass maps them between paper white and the
+/// screen's peak. Everything at or below 1 is the same as with [`GAME_CLIP`].
+const GAME_HDR: &str = "} @elif(TONEMAP_METHOD_TONY_MC_MAPFACE) {\n    color = max(color, vec3(0.0));";
+
 /// Set once the clip is in place (`NVF_TONEMAP=tony` keeps Bevy's curve, a test aid);
 /// sky.rs then leaves out its inverse of Tony McMapface.
 static CLIP_INSTALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -86,7 +97,7 @@ impl Plugin for LightsPlugin {
         let tonemapping: Handle<Shader> = app.world().resource::<AssetServer>().load(TONEMAPPING_SHARED);
         app.insert_resource(LightingShader { handle, patched: false })
             .insert_resource(FunctionsShader { handle: functions, patched: false })
-            .insert_resource(TonemapShader { handle: tonemapping, patched: false })
+            .insert_resource(TonemapShader { handle: tonemapping, patched: false, hdr: false })
             .add_systems(PreUpdate, patch_clip)
             .add_systems(Update, (patch_attenuation, patch_display_sum, sync_script_lights, animate_lights, bind_model_lights, animate_model_lights).chain().after(nvf_play::PlaySet::Scripts));
     }
@@ -96,15 +107,37 @@ impl Plugin for LightsPlugin {
 struct TonemapShader {
     handle: Handle<Shader>,
     patched: bool,
+    /// The output the clip was installed for (HDR or SDR): a live switch swaps it.
+    hdr: bool,
 }
 
 /// Once Bevy's tonemapping functions have loaded, swap Tony McMapface's curve for the
 /// clip; the sky system is told to set its colours again.
 fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shader>>, sky: Option<ResMut<crate::sky::SkyState>>) {
     if state.patched {
+        // HDR output switched live (hdr.rs): the clip for the other output in its place.
+        let hdr = bevy::render::view::window::NVF_HDR_SURFACE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed);
+        if hdr == state.hdr || !CLIP_INSTALLED.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let Some(shader) = shaders.get(&state.handle) else { return };
+        let bevy::shader::Source::Wesl(source) = &shader.source else { return };
+        let (from, to) = if hdr { (GAME_CLIP, GAME_HDR) } else { (GAME_HDR, GAME_CLIP) };
+        let source = unix_lines(source);
+        if source.contains(from) {
+            let patched = crate::fog::with_source(shader, source.replace(from, to));
+            let _ = shaders.insert(&state.handle, patched);
+            info!("lights: the tonemapping clip switched to {}", if hdr { "HDR" } else { "SDR" });
+        }
+        state.hdr = hdr;
         return;
     }
     let Some(shader) = shaders.get(&state.handle) else { return };
+    // With HDR output asked for, wait for the window's surface: only an fp16 surface shows
+    // light above white; on an SDR surface the clip stays, so the picture is the SDR one.
+    if crate::hdr::on() && !bevy::render::view::window::NVF_HDR_SURFACE_DECIDED.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     state.patched = true;
     if std::env::var("NVF_TONEMAP").is_ok_and(|v| v.eq_ignore_ascii_case("tony")) {
         info!("lights: NVF_TONEMAP=tony, the main view keeps Tony McMapface");
@@ -119,13 +152,15 @@ fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shade
         error!("{TONEMAPPING_SHARED}: Tony McMapface not found (Bevy changed?); the main view keeps it");
         return;
     }
-    let patched = crate::fog::with_source(shader, source.replace(BEVY_TONY, GAME_CLIP));
+    let hdr = bevy::render::view::window::NVF_HDR_SURFACE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed);
+    state.hdr = hdr;
+    let patched = crate::fog::with_source(shader, source.replace(BEVY_TONY, if hdr { GAME_HDR } else { GAME_CLIP }));
     let _ = shaders.insert(&state.handle, patched);
     CLIP_INSTALLED.store(true, std::sync::atomic::Ordering::Relaxed);
     if let Some(mut sky) = sky {
         sky.refresh();
     }
-    info!("lights: display values shown clipped (in Tony McMapface's place)");
+    info!("lights: display values shown {} (in Tony McMapface's place)", if hdr { "unclipped for HDR output" } else { "clipped" });
 }
 
 #[derive(Resource)]
@@ -145,12 +180,16 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     let bevy::shader::Source::Wesl(source) = &shader.source else {
         error!("{PBR_FUNCTIONS}: not WESL; surfaces keep Bevy's linear lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
+        reflection_gate_failed();
         return;
     };
     let source = unix_lines(source);
     let Some(patched) = display_patched(&source) else {
         error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
+        reflection_gate_failed();
         return;
     };
     // The sun visibility's hook goes into the same function, after these edits; it acts
@@ -172,13 +211,56 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
             (patched, false)
         }
     };
+    // The bounce light's hook goes in after the ambient occlusion's, whose names it uses; it
+    // too acts only under its shader def (rtgi_volume.rs).
+    let (patched, rtgi_hooked) = match crate::rtgi_volume::hook_patched(&patched) {
+        Some(hooked) => (hooked, true),
+        None => {
+            error!("{PBR_FUNCTIONS}: the RTGI volume hook's anchors not found (Bevy or an earlier patch changed?); no view gets a bounce light volume");
+            crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
+            (patched, false)
+        }
+    };
+    // The reflection gate last (lights/reflection_gate.rs): the view's environment map light
+    // reaches only fragments that opt in. Made whether or not reflections are on in this run;
+    // without the opt-in def its text compiles to what Bevy's did without a cube.
+    let (patched, gated) = match reflection_gate::gate_patched(&patched) {
+        Some(gated) => (gated, true),
+        None => (patched, false),
+    };
     let patched = crate::fog::with_source(shader, patched);
-    let _ = shaders.insert(&state.handle, patched);
+    // Nothing is published as installed unless the patched shader is in place: a gate
+    // reported installed over Bevy's ungated text would hand the cube to every lit shader.
+    if let Err(e) = shaders.insert(&state.handle, patched) {
+        error!("{PBR_FUNCTIONS}: the patched shader could not be stored ({e:?}); surfaces keep Bevy's lighting sum");
+        crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+        crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Failed);
+        reflection_gate_failed();
+        return;
+    }
     info!("lights: display-value lighting sum installed");
     if ao_hooked {
         crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Installed);
         info!("lights: ambient occlusion hook installed");
     }
+    if rtgi_hooked {
+        crate::rtgi_volume::set_hook_state(crate::rtgi_volume::HookState::Installed);
+        info!("lights: RTGI volume hook installed");
+    }
+    if gated {
+        nvf_assets::reflection_cube::set_gate_state(nvf_assets::reflection_cube::GateState::Installed);
+        info!("lights: reflection gate installed (the environment map light reaches opted-in fragments only)");
+    } else {
+        reflection_gate_failed();
+    }
+}
+
+/// The reflection gate could not be made: no reflection cube is ever attached in this run
+/// (nvf_assets reflection_cube.rs), since an ungated `pbr_functions` would give it to every
+/// lit shader.
+fn reflection_gate_failed() {
+    nvf_assets::reflection_cube::set_gate_state(nvf_assets::reflection_cube::GateState::Failed);
+    error!("{PBR_FUNCTIONS}: the reflection gate's anchors not found (Bevy changed?); reflections on authored materials stay off (no cube is attached)");
 }
 
 /// How a light's brightness moves by itself: LIGH DATA flags 3 "Flicker", 6 "Flicker
@@ -1128,5 +1210,116 @@ mod tests {
             assert_eq!(app.world().resource::<crate::sky::SkyState>().hour, hour);
             assert_eq!(instances(&mut app), 2);
         }
+    }
+
+    /// The vendored `pbr_functions` with every edit lights.rs makes before the gate.
+    fn chain_before_gate() -> String {
+        let path = format!("{}/../vendor/bevy_pbr/src/render/pbr_functions.wesl", env!("CARGO_MANIFEST_DIR"));
+        let source = unix_lines(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}")));
+        let display = display_patched(&source).expect("display patch applies");
+        let sun = crate::sun_visibility::hook_patched(&display).expect("sun hook applies");
+        let ao = crate::ssao_lighting::hook::hook_patched(&sun).expect("ambient occlusion hook applies");
+        crate::rtgi_volume::hook_patched(&ao).expect("RTGI volume hook applies")
+    }
+
+    /// The installer itself: the whole chain in its order stored and the bounce light's hook
+    /// (#3009) reported installed; with its anchor doubled (which fails no other edit), or
+    /// without the display sum, reported failed and not in the text. Run in a process of its
+    /// own, as it sets the process-wide states of three hooks.
+    #[test]
+    fn the_installer_reports_the_rtgi_hook() {
+        use crate::rtgi_volume::{hook::IMPORT_LINE, hook_state, HookState};
+        const CHILD: &str = "NVF_TEST_RTGI_INSTALLER_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["lights::tests::the_installer_reports_the_rtgi_hook", "--exact", "--nocapture", "--test-threads=1"])
+                .env(CHILD, "1")
+                .output()
+                .expect("start the test alone");
+            let text = String::from_utf8_lossy(&output.stdout);
+            assert!(output.status.success() && text.contains("1 passed"), "{text}\n{}", String::from_utf8_lossy(&output.stderr));
+            return;
+        }
+        let good = std::fs::read_to_string(format!("{}/../vendor/bevy_pbr/src/render/pbr_functions.wesl", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let doubled = unix_lines(&good).replacen(IMPORT_LINE, &IMPORT_LINE.repeat(2), 1);
+        assert_eq!(hook_state(), HookState::Pending);
+        for (source, installed) in [(&good, true), (&doubled, false), (&good, true), (&String::new(), false), (&good, true)] {
+            let mut world = World::new();
+            let mut shaders = Assets::<Shader>::default();
+            let handle = shaders.add(Shader::from_wesl(source.clone(), PBR_FUNCTIONS));
+            world.insert_resource(shaders);
+            world.insert_resource(FunctionsShader { handle: handle.clone(), patched: false });
+            world.run_system_cached(patch_display_sum).unwrap();
+            let bevy::shader::Source::Wesl(text) = &world.resource::<Assets<Shader>>().get(&handle).unwrap().source else { panic!("WESL") };
+            if installed {
+                assert_eq!(*text, reflection_gate::gate_patched(&chain_before_gate()).unwrap());
+            } else {
+                assert!(!text.contains("NVF_RTGI_VOLUME"));
+            }
+            assert_eq!(hook_state(), if installed { HookState::Installed } else { HookState::Failed });
+        }
+    }
+
+    /// The gate applies after the other edits, leaves no plain `@if(ENVIRONMENT_MAP)` block
+    /// (only the module's import), puts both blocks under the opt-in, keeps the braces
+    /// balanced, and removing exactly its added text gives the input back.
+    #[test]
+    fn reflection_gate_applies_after_the_other_edits_and_gates_both_blocks() {
+        use reflection_gate::{gate_patched, ungated_blocks, GATE_EDITS};
+        let input = chain_before_gate();
+        assert_eq!(ungated_blocks(&input).len(), 2, "Bevy's two environment blocks, before the gate");
+        let gated = gate_patched(&input).expect("the gate's anchors match");
+        assert!(ungated_blocks(&gated).is_empty());
+        assert_eq!(gated.matches(&format!("@if(ENVIRONMENT_MAP && {}) {{", nvf_assets::reflection_cube::REFLECT_DEF)).count(), 2, "the def the NIF pipelines set");
+        assert_eq!(gated.matches("    if specular_occlusion > 0.0 {\n").count(), 2, "both cube lookups skipped at weight 0, the reflection and the transmitted light");
+        assert_eq!(gated.matches("    var transmitted_environment_light: environment_map::EnvironmentMapLight;\n").count(), 1);
+        assert!(crate::sun_visibility::tests::balanced(&gated));
+        // Undo: each replacement back to its anchor, in order, gives the input.
+        let mut undone = gated.clone();
+        for (anchor, text) in GATE_EDITS {
+            let at = undone.find(text).expect("each replacement present once");
+            undone.replace_range(at..at + text.len(), anchor);
+        }
+        assert_eq!(undone, input);
+        // Applied twice it refuses (its anchors are gone): never doubled.
+        assert!(gate_patched(&gated).is_none());
+    }
+
+    /// A source with an extra plain environment block (a later Bevy's) is refused.
+    #[test]
+    fn reflection_gate_refuses_a_source_with_another_ungated_block() {
+        let input = chain_before_gate().replace("// Total light\n", "// Total light\n@if(ENVIRONMENT_MAP) {\n}\n");
+        assert!(reflection_gate::gate_patched(&input).is_none());
+    }
+
+    /// Issue #3121: on `FIRST_PERSON_DEPTH` shapes only, shadow-casting spot lights
+    /// (the player's flashlight) take the diffuse and specular scales in
+    /// `lights/display_shader.rs`, matching the Rust constants, while `!FIRST_PERSON_DEPTH`
+    /// keeps full strength and the full shader-patch chain stays balanced.
+    #[test]
+    fn first_person_flashlight_patch_scales_shadow_spots_only() {
+        let chained = reflection_gate::gate_patched(&chain_before_gate())
+            .expect("full pbr_functions patch chain applies");
+        assert!(crate::sun_visibility::tests::balanced(&chained));
+        let diffuse_lit = format!(
+            "let nvf_fp_scale = select(1.0, {:.2}, ((*light).flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u);",
+            FIRST_PERSON_FLASHLIGHT_DIFFUSE,
+        );
+        let spec_lit = format!(
+            "direct_light += light_contrib * (shadow * select(1.0, {:.2}, (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));",
+            FIRST_PERSON_FLASHLIGHT_SPECULAR,
+        );
+        assert_eq!(chained.matches(&diffuse_lit).count(), 1, "diffuse scale matches Rust constant once");
+        assert_eq!(chained.matches(&spec_lit).count(), 1, "specular scale matches Rust constant once");
+        assert_eq!(
+            chained.matches("@if(!FIRST_PERSON_DEPTH)\n    let nvf_fp_scale = 1.0;").count(),
+            1,
+            "world and third-person spot diffuse stay at 1.0",
+        );
+        assert_eq!(
+            chained.matches("@if(!FIRST_PERSON_DEPTH)\n        direct_light += light_contrib * shadow;").count(),
+            1,
+            "world and third-person spot specular stay unmodified",
+        );
     }
 }

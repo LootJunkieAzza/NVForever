@@ -18,6 +18,9 @@ use serde_json::Value as Json;
 const CELL: u32 = 0x200;
 const MARKER_BASE: u32 = 0x300;
 const MARKER: u32 = 0x301;
+const PLAIN_REF: u32 = 0x302;
+const BYSTANDER: u32 = 0x310;
+const BYSTANDER_REF: u32 = 0x311;
 const DAMAGE_RADS: u32 = 0x400;
 const DIRTY: u32 = 0x401;
 const WATER: u32 = 0x402;
@@ -50,15 +53,27 @@ fn plugin_bytes() -> Vec<u8> {
     let settings = [gmst(0x8A0, "fRadiationAccumulationRate", 1.0), gmst(0x8A1, "fSwimRadiationDamageMult", 0.1), gmst(0x8A2, "fWadeRadiationDamageMult", 0.1)].concat();
     let stat = record(b"STAT", 0, MARKER_BASE, &[sub(b"EDID", z("RadiationMarker"))]);
     // The marker: 10 rads a second within 500 units of (1000, 0, 0).
-    let pos = [f32b(1000.0), f32b(0.0), f32b(0.0), vec![0; 12]].concat();
-    let marker = record(b"REFR", 0, MARKER, &[sub(b"NAME", MARKER_BASE.to_le_bytes().to_vec()), sub(b"XRDS", f32b(500.0)), sub(b"XRAD", f32b(10.0)), sub(b"DATA", pos)]);
+    let pos_at = |x: f32| [f32b(x), f32b(0.0), f32b(0.0), vec![0; 12]].concat();
+    let marker = record(
+        b"REFR",
+        0,
+        MARKER,
+        &[sub(b"EDID", z("RadMarkerRef")), sub(b"NAME", MARKER_BASE.to_le_bytes().to_vec()), sub(b"XRDS", f32b(500.0)), sub(b"XRAD", f32b(10.0)), sub(b"DATA", pos_at(1000.0))],
+    );
+    // A plain static reference at (2000, 0, 0) with no authored XRAD or XRDS.
+    let plain = record(b"REFR", 0, PLAIN_REF, &[sub(b"EDID", z("PlainMarkerRef")), sub(b"NAME", MARKER_BASE.to_le_bytes().to_vec()), sub(b"DATA", pos_at(2000.0))]);
+    // A bystander NPC at (1700, 0, 0) for GetRadiationLevelAlt and Character Radiation.
+    let bystander_ref = record(b"ACHR", 0, BYSTANDER_REF, &[sub(b"EDID", z("BystanderRef")), sub(b"NAME", BYSTANDER.to_le_bytes().to_vec()), sub(b"DATA", pos_at(1700.0))]);
     let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let bystander = record(b"NPC_", 0, BYSTANDER, &[sub(b"EDID", z("Bystander")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let npcs = [player, bystander].concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &marker));
+    let refs = [marker, plain, bystander_ref].concat();
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
         top(b"GMST", &settings),
-        top(b"NPC_", &player),
+        top(b"NPC_", &npcs),
         top(b"MGEF", &mgef),
         top(b"SPEL", &spels),
         top(b"RADS", &stage),
@@ -184,4 +199,106 @@ fn enough_rads_bring_radiation_sickness() {
     }
     assert!(rads(&mut g) >= 200.0);
     assert!(g.extra.get(&P).is_some_and(|x| x.spells.contains(&FormId(SICK))));
+}
+
+fn eval_num(g: &mut Game, expr: &str) -> f64 {
+    let src = format!("Begin Function {{ }}\nSetFunctionValue ({expr})\nEnd\n");
+    match g.run_query(&src, Default::default()) {
+        Ok(fnv_script::vm::XVal::Num(n)) => n,
+        other => panic!("expected Num for `{expr}`, got {other:?} (events: {:?})", g.events),
+    }
+}
+
+fn run_stmt(g: &mut Game, stmt: &str) {
+    let src = format!("Begin Function {{ }}\n{stmt}\nEnd\n");
+    g.run_query(&src, Default::default()).unwrap_or_else(|e| panic!("stmt `{stmt}` failed: {e:?} (events: {:?})", g.events));
+}
+
+fn restore<'a>(f: &'a Fixture, snap: &fnv_game::game::GameSnapshot) -> Game<'a> {
+    let world = World::restore(&f.forms, &f.refs, &snap.sim).unwrap();
+    Game::restore(&f.data, world, GameConfig { strict: true, frame_seconds: 1.0, ..GameConfig::default() }, snap).unwrap()
+}
+
+#[test]
+fn set_radius_and_radiation_extra_data_drive_all_consumers_and_session_transfer() {
+    let f = fixture();
+    // Player at x = 1600 (600 units from MARKER at 1000, authored radius 500): outside.
+    // Bystander at x = 1700 (700 units from MARKER): outside.
+    let mut g = game(&f, 1600.0, 0.0);
+    g.world.get(FormId(BYSTANDER_REF)).unwrap();
+    set_actor_value_current(&mut g, FormId(BYSTANDER_REF), RAD_LEVEL, 0.0).unwrap();
+    set_actor_value_current(&mut g, FormId(BYSTANDER_REF), RAD_RESIST, 0.0).unwrap();
+    g.awareness.actors.insert(FormId(BYSTANDER_REF), Default::default());
+    g.tweaks.character_radiation = true;
+
+    g.tick();
+    assert_eq!(eval_num(&mut g, "RadMarkerRef.GetRadius"), 500.0);
+    assert_eq!(g.radiation().level, 0.0);
+    assert_eq!(get_radiation_level(&mut g, P), 0.0);
+    assert_eq!(eval_num(&mut g, "BystanderRef.GetRadiationLevelAlt"), 0.0);
+    assert_eq!(actor_value(&mut g, FormId(BYSTANDER_REF), RAD_LEVEL).unwrap(), 0.0);
+
+    // Expanding MARKER's XRDS radius to 1000 via SetRadius reaches player exposure,
+    // GetRadiationLevel, GetRadiationLevelAlt, Character Radiation, and radiation_markers_in.
+    run_stmt(&mut g, "RadMarkerRef.SetRadius 1000");
+    assert_eq!(eval_num(&mut g, "RadMarkerRef.GetRadius"), 1000.0);
+    assert_eq!(g.radiation_markers_in(FormId(CELL)).iter().map(|m| (m.id, m.level, m.radius)).collect::<Vec<_>>(), vec![(FormId(MARKER), 10.0, 1000.0)]);
+    g.tick();
+    assert!((g.radiation().level - 4.0).abs() < 1e-6, "{:?}", g.radiation());
+    assert!((get_radiation_level(&mut g, P) - 4.0).abs() < 1e-6);
+    assert!((eval_num(&mut g, "BystanderRef.GetRadiationLevelAlt") - 3.0).abs() < 1e-6);
+    assert!((actor_value(&mut g, FormId(BYSTANDER_REF), RAD_LEVEL).unwrap() - 3.0).abs() < 1e-6);
+
+    // Non-positive SetRadius disables the marker in all consumers while GetRadius keeps the signed value.
+    run_stmt(&mut g, "RadMarkerRef.SetRadius -50");
+    assert_eq!(eval_num(&mut g, "RadMarkerRef.GetRadius"), -50.0);
+    assert!(g.radiation_markers_in(FormId(CELL)).is_empty());
+    g.tick();
+    assert_eq!(g.radiation().level, 0.0);
+    assert_eq!(eval_num(&mut g, "BystanderRef.GetRadiationLevelAlt"), 0.0);
+
+    // PlainMarkerRef at x = 2000 has neither authored XRAD nor XRDS: SetRadiationExtraData
+    // alone yields 0 until SetRadius gives it a positive radius.
+    run_stmt(&mut g, "PlainMarkerRef.SetRadiationExtraData 20");
+    assert_eq!(eval_num(&mut g, "PlainMarkerRef.GetRadiationExtraData"), 20.0);
+    assert_eq!(eval_num(&mut g, "BystanderRef.GetRadiationLevelAlt"), 0.0);
+    assert!(g.radiation_markers_in(FormId(CELL)).is_empty());
+
+    run_stmt(&mut g, "PlainMarkerRef.SetRadius 600");
+    assert_eq!(eval_num(&mut g, "PlainMarkerRef.GetRadius"), 600.0);
+    // Bystander at x = 1700 is 300 of 600 units from PlainMarkerRef -> 20 * (1 - 300/600) = 10.
+    assert!((eval_num(&mut g, "BystanderRef.GetRadiationLevelAlt") - 10.0).abs() < 1e-6);
+    // Player at x = 1600 is 400 of 600 units from PlainMarkerRef -> 20 * (1 - 400/600) = 20/3.
+    g.tick();
+    assert!((g.radiation().level - (20.0 / 3.0)).abs() < 1e-5, "{:?}", g.radiation());
+    assert_eq!(g.radiation().marker, Some(FormId(PLAIN_REF)));
+    assert!((actor_value(&mut g, FormId(BYSTANDER_REF), RAD_LEVEL).unwrap() - 13.0).abs() < 1e-6);
+
+    // Fresh-run restore without put_session resets both SetRadius and SetRadiationExtraData to authored records.
+    let snap = g.snapshot();
+    let mut fresh = restore(&f, &snap);
+    assert_eq!(eval_num(&mut fresh, "RadMarkerRef.GetRadius"), 500.0);
+    assert_eq!(eval_num(&mut fresh, "PlainMarkerRef.GetRadius"), 0.0);
+    assert_eq!(eval_num(&mut fresh, "PlainMarkerRef.GetRadiationExtraData"), 0.0);
+    assert_eq!(eval_num(&mut fresh, "BystanderRef.GetRadiationLevelAlt"), 0.0);
+    fresh.tick();
+    assert_eq!(fresh.radiation().level, 0.0);
+
+    // Same-run save load transfers both SetRadius and SetRadiationExtraData through Game::take_session / put_session.
+    let session = g.take_session();
+    let mut same_run = restore(&f, &snap);
+    same_run.put_session(session);
+    assert_eq!(eval_num(&mut same_run, "RadMarkerRef.GetRadius"), -50.0);
+    assert_eq!(eval_num(&mut same_run, "PlainMarkerRef.GetRadius"), 600.0);
+    assert_eq!(eval_num(&mut same_run, "PlainMarkerRef.GetRadiationExtraData"), 20.0);
+    assert!((eval_num(&mut same_run, "BystanderRef.GetRadiationLevelAlt") - 10.0).abs() < 1e-6);
+    same_run.tick();
+    assert!((same_run.radiation().level - (20.0 / 3.0)).abs() < 1e-5);
+    assert_eq!(same_run.radiation().marker, Some(FormId(PLAIN_REF)));
+
+    // SetRadiationExtraData <= 0 removes the synthetic marker again.
+    run_stmt(&mut same_run, "PlainMarkerRef.SetRadiationExtraData 0");
+    assert!(same_run.radiation_markers_in(FormId(CELL)).is_empty());
+    same_run.tick();
+    assert_eq!(same_run.radiation().level, 0.0);
 }

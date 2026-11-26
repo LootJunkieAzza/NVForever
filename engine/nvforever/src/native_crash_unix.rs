@@ -171,27 +171,17 @@ pub fn install() {
     RUN_LOG_FD.store(fd, Ordering::SeqCst);
     // The home folder, for the redaction: read once, here, where allocating is allowed.
     if let Ok(home) = std::env::var("HOME") {
-        let home = home.trim_end_matches('/');
-        // `/` or a two-letter folder would hide every path: not a home to hide.
-        if home.len() > 3 {
+        // The same list `crash::redact` and the reports hide (`crash::name_folders`, #3152):
+        // the home folder, then where the desktop mounts removable drives under the
+        // player's name (`/run/media/alex/...`, `/media/alex/...`); a module path from a
+        // game installed there would otherwise name the player in a file that says it may
+        // be uploaded. None for `/` or a two-letter folder, which would hide every path.
+        let folders = crate::crash::name_folders(&home, true);
+        if let Some(home) = folders.first() {
             keep(&HOME_BUF, &HOME_LEN, home.as_bytes());
-            // The desktop mounts removable drives under the player's name too
-            // (`/run/media/alex/...`, `/media/alex/...`), and a module path from a game
-            // installed there would otherwise name the player in a file that says it may be
-            // uploaded. The user name is the home folder's last segment.
-            let user = home.rsplit('/').next().unwrap_or("");
-            if !user.is_empty() {
-                for (i, root) in ["/run/media/", "/media/"].iter().enumerate() {
-                    let mut bytes = [0u8; 64];
-                    let tail = user.as_bytes();
-                    let head = root.as_bytes();
-                    if head.len() + tail.len() <= bytes.len() {
-                        bytes[..head.len()].copy_from_slice(head);
-                        bytes[head.len()..head.len() + tail.len()].copy_from_slice(tail);
-                        keep(&MEDIA_BUF[i], &MEDIA_LEN[i], &bytes[..head.len() + tail.len()]);
-                    }
-                }
-            }
+        }
+        for (i, mount) in folders.iter().skip(1).take(MEDIA_BUF.len()).enumerate() {
+            keep(&MEDIA_BUF[i], &MEDIA_LEN[i], mount.as_bytes());
         }
     }
     let maps = alloc(MAPS_BYTES);

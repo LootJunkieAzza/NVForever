@@ -127,7 +127,7 @@ their reach and field of view.
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
 | IsInCombat, GetCombatTarget, GetIsAlerted, GetCurrentAIProcedure / Package | as alert.md §6: a fight reads GetIsAlerted 0 (SetAlert's alone); GetCombatTarget keeps the target it fought while it is out of sight, through Lost; Lost reads procedure COMBAT 13 and package COMBAT 5 (#2121) | |
 | StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
-| GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
+| GetFriendHit | the friendly hits of the target on the actor that still count (§10.1); parameterless CTDA conditions (index 288, empty CTDA params in `FalloutNV.esm`) read `Game::condition_target` (or `0` when absent), while script calls still require an explicit actor argument | [documented: GECK wiki GetFriendHit, Friendly Fire]; parameterless CTDA target binding: [hypothesis] |
 | GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |
 | SetIgnoreFriendlyHits | its friends' and allies' hits never turn it (§10.1) | [hypothesis: the name] |
 
@@ -1142,8 +1142,9 @@ would attack the player, or it is fighting the player) shows no prompt at all
 (`Action::Hostile`, `Targeted::prompted`; issue #2536) [observed: a player's report that
 the original shows none over radscorpions and hostile humans, where NVForever wrote the
 name each time the crosshair crossed one; not captured]. Until #2536 it showed its name.
-It stays the target, so E does nothing (`activate 0x… …: nothing to do (hostile)`), and
-the crosshair keeps its plain picture. A creature shows Talk only when it has a GREETING
+It stays the target, so E does nothing (`activate 0x… …: nothing to do (hostile)`) unless
+the player's perks offer a choice on it (Robotics Expert's, #3479: perk-activation.md §2),
+and the crosshair keeps its plain picture. A creature shows Talk only when it has a GREETING
 line it can say now (`Game::has_greeting`), else only its name; other NPCs show Talk
 [hypothesis: the game offers Talk on creatures with dialogue, Rex and ED-E, and not on
 animals; not captured]. A name-only target does nothing on E (`activate 0x… …: nothing

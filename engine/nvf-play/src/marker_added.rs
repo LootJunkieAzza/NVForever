@@ -24,8 +24,8 @@ const SECONDS: f32 = 3.0;
 /// The message for a marker named `name`, its name included when `named`.
 pub fn line(name: Option<&str>, named: bool) -> String {
     match name.filter(|n| named && !n.is_empty()) {
-        Some(n) => format!("Map marker added: {n}"),
-        None => "Map marker added".to_string(),
+        Some(n) => fnv_util::words::trf("Map marker added: {name}", &[("name", &n)]),
+        None => fnv_util::words::tr("Map marker added").to_string(),
     }
 }
 

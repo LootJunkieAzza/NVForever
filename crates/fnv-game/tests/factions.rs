@@ -331,7 +331,7 @@ fn a_shared_ally_faction_wins_over_an_enemy_one() {
     assert_eq!(call(&mut g, GET_FACTION_RELATION, BANDIT_REF, &[form(WATCHMAN_REF)]), 2.0);
     assert_eq!(call(&mut g, GET_FACTION_RELATION, WATCHMAN_REF, &[form(BANDIT_REF)]), 2.0);
     assert!(!g.would_attack(bandit, watchman) && !g.would_attack(watchman, bandit));
-    // A friend pair wins as well, and before an ally one [hypothesis].
+    // A friend pair wins as well, and before an ally one (see crates/fnv-game/src/functions/actor.rs, `faction_relation`).
     g.forms.faction_reactions.entry(FormId(RAIDERS)).or_default().insert(FormId(IDLERS), 3);
     assert_eq!(call(&mut g, GET_FACTION_RELATION, BANDIT_REF, &[form(WATCHMAN_REF)]), 3.0);
     // The player's crime enemies still come first.
@@ -642,8 +642,8 @@ fn a_faction_friend_that_helps_friends_joins_a_fight_against_the_player() {
 
 #[test]
 fn a_faction_ally_of_the_player_takes_up_the_players_fight() {
-    // #2794 (combat-ai.md §10.3) [hypothesis: Assistance counts the player as an ally to
-    // help]. The rats are made allies of the player's faction (SetAlly); the bandit (a
+    // #2794 (see docs/design/combat-ai.md §10.3). The rats are made allies of the
+    // player's faction (SetAlly); the bandit (a
     // raider) attacks the player. The helper (Helps Allies) detects the player and joins;
     // the coward (Helps Allies, Cowardly) stays out; neither while the rats are neutral to
     // the player. With Helps Nobody the helper stays out; it never fights its own ally (a
@@ -1024,6 +1024,86 @@ fn a_teammate_reacts_as_if_in_the_player_faction() {
 }
 
 #[test]
+fn a_teammate_takes_up_only_the_fights_within_its_reach() {
+    // #3456: a foe of the player's in another space, or in the same one but beyond
+    // `ALARM_RADIUS` of both the teammate and the player, gives the teammate no alarm; a
+    // near one does, near the teammate or near the player only.
+    let f = fixture();
+    let (loafer, own, player) = (FormId(LOAFER_REF), FormId(OWN_REF), FormId::PLAYER_REF);
+    let set_up = |g: &mut Game, foe_cell: FormId, foe_at: [f32; 3], mate_at: [f32; 3]| {
+        g.extra.entry(loafer).or_default().teammate = true;
+        assert!(g.attacked_by(own, player));
+        fighting(g, OWN_REF, PLAYER);
+        g.detection.pairs.insert((loafer, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+        let p = g.world.get(player).unwrap();
+        (p.cell, p.pos) = (Some(FormId(CELL)), [0.0; 3]);
+        g.world.get(loafer).unwrap().pos = mate_at;
+        let s = g.world.get(own).unwrap();
+        (s.cell, s.pos) = (Some(foe_cell), foe_at);
+    };
+    let alarmed = |g: &Game| g.awareness.get(loafer).is_some_and(|a| a.alarms.iter().any(|x| x.owner == own && x.cause == Cause::Ally));
+    // In another space (a cell of no known worldspace is a space of its own), right beside it.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(0x00BA_DCE1), [100.0, 0.0, 0.0], [0.0; 3]);
+    assert_eq!(g.teammates_assist(), 0, "another space");
+    assert!(!alarmed(&g));
+    // In the same space, far from both.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(CELL), [50_000.0, 0.0, 0.0], [0.0; 3]);
+    assert_eq!(g.teammates_assist(), 0, "far away");
+    assert!(!alarmed(&g));
+    // Near the teammate and the player.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(CELL), [500.0, 0.0, 0.0], [0.0; 3]);
+    assert_eq!(g.teammates_assist(), 1, "near");
+    assert!(alarmed(&g));
+    // Near the player, the teammate left behind far off in the same space.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(CELL), [500.0, 0.0, 0.0], [30_000.0, 0.0, 0.0]);
+    assert_eq!(g.teammates_assist(), 1, "near the player");
+    // Near the teammate, the player far off.
+    let mut g = game(&f);
+    set_up(&mut g, FormId(CELL), [30_500.0, 0.0, 0.0], [30_000.0, 0.0, 0.0]);
+    assert_eq!(g.teammates_assist(), 1, "near the teammate");
+}
+
+#[test]
+fn a_teammate_does_not_go_for_a_foe_left_behind_for_good() {
+    // #3390: the foe fighting the player is measured no more (its cell unloaded, here within
+    // `ALARM_RADIUS` in the same space). It loses the player and calms down on the timers,
+    // and with it the alarms that send the teammate after it end.
+    let f = fixture();
+    let mut g = game(&f);
+    let (loafer, own, player) = (FormId(LOAFER_REF), FormId(OWN_REF), FormId::PLAYER_REF);
+    g.extra.entry(loafer).or_default().teammate = true;
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, PLAYER);
+    g.detection.measures_player = true;
+    let p = g.world.get(player).unwrap();
+    (p.cell, p.pos) = (Some(FormId(CELL)), [0.0; 3]);
+    g.world.get(loafer).unwrap().pos = [0.0; 3];
+    let s = g.world.get(own).unwrap();
+    (s.cell, s.pos) = (Some(FormId(CELL)), [9000.0, 0.0, 0.0]);
+    let round = |g: &mut Game, dt: f64| {
+        g.time += dt;
+        g.detection.record(loafer, player, Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time);
+        g.detection.forget_older_than(g.time - 1.0);
+        g.lose_unmeasured(&[loafer].into_iter().collect());
+        let given = g.teammates_assist();
+        g.settle_awareness();
+        given
+    };
+    assert_eq!(round(&mut g, 0.0), 1, "the fight is the teammate's too");
+    for _ in 0..80 {
+        round(&mut g, 1.0);
+    }
+    assert_eq!(g.awareness.state(own), State::Normal);
+    assert_eq!(g.awareness.state(loafer), State::Normal);
+    assert!(g.awareness.get(loafer).is_none_or(|a| a.search_alarm().is_none()), "nothing to head for");
+    assert_eq!(round(&mut g, 1.0), 0);
+}
+
+#[test]
 fn an_escort_joins_its_charges_fights() {
     // packages.md §3.1 [documented: GECK wiki Defensive Combat, "if the target is
     // attacked, the actor will join into the combat"]. The helper (a rat, no enemy of the
@@ -1048,7 +1128,7 @@ fn an_escort_joins_its_charges_fights() {
     assert!(g.awareness.get(escort).is_some_and(|a| a.alarms.iter().any(|x| x.owner == bandit && x.cause == Cause::Ally)));
     assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::Assists { helper, victim, attacker } if *helper == escort && *victim == player && *attacker == bandit)));
     assert_eq!(g.escorts_assist(), 0, "once");
-    // A fight its charge starts is not joined until the other fights back [hypothesis]:
+    // A fight its charge starts is not joined until the other fights back (see crates/fnv-game/src/combat.rs):
     // the player fighting the watchman (which does not fight back) brings nothing.
     fighting(&mut g, PLAYER, WATCHMAN_REF);
     assert_eq!(g.escorts_assist(), 0);
@@ -1465,6 +1545,51 @@ fn nobody_fights_or_detects_a_ghost_and_a_ghosted_player_is_still_hurt() {
     assert!(g.would_attack(own, player));
     let (det, _) = g.detect(&s, own, player, &seen);
     assert_ne!(det.band, Band::Hidden, "{det:?}");
+}
+
+/// #3479: a robot the player shut down (SetUnconscious 1) detects no one, as Old World
+/// Blues' X-13 test needs; the sight itself stays measured.
+#[test]
+fn an_unconscious_actor_detects_no_one() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, player) = (FormId(OWN_REF), FormId::PLAYER_REF);
+    let s = fnv_game::detection::Settings::default();
+    let seen = fnv_game::detection::Situation { distance: 100.0, line_of_sight: true, in_view: true, light: 100.0, ..Default::default() };
+    assert_eq!(g.detect(&s, own, player, &seen).0.band, Band::Detected);
+    g.extra.entry(own).or_default().unconscious = true;
+    let det = g.detect(&s, own, player, &seen).0;
+    assert_eq!((det.band, det.seen), (Band::Hidden, true), "{det:?}");
+    g.extra.entry(own).or_default().unconscious = false;
+    assert_eq!(g.detect(&s, own, player, &seen).0.band, Band::Detected);
+}
+
+/// SetUnconscious 1 and GetDetected in one tick, with no measurement between: what the
+/// actor last detected reads Hidden at once; what others detect does not change; awake
+/// again (SetUnconscious 0), the next measurement decides.
+#[test]
+fn set_unconscious_hides_what_the_actor_last_detected() {
+    const GET_DETECTED: u16 = 0x102D;
+    const SET_UNCONSCIOUS: u16 = 0x10F1;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, player) = (FormId(OWN_REF), FormId::PLAYER_REF);
+    let s = fnv_game::detection::Settings::default();
+    let seen = fnv_game::detection::Situation { distance: 100.0, line_of_sight: true, in_view: true, light: 100.0, ..Default::default() };
+    g.detect(&s, own, player, &seen);
+    let other = g.detect(&s, player, own, &seen).0;
+    let detected = |g: &mut Game| call(g, GET_DETECTED, OWN_REF, &[form(player.0)]);
+    let set = |g: &mut Game, on: f64| call(g, SET_UNCONSCIOUS, OWN_REF, &[ArgValue::Value(Value::Num(on))]);
+    assert_eq!(detected(&mut g), 1.0);
+    set(&mut g, 1.0);
+    assert_eq!(detected(&mut g), 0.0);
+    let pair = *g.detection.get(own, player).unwrap();
+    assert!(pair.band == Band::Hidden && pair.value <= s.noticed_min && pair.seen && pair.clear, "{pair:?}");
+    assert_eq!(g.detection.get(player, own), Some(&other), "only its own detections");
+    set(&mut g, 0.0);
+    assert_eq!(detected(&mut g), 0.0, "until it is measured again");
+    g.detect(&s, own, player, &seen);
+    assert_eq!(detected(&mut g), 1.0);
 }
 
 #[test]
@@ -1982,7 +2107,7 @@ fn a_very_aggressive_actor_leaves_a_neutral_outside_its_aggro_radius_alone() {
     // #2547: HELIOS One's guard dogs (Very Aggressive, aggro radius 2,000) went for the
     // NCR troopers 2,800 units off. A Very Aggressive actor attacks a Neutral on sight
     // [documented: GetFactionCombatReaction] only inside its aggro radius when it has one
-    // [hypothesis]; once fighting it follows the target anywhere.
+    // (see crates/fnv-game/src/combat.rs); once fighting it follows the target anywhere.
     let f = fixture();
     let mut g = game(&f);
     let (hound, ganger) = (FormId(HOUND_REF), FormId(GANGER_B_REF));
@@ -2087,4 +2212,349 @@ fn an_alarm_about_a_disguised_player_turns_nobody_the_disguise_fools() {
     g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
     assert_eq!(g.raise_alarms(&near), 0, "a fight");
     assert!(!g.would_attack(helper, player), "no grudge");
+}
+
+#[test]
+fn set_combat_disabled_blocks_combat_entry_allows_being_attacked_and_resets_on_load() {
+    use fnv_game::awareness::Change;
+    use fnv_game::game::RunCtx;
+    use fnv_script::vm::XVal;
+
+    let f = fixture();
+    let mut g = game(&f);
+    let (bandit, own, helper, player) = (FormId(BANDIT_REF), FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    let eval_on = |g: &mut Game, actor: FormId, expr: &str| -> f64 {
+        let src = format!("Begin Function {{ }}\nSetFunctionValue ({expr})\nEnd\n");
+        let ctx = RunCtx { self_ref: Some(actor), ..Default::default() };
+        match g.run_query(&src, ctx) {
+            Ok(XVal::Num(n)) => n,
+            other => panic!("expected Num for `{expr}`, got {other:?} (events: {:?})", g.events),
+        }
+    };
+    let run_on = |g: &mut Game, actor: FormId, stmt: &str| {
+        let src = format!("Begin Function {{ }}\n{stmt}\nEnd\n");
+        let ctx = RunCtx { self_ref: Some(actor), ..Default::default() };
+        g.run_query(&src, ctx).unwrap_or_else(|e| panic!("stmt `{stmt}` failed: {e:?} (events: {:?})", g.events));
+    };
+
+    // Baseline: Bandit is hostile to player and enters Combat via StartCombat.
+    assert_eq!(eval_on(&mut g, bandit, "GetCombatDisabled"), 0.0);
+    assert!(g.would_attack(bandit, player));
+    g.start_combat(bandit, player);
+    assert_eq!(g.awareness.state(bandit), State::Combat);
+
+    // SetCombatDisabled 1 leaves IsInCombat == 1 on the same frame (t0) and ends active
+    // combat on the next AI awareness tick (`Game::settle_awareness`), then blocks new
+    // combat entry via StartCombat [observed: `core_20_set_combat_disabled_stops_combat`,
+    // `w4d_07_setcombatdisabled_new_combat`, and `w4h_05_set_combat_disabled_multitick`
+    // (PR #3803 / #3802)].
+    g.awareness.changes.clear();
+    run_on(&mut g, bandit, "SetCombatDisabled 1");
+    assert_eq!(eval_on(&mut g, bandit, "GetCombatDisabled"), 1.0);
+    assert_eq!(g.awareness.state(bandit), State::Combat);
+    assert_eq!(eval_on(&mut g, bandit, "IsInCombat"), 1.0, "same-frame t0 keeps IsInCombat == 1");
+    assert!(g.present(bandit), "bandit must be present so settle_awareness exits via combat_disabled");
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(bandit), State::Normal, "AI awareness tick ends active combat");
+    assert_eq!(eval_on(&mut g, bandit, "IsInCombat"), 0.0);
+    assert_eq!(eval_on(&mut g, bandit, "GetCombatDisabled"), 1.0);
+    assert!(
+        g.awareness.changes.iter().any(|c| c.actor == bandit && c.from == State::Combat && c.to == State::Normal),
+        "combat_disabled tick must emit Combat -> Normal transition: {:?}",
+        g.awareness.changes
+    );
+    assert!(!g.would_attack(bandit, player));
+    assert!(!g.hurt_by(bandit, player, [0.0; 3]));
+    g.start_combat(bandit, player);
+    assert_eq!(g.awareness.state(bandit), State::Normal);
+    assert_eq!(eval_on(&mut g, bandit, "IsInCombat"), 0.0);
+    g.observe_threat(bandit, player, &Detection { value: 100.0, band: Band::Detected, ..Default::default() }, [0.0; 3]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(bandit), State::Normal);
+    assert_eq!(eval_on(&mut g, bandit, "IsInCombat"), 0.0);
+
+    // Other actors can still attack a combat-disabled actor (documented: "though they can still be attacked").
+    g.start_combat(own, bandit);
+    assert_eq!(g.awareness.state(own), State::Combat);
+    assert_eq!(g.combat_target_of(own), Some(bandit));
+    assert!(g.would_attack(own, bandit));
+    assert_eq!(g.awareness.state(bandit), State::Normal);
+
+    // Ally combat alarms do not recruit a combat-disabled helper.
+    only_near(&mut g, &[OWN_REF, HELPER_REF]);
+    call(&mut g, SET_PC_ENEMY_OF_FACTION, PLAYER, &[form(RATS), num(1.0)]);
+    run_on(&mut g, helper, "SetCombatDisabled 1");
+    let now = g.time;
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [500.0, 0.0, 0.0]), (player, [600.0, 0.0, 0.0])].into_iter().collect();
+    g.awareness.changes.clear();
+    fighting(&mut g, OWN_REF, PLAYER);
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([600.0, 0.0, 0.0]), value: Some(5.0) });
+    assert_eq!(g.raise_alarms(&near), 0, "combat-disabled helper ignores ally alarm");
+    assert_eq!(g.awareness.state(helper), State::Normal);
+
+    // SetCombatDisabled 0 re-enables combat.
+    run_on(&mut g, bandit, "SetCombatDisabled 0");
+    assert_eq!(eval_on(&mut g, bandit, "GetCombatDisabled"), 0.0);
+    assert!(g.would_attack(bandit, player));
+    g.start_combat(bandit, player);
+    assert_eq!(g.awareness.state(bandit), State::Combat);
+
+    // Save/load resets SetCombatDisabled on BOTH fresh-run restore and same-run load (documented:
+    // "automatically reset (combat is re-enabled) every time a saved game is loaded").
+    run_on(&mut g, bandit, "SetCombatDisabled 1");
+    assert_eq!(eval_on(&mut g, bandit, "GetCombatDisabled"), 1.0);
+    let snap = g.snapshot();
+    let session = g.take_session();
+
+    let mut fresh = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), GameConfig { strict: true, ..GameConfig::default() }, &snap).unwrap();
+    assert_eq!(eval_on(&mut fresh, bandit, "GetCombatDisabled"), 0.0);
+    assert!(fresh.would_attack(bandit, player));
+
+    let mut same_run = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), GameConfig { strict: true, ..GameConfig::default() }, &snap).unwrap();
+    same_run.put_session(session);
+    assert_eq!(eval_on(&mut same_run, bandit, "GetCombatDisabled"), 0.0);
+    assert!(same_run.would_attack(bandit, player));
+}
+
+#[test]
+fn neutral_bystanders_outside_aggro_radius_stay_out_when_enemy_attacks_player() {
+    // #3459: a Neutral actor (bystander trooper, Aggressive) watches a Very Aggressive
+    // actor with an aggro radius of 2,000 (HELIOS One's CrDogNCRAggressive) fight the
+    // player (its Enemy). Outside the dog's 2,000-unit aggro radius:
+    // 1. Being in Combat with the player does not drop `neutral_out_of_reach` for the
+    //    unrelated Neutral bystander (the dog still leaves the trooper alone).
+    // 2. `join_against_dangers` respects `neutral_out_of_reach`, so the trooper does not
+    //    take a grudge against the dog or alarm its own faction.
+    // Inside the 2,000-unit aggro radius, the danger is real and the bystander still joins.
+    let mut f = fixture();
+    // Make HOUNDS an Enemy of PLAYER_FACTION, matching CrDogNCRAggressive's
+    // GeneralHostileToPlayerFaction -> PlayerFaction Enemy.
+    f.data.faction_reactions.entry(FormId(HOUNDS)).or_default().push((FormId(PLAYER_FACTION), 1));
+    let mut g = game(&f);
+    // `trooper` (HELPER_REF, RATS) shares no faction with `hound` (HOUNDS), `mate`
+    // (IDLERS, player's teammate), or `player` (PLAYER_FACTION): Neutral to all three.
+    let (hound, trooper, mate, player) = (FormId(HOUND_REF), FormId(HELPER_REF), FormId(LOAFER_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[HOUND_REF, HELPER_REF, LOAFER_REF]);
+    // Give the bystander trooper Aggressive, Foolhardy, Helps Friends and Allies
+    // (matching HeliosExtLvlNCRTrooperGun), so `stays_out` cannot mask the aggro-radius check.
+    const SET_AV: u16 = 0x100F;
+    call(&mut g, SET_AV, HELPER_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(Value::Num(1.0))]);
+    call(&mut g, SET_AV, HELPER_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(4.0))]);
+    call(&mut g, SET_AV, HELPER_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(2.0))]);
+    g.extra.entry(mate).or_default().teammate = true;
+    g.world.get(hound).unwrap().pos = [0.0, 0.0, 0.0];
+    g.world.get(player).unwrap().pos = [1200.0, 0.0, 0.0];
+    g.world.get(mate).unwrap().pos = [1100.0, 0.0, 0.0];
+    g.world.get(trooper).unwrap().pos = [2123.0, 0.0, 0.0];
+
+    let seen = Detection { value: 20.0, band: Band::Detected, ..Default::default() };
+    // Hound enters Combat against the player (its Enemy).
+    g.observe_threat(hound, player, &seen, [1200.0, 0.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(hound), State::Combat);
+    assert_eq!(g.combat_target_of(hound), Some(player));
+
+    // While fighting the player, the hound still leaves the Neutral trooper at 2,123 units
+    // (outside its 2,000-unit aggro radius) off its target list.
+    g.observe_threat(hound, trooper, &seen, [2123.0, 0.0, 0.0]);
+    assert!(
+        g.awareness.get(hound).is_some_and(|a| !a.targets.contains_key(&trooper)),
+        "combat with the player must not lift the aggro-radius bound for an unrelated Neutral bystander"
+    );
+
+    // The trooper detects the hound fighting the player (and the companion defending) at
+    // 2,123 units: outside the hound's aggro radius, the trooper stays out and sends no
+    // alarm about the hound.
+    g.detection.pairs.insert((trooper, hound), (seen, g.time));
+    g.detection.pairs.insert((trooper, player), (seen, g.time));
+    g.detection.pairs.insert((trooper, mate), (seen, g.time));
+    fighting(&mut g, LOAFER_REF, HOUND_REF);
+    assert_eq!(g.call_allies(), 0, "bystander outside aggro radius must not join against the hound");
+    assert!(!g.provocations.holds(trooper, hound));
+    assert!(!g.would_attack(trooper, hound));
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(trooper), State::Normal);
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> =
+        [(hound, [0.0, 0.0, 0.0]), (trooper, [2123.0, 0.0, 0.0]), (player, [1200.0, 0.0, 0.0])].into_iter().collect();
+    g.awareness.changes.clear();
+    assert_eq!(g.raise_alarms(&near), 0);
+
+    // Control: once the bystander stands inside the hound's 2,000-unit aggro radius
+    // (as Sunny Smiles beside geckos), `join_against_dangers` still lets it join at once.
+    g.world.get(trooper).unwrap().pos = [900.0, 0.0, 0.0];
+    assert_eq!(g.call_allies(), 1, "bystander inside aggro radius joins against the danger");
+    assert!(g.provocations.holds(trooper, hound));
+}
+
+#[test]
+fn shared_faction_bridge_does_not_relay_assist_fight_to_neutral_third_party_faction() {
+    // #3459: HELIOS One topology — `hound` (CREA in HOUNDS, Enemy of player) alarms
+    // `bridge` (CREA in both HOUNDS and RATS, Neutral to player, Aggressive, Helps Allies),
+    // while `trooper` (NPC in RATS only, Neutral to both hound and player, Helps Allies)
+    // stands nearby. `bridge` takes up `hound`'s fight against the player (one hop, matching
+    // #2927), but when `bridge` enters Combat against the player (or the player's teammate),
+    // neither `raise_alarms` nor `call_allies` relays that assist fight to `trooper`.
+    // Meanwhile, a same-pack creature comrade (`pack_mate`, also in HOUNDS) and normal human
+    // NPC assist relays (OWN_REF assisting BANDIT_REF) still relay normally.
+    use fnv_game::awareness::Change;
+    let mut f = fixture();
+    f.data.faction_reactions.entry(FormId(HOUNDS)).or_default().push((FormId(HOUNDS), 2));
+    let mut g = game(&f);
+    let (hound, bridge, pack_mate, trooper, mate, player) = (FormId(HOUND_REF), FormId(LURKER_REF), FormId(COWARD_REF), FormId(HELPER_REF), FormId(LOAFER_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[HOUND_REF, LURKER_REF, COWARD_REF, HELPER_REF, LOAFER_REF]);
+    // `hound` is a CREA in HOUNDS + RAIDERS (Enemy of player, Neutral to RATS), matching
+    // CrDogNCRAggressive; `bridge` (LURKER_REF) is a CREA in HOUNDS + RATS (Ally of hound,
+    // Ally of trooper, Neutral to player, Aggressive, Brave, Helps Friends and Allies),
+    // matching CrDogNCRFollow; `pack_mate` (COWARD_REF) is a CREA in HOUNDS placed out of
+    // hound's alarm range so it only hears `bridge`.
+    const SET_AV: u16 = 0x100F;
+    call(&mut g, ADD_TO_FACTION, HOUND_REF, &[form(RAIDERS), num(0.0)]);
+    call(&mut g, ADD_TO_FACTION, LURKER_REF, &[form(HOUNDS), num(0.0)]);
+    call(&mut g, SET_AV, LURKER_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(Value::Num(1.0))]);
+    call(&mut g, SET_AV, LURKER_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(3.0))]);
+    call(&mut g, SET_AV, LURKER_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(2.0))]);
+    call(&mut g, ADD_TO_FACTION, COWARD_REF, &[form(HOUNDS), num(0.0)]);
+    call(&mut g, SET_AV, COWARD_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(Value::Num(1.0))]);
+    call(&mut g, SET_AV, COWARD_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(3.0))]);
+    call(&mut g, SET_AV, COWARD_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(2.0))]);
+    call(&mut g, SET_AV, HELPER_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(Value::Num(1.0))]);
+    call(&mut g, SET_AV, HELPER_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(4.0))]);
+    call(&mut g, SET_AV, HELPER_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(2.0))]);
+    g.extra.entry(mate).or_default().teammate = true;
+    g.world.get(hound).unwrap().pos = [0.0, 0.0, 0.0];
+    g.world.get(bridge).unwrap().pos = [6000.0, 0.0, 0.0];
+    g.world.get(pack_mate).unwrap().pos = [10000.0, 0.0, 0.0];
+    g.world.get(trooper).unwrap().pos = [6200.0, 0.0, 0.0];
+    g.world.get(player).unwrap().pos = [5600.0, 0.0, 0.0];
+    g.world.get(mate).unwrap().pos = [5650.0, 0.0, 0.0];
+
+    assert!(!g.would_attack(bridge, player) && !g.would_attack(trooper, player) && !g.would_attack(pack_mate, player));
+    assert!(!g.would_attack(trooper, hound));
+
+    // Step 1: hound enters Combat against the player and alarms its HOUNDS ally `bridge`
+    // (within ALARM_RADIUS), not `trooper` (Neutral) and not `pack_mate` (out of hound's
+    // 9,216-unit alarm radius).
+    let seen = Detection { value: 85.0, band: Band::Detected, ..Default::default() };
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> =
+        [(hound, [0.0, 0.0, 0.0]), (bridge, [6000.0, 0.0, 0.0]), (pack_mate, [10000.0, 0.0, 0.0]), (trooper, [6200.0, 0.0, 0.0]), (player, [5600.0, 0.0, 0.0]), (mate, [5650.0, 0.0, 0.0])].into_iter().collect();
+    g.observe_threat(hound, player, &seen, [5600.0, 0.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(hound), State::Combat);
+    assert_eq!(g.raise_alarms(&near), 1, "hound alarms bridge (shared HOUNDS)");
+    assert!(g.would_attack(bridge, player));
+    assert!(!g.would_attack(trooper, player), "trooper is Neutral to hound and must not be alarmed");
+    assert!(!g.would_attack(pack_mate, player), "pack_mate is beyond hound's alarm radius");
+
+    // Step 2: bridge later detects the player and enters Combat (`Alert -> Combat`, cause None).
+    g.awareness.changes.clear();
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(bridge), State::Alert);
+    g.awareness.changes.clear();
+    g.observe_threat(bridge, player, &seen, [5600.0, 0.0, 0.0]);
+    g.observe_threat(bridge, mate, &seen, [5650.0, 0.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(bridge), State::Combat);
+
+    // Bridge's hostility reason names the assist grudge ("helps ... against the player")
+    // rather than claiming it was attacked, both for the player and for the teammate.
+    let why_player = g.hostility_text(bridge, player).expect("bridge hostile to player");
+    assert!(why_player.contains("helps") && why_player.contains("against the player"), "unexpected hostility text: {why_player}");
+    let why_mate = g.hostility_text(bridge, mate).expect("bridge hostile to teammate");
+    assert!(why_mate.contains("helps") && why_mate.contains("against the player"), "unexpected teammate hostility text: {why_mate}");
+
+    // Step 3: bridge relays to same-pack `pack_mate` (comrade of `hound`), but must NOT
+    // relay the alarm across factions to its RATS ally `trooper` (Neutral to `hound`).
+    assert_eq!(g.raise_alarms(&near), 1, "bridge relays to same-pack comrade only, not neutral third-party faction");
+    assert!(g.would_attack(pack_mate, player), "same-pack creature comrade still receives relay");
+    assert!(!g.would_attack(trooper, player));
+    assert!(!g.would_attack(trooper, mate));
+
+    // Step 4: `trooper` directly watching `bridge` fight the player (and teammate, even
+    // after teammate hits `bridge` in self-defence) must NOT join via `call_allies`.
+    g.hurt_by(bridge, mate, [650.0, 0.0, 0.0]);
+    g.detection.pairs.insert((trooper, bridge), (seen, g.time));
+    assert_eq!(g.call_allies(), 0, "trooper must not transitively join bridge's assisted fight");
+    assert!(!g.would_attack(trooper, player));
+    assert!(!g.would_attack(trooper, mate));
+
+    // Control 1: if the player directly assaults a calm `bridge` (`Why::Assault`), `bridge`
+    // DOES alarm `trooper` and its hostility text says "(it was attacked)".
+    let mut g2 = game(&f);
+    only_near(&mut g2, &[LURKER_REF, HELPER_REF]);
+    call(&mut g2, ADD_TO_FACTION, LURKER_REF, &[form(HOUNDS), num(0.0)]);
+    call(&mut g2, SET_AV, LURKER_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(Value::Num(1.0))]);
+    call(&mut g2, SET_AV, LURKER_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(3.0))]);
+    call(&mut g2, SET_AV, LURKER_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(2.0))]);
+    call(&mut g2, SET_AV, HELPER_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(Value::Num(1.0))]);
+    call(&mut g2, SET_AV, HELPER_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(4.0))]);
+    call(&mut g2, SET_AV, HELPER_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(2.0))]);
+    assert!(g2.attacked_by(bridge, player));
+    let why_assault = g2.hostility_text(bridge, player).expect("assaulted bridge hostile to player");
+    assert!(why_assault.contains("it was attacked"), "unexpected assault hostility text: {why_assault}");
+    g2.observe_threat(bridge, player, &seen, [600.0, 0.0, 0.0]);
+    g2.settle_awareness();
+    let near2: std::collections::BTreeMap<FormId, [f32; 3]> =
+        [(bridge, [1000.0, 0.0, 0.0]), (trooper, [1200.0, 0.0, 0.0]), (player, [600.0, 0.0, 0.0])].into_iter().collect();
+    assert!(g2.raise_alarms(&near2) >= 1, "directly assaulted bridge alarms its RATS ally");
+    assert!(g2.awareness.get(trooper).is_some_and(|a| a.alarms.iter().any(|x| x.owner == player && x.cause == Cause::Ally)));
+    assert!(g2.would_attack(trooper, player));
+
+    // Control 2: normal human NPC assist relays are completely unaffected (not narrowed out).
+    let mut g3 = game(&f);
+    let (raider_npc, bridge_npc) = (FormId(BANDIT_REF), FormId(OWN_REF));
+    only_near(&mut g3, &[BANDIT_REF, OWN_REF, HELPER_REF]);
+    call(&mut g3, ADD_TO_FACTION, OWN_REF, &[form(RAIDERS), num(0.0)]);
+    call(&mut g3, SET_AV, OWN_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(Value::Num(1.0))]);
+    call(&mut g3, SET_AV, OWN_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(3.0))]);
+    call(&mut g3, SET_AV, OWN_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(2.0))]);
+    call(&mut g3, SET_AV, HELPER_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(Value::Num(1.0))]);
+    call(&mut g3, SET_AV, HELPER_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(4.0))]);
+    call(&mut g3, SET_AV, HELPER_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(2.0))]);
+    g3.world.get(raider_npc).unwrap().pos = [0.0, 0.0, 0.0];
+    g3.world.get(bridge_npc).unwrap().pos = [1000.0, 0.0, 0.0];
+    g3.world.get(trooper).unwrap().pos = [1200.0, 0.0, 0.0];
+    g3.world.get(player).unwrap().pos = [600.0, 0.0, 0.0];
+    let near3: std::collections::BTreeMap<FormId, [f32; 3]> =
+        [(raider_npc, [0.0, 0.0, 0.0]), (bridge_npc, [1000.0, 0.0, 0.0]), (trooper, [1200.0, 0.0, 0.0]), (player, [600.0, 0.0, 0.0])].into_iter().collect();
+    g3.awareness.changes.push(Change { actor: raider_npc, from: State::Normal, to: State::Alert, time: g3.time, about: Some(player), cause: Some(Cause::Noticed), at: Some([600.0, 0.0, 0.0]), value: Some(-10.0) });
+    assert_eq!(g3.raise_alarms(&near3), 1, "raider NPC alarms bridge NPC");
+    g3.awareness.changes.clear();
+    g3.settle_awareness();
+    g3.awareness.changes.clear();
+    g3.observe_threat(bridge_npc, player, &seen, [600.0, 0.0, 0.0]);
+    g3.settle_awareness();
+    assert_eq!(g3.awareness.state(bridge_npc), State::Combat);
+    assert!(g3.raise_alarms(&near3) >= 1, "human NPC assist relay remains unaffected");
+    assert!(g3.would_attack(trooper, player));
+}
+
+#[test]
+fn hostility_text_names_every_grudge_kind_and_neutral_aggression() {
+    // #3459: every Combat transition against a non-enemy logs its specific reason:
+    // Assault, Assist (helps X against Y), Aggro (aggro radius), and Aggression on Neutral.
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, hound, ganger, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId(HOUND_REF), FormId(GANGER_B_REF), FormId::PLAYER_REF);
+
+    // 1. Neutral attacked by Very Aggressive actor.
+    let neutral_text = g.hostility_text(hound, ganger).expect("Very Aggressive vs Neutral");
+    assert!(neutral_text.contains("Aggression 2") && neutral_text.contains("neutral (0)"), "{neutral_text}");
+
+    // 2. Assault grudge.
+    assert!(g.attacked_by(own, player));
+    let assault_text = g.hostility_text(own, player).expect("assault grudge");
+    assert!(assault_text.contains("it was attacked"), "{assault_text}");
+
+    // 3. Assist grudge (from call_allies / raise_alarms).
+    fighting(&mut g, OWN_REF, PLAYER);
+    g.detection.pairs.insert((helper, own), (Detection { value: 50.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.call_allies(), 1);
+    let assist_text = g.hostility_text(helper, player).expect("assist grudge");
+    assert!(assist_text.contains("helps") && assist_text.contains("against the player"), "{assist_text}");
+
+    // 4. Aggro-radius grudge.
+    let lurker = FormId(LURKER_REF);
+    g.provocations.grudges.insert((lurker, player), fnv_game::provocation::Grudge { why: fnv_game::provocation::Why::Aggro, since: g.time });
+    let aggro_text = g.hostility_text(lurker, player).expect("aggro grudge");
+    assert!(aggro_text.contains("stayed inside its aggro radius"), "{aggro_text}");
 }

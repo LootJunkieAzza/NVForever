@@ -12,7 +12,8 @@
 //! as a mine in the world (`nvf_play::mines`), armed at once; a Detonates charge (C-4)
 //! settles the same way and waits there for its detonator (#1986) [owner 2026-10-19: "your own
 //! mines arm immediately after leaving the player hand"]. How gravity scales is a hypothesis: the PROJ value
-//! multiplies the world's gravity (9.81 m/s² at 70 units per metre, `fnv-phys`).
+//! multiplies the world's gravity, and a Lobber of 0 falls under all of it
+//! ([`ProjectileStats::fall`](crate::data::ProjectileStats::fall), #3441) (9.81 m/s² at 70 units per metre, `fnv-phys`).
 //!
 //! Water does not stop a projectile (the game's does; NVForever's shots strike actors
 //! under the surface, owner 2026-10-25): it flies on, and where it first goes down
@@ -221,7 +222,7 @@ impl Projectile {
             motion,
             hitscan: p.has("Hitscan"),
             speed: p.speed,
-            gravity: p.gravity * world_gravity,
+            gravity: p.fall() * world_gravity,
             range: if p.range > 0.0 { p.range } else { f32::INFINITY },
             travelled: 0.0,
             age: 0.0,

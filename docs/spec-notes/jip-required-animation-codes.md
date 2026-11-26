@@ -43,3 +43,9 @@ smoke scenarios and native behavior remain unchecked by this focused proof.
 
 This change provides no automatic animation-event producer, cloned-list repair,
 registration provenance, native plugin loading or complete installed-mod support.
+
+[design: follow-up] Live `animaction` and `playgroup` firing (`Game::set_anim_state`,
+`Game::ask_anim`, `nvf-play::combat::bridge_player_anim_state`) and `SetOnPlayGroupEventHandler`
+keyword/string-to-code normalization (`fnv-script` `anim_group_param` + `Game::jip_set`) are
+documented in `jip-events.md` §5; native keyword/casing parity for unobserved group names
+outside `encodings.json` remains unqualified.

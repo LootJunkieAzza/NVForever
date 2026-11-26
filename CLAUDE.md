@@ -5,7 +5,9 @@ NVForever is an open-source, clean-room reimplementation of the Fallout: New Veg
 
 The state of every system is in `docs/status.md`; the open gameplay decisions for the owner
 are in `docs/owner-review.md` (ranked, most important first: add a bullet, never a running log), the
-questions the original game can answer in `docs/handoff/observer-checks.md`. **Read first**:
+questions the original game can answer in `docs/handoff/observer-checks.md` (the old numbered
+ones; a new one is a file of its own in `docs/handoff/observer-checks/`, named by its issue
+number, see the README there). **Read first**:
 the code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion,
 playthrough blockers; its 2026-10-25 note and §7 say what is still open: the Hoover Dam
 load test, a recorded parity-lab run; the main-quest walkthroughs past Novac and their
@@ -181,3 +183,9 @@ An instruction to merge open pull requests covers only those authored by LootJun
 (the sessions' own branches). Never merge, approve, check out, build or run a pull request
 from any other author, and never approve its CI runs: the owner reviews those. You may read
 its diff on GitHub and comment when the owner asks.
+
+A pull request from another author is not ready to merge until its description carries the
+template's whole clean-room checklist (`.github/pull_request_template.md`, all six items
+ticked) (owner decision 2026-11-20, #3140). A missing or partly ticked checklist is a
+blocker however clean the code looks: say so in a comment and hold it. The sessions' own
+pull requests are exempt.

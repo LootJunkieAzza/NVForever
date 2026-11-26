@@ -36,6 +36,10 @@
 //! held; F forces the lock; E leaves (Esc and Tab too [design]). The buttons can be
 //! clicked.
 //!
+//! [design, #2436] Dedicated Android arc/precision-slider and held Turn controls use the
+//! same rule-gated Turn/step paths. A selected controller uses left-stick X for the pin
+//! and its right trigger for torque, with neutral-on-open gating (touch module).
+//!
 //! A picked lock is a crime when the door or container is owned: a [`LockOpened`]
 //! message names the owner and a line is logged ("crime hook"); `crate::crime` judges it
 //! (`fnv_game::Game::player_opened_lock`).
@@ -56,6 +60,7 @@
 
 pub mod help;
 pub mod screen;
+pub mod touch;
 
 use crate::bindings::{Bindings, Control, ControlInput};
 use crate::pause::{AidTime, Paused};
@@ -69,6 +74,7 @@ use crate::ui_pointer::PointerState;
 use bevy::window::PrimaryWindow;
 use fnv_game::lockpick::{self as rules, Opening, Phase, Picking, Refusal, Settings, PIN_RANGE};
 use fnv_sim::FormId;
+use fnv_util::words::{tr, trf};
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
 
@@ -235,7 +241,7 @@ pub struct Session {
 impl Session {
     pub fn force_label(&self) -> String {
         // [observed: "Force Lock [15%]", the owner's screenshots as noted 2026-10-11]
-        format!("Force Lock [{:.0}%]", self.game.force_chance())
+        trf("Force Lock [{chance}%]", &[("chance", &format!("{:.0}", self.game.force_chance()))])
     }
 
     /// How much of the menu is drawn: 1, down to 0 as it leaves.
@@ -343,6 +349,8 @@ pub struct LockpickPlugin;
 
 impl Plugin for LockpickPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(target_os = "android")]
+        touch::install(app);
         let steps = match std::env::var("NVF_PLAY_TEST_LOCKPICK").map(|v| parse_aid(&v)) {
             Ok(Ok(a)) => a,
             Ok(Err(e)) => {
@@ -363,17 +371,28 @@ impl Plugin for LockpickPlugin {
             .insert_resource(LockpickAid { steps, skill: None })
             .add_message::<OpenLockpick>()
             .add_message::<LockpickInput>()
-            .add_message::<LockOpened>()
-            .add_systems(
-                Update,
-                (run_aid, open, (keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), pointer, screen::draw, screen::draw_debug, screen::fade)
-                    .chain()
-                    .after(crate::menu::open_menus)
-                    .in_set(PlaySet::Ui),
-            )
+            .add_message::<LockOpened>();
+        #[cfg(target_os = "android")]
+        app.add_systems(
+            Update,
+            (run_aid, open, (touch::input, keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), pointer, screen::draw, screen::draw_debug, screen::fade)
+                .chain()
+                .after(crate::menu::open_menus)
+                .in_set(PlaySet::Ui),
+        )
+        .add_systems(OnExit(PlayState::Menu), (close, touch::clear));
+        #[cfg(not(target_os = "android"))]
+        app.add_systems(
+            Update,
+            (run_aid, open, (keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), pointer, screen::draw, screen::draw_debug, screen::fade)
+                .chain()
+                .after(crate::menu::open_menus)
+                .in_set(PlaySet::Ui),
+        )
+        .add_systems(OnExit(PlayState::Menu), close);
+        app
             // The help box's scrolling, for every menu that shows it.
             .add_systems(Update, help::scroll.in_set(PlaySet::Ui))
-            .add_systems(OnExit(PlayState::Menu), close)
             .add_systems(Last, report);
     }
 }
@@ -413,13 +432,14 @@ fn unit(rng: &mut ChaCha8Rng) -> f32 {
 }
 
 /// The line shown when the menu does not open [hypothesis: the original's words are its
-/// own settings, not in the plugins; these are NVForever's].
+/// own settings, not in the plugins; these are NVForever's], in the chosen language
+/// (`lang/*.toml`, #3146).
 pub fn refusal_line(r: Refusal) -> String {
     match r {
-        Refusal::RequiresKey => "This lock requires a key.".into(),
-        Refusal::Broken => "This lock is broken. It can only be opened with a key.".into(),
-        Refusal::Skill { needed } => format!("You need a Lockpick skill of {needed:.0} to pick this lock."),
-        Refusal::NoPins => "You have no bobby pins.".into(),
+        Refusal::RequiresKey => tr("This lock requires a key.").into(),
+        Refusal::Broken => tr("This lock is broken. It can only be opened with a key.").into(),
+        Refusal::Skill { needed } => trf("You need a Lockpick skill of {needed} to pick this lock.", &[("needed", &format!("{needed:.0}"))]),
+        Refusal::NoPins => tr("You have no bobby pins.").into(),
     }
 }
 
@@ -433,6 +453,7 @@ fn open(
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     aid: Res<LockpickAid>,
+    hints: Option<Res<touch::Hints>>,
     time: AidTime,
     (mut stats, mut corner, mut sounds, bindings): (ResMut<LockpickStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, MessageWriter<UiSound>, Res<Bindings>),
 ) {
@@ -456,7 +477,7 @@ fn open(
     };
     let reference = FormId(asked.reference);
     let name = match practice {
-        Some(_) => "practice lock".to_string(),
+        Some(_) => tr("practice lock").to_string(),
         None => sim.base_of(asked.reference).and_then(|b| sim.name(b)).map_or_else(|| reference.to_string(), str::to_string),
     };
     let now = time.elapsed_secs();
@@ -479,7 +500,7 @@ fn open(
             // The player's tweak names the key a lock needs [design: docs/design/tweaks.md].
             let key = matches!(r, Refusal::RequiresKey).then(|| rt.game.tweaks.lock_needs_key_name).unwrap_or(false).then(|| rt.game.world.peek(reference).and_then(|s| s.lock).and_then(|l| l.key)).flatten();
             // The player's tweak says the player's own skill [design: docs/design/tweaks.md].
-            let line = if matches!(r, Refusal::Skill { .. }) && rt.game.tweaks.show_current_skill { format!("{} (yours: {skill:.0})", line.trim_end_matches('.')) } else { line };
+            let line = if matches!(r, Refusal::Skill { .. }) && rt.game.tweaks.show_current_skill { trf("{line} (yours: {skill})", &[("line", &line.trim_end_matches('.')), ("skill", &format!("{skill:.0}"))]) } else { line };
             let line = match key.and_then(|k| sim.name(k)) {
                 Some(k) => format!("{}: {k}.", line.trim_end_matches('.')),
                 None => line,
@@ -512,7 +533,9 @@ fn open(
                 game.force_chance()
             );
             rt.game.open_menu(MENU_LOCKPICK);
-            let help = rules::first_help(&mut rt.game).map(|(title, text)| Help::new(&rt.game, title, &text, &bindings));
+            let help = hints.as_ref().is_none_or(|h| h.0)
+                .then(|| rules::first_help(&mut rt.game)).flatten()
+                .map(|(title, text)| Help::new(&rt.game, title, &text, &bindings));
             if let Some(h) = &help {
                 info!("lockpick: help message {} {:?} shown (first use): {:?}", rules::HELP_MESSAGE, h.title, h.text.lines().next().unwrap_or(""));
             }
@@ -579,7 +602,7 @@ fn keys(
     }
     // The player's tweak: the strafe keys move the pin, Shift faster and Ctrl slower
     // [design: docs/design/tweaks.md].
-    if moving_keys(script.as_deref()) {
+    if moving_keys(script.as_deref()) && (!input.controller() || crate::bindings::keys_with_pad()) {
         let k = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
             2.0
         } else if keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]) {
@@ -587,10 +610,10 @@ fn keys(
         } else {
             1.0
         };
-        if input.pressed(Control::SlideLeft) {
+        if input.physical_pressed(Control::SlideLeft) {
             turn -= KEY_DEGREES * k * dt;
         }
-        if input.pressed(Control::SlideRight) {
+        if input.physical_pressed(Control::SlideRight) {
             turn += KEY_DEGREES * k * dt;
         }
     }
@@ -605,12 +628,26 @@ fn keys(
     }
 }
 
+/// All ordinary angle devices share the same rule-gated movement/sound accounting.
+fn turn_pin(game: &mut Picking, moved: &mut f32, delta: f32) {
+    if !delta.is_finite() { return; }
+    let at = game.pin;
+    if game.set_pin(at + delta) { *moved += (game.pin - at).abs(); }
+}
+
 /// Whether torque is held: any of the four movement controls [documented: the help
 /// message]; with the player's Keyboard Movement tweak Forward, Back and Jump, the strafe
 /// keys moving the pin instead [design: docs/design/tweaks.md].
 fn torque_held(input: &ControlInput, moving_keys: bool) -> bool {
     let controls: &[Control] = if moving_keys { &[Control::Forward, Control::Back, Control::Jump] } else { &[Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight] };
     controls.iter().any(|&c| input.pressed(c))
+}
+
+/// A controller's optional keyboard contribution uses real key/mouse provenance;
+/// its angle stick must never be mistaken for a physical torque key.
+fn physical_torque_held(input: &ControlInput, moving_keys: bool) -> bool {
+    let controls: &[Control] = if moving_keys { &[Control::Forward, Control::Back, Control::Jump] } else { &[Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight] };
+    controls.iter().any(|&c| input.physical_pressed(c))
 }
 
 /// The Keyboard Movement tweak is on.
@@ -681,12 +718,7 @@ fn apply(
             }
             // The help box is on top of the menu until it is closed.
             _ if s.ended.is_some() || s.help.is_some() => {}
-            LockpickInput::Turn(d) => {
-                let at = g.pin;
-                if g.set_pin(at + d) {
-                    s.moved += (g.pin - at).abs();
-                }
-            }
+            LockpickInput::Turn(d) => turn_pin(g, &mut s.moved, d),
             LockpickInput::Pin(a) => {
                 g.set_pin(a);
                 info!("lockpick: pin at {:.1}° (sweet spot {:.1}° ± {:.1}°): the lock turns {:.0}°", g.pin, g.sweet, g.half, g.max_turn());
@@ -720,7 +752,7 @@ fn apply(
                             let owner = with_world(rt, &mut sim, |rt| rules::opened(&mut rt.game, reference, level, false));
                             crime_hook(&mut opened, reference, owner, true);
                         }
-                        s.status = Some("Lock forced open".into());
+                        s.status = Some(tr("Lock forced open").into());
                         s.ended = Some(now);
                         sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::Unlocked });
                     }
@@ -729,7 +761,7 @@ fn apply(
                         stats.pins_broken += 1;
                         with_world(rt, &mut sim, |rt| rules::pin_broke(&mut rt.game));
                         info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): failed, the pin broke and the lock holds ({} left, tweak)", g.pins);
-                        s.status = Some(if g.pins > 0 { "The bobby pin broke".into() } else { "You have no bobby pins left".into() });
+                        s.status = Some(if g.pins > 0 { tr("The bobby pin broke").into() } else { tr("You have no bobby pins left").into() });
                         if g.pins == 0 {
                             s.ended = Some(now);
                         }
@@ -742,7 +774,7 @@ fn apply(
                             with_world(rt, &mut sim, |rt| rules::broke(&mut rt.game, reference));
                         }
                         info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): {reference} broken for good, the pin with it ({} left)", g.pins);
-                        s.status = Some("The lock is broken".into());
+                        s.status = Some(tr("The lock is broken").into());
                         s.ended = Some(now);
                         s.pin(PinClip::Break, now);
                         sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::ForceFailed });
@@ -766,6 +798,7 @@ fn crime_hook(out: &mut MessageWriter<LockOpened>, reference: FormId, owner: Opt
 #[allow(clippy::too_many_arguments)]
 fn step(
     input: ControlInput,
+    held: Option<Res<touch::HeldTorque>>,
     time: AidTime,
     mut screen: ResMut<LockpickScreen>,
     mut next: ResMut<NextState<PlayState>>,
@@ -811,9 +844,18 @@ fn step(
     if s.aid_torque_until.is_some() && !aid {
         s.aid_torque_until = None;
     }
-    // The player's tweak: the left mouse button turns the screwdriver too [design: docs/design/tweaks.md].
+    // Keep the selected controller's stick for angle and its trigger for torque.
+    // Main's keyboard/mouse tweaks join that owner only with the explicit opt-in.
     let mouse_turns = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.lockpick_mouse_turn);
-    let torque = torque_held(&input, moving_keys(script.as_deref())) || aid || (mouse_turns && input.mouse.pressed(MouseButton::Left));
+    let moving = moving_keys(script.as_deref());
+    let physical = torque_held(&input, moving) || (mouse_turns && input.mouse.pressed(MouseButton::Left));
+    let torque = if let Some(held) = held.as_deref() {
+        let keyboard_with_pad = input.controller() && crate::bindings::keys_with_pad()
+            && (physical_torque_held(&input, moving) || (mouse_turns && input.physical_mouse_pressed(MouseButton::Left)));
+        touch::torque(physical, input.controller(), held, aid) || keyboard_with_pad
+    } else {
+        physical || aid
+    };
     let strained = s.game.stopped;
     let reference = s.reference;
     let events = s.game.step(dt, torque);
@@ -843,10 +885,10 @@ fn step(
                 s.pin(PinClip::Break, now);
                 if left == 0 {
                     stats.out_of_pins += 1;
-                    s.status = Some("You have no bobby pins left".into());
+                    s.status = Some(tr("You have no bobby pins left").into());
                     s.ended = Some(now);
                 } else {
-                    s.status = Some("Your bobby pin broke".into());
+                    s.status = Some(tr("Your bobby pin broke").into());
                 }
             }
             rules::Event::NewPin => {
@@ -870,7 +912,7 @@ fn step(
                     ui(UiEvent::Strain { on: false });
                 }
                 ui(UiEvent::Unlocked);
-                s.status = Some("Lock picked".into());
+                s.status = Some(tr("Lock picked").into());
                 s.ended = Some(now);
             }
         }
@@ -1000,4 +1042,5 @@ mod tests {
             assert!((0.0..1.0).contains(&u));
         }
     }
+    include!("lockpick/input_union_tests.rs");
 }

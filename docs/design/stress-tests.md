@@ -209,7 +209,8 @@ through the same path a click on the World Map takes.
 - **Where the markers come from.** fnvtool's `world list`, then `world refs` for each
   worldspace: the references of the MapMarker static (0x00000010). `--worlds` and
   `--limit` pick a sample.
-- **A launch.** `--batch` markers (25) from `--start` (GSGeneralStore). The script aid
+- **A launch.** `--batch` markers (25) from `--start` (Goodsprings; an exterior,
+  since interiors refuse fast travel, #3434). The script aid
   `call:-:ShowAllMapMarkers:1:1:0` makes every marker a fast-travel target; then per
   marker, `--every` seconds (30) apart, the Pip-Boy aid opens on DATA, asks to travel
   there (`travel=`) and answers Yes (`key=use`).
@@ -380,7 +381,7 @@ fighters at once (`ai::draw_and_place`, about 130 ms), which play does not.
 
 ### 6.2 Comparing two builds
 
-[design] `compare tour`, `compare battle` and `compare soak` use four measured launches per side in ABBA order after one discarded warm-up each, with separate homes, metadata, early frame captures and retained coarse metrics (`tools/stress/stress/comparison.py:1`). The versioned `comparison.json` and `comparison.md` retain every launch and explain exclusions, spread and verdicts. See [reproducible stress comparisons](stress-comparisons.md) for the ten-second settle, thirty-second window, validation rules, accepted thresholds and the pending scene and continuous-movement coverage; captures cover only the first sixty seconds, so later laps retain coarse results.
+[design] `compare tour`, `compare battle` and `compare soak` use four measured launches per side in ABBA order after one discarded warm-up each, with separate homes, metadata, early frame captures and retained coarse metrics (`tools/stress/stress/comparison.py:1`). The versioned `comparison.json` and `comparison.md` retain every launch and explain exclusions, spread and verdicts. See [reproducible stress comparisons](stress-comparisons.md) for the ten-second settle, thirty-second window, validation rules, accepted thresholds and the pending scene and continuous-movement coverage; captures cover only the first sixty seconds, so later laps retain coarse results. `compare soak` refuses before launching when `--event-every` is not above the settle plus the measurement (the defaults, 20 s against 10 + 30 s): its events interrupt the gameplay, so no launch would have a window [observed: #3276, all eight launches excluded].
 
 ```powershell
 python tools/stress compare battle --exe-base '<base.exe>' --exe-candidate '<candidate.exe>' --base-label base --candidate-label candidate --data '<Data>' --ini '<NVForever.ini>' --name battle-abba --per-side 10 --seconds 90 --repetitions 4 --order ABBA --warmup 1 --settle-seconds 10 --measure-seconds 30 --telemetry-seconds 60

@@ -13,7 +13,7 @@
 
 use crate::player::Player;
 use crate::script::ScriptState;
-use crate::sfx::{PlaySound, Sfx, SoundSource};
+use crate::sfx::{ActorSound, PlaySound, Sfx, SoundSource};
 use crate::sim::SimState;
 use crate::PlaySet;
 use bevy::prelude::*;
@@ -39,7 +39,7 @@ fn play(
     sim: Res<SimState>,
     player: Option<Res<Player>>,
     sfx: Option<Res<Sfx>>,
-    (mut sounds, mut loops): (MessageWriter<PlaySound>, MessageWriter<SoundSource>),
+    (mut sounds, mut on_actors, mut loops): (MessageWriter<PlaySound>, MessageWriter<ActorSound>, MessageWriter<SoundSource>),
 ) {
     let (Some(rt), Some(sfx)) = (script.as_deref().and_then(|s| s.rt.as_ref()), sfx) else { return };
     let game = &rt.game;
@@ -64,7 +64,11 @@ fn play(
             } else if started {
                 st.hits += 1;
                 debug!("effect sounds: {} on {}: hit sound {hit}", e.effect, e.target);
-                sounds.write(PlaySound { sound: hit, at: (e.target != FormId::PLAYER_REF).then_some(at) });
+                if e.target == FormId::PLAYER_REF {
+                    sounds.write(PlaySound { sound: hit, at: None });
+                } else {
+                    on_actors.write(ActorSound { sound: hit, at });
+                }
             }
         }
         if let Some(sound) = m.effect_sound {

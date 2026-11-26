@@ -20,19 +20,31 @@ Part of #2387. The initial contract preceded the provisional implementation.
 - [documented: repository `crates/fnv-game/src/nif_blocks.rs` and `engine/nvforever/src/nif_mirror.rs` at f59736e9] `SceneMirror` has one tree per reference, JIP's handlers
   discard `pcModel`, and the renderer publishes only `PlayerBody::third_rig`.
   This cannot distinguish identically named bones in two player rigs.
-- [documented: repository `engine/nvforever/src/nif_mirror.rs` at f59736e9] The backend uses the third-person player rig for omitted/0
-  queries and edits, independently of the camera. This candidate preserves that
-  existing default, including JohnnyGuitar/SUP callers using the unselected API.
-- [hypothesis] Native omitted-selector behaviour may follow the current camera,
-  but that has not been measured by an admitted control. This candidate does not
-  change the default to that hypothesis.
+- [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room
+  staging copy (read-only `PrintToConsole` probe; zero writes to game install or Saves),
+  `w4d_43_nif_selector_and_ui_entities` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
+  PR #3803 / #3802):
+  `PROBE|w4d_43_nif_selector_and_ui_entities|p1(1p=1,cb=-1/12/-1/-1)|p3(1p=0,cb=12/12/-1/-1)|ui(ret=64,f=0[&false],t=0,c=0)|idle(1,0,1)`;
+  zero DLL, PDB, or third-party source consulted] When `pcModel` is omitted (or `0`) on
+  the player, JIP's `pcModel`-taking NIF commands follow the active 1st/3rd-person camera
+  (`IsPC1stPerson=1` -> omitted `Player.GetChildBlocks "Bip01 Head"` returned `-1`,
+  matching `pcModel=2` `-1` rather than `pcModel=1` `12`; `IsPC1stPerson=0` -> omitted
+  `Player.GetChildBlocks "Bip01 Head"` returned `12`, matching `pcModel=1` `12`).
+  NVForever resolves this through `Game::senses.first_person` (driven by
+  `Game::set_first_person`). Non-`pcModel` mirror callers (such as JohnnyGuitar/SUP
+  unselected queries and `ModelHasBlock`) keep the third-person mirror default when
+  separate player models are published, and legacy single-tree hosts continue using
+  `ModelView::Reference`.
 - [hypothesis] A missing explicitly selected rig returns the existing missing-node
   value; it must not fall back to the other player rig. On ordinary references,
   the player-only selector is ignored and the ordinary reference tree is used.
 - [design] Keep separate trees for reference, first-person and third-person models.
-  An omitted selector remains third person; retain that concrete model identity in
-  the renderer queue and held-transform/material caches. A camera switch before
-  queue consumption must not redirect an explicit edit or change the default.
+  For JIP functions taking `pcModel`, resolve an omitted/0 selector on the player to
+  `ModelView::FirstPerson` when `Game::senses.first_person` is true and
+  `ModelView::ThirdPerson` otherwise; retain that concrete model identity in the
+  renderer queue and held-transform/material caches so a camera switch before queue
+  consumption never retargets an already-queued edit.
 - [design] The renderer publishes both built player rigs, including the hidden one,
   using each rig's own skeleton names. Explicit selection does not require the
   selected model to be visible. A rig disappearing removes only its own mirror.

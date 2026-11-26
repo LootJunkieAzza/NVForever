@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Default)]
 pub struct Jip6State {
     /// Destruction data a setter changed, whole, by base form (`Game::destruction`).
+    /// Carried across same-run loads via `Game::take_session` / `put_session`, not saved.
     pub destruction: HashMap<FormId, DestructionDef>,
     /// A creature's model list with each model on or off (ToggleCreatureModel), by base.
     pub creature_models: HashMap<FormId, Vec<(String, bool)>>,
@@ -58,7 +59,7 @@ impl Game<'_> {
 
     /// The session copy of a base form's destruction data to change; `None` for a form
     /// without any.
-    fn destruction_mut(&mut self, base: FormId) -> Option<&mut DestructionDef> {
+    pub(crate) fn destruction_mut(&mut self, base: FormId) -> Option<&mut DestructionDef> {
         if !self.other.jip6.destruction.contains_key(&base) {
             let d = self.data.destructibles.get(&base)?.clone();
             self.other.jip6.destruction.insert(base, d);
@@ -354,7 +355,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // TNAM is a u32 of seconds (xEdit MESG): a negative value, one past it, NaN or
-        // infinity is not set [hypothesis].
+        // infinity is not set (see docs/spec-notes/jip-records-6.md §3).
         "setmessagedisplaytime" => {
             let v = num(args, 1, f64::NAN).trunc();
             if let Some(m) = of_sig(g, form(args, 0), b"MESG").filter(|_| (0.0..=f64::from(u32::MAX)).contains(&v)) {

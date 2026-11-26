@@ -28,6 +28,7 @@ pub fn note_created(g: &mut Game, r: FormId) {
             tracing::warn!("created {r}: the items of {source}: {e}");
         }
     }
+    g.maybe_apply_npc_weapon_mods(r);
     g.emit(EventKind::Placed { reference: r, base, cell, pos });
     if g.ref_script(r).is_some() {
         g.moved.insert(r);
@@ -50,9 +51,11 @@ impl Game<'_> {
         if self.base_script(base).is_some() || self.base_script(original).is_some() {
             return Err("placing a temporary scene base with an attached script is not supported yet".into());
         }
-        // Match the existing getter's clone-local then inherited session override.
+        // Pre-clone original `MODL/` overrides are snapshotted onto `base` at
+        // `TempCloneForm` creation (`Game::snapshot_model_path`), so read only `base`'s
+        // own `MODL/` entry and never live-inherit post-clone original edits.
         // Preserve explicit empty as distinct from absent authored metadata.
-        let model_override = match self.field_overrides.get(&(base, "MODL/".into())).or_else(|| self.field_overrides.get(&(original, "MODL/".into()))) {
+        let model_override = match self.field_overrides.get(&(base, "MODL/".into())) {
             Some(fnv_script::vm::XVal::Str(path)) => Some(path.clone()),
             _ => None,
         };
@@ -100,7 +103,7 @@ pub fn place_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         let r = g.place_scene_base(base, cell, pos, rot, each)?;
         note_created(g, r);
         if explodes {
-            g.combat_requests.push(crate::combat::CombatRequest::Explode { explosion: base, at: pos });
+            g.combat_requests.push(crate::combat::CombatRequest::Explode { explosion: base, at: pos, source: Some(at) });
         }
         last = Some(r);
     }
@@ -272,7 +275,27 @@ pub(crate) fn disable_ref(g: &mut Game, r: FormId) {
 
 pub fn get_destruction_stage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(Value::Num(destruction_stage(g, r) as f64))
+    Ok(Value::Num(script_destruction_stage(g, r) as f64))
+}
+
+/// What GetDestructionStage gives: the stage reached counted from 1 (DSTD index + 1), 0
+/// when damaged above every stage, −1 without destruction data or damage [documented −1:
+/// GECK wiki GetDestructionStage, "the current Damage Stage"; hypothesis for the counting,
+/// #3053: the masters' scripts compare it with values only a count from 1 reaches, Zeta's
+/// generator core (eight stages, index 0-7) disabling itself at 7, its Destroy stage, and
+/// testing 8; Point Lookout's Brain (seven stages) bursting at 7; DLC04DarMuckBubble (two
+/// stages) testing `>= 2`. The stage's own DSTD damage-stage field fits every case found too;
+/// observer check 247 tells them apart]. The rules' own stage numbers stay indices
+/// ([`destruction_stage`]), as OnDestructionStageChange's parameter is index + 1 already.
+pub fn script_destruction_stage(g: &Game, r: FormId) -> i32 {
+    let Some(def) = base_of(g, r).and_then(|b| g.destruction(b)) else { return -1 };
+    let Some(d) = g.extra.get(&r).and_then(|e| e.damage) else { return -1 };
+    let reached = if def.health <= 0 {
+        def.stages.iter().map(|s| i32::from(s.index)).max()
+    } else {
+        def.stages.iter().filter(|s| crate::combat::destruction_threshold_reached(d, def.health as f64, s.health_percent)).map(|s| i32::from(s.index)).max()
+    };
+    reached.map_or(0, |i| i + 1)
 }
 
 /// Health, stages and the destroyed state back to their defaults [documented: catalogue

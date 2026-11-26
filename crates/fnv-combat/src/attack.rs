@@ -304,7 +304,10 @@ impl Cycle {
             phase: Phase::Ready,
             magazine: magazine.min(clip_size),
             clip_size,
-            ammo_use: w.ammo_use.max(1),
+            // Ammo Use as authored: 0 spends no round a shot (the Laser Detonator's, a clip of
+            // one that never empties), "the amount of ammo used per shot" [documented: GECK
+            // wiki Weapons; hypothesis: the original's reading of 0, observer check; #3023].
+            ammo_use: w.ammo_use,
             automatic: w.automatic,
             no_ammo,
             regen: (w.regen_rate > 0.0).then_some(w.regen_rate),

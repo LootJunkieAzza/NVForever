@@ -793,7 +793,7 @@ mod tests {
 
     #[test]
     fn the_loaded_row_counts_what_is_loaded() {
-        let l = Loaded { cells: 9, refs: 2410, actors: 12, entities: 18_240 };
+        let l = Loaded { cells: 9, refs: 2410, actors: 12, entities: 18_240, ring_refs: 0 };
         assert_eq!(loaded_text(&l), " 9 cells   2410 refs   12 actors   18240 entities");
         let empty = Loaded::default();
         assert_eq!(loaded_text(&empty), " 0 cells      0 refs    0 actors       0 entities");
@@ -848,7 +848,7 @@ mod tests {
             vram_warn: true,
             ram_warn: false,
             split: Some(Split { main_ms: 9.8, render_ms: Some(4.1), wait_ms: Some(1.5), gpu_ms: None }),
-            loaded: Some(Loaded { cells: 9, refs: 2410, actors: 12, entities: 18_240 }),
+            loaded: Some(Loaded { cells: 9, refs: 2410, actors: 12, entities: 18_240, ring_refs: 0 }),
             upscale: Some(Upscale { effective: UpscalerChoice::Off, model: DlssModel::Default, drawn: None, window: Some(UVec2::new(1280, 720)) }),
         };
         let defaults = rows(&r, &on);

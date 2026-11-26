@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "tools" / "smoke"))
 
 from smoke.expect import clean  # noqa: E402
-from smoke.runner import Locks, aid_free_environ, default_lock_paths  # noqa: E402
+from smoke.runner import LOCKED_NOTE, Locks, aid_free_environ, default_lock_paths, session_locked  # noqa: E402
 from smoke.stacks import dump as dump_stacks  # noqa: E402
 
 EXE_NAME = "nvforever.exe" if os.name == "nt" else "nvforever"
@@ -387,6 +387,8 @@ class Result:
     # (seconds at its end, game's share, others' share, elapsed seconds) per kept interval (CpuLoad)
     cpu: list[tuple[float, float, float, float]] = field(default_factory=list)
     cpu_skipped: int = 0  # intervals left out (impossible share)
+    # Checks of the Windows session (`session_locked`, every LOCK_EVERY s): (made, locked).
+    lock_checks: tuple[int, int] = (0, 0)
 
     def tail(self, n: int = 40) -> list[str]:
         return self.lines[-n:]
@@ -398,6 +400,19 @@ def collect_crashes(home: Path) -> list[Crash]:
     for p in sorted(logs.glob("crash-*.txt")) if logs.is_dir() else []:
         out.append(parse_crash(p.read_text(encoding="utf-8", errors="replace"), str(p)))
     return out
+
+
+LOCK_EVERY = 5.0
+
+
+def locked_report(checks: tuple[int, int] | None) -> list[str]:
+    """The report's warning when the Windows session was locked in some of the launch's
+    checks (#3277): its frame times then measure the lock screen's waits, not the engine."""
+    if not checks or not checks[1]:
+        return []
+    made, locked = checks
+    return ["", f"**Locked in {locked} of {made} checks: {LOCKED_NOTE}. Run it again with the session unlocked "
+                "before acting on its frame times.**"]
 
 
 def run(ctx: Ctx, launch: Launch) -> Result:
@@ -419,6 +434,7 @@ def run(ctx: Ctx, launch: Launch) -> Result:
     status, stacks = "ok", None
     started = time.monotonic()
     load = CpuLoad(os.cpu_count() or 1, started)
+    checks = [0, 0]  # session lock checks made, and found locked
     started_at_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     try:
         with open(log, "w", encoding="utf-8", errors="replace") as f:
@@ -436,9 +452,19 @@ def run(ctx: Ctx, launch: Launch) -> Result:
             t = threading.Thread(target=pump, daemon=True)
             t.start()
             next_mem = 0.0
+            next_lock = 0.0
             limit = launch.run_seconds * 2 + 300
             while p.poll() is None:
                 now = time.monotonic()
+                if now - started >= next_lock:
+                    locked = session_locked()
+                    if locked is not None:
+                        checks[0] += 1
+                        if locked:
+                            if not checks[1]:
+                                ctx.say(f"warning: {launch.name}: {LOCKED_NOTE}")
+                            checks[1] += 1
+                    next_lock = now - started + LOCK_EVERY
                 if launch.memory_every and now - started >= next_mem:
                     m = process_memory(p.pid)
                     if m:
@@ -478,10 +504,12 @@ def run(ctx: Ctx, launch: Launch) -> Result:
         with open(ctx.out / f"{launch.name}.cpu.csv", "w", encoding="utf-8") as c:
             c.write("seconds,game_share,others_share,elapsed\n")
             c.writelines(f"{s},{g},{o},{e}\n" for s, g, o, e in load.samples)
-    r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks, load.samples, load.skipped)
+    r = Result(launch.name, code, round(secs, 1), status, log, lines, crashes, memory, stacks, load.samples, load.skipped,
+               (checks[0], checks[1]))
     (ctx.out / f"{launch.name}.exit.json").write_text(json.dumps(
         {"exit": code, "status": status, "seconds": r.seconds, "crashes": [c.path for c in crashes],
-         "started_at_utc": started_at_utc, "finished_at_utc": finished_at_utc}), encoding="utf-8")
+         "started_at_utc": started_at_utc, "finished_at_utc": finished_at_utc,
+         "session_lock_checks": {"made": checks[0], "locked": checks[1]}}), encoding="utf-8")
     return r
 
 

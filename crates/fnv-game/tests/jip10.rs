@@ -220,7 +220,12 @@ fn set_stage_alt_lowers_the_stage() {
     q(&mut g, "SetStage TestQuest 20");
     assert_eq!(n(&mut g, "GetStage TestQuest"), 20.0);
     q(&mut g, "SetStageAlt TestQuest 10");
-    assert_eq!((n(&mut g, "GetStage TestQuest"), n(&mut g, "GetStageDone TestQuest 10")), (10.0, 1.0));
+    // Wave 4 jip_29_setstagealt_clears_higher [observed]: lowering the stage sets
+    // GetStage to 10 while leaving higher completed stages done (GetStageDone 20 == 1).
+    assert_eq!(
+        (n(&mut g, "GetStage TestQuest"), n(&mut g, "GetStageDone TestQuest 10"), n(&mut g, "GetStageDone TestQuest 20")),
+        (10.0, 1.0, 1.0),
+    );
 }
 
 #[test]
@@ -347,4 +352,16 @@ fn text_files() {
     assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_test.txt\")"), "one\ntwo\nthree\n\nfour 5", "an append starts a line [observed]");
     assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_test.txt\" 2 2)"), "two\nthree", "no break after the last line [observed]");
     assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_no_such_file.txt\")"), "");
+}
+
+#[test]
+fn compound_bitwise_or_shift_with_cached_ini_runs_end_to_end() {
+    let f = fixture();
+    let mut g = game(&f);
+
+    // End-to-end compound bitwise-OR assignment with nested GetINIFloat_Cached/Clamp/Floor/shift.
+    assert_eq!(
+        q(&mut g, "int iINITemp\niINITemp = 1\niINITemp |= (Floor (Clamp (GetINIFloat_Cached \"Main:bVisible\" \"Widget.ini\" 1) 0 1)) << 1\nSetFunctionValue iINITemp"),
+        XVal::Num(3.0),
+    );
 }

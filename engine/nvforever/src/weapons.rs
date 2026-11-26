@@ -417,14 +417,12 @@ pub struct Muzzle {
     pub reference: u32,
 }
 
-/// The nodes shots leave from, by either of their names (animation.md §9.9).
-pub const MUZZLE_NODES: [&str; 2] = ["ProjectileNode", "##ProjectileNode"];
-
-/// Put a [`Muzzle`] under the actor's `Weapon` node where the weapon model's
-/// `ProjectileNode` is; nothing when the model has none.
-pub fn spawn_muzzle(commands: &mut Commands, actor: &SpawnedActor, weapon_node: usize, model: &nvf_assets::model::PreparedModel, reference: u32) -> Option<Entity> {
-    let path = nvf_assets::model::node_path(&model.nodes, &MUZZLE_NODES)?;
-    let at = path.iter().fold(model.root, |m, &i| m * model.nodes[i].local);
+/// Put a [`Muzzle`] under the actor's `Weapon` node where the weapon part's
+/// `ProjectileNode` is (`PreparedPart::muzzle`); nothing when the part has none. The
+/// part's own reading, not the file prepared again as a model: that cost the frame an
+/// armed NPC was drawn in 28-30 ms, again after each release of the unused model (#3057).
+pub fn spawn_muzzle(commands: &mut Commands, actor: &SpawnedActor, weapon_node: usize, part: &PreparedPart, reference: u32) -> Option<Entity> {
+    let at = part.muzzle?;
     let e = commands.spawn((Name::new("Muzzle"), Muzzle { reference }, Transform::from_matrix(Mat4::from(at)), Visibility::Inherited)).id();
     commands.entity(actor.nodes[weapon_node]).add_child(e);
     Some(e)

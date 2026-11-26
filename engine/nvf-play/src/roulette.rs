@@ -42,6 +42,7 @@ use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
 use crate::ui_pointer::{Button, PointerState};
 use fnv_game::casino;
+use fnv_util::words::{tr, trf};
 use fnv_game::roulette::{self as rules, Refusal, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -153,8 +154,8 @@ impl Session {
     /// The "Bet:" and "Payout:" lines for the bet point under the marker.
     pub fn bet_lines(&self) -> [String; 2] {
         match rules::spot(&self.cursor) {
-            Some(s) => [format!("Bet: {}", s.label()), format!("Payout: {} to 1", s.payout())],
-            None => ["Bet:".into(), "Payout:".into()],
+            Some(s) => [trf("Bet: {bet}", &[("bet", &s.label_with(&|w| tr(w)))]), trf("Payout: {n} to 1", &[("n", &s.payout())])],
+            None => [tr("Bet:").into(), tr("Payout:").into()],
         }
     }
 }
@@ -489,13 +490,14 @@ fn pointer(pointer: Res<RoulettePointer>, mut seen: Local<u32>, mut out: Message
 }
 
 fn refusal_line(r: Refusal) -> &'static str {
-    // [hypothesis: the original's words are not in the plugins; these are NVForever's]
+    // [hypothesis: the original's words are not in the plugins; these are NVForever's],
+    // in the chosen language (`lang/*.toml`, #3146)
     match r {
-        Refusal::NoSpot => "No bet can go there.",
-        Refusal::Chips => "You do not have enough chips.",
-        Refusal::Limit => "That is over the table's limit.",
-        Refusal::NoBet => "There is no bet there.",
-        Refusal::NoBets => "Place a bet first.",
+        Refusal::NoSpot => tr("No bet can go there."),
+        Refusal::Chips => tr("You do not have enough chips."),
+        Refusal::Limit => tr("That is over the table's limit."),
+        Refusal::NoBet => tr("There is no bet there."),
+        Refusal::NoBets => tr("Place a bet first."),
     }
 }
 
@@ -619,9 +621,9 @@ fn step(time: AidTime, mut screen: ResMut<RouletteScreen>, mut next: ResMut<Next
             }
             let name = format!("{} {}", rules::pocket_name(pocket), rules::colour(pocket).name());
             let result = match net {
-                n if n > 0 => format!("You win {n} chips."),
-                0 if back > 0 => "You break even.".to_string(),
-                n => format!("You lose {} chips.", -n),
+                n if n > 0 => trf("You win {n} chips.", &[("n", &n)]),
+                0 if back > 0 => tr("You break even.").to_string(),
+                n => trf("You lose {n} chips.", &[("n", &-n)]),
             };
             info!(
                 "roulette: the ball stops in {name}: {} of {} bets win, {back} chips back of {staked}, net {net}; earnings {} of {} (level {}){}",
@@ -632,7 +634,9 @@ fn step(time: AidTime, mut screen: ResMut<RouletteScreen>, mut next: ResMut<Next
                 casino::winnings_level(s.earnings, s.max_winnings),
                 if s.banned { "; banned" } else { "" }
             );
-            s.status = Some([name.clone(), if s.banned { format!("{result} You have been banned from {}.", s.casino_name) } else { result }]);
+            // The log's line names the pocket in English; the screen's in the chosen language.
+            let shown = format!("{} {}", rules::pocket_name(pocket), tr(rules::colour(pocket).name()));
+            s.status = Some([shown, if s.banned { trf("{result} You have been banned from {casino}.", &[("result", &result), ("casino", &s.casino_name)]) } else { result }]);
             s.last = Some(pocket);
             s.phase = Phase::Paid { until: now + RESULT_SECONDS, since, clip, pocket };
         }

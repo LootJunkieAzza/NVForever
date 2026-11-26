@@ -3,7 +3,7 @@
 //! - A click on a marker of the World Map, or the controller's A on one (or the test
 //!   aid's `travel=`) is a [`FastTravelAsk`]; [`answer`] tries the refusals (§2,
 //!   [`refusal`]) and puts up the
-//!   question box ([`Popup`]): "Do you want to travel to …?" with Yes and No, or the
+//!   question box ([`Popup`]): "Travel to …?" with Yes and No, or the
 //!   refusal's text with OK. The DATA page draws the box over the map and takes its keys
 //!   and clicks (`super::take_input`); Yes is a [`FastTravelGo`].
 //! - [`go`] puts the Pip-Boy away and keeps the trip; once the game runs again
@@ -70,18 +70,18 @@ impl Refusal {
         }
     }
 
-    /// NVForever's own text where no plugin sets the setting [design]; the script one is
-    /// FalloutNV.esm's [observed].
+    /// NVForever's own text where no plugin sets the setting [design: our own words,
+    /// #2984]; the script one is FalloutNV.esm's `sNoFastTravelScriptBlock` [observed].
     fn own_text(self) -> &'static str {
         match self {
-            Refusal::Undiscovered => "You cannot fast travel to a location you have not discovered.",
+            Refusal::Undiscovered => "That place has not been found yet.",
             Refusal::Script => "Fast travel is currently unavailable from this location.",
-            Refusal::Place => "You cannot fast travel from this location.",
-            Refusal::InAir => "You cannot fast travel while in the air.",
-            Refusal::Combat => "You cannot fast travel during combat.",
-            Refusal::HostilesNear => "You cannot fast travel when enemies are nearby.",
-            Refusal::Encumbered => "You cannot fast travel while carrying too much.",
-            Refusal::CrippledLeg => "You cannot fast travel with a crippled leg.",
+            Refusal::Place => "Fast travel cannot start from here.",
+            Refusal::InAir => "Fast travel needs ground under your feet.",
+            Refusal::Combat => "Fast travel waits until the fight is over.",
+            Refusal::HostilesNear => "Fast travel cannot start with enemies close by.",
+            Refusal::Encumbered => "Too much weight to fast travel.",
+            Refusal::CrippledLeg => "Fast travel is not possible on a crippled leg.",
             Refusal::NoBottle => "Fast travel needs a Nuka-Cola Quantum, Quartz or Victory.",
         }
     }
@@ -95,8 +95,8 @@ pub struct Checks {
     pub target: bool,
     /// EnableFastTravel 0 holds.
     pub script_block: bool,
-    /// The worldspace's Can't Fast Travel flag outdoors, the cell's Can't Travel From
-    /// Here flag indoors.
+    /// The place forbids it: an interior, or a worldspace flagged against it
+    /// (`fnv_game::fast_travel::place_forbids`).
     pub place: bool,
     pub in_air: bool,
     pub combat: bool,
@@ -115,7 +115,7 @@ pub fn tweak_checks(c: &mut Checks, t: &crate::tweaks::TweakSettings) {
     c.in_air &= !t.midair_fast_travel;
     c.hostiles_near &= !t.fast_travel_enemies_nearby;
     c.encumbered &= !t.fast_travel_overencumbered;
-    c.place &= !t.unsafe_fast_travel;
+    c.place &= !t.game.unsafe_fast_travel;
 }
 
 /// The first refusal that applies, if any.
@@ -144,15 +144,9 @@ fn travel_bottle(sim: &mut SimState) -> Option<FormId> {
     bottles.into_iter().find(|&b| sim.world.item_count(FormId::PLAYER_REF, b).is_ok_and(|n| n > 0))
 }
 
-/// The CELL `DATA` flag "Can't Travel From Here" and the WRLD `DATA` flag "Can't Fast
-/// Travel" [documented: xEdit, schemas/fnv/world.json].
-pub const CELL_NO_TRAVEL: u8 = 1 << 2;
-pub const WORLD_NO_TRAVEL: u8 = 1 << 1;
-
-/// The question [observed: the owner's screenshot, "Do you want to travel to
-/// Goodsprings?"]; a plugin's `sTravelQuestion` with `%s` takes the name there, one
+/// The question [design: NVForever's own words, #2984]; a plugin's `sTravelQuestion` with `%s` takes the name there, one
 /// without it is followed by the name [design].
-pub const OWN_QUESTION: &str = "Do you want to travel to %s?";
+pub const OWN_QUESTION: &str = "Travel to %s?";
 
 pub fn question(template: &str, name: &str) -> String {
     if template.contains("%s") {
@@ -179,7 +173,7 @@ const OWN_TIME_SCALE: f64 = 30.0;
 /// What the question box asks.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Ask {
-    /// "Do you want to travel to …?": the marker.
+    /// "Travel to …?": the marker.
     Travel(u32),
     /// A refusal: OK only.
     Refused,
@@ -242,13 +236,16 @@ fn setting_f32(sim: &SimState, name: &str) -> Option<f32> {
 /// Whether the player may travel to `m` by the scripts' and the markers' word: found,
 /// flagged Can Travel To, or made a target by ShowMap or ShowAllMapMarkers.
 fn travel_target(st: &DataState, script: Option<&ScriptState>, m: &read::Marker) -> bool {
-    let by_script = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| {
-        let p = &rt.game.player;
-        p.travel_markers.contains(&FormId(m.form)) || p.all_markers.is_some_and(|a| a.shown && a.travel)
-    });
-    // LU's SetMapMarkerTravel over the record's flag (`fnv_game::nvse_lu2`).
-    let flags = script.and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.marker_flags(FormId(m.form))).unwrap_or(m.flags);
-    st.discovered.contains(&m.form) || flags & 2 != 0 || by_script
+    if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
+        let id = FormId(m.form);
+        if rt.game.marker_flags(id).is_some() {
+            if rt.game.marker_flag_override(id, fnv_game::nvse_lu2::MARKER_TRAVEL) == Some(false) {
+                return false;
+            }
+            return st.discovered.contains(&m.form) || rt.game.marker_travel(id);
+        }
+    }
+    st.discovered.contains(&m.form) || (m.flags & 3 == 3)
 }
 
 /// What the refusals look at: the player's body, where they are, the actors near, the
@@ -277,12 +274,18 @@ pub fn answer(
         return;
     };
     let indoors = location.interior.is_some();
-    let place = match location.interior {
-        Some(c) => world.index.cells.get(&c).is_some_and(|c| c.data_flags & CELL_NO_TRAVEL != 0),
-        None => read::world_flags(world.lo, world.schema, location.world) & WORLD_NO_TRAVEL != 0,
-    };
     let player = phys.player.as_ref();
     let feet = player.map(|c| c.feet);
+    let outdoors = (!indoors).then_some(location.world);
+    let cell = location.interior.or_else(|| sim.refs.world_cell_at(FormId(location.world), feet?).map(|c| c.0));
+    let place = match script.as_ref().and_then(|s| s.rt.as_ref()) {
+        // As the scripts left the flags (SetCellFlag, SetWorldspaceFlag).
+        Some(rt) => rt.game.place_forbids_travel(cell.map(FormId), outdoors.map(FormId)),
+        None => fnv_game::fast_travel::place_forbids(
+            cell.and_then(|c| world.index.cells.get(&c)).map_or(0, |c| c.data_flags.into()),
+            outdoors.map(|w| read::world_flags(world.lo, world.schema, w).into()),
+        ),
+    };
     let distance = setting_f32(&sim, ["fHostileActorExteriorDistance", "fHostileActorInteriorDistance"][usize::from(indoors)]).unwrap_or(HOSTILE_DISTANCE[usize::from(indoors)]);
     let script_block = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.player.fast_travel.travel_disabled);
     let mut hostile = None;
@@ -495,6 +498,12 @@ mod tests {
         let t = crate::tweaks::TweakSettings { midair_fast_travel: true, fast_travel_enemies_nearby: true, fast_travel_overencumbered: true, ..Default::default() };
         tweak_checks(&mut c, &t);
         assert_eq!(refusal(&c), Some(Refusal::Combat), "combat itself still refuses");
+        let mut indoors = Checks { target: true, place: true, ..Checks::default() };
+        tweak_checks(&mut indoors, &t);
+        assert_eq!(refusal(&indoors), Some(Refusal::Place));
+        let anywhere = fnv_game::tweaks::Tweaks { unsafe_fast_travel: true, ..Default::default() };
+        tweak_checks(&mut indoors, &crate::tweaks::TweakSettings { game: anywhere, ..Default::default() });
+        assert_eq!(refusal(&indoors), None, "Fast Travel From Anywhere");
         let mut open = Checks { target: true, ..Checks::default() };
         tweak_checks(&mut open, &crate::tweaks::TweakSettings { disable_fast_travel: true, ..Default::default() });
         assert_eq!(refusal(&open), Some(Refusal::Script));
@@ -514,7 +523,7 @@ mod tests {
 
     #[test]
     fn the_question_names_the_marker() {
-        assert_eq!(question(OWN_QUESTION, "Goodsprings"), "Do you want to travel to Goodsprings?");
+        assert_eq!(question(OWN_QUESTION, "Goodsprings"), "Travel to Goodsprings?");
         assert_eq!(question("Travel to", "Primm"), "Travel to Primm?");
     }
 
@@ -528,7 +537,7 @@ mod tests {
 
     #[test]
     fn the_box_answers() {
-        let mut p = Popup::travel(7, "Do you want to travel to X?".into());
+        let mut p = Popup::travel(7, "Travel to X?".into());
         assert_eq!(p.take(p.selected), Some(7));
         p.step(1);
         p.step(1);

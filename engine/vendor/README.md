@@ -22,8 +22,34 @@ cursor is inside the client area before a warp, even without a motion event. The
 query itself changes neither focus nor cursor position. Every pre-existing
 module retains `forbid`; the rest of the new cursor consumer inherits `deny`.
 
+In `bevy_winit/src/winit_windows.rs`, `attempt_grab` is a no-op returning
+`Ok(())` on `target_os = "android"`, because Android `NativeActivity` has no
+desktop cursor-grab API and winit otherwise logs `Unable to ungrab cursor` and
+`Could not set cursor grab mode` during initial `CursorOptions` sync.
+
 Source: crates.io `bevy_winit` 0.20.1, archive SHA-256
 `397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`.
+
+## gilrs 0.11.2 (Apache-2.0 OR MIT, gilrs authors)
+
+Gamepad input under bevy_gilrs. One change (#3097), marked `NVForever patch` in
+`src/gamepad.rs` `Gilrs::next_event_priv`: a raw event for a pad id gilrs holds no data
+for (anything but the `Connected` that adds the next pad) is dropped, with one warning
+per pad id, and the next event is read instead.
+
+Why: gilrs looks every button and axis event's pad up with `Gilrs::gamepad`, which
+indexes `gamepads_data[id]`, and bevy_gilrs runs the `axis_dpad_to_button` filter on every
+event, which does the same. A second controller's input arriving before its `Connected`
+(or a `Connected` with an id past the next one, which upstream only logs as a platform
+error) panicked the game: crash signature `panic-f2bce0a1986452c8`, "index out of bounds:
+the len is 1 but the index is 1" at `gamepad.rs:474`. 0.11.2 is still the latest release.
+
+The crate ships no licence files of its own; its `Cargo.toml` names Apache-2.0/MIT. The
+bundled `SDL_GameControllerDB` keeps its LICENSE. `Cargo.lock` and `Cargo.toml.orig` from
+the archive are left out.
+
+Source: crates.io `gilrs` 0.11.2, archive SHA-256
+`902fb00d3f6398e635be22e5c837b303c501835cca7ac11a47bba138f7aafdd8`.
 
 ## gpu-allocator 0.28.0 (MIT OR Apache-2.0, Traverse-Research/gpu-allocator)
 
@@ -48,6 +74,41 @@ single slow frame charged to a render system that only writes a buffer
 (`upload_light_probes`, `write_binned_instance_buffers`) can be matched to a new memory
 block. `std` is linked for the clock (wgpu-hal turns the crate's `std` feature off).
 
+## bevy_core_pipeline 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+HDR output (docs/design/hdr-output.md). Changes, marked `NVForever HDR output`:
+
+- `src/blit/mod.rs`: `BlitPipelineKey` gains `hdr` (a blit to an HDR window) and
+  `hdr_gamma22`, adding the shader defs `NVF_HDR_PAPER_WHITE` and `NVF_HDR_GAMMA22`. The
+  layout gains a third binding, the uniform `BlitPipeline::nvf_hdr_scale` (x: the HUD's
+  white in nits / 80), written by `nvf_write_hdr_scale` when it changes, so moving the
+  brightness rebuilds no pipeline (it was a shader constant, one pipeline per step; PR
+  #3348 review).
+- `src/blit/blit.wesl`: under those defs the 0..1 range is decoded with gamma 2.2 and the
+  colour is scaled by `nvf_hdr_scale.x` (scRGB's 1.0 is 80 nits).
+- `src/upscaling/mod.rs`: the statics `NVF_HDR_PAPER_WHITE_NITS`, `NVF_HDR_HUD_NITS` and
+  `NVF_HDR_GAMMA22` (set by nvforever's settings), and the upscaling pipeline's key takes
+  them for a window camera whose target is `Rgba16Float` while the window's surface is
+  HDR (`bevy_render`'s `NVF_HDR_SURFACE_ACTIVE`).
+
+Why: the window blit is the last pass that writes the swapchain, and the HUD is drawn
+into the picture before it, so the HUD's brightness in nits can only be set there.
+Upstream's blit copies the colour unchanged.
+
+Graphics pass (2026-11-23), for bevy#26239 (open upstream): GPU occlusion culling's depth
+pyramid is built from the main pass's region of the depth buffer only, and the downsampling
+shader reads that region (`src/mip_generation/experimental/depth.rs`,
+`downsample_depth.wesl`, a `bytemuck` dependency as upstream's, in `Cargo.toml`). Before it,
+with an upscaler's `MainPassResolutionOverride` the pyramid was made from the whole
+display-size texture while meshes were tested in render-rectangle coordinates. Upstream saw
+only hidden meshes drawn; in NVForever, whose upscaler glue copies the display-size depth
+back over the prepass depth (upscaler/prep.rs `expand_depth`), visible rocks, posts and
+plants were culled. The culling stays an experiment behind `NVF_OCCLUSION_CULLING=1`
+(nvforever gpu_occlusion.rs).
+
+Source: crates.io `bevy_core_pipeline` 0.20.1, archive SHA-256
+`2463cf477b683bfe8567c43142295d00ed980f8e2a293c0a69e2f9e10e9c0aaf`.
+
 ## bevy_post_process 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 Bevy's post-processing, for its auto exposure, which meters the view for the game's eye
@@ -66,7 +127,52 @@ average and bytes 0.067 EV apart, a curve `y = x` (no change) came out as a sawt
 between 0 and about −0.15 EV, so a daylight picture was darkened by up to 10 %, by an
 amount that jumped as the view's average crossed an entry.
 
+A second change (graphics pass 2026-11-23), marked `NVForever (upstream Bevy's fix,
+backported)`, in `src/auto_exposure/auto_exposure.wesl`: `compute_histogram` adds its
+workgroup's bins to the global histogram from the first 64 invocations only, and skips
+empty bins. Upstream 0.20.1 let all 256 invocations of the 16 × 16 workgroup do it; the
+indices past 63 were clamped onto bin 63, so the brightest bin was counted 194 times over
+(the metered average and exposure moved when bright pixels were in view) and every
+workgroup made ~200 contended atomics on that one address (the pass went from ~0.14 ms to
+below the GPU log's top entries at 4K with DLSS Quality on an RTX 5090). Upstream Bevy's
+main has the same guard.
+
+HDR output: `src/msaa_writeback.rs` fills `BlitPipelineKey`'s two new fields (`false`,
+`false`), as the vendored bevy_core_pipeline's key needs them.
+
+A third auto-exposure change (#3917), marked `NVForever (#3917)`, in `src/auto_exposure/`:
+
+- `auto_exposure.wesl` (`compute_average`): replaces the unclamped forward-Euler
+  exponential step `delta * exp_down` / `delta * exp_up` with exact exponential decay
+  `delta * (1.0 - exp(-exp_down))` clamped to `delta`. Upstream overshot `target_exposure`
+  whenever `speed * delta_time / exponential_transition_distance > 1.0`, and diverged into
+  a sustained `±(speed * delta_time)` EV period-2 black/bright strobe whenever that ratio
+  reached `2.0` (e.g. under slow frames or fast adaptation speeds after switching Quality
+  presets back up with Light glow re-enabled).
+- `buffers.rs` and `mod.rs`: maps `RemovedComponents<AutoExposure>` main-world entities to
+  `RenderEntity` (and prunes inactive views), removes `ViewAutoExposurePipeline` when
+  `AutoExposure` is removed, and guards `auto_exposure` with `With<AutoExposure>` and
+  `camera.hdr`. Upstream passed main-world entities into an `EntityHashMap` keyed by
+  `RenderEntity` and left `ViewAutoExposurePipeline` attached, so removing `AutoExposure`
+  (switching Light glow off via Quality Low) left the compute pass running on SDR views
+  and carried stale GPU exposure state into a later switch back up.
+
 ## bevy_pbr 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Skinning storage-buffer wrapping and normal hardening in `src/render/skinning.wesl`:
+storage `joint_matrices` and `prev_joint_matrices` are wrapped in
+`struct StorageJointMatrices`, an exactly singular skin matrix (`det == 0.0` in
+`inverse_transpose_3x3m`) uses an identity normal transform, and an exactly zero
+transformed normal in `skin_normals` uses `+Z`.
+Finite zero-scale animation and unweighted vertices can reach these cases; WGSL leaves
+runtime divide-by-zero and zero normalization indeterminate
+([WGSL floating point evaluation](https://www.w3.org/TR/WGSL/#floating-point-evaluation)).
+Nondegenerate inverse-transpose/normalization arithmetic, positions, skin weights,
+CURRENT/PREVIOUS storage layouts, buffer selection and morph gates are unchanged.
+This defines previously undefined normal directions; it does not establish a device-loss
+or Android visual-corruption cause. CPU production-WESL controls and GPU qualification
+are separate; remove/reconcile this patch when upstream provides equivalent guards.
+
 
 Bevy's 3D passes, for FSR upscaling (docs/design/fsr-upscaling.md), which draws the main
 passes at a lower resolution through `MainPassResolutionOverride`. Two changes, each marked
@@ -81,6 +187,39 @@ by a comment starting `NVForever FSR integration`:
 
 Without the override both do what upstream does. This is a new patch for Bevy 0.20.1, not
 the dropped 0.19.1 one below.
+
+The same for the contact shadows' depth march (ALC shadows, once Lamp shadows, on Quality, light_shadow_detail.rs;
+docs/design/graphics-enhanced.md §3.17), each part marked `NVForever (main pass viewport)`:
+
+- `src/ssr/raymarch.wesl`: `DepthRayMarch` and its distance function carry
+  `depth_uv_scale` and `depth_uv_offset` (default (1, 1) and (0, 0)): the depth texture is
+  sampled at `view_uv * scale + offset`, and a ray's length in pixels is taken over the
+  part of the texture the view was drawn in.
+- `src/render/pbr_functions.wesl` `calculate_contact_shadow`: sets them from
+  `view.main_pass_viewport` and the depth texture's size. With FSR or DLSS the main passes
+  fill only the top-left render-size part of full-size textures; upstream's march read the
+  whole texture as the view and threw hard-edged false shadows that changed as the camera
+  moved [observed 2026-11-18, playtest videos; a walk along the Prospector Saloon's
+  porch with DLSS Quality, DLSS Performance and FSR was clean after the change].
+
+Without the override the scale and offset are (1, 1) and (0, 0), upstream's march. Bevy's
+screen-space reflections (`ssr.wesl`) keep the defaults.
+
+No directional shadows for one lighting call (the NIF shader's shade light,
+nvf_assets `nif_material.wesl` `with_shade_light`), each part marked `NVForever (no
+directional shadows)`:
+
+- `src/render/mesh_types.wesl`: `NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT` (bit 26 of a
+  `PbrInput`'s flags, which bevy_pbr leaves unused; set by shaders only, never by the CPU).
+- `src/render/pbr_functions.wesl` `apply_pbr_lighting`: the directional loop's shadow-map,
+  transmitted-lobe and contact-shadow conditions skip the light's shadow while the bit is
+  set; point and spot lights keep theirs. `with_shade_light` relit with the receiver bit
+  cleared before, which also dropped the lamps' shadows and changed the ambient occlusion's
+  factor on lamps; its extrapolation (by up to 1/share) turned that difference into a glow
+  on the first-person arms, weapon and Pip-Boy [observed 2026-11-19, Prospector Saloon at
+  22:00, ALC shadows Quality with ambient occlusion; gone after the change].
+
+Without the bit set the lighting is upstream's.
 
 Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/transmission/`,
 each part marked `NVForever one resolve`, with `ViewTarget::set_resolve_deferred` in
@@ -149,16 +288,230 @@ Sun shadows' Performance mode and staggered cascades, nvforever shadow_rate.rs),
   views, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare nothing
   for those cascades that frame.
 - `src/render/light.rs` `prepare_lights`: when the directional shadow texture the cache hands
-  out is not the one of the frame before (a shadowed spot light such as the flashlight
-  switched on or off changes its layer count, or the old one was dropped), the render
-  world's hold is cleared for that frame, so every cascade is drawn into the new texture
-  instead of a held one sampling an empty or stale layer (#2182 review). It logs
-  `held shadow maps: a new directional shadow texture`.
+  out is not the one of the frame before (the layer count grew, the map size changed, or the
+  old one was dropped), the render world's hold is cleared for that frame, so every cascade is
+  drawn into the new texture instead of a held one sampling an empty or stale layer (#2182
+  review). It logs `held shadow maps: a new directional shadow texture`.
+- `src/render/light.rs` `NvfDirectionalShadowLayerHighWater` (`#3779`, `[design]`): while
+  `HoldDirectionalShadowMaps` or `HoldLightShadowMaps` is active and the directional shadow
+  map's side stays unchanged, `prepare_lights` keeps a high-water layer count instead of
+  shrinking the descriptor back down when first-person `ArmsShade` or the flashlight turns
+  off, avoiding repeated 256–384 MB (at 4096) texture reallocations on view/flashlight
+  transitions. Changing the shadow map resolution resets the high-water count to the needed
+  layers; when the cascade count changes on a reused texture, the frame clears the directional
+  hold once so no held cascade samples a shifted layer.
 
 Bevy inserts no such resource, and without it (or with no bits set) nothing changes.
 Whoever sets it must hand the lights the held cascades as the frame that drew them had
 them, as the game does.
 Upstream has no way to draw a light's shadow map less often than every frame.
+
+The same for point and spot lights (held light shadow maps, 2026-11-18; the game's Lamp
+shadows, nvforever light_shadows.rs, docs/design/graphics-enhanced.md §3.17), marked
+`NVForever held light shadow maps`:
+
+- `src/render/light.rs`: the render-world resource `HoldLightShadowMaps` (extracted from
+  the main world's) with `slots` (a stable slot per shadowed point light), `point_capacity`,
+  `spot_slots` and `spot_capacity` (the same for spot lights), `held` (a bit per cube face,
+  bit 0 for a spot light) and `fade` (a light's shadow strength, 0..1). In
+  `prepare_lights`:
+  - A shadowed point light with a slot draws its cube into layers slot × 6 + face, not its
+    index among the shadowed lights. Without that a light starting or stopping to cast moved
+    every later light's layers. Other shadowed point lights (the poker lamp) take the lowest
+    free slot each frame. The cube texture has room for the highest slot and
+    `point_capacity`.
+  - The light's GPU flags carry slot + 1 in bits 16..23 (bits 0-15 are Bevy's flags and
+    its `UNINITIALIZED` mark; Bevy's point light flags use bits 0-6 only). A light whose
+    slot + 1 would not fit in 8 bits gets no shadow flag.
+  - A point light with a slot whose `shadow_maps_enabled` is false (no views: no culling,
+    extraction of casters or queueing) still gets the shadow flag and its slot. It then
+    casts from its cube once all six faces hold what it drew into this texture. The game
+    switches a light's maps on only on the frames it draws them.
+  - Spot lights the same way, with `spot_slots` and `spot_capacity`: a shadowed spot light
+    with a slot draws its map into layer `cascades + slot` of the directional shadow
+    texture, not `cascades + its index among the spot lights` (that index follows the
+    shadow-enabled order, so it moved whenever another spot light started or stopped
+    casting); any other shadowed spot light (the flashlight) takes the lowest slot left that
+    frame. The texture has room for the cascades plus the highest slot + 1, `spot_capacity`
+    and Bevy's shadowed spot count (without the resource: Bevy's count, as upstream). The
+    flags carry the absolute layer + 1 in bits 16..23; a spot light with a slot and no views
+    gets the shadow flag and its layer once that layer holds what it drew into this texture.
+    The layers below the cascade count are dropped from the record every frame (the sun's
+    cascades draw there; the count changes when sun shadows or the cascade count change), so
+    a layer the cascades took over is never taken for a spot light's map. A slotted spot
+    light whose layer has no room in the texture gets no views and no shadow flag.
+  - The cascade count and the directional texture are taken before the lights' GPU data
+    (moved up from below), since a spot light's layer and the texture's id decide its flag.
+  - `fade` (0..1 per light, absent: 1) goes into bits 24..31 of a slotted light's flags as
+    `255 - round(fade × 255)`, so 0 (every other light) is full strength.
+  - A shadowed light's views are made again when its slot (or spot layer) or the texture
+    changed, not only when the light changed. Upstream left a light's views pointing at its
+    old layer and texture when another light changed the shadowed set.
+  - The point texture is taken before the lights' GPU data, since its id decides the flag.
+  - A held face, or spot map, is left out of the frame's root views: its
+    `RootNonCameraView` is removed, so the camera driver runs no Core3d schedule (culling,
+    preprocessing, pass) for it. It is held only if its layer was last drawn by the same
+    light into the same texture (`NvfLightShadowRecord`); otherwise it is drawn, whatever
+    the hold says.
+- `src/render/shadow_sampling.wesl`: `nvf_point_shadow_cube` turns a light's id into its
+  cube (its slot from the flags' bits 16..23, else its id, as before), in the two point
+  shadow lookups; `nvf_spot_shadow_layer` turns a spot light's id into its layer (from the
+  same bits, else Bevy's `light_id + spot_light_shadowmap_offset`).
+- `src/render/shadows.wesl`: Bevy's `fetch_point_shadow` and `fetch_spot_shadow` are renamed
+  `nvf_fetch_point_shadow_unfaded` and `nvf_fetch_spot_shadow_unfaded` (the spot one takes
+  its layer from `nvf_spot_shadow_layer`); new `fetch_point_shadow` and `fetch_spot_shadow`
+  of the same signatures return `mix(1, shadow, fade)` with the fade from bits 24..31
+  (`nvf_shadow_fade`). The fade is applied here, not in `pbr_functions.wesl`, whose
+  `apply_pbr_lighting` nvforever's lights/display_shader.rs patches by text anchors.
+- `src/volumetric_fog/volumetric_fog.wesl`: `fetch_spot_shadow_without_normal` takes its
+  layer from `nvf_spot_shadow_layer` too (no fade: fog is not faded).
+
+Without the resource, or with it inactive, nothing changes. `HoldLightShadowMaps::active`
+is the gate: the game sets it only while its ALC shadows row is on (nvforever
+light_shadows.rs, [design, #3077 review]); while it is false, `prepare_lights` takes the hold
+as absent, so no light gets a slot, a held face, the static cache or a fade, and these paths
+all run as upstream's: the hidden light views below, the cached shadow views, the kept shadow
+phases (`NvfParkedShadowViews::active` false: `specialize_shadows` and `queue_shadows`
+specialize and bin as upstream, `nvf_add_once` is upstream's `add`) and the light view
+counts (no atomics touched, no clock read). When it switches either way, every light's
+shadow views are made again and the record of what each layer held is dropped, so no view
+keeps a slot's layer or a static-cache attachment it no longer has. What stays compiled in
+either way: the shaders' lookups of bits 16..31 (all 0 without the hold: upstream's index,
+full strength) and the shadow textures taken earlier in `prepare_lights` (the same
+descriptors as upstream's while nothing is held). Measured before it (2026-11-18, RTX
+5090, 1280 × 720, the Prospector Saloon): every shadowed point light cost about 1 ms of
+frame time, six Core3d schedule runs a frame.
+
+Two more for the ALC shadows' (once Lamp shadows) performance pass (2026-11-18, docs/design/graphics-enhanced.md
+§3.17 "Performance pass"):
+
+- **Hidden light views** (`NVForever hidden light views`, `src/render/light.rs`
+  `extract_lights`): a point or spot light that is hidden (its `ViewVisibility` false)
+  loses its `PointAndSpotLightViewEntities` together with its `ExtractedPointLight`, so the
+  observer `remove_point_and_spot_light_view_entities` despawns its shadow views. Upstream
+  removed only `ExtractedPointLight`; `prepare_lights`, the only place that despawns the
+  views of a light no longer shadowed, never saw that light again, and its six (or one)
+  views stayed alive and ran the whole Core3d schedule every frame while it was hidden
+  [documented: bevyengine/bevy#26059; the fix is bevyengine/bevy#26480, the same two lines,
+  still open (not merged) on 2026-11-18, which measured 16 point and 16 spot lights hidden
+  at 7.6 ms before and 1.2 ms after]. The game's lamps switch their maps on for a frame and
+  off again, so a lamp hidden by a turn of the camera in the frame after its maps were drawn
+  left its views running until it was seen again [hypothesis, from the code; the summary's
+  `despawned with their light hidden` count shows how often it happens]. Its regression
+  tests are not ported (the engine workspace does not run the vendored crates' tests). Only
+  while the hold is active (as last frame's `prepare_lights` saw it): with the ALC shadows
+  row Off it is upstream's two lines. It stays behind the row until upstream merges
+  #26480 [design, #3077: the maintainer's decision of 2026-11-21]; drop it with the first
+  Bevy release that has #26480.
+- **Light view counts** (`NVForever light view counts`, `src/render/light.rs` and
+  `src/lib.rs`): `nvf_count_light_views` (render world, `RenderSystems::Prepare`, after
+  `prepare_lights`) counts the point and spot light shadow views alive and those with a
+  `RootNonCameraView` (those that run the Core3d schedule); `extract_lights` counts the
+  views a hidden light takes with it. `extract_lights` and `prepare_lights` are timed
+  (`std::time::Instant`, summed and longest a frame): `prepare_lights` whole and in its
+  consecutive stretches (`NVF_SECTIONS`: the light uniforms' writer, counts and slots, the
+  shadow textures and their views, the lights' GPU data, the point lights' views, the spot
+  lights' views, the cameras' cascades, the closing sweep of phases and caches), and its
+  events counted (`NVF_EVENTS`: views spawned, despawned and made again, shadow phases made
+  and dropped, point and directional shadow textures that were not the last frame's). The
+  counts are summed in atomics and read and reset by `nvf_take_light_view_counts()` (the
+  game's 10-s ALC shadow summary, `light shadows: renderer over …`). Bevy reads none of it;
+  the cost is a few clock reads and relaxed atomic adds a frame. Drop it once the counts
+  are not wanted.
+- **Cached shadow views** (`NVForever cached shadow views`, `src/render/light.rs`
+  `prepare_lights`, `NvfShadowViewCache`): the point and directional shadow textures' array
+  views, the point and spot lights' per-layer attachments and the cascades' per-layer views
+  are kept across frames while the texture is the same (by texture id; a new texture
+  starts them anew), instead of made with `create_view` every frame. A kept attachment is
+  set to clear again (`prepare_for_new_frame`) at the start of each frame; the cascades
+  still get a new attachment each view, over the kept view. Upstream makes the two array
+  views and every cascade's layer view every frame, and a point light's six layer views
+  every frame its views are made again (every frame it draws, since its extraction changes).
+  The count `texture views made` shows what is still made. `NVF_SHADOW_VIEW_CACHE=0`
+  (read once) makes every view anew each frame, as upstream, for comparing. [hypothesis:
+  `prepare_lights` took up to 16 ms in the main session's profile while hundreds of
+  references were toggled and faded in Primm (thousands of materials made and dropped
+  on other render threads); fewer device calls there give it less to wait on. Not measured
+  yet.]
+
+One more for the ALC shadows (static shadow cache, 2026-11-18; docs/design/graphics-enhanced.md
+§3.17 "Static shadow cache"), marked `NVForever static shadow cache`, all in
+`src/render/light.rs`:
+
+- `HoldLightShadowMaps` gains `static_cache` (keep the cache), `to_static` and `on_static`
+  (bits per cube face of a point light, this frame). With `static_cache`, `prepare_lights`
+  takes a second cube texture from the texture cache, `nvf_point_light_static_shadow_cache`,
+  of the same size and layers as the sampled point texture (`RENDER_ATTACHMENT | COPY_SRC`;
+  the sampled texture gets `COPY_DST` too, so it is another texture while the cache is on),
+  every frame so the texture cache keeps it. Of a point light's faces drawn this frame (not
+  held):
+  - a face in `to_static` gets an `NvfStaticShadowFace` on its view: the pass draws into the
+    cache's layer (an attachment that clears) in place of the `ShadowView`'s, and after the
+    pass the layer is copied into the same layer of the sampled texture (whole face, one
+    array layer, `copy_texture_to_texture`; depth copies take whole subresources of one
+    format [documented: WebGPU `copyTextureToTexture` validation for depth-or-stencil
+    formats]). What the layer was drawn with (light, cache texture) is recorded.
+  - a face in `on_static` whose cache layer holds what this light drew into this cache
+    texture gets the cache's layer copied into the sampled layer before the pass, and the
+    pass draws over it with an attachment that loads (no clear value). Otherwise (no such
+    record) it is drawn as any face, and counted as a miss.
+  - any other face loses the component and is drawn as before.
+  The copies are recorded in `view_shadow_pass` (the shared shadow pass of the point light
+  views), on the view's own encoder: the copy in before the early pass, the copy out after
+  the last pass (the late one only with occlusion culling, which light views do not have).
+  Which casters each face's list holds is the game's to choose (nvforever light_shadows.rs
+  `skip_fixtures`: the static ones into the cache, the moving ones over it). The cache's
+  layer attachments and the sampled texture's loading attachments are kept in
+  `NvfShadowViewCache` like the others. Three more events in the light view counts: `static
+  cache draws`, `static cache composites`, `static cache misses`.
+  Without `static_cache` (Bevy's default, and the game's `NVF_LIGHT_SHADOW_STATIC_CACHE=0`)
+  nothing changes. The cache costs as much memory as the sampled cubes (at 512 × 512, 6 MB a
+  lamp). Upstream has no way to draw a shadow map over an earlier picture: its shadow
+  attachments always clear. Not measured in game yet.
+
+One more for the ALC shadows (kept shadow phases, 2026-11-19; docs/design/graphics-enhanced.md
+§3.17 "Kept shadow phases"), marked `NVForever kept shadow phases` and `NVForever kept shadow
+views`, in `src/render/light.rs` and `src/material.rs`:
+
+- **Kept shadow phases.** The render-world resource `NvfParkedShadowViews` (registered in
+  `MaterialsPlugin`): `prepare_lights` fills it each frame with the retained view entities of
+  every light `HoldLightShadowMaps` gives a slot (six faces of a point light, one view of a
+  spot light), drawing or held, seen or not. Its closing sweep keeps their shadow phases,
+  `LightKeyCache` entries and specialized pipelines though the light has no views
+  (upstream drops them with the views, so a light whose maps are switched off and on again
+  had every caster specialized and queued anew into new phases).
+  `specialize_shadows` keeps their pending queues and pipelines the same way, and checks
+  each such view that has no view entity this frame against the frame's
+  `DirtySpecializations`: an entity in its pipelines that changed (`changed_renderables`:
+  its mesh, material or flags) makes the kept view stale, and its phase, key, pipelines and
+  pending queue are dropped (counted as `kept phases wiped`), so the light is drawn as a new
+  one; an entity removed is dropped from its pipelines only. A kept view back after a frame
+  without a view is `resumed` (`specialize_shadows` fills `NvfParkedShadowViews::resumed`):
+  its light's visible list went on changing (or was made anew, a hidden light's, every
+  visible entity "added") while no `queue_shadows` saw the differences, so instead of them
+  every visible entity is specialized if it is not, and `queue_shadows` resyncs the phase
+  (`nvf_resync_kept_phase`): binned entities no longer visible leave, visible ones not
+  binned are queued. Every add goes through `nvf_add_once`, which takes an entity already
+  binned out first: queueing from the differences alone binned entities twice, bevy_render's
+  panic "Binning main entity … when it was already binned" (Novac at 22:00, ALC Quality,
+  2026-11-19; unit test `a_kept_shadow_phase_back_in_view_is_resynced_and_never_bins_twice`).
+  New events in the light view counts: `phases reused` (phases a light's new views found
+  kept), `kept phases wiped`, `kept phases resynced` (resumed views) and `entities
+  rebinned` (the guard's catches; none expected). The game's
+  `NVF_LIGHT_SHADOW_KEEP_PHASES=0` (read once, `nvf_keep_shadow_phases_on`) leaves the set
+  empty: upstream's behaviour.
+- **Kept shadow views.** A point or spot light whose `ExtractedPointLight` changed (every
+  frame it draws: its casters' lists change) has its views made again only when what they
+  are made from changed (`NvfViewSource`: a point light's place, a spot light's transform
+  and outer angle, the near plane, the range, the render layers; or its slot or texture, as
+  before). A face drawn on views not made again gets its `RootNonCameraView` back (a held
+  face's was removed). Event `views kept`. With `NVF_SHADOW_VIEW_CACHE=0` they are made again
+  as before.
+
+Without `HoldLightShadowMaps` the set stays empty and the sweep is upstream's. [hypothesis:
+part of the measured 1.4 ms a held light's switch-on cost goes; the view spawn and the drawn
+faces' Core3d runs stay. Not measured in game yet.] Upstream has no way to keep a shadow
+view's phase without the view.
 
 Gated materials (#2661, docs/design/graphics-enhanced.md §3.14 "Off"), in `src/material.rs`,
 each part marked `NVForever gated materials`: `MaterialPlugin::gated(MaterialGate)` (a new
@@ -194,11 +547,22 @@ marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
   terrain map is `Rgba32Float`, which is filterable only with the optional
   `FLOAT32_FILTERABLE` feature, so nvforever reads it with `textureLoad` and never with
   the sampler; its stand-in while no map is uploaded is nvforever's own one-texel
-  `Rgba32Float` texture, not Bevy's fallback image.
+  `Rgba32Float` texture, not Bevy's fallback image. Bindings 45 and 46 (2026-11-20,
+  #3032 stage 2i M2), under the key bit `MeshPipelineViewLayoutKey::NVF_CLOUD_VOLUME`
+  (with `NVF_SUN_VISIBILITY` only; the component's `cloud_volume`): the volumetric
+  clouds' light volume, its near and far completed front sets (`light_near`,
+  `light_far`: filterable float 2D arrays, `R16Float`, sampled with 42), which the cloud
+  shadows read from the volume (nvforever `light_volume_reader.wesl`); nvforever's own
+  one-texel, two-layer stand-in when there is none. nvforever leaves `cloud_volume` off
+  while its Volumetric clouds row is off and on an adapter whose fragment stage has too few sampled textures for two more (the
+  weather-only layout, `sun_visibility.rs` `CloudVolumeRoom`). The entries 39-46 are
+  made by the public `nvf_sun_visibility_layout_entries`, which the tests read.
 - `src/render/mesh.rs`: `MeshPipelineKey::NVF_SUN_VISIBILITY`, `NVF_CLOUD_VISIBILITY` and
   `NVF_TERRAIN_VISIBILITY` (bits 25-27; the key's bit fields above them move up by three,
-  well below the base mesh key's bits from 58), set by `check_views_need_specialization`
-  from the same component, and the shader defs of the same names. The pipelines' layout
+  well below the base mesh key's bits from 58), and `NVF_CLOUD_VOLUME_VISIBILITY` (bit 29,
+  after the ambient occlusion's 28; shader def `NVF_CLOUD_VOLUME`), set by
+  `check_views_need_specialization` from the same component, and the shader defs of the
+  same names. The pipelines' layout
   key and the view's bind group are both read from that one component in the same frame,
   so they cannot disagree; the component is inserted, changed and removed only during
   extraction.
@@ -234,6 +598,174 @@ The shader that reads the bindings is nvforever's (`ssao_lighting.wesl`, patched
 component; without it the layouts and shader defs are upstream's, and the pipeline keys are
 the same keys numbered differently (the packed fields above the new bit moved up by one).
 As for the sun visibility, a meshlet view must not get the component.
+
+Another change (the bounce light's volume, #3009, docs/design/rtgi-volume.md), each part marked
+`NVForever RTGI volume`, for nvforever's `rtgi_volume.rs`, built the same way. nvforever inserts
+the component nowhere yet:
+
+- `src/render/mesh_view_bindings.rs`: the render-world view component `NvfRtgiVolumeBindings`
+  (a uniform buffer, a filterable float 3D texture and a filtering sampler), the layout key bit
+  `MeshPipelineViewLayoutKey::NVF_RTGI_VOLUME` (20) and bindings 47-49 of the mesh view bind
+  group, present only for a view with it. The entries are made by the public
+  `nvf_rtgi_layout_entries`, which the tests read.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_RTGI_VOLUME` (bit 30; the packed fields above it
+  move up by one more and end at bit 51, still below the base mesh key's bits from 58), set by
+  `check_views_need_specialization` from the same component. No shader def follows from it:
+  nvf-assets' NIF material pushes `NVF_RTGI_VOLUME` for the pipelines that read the bindings.
+
+Bevy inserts no such component; without it the layouts and shader defs are upstream's, and the
+pipeline keys are the same keys numbered differently. A meshlet view must not get it.
+
+Graphics pass 2026-11-23, four more changes:
+
+- `src/cluster/gpu.rs`, `src/cluster/mod.rs`: bevy#25869 (GPU clustering keeps each view's
+  clustering buffers from frame to frame instead of making new ones; merged upstream after
+  0.20.1) and bevy#26588 (the clustering metadata staging buffers no longer pile up in a
+  list that is never emptied). nvforever still clusters on the CPU unless
+  `NVF_GPU_CLUSTERING=1` (main.rs): the buffer churn behind #897 is gone, but the GPU
+  path's cost has to be measured first.
+- `src/render/pbr_functions.wesl`, comments `NVForever shadow early-out`: a point or spot
+  light whose range does not reach the fragment, or that lies behind the shading normal,
+  gives shadow 0 without reading its shadow map or marching contact shadows, and a shadow
+  receiver facing away from a directional light likewise. The light's contribution there is
+  0 either way (Bevy's range falloff and N·L, and nvforever's display sum, lights.rs), so
+  the picture is unchanged. Not under `STANDARD_MATERIAL_CLEARCOAT`, whose second lobe has
+  a normal of its own.
+- `src/render/mesh_preprocess.wesl`, comment `NVForever: meshes that opt out of frustum
+  culling`: a mesh with `NoFrustumCulling` is never occlusion culled either (first-person
+  shapes write a squeezed depth their boxes do not describe; nvforever gpu_occlusion.rs).
+- bevy#26239 (open upstream; the `src/render/light.rs` and `src/meshlet/` parts): the
+  depth pyramid covers the main pass's region of the depth buffer (with bevy_core_pipeline
+  and bevy_render below).
+- bevy#26418 (open upstream, fixes bevy#26257; `src/render/gpu_preprocess.rs`, with its
+  stale-job clearing part in bevy_render's `batching/gpu_preprocessing.rs`): the GPU
+  preprocessing bind groups (bin unpacking, uniform allocation, preprocess, indirect
+  parameters) are kept from frame to frame, keyed by their resources, offsets and sizes, and
+  dropped after two unused frames, instead of being made again for every view, phase and
+  batch set each frame on the render thread. Its tests need upstream's `wgpu` `noop`
+  dev-dependency and are not built here.
+- Merged scene unpacking (`src/render/unpack_bins.wesl`, `src/render/allocate_uniforms.wesl`
+  and the bind groups and dispatches in `src/render/gpu_preprocess.rs`, with bevy_render's
+  `SceneUnpackingClassBuffers` below; comments start `NVForever merged scene unpacking`):
+  `unpack_bins` and each step of `allocate_uniforms` run as one dispatch for all the batch
+  sets of a view, phase and mesh indexed-ness instead of one dispatch per batch set, each
+  dispatch in a compute pass with a barrier after it. Every batch set is a job in a storage
+  array; each workgroup looks its job up in a workgroup-to-job table and adds the job's
+  offsets to the batch-local indices the shaders used before. The fan buffer has one entry
+  per workgroup; steps 2 and 3 run only when some batch set has more than 256 bins, and
+  then only each batch set's own workgroups do work. [observed 2026-11-24, Novac 12:00,
+  4K DLSS Quality, maxed settings] `uniform_allocation` 0.21 and `bin_unpacking` 0.20 ms
+  a frame → both under 0.05; process CPU time 27.3 → 23.6 ms a frame.
+
+## bevy_light 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Vendored 2026-11-18, unchanged but for three patches. The first (shadow caster candidates, for
+the ALC shadows' (once Lamp shadows) performance pass: nvforever light_shadow_casters.rs, docs/design/graphics-enhanced.md
+§3.17 "Performance pass"), marked `NVForever shadow caster candidates`, in `src/lib.rs`:
+
+- The resource `NvfShadowCasterCandidates` (`lights`: a list of entities per light).
+  `check_point_light_mesh_visibility` tests, for a shadowed point or spot light listed there,
+  only the entities listed for it (one thread, `iter_many_mut` over the same query) instead
+  of every shadow caster in the world in parallel; `nvf_caster_faces` applies the parallel
+  pass's tests unchanged (inherited visibility, render layers, visibility ranges against
+  the shadow LOD origin, the light's sphere against the caster's box, each face's frustum;
+  no bounds or `NoFrustumCulling`: every face). The lists are sorted and deduplicated as
+  upstream sorts them.
+- The caller must list every caster whose bounds may reach the light's sphere (a superset
+  is fine: what the query does not match is skipped). The game files every mesh in a grid
+  by its bounds' centre (cells of 1,024 units; a sphere over 512 units, no bounds or no
+  culling: listed for every light) and lists the cells a drawing lamp's sphere, grown by
+  512, overlaps.
+
+Bevy inserts no such resource; without it, or for a light not listed (the flashlight, the
+menu scenes' lights), the search is upstream's. [observed 2026-11-18, the main session's
+profile build in Primm at night: `check_point_light_mesh_visibility` 0.4 ms at the median and
+7.6 ms in the worst frames, for at most a few lamps drawing a frame; upstream tests every
+caster for each.] Upstream has no way to hand a light its candidates; drop this if it gains a
+spatial index for light culling.
+
+The second (shown shadow lights, 2026-11-19, the ALC shadows' pre-draw under a loading
+screen: nvforever light_shadows.rs `shown_unseen`, docs/design/graphics-enhanced.md §3.17
+"Out of view too"), marked `NVForever shown shadow lights`, in `src/lib.rs`:
+
+- The resource `NvfShadowLightsShown` (`lights`: a set of point and spot lights).
+  `check_point_light_mesh_visibility` goes over those lights after the ones the cameras see
+  (each once) and finds their casters the same way, and marks each such light visible
+  (its `ViewVisibility`, through a query of the point and spot lights that are not meshes,
+  disjoint from the casters' query). bevy_pbr's `extract_lights` then extracts the light and
+  draws its shadow maps, though no camera sees it; it lies in no cluster of any view, so it
+  lights nothing on screen.
+- Upstream finds casters only for lights a camera sees (its loop goes over the cameras'
+  visible lights), and drops a light no camera sees from the render world, so a light's
+  shadow maps cannot be drawn before it comes into view.
+
+Bevy inserts no such resource; without it, or empty, nothing changes. With the ALC shadows
+row Off both resources stay empty (the game's systems that fill them do not run, after
+emptying them once when the row is switched off), so the culling is upstream's. Upstream has
+no way to draw an unseen light's shadow maps ahead of time; drop this if it gains one.
+
+Another change (two-channel normal maps, #2981, docs/spec-notes/pbr-materials.md), in
+`src/render/pbr_functions.wesl` `apply_normal_mapping`, marked `NVForever two-channel normal
+clamp`: Z is rebuilt as `sqrt(max(1 - x² - y², 0))` instead of `sqrt(1 - x² - y²)`, so X and Y
+outside the unit disk (BC5 endpoints, filtering between texels) give Z 0 instead of a NaN.
+Only materials whose normal map is a two-channel format (`Bc5RgUnorm`, `Rg8Unorm`: Bevy's
+`TWO_COMPONENT_NORMAL_MAP` flag) reach the line; in NVForever those are the authored `_n`
+maps (nvf-assets `TextureUsage::NormalTwoChannel`), while the game's own normal maps are
+expanded to three channels on the CPU (docs/spec-notes/dds-bc5.md). Inside the disk the
+result is upstream's. Drop it when upstream clamps there.
+
+Another change (height maps, #2981 stage 4, docs/spec-notes/pbr-materials.md), in
+`src/render/parallax_mapping.wesl` `sample_depth_map`, marked `NVForever height maps`: the
+sample (bindless and ordinary binding alike) is returned as `1.0 - r` instead of `r`. The
+authored `_p` stores height (white = high); Bevy's march reads depth (white = deepest). The
+inversion sits after the two bindings' samples, so they cannot diverge; the march and both
+refinements read only through this function. It changes the convention for every
+`StandardMaterial::depth_map` in the engine: none was set in production before (terrain
+asserts landscape materials have none; the one positive assignment is a Pip-Boy test
+fixture), and the only maps set now are the authored `_p` and the game's own slot-3 height
+maps (#2979; nvf-assets `authored.rs`, `nif_spawn.rs`). Keep it while NVForever's height maps
+are heights; drop it if they are ever converted to depth on the CPU instead.
+
+A third change in the same file (#2979), in `parallaxed_uv`, marked `NVForever grazing
+clamp`: the step's divisor is `max(view_steepness, 0.15)` instead of `view_steepness`, so a
+shallow view no longer throws the samples several texture repeats away and a view along the
+surface no longer gives non-finite coordinates (the full-depth shift stays under about 6.6 x
+the depth scale). The layer count still mixes by the unclamped steepness. nvf-assets
+`authored::Parallax::full_depth_shift` mirrors the step on the CPU and its test checks this line. Drop
+it when upstream bounds the division. It applies to every height map, the authored `_p` too: an
+intentional change to authored materials (at |Vt.z| = 0.05 a floor's step is a third of
+upstream's), kept for both so no view gives runaway or non-finite coordinates.
+
+Two guards in the same file (#2979): `sample_depth_map` holds the sampled height to 0..1
+before the inversion (`1.0 - clamp(r, 0.0, 1.0)`, comment `NVForever height range`), so a
+signed texture read through the linear loader cannot leave the march's layers; and the
+occlusion refinement (comment `NVForever occlusion guard`) interpolates only when the march
+brackets a hit (last layer at or below the surface, the one before above it, a non-zero
+denominator), keeping the last layer's coordinates otherwise instead of extrapolating or
+dividing by zero. The relief refinement is unchanged.
+
+Another change (fog parameters, #2993, docs/design/graphics-enhanced.md §3.18), each part
+marked `NVForever fog parameters`, for nvforever's `aerial.rs`:
+
+- `src/fog.rs`: `DistanceFog::nvf_params`, three `Vec4`s, zero by default.
+- `src/render/fog.rs`: `GpuFog::nvf_params`, copied from the component in `prepare_fog` for
+  every fog mode (the Atmospheric arm now ends in `..Default::default()` like the others).
+- `src/render/mesh_view_types.wesl`: `Fog::nvf_params: array<vec4<f32>, 3>` after `mode`
+  (offset 64, the struct 112 bytes; nvforever's `aerial.rs` tests the Rust and the WGSL
+  layout).
+
+Bevy's fog functions never read the new field, so with it zero (Bevy's default, and every
+NVForever view while the Aerial perspective row is off) the fog is upstream's. The fog
+uniform grows by 48 bytes; the mesh view bind group keeps its entries. nvforever's own edits
+of `fog.wesl` and `pbr_functions.wesl` (fog.rs, haze.rs, aerial.rs, at run time) read it.
+Upstream has no way for an application to hand its own values to the fog shader (the
+uniform's free fields were used up by the desert haze, §3.16).
+
+The third (graphics pass 2026-11-23), marked `NVForever small casters`, in
+`src/lib.rs` `check_dir_light_mesh_visibility`: a caster whose bounding radius (box half
+diagonal times the largest scale) is below `nvf_small_caster_texels()` texels of a
+cascade's map (`Cascade::texel_size`) is left out of that cascade; `NVF_SMALL_CASTER_TEXELS`
+(default 1, 0 off). Meshes with `NoFrustumCulling` are never left out.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
@@ -313,10 +845,56 @@ only the CPU writes (`render_binned_mesh_instance_buffer`, `bin_metadata_buffer`
 frame's 400 `queue.write_buffer` calls, each a copy with its own barrier before the frame's
 first pass. Test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame again.
 
+Merged scene unpacking (with bevy_pbr's of that name above), in
+`batching/gpu_preprocessing.rs`: each view and phase keeps one `SceneUnpackingClassBuffers`
+for indexed and one for non-indexed meshes. `write_binned_instance_buffers` packs every
+multi-drawn batch set's three CPU-written buffers into them each frame (the idea of
+bevy#26580, open upstream, which packs them into shared buffers bound per batch set; that
+PR does not apply over #2064 and binds ranges, where the merged dispatches need one
+binding), with a `GpuSceneUnpackingJob` per batch set and the workgroup-to-job tables, and
+writes each packed buffer with `write_buffer_if_changed`. The batch sets' own buffers are
+CPU staging only and no longer uploaded (no GPU buffer, no write per batch set), and their
+fan buffers are not allocated. The uniform metadata buffers with a dynamic offset per batch
+set stay empty.
+
 Gated render assets (#2661), in `src/erased_render_asset.rs`, marked `NVForever gated
 materials`: `ErasedRenderAssetPlugin::gated(Arc<AtomicBool>)` runs the asset type's
 extraction and preparation systems only while the flag is set, for bevy_pbr's gated
 materials above. `Default` has no flag and does what upstream does.
+
+Slab accounting (docs/design/streaming-hitches.md §3.2), in `src/material_bind_groups.rs`,
+each part marked by a comment starting `NVForever slab accounting`. A bindless slab's
+binding arrays hold each resource once, with a reference count, and `free` gives a slot
+back only when the last reference goes. Upstream's `check_allocation` and
+`insert_resources` count a resource the slab lacks once for every bindless index of the
+material that binds it, so a material that binds one resource at several indices takes
+more slots than it gives back and a slab's count only rises as such materials come and
+go: the slab refuses materials while nearly empty, and the slabs multiply. NVForever's
+mesh blend material binds the fallback image at each unused palette index (up to 400,
+nvf-assets `nif_surface_blend.rs`) and remakes its clones at every cell crossing. Now:
+
+- a missing resource is counted once per material (`check_allocation`) and a slot is taken
+  only when the resource was not in the array (`insert_resources`), so the count is the
+  number of resources the arrays hold;
+- `check_allocation` returns as soon as the missing resources exceed the slab's free
+  slots, the count `try_allocate` refuses the slab for, instead of looking up the rest of
+  the material's resources in a slab that cannot take it (`allocate_unprepared` tries
+  every slab in turn).
+
+Which slab a material goes to can differ from upstream's choice (slabs fill properly);
+what a slab binds for it does not. Two GPU-free unit tests (`tests::slab_accounting`, the
+noop backend); the vendored crate is not a workspace member, so they run from a copy of it
+outside the workspace (`cargo test --release --lib material_bind_groups`). Drop the patch
+when Bevy counts distinct resources.
+
+[observed 2026-11-20, `tools/stress run tour --towns Goodsprings Primm --step 1024`, a
+player's NVForever.ini (Very High, mesh blend on, DLSS Quality at 3840x2160), the `profile`
+build with the two changes behind a switch, one run each, Ryzen 9 9950X3D and RTX 5090]
+`NifSurfaceBlend` slabs during the 150 s tour: 6 rising to 82 before, 1 throughout after.
+Frames of 20 ms or more: 176 of 16,433 before, 79 of 16,961 after;
+`prepare_erased_assets` was the largest span of 98 of them before (longest 33.0 ms, the
+allocation 1,365 ms of their 1,730 ms) and of 8 after (longest 4.4 ms). Mean frame 8.62 →
+8.36 ms, 1 % low 25.5 → 22.5 ms.
 
 A measuring aid for the encoder spans (`NVF_PLAY_TEST_PROFILE_ENCODERS=1`, `enc:<system>`, #2060),
 in `src/diagnostic/internal.rs` (marked `NVForever encoder gaps`), adds
@@ -462,6 +1040,109 @@ folder, or with `NVF_DLSS_PRELOAD=1`; `NVF_DLSS_PRELOAD=0` leaves out the files 
 (`engine/nvforever/src/upscaler.rs` `UpscalerStartup`, docs/design/dlss-upscaling.md, "Loaded
 whenever the files are there"). Every other run takes upstream's path. Drop it if wgpu-hal gains a way to pass the entry in.
 
+Kept shadow phases (2026-11-19, the bevy_pbr "kept shadow phases" above), in
+`src/render_phase/mod.rs`, marked `NVForever kept shadow phases`: `BinnedRenderPhase` gains
+`nvf_is_binned` (whether an entity is binned) and `nvf_retain_binned` (removes the binned
+entities a test refuses, as `remove` does), so a kept phase can be resynced with its light's
+visible list and an entity never binned twice.
+
+Pipeline compiling (perf/pipeline-cache, 2026-11-19; nvforever
+`src/pipeline_disk_cache.rs` has the measurements), in `src/render_resource/pipeline_cache.rs`,
+each part marked by a comment starting `NVForever`:
+
+- `NVForever pipeline timing`: with `NVF_PLAY_TEST_PIPELINE_LOG` set, each pipeline logs
+  `pipeline timing: queued .. ms, lock .. ms, compose .. ms, naga .. ms (<n> modules), create
+  .. ms: <label>`: the wait for a thread, for the shader cache's lock, the Wesl composition,
+  the part of it in `create_shader_module`, and the pipeline's creation (the driver's compile).
+- `NVForever persistent pipeline cache`: `PipelineCache::set_wgpu_pipeline_cache` gives every
+  pipeline created from then on a `wgpu::PipelineCache` (`cache:` in the descriptors, `None`
+  upstream); nvforever loads it from the home and saves it.
+- `NVForever composed shaders`: `PipelineCache::set_composed_store` hands bevy_shader's store
+  (below) to the shader cache.
+- `NVForever compile pool`: pipelines compile on a pool of their own (a quarter of the logical
+  cores, 2 to 8 threads; `NVF_PIPELINE_THREADS=<n>`, 0 for upstream's async compute pool
+  and no list pool),
+  not on the async compute pool (at most 4 threads, shared with the game's loading). On a
+  driver cache that has none of the pipelines (each 0.6-0.8 s), a Novac start's screen waited
+  6.1 s for them on the async compute pool and 5.3 s on this pool.
+- `NVForever modules off the lock`: the pipeline tasks take their shader modules from
+  bevy_shader's `ShaderCache::prepare` (below) under the lock, then make the ones left to them
+  without it (`nvf_modules`: naga's parse, validation and SPIR-V, and `vkCreateShaderModule`)
+  and hand them back with `finish`; a module another thread is making is waited for, after
+  this thread's own are made. Upstream made every module under the one lock: a Novac start's
+  245 modules took 751 ms one at a time while the compile threads waited 3.9 s in all for
+  the lock [observed 2026-11-19]. This needs wgpu's error scopes per thread, so the
+  dependency on `wgpu` adds its `std` feature (without it the scopes are one stack for all
+  threads, and two threads making modules at once panic with a mismatched
+  `pop_error_scope`).
+- `NVForever pipeline list`: a new module `src/render_resource/nvf_manifest.rs`
+  (`PipelineManifest`, its module notes say how it works) and `PipelineCache::
+  set_pipeline_manifest`. The render and compute tasks turn their descriptor into a recipe
+  (shaders by `Shader::path`) and ask the list: a pipeline the list built from the same
+  modules is handed over, else the task builds it and the list keeps the recipe.
+  `process_queue` feeds the list's recipes whose shaders have loaded (only those asked in
+  the last `REBUILD_RUNS` runs, at most `MAX_REBUILT`) to a pool of its own
+  (`nvf_list_pool`, half the compile pool's default threads), which builds each inside a
+  validation error scope. For the JSON of the recipes the crate depends on `serde` and
+  `serde_json` and on `wgpu-types` with `serde` (all already in the build).
+
+Without the setters and with `NVF_PIPELINE_THREADS=0`, upstream's path runs (no list pool
+either), except that the modules are made outside the lock.
+
+Graphics pass 2026-11-23: bevy#26239 (open upstream), `src/view/mod.rs`
+(`ExtractedView::main_pass_viewport`) and `src/occlusion_culling/mod.rs`, with
+bevy_core_pipeline below.
+
+HDR output (docs/design/hdr-output.md), marked `NVForever HDR output` in
+`src/view/window/mod.rs`: the statics `NVF_HDR_SURFACE` (asked for), `NVF_HDR_SURFACE_ACTIVE`
+(the window's surface is fp16 scRGB) and `NVF_HDR_SURFACE_DECIDED` (a surface has been
+made). When the surface is made with HDR asked for (`NVF_HDR_SURFACE` or `NVF_HDR=1`) and
+it offers `Rgba16Float`, that format is chosen; `SurfaceColorSpace::Auto` makes it scRGB.
+Upstream prefers an sRGB format. `SurfaceData` keeps the SDR format and whether fp16 is
+offered; `nvf_hdr_changed` compares the asked-for output with the configured format each
+frame, and a change reconfigures the surface at once (no restart). Test aid
+`NVF_PLAY_TEST_SDR_SURFACE=1`: the surface counts as offering no `Rgba16Float`.
+
+## bevy_shader 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+The shader cache, for composed shaders kept between runs (perf/pipeline-cache, 2026-11-19).
+A new module `src/nvf_composed.rs` (`ComposedStore`: keyed compositions with the source
+hash of each module the composer read, a file format with a producer line, pruning of
+entries unused for 30 runs, at most 96 MB, up to 4 variants a key) and, in
+`src/shader_cache.rs`, each part marked by a comment starting `NVForever composed shaders`:
+`ShaderCache::set_composed_store`, each shader's source hash and each module path's shader
+(kept up to date in `set_shader` and `remove`), and in `get`'s Wesl branch a lookup before
+`wesl::compile` and a `put` after it. The key is the module path, the composer's options
+with its sorted definitions, and the `constants` module's source; an entry is used only
+while every module it read still has the same source. Without a store `get` composes as
+upstream does.
+
+Why: once the driver has a pipeline in its own cache, composing its shaders is most of what
+it costs (15-90 ms a module, one at a time under the cache's lock, against about 2 ms to
+make the module), and the composer orders a module's declarations differently from run to
+run, which hands the driver new SPIR-V. At a Novac start, with NVIDIA's cache warm, the
+screen's wait for pipelines went from 3.8 to 2.3 s and the 45 pipelines asked in the first
+seconds after it from 6.3 s to 1.2 s (asked to ready, all together) [observed, nvforever
+`pipeline_disk_cache.rs`]. Composing on several threads instead was tried and is slower
+(wesl 0.6's identifiers share reference counts). The test `composed_store_skips_compositions_of_unchanged_sources`
+checks a second cache composes nothing the first kept and composes again after a change.
+Drop it when Bevy caches compositions itself.
+
+`NVForever modules off the lock` (`src/shader_cache.rs`): `get` is split into `prepare`
+(compose under the lock; returns `ModuleStep::Ready`, `Build` with the composed source, or
+`Wait` on the `ModuleSlot` of the thread making the same module) and `finish` (keep the
+module made, unless the shader was replaced meanwhile: each shader's data has a
+`generation` that `clear` bumps, and `clear` drops the slots being made). A `ModuleBuild`
+dropped unfinished (its maker panicked or stopped early) fills its slot with
+`ShaderImportNotYetAvailable`, an error the pipeline cache retries, so a waiter's pipeline
+is queued again rather than failed for the run. `get` is
+`prepare`, the module made holding the lock, and `finish`, as before. `ShaderCacheError` is
+`Clone` for the waiters. For the pipeline list (bevy_render above): `shader_path`,
+`shader_by_path` (a path two shaders share is neither) and `shaders_set`, and `prepare`
+takes the pipeline as an `Option` (`None` for the list's builds, which are not compiled
+again when a shader changes). Tests: `a_module_asked_twice_at_once_is_made_once_and_a_stale_one_is_not_kept`,
+`a_build_dropped_unfinished_wakes_its_waiters`, `shaders_are_found_by_a_path_only_they_have`.
+
 ## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 
 wgpu's Vulkan backend, for NVIDIA low latency (`VK_NV_low_latency2`,
@@ -495,6 +1176,12 @@ Not run on a GPU yet (2026-11-12): built, and the engine's tests and clippy pass
 is the crates.io package as published (its `examples` are kept: the manifest names them).
 Drop it when wgpu lets a caller extend swapchain creation, or creates the swapchain with
 the structure itself.
+
+Test aid (marked `NVForever (2026-11-19)`, `src/vulkan/mod.rs` `spirv_salt` and
+`src/vulkan/device.rs` `create_shader_module_impl`): `NVF_PLAY_TEST_SPIRV_SALT=<n>` XORs `n`
+into each shader module's SPIR-V generator word, which names only the tool that wrote it, so
+a driver's own shader cache sees new code: a first launch after a driver update, on demand,
+for measuring (perf/pipeline-cache). Without it nothing changes.
 
 ## naga 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 
@@ -632,3 +1319,25 @@ and prebuilt binaries.
   `MaterialBindlessSlab::get_bindless_index_table`, reversed in 0.19.1, which kept freed
   `ExtendedMaterial`s' textures in the slabs. Fixed upstream (bevyengine/bevy#25848);
   Bevy 0.20 has the fix, in `bevy_render::material_bind_groups` (#934).
+
+## winit 0.30.13 (Apache-2.0; rust-windowing contributors)
+
+Android controller admission only, marked `NVForever controller admission` in
+`src/platform/android.rs` and `src/platform_impl/android/mod.rs`: an optional
+application handler runs before the single native queue consumer translates input into
+window events. Unhandled inputs use the upstream path. NVForever copies controller
+samples into its own bounded queue, then uses Bevy's ordinary RawGamepadEvent route.
+No other platform backend changes. The upstream crate archive checksum was matched to
+Cargo.lock and its source files matched the installed registry before copying; upstream
+licences remain beside the source. Drop this patch when winit exposes equivalent native
+controller admission or provides a complete controller-event backend.
+
+## rapier3d 0.36.1 (Apache-2.0, Dimforge)
+
+Vendored at the repository root (`vendor/rapier3d/`) and wired via `[patch.crates-io]`
+in both `Cargo.toml` and `engine/Cargo.toml` so both workspaces resolve the exact same
+physics crate. Carries two bounded zero-dt collision-query refresh fixes in
+`src/pipeline/physics_pipeline/substep.rs` (deferred BVH optimization join before
+`dt <= 0.0` return) and `src/dynamics/island_manager/manager.rs`
+(`commit_sleeping_chunks` after persistent sleep bootstrap). Full baseline SHA-256,
+rationale, and test notes are in `vendor/rapier3d/README.nvforever.md`.

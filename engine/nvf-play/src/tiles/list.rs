@@ -92,17 +92,48 @@ pub fn reconcile<K: PartialEq + Clone>(ui: &mut Ui, list: &str, template: &str, 
     ok
 }
 
+/// [documented: GECK wiki `clipwindow`] In `list_box.xml` + `list_box_template.xml`,
+/// `<clips> 1 </clips>` on a list row opts the row into clipping by its parent
+/// `<clipwindow>` rather than cropping the row's own children (`ListItemText`,
+/// value/modifier text, markers) to the row's box. Because
+/// `fnv_ui::input::clips_children` treats `<clips>` as a self-clipper for legacy
+/// layouts, mark live direct children of a `<clips>` row under a `<clipwindow>` list
+/// with [`fnv_ui::input::OUTSIDE_CLIP`] so their clip is `parent.clip_above` (the
+/// list's `<clipwindow>` itself), preserving list-window clipping and pointer hits.
+pub fn unclip_row_children(ui: &mut Ui, list: TileId, rows: impl IntoIterator<Item = TileId>) {
+    if !ui.is_live(list) || !ui.tile(list).get("clipwindow").is_some_and(Value::truthy) {
+        return;
+    }
+    for row in rows {
+        if !ui.is_live(row) || !ui.tile(row).get("clips").is_some_and(Value::truthy) {
+            continue;
+        }
+        let children = ui.tile(row).children.clone();
+        for child in children {
+            if ui.is_live(child) {
+                ui.write_changed(child, fnv_ui::input::OUTSIDE_CLIP, Value::Num(1.0));
+            }
+        }
+    }
+}
+
 /// The rows' heights from their text tiles `text` ([`write_text_sizes`] wrote each size, at
 /// its final wrap width): the template's height, else the text's and `_VerticalSpacing`. Each
 /// row's `height` and `_y` are written. Returns the heights.
 ///
 /// [`write_text_sizes`]: super::menus::write_text_sizes
 pub fn measure_rows<K>(ui: &mut Ui, rows: &[RowTile<K>], text: &str) -> Vec<f64> {
+    measure_rows_sized(ui,rows,text,1.0,0.0)
+}
+
+fn measure_rows_sized<K>(ui:&mut Ui,rows:&[RowTile<K>],text:&str,scale:f32,minimum:f64)->Vec<f64> {
     let mut y = 0.0;
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
         let measured = child(ui, r.tile, text).map_or(0.0, |t| num(ui, t, "height"));
-        let height = r.fixed.unwrap_or(measured + num(ui, r.tile, "_VerticalSpacing"));
+        let spacing=num(ui,r.tile,"_VerticalSpacing")*f64::from(scale);
+        let height=if scale==1.0 {r.fixed.unwrap_or(measured+spacing)}
+            else {r.fixed.map_or(measured+spacing,|fixed|(fixed*f64::from(scale)).max(measured+spacing).max(fixed)).max(minimum)};
         ui.set_trait(r.tile, "height", Value::Num(height));
         ui.set_trait(r.tile, "_y", Value::Num(y));
         out.push(height);
@@ -275,7 +306,7 @@ pub fn marker_grab(ui: &Ui, menu: TileId, list: TileId, pointer_y: f64) -> Optio
 /// [`marker_grab`] of a scrollbar by its own tile; `owner` is what [`Drag::list`] holds.
 pub fn marker_grab_on(ui: &Ui, menu: TileId, owner: TileId, bar: TileId, pointer_y: f64) -> Option<Drag> {
     let marker = child(ui, bar, MARKER)?;
-    let placed = super::layout::layout(ui, marker, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker)?.rect;
+    let placed = super::layout::tile_box(ui, marker, &|_, _, _| (0.0, 0.0), true)?.rect;
     Some(Drag { menu, list: owner, bar, top: placed.top - num(ui, marker, "y"), grab: pointer_y - placed.top })
 }
 
@@ -362,7 +393,17 @@ impl<K> ListView<K> {
 /// writes the view ([`ListView::rewrite`]) and works the tree out again.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn settle_list<K: PartialEq + Clone>(ui: &mut Ui, list_tile: TileId, rows: &[RowTile<K>], row_text: &str, view: &mut ListView<K>, selected: Option<usize>, group: u32, pointer_pick: bool, navigated: u32) {
-    let heights = measure_rows(ui, rows, row_text);
+    settle_list_sized(ui,list_tile,rows,row_text,view,RowLayout {selected,group,pointer_pick,navigated,text_scale:1.0,minimum_height:0.0});
+}
+
+/// Selection and typography for the existing fixed list viewport.
+pub(super) struct RowLayout {
+    pub selected:Option<usize>,pub group:u32,pub pointer_pick:bool,pub navigated:u32,pub text_scale:f32,pub minimum_height:f64,
+}
+pub(super) fn settle_list_sized<K:PartialEq+Clone>(ui:&mut Ui,list_tile:TileId,rows:&[RowTile<K>],
+    row_text:&str,view:&mut ListView<K>,layout:RowLayout) {
+    let RowLayout {selected,group,pointer_pick,navigated,text_scale,minimum_height}=layout;
+    let heights = measure_rows_sized(ui, rows, row_text,text_scale,minimum_height);
     let page = ui.tile(list_tile).get("height").map_or(0.0, Value::num);
     let counts = counts(&heights, page);
     let file_delta = *view.file_delta.get_or_insert_with(|| ui.tile(list_tile).get("_scroll_delta").map_or(26.0, Value::num));
@@ -825,5 +866,35 @@ mod tests {
         // The highlight follows the scroll.
         write_highlight(&mut ui, list, Some((200.0, 70.0)), 4.0);
         assert_eq!(ui.tile(list).get("_highlight_y").map(Value::num), Some(200.0 - 232.0));
+    }
+
+    #[test]
+    fn unclip_row_children_marks_only_clips_rows_under_clipwindow_lists() {
+        let src = fnv_ui::MemSource::default().with(
+            "m.xml",
+            r#"<menu name="M">
+              <hotrect name="Window"><clipwindow>1</clipwindow>
+                <hotrect name="ClippedRow"><clips>1</clips><text name="Label"/></hotrect>
+                <hotrect name="PlainRow"><clips>0</clips><text name="Label"/></hotrect>
+              </hotrect>
+              <hotrect name="Open"><clipwindow>0</clipwindow>
+                <hotrect name="ClippedRow"><clips>1</clips><text name="Label"/></hotrect>
+              </hotrect>
+            </menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "m.xml").unwrap();
+        ui.update();
+        let window = ui.find_tile("M/Window").unwrap();
+        let clipped_row = ui.find_tile("M/Window/ClippedRow").unwrap();
+        let plain_row = ui.find_tile("M/Window/PlainRow").unwrap();
+        let open = ui.find_tile("M/Open").unwrap();
+        let open_row = ui.find_tile("M/Open/ClippedRow").unwrap();
+        unclip_row_children(&mut ui, window, [clipped_row, plain_row]);
+        unclip_row_children(&mut ui, open, [open_row]);
+        let has_mark = |path: &str| ui.tile(ui.find_tile(path).unwrap()).get(fnv_ui::input::OUTSIDE_CLIP).is_some_and(Value::truthy);
+        assert!(has_mark("M/Window/ClippedRow/Label"), "clips row under clipwindow list opts child out of row self-clip");
+        assert!(!has_mark("M/Window/PlainRow/Label"), "non-clips row leaves children untouched");
+        assert!(!has_mark("M/Open/ClippedRow/Label"), "list without clipwindow leaves children untouched");
     }
 }

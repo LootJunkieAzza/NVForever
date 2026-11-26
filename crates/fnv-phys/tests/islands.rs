@@ -305,3 +305,164 @@ fn a_sleeping_corpse_struck_before_a_query_wakes_whole() {
         }
     }
 }
+
+/// Regression for the interior-transition crash in `update_queries_for` -> `detect()`:
+/// after prior stepping leaves `islands` non-empty, inserting overlapping dynamic clutter
+/// asleep (as on interior cell load) and refreshing queries — either explicitly or via
+/// `step()`'s `pending_sleep` pre-step refresh — must neither trip rapier's unregistered-body
+/// assertion (`manager.rs:141`) nor fail persistent-island contact-link validation on later
+/// steps, and the placed clutter must remain asleep until disturbed.
+#[test]
+fn overlapping_clutter_added_asleep_after_prior_step_does_not_panic_and_stays_asleep() {
+    for explicit_query in [true, false] {
+        let mut w = ground();
+        // Prior exterior activity populates rapier's island manager and bootstraps persistent islands.
+        w.add_ref(&RefPose { form_id: 0x10, position: [-300.0, -300.0, 40.0], rotation: ID, scale: 1.0 }, &crate_box());
+        w.step();
+        assert_eq!(w.island_split(), None);
+
+        // Interior cell load: static shelf + two overlapping clutter bodies inserted asleep.
+        let shelf = [object(Shape::Box { half_extents: [50.0, 50.0, 10.0] }, Motion::Static, layers::STATIC, 0.0)];
+        w.add_ref(&RefPose { form_id: 0x20, position: [100.0, 100.0, 290.0], rotation: ID, scale: 1.0 }, &shelf);
+        let a = PreparedRef::new(&w.params, &RefPose { form_id: 0x21, position: [100.0, 100.0, 304.4], rotation: ID, scale: 1.0 }, &crate_box()).asleep();
+        let b = PreparedRef::new(&w.params, &RefPose { form_id: 0x22, position: [109.0, 100.0, 304.4], rotation: ID, scale: 1.0 }, &crate_box()).asleep();
+        w.insert_ref(a);
+        w.insert_ref(b);
+
+        if explicit_query {
+            w.update_queries();
+            assert_eq!(w.island_split(), None, "explicit_query={explicit_query}: after update_queries");
+        }
+        for step in 0..120 {
+            w.step();
+            assert_eq!(w.island_split(), None, "explicit_query={explicit_query}, step {step}");
+        }
+        for id in [0x21, 0x22] {
+            let state = w.ref_bodies(id)[0];
+            assert!(
+                state.sleeping && (state.translation[2] - 304.4).abs() < 1e-3,
+                "explicit_query={explicit_query}, {id:X} stayed asleep on shelf: {state:?}"
+            );
+        }
+        // Disturbing one clutter body wakes it and simulates normally.
+        let before = w.ref_bodies(0x21)[0].translation;
+        assert!(w.push_ref(0x21, before, [0.0, 200.0, 100.0], 500.0).is_some());
+        w.update_queries();
+        for step in 0..30 {
+            w.step();
+            assert_eq!(w.island_split(), None, "explicit_query={explicit_query}, post-push step {step}");
+        }
+        let after = w.ref_bodies(0x21)[0].translation;
+        assert!(after != before, "explicit_query={explicit_query}: struck clutter moved");
+    }
+}
+
+/// After prior stepping leaves `islands` non-empty, inserting two overlapping awake dynamic
+/// bodies and calling `update_queries()` before `step()` must register them cleanly without
+/// panicking in `detect()` or leaving unlinked persistent-island contacts.
+#[test]
+fn overlapping_dynamic_bodies_added_awake_after_prior_step_do_not_panic_on_query_refresh() {
+    let mut w = ground();
+    w.add_ref(&RefPose { form_id: 0x10, position: [-300.0, -300.0, 40.0], rotation: ID, scale: 1.0 }, &crate_box());
+    w.step();
+
+    w.add_ref(&RefPose { form_id: 0x31, position: [100.0, 100.0, 60.0], rotation: ID, scale: 1.0 }, &crate_box());
+    w.add_ref(&RefPose { form_id: 0x32, position: [105.0, 100.0, 60.0], rotation: ID, scale: 1.0 }, &crate_box());
+
+    w.update_queries();
+    assert_eq!(w.island_split(), None, "after update_queries");
+    for step in 0..60 {
+        w.step();
+        assert_eq!(w.island_split(), None, "step {step}");
+    }
+    let a = w.ref_bodies(0x31)[0];
+    let b = w.ref_bodies(0x32)[0];
+    assert!(a.translation[2] < 55.0 && b.translation[2] < 55.0, "both dynamic boxes fell: a={a:?} b={b:?}");
+}
+
+/// A body inserted asleep while overlapping an already-awake dynamic body must stay awake with
+/// its island rather than remaining flagged asleep while simulated.
+#[test]
+fn asleep_clutter_overlapping_already_awake_body_stays_consistent() {
+    let mut w = ground();
+    w.add_ref(&RefPose { form_id: 0x40, position: [100.0, 100.0, 80.0], rotation: ID, scale: 1.0 }, &crate_box());
+    w.step();
+
+    let pos = w.ref_bodies(0x40)[0].translation;
+    let clutter = PreparedRef::new(&w.params, &RefPose { form_id: 0x41, position: [pos[0] + 4.0, pos[1], pos[2]], rotation: ID, scale: 1.0 }, &crate_box()).asleep();
+    w.insert_ref(clutter);
+    w.update_queries();
+    assert_eq!(w.island_split(), None, "after update_queries");
+
+    for step in 0..15 {
+        w.step();
+        assert_eq!(w.island_split(), None, "step {step}");
+    }
+    let state = w.ref_bodies(0x41)[0];
+    assert!(!state.sleeping, "clutter touching a falling awake body must not stay flagged sleeping while falling: {state:?}");
+    assert!(state.translation[2] < pos[2] - 2.0, "clutter moved with the falling awake body: {state:?}");
+}
+
+/// Sequential pre-step query refreshes for overlapping asleep clutter (`P1` -> `update_queries()`
+/// -> `P2` overlapping `P1` -> `step()`) must keep both clutter bodies asleep without island splits.
+#[test]
+fn sequential_asleep_clutter_refreshes_before_step_stay_asleep() {
+    let mut w = ground();
+    w.add_ref(&RefPose { form_id: 0x10, position: [-300.0, -300.0, 40.0], rotation: ID, scale: 1.0 }, &crate_box());
+    w.step();
+
+    let shelf = [object(Shape::Box { half_extents: [50.0, 50.0, 10.0] }, Motion::Static, layers::STATIC, 0.0)];
+    w.add_ref(&RefPose { form_id: 0x50, position: [100.0, 100.0, 290.0], rotation: ID, scale: 1.0 }, &shelf);
+
+    let p1 = PreparedRef::new(&w.params, &RefPose { form_id: 0x51, position: [100.0, 100.0, 304.4], rotation: ID, scale: 1.0 }, &crate_box()).asleep();
+    w.insert_ref(p1);
+    w.update_queries();
+    assert_eq!(w.island_split(), None, "after first update_queries");
+
+    let p2 = PreparedRef::new(&w.params, &RefPose { form_id: 0x52, position: [109.0, 100.0, 304.4], rotation: ID, scale: 1.0 }, &crate_box()).asleep();
+    w.insert_ref(p2);
+
+    for step in 0..120 {
+        w.step();
+        assert_eq!(w.island_split(), None, "step {step}");
+    }
+    for id in [0x51, 0x52] {
+        let state = w.ref_bodies(id)[0];
+        assert!(
+            state.sleeping && (state.translation[2] - 304.4).abs() < 1e-3,
+            "{id:X} stayed asleep across sequential pre-step refreshes: {state:?}"
+        );
+    }
+}
+
+/// A sleeping body woken by `push_ref` before a step must not be put back to sleep (losing its
+/// impulse) when newly inserted asleep clutter overlaps it before `step()`.
+#[test]
+fn struck_sleeping_body_overlapping_asleep_clutter_before_step_stays_awake_and_moves() {
+    let mut w = ground();
+    let shelf = [object(Shape::Box { half_extents: [100.0, 100.0, 10.0] }, Motion::Static, layers::STATIC, 0.0)];
+    w.add_ref(&RefPose { form_id: 0x60, position: [100.0, 100.0, 290.0], rotation: ID, scale: 1.0 }, &shelf);
+
+    let b = PreparedRef::new(&w.params, &RefPose { form_id: 0x61, position: [100.0, 100.0, 305.0], rotation: ID, scale: 1.0 }, &crate_box()).asleep();
+    w.insert_ref(b);
+    w.step();
+    assert!(w.ref_bodies(0x61)[0].sleeping, "body starts asleep in a sleeping chunk");
+
+    let before = w.ref_bodies(0x61)[0].translation;
+    // Strike the sleeping body (sets activation.sleeping = false, not yet in islands.active_bodies()).
+    assert!(w.push_ref(0x61, [before[0] - 5.0, before[1], before[2]], [400.0, 0.0, 0.0], 1000.0).is_some());
+
+    // Insert overlapping asleep clutter before the next step.
+    let p = PreparedRef::new(&w.params, &RefPose { form_id: 0x62, position: [before[0] + 8.0, before[1], before[2]], rotation: ID, scale: 1.0 }, &crate_box()).asleep();
+    w.insert_ref(p);
+
+    for step in 0..30 {
+        w.step();
+        assert_eq!(w.island_split(), None, "step {step}");
+    }
+    let state_b = w.ref_bodies(0x61)[0];
+    let state_p = w.ref_bodies(0x62)[0];
+    assert!(!state_b.sleeping, "struck body stayed awake: {state_b:?}");
+    assert!(!state_p.sleeping, "overlapping clutter woke with the struck body: {state_p:?}");
+    assert!(state_b.translation[0] > before[0] + 10.0, "struck body kept its impulse and moved along +x: {before:?} -> {:?}", state_b.translation);
+}

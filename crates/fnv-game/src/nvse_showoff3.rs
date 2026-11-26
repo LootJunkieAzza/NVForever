@@ -125,11 +125,11 @@ fn first_slot(g: &Game, item: FormId) -> u32 {
 /// The equip slots an item takes: a weapon slot 5, armour its BMDT biped flags; none for
 /// any other item (ammo, aid).
 fn slots_of(g: &Game, item: FormId) -> u32 {
-    match g.data.sig(item) {
+    match g.data.sig(g.unclone(item)) {
         Some(s) if &s == b"WEAP" => 1 << 5,
         Some(s) if &s == b"ARMO" => match crate::nvse::record_value(g, item, "BMDT", "biped_flags") {
             Some(XVal::Num(b)) => (b as u64 as u32) & SLOT_BITS,
-            _ => 0,
+            _ => g.world.effective_slots(item).unwrap_or(0) & SLOT_BITS,
         },
         _ => 0,
     }
@@ -145,7 +145,6 @@ fn slots_of(g: &Game, item: FormId) -> u32 {
 /// without a slot (ammo) are not equipped items here [hypothesis: the functions count by
 /// slot, as the duplicates note says].
 fn equipped(g: &mut Game, actor: FormId, mask: u32) -> Vec<(FormId, fnv_sim::inventory::Extra)> {
-    let forms = g.world.forms;
     let groups: Vec<(FormId, fnv_sim::inventory::Extra)> = match g.world.get(actor).ok().and_then(|s| s.inventory.as_ref()) {
         Some(inv) => inv.groups().filter(|x| x.1.equipped).map(|x| (x.0, x.1)).collect(),
         None => return Vec::new(),
@@ -159,7 +158,7 @@ fn equipped(g: &mut Game, actor: FormId, mask: u32) -> Vec<(FormId, fnv_sim::inv
         if slots == 0 {
             continue;
         }
-        let pick = if mask & SLOT_BITS == 0 { !forms.item(item).is_some_and(|i| i.non_playable) } else { slots & mask & SLOT_BITS != 0 };
+        let pick = if mask & SLOT_BITS == 0 { !g.is_item_non_playable(item) } else { slots & mask & SLOT_BITS != 0 };
         if pick {
             out.push((item, extra));
         }
@@ -198,12 +197,14 @@ impl Game<'_> {
     }
 
     /// The start handlers of an aux timer that was (re)started: each gets the timer's
-    /// name and its owner [documented: SetOnAuxTimerStartHandler].
+    /// name and its owner with null calling reference (`GetSelfAlt == 0`) [documented:
+    /// SetOnAuxTimerStartHandler; observed: `w6d1p3_28_aux_timer_start_and_clear`,
+    /// `st(n=1,nm=[sNm],s0=1,sP=0)`].
     pub(crate) fn aux_timer_started(&mut self, owner: FormId, name: &str) {
         let hs: Vec<XVal> = self.showoff.timer_starts.iter().filter(|(_, n, o)| n == name && *o == owner).map(|(f, _, _)| f.clone()).collect();
         for f in hs {
-            let ctx = RunCtx { self_ref: Some(owner), ..RunCtx::default() };
-            if let Err(error) = self.run_function(&f, Some(fnv_script::vm::Value::Ref(owner.0)), vec![XVal::Str(name.to_string()), XVal::Ref(owner.0)], None, ctx) {
+            let ctx = RunCtx::default();
+            if let Err(error) = self.run_function(&f, None, vec![XVal::Str(name.to_string()), XVal::Ref(owner.0)], None, ctx) {
                 self.emit(crate::trace::EventKind::ScriptError { unit: "aux timer start handler".into(), error });
             }
         }
@@ -216,11 +217,14 @@ impl Game<'_> {
     pub(crate) fn aux_timer_updates(&mut self) {
         self.showoff5_tick();
         // Handlers set or removed last frame take effect now [observed: showoff3
-        // so3.aux.start.reg, a start in the step that set the handler runs nothing, a
-        // restart one frame later runs it; so3.aux.start.remove, a restart in the step that
-        // removed it still runs it].
-        for (start, set, f, timer, owner) in std::mem::take(&mut self.showoff.pending_handlers) {
-            let hs = if start { &mut self.showoff.timer_starts } else { &mut self.showoff.timer_updates };
+        // so3.aux.start.reg, so3.aux.start.remove; `w6d1p3_27_aux_timer_stop`,
+        // `same=0,noev=0,next=1,remSame=1`].
+        for (kind, set, f, timer, owner) in std::mem::take(&mut self.showoff.pending_handlers) {
+            let hs = match kind {
+                crate::nvse_showoff::AuxTimerHandlerKind::Start => &mut self.showoff.timer_starts,
+                crate::nvse_showoff::AuxTimerHandlerKind::Stop => &mut self.showoff.timer_stops,
+                crate::nvse_showoff::AuxTimerHandlerKind::Update => &mut self.showoff.timer_updates,
+            };
             hs.retain(|(h, n, o)| !(*h == f && *n == timer && *o == owner));
             if set {
                 hs.push((f, timer, owner));
@@ -244,9 +248,10 @@ impl Game<'_> {
         for (owner, name, d) in due {
             let hs: Vec<XVal> = self.showoff.timer_updates.iter().filter(|(_, n, o)| *n == name && *o == owner).map(|(f, _, _)| f.clone()).collect();
             for f in hs {
-                let ctx = RunCtx { self_ref: Some(owner), ..RunCtx::default() };
+                // Null calling reference matching Start/Stop [hypothesis].
+                let ctx = RunCtx::default();
                 let args = vec![XVal::Str(name.clone()), XVal::Ref(owner.0), XVal::Num(d)];
-                if let Err(error) = self.run_function(&f, Some(fnv_script::vm::Value::Ref(owner.0)), args, None, ctx) {
+                if let Err(error) = self.run_function(&f, None, args, None, ctx) {
                     self.emit(crate::trace::EventKind::ScriptError { unit: "aux timer update handler".into(), error });
                 }
             }
@@ -284,23 +289,31 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let n = items.iter().filter(|(i, e)| g.data.sig(*i).is_some_and(|s| &s == b"WEAP" || &s == b"ARMO") && f64::from(e.condition.unwrap_or(1.0)) * 100.0 <= threshold).count();
             XVal::Num(n as f64)
         }
-        // `[minWeight] [mask]`: the base weights, or the weights the carrier's perks and
-        // the weapon's Decrease Weight mods leave [documented: GetBaseEquippedWeight,
-        // "ignores weight modification effects"; GetCalculatedEquippedWeight: Modify Light
-        // Items, Decrease Weight, Adjust Heavy Weapon Weight]. An item counts when that
-        // weight is at least minWeight [hypothesis: the page does not say which weight
-        // the minimum is held against in the calculated case].
+        // `[minWeight] [mask]`: the base weights, or the weights the carrier's perks,
+        // weightless tweaks, and the weapon's Decrease Weight mods leave [documented:
+        // GetBaseEquippedWeight, "ignores weight modification effects";
+        // GetCalculatedEquippedWeight: Modify Light Items, Decrease Weight, Adjust Heavy
+        // Weapon Weight; design: docs/design/tweaks.md for WeightRules weightless tweaks].
+        // An item counts when that weight is at least minWeight [hypothesis: the page
+        // does not say which weight the minimum is held against in the calculated case].
         "getbaseequippedweight" | "getcalculatedequippedweight" => {
             let Some(a) = subject else { return Some(Ok(zero)) };
             let min = num(args, 0, 0.0);
             let items = equipped(g, a, num(args, 1, 0.0) as i64 as u32);
             let rules = g.world.weight_rules(a);
-            let forms = g.world.forms;
             let total: f64 = items
                 .iter()
                 .filter_map(|(i, e)| {
-                    let it = forms.item(*i)?;
-                    let w = if name == "getbaseequippedweight" { it.weight? } else { rules.unit(it.weight_with_mods(e.mods)?, it.kind) };
+                    let it = g.world.resolve_item(*i)?;
+                    let base_w = g.world.effective_weight(*i)?;
+                    let w = if name == "getbaseequippedweight" {
+                        base_w
+                    } else {
+                        let orig = it.weight.unwrap_or(base_w);
+                        let delta = orig - it.weight_with_mods(e.mods).unwrap_or(orig);
+                        let unit = (base_w - delta).max(0.0);
+                        rules.effective_unit(unit, it.kind, true, g.world.effective_power_armor(*i))
+                    };
                     (f64::from(w) >= min).then_some(f64::from(w))
                 })
                 // From 0.0: a float `sum` of nothing is -0.0, which prints "-0.000"
@@ -452,7 +465,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `maxDistance [flags]`: the actors within the distance; flag 1 no dead ones, 2 no
         // invisible ones (Invisibility or Chameleon above 0), 4 only ones in combat the
         // calling reference detects [documented: GetNumActorsInRangeFromRef]. The calling
-        // reference does not count itself [hypothesis].
+        // reference does not count itself [observed 2026-11-23/24: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184, 10 official base masters,
+        // `GSDocMitchellHouse` (`0x00103DF9`), committed probes
+        // `so_14_actors_in_range_excludes_self` (`wave4a_extenders.json`) and
+        // `w6t2_08_showoff_equipped_weight_and_ally_temp`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`): `rng(10=0,2k=1)`
+        // (range 10 returns 0 excluding Player; range 2000 returns 1 for Doc Mitchell),
+        // see docs/spec-notes/ext-showoff.md §5; zero DLL, PDB, or third-party source
+        // consulted].
         "getnumactorsinrangefromref" => {
             let Some(me) = subject else { return Some(Ok(zero)) };
             let max = num(args, 0, 0.0);
@@ -501,10 +522,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let Some(c) = form(args, 0).filter(|c| g.data.challenge_defs.contains_key(c)) else { return Some(Ok(zero)) };
             XVal::Num(f64::from(g.player.challenges.get(&c).map_or(0, |s| s.progress)))
         }
-        // `[levelOverride]`: the skill points of the next level up, or of this one while
-        // the level-up menu is open; the perks' Adjust Gained Skill Points counted
-        // [documented: GetCalculatedSkillPoints, alias
-        // GetCalculatedSkillPointsEarnedPerLevel; `crate::levelup::points_for`].
+        // `[levelOverride]`: the skill or perk points of the next level (`level + 1`),
+        // or of this one while the level-up menu is open; a nonzero `levelOverride`
+        // likewise evaluates `levelOverride + 1` while the menu is closed [documented:
+        // GetCalculatedSkillPoints / GetCalculatedPerkPoints; observed 2026-11-23:
+        // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, 10 official base
+        // masters, `b3_so_05_calc_skill_perk_points_and_ini`: `GetCalculatedPerkPoints
+        // 1/2/3/4` returned `1/0/1/0` with the level-up menu closed; no DLL or source
+        // consulted].
         "getcalculatedskillpoints" | "getcalculatedskillpointsearnedperlevel" | "getcalculatedperkpoints" | "getcalculatedperkpointsearnedperlevel" => {
             let over = num(args, 0, 0.0) as i32;
             let level = if over != 0 { over } else { g.player_level() as i32 };
@@ -553,7 +578,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let timer = text(args, 2).to_ascii_lowercase();
             let owner = form(args, 3).or_else(|| subject.filter(|_| args.len() < 4)).unwrap_or(FormId::PLAYER_REF);
             // Applied at the next frame (`Game::aux_timer_updates`).
-            g.showoff.pending_handlers.push((name.contains("start"), set, f, timer, owner));
+            let kind = if name.contains("start") {
+                crate::nvse_showoff::AuxTimerHandlerKind::Start
+            } else {
+                crate::nvse_showoff::AuxTimerHandlerKind::Update
+            };
+            g.showoff.pending_handlers.push((kind, set, f, timer, owner));
             XVal::Num(1.0)
         }
         // ---- a reference's radiation ----

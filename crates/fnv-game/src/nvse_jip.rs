@@ -40,13 +40,38 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 Some(XVal::Str(s)) => s.to_ascii_lowercase(),
                 _ => String::new(),
             };
-            // SetEditorID's names first.
+            // SetEditorID's names first [hypothesis: SetEditorID precedence over
+            // JohnnyGuitar camera overlay refs is unprobed], then loaded plugin records,
+            // then built-in JohnnyGuitar camera overlay references
+            // (`JG_CameraOverlayRef_PreIS`, `JG_CameraOverlayRef_PreUI`) [observed:
+            // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528,
+            // 2026-11-24, GSDocMitchellHouse (0x00103DF9), 10 official base masters,
+            // `w4d_35_jg_camera_overlay_nif_bound`
+            // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, calling
+            // `EditorIDToFormID` on both overlay names):
+            // `camRef(preIS=FF001314,preUI=FF001318)`; no DLL or source consulted].
             let set = g.other.edids.iter().find(|(_, e)| e.eq_ignore_ascii_case(&id)).map(|(f, _)| *f);
-            XVal::Ref(if id == "playerref" { FormId::PLAYER_REF.0 } else { set.or_else(|| g.data.edids.get(&id).copied()).map_or(0, |f| f.0) })
+            let found = if id == "playerref" {
+                Some(FormId::PLAYER_REF)
+            } else {
+                set.or_else(|| g.data.edids.get(&id).copied())
+                    .or_else(|| crate::nvse_jg_nif::camera_overlay_by_edid(&id))
+            };
+            XVal::Ref(found.map_or(0, |f| f.0))
         }
         "geteditorid" => {
             let f = form(args, 0).or(subject).unwrap_or(FormId(0));
-            XVal::Str(if f == FormId::PLAYER_REF { "PlayerRef".into() } else { g.other.edids.get(&f).or_else(|| g.data.edid_of.get(&f)).cloned().unwrap_or_default() })
+            XVal::Str(if f == FormId::PLAYER_REF {
+                "PlayerRef".into()
+            } else {
+                g.other
+                    .edids
+                    .get(&f)
+                    .or_else(|| g.data.edid_of.get(&f))
+                    .cloned()
+                    .or_else(|| crate::nvse_jg_nif::camera_overlay_edid(f).map(str::to_string))
+                    .unwrap_or_default()
+            })
         }
         "clamp" => XVal::Num(num(args, 0, 0.0).clamp(num(args, 1, 0.0), num(args, 2, 0.0).max(num(args, 1, 0.0)))),
         // [documented: GetDistance3D (LU); observed: Doc's door to his dresser 828.363]

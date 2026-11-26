@@ -20,19 +20,26 @@ fn sample_depth_map(uv: vec2<f32>, material_bind_group_slot: u32) -> f32 {
     // sample_depth_map in our loop.
     // See https://stackoverflow.com/questions/56581141/direct3d11-gradient-instruction-used-in-a-loop-with-varying-iteration-forcing
     @if(BINDLESS)
-    return textureSampleLevel(
+    let height = textureSampleLevel(
         bindless_textures_2d[material_indices[material_bind_group_slot].depth_map_texture],
         bindless_samplers_filtering[material_indices[material_bind_group_slot].depth_map_sampler],
         uv,
         0.0
     ).r;
     @else
-    return textureSampleLevel(
+    let height = textureSampleLevel(
         depth_map_texture,
         depth_map_sampler,
         uv,
         0.0
     ).r;
+    // NVForever height maps: the texture stores height (white = high, the authored `_p` of
+    // docs/spec-notes/pbr-materials.md), the march reads depth (white = deepest); one shared
+    // inversion for both bindings. Upstream returns the red channel as it is.
+    // NVForever height range (#2979): the height is held to 0..1 first, so a signed texture
+    // (a game slot-3 map in BC4/BC5 signed, read through the linear loader) cannot push the
+    // depth outside the march's 0..1 layers.
+    return 1.0 - clamp(height, 0.0, 1.0);
 }
 
 /// An implementation of parallax mapping, see https://en.wikipedia.org/wiki/Parallax_mapping
@@ -70,7 +77,13 @@ fn parallaxed_uv(
     // resulting in a singularity.
     let layer_count = mix(max_layer_count, 1.0, view_steepness);
     let layer_depth = 1.0 / layer_count;
-    var delta_uv = depth_scale * layer_depth * Vt.xy * vec2(1.0, -1.0) / view_steepness;
+    // NVForever grazing clamp (#2979): upstream divides by `view_steepness` unbounded, so a
+    // shallow view shifts the samples several texture repeats away and a view along the
+    // surface (|Vt.z| = 0) gives non-finite coordinates. The divisor stops at 0.15 (a view
+    // about 81 degrees from the normal), so the full-depth shift is at most about 6.6 x the
+    // depth scale [design]. Mirrored on the CPU by nvf-assets `authored::Parallax::full_depth_shift`,
+    // whose test reads this line.
+    var delta_uv = depth_scale * layer_depth * Vt.xy * vec2(1.0, -1.0) / max(view_steepness, 0.15);
 
     var current_layer_depth = 0.0;
     var texture_depth = sample_depth_map(uv, material_bind_group_slot);
@@ -126,7 +139,14 @@ fn parallaxed_uv(
     let previous_depth = sample_depth_map(previous_uv, material_bind_group_slot) -
         current_layer_depth + layer_depth;
 
-    let weight = next_depth / (next_depth - previous_depth);
+    // NVForever occlusion guard (#2979): upstream divides by `next_depth - previous_depth`
+    // whatever they are. Only when the march brackets a hit (the last layer at or below the
+    // surface, the one before above it) is the weight in 0..1; otherwise (the march ran out
+    // of layers, or a flat stretch makes the denominator 0) the last layer's coordinates are
+    // kept (weight 0) instead of extrapolating or dividing by zero.
+    let denominator = next_depth - previous_depth;
+    let bracketed = next_depth <= 0.0 && previous_depth >= 0.0 && denominator < -1e-6;
+    let weight = select(0.0, next_depth / min(denominator, -1e-6), bracketed);
 
     uv = mix(uv, previous_uv, weight);
 

@@ -302,6 +302,10 @@ struct WheelStats {
     cancelled: usize,
 }
 
+/// A release-confirmed touch hotbar action. Uses the normal wheel equip/use path.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct TouchHotkey(pub usize);
+
 pub struct WeaponWheelPlugin;
 
 impl Plugin for WeaponWheelPlugin {
@@ -315,6 +319,7 @@ impl Plugin for WeaponWheelPlugin {
             Err(_) => Vec::new(),
         };
         app.init_resource::<WeaponWheel>()
+            .add_message::<TouchHotkey>()
             .add_message::<UiSound>()
             .init_resource::<Hotkeys>()
             .init_resource::<WheelStats>()
@@ -373,14 +378,22 @@ fn run_aid(time: AidTime, mut aid: ResMut<WheelAid>, mut hotkeys: ResMut<Hotkeys
 /// Real time, the game clock and the play state.
 type Clocks<'w> = (Res<'w, Time<Real>>, Res<'w, Time<Virtual>>, Res<'w, State<PlayState>>);
 
+type Availability<'w> = (
+    Option<Res<'w, crate::vats_mode::VatsMode>>,
+    Res<'w, WheelAid>,
+    Option<Res<'w, NextState<PlayState>>>,
+);
+
 /// The frame's keys, mouse and stick into the wheel; its outcomes carried out.
 #[allow(clippy::too_many_arguments)]
 fn read(
     input: ControlInput,
-    motion: Res<AccumulatedMouseMotion>,
+    (motion, mut touch_requests, touch_switch): (
+        Res<AccumulatedMouseMotion>, MessageReader<TouchHotkey>, Option<Res<crate::pad::TouchDeviceSwitch>>,
+    ),
     (real, clock, state): Clocks,
     windows: Query<&Window, With<PrimaryWindow>>,
-    (vats, aid): (Option<Res<crate::vats_mode::VatsMode>>, Res<WheelAid>),
+    (vats, aid, next_play): Availability<'_>,
     mut wheel: ResMut<WeaponWheel>,
     mut control: ResMut<PlayerControl>,
     (hotkeys, mut sim, mut used, mut stats): (Res<Hotkeys>, ResMut<SimState>, MessageWriter<ItemUsed>, ResMut<WheelStats>),
@@ -391,15 +404,15 @@ fn read(
 ) {
     // The player's Weapon Requirements Matter tweak: a slot whose weapon the player may
     // not equip says why instead [design: docs/design/tweaks.md].
-    let mut unmet = |n: usize, sim: &mut SimState| -> Option<String> {
+    fn slot_unmet(hotkeys: &Hotkeys, n: usize, sim: &mut SimState, script: Option<&mut crate::script::ScriptState>) -> Option<String> {
         let item = FormId(hotkeys.0.get(n).copied().flatten()?.item);
         // One already in hand is drawn or put away as ever.
         if sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|i| i.is_equipped(item)) {
             return None;
         }
-        let rt = script.as_deref_mut().and_then(|s| s.rt.as_mut())?;
+        let rt = script.and_then(|s| s.rt.as_mut())?;
         crate::script::with_world(rt, sim, |rt| rt.game.weapon_requirement_unmet(item))
-    };
+    }
     // The player's tweak: no weapon hotkeys while reloading [design: docs/design/tweaks.md].
     let reloading_blocks = tweaks.as_ref().is_some_and(|t| t.no_hotkeys_while_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
     let toggle_in_hand = tweaks.as_ref().is_some_and(|t| t.hotkey_toggles_in_hand);
@@ -409,10 +422,10 @@ fn read(
     // whether it has (`crate::combat::WeaponAnim`; no body to time it: at once).
     let away = anim.as_deref().is_none_or(|a| !a.ready && !a.drawing && !a.holstering);
     match wait.step(clock.delta_secs(), control.weapon_out, away) {
-        Some(SwapStep::Equip(n)) => match unmet(n, &mut sim) {
+        Some(SwapStep::Equip(n)) => match slot_unmet(&hotkeys, n, &mut sim, script.as_deref_mut()) {
             Some(why) => info!("hotkeys: slot {}: refused, {why} (tweak)", n + 1),
             None => {
-                act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, true, toggle_in_hand, quiet);
+                act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, script.as_deref_mut(), true, toggle_in_hand, quiet);
             }
         },
         Some(SwapStep::CalledOff(n)) => info!("hotkeys: slot {}: the swap called off, the weapon in hand drawn again", n + 1),
@@ -466,6 +479,17 @@ fn read(
     f.click = input.mouse.just_pressed(MouseButton::Left) || aid.click;
     f.cancel = input.mouse.just_pressed(MouseButton::Right) || input.keys.just_pressed(KeyCode::Escape) || aid.cancel;
     f.blocked = *state.get() != PlayState::Playing || vats.is_some_and(|v| v.holds_input()) || input.kill_cam.as_ref().is_some_and(|k| k.active());
+    // At most one touch action per frame. Covered/menu/controller/script-disabled
+    // requests are discarded now, never replayed after their admission context changes.
+    let touch_playing = next_play.as_deref().is_none_or(|next| !matches!(next,NextState::Pending(state)|NextState::PendingIfDifferent(state) if *state!=PlayState::Playing));
+    let touch_request = touch_requests.read().find_map(|r| (r.0 < SLOTS).then_some(r.0));
+    touch_requests.clear();
+    if let Some(n) = touch_request.filter(|&n| !f.blocked && touch_playing && f.pressed.is_none() && !wheel.holds_input()
+        && touch_switch.as_ref().is_none_or(|s| s.allows_actions())
+        && input.virtual_action_allowed(CONTROLS[n])) {
+        f.pressed = Some(n);
+        f.down[n] = false;
+    }
     let was_open = wheel.is_open();
     for o in wheel.step(&f) {
         match o {
@@ -496,12 +520,12 @@ fn read(
                 } else {
                     stats.chosen.push(n);
                 }
-                let line = match unmet(n, &mut sim) {
+                let line = match slot_unmet(&hotkeys, n, &mut sim, script.as_deref_mut()) {
                     Some(why) => {
                         info!("hotkeys: slot {}: refused, {why} (tweak)", n + 1);
                         why
                     }
-                    None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet),
+                    None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, script.as_deref_mut(), false, toggle_in_hand, quiet),
                 };
                 if matches!(o, Outcome::Chose(_)) {
                     info!("weapon wheel: closed: slot {}: {line}", n + 1);
@@ -523,9 +547,9 @@ fn read(
         let step = if notches > 0.0 { 1 } else { hotkeys::SLOTS - 1 };
         let next = (1..hotkeys::SLOTS).map(|k| (from + step * k) % hotkeys::SLOTS).find(|&n| n != hotkeys::AMMO_SWAP && hotkeys::takes_hand(&mut sim.world, hotkeys.0[n]));
         if let Some(n) = next {
-            let line = match unmet(n, &mut sim) {
+            let line = match slot_unmet(&hotkeys, n, &mut sim, script.as_deref_mut()) {
                 Some(why) => why,
-                None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet),
+                None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, script.as_deref_mut(), false, toggle_in_hand, quiet),
             };
             info!("hotkeys: the mouse wheel or the D-pad steps to slot {}: {line} (tweak)", n + 1);
         }
@@ -562,7 +586,7 @@ fn sound_of(slot: Option<Slot>, outcome: &Used) -> Option<UiEvent> {
 /// Use slot `n` (a tap, or the wheel let go on it); returns what happened. `put_away`:
 /// a waiting swap whose weapon in hand has just gone away (`SwapWait`).
 #[allow(clippy::too_many_arguments)]
-fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>, wait: &mut SwapWait, put_away: bool, toggle_in_hand: bool, quiet: bool) -> String {
+fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>, wait: &mut SwapWait, script: Option<&mut crate::script::ScriptState>, put_away: bool, toggle_in_hand: bool, quiet: bool) -> String {
     // `quiet`: the player's No Hotkey Sounds tweak [design: docs/design/tweaks.md].
     if n == AMMO_SWAP {
         control.ammo_swap = true;
@@ -571,6 +595,22 @@ fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerCont
     }
     let slot = hotkeys.0[n];
     let name = slot.map_or_else(String::new, |s| crate::menu::model::display_name(sim.forms, FormId(s.item)));
+    if !put_away {
+        if let Some(s) = slot {
+            let item = FormId(s.item);
+            if hotkeys::carried(&mut sim.world, s).0 > 0 {
+                if let Some(rt) = script.and_then(|st| st.rt.as_mut()).filter(|rt| rt.game.has_pre_activate_inventory_handlers()) {
+                    let worn = sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|i| i.is_equipped(item));
+                    let allowed = crate::script::with_world(rt, sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, item, (n + 1) as i32, !worn));
+                    if !allowed {
+                        let line = format!("{name}: activation prevented by script");
+                        info!("hotkeys: slot {}: {line}", n + 1);
+                        return line;
+                    }
+                }
+            }
+        }
+    }
     // A new weapon with one drawn: holster first, equip once it is away. Equipping now
     // would swap the model at once and play the holster clip and the Unequip sound on
     // the new weapon (the #1258 review). Another weapon picked while one waits takes
@@ -680,7 +720,7 @@ mod tests {
                 .init_resource::<crate::bindings::Bindings>().init_resource::<PlayerControl>()
                 .init_resource::<WeaponWheel>().init_resource::<Hotkeys>().init_resource::<WheelAid>().init_resource::<WheelStats>()
                 .insert_resource(sim)
-                .add_message::<ItemUsed>().add_message::<UiSound>()
+                .add_message::<ItemUsed>().add_message::<UiSound>().add_message::<TouchHotkey>()
                 .add_systems(Update, read);
             let pad = app.world_mut().spawn(Gamepad::default()).id();
             let code = app.world().resource::<crate::bindings::Bindings>().get(CONTROLS[0]).key.unwrap();
@@ -906,4 +946,46 @@ mod tests {
         }
         assert!(n > 0, "a scenario uses the aid");
     }
+    fn touch_app() -> App {
+        let forms=Box::leak(Box::new(fnv_sim::FormStore::default()));
+        let refs=Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let sim=SimState{forms,refs,world:fnv_sim::World::new(forms,refs,fnv_sim::SimConfig::default())};
+        let mut app=App::new();
+        app.add_plugins((MinimalPlugins,bevy::input::InputPlugin,bevy::state::app::StatesPlugin,crate::pad::InputSwitchPlugin))
+            .insert_state(PlayState::Playing)
+            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(16)))
+            .init_resource::<crate::bindings::Bindings>().init_resource::<PlayerControl>()
+            .init_resource::<WeaponWheel>().init_resource::<Hotkeys>().init_resource::<WheelAid>().init_resource::<WheelStats>()
+            .insert_resource(sim).add_message::<ItemUsed>().add_message::<UiSound>().add_message::<TouchHotkey>()
+            .add_systems(Update,read);
+        app
+    }
+    #[test]
+    fn touch_release_uses_actual_ammo_swap_without_synthetic_hardware() {
+        let mut app=touch_app();
+        app.world_mut().resource_mut::<crate::bindings::Bindings>().set(CONTROLS[AMMO_SWAP],crate::bindings::Binding{key:Some(KeyCode::KeyK),mouse:None});
+        app.world_mut().write_message(TouchHotkey(AMMO_SWAP));app.update();
+        assert!(app.world().resource::<PlayerControl>().ammo_swap);
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().get_pressed().next().is_none());
+        assert_eq!(app.world().resource::<WheelStats>().taps,1);
+        assert!(app.world().resource::<Messages<ItemUsed>>().is_empty());
+    }
+    #[test]
+    fn rejected_touch_requests_are_not_replayed_after_cover_menu_or_script_capture() {
+        for gate in 0..4 {
+            let mut app=touch_app();
+            match gate {
+                0=>{let mut g=crate::pad::PlatformInputGate::default();g.set_blocked(true);app.insert_resource(g);},
+                1=>{app.insert_state(PlayState::Menu);},
+                2=>{app.insert_resource(crate::script_input::ScriptBlocked{keys:vec![app.world().resource::<crate::bindings::Bindings>().get(CONTROLS[AMMO_SWAP]).key.unwrap()],mouse:vec![]});},
+                _=>{app.world_mut().resource_mut::<crate::bindings::Bindings>().device=InputDevice::Controller;},
+            }
+            app.world_mut().write_message(TouchHotkey(AMMO_SWAP));app.world_mut().write_message(TouchHotkey(usize::MAX));app.update();
+            assert!(!app.world().resource::<PlayerControl>().ammo_swap,"gate {gate}");
+            app.world_mut().remove_resource::<crate::pad::PlatformInputGate>();app.world_mut().remove_resource::<crate::script_input::ScriptBlocked>();
+            app.insert_state(PlayState::Playing);app.world_mut().resource_mut::<crate::bindings::Bindings>().device=InputDevice::KeyboardMouse;
+            app.update();assert!(!app.world().resource::<PlayerControl>().ammo_swap,"rejected request replayed after gate {gate}");
+        }
+    }
+
 }

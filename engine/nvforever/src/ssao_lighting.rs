@@ -65,6 +65,14 @@ pub const EXPONENT: f32 = 1.0;
 /// `NVF_PLAY_DEBUG_AO_LAMPS` replaces it, 0 for the ambient term alone].
 pub const LAMPS: f32 = 1.0;
 
+/// Whether the ambient's factor takes the multi-bounce fit by the surface's colour
+/// (ssao_lighting.wesl `nvf_ao_multibounce`; Jimenez et al. 2016, the "later multibounce"
+/// #2897 left open): a light surface's creases keep the light it bounces into them, a dark
+/// one's stay dark, and coloured surfaces keep their colour in the shade [engineering
+/// choice: on; `NVF_PLAY_DEBUG_AO_MULTIBOUNCE=0` gives the plain factor, for comparing]. The
+/// lamps' factor stays plain.
+pub const MULTIBOUNCE: bool = true;
+
 /// The share of the fragment's distance (plus one unit) within which a texel's distance
 /// counts as the same surface: stage one's fallback tolerance (ssao.wesl
 /// `FALLBACK_TOLERANCE`) [engineering choice].
@@ -75,18 +83,19 @@ pub const DISTANCE_TOLERANCE: f32 = 0.05;
 pub struct AmbientOcclusionLightingUniform {
     /// Exponent, debug view (1 on), fade end (game units), distance tolerance.
     pub params: Vec4,
-    /// Strength (for a later multibounce), the lamps' weight (0..1); the rest unused.
+    /// Strength, the lamps' weight (0..1), the multi-bounce fit (1 on); w unused.
     pub extra: Vec4,
 }
 
 impl AmbientOcclusionLightingUniform {
     /// The uniform for an occlusion raised to `exponent`, faded out at `fade_end` (game
-    /// units), made with `strength`, on lamps without a shadow by `lamps` (held to 0..1), with
-    /// or without the debug view.
-    pub fn new(exponent: f32, fade_end: f32, strength: f32, lamps: f32, debug: bool) -> Self {
+    /// units), made with `strength`, on lamps without a shadow by `lamps` (held to 0..1), the
+    /// ambient's factor with or without the multi-bounce fit ([`MULTIBOUNCE`]), with or
+    /// without the debug view.
+    pub fn new(exponent: f32, fade_end: f32, strength: f32, lamps: f32, multibounce: bool, debug: bool) -> Self {
         AmbientOcclusionLightingUniform {
             params: Vec4::new(exponent, if debug { 1.0 } else { 0.0 }, fade_end, DISTANCE_TOLERANCE),
-            extra: Vec4::new(strength, lamps.clamp(0.0, 1.0), 0.0, 0.0),
+            extra: Vec4::new(strength, lamps.clamp(0.0, 1.0), if multibounce { 1.0 } else { 0.0 }, 0.0),
         }
     }
 }
@@ -172,7 +181,8 @@ mod tests {
                 continue;
             }
             let code: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("//")).collect();
-            assert!(code[0].starts_with("@if(NVF_AMBIENT_OCCLUSION)"), "{text}");
+            // The def alone, or the def and more (first-person shapes: `&& !FIRST_PERSON_DEPTH`).
+            assert!(code[0].starts_with("@if(NVF_AMBIENT_OCCLUSION)") || code[0].starts_with("@if(NVF_AMBIENT_OCCLUSION && "), "{text}");
         }
         for (line, hooked_line) in [(AMBIENT_LINE, AMBIENT_LINE_HOOKED), (POINT_LINE, POINT_LINE_HOOKED), (SPOT_LINE, SPOT_LINE_HOOKED)] {
             assert!(hooked_line.contains(&format!("        @if(!NVF_AMBIENT_OCCLUSION)\n{line}")), "the line kept word for word under the negation: {line}");
@@ -264,9 +274,9 @@ mod tests {
                 assert!(!lighting.contains("nvf_ao_debug"), "{case}: no debug view in the lighting itself");
                 // The lamps: the factor formed once, then taken by the point and spot lights
                 // without a shadow, never by the directional lights.
-                assert_eq!(lighting.matches("let nvf_ao_lamps = nvf_lamp_visibility(nvf_ao_ambient);").count(), usize::from(on), "{case}");
+                assert_eq!(lighting.matches("let nvf_ao_lamps = nvf_ao_multibounce(nvf_lamp_visibility(nvf_ao_ambient), diffuse_color);").count(), usize::from(on), "{case}");
                 assert_eq!(lighting.matches("let nvf_ao_ambient = nvf_ambient_visibility(in.frag_coord.xy, -view_z);").count(), usize::from(on), "{case}: the texels are read once a fragment");
-                assert_eq!(lighting.matches("* select(nvf_ao_lamps, 1.0,").count(), if on { 2 } else { 0 }, "{case}");
+                assert_eq!(lighting.matches("* select(nvf_ao_lamps, vec3(1.0),").count(), if on { 2 } else { 0 }, "{case}");
                 assert_eq!(lighting.matches("if nvf_display { nvf_direct += nvf_point_display(").count(), 1, "{case}: one point line");
                 assert_eq!(lighting.matches("if nvf_display { nvf_direct += nvf_spot_display(").count(), 1, "{case}: one spot line");
                 let directional = block_after(lighting, "for (var i: u32 = 0u; i < n_directional_lights; i = i + 1u) {");
@@ -277,8 +287,9 @@ mod tests {
                 if on {
                     let at = |s: &str| lighting.find(s).unwrap_or_else(|| panic!("{case}: {s}"));
                     assert!(at("let view_z") < at("= nvf_ambient_visibility("), "{case}: view_z before the factor is read");
-                    assert!(at("= nvf_ambient_visibility(") < at("* nvf_ao_ambient;"), "{case}: the factor is read before the ambient line takes it");
-                    assert!(at("* nvf_ao_ambient;") < at("    // Total light\n"), "{case}");
+                    assert!(at("= nvf_ambient_visibility(") < at("* nvf_ao_multibounce(nvf_ao_ambient, diffuse_color);"), "{case}: the factor is read before the ambient line takes it");
+                    assert!(at("let diffuse_color") < at("* nvf_ao_multibounce("), "{case}: the diffuse colour exists where the ambient line takes it");
+                    assert!(at("* nvf_ao_multibounce(nvf_ao_ambient, diffuse_color);") < at("    // Total light\n"), "{case}");
                     assert!(at("let view_z") < at("let nvf_ao_lamps") && at("let nvf_ao_lamps") < at("    // Point lights (direct)\n"), "{case}: formed after view_z, before the loops");
                     let point = at("nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow * select(");
                     let spot = at("nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow * select(");
@@ -291,7 +302,7 @@ mod tests {
                     // same position and distance as the ambient line's.
                     assert!(p("apply_fog(") < p("if nvf_ao_debug()") && p("if nvf_ao_debug()") < p("premultiply_alpha(pbr_input.material.flags"), "{case}");
                     assert!(post.contains("nvf_ambient_visibility(pbr_input.frag_coord.xy, -nvf_view_z)"));
-                    assert!(r.find("import nvforever::ssao_lighting::{nvf_ambient_visibility, nvf_ao_debug, nvf_lamp_visibility};").expect("import") < r.find("fn nvf_apply_pbr_lighting(").unwrap());
+                    assert!(r.find("import nvforever::ssao_lighting::{nvf_ambient_visibility, nvf_ao_debug, nvf_ao_multibounce, nvf_lamp_visibility};").expect("import") < r.find("fn nvf_apply_pbr_lighting(").unwrap());
                 }
             }
         }
@@ -334,12 +345,12 @@ mod tests {
         let fields: Vec<usize> = ["params: vec4<f32>,", "extra: vec4<f32>,"].iter().map(|f| wesl.find(f).unwrap_or_else(|| panic!("{f}"))).collect();
         assert!(fields.windows(2).all(|w| w[0] < w[1]));
         assert_eq!(AmbientOcclusionLightingUniform::min_size().get(), 32, "two vec4s, as ssao_lighting.wesl's struct");
-        let u = AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, 0.0, true);
+        let u = AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, 0.0, false, true);
         assert_eq!(u.params, Vec4::new(EXPONENT, 1.0, 7000.0, DISTANCE_TOLERANCE));
         assert_eq!(u.extra, Vec4::new(0.4, 0.0, 0.0, 0.0));
-        assert_eq!(AmbientOcclusionLightingUniform::new(0.5, 7000.0, 0.4, 0.0, false).params, Vec4::new(0.5, 0.0, 7000.0, DISTANCE_TOLERANCE));
-        assert_eq!(AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, 0.5, false).extra, Vec4::new(0.4, 0.5, 0.0, 0.0));
-        assert_eq!(AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, 3.0, false).extra.y, 1.0, "held to 1");
+        assert_eq!(AmbientOcclusionLightingUniform::new(0.5, 7000.0, 0.4, 0.0, false, false).params, Vec4::new(0.5, 0.0, 7000.0, DISTANCE_TOLERANCE));
+        assert_eq!(AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, 0.5, false, false).extra, Vec4::new(0.4, 0.5, 0.0, 0.0));
+        assert_eq!(AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, 3.0, false, false).extra.y, 1.0, "held to 1");
         // The defaults built in (the player's choice, docs/design/graphics-enhanced.md §3.1.2).
         assert_eq!((EXPONENT, LAMPS), (1.0, 1.0));
         assert!(wesl.contains(&format!("const NVF_AO_MIN_WEIGHT: f32 = {MIN_WEIGHT};")), "the WESL's minimum weight is the Rust mirror's");
@@ -415,7 +426,7 @@ mod tests {
     }
 
     fn uniform() -> AmbientOcclusionLightingUniform {
-        AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, 0.0, false)
+        AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, 0.0, false, false)
     }
 
     /// On a plane every fragment gets the plane's factor exactly (at the exponent built in,
@@ -496,7 +507,7 @@ mod tests {
     #[test]
     fn the_exponent_sets_how_the_shown_value_falls() {
         let tex = |f: f32| Texels::plane(4, 4, f, 300.0);
-        let at = |f: f32, e: f32| upsample(&tex(f), Vec2::new(2.5, 2.5), 300.0, &AmbientOcclusionLightingUniform::new(e, 7000.0, 0.8, 0.0, false));
+        let at = |f: f32, e: f32| upsample(&tex(f), Vec2::new(2.5, 2.5), 300.0, &AmbientOcclusionLightingUniform::new(e, 7000.0, 0.8, 0.0, false, false));
         let shown = |sum: f32| (sum.powf(2.2)).powf(1.0 / 2.2);
         for i in 1..=20 {
             let f = i as f32 / 20.0;
@@ -524,12 +535,45 @@ mod tests {
         let wesl = wesl();
         assert!(wesl.contains("let w = clamp(nvf_ao.extra.y, 0.0, 1.0);") && wesl.contains("return mix(1.0, g, w);"));
         let tex = Texels::plane(4, 4, 0.6, 300.0);
-        let at = |w: f32| lamps(&tex, Vec2::new(2.5, 2.5), 300.0, &AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, w, false));
+        let at = |w: f32| lamps(&tex, Vec2::new(2.5, 2.5), 300.0, &AmbientOcclusionLightingUniform::new(EXPONENT, 7000.0, 0.4, w, false, false));
         let g = upsample(&tex, Vec2::new(2.5, 2.5), 300.0, &uniform());
         assert_eq!(at(0.0), 1.0);
         assert!((at(1.0) - g).abs() < 1e-6);
         assert!((at(1.0) - 0.6).abs() < 1e-6, "a lamp-only crease: its shown value falls by the factor");
         assert!((at(0.5) - (1.0 + g) * 0.5).abs() < 1e-6);
         assert!(at(0.0) > at(0.5) && at(0.5) > at(1.0));
+    }
+
+    /// ssao_lighting.wesl `nvf_ao_multibounce` for one channel, step for step.
+    fn multibounce(x: f32, albedo: f32, on: bool) -> f32 {
+        if !on {
+            return x;
+        }
+        let a = albedo.clamp(0.0, 1.0);
+        let (k2, k1, k0) = (2.0404 * a - 0.3324, -4.7951 * a + 0.6417, 2.7552 * a + 0.6903);
+        x.max(((x * k2 + k1) * x + k0) * x).clamp(0.0, 1.0)
+    }
+
+    /// The multi-bounce fit: the plain factor while off; never below it; an open surface
+    /// stays open and a closed one closed; a lighter surface keeps more of its ambient in the
+    /// same crease; the shader holds the same constants.
+    #[test]
+    fn the_multibounce_fit_lifts_light_surfaces_more_than_dark_ones() {
+        let wesl = wesl();
+        for c in ["2.0404 * a - 0.3324", "-4.7951 * a + 0.6417", "2.7552 * a + 0.6903", "max(vec3(x), ((x * k2 + k1) * x + k0) * x)"] {
+            assert!(wesl.contains(c), "{c}");
+        }
+        const { assert!(MULTIBOUNCE) };
+        for x in [0.0f32, 0.3, 0.6, 0.9, 1.0] {
+            assert_eq!(multibounce(x, 0.7, false), x);
+            for a in [0.0f32, 0.2, 0.5, 0.8, 1.0] {
+                assert!(multibounce(x, a, true) >= x - 1e-6, "never below the factor ({x}, {a})");
+            }
+        }
+        assert!((multibounce(1.0, 0.5, true) - 1.0).abs() < 1e-3, "open stays open");
+        assert_eq!(multibounce(0.0, 0.9, true), 0.0, "closed stays closed");
+        let (dark, light) = (multibounce(0.5, 0.1, true), multibounce(0.5, 0.9, true));
+        assert!(light > dark + 0.1, "a light surface keeps more: {light} against {dark}");
+        assert!((dark - 0.5).abs() < 0.03, "a dark one about the factor itself: {dark}");
     }
 }

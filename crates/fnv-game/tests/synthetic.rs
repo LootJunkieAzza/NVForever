@@ -586,6 +586,35 @@ fn the_quest_timer_runs_at_the_quest_delay_and_sets_the_complete_stage() {
     assert_eq!(g.var(InstKey::Quest { quest: q() }, 1), before);
 }
 
+/// #3465 (VMS49's helper quest): a quest that ran, stopped and is started again with a
+/// timer set runs the timer its full time: the first run's GetSecondsPassed is not the
+/// time the quest stood stopped.
+#[test]
+fn a_quest_started_again_runs_its_timer_from_the_start() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    g.frames(120);
+    assert!(g.quest_state(q()).stages_done.contains(&20), "the first timer ran out");
+    g.stop_quest(q());
+    // Ten seconds stopped.
+    g.frames(600);
+    // A timer of 1 s set, then the quest started (as the trigger script does).
+    let key = InstKey::Quest { quest: q() };
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 1, Value::Num(1.0), "test", true);
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 2, Value::Num(1.0), "test", true);
+    g.start_quest(q());
+    // Half a second on: the timer has not run out.
+    g.frames(30);
+    assert_eq!(g.var(key, 2), Value::Num(1.0), "still running: fTimer {:?}", g.var(key, 1));
+    let Value::Num(left) = g.var(key, 1) else { panic!() };
+    assert!(left > 0.3 && left <= 1.0, "{left}");
+    // And it runs out about a second later.
+    g.frames(90);
+    assert_eq!(g.var(key, 2), Value::Num(0.0), "ran out: fTimer {:?}", g.var(key, 1));
+}
+
 #[test]
 fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
     // OnTrigger runs every frame the player is inside; with `Game::trigger_frame` before
@@ -1700,6 +1729,24 @@ fn the_runner_saves_and_loads_in_place() {
 }
 
 #[test]
+fn a_given_reference_starts_locked_or_unlocked() {
+    let f = fixture();
+    let run = |locked: bool| {
+        let input: fnv_game::runner::Input = serde_json::from_value(json!({
+            "format": "fnv.script.actions/1",
+            "given": [{"kind": "ref", "ref": "TestActivatorREF", "locked": locked}],
+            "actions": [{"op": "get_ref", "ref": "TestActivatorREF", "fields": ["locked"], "label": "given"}]
+        }))
+        .unwrap();
+        let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+        assert_eq!(out["given_errors"], json!([]));
+        out["observations"].as_array().unwrap().iter().find(|o| o["label"] == "given").unwrap()["locked"].clone()
+    };
+    assert_eq!(run(true), json!(true));
+    assert_eq!(run(false), json!(false));
+}
+
+#[test]
 fn the_runner_reads_and_writes_reference_variables_and_activates_with_the_flag() {
     let f = fixture();
     let input: fnv_game::runner::Input = serde_json::from_value(json!({
@@ -2327,7 +2374,7 @@ fn combat_hits_damage_health_kill_and_reward() {
     // An auto-calculated one: Base Health 10 + (Endurance 5 − 1) × 5 + (level 5 − 1) × 5,
     // the original's NCR troopers' 50 (npc-behaviour-compare.md §9).
     assert_eq!(g.max_health(FormId(NPC_AUTO_REF)), 50.0);
-    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: true, limb: None };
+    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), location: 1, critical: true, ..HitInfo::default() };
     let r = g.hit(npc, 30.0, by_player);
     assert_eq!((r.dealt, r.health, r.died), (30.0, 25.0, false));
     assert_eq!(g.extra[&npc].last_hit.map(|h| (h.location, h.critical)), Some((1, true)));
@@ -2361,7 +2408,7 @@ fn a_hired_companions_kill_earns_the_player_xp() {
     use fnv_game::combat::HitInfo;
     let f = fixture();
     let (npc, mate) = (FormId(NPC_REF), FormId(NPC_AUTO_REF));
-    let by_mate = HitInfo { attacker: Some(mate), weapon: None, location: 1, critical: false, limb: None };
+    let by_mate = HitInfo { attacker: Some(mate), location: 1, ..HitInfo::default() };
     // Not hired: no XP.
     let mut g = game(&f);
     g.new_game();
@@ -2399,7 +2446,7 @@ fn only_the_hit_that_killed_is_the_killing_blow() {
         let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(npc), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
         g.call_function(&ctx, args).num()
     };
-    let wound = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 3, critical: true, limb: None };
+    let wound = HitInfo { attacker: Some(FormId::PLAYER_REF), location: 3, critical: true, ..HitInfo::default() };
 
     // A wound, then a KillActor with no cause: no hit killed.
     let mut g = game(&f);
@@ -2469,7 +2516,7 @@ fn a_players_death_earns_no_kill_credit() {
     let mut f = fixture();
     let def = ChallengeDef { form: chal, kind: kind::KILL_CATEGORY, threshold: 100, flags: 0, interval: 0, value1: 0, value2: 0, value3: 0, form1: None, form2: None, name: None, description: None };
     f.data.challenge_defs.insert(chal, def);
-    let by_player = HitInfo { attacker: Some(p), weapon: None, location: 0, critical: false, limb: None };
+    let by_player = HitInfo { attacker: Some(p), location: 0, ..HitInfo::default() };
     let credit = |g: &Game| (g.player.xp, g.misc_stat(PEOPLE_KILLED), g.misc_stat(TOTAL_THINGS_KILLED), g.player.challenges.get(&chal).map_or(0, |c| c.progress));
     let start = || {
         let mut g = game(&f);
@@ -2527,7 +2574,7 @@ fn dismembered_parts_are_kept_and_read_by_scripts() {
     };
     let nums = |v: &[f64]| v.iter().map(|&v| ArgValue::Value(Value::Num(v))).collect::<Vec<_>>();
     assert_eq!(call(&mut g, KILLING_BLOW_LIMB, &[]), -1.0);
-    let head = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: false, limb: None };
+    let head = HitInfo { attacker: Some(FormId::PLAYER_REF), location: 1, ..HitInfo::default() };
     assert!(g.hit(npc, 500.0, head).died);
     assert_eq!(call(&mut g, KILLING_BLOW_LIMB, &[]), 1.0);
     // A hit on the corpse is not the killing blow.
@@ -2567,7 +2614,7 @@ fn a_hit_on_an_object_runs_its_hit_blocks() {
     g.new_game();
     let target = FormId(ACT_REF);
     let hits = |g: &Game| g.var(InstKey::Ref { reference: target }, 2).num();
-    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: -1, critical: false, limb: None };
+    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), location: -1, ..HitInfo::default() };
     // Without a weapon: `OnHit player` only.
     assert!(g.hit_object(target, by_player));
     assert_eq!(hits(&g), 10.0);
@@ -2680,7 +2727,7 @@ fn player_limb_losses_fit_the_10mm_capture_at_200_maximum_health() {
     let f = fixture();
     let p = FormId::PLAYER_REF;
     // [observed: o17_air limbs_10mm, check 3] The losses below; maximum Health 200
-    // remains [hypothesis], since that run did not record its base Health.
+    // remains open (see docs/spec-notes/combat-rules.md), since that run did not record its base Health.
     for (condition, share, health_damage, limb_damage, loss) in [
         (LEFT_ARM, 25.0, 16.06, 16.06, 16.06),
         (RIGHT_ARM, 25.0, 16.06, 16.06, 16.06),
@@ -2713,7 +2760,7 @@ fn limb_hits_lower_conditions_and_cripple() {
     let npc = FormId(NPC_REF);
     // Maximum health 55; a leg at 25 %: a pool of 13.75. Left Mobility Condition is code 29.
     let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0, points: false };
-    let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { damage, ..leg }) };
+    let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), location: 7, limb: Some(LimbHit { damage, ..leg }), ..HitInfo::default() };
     let r = g.hit(npc, 5.0, hit(2.75));
     assert_eq!((r.limb, r.crippled), (Some((29, 80.0)), false));
     assert!(!g.is_crippled(npc, 29));
@@ -2733,7 +2780,7 @@ fn limb_hits_lower_conditions_and_cripple() {
 /// torso's and the legs' condition points lost) the torso loses 1/30 of the Health
 /// damage and the legs 0.24 together, the head, arms and brain nothing [observed];
 /// nothing on a dead actor. The points come straight off the condition, whatever the
-/// actor's maximum Health [hypothesis: measured only at 5000 Health, on an NPC].
+/// actor's maximum Health (see docs/spec-notes/combat-rules.md; measured at 5000 Health, on an NPC).
 #[test]
 fn blasts_take_the_measured_limb_shares() {
     use fnv_game::combat::{blast_limb_shares, HEAD, LEFT_ARM, LEFT_MOBILITY, RIGHT_ARM, RIGHT_MOBILITY, TORSO};
@@ -2755,7 +2802,7 @@ fn blasts_take_the_measured_limb_shares() {
             assert_eq!(lost(c), 0.0, "{c} for {health}");
             assert!(!g.is_crippled(npc, c));
         }
-        // The left leg takes two thirds of the legs' share [hypothesis].
+        // The left leg takes two thirds of the legs' share (see docs/spec-notes/combat-rules.md).
         assert!((lost(LEFT_MOBILITY) - 2.0 * lost(RIGHT_MOBILITY)).abs() < 1e-9);
     }
     // A blast big enough cripples the left leg first; never an arm or the head.
@@ -2781,7 +2828,7 @@ fn limb_damage_in_points() {
     let f = fixture();
     let mut g = game(&f);
     g.new_game();
-    let leg = |damage: f64| HitInfo { attacker: None, weapon: None, location: -1, critical: false, limb: Some(LimbHit { condition: RIGHT_MOBILITY, health_percent: 0.0, damage, points: true }) };
+    let leg = |damage: f64| HitInfo { location: -1, limb: Some(LimbHit { condition: RIGHT_MOBILITY, health_percent: 0.0, damage, points: true }), ..HitInfo::default() };
     for target in [FormId(NPC_REF), FormId::PLAYER_REF] {
         let r = g.hit(target, 49.88, leg(24.94));
         assert_eq!(r.limb.map(|(c, v)| (c, (v * 100.0).round() / 100.0)), Some((RIGHT_MOBILITY, 75.06)));
@@ -2804,7 +2851,7 @@ fn crippled_limbs_slow_and_heal() {
     // fCombatPlayerLimbDamageMult's default: half for the player, all for others.
     assert_eq!(g.limb_damage(FormId::PLAYER_REF, 10.0), 5.0);
     assert_eq!(g.limb_damage(npc, 10.0), 10.0);
-    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0, points: false }) };
+    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), location: 7, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0, points: false }), ..HitInfo::default() };
     assert_eq!(g.leg_speed_mult(npc), 1.0);
     assert!(g.hit(npc, 1.0, hit(LEFT_MOBILITY)).crippled);
     assert_eq!(g.leg_speed_mult(npc), 0.85);
@@ -3458,6 +3505,92 @@ fn event_handlers_are_set_dispatched_filtered_and_removed() {
 }
 
 #[test]
+fn is_event_handler_first_and_last_match_execution_priority_order() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    q(
+        &mut g,
+        "SetEventHandler \"W6Ev\" TestSet \"priority\"::10
+         SetEventHandler \"W6Ev\" TestMap \"priority\"::5
+         SetEventHandler \"W6Ev\" TestAdd \"priority\"::5
+         SetEventHandler \"W6Ev\" TestSet \"priority\"::1",
+    );
+    // Highest priority (10) is first (1) and not last (0).
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 10)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 10)"), XVal::Num(0.0));
+    // Tied middle priority (5) is neither first nor last.
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestMap 5)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestMap 5)"), XVal::Num(0.0));
+    // Lowest priority (1) is not first (0) and is last (1).
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 1)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 1)"), XVal::Num(1.0));
+    // Unregistered priority (99) is 0 for both.
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 99)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 99)"), XVal::Num(0.0));
+}
+
+#[test]
+fn set_event_handler_and_alt_deduplicate_identical_registrations() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("ref cb\nint r1\nint r2\nint r3\nBegin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    // SetEventHandler: duplicate returns 0 and dispatches once.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x}
+               let TestGlobal := TestGlobal + x
+             End)
+             let r1 := SetEventHandler \"W6Dup\" cb
+             let r2 := SetEventHandler \"W6Dup\" cb
+             DispatchEventAlt \"W6Dup\" 1
+             SetFunctionValue (r1 * 10 + r2)",
+        ),
+        XVal::Num(10.0)
+    );
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 1.0);
+    // SetEventHandlerAlt: duplicate with identical filter returns 0 and dispatches once;
+    // distinct priority is accepted.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x}
+               let TestGlobal := TestGlobal + x
+             End)
+             let r1 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5
+             let r2 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5
+             DispatchEventAlt \"W6DupAlt\" 5
+             let r3 := SetEventHandlerAlt \"W6DupAlt\" cb 1::5 \"priority\"::2
+             SetFunctionValue (r1 * 100 + r2 * 10 + r3)",
+        ),
+        XVal::Num(101.0)
+    );
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 6.0);
+    // Multiset filter equality: repeated filter pairs (1::5, 1::5) must not match distinct
+    // pairs of equal length (1::5, 2::6), while reordered identical pairs (2::6, 1::5) deduplicate.
+    assert_eq!(
+        q(
+            &mut g,
+            "let cb := (Begin Function {int x, int y}
+               let TestGlobal := TestGlobal + x + y
+             End)
+             let r1 := SetEventHandlerAlt \"W6DupMulti\" cb 1::5 1::5
+             let r2 := SetEventHandlerAlt \"W6DupMulti\" cb 1::5 2::6
+             let r3 := SetEventHandlerAlt \"W6DupMulti\" cb 2::6 1::5
+             SetFunctionValue (r1 * 100 + r2 * 10 + r3)",
+        ),
+        XVal::Num(110.0)
+    );
+}
+
+#[test]
 fn get_game_loaded_and_restarted_are_true_once_per_script() {
     // [documented: GetGameLoaded; GetGameRestarted] once per script after a load / per
     // session; a session's SetEventHandler registrations carry over a load.
@@ -3580,6 +3713,89 @@ End
 }
 
 #[test]
+fn refresh_items_list_sets_one_shot_transient_request() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default())
+    };
+    assert!(!g.refresh_items_list_pending());
+    assert!(!g.take_refresh_items_list());
+
+    // Calling RefreshItemsList returns 0 and latches a pending request; repeated calls coalesce.
+    assert_eq!(q(&mut g, "SetFunctionValue (RefreshItemsList)"), Ok(XVal::Num(0.0)));
+    assert!(g.refresh_items_list_pending());
+    assert_eq!(q(&mut g, "RefreshItemsList"), Ok(XVal::Num(0.0)));
+    assert!(g.refresh_items_list_pending());
+
+    // The request is transient (not carried across snapshot/restore).
+    let snap = g.snapshot();
+    let restored = Game::restore(&f.data, World::restore(&f.forms, &f.refs, &snap.sim).unwrap(), g.cfg, &snap).unwrap();
+    assert!(!restored.refresh_items_list_pending());
+
+    // Engine consumption is one-shot.
+    assert!(g.take_refresh_items_list());
+    assert!(!g.refresh_items_list_pending());
+    assert!(!g.take_refresh_items_list());
+}
+
+#[test]
+fn set_delay_elapsed_returns_zero_and_updates_remaining_delay() {
+    // [observed 2026-11-24: w6t2_31_xnvse_items_ammo_rounds_and_ingrid -> del=0.00]
+    use fnv_script::vm::XVal;
+    let q_data = [vec![1u8, 0, 0, 0], 5.0f32.to_le_bytes().to_vec()].concat();
+    let quest = record(b"QUST", 0, 0x0000_0820, &[sub(b"EDID", z("TestDelayQuest")), sub(b"DATA", q_data)]);
+    let bytes = [tes4(), top(b"QUST", &quest)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "DelayQuest.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+
+    // SetDelayElapsed returns 0.0 (not secs) and adjusts remaining delay.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed TestDelayQuest 2.5)"), XVal::Num(0.0), "SetDelayElapsed returns 0.0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDelayElapsed TestDelayQuest)"), XVal::Num(2.5), "remaining delay updated to 2.5s");
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed TestDelayQuest 0)"), XVal::Num(0.0), "SetDelayElapsed 0 returns 0.0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDelayElapsed TestDelayQuest)"), XVal::Num(0.0), "remaining delay updated to 0.0s");
+    // Missing/null form returns 0.0 safely.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetDelayElapsed 0 2.5)"), XVal::Num(0.0), "null quest returns 0.0");
+}
+
+#[test]
+fn get_debug_mode_state_reports_combat_ai_default_and_toggles() {
+    // [observed 2026-11-24: w6t2_24_jip_fall_time_and_is_in_air_edges -> dbg(0,1,1,0,0,0,tgm=1)]
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(0.0), "god mode off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 1)"), XVal::Num(1.0), "AI enabled by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 2)"), XVal::Num(1.0), "Combat AI enabled by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 3)"), XVal::Num(0.0), "collision debug off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 4)"), XVal::Num(0.0), "borders off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 5)"), XVal::Num(0.0), "out-of-range mode reads 0");
+
+    g.toggles.god_mode = true;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(1.0), "tgm sets mode 0 to 1");
+    g.toggles.god_mode = false;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(0.0));
+
+    g.toggles.actors_ai_off = true;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 1)"), XVal::Num(0.0), "tai sets mode 1 to 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 2)"), XVal::Num(1.0), "mode 2 stays 1 independently");
+}
+
+#[test]
 fn queries_run_function_scripts_and_keep_what_they_change() {
     // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
     // query are read by the next, and the saved ones are in the snapshot.
@@ -3630,10 +3846,12 @@ fn player_value_changes_cripples_and_ragdolls_reach_their_handlers() {
     assert_eq!(g.run_query(reg, ctx()), Ok(XVal::Num(0.0)));
     let size = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarSize \"{s}\")\nEnd\n"), ctx()).unwrap();
     let read = |g: &mut Game, s: &str, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"{s}\" {i})\nEnd\n"), ctx()).unwrap();
-    // A hit is no script function, and the handler still hears of it, once, rounded.
+    // A hit is no script function, and the handler still hears of it, once, truncated
+    // (100.0 -> 94.6 truncates to 100.0 -> 94.0, delta -6.0; observed 2026-11-24:
+    // w6t2p2_10_jg_on_av_change_timed / w6t2p3_10_av_m1_exact).
     g.hit(FormId::PLAYER_REF, 5.4, fnv_game::combat::HitInfo { location: -1, ..Default::default() });
     assert_eq!(size(&mut g, "*av"), XVal::Num(1.0));
-    assert_eq!((read(&mut g, "*av", 0), read(&mut g, "*avd", 0)), (XVal::Num(16.0), XVal::Num(-5.0)));
+    assert_eq!((read(&mut g, "*av", 0), read(&mut g, "*avd", 0)), (XVal::Num(16.0), XVal::Num(-6.0)));
     // DamageAV takes the left arm to 0: crippled, limb 2; the change is told once more.
     g.run_query("Begin Function { }\nPlayerREF.DamageAV LeftAttackCondition 200\nEnd\n", ctx()).unwrap();
     assert_eq!((size(&mut g, "*limb"), read(&mut g, "*limb", 0)), (XVal::Num(1.0), XVal::Num(2.0)));
@@ -3786,7 +4004,7 @@ fn activator_reads_button(g: &mut Game) -> Value {
 
 /// #2925: the Broken Mr. Handy in Black Mountain waits for button 0 after a box with no
 /// buttons. The player's OK on such a box gives the script that showed it 0, once, then
-/// −1 [hypothesis: inferred from SCPT 0x000E9483]; before, the box had no `message_box`
+/// −1 (inferred from SCPT 0x000E9483; see docs/spec-notes/scripts.md); before, the box had no `message_box`
 /// and GetButtonPressed read −1 for good.
 #[test]
 fn ok_on_a_message_box_without_buttons_gives_its_script_button_0_once() {
@@ -4395,7 +4613,10 @@ fn generic_form_lists_and_animation_lists_change_for_the_session() {
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
     let glob = XVal::Ref(0x0000_0901);
     let player = XVal::Ref(FormId::PLAYER_REF.0);
-    q(&mut g, "GenericAddForm 7, PlayerREF, TestAdd, -2\nGenericAddForm 7, PlayerREF, PlayerREF, 0");
+    // On an empty list, -2 appends and returns 0 [observed: w4d_04_generic_form_neg_idx,
+    // #3802 / PR #3803]; a subsequent index 0 inserts at front and shifts it to index 1.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 7, PlayerREF, TestAdd, -2)"), XVal::Num(0.0), "empty list -2 appends returning 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 7, PlayerREF, PlayerREF, 0)"), XVal::Num(0.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 0)"), player, "index 0 put first");
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 1)"), glob);
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 2)"), XVal::Ref(0), "outside the list");
@@ -4403,6 +4624,19 @@ fn generic_form_lists_and_animation_lists_change_for_the_session() {
     assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 7, PlayerREF, 1)"), glob);
     assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetBaseSpellListLevSpells PlayerREF))"), XVal::Num(1.0), "the getter sees it");
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 99, PlayerREF, 0)"), XVal::Ref(0), "no such list");
+    // Valid target past-end index 999 returns -1 without appending [observed: 2026-11-23,
+    // GSDocMitchellHouse (0x00103DF9), `core_13_generic_add_form_split`].
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 7, PlayerREF, TestAdd, 999)"), XVal::Num(-1.0), "valid target past-end index returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetBaseSpellListLevSpells PlayerREF))"), XVal::Num(1.0), "past-end index does not append");
+    // Mismatched target record types and unknown list codes return -1 for Add and 0 for
+    // Get/Delete/Replace [observed: `core_13_generic_add_form_split`].
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 1, PlayerREF, TestAdd, 0)"), XVal::Num(-1.0), "mismatched target at index 0 returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 1, PlayerREF, TestAdd, -2)"), XVal::Num(-1.0), "mismatched target at index -2 returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 1, PlayerREF, TestAdd, 999)"), XVal::Num(-1.0), "mismatched target at index 999 returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 1, PlayerREF, 0)"), XVal::Ref(0), "mismatched Get returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 1, PlayerREF, 0)"), XVal::Ref(0), "mismatched Delete returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 1, PlayerREF, TestAdd, 0)"), XVal::Ref(0), "mismatched Replace returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 99, PlayerREF, TestAdd, 0)"), XVal::Num(-1.0), "unknown list code returns -1");
 
     q(&mut g, "AddAnimation \"a.kf\" PlayerREF\nAddAnimation \"B.kf\" PlayerREF\nAddAnimation \"A.KF\" PlayerREF");
     let nth = |g: &mut fnv_game::Game, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.GetNthAnimation {i})\nEnd\n"), ctx()).unwrap();
@@ -4414,6 +4648,147 @@ fn generic_form_lists_and_animation_lists_change_for_the_session() {
 }
 
 #[test]
+fn generic_form_lists_validate_target_type_and_past_end_index() {
+    // [observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas
+    // 1.4.0.525, xNVSE 6.4.9 with the 10 official base masters, clean-room script probe
+    // `core_13_generic_add_form_split`]:
+    // (a) Valid targets (RACE 0/1, NPC_ 5, FLST 13) accept index 0 (returns 0) and -2
+    //     (appends, returns n0 - 1), and reject past-end index 999 with -1 without mutating.
+    // (b) Mismatched target record types (NPC_+1, RACE+5, FLST+1) reject GenericAddForm
+    //     with -1 even at valid index 0/-2, and return 00000000 for Get/Delete/Replace.
+    use fnv_script::vm::XVal;
+    let race = record(b"RACE", 0, 0x0000_0810, &[sub(b"EDID", z("TestRace")), sub(b"HNAM", 0x0000_0811u32.to_le_bytes().to_vec()), sub(b"ENAM", 0x0000_0812u32.to_le_bytes().to_vec())]);
+    let hair = record(b"HAIR", 0, 0x0000_0811, &[sub(b"EDID", z("TestHair"))]);
+    let eyes = record(b"EYES", 0, 0x0000_0812, &[sub(b"EDID", z("TestEye"))]);
+    let pkg = record(b"PACK", 0, 0x0000_0813, &[sub(b"EDID", z("TestPkg"))]);
+    let npc = record(b"NPC_", 0, 0x0000_0814, &[sub(b"EDID", z("TestNpc")), sub(b"PKID", 0x0000_0813u32.to_le_bytes().to_vec())]);
+    let flst = record(b"FLST", 0, 0x0000_0815, &[sub(b"EDID", z("TestFlst")), sub(b"LNAM", 0x0000_0813u32.to_le_bytes().to_vec())]);
+    let flst_empty = record(b"FLST", 0, 0x0000_0816, &[sub(b"EDID", z("TestEmptyFlst"))]);
+    let flst_multi = record(
+        b"FLST",
+        0,
+        0x0000_0817,
+        &[
+            sub(b"EDID", z("TestMultiFlst")),
+            sub(b"LNAM", 0x0000_0811u32.to_le_bytes().to_vec()),
+            sub(b"LNAM", 0x0000_0812u32.to_le_bytes().to_vec()),
+            sub(b"LNAM", 0x0000_0813u32.to_le_bytes().to_vec()),
+        ],
+    );
+    let bytes = [
+        tes4(),
+        top(b"HAIR", &hair),
+        top(b"EYES", &eyes),
+        top(b"RACE", &race),
+        top(b"PACK", &pkg),
+        top(b"NPC_", &npc),
+        top(b"FLST", &[flst, flst_empty, flst_multi].concat()),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "GenericLists.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+
+    // (a) Valid targets: RACE code 0 (Hair), RACE code 1 (Eyes), NPC_ code 5 (Packages), FLST code 13 (FormList).
+    for (code, target, item) in [(0, "TestRace", "TestHair"), (1, "TestRace", "TestEye"), (5, "TestNpc", "TestPkg"), (13, "TestFlst", "TestPkg")] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 999)")), XVal::Num(-1.0), "code {code} on {target} rejects 999");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericGetForm {code}, {target}, 1)")), XVal::Ref(0), "code {code} on {target} did not append on 999");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 0)")), XVal::Num(0.0), "code {code} on {target} inserts at 0");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, -2)")), XVal::Num(1.0), "code {code} on {target} appends with -2 returning n0 - 1");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 999)")), XVal::Num(-1.0), "code {code} on {target} still rejects 999 at len 3");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericGetForm {code}, {target}, 3)")), XVal::Ref(0), "code {code} on {target} len stayed 3");
+    }
+
+    // (b) Mismatched target record types: NPC_ + code 1, RACE + code 5, FLST + code 1.
+    for (code, target, item) in [(1, "TestNpc", "TestEye"), (5, "TestRace", "TestPkg"), (1, "TestFlst", "TestEye")] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 0)")), XVal::Num(-1.0), "mismatched {target} + code {code} Add(0)");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, -2)")), XVal::Num(-1.0), "mismatched {target} + code {code} Add(-2)");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm {code}, {target}, {item}, 999)")), XVal::Num(-1.0), "mismatched {target} + code {code} Add(999)");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericGetForm {code}, {target}, 0)")), XVal::Ref(0), "mismatched {target} + code {code} Get");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericDeleteForm {code}, {target}, 0)")), XVal::Ref(0), "mismatched {target} + code {code} Delete");
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericReplaceForm {code}, {target}, {item}, 0)")), XVal::Ref(0), "mismatched {target} + code {code} Replace");
+    }
+
+    // (c) Negative indices on empty and non-empty FLST [observed: w4d_04_generic_form_neg_idx,
+    // #3802 / PR #3803: `emp(n0=0,d=0/0/0/0:0,r=0:0/0:1/0/0:1,a=-1/0:1/-1/-1/-1:1)`]:
+    // Empty FLST (n0=0): Delete(-1/-2/-3/oob) all return 0 leaving n=0;
+    // Replace(-1/-3/oob) return 0 leaving n=0, while Replace(-2) returns 0 AND appends (n: 0->1);
+    // Add(-1/-3/-10/oob) return -1 leaving n=0, while Add(-2) returns 0 AND appends (n: 0->1).
+    for idx in [-1, -2, -3, 99] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, {idx})")), XVal::Ref(0), "empty FLST Delete({idx})");
+        assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0), "empty FLST count stayed 0 after Delete({idx})");
+    }
+    for idx in [-1, -3, 99] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericReplaceForm 13, TestEmptyFlst, TestPkg, {idx})")), XVal::Ref(0), "empty FLST Replace({idx})");
+        assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0), "empty FLST count stayed 0 after Replace({idx})");
+    }
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestEmptyFlst, TestPkg, -2)"), XVal::Ref(0), "empty FLST Replace(-2) returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "empty FLST Replace(-2) appends (n: 0->1)");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
+    for idx in [-1, -3, -10, 5] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, {idx})")), XVal::Num(-1.0), "empty FLST Add({idx})");
+        assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0), "empty FLST count stayed 0 after Add({idx})");
+    }
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, -2)"), XVal::Num(0.0), "empty FLST Add(-2) returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "empty FLST Add(-2) appends (n: 0->1)");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    // Exact boundary `i == n` when `n > 0` returns -1 without appending, whereas `i == 0`
+    // succeeds on an empty list (`n == 0`) [observed: w6t2p3_25_generic_form_real_flst].
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestHair, 0)"), XVal::Num(0.0), "empty FLST Add(0) inserts at 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestEye, 1)"), XVal::Num(-1.0), "non-empty FLST (n=1) Add(1 == n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, 2)"), XVal::Num(-1.0), "non-empty FLST (n=1) Add(2 > n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "Add(n) did not append");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, -1)"), XVal::Ref(0x0000_0811), "Delete(-1) removes sole entry");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, -2)"), XVal::Ref(0), "Delete(-2) on now-empty list returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
+
+    // Non-empty FLST (TestMultiFlst = [TestHair 0x811, TestEye 0x812, TestPkg 0x813], n0=3):
+    // Add: `i == n` (3) returns -1 without mutating; `0..n` inserts in-range; ONLY -2 appends (ret = n0 - 1 = 2, n = 4); -1/-3/-10/n+5 return -1.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, 3)"), XVal::Num(-1.0), "non-empty FLST (n=3) Add(3 == n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -1)"), XVal::Num(-1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -2)"), XVal::Num(2.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(4.0));
+    for idx in [-3, -10, 9] {
+        assert_eq!(q(&mut g, &format!("SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, {idx})")), XVal::Num(-1.0), "non-empty FLST Add({idx})");
+        assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(4.0));
+    }
+    // Replace: ONLY -2 replaces last entry (TestRace 0x810 -> TestNpc 0x814, returning 0x810);
+    // -1/-3/999 return 0 without mutating.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, -1)"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, -2)"), XVal::Ref(0x0000_0810));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestMultiFlst, 3)"), XVal::Ref(0x0000_0814));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, -3)"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, TestMultiFlst, TestNpc, 999)"), XVal::Ref(0));
+    // Delete: -1, -2, -3 each remove an entry on a non-empty list (returning non-zero and
+    // decrementing count 4->3->2->1; [observed: w4d_04_generic_form_neg_idx]); removing
+    // index 0 (head of the list: 0x811, 0x812, 0x813; see docs/spec-notes/ext-console-generic.md §3 and crates/fnv-game/src/nvse_lists.rs). OOB 999 returns 0.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, -1)"), XVal::Ref(0x0000_0811));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, -2)"), XVal::Ref(0x0000_0812));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(2.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, -3)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestMultiFlst, 0)"), XVal::Ref(0x0000_0814));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestMultiFlst, 999)"), XVal::Ref(0));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(1.0));
+}
+
+#[test]
 fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     // [documented: CompileScript, a text file under data/nvse/user_defined_functions, used
     // with Call, cached; PrintVar, "fMyVariable: 2.5", "aMyVariable: [2, 4]"].
@@ -4421,15 +4796,17 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(|p: &str| {
         (p.eq_ignore_ascii_case("nvse\\user_defined_functions\\sub\\add.txt")).then(|| b"begin Function { int iA, int iB }\nSetFunctionValue iA + iB\nend\n".to_vec())
     });
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new() });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { hosted_from: None, read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new(), list: None });
     let f = udf_fixture();
     let mut g = game(&f);
     let ctx = fnv_game::game::RunCtx::default;
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("ref rF\nref rG\nfloat fRes\narray_var aA\nBegin Function {{ }}\n{body}\nEnd\n"), ctx());
     assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (Call rF 2 3)"), Ok(XVal::Num(5.0)));
+    // A compiled script is a valid form while it lasts (#4491).
+    assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (IsFormValid rF)"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "let rF := CompileScript \"sub\\add.txt\"\nlet rG := GetUDFFromFile \"Sub/Add.txt\"\nSetFunctionValue (rF == rG)"), Ok(XVal::Num(1.0)), "cached by path");
     assert_eq!(q(&mut g, "SetFunctionValue (CompileScript \"Sub/None.txt\")"), Ok(XVal::Ref(0)), "no file");
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new() });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { hosted_from: None, read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new(), list: None });
 
     g.console_out.clear();
     q(&mut g, "let fRes := 2.5\nlet aA := ar_List 2, 4\nPrintVar fRes, aA").unwrap();
@@ -5215,7 +5592,7 @@ fn built_in_plugins_report_installed() {
     let f = udf_fixture();
     let mut g = game(&f);
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default());
-    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "sup nvse plugin"] {
+    for name in ["JIP NVSE Plugin", "JohnnyGuitarNVSE", "ShowOffNVSE Plugin", "SUP NVSE Plugin", "JIP PP LN", "CUI", "AnhNVSE", "Extensions for NVSE", "UI Organizer Plugin", "hNVSE", "Improved Console", "sup nvse plugin"] {
         assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(1.0)), "{name}");
         let Ok(XVal::Num(v)) = q(&mut g, &format!("GetPluginVersion \"{name}\"")) else { panic!("{name}") };
         assert!(v > 0.0, "{name}: {v}");
@@ -5223,6 +5600,10 @@ fn built_in_plugins_report_installed() {
     // A version a mod asks for "at least" is met where none was read in the original.
     assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"Improved Console\""), Ok(XVal::Num(3.0)));
+    // No script functions; the engine does their work itself (#4491).
+    assert_eq!(q(&mut g, "GetPluginVersion \"Engine Optimizations\""), Ok(XVal::Num(100.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"HighResLocalMaps\""), Ok(XVal::Num(12.0)));
     for name in ["yUI", "NVTF", "No Such Plugin"] {
         assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
         assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");

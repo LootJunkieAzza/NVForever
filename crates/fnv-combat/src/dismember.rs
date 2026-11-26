@@ -92,6 +92,9 @@ pub struct Blow {
     pub max_health: f32,
     /// The attacker has Bloody Mess.
     pub bloody_mess: bool,
+    /// The actor's BPTD defines only this single body part (e.g. `NVraven02`,
+    /// `NVTumbleweed`).
+    pub sole_part: bool,
 }
 
 /// The part's share of the target's maximum health, at least 1.
@@ -106,9 +109,22 @@ pub fn chances(part: &BodyPart, b: &Blow, s: &Settings) -> (f32, f32) {
     if !severable && !explodable {
         return (0.0, 0.0);
     }
+    // Narrowed to a single-part, non-severable Torso flagged Explodable + Absolute
+    // (BPND bit 6, xEdit "To Hit Chance - Absolute") — matching crows (`NVraven02` in
+    // #3435) and also covering `NVTumbleweed` (`0x163CF3`, not shown in #3435
+    // [hypothesis]) — using its explosion chance directly without requiring Bloody Mess
+    // while still honoring the weapon's On Hit gate below [hypothesis: #3435;
+    // docs/spec-notes/dismemberment.md §4.2]. With Bloody Mess, this branch uses
+    // `max(explodable_chance_percent, torso_odds)` [hypothesis / design] so Bloody Mess
+    // never lowers the chance below `explodable_chance_percent`. Multi-part creatures and
+    // non-torso Absolute parts stay on the measured §4.1 odds until observed in the
+    // original.
+    let sole_absolute_torso = !severable && explodable && b.sole_part && part.location() == 0 && part.explodable_absolute();
     let mut gone = if b.bloody_mess {
         if severable {
             s.mess_part_chance
+        } else if sole_absolute_torso {
+            (part.explodable_chance_percent as f32).max(if b.crippled || b.corpse { s.mess_torso_crippled } else { s.mess_torso_intact })
         } else if b.crippled || b.corpse {
             s.mess_torso_crippled
         } else {
@@ -116,6 +132,8 @@ pub fn chances(part: &BodyPart, b: &Blow, s: &Settings) -> (f32, f32) {
         }
     } else if severable {
         s.dismember_chance
+    } else if sole_absolute_torso {
+        part.explodable_chance_percent as f32
     } else {
         0.0 // the torso goes only with Bloody Mess
     };
@@ -269,5 +287,74 @@ mod tests {
         assert_eq!(parts_gone(&data, 0, Fate::Explode), vec![(0, Fate::Explode), (2, Fate::Sever)]);
         assert_eq!(scripted(&data, 1), Some((0, Fate::Explode)));
         assert_eq!(scripted(&data, 5), None);
+    }
+
+    /// #3435: a single-part non-severable torso flagged `Explodable` + `To Hit Chance -
+    /// Absolute` at 100 % (matching `NVraven02`) explodes on Normal and Explode Only kills
+    /// without Bloody Mess, while still honoring `No Dismember/Explode` and `Dismember Only`.
+    #[test]
+    fn sole_explodable_absolute_torso_explodes_without_bloody_mess_respecting_on_hit() {
+        let s = Settings::default();
+        let crow_torso = part("Torso", &["Explodable", "To Hit Chance - Absolute"], 5, 100, "Perception Condition");
+        assert!(crow_torso.explodable() && crow_torso.explodable_absolute() && !crow_torso.severable());
+        for on_hit in [OnHit::Normal, OnHit::ExplodeOnly] {
+            for crippled in [false, true] {
+                let b = Blow { on_hit, crippled, overkill: 12.0, max_health: 6.0, bloody_mess: false, corpse: false, sole_part: true };
+                assert_eq!(chances(&crow_torso, &b, &s), (100.0, 0.0), "{on_hit:?} crippled={crippled}");
+                assert_eq!(decide(&crow_torso, &b, &s, 0.0), Some(Fate::Explode));
+                assert_eq!(decide(&crow_torso, &b, &s, 0.999), Some(Fate::Explode));
+            }
+        }
+        // Weapon On Hit restrictions stay enforced without Bloody Mess.
+        for on_hit in [OnHit::Neither, OnHit::DismemberOnly] {
+            let b = Blow { on_hit, crippled: true, overkill: 12.0, max_health: 6.0, bloody_mess: false, corpse: false, sole_part: true };
+            assert_eq!(chances(&crow_torso, &b, &s), (0.0, 0.0), "{on_hit:?}");
+            assert_eq!(decide(&crow_torso, &b, &s, 0.0), None);
+        }
+        // With Bloody Mess, No Dismember/Explode uses half odds, Dismember Only explodes,
+        // and odds take max(explodable_chance_percent, torso_odds) (see production `chances` above).
+        let mut bm_neither = Blow { on_hit: OnHit::Neither, crippled: true, overkill: 12.0, max_health: 6.0, bloody_mess: true, corpse: false, sole_part: true };
+        assert_eq!(chances(&crow_torso, &bm_neither, &s), (50.0, 0.0));
+        bm_neither.on_hit = OnHit::DismemberOnly;
+        assert_eq!(chances(&crow_torso, &bm_neither, &s), (100.0, 0.0));
+        let half_abs = part("Torso", &["Explodable", "To Hit Chance - Absolute"], 5, 50, "Perception Condition");
+        let bm_crippled = Blow { on_hit: OnHit::Normal, crippled: true, overkill: 12.0, max_health: 6.0, bloody_mess: true, corpse: false, sole_part: true };
+        assert_eq!(chances(&half_abs, &bm_crippled, &s), (80.0, 0.0));
+        let bm_intact = Blow { crippled: false, ..bm_crippled };
+        assert_eq!(chances(&half_abs, &bm_intact, &s), (50.0, 0.0));
+    }
+
+    /// Controls keeping multi-part creatures, single-part non-torsos, and ordinary torsos
+    /// on the measured §4.1 odds:
+    /// - multi-part `Explodable + Absolute` parts (Securitrons, ants, eyebots, turrets, etc.)
+    ///   keep their regular odds;
+    /// - a single-part `Head 1` (e.g. Mr. House) stays gated without Bloody Mess;
+    /// - `Absolute` without `Explodable` and ordinary torsos without `Absolute` stay 0 %.
+    #[test]
+    fn non_crow_absolute_parts_stay_on_measured_odds() {
+        let s = Settings::default();
+        // Multi-part severable Explodable + Absolute (Securitron head, Ant antenna, Ghost People):
+        // unchanged measured odds and still blocked by No Dismember/Explode without Bloody Mess.
+        let abs_head = part("Head 1", &["Severable", "Explodable", "To Hit Chance - Absolute"], 25, 100, "Perception Condition");
+        assert_eq!(chances(&abs_head, &blow(OnHit::Normal, 10.0), &s), (52.5, 22.5));
+        assert_eq!(chances(&abs_head, &blow(OnHit::Neither, 10.0), &s), (0.0, 0.0));
+        assert_eq!(chances(&abs_head, &blow(OnHit::DismemberOnly, 10.0), &s), (0.0, 75.0));
+
+        // Multi-part non-severable Torso with Explodable + Absolute (Eyebot Armor, Turret Hull):
+        // `sole_part = false` keeps the existing Bloody Mess torso gate.
+        let multi_torso = part("Torso", &["Explodable", "To Hit Chance - Absolute"], 50, 100, "Endurance Condition");
+        assert_eq!(chances(&multi_torso, &blow(OnHit::Normal, 50.0), &s), (0.0, 0.0));
+
+        // Single-part non-severable Head 1 with Explodable + Absolute (Mr. House): not a Torso.
+        let sole_head = part("Head 1", &["Explodable", "To Hit Chance - Absolute"], 5, 100, "Perception Condition");
+        let sole_blow = Blow { sole_part: true, ..blow(OnHit::Normal, 10.0) };
+        assert_eq!(chances(&sole_head, &sole_blow, &s), (0.0, 0.0));
+
+        // Absolute without Explodable on a sole torso: never explodes.
+        let not_explodable = part("Torso", &["To Hit Chance - Absolute"], 100, 100, "Endurance Condition");
+        assert_eq!(chances(&not_explodable, &sole_blow, &s), (0.0, 0.0));
+
+        // Ordinary sole torso without Absolute: still 0 % without Bloody Mess.
+        assert_eq!(chances(&torso(), &sole_blow, &s), (0.0, 0.0));
     }
 }
