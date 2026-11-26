@@ -552,11 +552,13 @@ fn keys(
                 to = crate::menu::model::amount_at(p.x + 0.5, most);
             }
         }
+        let wasd = rt.game.tweaks.wasd_as_arrow_keys;
         let wheel = scroll.as_ref().map_or(0.0, |s| s.delta.y);
         if keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::KeyD]) || wheel > 0.0 || act("more") {
             to += 1;
         }
-        if keys.just_pressed(KeyCode::ArrowLeft) || wheel < 0.0 || act("less") {
+        let less_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowLeft, KeyCode::KeyA] } else { &[KeyCode::ArrowLeft] };
+        if keys.any_just_pressed(less_keys.iter().copied()) || wheel < 0.0 || act("less") {
             to -= 1;
         }
         let other_changed=to!=amount || make || back;
@@ -589,7 +591,12 @@ fn keys(
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Back });
             return;
         }
-        if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || make || act("accept") {
+        let qty_accept: &[KeyCode] = if wasd {
+            &[KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]
+        } else {
+            &[KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]
+        };
+        if keys.any_just_pressed(qty_accept.iter().copied()) || make || act("accept") {
             open.quantity = None;
             let chosen = v.rows.get(open.selected.min(v.rows.len().saturating_sub(1))).map(|r| r.recipe);
             if let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) {
@@ -639,11 +646,14 @@ fn keys(
         open.pointer_pick = false;
         open.navigated = open.navigated.wrapping_add(1);
     }
+    let wasd = rt.game.tweaks.wasd_as_arrow_keys;
     let filters = v.filters + 1;
-    if keys.just_pressed(KeyCode::ArrowRight) || clicked == Some(RecipeButton::Right) || clicked == Some(RecipeButton::Title) || act("filter") {
+    let right_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowRight, KeyCode::KeyD] } else { &[KeyCode::ArrowRight] };
+    let left_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowLeft, KeyCode::KeyA] } else { &[KeyCode::ArrowLeft] };
+    if keys.any_just_pressed(right_keys.iter().copied()) || clicked == Some(RecipeButton::Right) || clicked == Some(RecipeButton::Title) || act("filter") {
         filter_step(open,filters,1);
     }
-    if keys.just_pressed(KeyCode::ArrowLeft) || clicked == Some(RecipeButton::Left) {
+    if keys.any_just_pressed(left_keys.iter().copied()) || clicked == Some(RecipeButton::Left) {
         filter_step(open,filters,-1);
     }
     if let Some(RecipeButton::Row(r)) = clicked {
@@ -686,7 +696,12 @@ fn keys(
         next.set(crate::repair::after_close(&rt.game));
         return;
     }
-    if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(RecipeButton::Accept) || act("accept") {
+    let accept_keys: &[KeyCode] = if wasd {
+        &[KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]
+    } else {
+        &[KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]
+    };
+    if keys.any_just_pressed(accept_keys.iter().copied()) || clicked == Some(RecipeButton::Accept) || act("accept") {
         let chosen = v.rows.get(open.selected.min(n.saturating_sub(1))).map(|r| r.recipe);
         let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) else { return };
         // Any can be made: how many? (module notes)

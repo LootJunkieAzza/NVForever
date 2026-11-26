@@ -301,6 +301,21 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   SystemSave to the system slot, ForceSave as a new save.
 - Registered in `engine/nvf-play/src/save.rs`
 
+## Gameplay › Combat
+
+### `localized-dt-dr`: Localized armor DT/DR
+
+- On the page: On: head hits use only worn head armor DT/DR and body hits only worn body
+  armor; explosions use all worn armor and innate DT/DR still applies. Off: full worn armor
+  everywhere.
+- In full: Default Off (vanilla sums all worn armor DT/DR across head and body slots on
+  every hit). When On, head hits benefit only from worn head-slot armor DT/DR and body hits
+  benefit only from worn body-slot armor DT/DR, while explosions still apply full worn armor
+  and actor innate DT/DR (AV 76/18) still applies everywhere. Optional NVForever setting
+  following the public `bLocalizedDTDR` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/localized-dt-dr.md`, #3843).
+- Registered in `engine/nvf-play/src/combat.rs`
+
 ## Gameplay › Bug Reports
 
 ### `send-reports`: Send reports to help fix NVForever
@@ -318,6 +333,16 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   7 days) and drops the ones not sent yet; later reports, this session's too, get a new ID
 - More: docs/design/player-reports.md
 - Registered in `engine/nvforever/src/reports/delete.rs`
+
+## Gameplay › Co-op
+
+### `coop`: Co-op
+
+- On the page: On: the main menu shows Join Lobby and the pause menu a Co-op screen to open
+  a lobby. It stays on while a lobby is open or joined.
+- Off by default; kept in `NVForever.ini` `[Settings]` [design].
+- Greyed while a lobby is open or this game is a guest in one.
+- Registered in `engine/nvf-play/src/lobby.rs`
 
 ## Display › Screen
 
@@ -1203,12 +1228,12 @@ below cover them all.
 
 ### `volumetric-light`: Volumetric light (experimental)
 
-- On the page: On: sunlight shows in the air as rays and a glow toward a low sun, shaded by
-  hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of
-  NVForever's.
+- On the page: On: sunlight and moonlight show in the air as rays and a glow toward a low
+  sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An
+  addition of NVForever's.
 - While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
-  it draws). A prototype. Outdoors by day
-  only, in the main view only. Off in every preset; not in the original.
+  it draws). A prototype. Outdoors only, by the sun by day and by
+  the moon at night (nothing at night in a climate without one), in the main view only. Off in every preset; not in the original.
 - Command-line switches: `--graphics-only`
 - More: docs/design/volumetric-medium.md
 - Registered in `engine/nvforever/src/settings.rs`
@@ -1435,11 +1460,15 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   count as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
   collision, the mesh terrain blend and the distant landscape keep the plain surface, and
   so do layers drawn on their own (GPUs without bindless textures; a texture repeat that
-  does not divide the cell). Needs Authored materials: in the game, as this run has it
+  does not divide the cell). A layer whose texture has no set takes the height from its
+  diffuse's alpha where that is a varying DXT5 alpha, as the ground packs for the original's
+  terrain parallax shaders have it (depth 0.03; read only while the switch is on, over some
+  frames when it is switched on in a game). Needs
+  Authored materials: in the game, as this run has it
   (greyed until a restart when it was off at the start; still available after turning it
   off for the next start); in the launcher, as saved. The original draws no relief on its
   landscape [observed: the maintainer's run of observer check 268, 2026-11-22, by eye], so this
-  is an enhancement that acts only with an authored ground pack. Off by
+  is an enhancement that acts only with a ground pack. Off by
   default and in both presets until its cost is measured (the maintainer's call); switches
   at once, no restart.
 - Command-line switches: `--graphics-only` (`--graphics-only terrain-parallax`)

@@ -508,9 +508,22 @@ impl TargetPicker<'_,'_,'_>{
     let raw_hit = hit;
     let hit = pick::door_behind(hit, behind, |id| describe_once(id).is_some());
     // What is inside a container wins over it (an open locker's shelves, #3351), an item
-    // over the activator it lies on (#3937), among the boxes the bed rule kept.
+    // over the activator it lies on (#3937), among the boxes the bed rule kept. When only
+    // rough actor boxes remain, prefer the actor whose posed body segments are nearest the
+    // crosshair ray (#3664).
     let kept: Vec<pick::BoxSpan> = bounds.iter().filter(|b| kept.iter().any(|k| k.0 == b.0)).copied().collect();
-    let picked = pick::choose_inside(hit, raw_hit, kept, REACH, yields, |id| describe_once(id).is_some());
+    let rough_limit = hit.map_or(REACH, |h| (h.distance + pick::SURFACE_SLACK).min(REACH));
+    let ray_origin = Vec3::from_array(eye);
+    let ray_dir = Vec3::from_array(dir);
+    let body_ray_distance = |actor: u32| {
+        let posed = parts.and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty())?;
+        posed
+            .segments
+            .iter()
+            .map(|s| pick::ray_segment_distance(ray_origin, ray_dir, rough_limit, Vec3::from_array(s.a), Vec3::from_array(s.b)))
+            .reduce(f32::min)
+    };
+    let picked = pick::choose_inside_with_body(hit, raw_hit, kept, REACH, yields, body_ray_distance, |id| describe_once(id).is_some());
     // How far the sleeper's body is from the eye: its posed bones (`crate::hitvol::ActorParts`,
     // which follow the lying body), else its render boxes (rough: the bind pose).
     let body_distance = |actor: u32| {

@@ -640,7 +640,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Ref(match slot {
                 Some(EffectSlot::Added { back, at }) => g.added_effect(f, back, at).map_or(0, |e| e.effect.0),
                 Some(EffectSlot::Own(r)) => {
-                    let e = g.data.effect_items.get(&f).and_then(|l| l.get(r));
+                    let e = g.data.effect_items.get(&g.unclone(f)).and_then(|l| l.get(r));
                     e.map_or(0, |e| g.gaps.effect_bases.get(&(f, r)).copied().unwrap_or(e.effect).0)
                 }
                 None => 0,
@@ -651,6 +651,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "setntheffectbase" => {
             use crate::nvse_jip14::EffectSlot;
             let (Some(f), Some(b)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            if g.data.sig(g.unclone(b)) != Some(*b"MGEF") {
+                return Some(Ok(XVal::Ref(0)));
+            }
             match usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| g.effect_slot(f, i)) {
                 Some(EffectSlot::Own(r)) => {
                     g.gaps.effect_bases.insert((f, r), b);
