@@ -286,10 +286,19 @@ turn.
   Moving the clock back ends nothing.
 - **Saves** [design]: the dates are saved with the player. A save from before #2467 has
   none: at the load its crime enemies (actors) are dated at the load, so they end three
-  days after it; its faction flags are all kept as a script's and never end by the
-  cooldown, because such a save cannot tell a crime's flag from a quest's
-  SetPCEnemyOfFaction, and a quest's hostility must not end. A flag a crime set in such
-  a save stays until a script clears it, as before #2467.
+  days after it; its faction flags are kept as a script's and never end by the
+  cooldown when a script of the load order can set them, because such a save cannot
+  tell a crime's flag from a quest's SetPCEnemyOfFaction, and a quest's hostility must
+  not end. A flag on a faction no script names to SetPCEnemyOfFaction
+  (`Game::script_flaggable_factions`: FalloutNV.esm's 19 calls name 8 factions
+  [observed: `fnvtool script decompile`, 2026-11-25]) can only be a crime's: it is dated
+  at the load and ends 0.18 game hours later (#3335). A save made between #2467 and
+  #3335 holds such flags among the script's; at the load they end at once, the crime
+  behind them being older than the save that first kept them (#3335: the player report
+  R-833D3F5X held ArmorVCaesarsLegionFaction so, and Karl fought Veronica in the Great
+  Khan longhouse; with it ended he holsters and sits). Log: `load: the player's flag with
+  faction <f> was an older save's crime, kept as a script's, and no script sets it: it
+  ends (#3335)`.
 - **Log**: `crime: the player is no longer an enemy of <faction>: the last crime against
   it is <h> game hours old`, `crime: <actor> no longer counts the player's crimes: the last
   is <d> game days old`.

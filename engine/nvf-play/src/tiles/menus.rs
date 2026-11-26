@@ -992,7 +992,7 @@ mod tests {
     #[test]
     fn an_icon_shows_and_makes_room() {
         let mut ui = message();
-        let mut v = view(None, "Liked", &["OK"]);
+        let mut v = view(None, "Hello", &["OK"]);
         v.icon = Some(r"textures\interface\icons\message icons\glow_message_vaultboy_very_happy.dds".into());
         write_message(&mut ui, &v, Some(0), true, &size);
         assert_eq!(f(&ui, "MM_MessageIcon/visible"), 1.0);

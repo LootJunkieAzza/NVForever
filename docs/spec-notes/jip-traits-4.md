@@ -102,6 +102,16 @@ not decode yet.
 - 5 (moons) and 6 (phase length) share TNAM's last byte: the moons are its top two
   bits, the phase length its low six [observed: jip4, WastelandClimate reads moons 2
   and phase length 3; SetClimateTraitNumeric 6 7 reads back 7 and leaves the moons 2].
+- Bounds and validation: sun times (`0..=3`) convert via unsigned 10-minute slots capped
+  at `143` (`25 -> 20`, `1500 -> 1430`, `-10 -> 1430`), moons (`5`) clamp to `0..=3`
+  (`4 -> 3`), phase length (`6`) clamps to `0..=63` (`64 -> 63`), and non-`CLMT` forms
+  are ignored (`bad=0`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN
+  57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  isolated clean-room staging copy (read-only probe; zero writes to game install or
+  Saves), `w6d2_16_climate_traits_and_weather_add_remove`
+  (`tools/capture/nvse/catalogs/wave6d2_set_climate_trait_bounds.json`):
+  `PROBE|w6d2_16_climate_traits_and_weather_add_remove|sun(300->25:20,1500:1430,neg:1430)|m5(2->4:3)|p6(3->64:63)|bad=0|wlst(n=1->1,r=1,1,1,1)`;
+  zero DLL, PDB, or third-party source consulted].
 
 ## 8. Quests
 
@@ -207,6 +217,15 @@ not decode yet.
   below 0 for a moment before the script runs, so there is no floor [observed: a scratch
   capture read VDeadSea 1.397, 1.381, 1.365 … s, 15.6 ms less each frame; one jip4 run
   read VCG01 below 0 and the next above]. It stays within the delay (5 s here).
+- `SetDelayElapsed quest seconds` [documented: sets the remaining time until the quest's
+  script next runs]: sets `since_run = (delay - seconds.max(0)).max(0)` and returns `0.0`
+  (not `seconds`) [observed: 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout:
+  New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters,
+  isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes to game
+  install or Saves), committed probe `w6t2_31_xnvse_items_ammo_rounds_and_ingrid`
+  (`tools/capture/nvse/catalogs/wave6_t2_set_delay_elapsed.json`):
+  `PROBE|w6t2_31_xnvse_items_ammo_rounds_and_ingrid|ammo(u=0,0=0,5=0)|grid(def=1,0=1)|del=0.00|tf(ref=0,arg=0)`;
+  zero DLL, PDB, or third-party source consulted].
 - `GetGlobalRef global`, `SetGlobalRef global [form]` [documented: their pages; on a
   reference with no form, the reference]. The form ID is written into the global's own
   value as the bits of its float, and GetGlobalRef reads the bits back, 0 when they name

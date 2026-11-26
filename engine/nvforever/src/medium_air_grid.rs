@@ -1491,7 +1491,7 @@ pub(crate) fn air_grid_pass(
     mut ctx: RenderContext,
 ) {
     let (gpu, shadows, offset) = view.into_inner();
-    // Gated off (night, indoors, an unusable fog) in a view that shows the light: no grid and
+    // Gated off (night without a moon, indoors, an unusable fog) in a view that shows the light: no grid and
     // no filter; the volumes stay allocated, and `drawn` stays false so the composite (which
     // skips such a frame anyway) never reads a volume not written this frame.
     if !grid_dispatched(gpu.view, crate::medium_air_compose::light_on(gpu.uniform.get())) {

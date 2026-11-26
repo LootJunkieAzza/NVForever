@@ -98,6 +98,12 @@ impl Fields {
         }
     }
 
+    /// Whether these are neither TTW's start nor the base game's: another mod's, set through
+    /// the card's Custom… window (#4288).
+    pub fn is_custom(&self) -> bool {
+        !self.is_ttw() && *self != Fields::original()
+    }
+
     /// Whether these are Tale of Two Wastelands' start: its quest and no film.
     pub fn is_ttw(&self) -> bool {
         self.quest.trim().eq_ignore_ascii_case(TTW_QUEST) && self.no_film
@@ -219,5 +225,15 @@ mod tests {
         let back = Fields::original().write(&out);
         assert_eq!(ini_get(&back, "General", "sCharGenQuest").as_deref(), Some("00102037"));
         assert_eq!(ini_get(&back, "General", "sIntroMovie").as_deref(), Some("FNVIntro.bik"));
+    }
+
+    #[test]
+    fn a_start_that_is_neither_ttws_nor_the_base_games_is_custom() {
+        assert!(!Fields::ttw().is_custom());
+        assert!(!Fields::original().is_custom());
+        assert!(!Fields::read("").is_custom());
+        assert!(Fields { quest: "MyStart".into(), ..Fields::original() }.is_custom());
+        assert!(Fields { film: "Mine.bik".into(), ..Fields::original() }.is_custom());
+        assert!(Fields { no_film: true, ..Fields::original() }.is_custom());
     }
 }

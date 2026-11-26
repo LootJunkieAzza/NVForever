@@ -27,6 +27,10 @@ without the launcher is the same as before.
   file while its version and its table stamp (`nvf_settings_layout::layout_stamp`, a hash of
   the tabs, categories, rows and rules) are the launcher's (`src/catalog.rs`): dev builds
   between releases share a version, the stamp keeps one from showing another build's rows.
+  Another build's file still lends its words to the built-in copy (below): a row's label,
+  note, kind and default, and a tab's label, where the key is the same and the label is a
+  real name, not the key; the built-in rows, order and rules stay (`Catalog::load`,
+  `with_game_words`).
   Rows are hidden and greyed as the game's page does it, by
   the same tables (`nvf_settings_layout::SHOWN_WITH`, `NEEDS`, `NEEDS_CHOICE`, the
   controller's rows by `[Controls] Input Device`), live as rows are changed on the page; a
@@ -43,7 +47,9 @@ without the launcher is the same as before.
   categories and order from the game's own table (`crates/nvf-settings-layout`, `SECTIONS`,
   which the game's pause menu draws from), the labels and notes from
   `docs/settings-reference.md` (a test in the game holds the reference to the table; a
-  Tweaks row is shown there by its key, only while the INI holds it). A row with no kind
+  Tweaks row the reference does not name is shown only while the INI holds it, labelled in
+  sentence case from its key, `tweak-aiming-draws-weapon` as "Aiming draws weapon",
+  `readable_tweak`). A row with no kind
   from the game goes by the value in the INI: `1`/`0` a switch, `0.50` a
   slider (as a percentage, or the step's words for Difficulty; the words can be typed into it too), anything else text; Kill camera, V.A.T.S. style and the Display rows (Resolution as a Window and a Full screen
   list of the chosen display's sizes, Monitor from the displays Windows lists, Display sync,
@@ -59,7 +65,14 @@ without the launcher is the same as before.
   takes its line out, the game's default; "No intro film" writes `sIntroMovie=`). A **TTW on/off**
   switch fills in TTW's values (`001FFFF8`, no film) or the base game's (`00102037` (VCG00),
   `FNVIntro.bik`; docs/spec-notes/new-game-start.md), and the card warns while the start quest is TTW's
-  and `TaleOfTwoWastelands.esm` is off or not in the load order (`start::ttw_missing`, #3229). Opening the page runs
+  and `TaleOfTwoWastelands.esm` is off or not in the load order (`start::ttw_missing`, #3229).
+  The card is one line so the load order keeps the room (#4288): the title (its note as hover
+  text), the switch, a gold "custom" tag while the start is neither TTW's nor the base game's
+  (`start::Fields::is_custom`), Save start and Undo only while there is a change, and
+  **Custom…**, a window with the start quest, the intro film (a `.bik` file in `Data\Video`)
+  and "No intro film". Its OK puts them on the card for Save start; Cancel, Escape or a click
+  outside changes nothing. The values themselves are not shown on the card. The warning has a
+  line of its own while it applies. Opening the page runs
   `fnv_install::plugins::sync`, as the game's start does, so new plugins get their lines.
 - **Game folder**: `[Game] Path` with the required-files check, the program to start
   (`[Launcher] Exe`, else `nvforever(.exe)` beside the launcher, else this checkout's
@@ -70,6 +83,17 @@ without the launcher is the same as before.
   default library: `~/.local/share/Steam` or `~/.steam/steam` on Linux, `C:\Program Files
   (x86)\Steam` on Windows, and GOG's `C:\GOG Games\Fallout New Vegas`); it is stored only
   by Save.
+  The same page holds the launcher's other NVForever.ini keys, which are not rows of the
+  game's menu (#3483; the Settings page stays the game's own menu, maintainer decision
+  2026-11-24): an **NVForever.ini** card with `[Launcher] News`, `CloseOnPlay` and `Exe`
+  (empty: the program beside the launcher), the game-written `[Controls] Input Device` shown but not changed, and the file's place. The
+  card's Save writes the keys that changed over the file as it is on disk and leaves every
+  other line; only a changed program is checked, so one that went missing does not stop the
+  other keys being saved. Each Save on the page (the folder's, the card's) keeps the other's
+  unsaved change. The file is in `Documents\My Games\NVForever` on Windows,
+  `~/Library/Application Support/NVForever` on macOS and `~/.local/share/nvforever` (or
+  `$XDG_DATA_HOME/nvforever`) on Linux; `NVFOREVER_HOME` overrides all three
+  (`fnv_install::EngineHome::default_root`).
 - **Website / GitHub**: open nv-forever.com and the repository in the browser.
 
 ## Top and bottom bars

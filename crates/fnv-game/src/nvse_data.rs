@@ -129,6 +129,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.snapshot_explosion_traits(f, id);
             g.snapshot_sound_flags(f, id);
             g.snapshot_magic_traits(f, id);
+            g.snapshot_magic_effects(f, id);
             g.snapshot_ammo_traits(f, id);
             g.snapshot_projectile_traits(f, id);
             g.snapshot_weapon_sounds(f, id);
