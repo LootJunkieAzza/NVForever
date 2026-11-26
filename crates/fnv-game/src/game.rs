@@ -1418,7 +1418,7 @@ pub struct Game<'a> {
     pub input: crate::script_input::ScriptInput,
     /// Record fields xNVSE's setters changed this session (`crate::nvse`), by form and
     /// "SUB/path", and the names SetName gave.
-    pub(crate) field_overrides: std::collections::HashMap<(FormId, String), fnv_script::vm::XVal>,
+    pub(crate) field_overrides: crate::nvse::FieldOverrides,
     /// Transient instance identity + monotonic revision for live interior cell-lighting
     /// session edits (`SetCellLightingTemplate`, `SetCellFlag` 8..=16,
     /// `SetLightingTemplateTraitNumeric`, `SetInteriorLightingTraitNumeric`); never saved.
@@ -2675,7 +2675,7 @@ impl<'a> Game<'a> {
             list_edits: std::collections::HashMap::new(),
             delayed: Vec::new(),
             ref_walk: Vec::new(),
-            field_overrides: std::collections::HashMap::new(),
+            field_overrides: crate::nvse::FieldOverrides::new(),
             lighting_instance: {
                 static NEXT_LIGHTING_INSTANCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
                 NEXT_LIGHTING_INSTANCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)

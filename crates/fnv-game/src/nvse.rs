@@ -8,6 +8,105 @@ use crate::game::{Game, RunCtx};
 use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 
+/// Wrapper around the session `field_overrides` map that also indexes weapon-model keys
+/// (`MODL/`, `WNAM/`, `MWD1/`–`MWD7/`, `WNM1/`–`WNM7/`) and caches [`Game::weapon_model_stamp`]
+/// so per-frame renderer polls stay O(1) instead of scanning or hashing overrides every
+/// frame [design].
+pub(crate) struct FieldOverrides {
+    map: std::collections::HashMap<(FormId, String), XVal>,
+    weapon_model_keys: std::collections::HashSet<(FormId, String)>,
+    weapon_model_stamp_dirty: std::sync::atomic::AtomicBool,
+    weapon_model_stamp_cache: std::sync::atomic::AtomicU64,
+}
+
+impl Default for FieldOverrides {
+    fn default() -> Self {
+        Self {
+            map: std::collections::HashMap::new(),
+            weapon_model_keys: std::collections::HashSet::new(),
+            weapon_model_stamp_dirty: std::sync::atomic::AtomicBool::new(false),
+            weapon_model_stamp_cache: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+}
+
+impl FieldOverrides {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    #[inline]
+    fn is_weapon_model_key(key: &str) -> bool {
+        matches!(
+            key.as_bytes(),
+            b"MODL/"
+                | b"WNAM/"
+                | [b'M', b'W', b'D', b'1'..=b'7', b'/']
+                | [b'W', b'N', b'M', b'1'..=b'7', b'/']
+        )
+    }
+
+    pub(crate) fn insert(&mut self, k: (FormId, String), v: XVal) -> Option<XVal> {
+        let is_wm = Self::is_weapon_model_key(&k.1);
+        if is_wm {
+            self.weapon_model_keys.insert(k.clone());
+        }
+        let prev = self.map.insert(k, v);
+        if is_wm {
+            self.weapon_model_stamp_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        prev
+    }
+
+    pub(crate) fn remove(&mut self, k: &(FormId, String)) -> Option<XVal> {
+        let prev = self.map.remove(k);
+        if prev.is_some() && Self::is_weapon_model_key(&k.1) {
+            self.weapon_model_keys.remove(k);
+            self.weapon_model_stamp_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        prev
+    }
+
+    pub(crate) fn weapon_model_keys(&self) -> impl Iterator<Item = (&(FormId, String), &XVal)> {
+        self.weapon_model_keys.iter().filter_map(|k| self.map.get_key_value(k))
+    }
+
+    #[inline]
+    pub(crate) fn cached_weapon_model_stamp(&self) -> Option<u64> {
+        if self.weapon_model_stamp_dirty.load(std::sync::atomic::Ordering::Relaxed) {
+            None
+        } else {
+            Some(self.weapon_model_stamp_cache.load(std::sync::atomic::Ordering::Relaxed))
+        }
+    }
+
+    #[inline]
+    pub(crate) fn store_weapon_model_stamp(&self, stamp: u64) {
+        self.weapon_model_stamp_cache.store(stamp, std::sync::atomic::Ordering::Relaxed);
+        self.weapon_model_stamp_dirty.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl std::ops::Deref for FieldOverrides {
+    type Target = std::collections::HashMap<(FormId, String), XVal>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+impl std::ops::Index<&(FormId, String)> for FieldOverrides {
+    type Output = XVal;
+    #[inline]
+    fn index(&self, key: &(FormId, String)) -> &Self::Output {
+        &self.map[key]
+    }
+}
+
+#[cfg(test)]
+#[path = "weapon_model_stamp_tests.rs"]
+mod weapon_model_stamp_tests;
+
 /// A record field of `form`: a number, a form or a string (`GameData::record_field`),
 /// or what a setter put there this session.
 fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
@@ -289,6 +388,9 @@ impl Game<'_> {
     /// A number that changes whenever [`Game::weapon_model_changes`] would give something
     /// else, read without building it: the renderer asks every frame.
     pub fn weapon_model_stamp(&self) -> u64 {
+        if let Some(cached) = self.field_overrides.cached_weapon_model_stamp() {
+            return cached;
+        }
         use std::hash::{Hash, Hasher};
         let mut n = 0u64;
         let mut sum = 0u64;
@@ -304,13 +406,15 @@ impl Game<'_> {
             sum = sum.wrapping_add(h.finish());
             n += 1;
         }
-        sum ^ n.rotate_left(32)
+        let stamp = sum ^ n.rotate_left(32);
+        self.field_overrides.store_weapon_model_stamp(stamp);
+        stamp
     }
 
     /// The model fields of WEAP records scripts set: (weapon, first person, slot 0–7, value);
     /// slot 0 is MODL or WNAM, 1–7 are MWD1–MWD7 or WNM1–WNM7.
     fn weapon_model_entries(&self) -> impl Iterator<Item = (FormId, bool, usize, &XVal)> {
-        self.field_overrides.iter().filter_map(|((w, key), v)| {
+        self.field_overrides.weapon_model_keys().filter_map(|((w, key), v)| {
             let (first, slot) = match key.as_bytes() {
                 b"MODL/" => (false, 0),
                 b"WNAM/" => (true, 0),
