@@ -101,6 +101,37 @@ pub const LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
 /// Under this luminance (linear) the cloud colour has no hue to give (no visible layer: the
 /// layers' mean is black) and the direct light keeps the sunlight colour [design].
 pub const MIN_CLOUD_LUMA: f64 = 1e-6;
+/// Clouds by moonlight (#3032): below the horizon the direct light and the light from below are each dimmed
+/// toward the luminance of the weather's visible cloud layers, by `(L(cloud) / L(source))^q` where the source
+/// is the brighter, at most 1 ([`night_gain`]), q this pull times the night's share ([`night_share`]). An
+/// attenuation only: the hues, and the weathers whose night sunlight is no brighter than their clouds, stay.
+/// Why: in many weathers the night sunlight is far brighter than the cloud layers, which the flat sky draws nearly
+/// black, so clouds lit at the sunlight's luminance glowed [hypothesis: stills of 2026-11-25 at Goodsprings
+/// with a development build, the views not kept]. [engineering choice: the contributor's pick from stills, 2026-11-25, at Goodsprings and in Zion's weather.]
+pub const NIGHT_PULL: f32 = 0.45;
+/// The most the `NIGHTPULL` aid asks (1: the cloud layers' luminance itself).
+pub const MAX_NIGHT_PULL: f32 = 2.0;
+/// The variable of the night pull (`NIGHTPULL` in a tune file).
+pub const NIGHT_PULL_VAR: &str = "NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_NIGHTPULL";
+/// From [`MIN_CLOUD_LUMA`] to this many times it the night's dimming grows in, so a weather whose clouds fade
+/// in from black makes no jump [design].
+pub const NIGHT_LUMA_RAMP: f64 = 8.0;
+/// The forward lobe's weight by moonlight (the `MOONFORWARD` aid) and the back-scatter floor's (`MOONBACK`), in
+/// place of FORWARD's and BACKSCATTER's by the night's share ([`LightAids::phase_weight`]), so moonlit clouds can
+/// have a brighter edge near the moon and darker bodies away from it; `None`: the day's weights [engineering
+/// choice: the starting values, to be set with pictures].
+pub const MOON_FORWARD: Option<f32> = Some(1.6);
+pub const MOON_BACK: Option<f32> = Some(0.1);
+/// The phase's cap by moonlight (the `MOONCAP` aid), in place of [`PHASE_CAP`](crate::volumetric_clouds::PHASE_CAP)
+/// by the night's share ([`LightAids::phase_cap`]): above it the cloud right at the moon outshines the rest;
+/// `None`: the day's cap [engineering choice: the starting value, to be set with pictures].
+pub const MOON_CAP: Option<f32> = Some(9.0);
+/// The most the `MOONCAP` aid asks.
+pub const MAX_MOON_CAP: f32 = 16.0;
+pub const MOON_CAP_VAR: &str = "NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_MOONCAP";
+/// The variables of the two moonlight weights (`MOONFORWARD`, `MOONBACK` in a tune file).
+pub const MOON_FORWARD_VAR: &str = "NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_MOONFORWARD";
+pub const MOON_BACK_VAR: &str = "NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_MOONBACK";
 /// The ground's reflectance for the light from below, neutral [hypothesis: a dry
 /// desert's albedo is about 0.3, from memory].
 pub const GROUND_REFLECTANCE: f32 = 0.3;
@@ -216,17 +247,25 @@ impl LightWeight {
     }
 }
 
-/// The light's aids: the ten weights and the sunlight's share.
+/// The light's aids: the ten weights, the sunlight's share and the night's values.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LightAids {
     pub weights: [f32; LIGHT_WEIGHTS],
     /// The sunlight's share in the direct light's colour (0..1, [`SUN_COLOUR_SHARE`] as designed).
     pub sun_colour: f32,
+    /// How far the clouds' light is drawn toward the cloud layers' luminance by night (0..[`MAX_NIGHT_PULL`],
+    /// [`NIGHT_PULL`] as designed).
+    pub night_pull: f32,
+    /// The forward lobe's and the back-scatter floor's weights by moonlight, 0..[`MAX_WEIGHT`]; `None`: the day's.
+    pub moon_forward: Option<f32>,
+    pub moon_back: Option<f32>,
+    /// The phase's cap by moonlight, 0..[`MAX_MOON_CAP`]; `None`: the day's.
+    pub moon_cap: Option<f32>,
 }
 
 impl Default for LightAids {
     fn default() -> Self {
-        LightAids { weights: [1.0; LIGHT_WEIGHTS], sun_colour: SUN_COLOUR_SHARE }
+        LightAids { weights: [1.0; LIGHT_WEIGHTS], sun_colour: SUN_COLOUR_SHARE, night_pull: NIGHT_PULL, moon_forward: MOON_FORWARD, moon_back: MOON_BACK, moon_cap: MOON_CAP }
     }
 }
 
@@ -250,12 +289,49 @@ impl LightAids {
         if self.sun_colour.is_finite() { self.sun_colour.clamp(0.0, 1.0) } else { SUN_COLOUR_SHARE }
     }
 
-    /// The weights an aid changed and the share if changed, in words for the log (empty when
+    /// The night pull, held to 0..[`MAX_NIGHT_PULL`] ([`NIGHT_PULL`] for a value that is not a number).
+    pub fn night_pull(&self) -> f32 {
+        if self.night_pull.is_finite() { self.night_pull.clamp(0.0, MAX_NIGHT_PULL) } else { NIGHT_PULL }
+    }
+
+    /// A phase weight (FORWARD, BACKSCATTER) at the night's share `night` ([`night_share`]): the day's by day, at
+    /// the horizon and where the moon has none of its own; else from the day's to the moon's.
+    pub fn phase_weight(&self, w: LightWeight, night: Option<f32>) -> f32 {
+        let day = self.weight(w);
+        let moon = match w {
+            LightWeight::Forward => self.moon_forward,
+            LightWeight::Backscatter => self.moon_back,
+            _ => None,
+        };
+        match (night, moon) {
+            (Some(n), Some(m)) if m.is_finite() => day + (m.clamp(0.0, MAX_WEIGHT) - day) * n,
+            _ => day,
+        }
+    }
+
+    /// The phase's cap at the night's share `night`: the day's by day, at the horizon and where the moon has none of
+    /// its own; else from the day's to the moon's.
+    pub fn phase_cap(&self, night: Option<f32>) -> f32 {
+        match (night, self.moon_cap) {
+            (Some(n), Some(m)) if m.is_finite() => PHASE_CAP + (m.clamp(0.0, MAX_MOON_CAP) - PHASE_CAP) * n,
+            _ => PHASE_CAP,
+        }
+    }
+
+    /// The weights an aid changed and the share and the night's values if changed, in words for the log (empty when
     /// all are as designed).
     pub fn text(&self) -> String {
         let mut parts: Vec<String> = LightWeight::ALL.into_iter().filter(|w| self.weight(*w) != 1.0).map(|w| format!("{} x{:.2}", w.short(), self.weight(w))).collect();
         if self.sun_colour_share() != SUN_COLOUR_SHARE {
             parts.push(format!("SUNCOLOUR {:.2}", self.sun_colour_share()));
+        }
+        if self.night_pull() != NIGHT_PULL {
+            parts.push(format!("NIGHTPULL {:.2}", self.night_pull()));
+        }
+        for (name, v, designed) in [("MOONFORWARD", self.moon_forward, MOON_FORWARD), ("MOONBACK", self.moon_back, MOON_BACK), ("MOONCAP", self.moon_cap, MOON_CAP)] {
+            if v != designed {
+                parts.push(v.map_or_else(|| format!("{name} the day's"), |v| format!("{name} x{v:.2}")));
+            }
         }
         parts.join(", ")
     }
@@ -263,8 +339,9 @@ impl LightAids {
     /// The light model in force, one log line's text.
     pub fn model_text(&self) -> String {
         let model = format!(
-            "two octaves (depth, weight and eccentricity x{OCTAVE_DEPTH} each, weights normalised) lit in the weather's visible cloud layers' PNAM colour at its sunlight's luminance mixed with its sunlight colour (the sunlight's share SUNCOLOUR {:.2}), so the lit clouds follow the weather's own cloud colours, the back-scatter floor (local extinction x {FLOOR_LENGTH:.0} units, at most {FLOOR_MAX}), the sky from above and the ground from below through the column (fall 1 / (1 + {AMBIENT_FALL:.3} depth x OCCLUDE)), the powder darkening of thin cloud seen away from the light (POWDER), the whole times one level (LEVEL), every colour bounded to {MAX_LIGHT:.0}",
-            self.sun_colour_share()
+            "two octaves (depth, weight and eccentricity x{OCTAVE_DEPTH} each, weights normalised) lit in the weather's visible cloud layers' PNAM colour at its sunlight's luminance mixed with its sunlight colour (the sunlight's share SUNCOLOUR {:.2}), so the lit clouds follow the weather's own cloud colours, the back-scatter floor (local extinction x {FLOOR_LENGTH:.0} units, at most {FLOOR_MAX}), the sky from above and the ground from below through the column (fall 1 / (1 + {AMBIENT_FALL:.3} depth x OCCLUDE)), the powder darkening of thin cloud seen away from the light (POWDER), the whole times one level (LEVEL), by night the direct light and the light from below dimmed toward the cloud layers' luminance where theirs is higher (NIGHTPULL {:.2}), every colour bounded to {MAX_LIGHT:.0}",
+            self.sun_colour_share(),
+            self.night_pull()
         );
         let aids = self.text();
         if aids.is_empty() { model } else { format!("{model}; weights: {aids}") }
@@ -274,6 +351,17 @@ impl LightAids {
 /// `SUNCOLOUR` in a tune file or its start variable: a finite number held to 0..1; `None` otherwise.
 pub fn try_share(v: &str) -> Option<f32> {
     v.trim().parse::<f32>().ok().filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0))
+}
+
+/// `MOONCAP` in a tune file or its start variable: a finite number held to 0..[`MAX_MOON_CAP`]; `None` otherwise.
+#[cfg_attr(not(any(test, debug_assertions, feature = "dev-aids")), allow(dead_code))]
+pub fn try_moon_cap(v: &str) -> Option<f32> {
+    v.trim().parse::<f32>().ok().filter(|v| v.is_finite()).map(|v| v.clamp(0.0, MAX_MOON_CAP))
+}
+
+/// `NIGHTPULL` in a tune file or its start variable: a finite number held to 0..[`MAX_NIGHT_PULL`]; `None` otherwise.
+pub fn try_night_pull(v: &str) -> Option<f32> {
+    v.trim().parse::<f32>().ok().filter(|v| v.is_finite()).map(|v| v.clamp(0.0, MAX_NIGHT_PULL))
 }
 
 /// A weight's start variable: a finite number held to 0..[`MAX_WEIGHT`]; anything else 1.
@@ -291,7 +379,15 @@ pub fn try_weight(v: &str) -> Option<f32> {
 /// `SUNCOLOR` when the first is not set), each [`START_LIGHT`]'s when unset or unreadable.
 pub fn start_light_aids(get: impl Fn(&str) -> Option<String>) -> LightAids {
     let sun_colour = get(SUN_COLOUR_VAR).or_else(|| get(SUN_COLOR_VAR));
-    let mut aids = LightAids { sun_colour: sun_colour.as_deref().and_then(try_share).unwrap_or(START_LIGHT.sun_colour), ..START_LIGHT };
+    let weight = |var: &str| get(var).as_deref().and_then(try_weight);
+    let mut aids = LightAids {
+        sun_colour: sun_colour.as_deref().and_then(try_share).unwrap_or(START_LIGHT.sun_colour),
+        night_pull: get(NIGHT_PULL_VAR).as_deref().and_then(try_night_pull).unwrap_or(START_LIGHT.night_pull),
+        moon_forward: weight(MOON_FORWARD_VAR).or(START_LIGHT.moon_forward),
+        moon_back: weight(MOON_BACK_VAR).or(START_LIGHT.moon_back),
+        moon_cap: get(MOON_CAP_VAR).as_deref().and_then(try_moon_cap).or(START_LIGHT.moon_cap),
+        ..START_LIGHT
+    };
     for w in LightWeight::ALL {
         aids.weights[w.index()] = get(w.var()).as_deref().and_then(try_weight).unwrap_or(START_LIGHT.weights[w.index()]);
     }
@@ -299,10 +395,10 @@ pub fn start_light_aids(get: impl Fn(&str) -> Option<String>) -> LightAids {
 }
 
 /// The start light (#3032, the look judged by eye on 2026-11-23): the weights at their designed 1 but for
-/// BACKSCATTER, SUN and LEVEL; SUNCOLOUR 0 (the weather's cloud hue at its sunlight luminance). A start
+/// BACKSCATTER, SUN and LEVEL; SUNCOLOUR 0 (the weather's cloud hue at its sunlight luminance); the night's values as designed. A start
 /// variable or a live tune line overrides each value; removing a tune line restores its start value.
 /// [`LightAids::default`] carries the designed weights for tests.
-pub const START_LIGHT: LightAids = LightAids { weights: [1.0, 1.65, 1.0, 1.0, 1.0, 1.0, 1.30, 1.12, 1.0, 1.0], sun_colour: 0.0 };
+pub const START_LIGHT: LightAids = LightAids { weights: [1.0, 1.65, 1.0, 1.0, 1.0, 1.0, 1.30, 1.12, 1.0, 1.0], sun_colour: 0.0, night_pull: NIGHT_PULL, moon_forward: MOON_FORWARD, moon_back: MOON_BACK, moon_cap: MOON_CAP };
 
 /// The sky's colours and the sun's elevation the two ambients take (live sky state, linear RGB;
 /// sky.rs `SkyState::color`, `sun_elevation`), blended across a weather fade as the sky blends them.
@@ -390,6 +486,26 @@ pub fn daylight(elevation_deg: f32) -> f32 {
     elevation_deg.to_radians().sin().clamp(0.0, 1.0) * t * t * (3.0 - 2.0 * t)
 }
 
+/// The night's share for the clouds by moonlight: `None` by day, at the horizon and for an elevation that is
+/// not a number (nothing of the night is then computed at all); below it from 0 at the horizon to 1 from
+/// [`crate::volumetric_clouds::LIGHT_FADE_DEG`] on, smooth: the direct light is 0 at the horizon and the light
+/// from below is undimmed there, so nothing steps. The elevation is the stepped sky hour's, as `direct_light`'s.
+pub fn night_share(elevation_deg: f32) -> Option<f32> {
+    (elevation_deg.is_finite() && elevation_deg < 0.0).then(|| smooth(0.0, crate::volumetric_clouds::LIGHT_FADE_DEG, -elevation_deg))
+}
+
+/// What the night keeps of a light of luminance `source` with the cloud layers' at `cloud`:
+/// `min(1, cloud / source)^q` ([`NIGHT_PULL`]). 1 with `cloud` at or under [`MIN_CLOUD_LUMA`] (no visible cloud
+/// colour to follow), growing in up to [`NIGHT_LUMA_RAMP`] times it; 1 for anything that is not a number and
+/// for a black source. In 0..=1, so it only ever dims.
+pub fn night_gain(source: f64, cloud: f64, q: f64) -> f64 {
+    if source.is_nan() || cloud.is_nan() || q.is_nan() || q <= 0.0 || cloud <= MIN_CLOUD_LUMA || source <= cloud {
+        return 1.0;
+    }
+    let t = ((cloud - MIN_CLOUD_LUMA) / (MIN_CLOUD_LUMA * (NIGHT_LUMA_RAMP - 1.0))).clamp(0.0, 1.0);
+    1.0 - (1.0 - (cloud / source).powf(q)) * (t * t * (3.0 - 2.0 * t))
+}
+
 /// The incident light from above, unbounded (before its hemisphere weight): [`UPPER_GAIN`] times the sky
 /// level times the sky's colours (SkyUpper and Horizon mixed by [`SKY_UPPER_SHARE`]).
 pub fn upper_light(i: &VolumeInputs) -> DVec3 {
@@ -427,8 +543,9 @@ pub fn shade_colour(i: &VolumeInputs, upper: DVec3) -> DVec3 {
 /// so the factor does not follow the hour. The sunlight's own light and the cloud colour's ambient (`light`,
 /// `ambient`) bound it as well. The larger sets one factor `min(1, MAX_LIGHT / B)` for every colour (computed
 /// in f64: nothing overflows).
-pub fn light_bound(light: DVec3, direct: DVec3, ambient: DVec3, upper: DVec3, lower: DVec3, sun: f64, silver: f64) -> f64 {
-    let cap = f64::from(PHASE_CAP);
+#[allow(clippy::too_many_arguments)]
+pub fn light_bound(light: DVec3, direct: DVec3, ambient: DVec3, upper: DVec3, lower: DVec3, sun: f64, silver: f64, cap: f32) -> f64 {
+    let cap = f64::from(cap);
     let legacy = (ambient + light * cap).max_element();
     let model = (upper + lower + direct * ((cap + silver) * sun)).max_element();
     let most = legacy.max(model);
@@ -443,7 +560,9 @@ pub fn light_bound(light: DVec3, direct: DVec3, ambient: DVec3, upper: DVec3, lo
 /// back-scatter floor's most is [`LEAN_FLOOR`] of the designed one. Never a colour constant.
 ///
 /// The `LEVEL` aid multiplies the direct colour and the light from above and below before the bound, so the
-/// bound holds whatever the level; `OCCLUDE` multiplies the ambient's fall (`lmode.z`); `POWDER` fills
+/// bound holds whatever the level; by night the direct colour and the light from below are then dimmed, each by
+/// its own gain ([`night_gain`]; not computed by day), after the bound was taken of the undimmed ones, so dimming
+/// one never lifts another; `OCCLUDE` multiplies the ambient's fall (`lmode.z`); `POWDER` fills
 /// `lpowder.x`.
 pub fn lighting(i: &VolumeInputs) -> Lighting {
     let a = i.light_aids;
@@ -464,7 +583,8 @@ pub fn lighting(i: &VolumeInputs) -> Lighting {
     // (sky.rs `aim_sun`; the light's strength is 0 at the horizon): 0 extra without the file.
     let moon_ini = if elevation.is_finite() && elevation < 0.0 { 1.0 + i.moon_extra } else { 1.0 };
     let moon_gain = if elevation.is_finite() { 1.0 - (1.0 - moon_ratio) * smooth(0.0, crate::volumetric_clouds::LIGHT_FADE_DEG, -elevation) } else { 1.0 };
-    let direct = direct_colour(i.sunlight, i.ambient, sun_share) * f64::from(scale * SUN_GAIN) * level * f64::from((1.0 + 0.15 * low_sun) * moon_gain * moon_ini);
+    let mixed = direct_colour(i.sunlight, i.ambient, sun_share);
+    let mut direct = mixed * f64::from(scale * SUN_GAIN) * level * f64::from((1.0 + 0.15 * low_sun) * moon_gain * moon_ini);
     let lean_gain = f64::from(LEAN_AMBIENT);
     let sky = upper_light(i);
     let upper = sky * f64::from(HEMISPHERE * a.weight(LightWeight::Upper)) * level * lean_gain;
@@ -475,20 +595,34 @@ pub fn lighting(i: &VolumeInputs) -> Lighting {
     if y > MIN_CLOUD_LUMA {
         bounce = bounce.lerp(sky * (luminance(bounce) / y), 0.35);
     }
-    let lower = bounce * f64::from(HEMISPHERE * a.weight(LightWeight::Lower)) * level * lean_gain;
+    let mut lower = bounce * f64::from(HEMISPHERE * a.weight(LightWeight::Lower)) * level * lean_gain;
     let shade = shade_colour(i, upper);
-    let k = light_bound(light, direct, ambient, upper.max(shade), lower, f64::from(a.weight(LightWeight::Sun)), 0.0);
+    let night = night_share(elevation);
+    // The bound takes the larger of the day's cap and the night's: a deck's scattered light is added past the
+    // cap, so a small night cap must not loosen it.
+    let cap = a.phase_cap(night).max(PHASE_CAP);
+    let k = light_bound(light, direct, ambient, upper.max(shade), lower, f64::from(a.weight(LightWeight::Sun)), 0.0, cap);
+    // By night: each light toward the cloud layers' luminance, in the weather's own units (before the sky
+    // level and the gains; MOON_SHARE and MoonlightNVSE.ini's factor stay whole, on top).
+    if let Some(n) = night {
+        let q = f64::from(n) * f64::from(a.night_pull());
+        let cloud = luminance(gained(i.ambient, 1.0));
+        direct *= night_gain(luminance(mixed), cloud, q);
+        if scale > 0.0 {
+            lower *= night_gain(luminance(bounce) / f64::from(scale), cloud, q);
+        }
+    }
     let f = |v: DVec3| (v * k).as_vec3();
     let amount = if i.amount.is_finite() { i.amount.clamp(0.0, 1.0) } else { 0.0 };
     let column = table_depth_of(&EXTINCTION_TABLE, amount) * nn(i.density) * MEAN_SHAPE;
-    let back = a.weight(LightWeight::Backscatter);
+    let back = a.phase_weight(LightWeight::Backscatter, night);
     Lighting {
         light: f(direct),
         ambient: f(ambient),
         lmode: Vec4::new(0.0, column, AMBIENT_FALL * a.weight(LightWeight::Occlude), a.weight(LightWeight::Sun)),
         lupper: f(upper).extend(0.0),
         llower: f(lower).extend(0.0),
-        loct: Vec4::new(octave_weight(a.weight(LightWeight::Octave)), OCTAVE_DEPTH, OCTAVE_PHASE, a.weight(LightWeight::Forward)),
+        loct: Vec4::new(octave_weight(a.weight(LightWeight::Octave)), OCTAVE_DEPTH, OCTAVE_PHASE, a.phase_weight(LightWeight::Forward, night)),
         lfloor: Vec4::new(FLOOR_LENGTH * back, FLOOR_MAX * back * LEAN_FLOOR, MEASURED_FROM, MEASURED_TO),
         lpowder: Vec4::new((POWDER_SHARE * a.weight(LightWeight::Powder)).min(1.0), 0.0, 0.0, 0.0),
         shade: f(shade),
@@ -890,7 +1024,7 @@ mod tests {
 
     /// Every aid at its most.
     fn most_aids() -> LightAids {
-        LightAids { weights: [MAX_WEIGHT; LIGHT_WEIGHTS], sun_colour: 0.0 }
+        LightAids { weights: [MAX_WEIGHT; LIGHT_WEIGHTS], sun_colour: 0.0, ..Default::default() }
     }
 
     /// The bound: below it the direct light is the mixed colour and the ambient the
@@ -1089,6 +1223,38 @@ mod tests {
         }
     }
 
+    /// The same bound by moonlight, at every night cap (0 and tiny ones included), with a storm deck's scattered
+    /// light past the cap: the emission is finite and at most MAX_LIGHT for the extreme inputs.
+    #[test]
+    fn the_night_cap_keeps_the_emission_bounded() {
+        for cap in [0.0f32, 0.01, 1.0, PHASE_CAP, 9.0, MAX_MOON_CAP] {
+            for scale in [1.0f32, 1e3, 3e38] {
+                let i = VolumeInputs {
+                    sunlight: [1e30, 5.0, 1e30],
+                    ambient: [0.0; 3],
+                    sky_scale: scale,
+                    light_dir: Vec3::new(0.0, 1.0, 0.0),
+                    light_strength: 1.0,
+                    density: 4.0,
+                    amount: 1.0,
+                    sky: SkyLight { upper: [0.0; 3], horizon: [0.0; 3], ambient: [0.0; 3], elevation: -40.0 },
+                    light_aids: LightAids { moon_cap: Some(cap), night_pull: 0.0, ..most_aids() },
+                    ..Default::default()
+                };
+                let u = uniform(&i);
+                assert!(u.light.is_finite(), "cap {cap}, scale {scale}: {}", u.light);
+                let s = shading(&u);
+                for cos in [-1.0f32, 0.0, 1.0] {
+                    let ray = RayLight { p0: octave_phase(cos, u.phase, u.loct.w * (1.0 - u.phase.z), 1.0), p1: octave_phase(cos, u.phase, u.loct.w * (1.0 - u.phase.z), u.loct.z), powder: powder_share(cos, u.lpowder.x), ..ray_light(Vec3::Y, &u) };
+                    for sheet in [0.0f32, 0.5, 3.0] {
+                        let e = lean_shade(Vec4::new(0.8, 3.0 / 5_000.0, 0.95, 0.9), 900.0, 1.5, true, &ray, &s, 0.0, 0.0, sheet, 0.0);
+                        assert!(e.is_finite() && e.cmpge(Vec3::ZERO).all() && e.max_element() <= MAX_LIGHT * 1.0002, "cap {cap}, scale {scale}, cos {cos}, sheet {sheet}: {e}");
+                    }
+                }
+            }
+        }
+    }
+
     /// Energy: unit radiance from both hemispheres, no direct beam, the
     /// default hemisphere weights (summing to one) and a unit background behind: whatever the slab's
     /// depth, its amount and however its steps are cut, what leaves it toward the camera is at most 1.
@@ -1258,7 +1424,7 @@ mod tests {
         let sunlit = gained([1.0; 3], 1_000.0 * f64::from(SUN_GAIN));
         let gain = f64::from(HEMISPHERE) * f64::from(LEAN_AMBIENT);
         let (up, low) = (upper_light(&blue) * gain, lower_light(&blue) * gain);
-        assert_eq!(light_bound(sunlit, sunlit, gained(blue.ambient, 1_000.0 * f64::from(AMBIENT_GAIN)), up.max(shade_colour(&blue, up)), low, f64::from(MAX_WEIGHT), 0.0), 1.0, "the sunlight's own worst channel would not have");
+        assert_eq!(light_bound(sunlit, sunlit, gained(blue.ambient, 1_000.0 * f64::from(AMBIENT_GAIN)), up.max(shade_colour(&blue, up)), low, f64::from(MAX_WEIGHT), 0.0, PHASE_CAP), 1.0, "the sunlight's own worst channel would not have");
         let most = (l.light * (PHASE_CAP * MAX_WEIGHT) + l.lupper.truncate().max(l.shade) + l.llower.truncate()).max_element();
         assert!((MAX_LIGHT * 0.999..=MAX_LIGHT * 1.0001).contains(&most), "the worst channel scaled to the bound: {most}");
         // The start variable, its alias (the first wins when both are set), the log's words.
@@ -1332,7 +1498,7 @@ mod tests {
         assert!(LightWeight::ALL.into_iter().enumerate().all(|(k, w)| w.index() == k));
         assert!(LightWeight::ALL.into_iter().all(|w| w.var() == format!("NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_{}", w.short())));
         // A weight that is not a number reads as 1 wherever it came from.
-        assert_eq!(LightAids { weights: [f32::NAN; LIGHT_WEIGHTS], sun_colour: f32::NAN }.weight(LightWeight::Upper), 1.0);
+        assert_eq!(LightAids { weights: [f32::NAN; LIGHT_WEIGHTS], sun_colour: f32::NAN, ..Default::default() }.weight(LightWeight::Upper), 1.0);
         assert_eq!((octave_weight(0.0), octave_weight(4.0)), (0.0, 2.0 / 3.0));
     }
 
@@ -1460,6 +1626,275 @@ mod tests {
         assert_eq!((DEPTH_WHITE_LOG2, DEPTH_GREY, DEPTH_SHOWN), (6.0, 0.9, 0.01), "the constants the leaf writes");
         let trace = include_str!("medium_trace.wesl").replace("\r\n", "\n");
         assert_eq!(trace.matches("if view == 1u || view == 2u || view == 4u {").count(), 2, "the light's views take the march path in both entries");
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Clouds by moonlight (#3032).
+    // -----------------------------------------------------------------------------------
+
+    /// [`lighting`]'s colours as they were before the night's dimming, operation by operation: the direct light,
+    /// the light from above and the one from below.
+    fn undimmed(i: &VolumeInputs) -> [Vec3; 3] {
+        let a = i.light_aids;
+        let scale = nn(i.sky_scale);
+        let level = f64::from(a.weight(LightWeight::Level));
+        let light = gained(i.sunlight, f64::from(scale * SUN_GAIN));
+        let ambient = gained(i.ambient, f64::from(scale * AMBIENT_GAIN));
+        let elevation = i.sky.elevation;
+        let low_sun = if elevation.is_finite() { smooth(0.0, 5.0, elevation) * (1.0 - smooth(5.0, 25.0, elevation)) } else { 0.0 };
+        let share = a.sun_colour_share();
+        let sun_share = share / (1.0 - 0.67 * low_sun * (1.0 - share));
+        let moon_ratio = crate::sky::MOON_SHARE / crate::sky::SUN_SHARE;
+        let moon_ini = if elevation.is_finite() && elevation < 0.0 { 1.0 + i.moon_extra } else { 1.0 };
+        let moon_gain = if elevation.is_finite() { 1.0 - (1.0 - moon_ratio) * smooth(0.0, crate::volumetric_clouds::LIGHT_FADE_DEG, -elevation) } else { 1.0 };
+        let direct = direct_colour(i.sunlight, i.ambient, sun_share) * f64::from(scale * SUN_GAIN) * level * f64::from((1.0 + 0.15 * low_sun) * moon_gain * moon_ini);
+        let lean_gain = f64::from(LEAN_AMBIENT);
+        let sky = upper_light(i);
+        let upper = sky * f64::from(HEMISPHERE * a.weight(LightWeight::Upper)) * level * lean_gain;
+        let mut bounce = lower_light(i);
+        let y = luminance(sky);
+        if y > MIN_CLOUD_LUMA {
+            bounce = bounce.lerp(sky * (luminance(bounce) / y), 0.35);
+        }
+        let lower = bounce * f64::from(HEMISPHERE * a.weight(LightWeight::Lower)) * level * lean_gain;
+        let shade = shade_colour(i, upper);
+        let k = light_bound(light, direct, ambient, upper.max(shade), lower, f64::from(a.weight(LightWeight::Sun)), 0.0, a.phase_cap(night_share(i.sky.elevation)).max(PHASE_CAP));
+        [direct, upper, lower].map(|v| (v * k).as_vec3())
+    }
+
+    /// A clear night whose sunlight is some fifty times the cloud layers' luminance.
+    fn clear_night(light_aids: LightAids) -> VolumeInputs {
+        VolumeInputs {
+            sunlight: [0.46, 0.50, 0.70],
+            ambient: [0.009, 0.009, 0.009],
+            sky_scale: 1.0,
+            light_dir: Vec3::new(0.3, 0.5, 0.2),
+            light_strength: 1.0,
+            density: 1.0,
+            amount: 0.3,
+            sky: SkyLight { upper: [0.0; 3], horizon: [0.05, 0.06, 0.08], ambient: [0.41, 0.40, 0.68], elevation: -40.0 },
+            light_aids,
+            ..Default::default()
+        }
+    }
+
+    /// Weathers of every kind: dark and bright clouds, black and huge colours, channels that are not numbers.
+    fn skies() -> Vec<VolumeInputs> {
+        let base = clear_night(START_LIGHT);
+        let with = |sunlight: [f32; 3], ambient: [f32; 3], sky_scale: f32| VolumeInputs { sunlight, ambient, sky_scale, ..base };
+        vec![
+            base,
+            noon(START_LIGHT),
+            with([0.0; 3], [0.0; 3], 1.0),
+            with([0.0; 3], [0.5; 3], 1.0),
+            with([1.0; 3], [0.0; 3], 1.0),
+            with([1.0; 3], [2e-6; 3], 1.0),
+            with([0.05; 3], [0.9, 0.8, 0.7], 0.0),
+            with([1.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1_000.0),
+            with([f32::NAN, 1.0, -1.0], [f32::INFINITY, 0.2, f32::NAN], f32::NAN),
+            with([1e30; 3], [1e-30; 3], 1e6),
+            VolumeInputs { sky: SkyLight { upper: [f32::NAN; 3], horizon: [f32::INFINITY; 3], ambient: [1e30; 3], elevation: 0.0 }, ..base },
+            VolumeInputs { moon_extra: 0.7, sky: SkyLight { ambient: [0.0; 3], ..base.sky }, ..base },
+        ]
+    }
+
+    /// Aids far from their start, the night's among them.
+    fn tunes() -> Vec<LightAids> {
+        let odd = LightAids { sun_colour: 0.3, ..most_aids() };
+        vec![
+            START_LIGHT,
+            LightAids::default(),
+            LightAids { night_pull: 0.0, ..START_LIGHT },
+            LightAids { night_pull: MAX_NIGHT_PULL, moon_forward: Some(4.0), moon_back: Some(0.0), ..START_LIGHT },
+            odd,
+            LightAids { night_pull: f32::NAN, moon_forward: Some(f32::NAN), ..odd },
+        ]
+    }
+
+    fn bits(v: Vec3) -> [u32; 3] {
+        v.to_array().map(f32::to_bits)
+    }
+
+    /// By day and at the horizon the packed uniform is the one before the moonlight, bit for bit, for every
+    /// weather, tune and value of the night's keys.
+    #[test]
+    fn the_day_is_untouched_by_the_night_pull() {
+        let mut elevations: Vec<f32> = (1..=400).map(|k| k as f32 * 0.01).collect();
+        elevations.extend((4..=90).map(|k| k as f32));
+        elevations.extend([0.0, -0.0, f32::MIN_POSITIVE, f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
+        for sky in skies() {
+            for aids in tunes() {
+                for &elevation in &elevations {
+                    assert_eq!(night_share(elevation), None, "{elevation}");
+                    let i = VolumeInputs { light_aids: aids, sky: SkyLight { elevation, ..sky.sky }, ..sky };
+                    let u = uniform(&i);
+                    assert_eq!([bits(u.light.truncate()), bits(u.lupper.truncate()), bits(u.llower.truncate())], undimmed(&i).map(bits), "{elevation}: {i:?}");
+                    let back = aids.weight(LightWeight::Backscatter);
+                    assert_eq!((u.loct.w.to_bits(), u.lfloor.x.to_bits(), u.lfloor.y.to_bits()), (aids.weight(LightWeight::Forward).to_bits(), (FLOOR_LENGTH * back).to_bits(), (FLOOR_MAX * back * LEAN_FLOOR).to_bits()));
+                    // The night's keys reach nothing else of the uniform.
+                    let other = uniform(&VolumeInputs { light_aids: LightAids { night_pull: 1.3, moon_forward: Some(2.5), moon_back: Some(0.25), moon_cap: Some(14.0), ..aids }, ..i });
+                    assert!(u == other || format!("{u:?}") == format!("{other:?}"), "{elevation}: {i:?}");
+                }
+            }
+        }
+    }
+
+    /// By night the dimming only lowers the direct light and the light from below, never the light from above;
+    /// a pull of 0 is the light before it bit for bit; every value stays finite.
+    #[test]
+    fn the_night_only_dims() {
+        for sky in skies() {
+            for aids in tunes() {
+                for elevation in [-1e-6f32, -0.01, -0.5, -2.0, -4.0, -30.0, -90.0] {
+                    let i = VolumeInputs { light_aids: aids, sky: SkyLight { elevation, ..sky.sky }, ..sky };
+                    let l = lighting(&i);
+                    let [light, upper, lower] = undimmed(&i);
+                    assert!(l.light.is_finite() && l.llower.is_finite() && l.lupper.is_finite() && l.loct.is_finite() && l.lfloor.is_finite(), "{i:?}");
+                    assert!(l.light.cmple(light).all() && l.llower.truncate().cmple(lower).all(), "{elevation}: {i:?}");
+                    assert_eq!(bits(l.lupper.truncate()), bits(upper));
+                    let none = lighting(&VolumeInputs { light_aids: LightAids { night_pull: 0.0, ..aids }, ..i });
+                    assert_eq!([bits(none.light), bits(none.llower.truncate())], [bits(light), bits(lower)]);
+                }
+            }
+        }
+    }
+
+    /// The gain: at most 1, falling with the pull and the source, rising with the cloud colour, 1 for a source no
+    /// brighter than the clouds, for no cloud colour and for what is not a number; no jump where it begins.
+    #[test]
+    fn the_night_gain_is_a_monotone_attenuation() {
+        assert!((night_gain(0.508, 0.009, 0.5) - (0.009f64 / 0.508).sqrt()).abs() < 1e-12);
+        assert!((night_gain(0.508, 0.009, 1.0) * 0.508 - 0.009).abs() < 1e-12, "a pull of 1: the clouds' own luminance");
+        for (s, c, q) in [(0.2, 0.2, 1.0), (0.1, 0.2, 1.0), (0.0, 0.0, 1.0), (0.0, 0.5, 1.0), (1.0, 0.0, 1.0), (1.0, MIN_CLOUD_LUMA, 1.0), (1.0, 0.1, 0.0), (f64::NAN, 0.1, 1.0), (1.0, f64::NAN, 1.0), (1.0, 0.1, f64::NAN)] {
+            assert_eq!(night_gain(s, c, q), 1.0, "{s} {c} {q}");
+        }
+        let mut last = 1.0;
+        for k in 0..=200 {
+            let g = night_gain(0.5, 0.01, f64::from(k) * 0.01);
+            assert!(g <= last && g > 0.0);
+            last = g;
+        }
+        let (mut last_cloud, mut last_source) = (0.0, 1.0);
+        for k in 1..=1_000 {
+            let x = f64::from(k) * 1e-3;
+            let (c, s) = (night_gain(1.0, x, 0.5), night_gain(x, 0.01, 0.5));
+            assert!(c >= last_cloud && s <= last_source, "{x}");
+            (last_cloud, last_source) = (c, s);
+        }
+        // Where the clouds fade in from black: from 1, without a jump, to the whole gain.
+        let mut last = 1.0;
+        for k in 0..=7_000 {
+            let g = night_gain(0.5, MIN_CLOUD_LUMA * (1.0 + f64::from(k) * 1e-3), 0.5);
+            assert!((g - last).abs() < 1e-3, "{k}: {last} to {g}");
+            last = g;
+        }
+        assert!((last - (8.0 * MIN_CLOUD_LUMA / 0.5).sqrt()).abs() < 1e-9);
+    }
+
+    /// The horizon: the night's share grows from 0 to 1 over the fade, and what the sky shows of the two lights
+    /// (the direct one with its strength) has no step in a sweep of a hundredth of a degree, through sunset and
+    /// through the end of the fade.
+    #[test]
+    fn the_horizon_shows_no_step_of_the_night() {
+        assert!(night_share(-1e-3).is_some_and(|n| n < 1e-6));
+        assert_eq!((night_share(-crate::volumetric_clouds::LIGHT_FADE_DEG), night_share(-80.0)), (Some(1.0), Some(1.0)));
+        let mut last_n = 0.0;
+        for k in 1..=500 {
+            let n = night_share(k as f32 * -0.01).expect("below the horizon");
+            assert!(n >= last_n && n <= 1.0);
+            last_n = n;
+        }
+        let shown = |elevation: f32| {
+            let base = clear_night(LightAids { moon_forward: Some(3.0), moon_back: Some(0.2), ..START_LIGHT });
+            let (_, strength) = crate::volumetric_clouds::direct_light(Vec3::Y, elevation, true);
+            let l = lighting(&VolumeInputs { light_strength: strength, sky: SkyLight { elevation, ..base.sky }, ..base });
+            (l.light * strength, l.llower.truncate(), Vec2::new(l.loct.w, l.lfloor.y))
+        };
+        let whole = undimmed(&clear_night(START_LIGHT));
+        let mut last = shown(8.0);
+        for k in (-800..800).rev() {
+            let now = shown(k as f32 * 0.01);
+            assert!((now.0 - last.0).abs().max_element() < 0.01 * whole[0].max_element(), "direct at {k}: {} to {}", last.0, now.0);
+            assert!((now.1 - last.1).abs().max_element() < 0.01 * whole[2].max_element(), "below at {k}: {} to {}", last.1, now.1);
+            assert!((now.2 - last.2).abs().max_element() < 0.02, "the phase's weights at {k}");
+            last = now;
+        }
+    }
+
+    /// The deep night's levels: the direct light at the two luminances' mix by [`NIGHT_PULL`], its hue kept, the
+    /// light from below pulled by its own gain, the sky level and MoonlightNVSE.ini's factor outside of it, each
+    /// once; a weather whose night sunlight is no brighter than its clouds untouched.
+    #[test]
+    fn the_moonlit_clouds_follow_the_weathers_cloud_luminance() {
+        let i = clear_night(START_LIGHT);
+        let (l, [light, _, lower]) = (lighting(&i), undimmed(&i));
+        let (ls, lc) = (luminance(gained(i.sunlight, 1.0)), luminance(gained(i.ambient, 1.0)));
+        let g = (lc / ls).powf(f64::from(NIGHT_PULL)) as f32;
+        assert!((l.light - light * g).abs().max_element() < 1e-6 * light.max_element(), "{} against {}", l.light, light * g);
+        let kept = lower * ((lc / luminance(lower_light(&i))).powf(f64::from(NIGHT_PULL)) as f32);
+        assert!((l.llower.truncate() - kept).abs().max_element() < 1e-5 * lower.max_element());
+        // Twice the sky level: twice the light, the gains the same.
+        let two = lighting(&VolumeInputs { sky_scale: 2.0, ..i });
+        assert!((two.light - 2.0 * l.light).abs().max_element() < 1e-6 && (two.llower - 2.0 * l.llower).abs().max_element() < 1e-6);
+        // MoonlightNVSE.ini's factor, once, on the direct light alone.
+        let ini = lighting(&VolumeInputs { moon_extra: 0.5, ..i });
+        assert!((ini.light - 1.5 * l.light).abs().max_element() < 1e-6 && ini.llower == l.llower);
+        // Clouds as bright as the moonlight (a lit overcast): both lights as they were.
+        let overcast = VolumeInputs { ambient: [0.75; 3], ..i };
+        assert_eq!((lighting(&overcast).light, lighting(&overcast).llower.truncate()), (undimmed(&overcast)[0], undimmed(&overcast)[2]));
+        // Without a moon the direct light's strength is 0; the light from below dims all the same.
+        assert_eq!(crate::volumetric_clouds::direct_light(Vec3::Y, -40.0, false).1, 0.0);
+    }
+
+    /// The night's aids: their start variables, their ranges and their words; the two phase weights in place of
+    /// the day's by the night's share, the day's where the moon has none.
+    #[test]
+    fn the_night_aids_parse_and_weigh() {
+        let one = |v: &'static str| move |n: &str| (n == NIGHT_PULL_VAR).then(|| v.to_string());
+        assert_eq!((start_light_aids(one("0.8")).night_pull, start_light_aids(one("9")).night_pull, start_light_aids(one("-1")).night_pull), (0.8, MAX_NIGHT_PULL, 0.0));
+        assert_eq!((start_light_aids(one("dark")).night_pull, start_light_aids(one("NaN")).night_pull, start_light_aids(|_| None).night_pull), (NIGHT_PULL, NIGHT_PULL, NIGHT_PULL));
+        assert_eq!((LightAids { night_pull: f32::NAN, ..START_LIGHT }.night_pull(), LightAids { night_pull: 5.0, ..START_LIGHT }.night_pull()), (NIGHT_PULL, MAX_NIGHT_PULL));
+        assert!(LightAids { night_pull: 0.75, ..START_LIGHT }.text().ends_with("NIGHTPULL 0.75") && !START_LIGHT.text().contains("NIGHTPULL"));
+        assert!(START_LIGHT.model_text().contains("(NIGHTPULL 0.45), every colour bounded to"));
+        let vars = |n: &str| match n {
+            MOON_FORWARD_VAR => Some("2.5".to_string()),
+            MOON_BACK_VAR => Some("9".to_string()),
+            _ => None,
+        };
+        let a = start_light_aids(vars);
+        assert_eq!((a.moon_forward, a.moon_back), (Some(2.5), Some(MAX_WEIGHT)));
+        assert!(a.text().ends_with("MOONFORWARD x2.50, MOONBACK x4.00"), "{}", a.text());
+        assert_eq!((START_LIGHT.moon_forward, START_LIGHT.moon_back), (MOON_FORWARD, MOON_BACK));
+        // The cap by moonlight: parsed and held, from the day's to the moon's by the night's share, the day's by day
+        // and where it is unset or not a number; in the uniform and nowhere else of it.
+        let cap = |v: &'static str| move |n: &str| (n == MOON_CAP_VAR).then(|| v.to_string());
+        assert_eq!((start_light_aids(cap("12")).moon_cap, start_light_aids(cap("99")).moon_cap, start_light_aids(cap("-1")).moon_cap), (Some(12.0), Some(MAX_MOON_CAP), Some(0.0)));
+        assert_eq!((start_light_aids(cap("high")).moon_cap, START_LIGHT.moon_cap), (MOON_CAP, MOON_CAP));
+        let capped = |m: Option<f32>| LightAids { moon_cap: m, ..START_LIGHT };
+        assert_eq!((capped(Some(12.0)).phase_cap(None), capped(Some(12.0)).phase_cap(Some(0.0)), capped(Some(12.0)).phase_cap(Some(0.5)), capped(Some(12.0)).phase_cap(Some(1.0))), (PHASE_CAP, PHASE_CAP, (PHASE_CAP + 12.0) * 0.5, 12.0));
+        assert_eq!((capped(None).phase_cap(Some(1.0)), capped(Some(f32::NAN)).phase_cap(Some(1.0)), capped(Some(50.0)).phase_cap(Some(1.0))), (PHASE_CAP, PHASE_CAP, MAX_MOON_CAP));
+        let night = uniform(&clear_night(capped(Some(12.0))));
+        assert_eq!(night.phase.w, 12.0, "the deep night");
+        assert_eq!(uniform(&clear_night(capped(None))).phase.w, PHASE_CAP);
+        let plain = uniform(&clear_night(capped(None)));
+        assert_eq!((night.phase.truncate(), night.light_dir, night.lmode, night.loct, night.lfloor), (plain.phase.truncate(), plain.light_dir, plain.lmode, plain.loct, plain.lfloor));
+        // Between the day's and the moon's, the other weights and the day untouched.
+        assert_eq!((a.phase_weight(LightWeight::Forward, None), a.phase_weight(LightWeight::Forward, Some(0.5)), a.phase_weight(LightWeight::Forward, Some(1.0))), (1.0, 1.75, 2.5));
+        assert_eq!(a.phase_weight(LightWeight::Sun, Some(1.0)), a.weight(LightWeight::Sun));
+        let own = LightAids { moon_forward: None, moon_back: None, ..a };
+        assert_eq!((own.phase_weight(LightWeight::Forward, Some(1.0)), own.phase_weight(LightWeight::Backscatter, Some(1.0))), (1.0, START_LIGHT.weight(LightWeight::Backscatter)));
+        assert_eq!(LightAids { moon_forward: Some(f32::NAN), ..own }.phase_weight(LightWeight::Forward, Some(1.0)), 1.0);
+        // Through the uniform: a stronger forward lobe brightens the ray toward the moon, a weaker floor darkens
+        // the side seen away from it.
+        let at = |aids: LightAids, toward: f32| {
+            let i = clear_night(aids);
+            let u = uniform(&i);
+            let s = Shading { mode: 6, ..shading(&u) };
+            lean_shade(Vec4::new(0.8, 3.0 / 5_000.0, 0.3, 0.9), 100.0, 0.0, true, &ray_light(u.light_dir.truncate() * toward, &u), &s, 0.0, 0.0, 0.0, 0.0).max_element()
+        };
+        assert!(at(LightAids { moon_back: Some(0.0), ..own }, -1.0) < at(own, -1.0));
+        let dim = LightAids { moon_forward: Some(0.2), ..own };
+        assert!(at(dim, 1.0) < at(own, 1.0));
     }
 
     // -----------------------------------------------------------------------------------
