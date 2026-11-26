@@ -4411,7 +4411,8 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
   the sun rises from 3 to 14 % above the horizon (ssao.rs `physical_occlusion_vectors`).
   All three channels go through a two-stage denoise: a 4 × 4 core with a stride-2 ring,
   then a 7 × 7 separable à-trous pass (`denoise_wide`), blurring more with distance (110 to
-  420 units) and over foliage [design]. The lighting reads them inside the physical light
+  420 units) and over foliage [design]; without the row only the first stage runs, writing
+  the denoised texture itself, so the occlusion costs what it did before. The lighting reads them inside the physical light
   loop (ssao_lighting/hook.rs `PHYSICAL_HOOK_EDITS`, ssao_lighting.wesl
   `nvf_physical_occlusion`):
   - a 3 × 3 depth-aware tent upsample of the texture, with a near and a soft depth

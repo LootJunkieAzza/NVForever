@@ -1521,12 +1521,16 @@ pub(crate) fn ao_lighting_pass(
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_ambient_occlusion");
+    // The second, wide stage only under Physical lighting, whose sky visibility and contact
+    // shadow it smooths; otherwise the first stage writes the denoised texture itself and the
+    // occlusion costs what it did before the two stages (#4287).
+    let wide = nvf_assets::authored::physical_pbr();
     let ready = prepass.and_then(|p| {
         Some((
             p,
             cache.get_render_pipeline(ao.occlusion)?,
             cache.get_render_pipeline(lighting.denoise)?,
-            cache.get_render_pipeline(lighting.denoise_wide)?,
+            if wide { Some(cache.get_render_pipeline(lighting.denoise_wide)?) } else { None },
             uniforms.uniforms().binding()?,
             index?.index(),
         ))
@@ -1546,7 +1550,7 @@ pub(crate) fn ao_lighting_pass(
     let bind_group = device.create_bind_group("ssao_denoise_bind_group", &layout, &BindGroupEntries::with_indices(((0, depth), (1, binding.clone()), (4, &ao.texture.default_view))));
     let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
         label: Some("ssao_denoise_pass"),
-        color_attachments: &[Some(RenderPassColorAttachment { view: &lighting.mid.default_view, depth_slice: None, resolve_target: None, ops: Operations::default() })],
+        color_attachments: &[Some(RenderPassColorAttachment { view: if wide { &lighting.mid.default_view } else { &lighting.denoised.default_view }, depth_slice: None, resolve_target: None, ops: Operations::default() })],
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
@@ -1557,6 +1561,10 @@ pub(crate) fn ao_lighting_pass(
     pass.draw(0..3, 0..1);
     drop(pass);
 
+    let Some(denoise_wide) = denoise_wide else {
+        span.end(ctx.command_encoder());
+        return;
+    };
     let wide_group = device.create_bind_group("ssao_denoise_wide_bind_group", &layout, &BindGroupEntries::with_indices(((0, depth), (1, binding), (4, &lighting.mid.default_view))));
     let mut wide_pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
         label: Some("ssao_denoise_wide_pass"),
