@@ -3602,13 +3602,14 @@ impl Vm<'_, '_> {
             None => return Err(VmError::NotBuilt(format!("the extender function {lname}"))),
         };
         let XVal::Array(id) = r else { return Ok(r) };
-        let vals: Vec<XVal> = self.store()?.array(id).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect()).unwrap_or_default();
+        let entries: Vec<(XKey, XVal)> = self.store()?.array(id).map(|a| a.entries.clone()).unwrap_or_default();
+        let at = |idx: usize| entries.iter().find(|(k, _)| matches!(k, XKey::Num(x) if *x == idx as f64)).map(|(_, v)| v.clone());
         for (i, &k) in outs.iter().enumerate() {
-            if let (Some(XExpr::Var { var, .. }), Some(v)) = (c.args.get(k), vals.get(i + 1)) {
-                self.write_var(var, v.clone())?;
+            if let (Some(XExpr::Var { var, .. }), Some(v)) = (c.args.get(k), at(i + 1)) {
+                self.write_var(var, v)?;
             }
         }
-        Ok(vals.first().cloned().unwrap_or(XVal::Num(0.0)))
+        Ok(at(0).unwrap_or(XVal::Num(0.0)))
     }
 
     fn host_function(&mut self, lname: &str, c: &XCall) -> Result<Option<XVal>, VmError> {
