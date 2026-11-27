@@ -28,6 +28,7 @@ pub mod nif_spawn;
 pub mod tangents;
 pub mod terrain_sampling;
 pub mod texture;
+pub mod tone_input;
 
 pub use data::{ArchivePlugin, GameData};
 pub use particles::{ParticleSystemDef, PreparedParticles};
@@ -38,7 +39,7 @@ pub use release::{AssetReleasePlugin, KeepLimits};
 /// The reflections' mount-pack test aid (pbr_field/reflect.rs).
 pub use pbr_field::reflect::{mount_pack_requested, seed_mount_pack, MOUNT_PACK_ENV};
 /// The terrain parallax's ground-pack test aid (pbr_field/ground.rs).
-pub use pbr_field::ground::{ground_pack_requested, seed_ground_pack, GROUND_DEPTH, GROUND_PACK_ENV};
-pub use texture::TextureCache;
+pub use pbr_field::ground::{ground_pack_requested, seed_ground_pack, GroundPack, GROUND_DEPTH, GROUND_PACK_ENV};
+pub use texture::{TextureCache, ALPHA_HEIGHT_DEPTH};
 
 pub mod nif_surface_blend;

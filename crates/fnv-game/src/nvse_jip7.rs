@@ -1197,8 +1197,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     let ammo = |g: &Game, f: Option<FormId>| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"AMMO"));
     let amef = |g: &Game, f: Option<FormId>| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"AMEF"));
     let zero = XVal::Num(0.0);
-    // The setters of a trait return 0 [hypothesis: as the record setters of batch 5 were
-    // observed to, jip-records-5.md].
+    // The setters of a trait return 0 [observed: jip7 and `b3_jip_ex_04_set_ammo_trait_ret`
+    // (`wave4b_extenders.json`), see docs/spec-notes/jip-records-7.md].
     let v = match name {
         // ---- ammunition
         "setammotraitnumeric" => {
@@ -1234,8 +1234,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `ammo effect`: 1 when the list changed [documented: `successful`; hypothesis: 0
-        // for an effect already there, or not there to remove].
+        // `ammo effect`: 1 when the list changed, 0 for an effect already there or not
+        // there to remove [documented: `successful`; observed: `jip_16_ammo_effect_add_remove_ret`
+        // (`wave4a_extenders.json`), see docs/spec-notes/jip-records-7.md §1].
         "addammoeffect" | "removeammoeffect" => {
             let (Some(a), Some(e)) = (ammo(g, form(args, 0)), amef(g, form(args, 1))) else { return Some(Ok(zero)) };
             let mut list = g.ammo_effects(a);
@@ -1501,7 +1502,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             XVal::Num(was)
         }
         // `[maxPercent]` 0-1, the same way [documented: SetDamageToArmorMaxPercent]; 1
-        // (no cap) until a script sets it [hypothesis: the page gives no default].
+        // (no cap) until a script sets it [observed: jip7 armor.maxpercent and
+        // `b3_jip7_01_dmg_to_armor_max_clamp` (`wave4b_extenders.json`), see
+        // docs/spec-notes/jip-records-7.md §5].
         "setdamagetoarmormaxpercent" => {
             let was = g.other.jip7.damage_to_armor_max.unwrap_or(1.0);
             if let Some(m) = args.first().and_then(|v| v.num().ok()).filter(|m| (0.0..=1.0).contains(m)) {

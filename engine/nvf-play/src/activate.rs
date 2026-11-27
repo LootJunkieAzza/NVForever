@@ -508,9 +508,22 @@ impl TargetPicker<'_,'_,'_>{
     let raw_hit = hit;
     let hit = pick::door_behind(hit, behind, |id| describe_once(id).is_some());
     // What is inside a container wins over it (an open locker's shelves, #3351), an item
-    // over the activator it lies on (#3937), among the boxes the bed rule kept.
+    // over the activator it lies on (#3937), among the boxes the bed rule kept. When only
+    // rough actor boxes remain, prefer the actor whose posed body segments are nearest the
+    // crosshair ray (#3664).
     let kept: Vec<pick::BoxSpan> = bounds.iter().filter(|b| kept.iter().any(|k| k.0 == b.0)).copied().collect();
-    let picked = pick::choose_inside(hit, raw_hit, kept, REACH, yields, |id| describe_once(id).is_some());
+    let rough_limit = hit.map_or(REACH, |h| (h.distance + pick::SURFACE_SLACK).min(REACH));
+    let ray_origin = Vec3::from_array(eye);
+    let ray_dir = Vec3::from_array(dir);
+    let body_ray_distance = |actor: u32| {
+        let posed = parts.and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty())?;
+        posed
+            .segments
+            .iter()
+            .map(|s| pick::ray_segment_distance(ray_origin, ray_dir, rough_limit, Vec3::from_array(s.a), Vec3::from_array(s.b)))
+            .reduce(f32::min)
+    };
+    let picked = pick::choose_inside_with_body(hit, raw_hit, kept, REACH, yields, body_ray_distance, |id| describe_once(id).is_some());
     // How far the sleeper's body is from the eye: its posed bones (`crate::hitvol::ActorParts`,
     // which follow the lying body), else its render boxes (rough: the bind pose).
     let body_distance = |actor: u32| {
@@ -587,17 +600,40 @@ fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks
 
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let r = FormId(id);
+    // Another player of a co-op game: only its name (there is no one to talk to).
+    if g.is_coop_actor(r) {
+        return Action::Name;
+    }
     // The player's tweak: a knocked-out companion is revived [design: docs/design/tweaks.md].
     if g.can_revive(r) {
-        return Action::Revive;
+        return Action::ReviveCompanion;
     }
     // The player's tweak lets an unconscious actor be searched as a dead one is [design: docs/design/tweaks.md].
     if g.is_dead(r) || (g.tweaks.loot_unconscious && g.knockout(r).is_some()) {
         return Action::Search;
     }
     let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
-    if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
+    // On a co-op guest, the host's word too (`Game::coop_hostile`, as the compass reads
+    // it): the host's quest stages turn people hostile (VMS16 stage 70's SetEnemy) in its
+    // world, which the guest's own factions don't know [observed: buckallobill, in game,
+    // NVForever co-op: the Powder Gangers fighting in Goodsprings offered Talk on the
+    // guest]. Empty outside co-op.
+    if fighting_player || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Hostile;
+    }
+    // A co-op guest talks only to trade, to play and to change chips at a cashier
+    // (`fnv_game::Game::guest_lines`); the host's world runs the rest [design].
+    if g.coop_guest {
+        let now = g.time;
+        let talks = match talkers.get(&id) {
+            Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
+            _ => {
+                let t = g.guest_can_talk(r);
+                talkers.insert(id, (t, now));
+                t
+            }
+        };
+        return if talks { Action::Talk } else { Action::Name };
     }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.
@@ -873,6 +909,10 @@ pub(crate) fn activate(
             return;
         }
     }
+    // A downed co-op player: the revive takes E (`nvforever`'s `coop.rs`).
+    if matches!(t.action, Action::Revive { .. }) {
+        return;
+    }
     // An actor shown by name only (hostile, or a creature with nothing to say): E does
     // nothing (playtest list 4, item 19) except:
     // - open the perks' choices, if they offer any on it now (Robotics Expert's, #3479);
@@ -939,7 +979,7 @@ pub(crate) fn activate(
         return;
     }
     // The player's tweak: a Stimpak gets a knocked-out companion up [design: docs/design/tweaks.md].
-    if t.action == Action::Revive {
+    if t.action == Action::ReviveCompanion {
         let done = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.revive(FormId(t.form_id))));
         match done {
             Some(Ok(())) => info!("activate 0x{:08X} {} (Revive): a Stimpak used, they get up (tweak)", t.form_id, t.name),
