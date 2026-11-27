@@ -109,11 +109,13 @@ pub mod idles;
 pub mod intro;
 pub mod jip_ccc;
 pub mod jip_events;
+pub mod knvse_ini;
 mod crosshair_events;
 mod jip_provenance;
 #[cfg(test)]
 mod handler_diagnostics_tests;
 pub mod nvse;
+pub mod npc_weapon_mods;
 mod nvse_faction_modifiers;
 pub mod nvse_ttw;
 pub mod nvse_unlisted;
@@ -273,3 +275,5 @@ pub use data::GameData;
 pub use game::{Game, GameConfig, InstKey};
 
 mod texture_filter;
+#[cfg(test)]
+mod ui_ysi_duplicate_row_tests;

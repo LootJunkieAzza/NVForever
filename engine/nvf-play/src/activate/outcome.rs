@@ -53,9 +53,14 @@ pub enum Action {
     /// A door whose reference is flagged Inaccessible (header bit 8): it shows its name
     /// with "Inaccessible" and E does nothing (docs/spec-notes/cells-refs.md §2).
     Inaccessible,
+    /// Another player down in co-op, aimed at where the body lies: E revives them
+    /// (`nvforever`'s `coop.rs`), not the world's activation, using `with` (its name, a
+    /// Stimpak); `None`: this player has nothing to revive with. Never offered outside
+    /// co-op [design].
+    Revive { with: Option<String> },
     /// A knocked-out companion a Stimpak gets up (the player's Revive Unconscious
     /// Companions tweak, docs/design/tweaks.md).
-    Revive,
+    ReviveCompanion,
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -110,8 +115,10 @@ impl Action {
             Action::Name | Action::Hostile => String::new(),
             // [hypothesis: the flag's name, cells-refs.md §2]
             Action::Inaccessible => "Inaccessible".into(),
+            // [design: the game's own rollover with the verb]
+            Action::Revive { .. } => "Revive".into(),
             // Our word for the tweak's prompt.
-            Action::Revive => "Revive".into(),
+            Action::ReviveCompanion => "Revive".into(),
         }
     }
 }
@@ -124,6 +131,8 @@ pub fn prompt(name: &str, action: &Action) -> (String, String) {
     match action {
         Action::Take { count } if *count > 1 => (action.label(), format!("{name} ({count})")),
         Action::Travel { to: Some(to) } => ("Open".into(), to.clone()),
+        // [design: "E) Revive <name> (Stimpak)"]
+        Action::Revive { with: Some(with) } => (action.label(), format!("{name} ({with})")),
         _ => (action.label(), name.to_string()),
     }
 }

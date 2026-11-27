@@ -222,7 +222,12 @@ pub const fn spot_specular_scale(first_person: bool, casts_shadows: bool) -> f32
 /// patched `apply_pbr_lighting` leaves Bevy's diffuse terms out (diffuse colour 0 for the
 /// lights and the ambient light, so only their specular parts stay), forms the sum from
 /// the same lights' colours, which hold display values there (`lights::display_color`), and
-/// adds diffuse colour × sum^2.2 (the display gamma) as light. Views without the mark
+/// adds, as light, the linear colour of the diffuse colour's display value × the sum, held
+/// to 1: both ways by the sRGB curve, the one the texture was read through and the frame is
+/// shown through, so the shown value is that product. (Until 2026-11-25 it added diffuse
+/// colour × sum^2.2. A 2.2 power and the sRGB curve part ways in the dark: a floor of display
+/// value 0.4 under an interior's ambient of 40 / 255 was shown as 8 / 255 where the product is
+/// 16 / 255, world.md §8 "Dark values of the sum".) Views without the mark
 /// (the minigame views) keep Bevy's sum. `nvf_apply_pbr_lighting` takes weights for the
 /// ambient and the direct part of the sum (grass.wesl); `apply_pbr_lighting` is it with
 /// weights 1. Each helper carries the condition Bevy puts on `apply_pbr_lighting`
@@ -231,6 +236,20 @@ const DISPLAY_HELPERS: &str = "// NVForever (nvforever lights.rs DISPLAY_HELPERS
 @if(!PREPASS_FRAGMENT)
 fn nvf_display_lighting() -> bool {
     return view_bindings::lights.ambient_color.a < 0.0;
+}
+
+// The sRGB transfer, both ways (the texture's and the frame's own curve, IEC 61966-2-1):
+// the display value of a linear colour, and back.
+@if(!PREPASS_FRAGMENT)
+fn nvf_linear_to_display(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
+}
+
+@if(!PREPASS_FRAGMENT)
+fn nvf_display_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
 }
 
 // A clustered point or spot light's diffuse light on a surface at P facing N, as display
@@ -332,7 +351,7 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
         let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion;
         let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
         // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
-        direct_light += min(diffuse_color * pow(nvf_sum, vec3(2.2)), vec3(1.0)) / view_bindings::view.exposure;
+        direct_light += nvf_display_to_linear(min(nvf_linear_to_display(diffuse_color) * nvf_sum, vec3(1.0))) / view_bindings::view.exposure;
     }
 
     // Total light\n",

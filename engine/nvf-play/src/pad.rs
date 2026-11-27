@@ -34,7 +34,7 @@ use bevy::prelude::*;
 
 pub(crate) mod device;
 pub mod pointer;
-pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, SwitchingInput};
+pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, InputSwitchSystems, SwitchingInput, TouchDeviceSwitch, PlatformInputGate, PlatformInputSystems};
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
 /// way (the movement controls).
@@ -85,11 +85,19 @@ pub const STICK_DEAD: f32 = 0.12;
 /// Controller Dead Zones tweak sets its own [design: docs/design/tweaks.md].
 static DEAD_ZONES: [std::sync::atomic::AtomicU32; 2] = [std::sync::atomic::AtomicU32::new(0x3DF5_C28F), std::sync::atomic::AtomicU32::new(0x3DF5_C28F)];
 
-/// Set the sticks' dead zones (`None`: [`STICK_DEAD`] for both).
+static CUSTOM_DEAD_ZONES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set the sticks' dead zones (`None`: [`STICK_DEAD`] for physical history;
+/// action readers then retain their separately saved generic controller preference).
 pub fn set_dead_zones(zones: Option<(f32, f32)>) {
     let (l, r) = zones.unwrap_or((STICK_DEAD, STICK_DEAD));
     DEAD_ZONES[0].store(l.to_bits(), std::sync::atomic::Ordering::Relaxed);
     DEAD_ZONES[1].store(r.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    CUSTOM_DEAD_ZONES.store(zones.is_some(), std::sync::atomic::Ordering::Release);
+}
+
+pub(crate) fn custom_dead_zone(left: bool) -> Option<f32> {
+    CUSTOM_DEAD_ZONES.load(std::sync::atomic::Ordering::Acquire).then(||dead_zone(left))
 }
 
 /// The dead zone of the left stick, or the right.
@@ -936,15 +944,17 @@ impl StickButtons {
 /// The furthest-pushed stick of the connected controllers (`left` or right), dead zone
 /// taken off.
 pub fn stick(pads: &crate::pad::ActionPads, left: bool) -> Vec2 {
-    stick_vector(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }), left)
+    stick_vector_at(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }), pads.dead_zone(left))
 }
 
 // Physical history and filtered actions share the existing stick normalization
-// [design, #2200; stick, update_stick_buttons]; the dead zone is the player's
-// (`dead_zone`, the Stick Dead Zones tweak).
+// [design, #2200; stick, update_stick_buttons].
 fn stick_vector(sticks: impl Iterator<Item = Vec2>, left: bool) -> Vec2 {
+    stick_vector_at(sticks, dead_zone(left))
+}
+fn stick_vector_at(sticks: impl Iterator<Item = Vec2>, dead_zone: f32) -> Vec2 {
     let v = sticks.max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
-    if v.length() < dead_zone(left) {
+    if v.length() < dead_zone {
         Vec2::ZERO
     } else {
         v.clamp_length_max(1.0)
@@ -1447,6 +1457,8 @@ pub struct PadPlugin;
 impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
         use bevy::input::InputSystems;
+        #[cfg(target_os = "android")]
+        app.add_plugins(crate::controller_aim::ControllerAimPlugin);
         app.add_plugins(InputSwitchPlugin).init_resource::<StickButtons>()
             .init_resource::<MenuKeys>()
             .init_resource::<ButtonStyle>()
@@ -1942,5 +1954,47 @@ mod tests {
         assert_eq!(StickDir::Down.amount(v), 0.8);
         assert_eq!(StickDir::Up.amount(v), 0.0);
         assert!((StickDir::Right.amount(v) - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bundled_gilrs_db_maps_gamesir_3537_100e_on_windows() {
+        let db = include_str!("../../vendor/gilrs/SDL_GameControllerDB/gamecontrollerdb.txt");
+        for guid in ["03000000373500000e10000000000000", "05000000373500000e10000000000000"] {
+            let line = db
+                .lines()
+                .find(|l| l.starts_with(guid) && l.contains("platform:Windows"))
+                .unwrap_or_else(|| panic!("missing Windows mapping for {guid}"));
+            let fields: Vec<&str> = line.split(',').collect();
+            assert_eq!(fields[0], guid);
+            assert_eq!(fields[1], "GameSir Controller");
+            for required in [
+                "a:b0",
+                "b:b1",
+                "x:b3",
+                "y:b4",
+                "leftshoulder:b6",
+                "rightshoulder:b7",
+                "lefttrigger:b8",
+                "righttrigger:b9",
+                "back:b10",
+                "start:b11",
+                "guide:b12",
+                "leftstick:b13",
+                "rightstick:b14",
+                "leftx:a0",
+                "lefty:a1",
+                "rightx:a3",
+                "righty:a4",
+                "dpup:h0.1",
+                "dpright:h0.2",
+                "dpdown:h0.4",
+                "dpleft:h0.8",
+                "platform:Windows",
+            ] {
+                assert!(fields.contains(&required), "{guid} missing {required} in {line}");
+            }
+            // Idle trigger axes a2/a5 must remain unmapped so they cannot drift RightStickY.
+            assert!(!fields.iter().any(|f| f.ends_with(":a2") || f.ends_with(":a5")), "{guid} unexpectedly maps a2/a5: {line}");
+        }
     }
 }

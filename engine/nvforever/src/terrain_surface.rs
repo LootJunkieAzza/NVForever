@@ -210,6 +210,7 @@ fn bake_copy(material: &mut TerrainMaterial) {
     for height in [&mut e.height0, &mut e.height1, &mut e.height2, &mut e.height3, &mut e.height4, &mut e.height5] { *height = None; }
     e.parallax = false;
     e.parallax_depths = [0.0; crate::terrain::FOLDED_LAYERS];
+    e.alpha_heights = 0;
     material.base.fog_enabled = false;
     material.base.normal_map_texture = None;
 }
@@ -2215,6 +2216,8 @@ pub(crate) mod tests {
             ("overlay_pre_is", crate::camera_overlay::OVERLAY_PRE_IS_LAYER),
             ("overlay_pre_ui", crate::camera_overlay::OVERLAY_PRE_UI_LAYER),
             ("culled", crate::rooms::CULL_LAYER),
+            ("volumetric clouds", crate::volumetric_clouds::VOLUME_LAYER),
+            ("flat clouds beside the volume", crate::volumetric_clouds::FLAT_CLOUD_LAYER),
         ];
         for (i, a) in layers.iter().enumerate() {
             for b in &layers[i + 1..] { assert_ne!(a.1, b.1, "{} and {}", a.0, b.0); }
@@ -2400,7 +2403,7 @@ pub(crate) mod tests {
                 radius: 1, loaded: [(grid, cell)].into(), fades: default(), fade_secs: 0.0, settled: true,
                 arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
                 hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
-                stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
+                stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), coop_areas: Vec::new(), travels: 0,
             });
             let eye = Vec3::new(grid.0 as f32 * 4096.0 + 2048.0, grid.1 as f32 * 4096.0 + 2048.0, 600.0);
             app.world_mut().spawn((Camera3d::default(), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }, GlobalTransform::from_translation(Vec3::new(eye.x, eye.z, -eye.y))));
@@ -2964,7 +2967,7 @@ pub(crate) mod tests {
             radius: 1, loaded: [((0, 0), cell)].into(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
-            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
+            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), coop_areas: Vec::new(), travels: 0,
         });
         app.world_mut().spawn((Camera3d::default(), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }, GlobalTransform::from_translation(Vec3::new(2048.0, 600.0, -2048.0))));
         for _ in 0..3 { app.world_mut().run_system_once(update_cache).unwrap(); }
@@ -3001,7 +3004,7 @@ pub(crate) mod tests {
             radius: 2, loaded: default(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
-            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
+            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), coop_areas: Vec::new(), travels: 0,
         });
         for y in -3..=3 { for x in -3..=3 {
             let diffuse = app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
@@ -3810,7 +3813,7 @@ pub(crate) mod tests {
             radius: 1, loaded: [((0, 0), fine), ((1, 0), stored)].into(), fades: default(), fade_secs: 0.0, settled: true,
             arrival: None, per_frame: 1, spawning: default(), dying: default(), ahead: default(),
             hide: default(), interior: None, light_scale: 1.0, managed: default(), manage_actors: false,
-            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), travels: 0,
+            stats: default(), buffer: default(), centre: None, waiting: default(), model_overrides: default(), coop_areas: Vec::new(), travels: 0,
         });
         app.world_mut().spawn((Camera3d::default(), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }, GlobalTransform::from_translation(Vec3::new(2048.0, 600.0, -2048.0))));
         app.world_mut().run_system_once(update_cache).unwrap();

@@ -34,6 +34,10 @@ struct SkyLight {
     // By part: the stars x the twinkle's amplitude, y lattice cells per unit of direction;
     // the dome and clouds rgb the moon term's gain, w its cap (0: none).
     night: vec4<f32>,
+    // The sun's disc enlarged over the volume sky (sky.rs FairSun): x the magnification of the
+    // texture's middle, 0 for none; y the radius of that middle in the texture (uv); z the
+    // factor on the sun texture outside the disc.
+    disc: vec4<f32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> sky: SkyLight;
@@ -44,7 +48,7 @@ struct SkyLight {
 
 // A texture spread over the angular square of half-size atan(half_tan) around the sun
 // (as on a billboard facing the camera), added as colour × alpha.
-fn sun_texel(t: texture_2d<f32>, s: sampler, dir: vec3<f32>, half_tan: f32) -> vec3<f32> {
+fn sun_texel(t: texture_2d<f32>, s: sampler, dir: vec3<f32>, half_tan: f32, disc: vec3<f32>) -> vec3<f32> {
     let sd = normalize(sky.sun_dir.xyz);
     let c = dot(dir, sd);
     if c <= 0.0 {
@@ -61,6 +65,16 @@ fn sun_texel(t: texture_2d<f32>, s: sampler, dir: vec3<f32>, half_tan: f32) -> v
     let uv = vec2(dot(p, u), -dot(p, v)) / (2.0 * half_tan) + 0.5;
     if any(uv < vec2(0.0)) || any(uv > vec2(1.0)) {
         return vec3(0.0);
+    }
+    if disc.x > 1.0 {
+        // The middle (radius disc.y) drawn disc.x times as large, easing back to the texture's
+        // own scale further out; the radius read never falls as the radius drawn grows.
+        let q = uv - 0.5;
+        let r = length(q);
+        let edge = disc.x * disc.y;
+        let scale = mix(1.0 / disc.x, 1.0, smoothstep(edge * 1.2, min(edge * 4.0, 0.48), r));
+        let w = textureSampleLevel(t, s, q * scale + 0.5, 0.0);
+        return w.rgb * w.a * mix(1.0, disc.z, smoothstep(edge * 0.85, edge * 1.15, r));
     }
     let texel = textureSampleLevel(t, s, uv, 0.0);
     return texel.rgb * texel.a;
@@ -324,8 +338,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             let scaled_base = select(base_rgb, base_rgb * sky.params.x, sky.params.z > 0.5);
             let weather_sky = scaled_base * mix(0.45, 1.35, day_vis);
             var sky_rad = mix(weather_sky, phys_sky, phys_weight) + sky.glow.rgb;
-            let sun_tex = sun_texel(sun_texture, sun_sampler, dir, sky.sun.w);
-            let glare_tex = sun_texel(glare_texture, glare_sampler, dir, sky.glare.w);
+            let sun_tex = sun_texel(sun_texture, sun_sampler, dir, sky.sun.w, sky.disc.xyz);
+            let glare_tex = sun_texel(glare_texture, glare_sampler, dir, sky.glare.w, vec3(0.0));
             let disc_core = smoothstep(0.99978, 0.99993, dot(dir, sd)) * 18.0;
             sky_rad += sky.sun.rgb * (sun_tex * 2.4 + vec3<f32>(disc_core)) + sky.glare.rgb * glare_tex * 1.1;
             out.color = vec4(sky_rad, 1.0);
@@ -336,7 +350,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             let density_gain = mix(0.65, 2.30, shaped_a);
             let cloud_gain = mix(1.0, density_gain, clear_day) * mix(1.0, 1.55, day_vis * (1.0 - phys_weight));
             let silver = 1.0 + 0.50 * pow(max(dot(dir, sd), 0.0), 8.0) * day_vis;
-            let glare_tex = sun_texel(glare_texture, glare_sampler, dir, sky.glare.w);
+            let glare_tex = sun_texel(glare_texture, glare_sampler, dir, sky.glare.w, vec3(0.0));
             let cloud_rad = c.rgb * (cloud_gain * silver) + sky.glare.rgb * glare_tex * 1.1;
             out.color = vec4(cloud_rad, cloud_alpha);
         } else {
@@ -347,9 +361,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
     if sky.params.w > 0.5 {
         // The sky is centred on the camera: the view ray is the fragment's direction.
-        var add = sky.glare.rgb * sun_texel(glare_texture, glare_sampler, dir, sky.glare.w);
+        let dir = normalize(in.world_position.xyz - view.world_position.xyz);
+        var add = sky.glare.rgb * sun_texel(glare_texture, glare_sampler, dir, sky.glare.w, vec3(0.0));
         if sky.params.w > 1.5 {
-            add += sky.sun.rgb * sun_texel(sun_texture, sun_sampler, dir, sky.sun.w);
+            add += sky.sun.rgb * sun_texel(sun_texture, sun_sampler, dir, sky.sun.w, sky.disc.xyz);
         }
         // Night sky detail: the moon's glow on the dome (behind the clouds), moonlight on the
         // clouds (their colour; the blend weighs it by the texture's alpha).

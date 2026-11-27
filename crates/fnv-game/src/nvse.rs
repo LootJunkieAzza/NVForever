@@ -17,10 +17,13 @@ fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
     }
     // A clone reads its original's fields (TempCloneForm).
     // Cloned PROJ records snapshot all active overrides at clone creation time
-    // [observed: w4g_02_tempcloneform_world_proj_csty], so untouched fields fall back
-    // directly to the authored record rather than inheriting post-clone source edits.
+    // [observed: w4g_02_tempcloneform_world_proj_csty], and `MODL/` is snapshotted at
+    // clone creation (`Game::snapshot_model_path`) [observed:
+    // w4g_02_tempcloneform_world_proj_csty, w4g_13_isidleplaying_and_idle_replace], so
+    // untouched fields fall back directly to the authored record rather than inheriting
+    // post-clone source edits.
     let orig = g.unclone(form);
-    if orig != form && g.data.sig(orig) != Some(*b"PROJ") {
+    if orig != form && g.data.sig(orig) != Some(*b"PROJ") && sub != "MODL" {
         if let Some(v) = g.field_overrides.get(&(orig, format!("{sub}/{path}"))) {
             return Some(v.clone());
         }

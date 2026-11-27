@@ -1,11 +1,52 @@
 //! Bounded documented ySI configuration -> tag/icon/filename (docs/spec-notes/ysi-filename.md).
-//! The native string trait, defaults and file-order tie policy remain unsupported.
-use crate::{functions::base_of, game::Game, mod_files};
-use fnv_script::vm::{form_type_code, Value, XVal};
+//! Serves `nvse_small.rs` (`ySIGetTrait` / `ySISetTrait` `"tag"`, `"string"`, `"icon"`,
+//! `"filename"`) and `ui_ysi` display lookups.
+use crate::{game::Game, mod_files};
+use fnv_script::vm::{form_type_code, XVal};
 use fnv_sim::FormId;
 use serde_json::{Map, Value as Json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
+
+/// Maximum ancestor traversal depth when resolving nested ySI subfolder chains [design].
+const MAX_CATEGORY_DEPTH: usize = 16;
+
+/// One clickable Pip-Boy category or nested subfolder resolved from `menus/ySI/*.json`
+/// `"icons"` entries (`name`, `tab`, `count`, `filename`, `template`, `icon`, optional
+/// parent `category`) [documented: ySI - Sorting Ycons v1.4b
+/// (`https://www.nexusmods.com/newvegas/mods/74358`), `menus/ySI/ySI.json` `"icons"` entries
+/// defining `(jdc0)` / `(jdd0)` / `(jde0)` with `"name"`, `"tab"`, `"count"`, `"filename"`,
+/// `"template"`, `"icon"`, and child tags carrying `"category"`; no yUI/ySI DLL or source
+/// consulted].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YsiCategoryDef {
+    /// Sorting tag of the category folder row itself (e.g. `"(jdd0)"`, `"(kw00)"`).
+    pub tag: String,
+    /// Resolved display label (game-string entities like `"&-sKeyring;"` expanded).
+    pub name: String,
+    /// Pip-Boy Inventory tab index (`0` Weapons, `1` Apparel, `2` Aid, `3` Misc, `4` Ammo).
+    pub tab: u8,
+    /// Optional parent category index in [`YsiCategoryIndex::categories`] for nested subfolders.
+    pub parent: Option<u32>,
+    /// Minimum distinct matching rows required to collapse into a folder (clamped `>= 1`).
+    pub min_count: usize,
+    /// Row icon DDS path (`filename`) for `ySIImage`.
+    pub row_icon: Option<String>,
+    /// Row XML template name (`template`, defaulting to `ySIDefault`).
+    pub template: String,
+    /// Large Pip-Boy preview picture DDS path (`icon`) shown in `IM_ItemIcon`.
+    pub preview_icon: Option<String>,
+}
+
+/// Resolved table of Pip-Boy ySI categories/subfolders and item-tag -> category memberships
+/// built from the session's `menus/ySI/*.json` configuration [design].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct YsiCategoryIndex {
+    /// Deterministic category list ordered by `(tab, tag)`.
+    pub categories: Vec<YsiCategoryDef>,
+    /// Maps an item sorting tag (e.g. `"(jdd1)"`, `"(fbb3)"`) to its direct category index.
+    pub tag_to_category: BTreeMap<String, u32>,
+}
 
 // Mapped configuration resource bounds, not native limits.
 const MAX_FILES: usize = 128;
@@ -37,60 +78,6 @@ pub(crate) enum Match {
     Unknown,
 }
 
-pub(crate) fn handles(name: &str, args: &[XVal]) -> bool {
-    name.eq_ignore_ascii_case("ySIGetTrait")
-        && args
-            .first()
-            .is_some_and(|v| matches!(v, XVal::Str(s) if s.eq_ignore_ascii_case("filename")))
-}
-
-pub(crate) fn call(
-    g: &mut Game<'_>,
-    receiver: Option<Value>,
-    args: &[XVal],
-) -> Result<XVal, String> {
-    let (trait_name, item) = match (receiver, args) {
-        (Some(value), [XVal::Str(name)]) => (
-            name,
-            value
-                .as_form()
-                .map(FormId)
-                .ok_or("invalid ySI item receiver")?,
-        ),
-        (None, [XVal::Str(name), XVal::Ref(item)]) if *item != 0 => (name, FormId(*item)),
-        _ => {
-            return Err(
-                "ySIGetTrait \"filename\" expects a trait and one explicit item or item receiver"
-                    .into(),
-            )
-        }
-    };
-    if !trait_name.eq_ignore_ascii_case("filename") {
-        return Err(
-            "ySIGetTrait filename mapper handles only the filename trait".into(),
-        );
-    }
-    let original = g.unclone(item);
-    let base = if g.world.forms.item(original).is_some() {
-        original
-    } else {
-        g.unclone(base_of(g, item).ok_or("unknown ySI inventory item")?)
-    };
-    if g.world.peek(item).is_some_and(|s| s.deleted())
-        || g.world.deleted_base(item).is_some()
-        || g.world.forms.item(base).is_none()
-    {
-        return Err("ySIGetTrait \"filename\" requires a live inventory item or item base".into());
-    }
-    let book = g
-        .ysi_filename
-        .book
-        .get_or_init(Book::load)
-        .as_ref()
-        .map_err(Clone::clone)?;
-    Ok(XVal::Str(book.filename(g, base)?))
-}
-
 /// Returns the session's cached `yUI.ini` (+ `menus\ySI\ySI.ini` overlay) configuration,
 /// loading it lazily once on first query (`None` when neither INI exists).
 pub(crate) fn yui_config(g: &Game<'_>) -> Option<crate::yui_ini::YuiConfig> {
@@ -103,7 +90,6 @@ pub(crate) fn yui_config(g: &Game<'_>) -> Option<crate::yui_ini::YuiConfig> {
 pub(crate) fn set_yui_config(g: &mut Game<'_>, cfg: Option<crate::yui_ini::YuiConfig>) {
     g.ysi_filename.yui_ini = OnceLock::from(cfg);
 }
-
 /// Resolves a form's certain JSON-configured ySI tag using the session's cached
 /// configuration snapshot (returns `None` when configuration is unavailable,
 /// unmatched, ambiguous, or blocked by an unsupported predicate).
@@ -128,6 +114,36 @@ pub(crate) fn json_icon_spec(g: &Game<'_>, tag: &str) -> Option<(String, Option<
 /// Whether a valid `menus/ySI/*.json` configuration book is loaded in this session.
 pub(crate) fn has_loaded_book(g: &Game<'_>) -> bool {
     g.ysi_filename.book.get_or_init(Book::load).is_ok()
+}
+
+/// Resolves all clickable Pip-Boy category/subfolder definitions and tag memberships from
+/// the session's cached `menus/ySI/*.json` book (`None` when no valid book or no categories
+/// are defined).
+pub(crate) fn json_categories(g: &Game<'_>) -> Option<YsiCategoryIndex> {
+    let book = g.ysi_filename.book.get_or_init(Book::load).as_ref().ok()?;
+    let index = book.build_categories(|raw| resolve_category_name(g, raw));
+    (!index.categories.is_empty()).then_some(index)
+}
+
+/// Expands game-string entities like `"&-sKeyring;"` on category names through
+/// `ui_loading::game_string`, falling back to clean built-in labels when a test or install
+/// omits the GMST [design].
+fn resolve_category_name(g: &Game<'_>, raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Some(inner) = trimmed.strip_prefix("&-").and_then(|s| s.strip_suffix(';')) {
+        let key = inner.trim();
+        let resolved = crate::ui_loading::game_string(g, key);
+        if !resolved.trim().is_empty() {
+            return resolved;
+        }
+        return match key.to_ascii_lowercase().as_str() {
+            "skeyring" => "Keyring".to_string(),
+            "snotestoggle" => "Notes".to_string(),
+            "scaravandecktext" => "Caravan Deck".to_string(),
+            _ => key.to_string(),
+        };
+    }
+    trimmed.to_string()
 }
 
 impl Book {
@@ -203,11 +219,6 @@ impl Book {
         Ok(book)
     }
 
-    fn filename(&self, g: &Game<'_>, item: FormId) -> Result<String, String> {
-        let tag = self.resolve_tag(g, item)?;
-        self.icon_filename(&tag)
-    }
-
     fn resolve_tag(&self, g: &Game<'_>, form: FormId) -> Result<String, String> {
         let mut best = None;
         let mut tags = BTreeSet::new();
@@ -247,10 +258,6 @@ impl Book {
             );
         }
         Ok((*tags.first().expect("one tag")).to_string())
-    }
-
-    fn icon_filename(&self, tag: &str) -> Result<String, String> {
-        self.icon_spec(tag).map(|(filename, _)| filename)
     }
 
     fn icon_spec(&self, tag: &str) -> Result<(String, Option<String>), String> {
@@ -296,6 +303,199 @@ impl Book {
         };
         Ok(((*filenames.first().expect("one filename")).to_string(), template))
     }
+
+    /// Builds the deterministic category/subfolder index from winning highest-priority
+    /// `"icons"` entries across all loaded `menus/ySI/*.json` files.
+    fn build_categories(&self, mut resolve_name: impl FnMut(&str) -> String) -> YsiCategoryIndex {
+        // Group winning (highest-priority) icon rules per tag.
+        let mut max_prio: BTreeMap<&str, i64> = BTreeMap::new();
+        for rule in &self.icons {
+            if rule.tag.is_empty() {
+                continue;
+            }
+            max_prio
+                .entry(rule.tag.as_str())
+                .and_modify(|p| *p = (*p).max(rule.priority))
+                .or_insert(rule.priority);
+        }
+
+        struct RawCategory {
+            tag: String,
+            name: String,
+            tab: Option<u8>,
+            parent_tag: Option<String>,
+            min_count: usize,
+            row_icon: Option<String>,
+            template: String,
+            preview_icon: Option<String>,
+        }
+
+        let mut raw_cats: BTreeMap<String, RawCategory> = BTreeMap::new();
+        let mut raw_membership: BTreeMap<String, String> = BTreeMap::new();
+
+        for rule in &self.icons {
+            if rule.tag.is_empty() || max_prio.get(rule.tag.as_str()) != Some(&rule.priority) {
+                continue;
+            }
+            let parent_tag = rule
+                .fields
+                .get("category")
+                .and_then(Json::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && *s != rule.tag.as_str())
+                .map(str::to_string);
+
+            let name_raw = rule
+                .fields
+                .get("name")
+                .and_then(Json::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+
+            let tab = rule
+                .fields
+                .get("tab")
+                .and_then(Json::as_i64)
+                .filter(|t| (0..=4).contains(t))
+                .map(|t| t as u8);
+
+            if let Some(raw_name) = name_raw {
+                if tab.is_some() || parent_tag.is_some() {
+                    let min_count = rule
+                        .fields
+                        .get("count")
+                        .and_then(Json::as_i64)
+                        .map_or(1, |c| c.max(1) as usize);
+                    let row_icon = rule
+                        .fields
+                        .get("filename")
+                        .and_then(Json::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                    let tpl_opt = rule
+                        .fields
+                        .get("template")
+                        .and_then(Json::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty());
+                    let template =
+                        crate::ui_ysi::row_template_or_default(tpl_opt, row_icon.is_some());
+                    let preview_icon = rule
+                        .fields
+                        .get("icon")
+                        .and_then(Json::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                    let resolved = resolve_name(raw_name);
+                    if !resolved.is_empty() {
+                        raw_cats.insert(
+                            rule.tag.clone(),
+                            RawCategory {
+                                tag: rule.tag.clone(),
+                                name: resolved,
+                                tab,
+                                parent_tag: parent_tag.clone(),
+                                min_count,
+                                row_icon,
+                                template,
+                                preview_icon,
+                            },
+                        );
+                    }
+                }
+            } else if let Some(parent) = parent_tag {
+                raw_membership.insert(rule.tag.clone(), parent);
+            }
+        }
+
+        // Resolve effective tab for each category (own tab or inherited from parent chain
+        // with cycle protection) and keep only well-formed categories.
+        let mut resolved_tabs: BTreeMap<String, u8> = BTreeMap::new();
+        for (tag, cat) in &raw_cats {
+            let mut cur_tag = tag.as_str();
+            let mut seen = BTreeSet::new();
+            let mut found_tab = cat.tab;
+            let mut cycle = false;
+            seen.insert(cur_tag);
+            while found_tab.is_none() && seen.len() <= MAX_CATEGORY_DEPTH {
+                let Some(next) = raw_cats.get(cur_tag).and_then(|c| c.parent_tag.as_deref()) else {
+                    break;
+                };
+                if !seen.insert(next) {
+                    cycle = true;
+                    break;
+                }
+                let Some(parent_cat) = raw_cats.get(next) else {
+                    break;
+                };
+                found_tab = parent_cat.tab;
+                cur_tag = next;
+            }
+            // Also verify explicit-tab child categories do not form a parent cycle.
+            if !cycle {
+                let mut walk = cat.parent_tag.as_deref();
+                let mut check_seen = BTreeSet::new();
+                check_seen.insert(tag.as_str());
+                while let Some(next) = walk {
+                    if !check_seen.insert(next) || check_seen.len() > MAX_CATEGORY_DEPTH {
+                        cycle = true;
+                        break;
+                    }
+                    walk = raw_cats.get(next).and_then(|c| c.parent_tag.as_deref());
+                }
+            }
+            if !cycle {
+                if let Some(t) = found_tab {
+                    resolved_tabs.insert(tag.clone(), t);
+                }
+            }
+        }
+
+        let mut ordered: Vec<(u8, String)> = resolved_tabs
+            .iter()
+            .map(|(tag, &tab)| (tab, tag.clone()))
+            .collect();
+        ordered.sort();
+
+        let tag_to_idx: BTreeMap<String, u32> = ordered
+            .iter()
+            .enumerate()
+            .map(|(i, (_, tag))| (tag.clone(), i as u32))
+            .collect();
+
+        let mut categories = Vec::with_capacity(ordered.len());
+        for (tab, tag) in &ordered {
+            let cat = &raw_cats[tag];
+            let parent = cat
+                .parent_tag
+                .as_deref()
+                .and_then(|p| tag_to_idx.get(p).copied());
+            categories.push(YsiCategoryDef {
+                tag: cat.tag.clone(),
+                name: cat.name.clone(),
+                tab: *tab,
+                parent,
+                min_count: cat.min_count,
+                row_icon: cat.row_icon.clone(),
+                template: cat.template.clone(),
+                preview_icon: cat.preview_icon.clone(),
+            });
+        }
+
+        let mut tag_to_category = BTreeMap::new();
+        for (item_tag, cat_tag) in raw_membership {
+            if let Some(&idx) = tag_to_idx.get(&cat_tag) {
+                tag_to_category.insert(item_tag, idx);
+            }
+        }
+
+        YsiCategoryIndex {
+            categories,
+            tag_to_category,
+        }
+    }
 }
 
 impl Rule {
@@ -304,19 +504,24 @@ impl Rule {
         let formlist_mode = match self.fields.get("formlist") {
             None => Some(0i64),
             Some(v) => match v.as_i64() {
-                Some(n @ (0 | 1)) => Some(n),
+                Some(n @ 0..=2) => Some(n),
                 _ => None,
             },
         };
         if formlist_mode.is_none() {
             answer = Match::Unknown;
         }
+        // [hypothesis] When paired with an explicit `form` selector (`formlist: 0`),
+        // yUI v1.4d ignores non-applicable record-type predicates on mismatched record
+        // types instead of disqualifying as `Match::No`.
+        let explicit_form = self.fields.contains_key("form") && formlist_mode == Some(0);
         for (name, value) in &self.fields {
             let part = match name.as_str() {
                 "tag" | "priority" | "mod" | "formlist" => continue,
                 "form" => match formlist_mode {
                     Some(0) => self.explicit_form(g, item, value),
                     Some(1) => self.formlist_member(g, item, value),
+                    Some(2) => crate::ysi_predicates::formlist_mode2(g, item, &self.fields, value),
                     _ => Match::Unknown,
                 },
                 "formType" => match g.data.sig(item).and_then(|s| form_type_code(&s)) {
@@ -340,38 +545,38 @@ impl Rule {
                 //
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.skill;
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): scalar integer only, arrays abort JSON]
-                "weaponSkill" => weapon_scalar_int_field(g, item, "DNAM", "skill", value),
+                "weaponSkill" => weapon_scalar_int_field(g, item, "DNAM", "skill", value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.animation_type;
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): scalar and array]
-                "weaponType" => weapon_int_field(g, item, "DNAM", "animation_type", value),
+                "weaponType" => weapon_int_field(g, item, "DNAM", "animation_type", value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.flags1 bit 1 ("Is Automatic");
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d)]
-                "weaponIsAutomatic" => weapon_flag1(g, item, 1 << 1, value),
+                "weaponIsAutomatic" => weapon_flag1(g, item, 1 << 1, value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.flags1 bit 2 ("Has Scope");
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): 1=true, 0=false, -1 does not match false]
-                "weaponHasScope" => weapon_flag1(g, item, 1 << 2, value),
+                "weaponHasScope" => weapon_flag1(g, item, 1 << 2, value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json WEAP.DNAM.flags1 bit 0 ("Ignores Normal Weapon Resistance");
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d)]
-                "weaponIgnoresDTDR" => weapon_flag1(g, item, 1 << 0, value),
+                "weaponIgnoresDTDR" => weapon_flag1(g, item, 1 << 0, value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json ALCH.ENIT.flags bit 1 (0x02, "Food Item");
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): 1=true, -1 does not match false]
-                "aidIsFood" => aid_flag(g, item, crate::data::IngestibleDef::FOOD, value),
+                "aidIsFood" => aid_flag(g, item, crate::data::IngestibleDef::FOOD, value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json ALCH.ENIT.flags bit 2 (0x04, "Medicine");
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d)]
-                "aidIsMedicine" => aid_flag(g, item, crate::data::IngestibleDef::MEDICINE, value),
+                "aidIsMedicine" => aid_flag(g, item, crate::data::IngestibleDef::MEDICINE, value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json ALCH.ENIT.withdrawal_effect; hypothesis: non-null withdrawal form]
-                "aidIsAddictive" => aid_addictive(g, item, value),
+                "aidIsAddictive" => aid_addictive(g, item, value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; GECK wiki GetArmorClass (1 Light, 2 Medium, 3 Heavy);
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d)]
-                "armorClass" => armor_class_match(g, item, value),
+                "armorClass" => armor_class_match(g, item, value, explicit_form),
                 // [documented: Sorting Icons 1.4b menus/ySI/ySI.json; schemas/fnv/objects.json ARMO.BMDT.general_flags bit 5 / GECK wiki IsPowerArmor;
                 //  observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d): 1=true, -1 does not match false]
-                "armorPower" => armor_power_match(g, item, value),
+                "armorPower" => armor_power_match(g, item, value, explicit_form),
                 // 11 ARMO biped-slot keys, each individually cited in `armor_biped_bit`.
                 slot if armor_biped_bit(slot).is_some() => {
-                    armor_biped_match(g, item, armor_biped_bit(slot).expect("checked"), value)
+                    armor_biped_match(g, item, armor_biped_bit(slot).expect("checked"), value, explicit_form)
                 }
-                _ => crate::ysi_predicates::eval(g, item, &self.fields, name, value),
+                _ => crate::ysi_predicates::eval(g, item, &self.fields, name, value, explicit_form),
             };
             if part == Match::No {
                 return Match::No;
@@ -497,14 +702,17 @@ pub(crate) fn number_set(value: &Json, number: i64) -> Match {
     }
 }
 
-/// Match a boolean ySI predicate: `1` = required true, `0` = required false
-/// [observed: FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d) on `weaponHasScope`], and
-/// `-1` = required false only when `allow_neg_one` is true (armor biped-slot rules
-/// [documented: Sorting Icons 1.4b menus/ySI/ySI.json uses `1` and `-1` on armor slot
-/// rules such as `"armorHat": 1, "armorMask": -1`]; on non-slot flags `-1` was observed
-/// not to match false in `yUI 1.4d` and stays `Match::Unknown`). Any other JSON value
-/// remains `Match::Unknown`.
+/// Match a boolean ySI predicate: `1` = required true, `0` = required false [observed:
+/// FNV 1.4.0.525 + xNVSE 6.4.9 + yUI 140 (v1.4d) on `weaponHasScope`], JSON `true`/`false`
+/// [hypothesis], and `-1` = required false only when `allow_neg_one` is true (armor
+/// biped-slot rules [documented: Sorting Icons 1.4b menus/ySI/ySI.json uses `1` and `-1`
+/// on armor slot rules such as `"armorHat": 1, "armorMask": -1`]; on non-slot flags `-1`
+/// was observed not to match false in `yUI 1.4d` and stays `Match::Unknown`). Any other
+/// JSON value remains `Match::Unknown`.
 pub(crate) fn bool_pred(value: &Json, actual: bool, allow_neg_one: bool) -> Match {
+    if let Some(b) = value.as_bool() {
+        return if actual == b { Match::Yes } else { Match::No };
+    }
     match value.as_i64() {
         Some(1) => if actual { Match::Yes } else { Match::No },
         Some(0) => if !actual { Match::Yes } else { Match::No },
@@ -513,9 +721,17 @@ pub(crate) fn bool_pred(value: &Json, actual: bool, allow_neg_one: bool) -> Matc
     }
 }
 
-fn weapon_scalar_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, value: &Json) -> Match {
+fn mismatched_type(explicit_form: bool) -> Match {
+    if explicit_form {
+        Match::Yes
+    } else {
+        Match::No
+    }
+}
+
+fn weapon_scalar_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, value: &Json, explicit_form: bool) -> Match {
     if g.data.sig(item) != Some(*b"WEAP") {
-        return Match::No;
+        return mismatched_type(explicit_form);
     }
     let Some(expected) = value.as_i64() else {
         return Match::Unknown;
@@ -532,9 +748,9 @@ fn weapon_scalar_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, va
     }
 }
 
-fn weapon_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, value: &Json) -> Match {
+fn weapon_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, value: &Json, explicit_form: bool) -> Match {
     if g.data.sig(item) != Some(*b"WEAP") {
-        return Match::No;
+        return mismatched_type(explicit_form);
     }
     match crate::nvse::record_value(g, item, sub, path) {
         Some(XVal::Num(n)) if n.is_finite() => number_set(value, n.trunc() as i64),
@@ -542,16 +758,19 @@ fn weapon_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, value: &J
     }
 }
 
-fn weapon_flag1(g: &Game<'_>, item: FormId, bit: u8, value: &Json) -> Match {
+fn weapon_flag1(g: &Game<'_>, item: FormId, bit: u8, value: &Json, explicit_form: bool) -> Match {
+    if g.data.sig(item) != Some(*b"WEAP") {
+        return mismatched_type(explicit_form);
+    }
     let Some(flags) = g.weapon_flags1(item) else {
         return Match::No;
     };
     bool_pred(value, flags & bit != 0, false)
 }
 
-fn aid_flag(g: &Game<'_>, item: FormId, bit: u8, value: &Json) -> Match {
+fn aid_flag(g: &Game<'_>, item: FormId, bit: u8, value: &Json, explicit_form: bool) -> Match {
     if g.data.sig(item) != Some(*b"ALCH") {
-        return Match::No;
+        return mismatched_type(explicit_form);
     }
     let Some(def) = g.ingestible_def(item) else {
         return Match::Unknown;
@@ -559,9 +778,9 @@ fn aid_flag(g: &Game<'_>, item: FormId, bit: u8, value: &Json) -> Match {
     bool_pred(value, def.flags & bit != 0, false)
 }
 
-fn aid_addictive(g: &Game<'_>, item: FormId, value: &Json) -> Match {
+fn aid_addictive(g: &Game<'_>, item: FormId, value: &Json, explicit_form: bool) -> Match {
     if g.data.sig(item) != Some(*b"ALCH") {
-        return Match::No;
+        return mismatched_type(explicit_form);
     }
     let Some(def) = g.ingestible_def(item) else {
         return Match::Unknown;
@@ -569,16 +788,16 @@ fn aid_addictive(g: &Game<'_>, item: FormId, value: &Json) -> Match {
     bool_pred(value, def.withdrawal.is_some(), false)
 }
 
-fn armor_class_match(g: &Game<'_>, item: FormId, value: &Json) -> Match {
+fn armor_class_match(g: &Game<'_>, item: FormId, value: &Json, explicit_form: bool) -> Match {
     if g.data.sig(item) != Some(*b"ARMO") {
-        return Match::No;
+        return mismatched_type(explicit_form);
     }
     number_set(value, i64::from(g.armor_class(item)))
 }
 
-fn armor_power_match(g: &Game<'_>, item: FormId, value: &Json) -> Match {
+fn armor_power_match(g: &Game<'_>, item: FormId, value: &Json, explicit_form: bool) -> Match {
     if g.data.sig(item) != Some(*b"ARMO") {
-        return Match::No;
+        return mismatched_type(explicit_form);
     }
     let is_power = g
         .other
@@ -621,9 +840,9 @@ fn armor_biped_bit(name: &str) -> Option<u32> {
     })
 }
 
-fn armor_biped_match(g: &Game<'_>, item: FormId, bit: u32, value: &Json) -> Match {
+fn armor_biped_match(g: &Game<'_>, item: FormId, bit: u32, value: &Json, explicit_form: bool) -> Match {
     if g.data.sig(item) != Some(*b"ARMO") {
-        return Match::No;
+        return mismatched_type(explicit_form);
     }
     let mask = match crate::nvse::record_value(g, item, "BMDT", "biped_flags") {
         Some(XVal::Num(n)) if n.is_finite() => n.trunc() as i64 as u64,
@@ -709,6 +928,10 @@ fn commented_json(text: &str) -> Result<String, String> {
 }
 
 #[cfg(test)]
+#[path = "ysi_categories_tests.rs"]
+mod ysi_categories_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -746,6 +969,10 @@ mod tests {
     fn bool_pred_and_biped_bits_handle_documented_values_and_reject_unknowns() {
         assert_eq!(bool_pred(&Json::from(1), true, true), Match::Yes);
         assert_eq!(bool_pred(&Json::from(1), false, true), Match::No);
+        assert_eq!(bool_pred(&Json::from(true), true, false), Match::Yes);
+        assert_eq!(bool_pred(&Json::from(true), false, false), Match::No);
+        assert_eq!(bool_pred(&Json::from(false), false, false), Match::Yes);
+        assert_eq!(bool_pred(&Json::from(false), true, false), Match::No);
         assert_eq!(bool_pred(&Json::from(0), false, true), Match::Yes);
         assert_eq!(bool_pred(&Json::from(-1), false, true), Match::Yes);
         assert_eq!(bool_pred(&Json::from(-1), true, true), Match::No);

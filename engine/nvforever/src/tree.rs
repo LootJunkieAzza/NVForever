@@ -628,7 +628,9 @@ pub fn spawn(commands: &mut Commands, parent: Entity, v: &TreeVisual, rt: Mat4, 
             // Leaf cards cast shadows (onto the ground and other objects) but receive
             // none: in the shadow pass they face the light, in the main pass the camera,
             // so a tree's own cards blacken its lower half in hard, mismatched blocks
-            // [observed]. The crown darkens by the CNAM dimming instead (vertex colours).
+            // [observed]. The crown darkens by the CNAM dimming instead (vertex colours),
+            // and the sun's shadow from other objects is taken outside the crown
+            // (`NVF_CROWN_SHADOW`, tree.wesl).
             PartMaterial::Leaves(m) => {
                 let mut leaves = commands.entity(parent);
                 match &p.leaf_orders {

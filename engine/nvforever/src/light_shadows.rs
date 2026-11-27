@@ -1665,6 +1665,11 @@ fn shadow_lights(
             if !vis.is_changed() && !moved_enough {
                 continue;
             }
+            // A hidden shape that stays hidden is in no shadow map: its moves mark nothing
+            // (it marks where it is when it is shown again, as a change of visibility).
+            if !vis.get() && !vis.is_changed() {
+                continue;
+            }
             let sphere = Sphere { center: centre.into(), radius: Vec3::from(aabb.half_extents).length() * max_scale(t) };
             // Where it last marked, for the cut-off (a shape shown, hidden or new: none).
             let old = (!vis.is_changed()).then(|| last.map(|(c, _, _)| Sphere { center: c.into(), radius: sphere.radius })).flatten();
