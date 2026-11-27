@@ -3833,6 +3833,11 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
     and the height (wavelengths 6,000 / 3,700 / 5,300 / 3,300 units). Each component is at most `A`, the
     gradient's norm at most `A x 2.035e-3` (tested), and the read's width is stretched by it. After Bauer
     2019, slides 17-18 (the detail's lookup displaced) [documented]; the field is ours.
+  - *Overcast undersides* [design]: near the base of a mixed deck, a second read of the base texture
+    at three times its frequency breaks the broad scallops into smaller folds. The existing front and
+    base noise bend those folds. Dry pockets rise farther into the bank, while nearby wetter patches
+    reach the lower base. This relief drifts with the bank and fades upward. The view and sunlight
+    sample the same density field and filter these folds at their respective footprints.
   - *Extinction and water*: the types' extinction per unit times `DENSITY`: 400 units of whole cumulus are
     one optical depth at `DENSITY` 1. Water varies inside a fair bank at the scale of a group of lobes and
     mottles its lower face (one base read of the column, two more there); a storm's columns carry between
@@ -4213,10 +4218,11 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
   - Once it has been on in the run: the noise's finished bytes (2.43 MiB), the pipelines asked for (kept,
     and used again by the next activation: the pipeline cache tells no second request from a new one) and
     what is known of the cloud textures read then. Textures, buffers and bind groups go.
-- **The flat layers** move to a render layer of their own while the volume draws, which the water's
-  mirror, the scope's lens and the extra cameras (extra_camera.rs) see and the main camera does not, so
-  those keep the weather's clouds (the minimap's camera looks straight down, under the clouds' dome); they
-  give way only once the proxy's own pipeline is ready (no moment without clouds).
+- **Reflected clouds** [design]. An active water mirror traces the same cloud field from its reflected
+  eye into a small image. The sky dome composites it behind the reflected landscape and the water
+  material samples that image of the scene through its usual ripples. Looking down can reflect clouds
+  above the main camera's field of view. The mirror keeps the weather's flat layers until its own
+  trace and dome material are ready. The scope and extra cameras still see the flat layers.
 - **Switching**: the row, `--graphics-only volumetric-clouds`, `NVF_PLAY_TEST_SETTINGS=<t>:
   volumetric-clouds=<choice>`. Log lines (`volumetric clouds: ...`):
   - `noise generated: base 128x128x128 R8 with 8 levels, erosion 32x32x32 RGBA8 with 6 levels, ...` once a

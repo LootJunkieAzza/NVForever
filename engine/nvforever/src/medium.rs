@@ -61,6 +61,8 @@
 //! Off: no image, no uniform buffer, no pipeline asked for, the render systems behind a closed
 //! gate ([`MediumGate`]), nothing logged.
 
+mod reflection;
+
 use crate::fly::FlyCam;
 use crate::upscaler::prep::{UpscaleCamera, UpscaleSettings};
 use crate::volumetric_clouds::{needs_write, refined_rays_capped, variant_suffix, view_variant, CloudLevel, CloudVolumeUniform, RAY_BUDGET, VIEWS_DEF};
@@ -1217,7 +1219,7 @@ pub struct MediumTraceUniform {
     pub grid: Vec4,
     /// The default mode's cast pattern: x the phase (the cycle of [`corner`], advanced on each
     /// whole reconstruction), y the start offsets ([`RayOffsets::code`]), z the tile side (1, 2 or
-    /// 3, [`TILE_SIDE`]), w unused; all 0 in the reference mode.
+    /// 3, [`TILE_SIDE`]); w is the height of the water plane above a mirror eye, zero for the main view.
     pub tiles: Vec4,
 }
 
@@ -1340,6 +1342,7 @@ impl Plugin for MediumPlugin {
         #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
         app.add_systems(Update, turn_aid.run_if(|| TURN.is_some()));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        reflection::install(render_app);
         let (a, b, c, d) = (gate.clone(), gate.clone(), gate.clone(), gate.clone());
         render_app
             .insert_resource(link)
@@ -3063,7 +3066,11 @@ mod tests {
         }
         // The trace hands it to the source in both entries; prepare_medium writes it.
         let trace = include_str!("medium_trace.wesl").replace("\r\n", "\n");
-        assert_eq!(trace.matches(", 0.0, medium.grid.w, medium.origin.w);").count(), 2, "both entries pass origin.w as the spread");
+        for entry in ["medium_trace_refined", "medium_trace_tiles_refined"] {
+            let body = trace.split_once(&format!("fn {entry}(")).unwrap().1.split("\n}").next().unwrap();
+            let ray = body.lines().find(|line| line.contains("let ray = MediumRay(")).unwrap();
+            assert!(ray.ends_with(", medium.grid.w, medium.origin.w);"), "{entry} must pass origin.w as the spread");
+        }
         // The prepared uniform carries it (the value, not the source's text).
         let size = buffer_size(render, MediumMode::Default, 3);
         let prepared = prepared_trace_uniform(Mat4::IDENTITY, proj, size, 9, MediumMode::Default, 2);

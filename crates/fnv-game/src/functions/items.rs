@@ -251,6 +251,16 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
 pub fn get_equipped(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let wanted = items(g, a.form(0)?);
+    // A co-op guest's shot, run as the player's: the weapon it was fired with
+    // is what the player has equipped as far as weapons go.
+    if let Some(w) = g.shot_for_player.filter(|_| actor == FormId::PLAYER_REF) {
+        if wanted.contains(&w) {
+            return yes(true);
+        }
+        if wanted.iter().all(|&i| g.world.forms.item(i).is_some_and(|f| f.kind == fnv_sim::forms::ItemKind::Weapon)) {
+            return yes(false);
+        }
+    }
     let s = g.world.get(actor).map_err(|e| e.to_string())?;
     yes(s.inventory.as_ref().is_some_and(|i| wanted.iter().any(|&w| i.is_equipped(w))))
 }

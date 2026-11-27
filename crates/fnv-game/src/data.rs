@@ -2564,9 +2564,27 @@ impl GameData {
     }
 
     /// Whether `form` is overridden by at least one plugin after its defining plugin in
-    /// the load order (`IsFormOverridden`).
+    /// the load order.
     pub fn is_form_overridden(&self, form: FormId) -> bool {
         self.form_overrides.get(&form).is_some_and(|v| v.len() > 1)
+    }
+
+    /// Whether `form` is overridden by a plugin loaded after `caller_plugin`
+    /// (`IsFormOverridden` [documented: GECK wiki `IsFormOverridden`, "overridden by a
+    /// plugin lower in the load order than the calling script"]).
+    ///
+    /// Returns `false` when `caller_plugin` is empty or not in `load_order` (runtime
+    /// scripts such as console, `CompileScript`, or Script Runner have no later plugin in
+    /// the load order [observed: `jg_01_form_override_index_edge`, `GetFormOverrideIndex`
+    /// `5` with `IsFormOverridden` `0`]).
+    pub fn is_form_overridden_after(&self, form: FormId, caller_plugin: &str) -> bool {
+        if caller_plugin.is_empty() {
+            return false;
+        }
+        let Some(caller_idx) = self.load_order.iter().position(|l| l.eq_ignore_ascii_case(caller_plugin)) else {
+            return false;
+        };
+        self.form_overrides.get(&form).is_some_and(|v| v.len() > 1 && v.last().copied().is_some_and(|win| usize::from(win) > caller_idx))
     }
 
     /// The load-order index of the winning (last) plugin that defines or overrides

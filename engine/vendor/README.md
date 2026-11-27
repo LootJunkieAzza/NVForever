@@ -44,6 +44,17 @@ event, which does the same. A second controller's input arriving before its `Con
 error) panicked the game: crash signature `panic-f2bce0a1986452c8`, "index out of bounds:
 the len is 1 but the index is 1" at `gamepad.rs:474`. 0.11.2 is still the latest release.
 
+Second change, in `SDL_GameControllerDB/gamecontrollerdb.txt` (`# Windows`) and
+`src/mapping/mod.rs` (unit test `gamesir_hid_3537_100e_windows_mapping`): adds Windows
+USB (`03000000373500000e10000000000000`) and Bluetooth (`05000000373500000e10000000000000`)
+mappings for the GameSir HID controller (`VID 0x3537`, `PID 0x100E`), matching the
+sibling `VID 0x3537` Windows HID entries already bundled in `gamecontrollerdb.txt`
+(`GameSir G7 Pro` `2210`, `GameSir Tegenaria Lite` `9410`, `Anbernic RG P01` `0710`/`4610`).
+Without an entry, Windows Gaming Input's `RawGameController` fallback uses `Mapping::default`,
+where `b4` (`Y`) maps to `Button::LeftTrigger` (`LB`), `b0`/`b3`/`b8` shift (`A -> X`,
+`X -> Y`, `LT -> Back`), and idle trigger axis `a5` at `-1.0` maps to `Axis::RightStickY`,
+aiming the camera continuously upward.
+
 The crate ships no licence files of its own; its `Cargo.toml` names Apache-2.0/MIT. The
 bundled `SDL_GameControllerDB` keeps its LICENSE. `Cargo.lock` and `Cargo.toml.orig` from
 the archive are left out.
@@ -601,13 +612,15 @@ As for the sun visibility, a meshlet view must not get the component.
 
 Another change (the bounce light's volume, #3009, docs/design/rtgi-volume.md), each part marked
 `NVForever RTGI volume`, for nvforever's `rtgi_volume.rs`, built the same way. nvforever inserts
-the component nowhere yet:
+the component only where something asks for a volume, which a developer aid alone does:
 
 - `src/render/mesh_view_bindings.rs`: the render-world view component `NvfRtgiVolumeBindings`
   (a uniform buffer, a filterable float 3D texture and a filtering sampler), the layout key bit
   `MeshPipelineViewLayoutKey::NVF_RTGI_VOLUME` (20) and bindings 47-49 of the mesh view bind
   group, present only for a view with it. The entries are made by the public
-  `nvf_rtgi_layout_entries`, which the tests read.
+  `nvf_rtgi_layout_entries`, which the tests read. Two counters, `NVF_VIEW_BIND_GROUPS` and
+  `NVF_RTGI_VIEW_BIND_GROUPS`, say how many mesh view bind groups `prepare_mesh_view_bind_groups`
+  made and how many of them with those bindings.
 - `src/render/mesh.rs`: `MeshPipelineKey::NVF_RTGI_VOLUME` (bit 30; the packed fields above it
   move up by one more and end at bit 51, still below the base mesh key's bits from 58), set by
   `check_views_need_specialization` from the same component. No shader def follows from it:
