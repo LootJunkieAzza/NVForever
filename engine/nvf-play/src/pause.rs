@@ -6477,7 +6477,7 @@ mod tests {
             ("Light glow (HDR)", "Light Glow (HDR)"),
             ("V.A.T.S. time slowdown", "V.A.T.S. Time Slowdown"),
             ("Use Pip-Boy", "Use Pip-Boy"),
-            ("ALC shadows", "ALC Shadows"),
+            ("ALCS (experimental)", "ALCS (Experimental)"),
             ("Close In on the Speaker", "Close In on the Speaker"),
             ("Sky follows the game clock", "Sky Follows the Game Clock"),
             ("Aim lock-on", "Aim Lock-On"),

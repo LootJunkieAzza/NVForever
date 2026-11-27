@@ -42,6 +42,16 @@
 //!   the encoder or the disk. No picture within [`SHOT_WAIT_FRAMES`] frames: the save is
 //!   written without one. A load or quit waits for the saves in flight ([`SaveWrites`]).
 //!
+//! - **A co-op guest's own game**: a guest joining another player's world
+//!   keeps its own game as it was then ([`KeepSolo`] asks, [`keep_solo`] takes it into
+//!   [`SoloBase`] before the guest is moved). Each save made while it is kept writes that
+//!   game with the character as it is now (`GameSnapshot::with_character_of`): the place,
+//!   the world, quests and time are the guest's own, the inventory, values, level, XP and
+//!   perks are what it has now. So a guest loads back into its own game where it left it,
+//!   with what it gained in the other world. The engine's part is its own game's too,
+//!   apart from the view, sneak, run, flashlight and the magazine in hand. Outside co-op
+//!   nothing asks for it, and saves are written as before [design].
+//!
 //! The random numbers are not restored as saved: a load re-seeds them, so a reload does
 //! not replay the same rolls (design §5 q3); test aid `NVF_PLAY_TEST_SAVE_SAME_ROLLS=1`
 //! keeps the saved positions.
@@ -273,6 +283,24 @@ pub struct OrderChange {
     pub missing: Vec<String>,
 }
 
+/// Co-op: keep this game as it is now, as the guest's own ([`keep_solo`]),
+/// once it runs; coop.rs asks for it as a guest joins another's world.
+#[derive(Resource, Default)]
+pub struct KeepSolo;
+
+/// A co-op guest's own game as it was when it joined another's world (module notes);
+/// `None` when it could not be taken (the scripts do not run). While it is here, saves
+/// write it with the character as it is now.
+#[derive(Resource)]
+pub struct SoloBase(pub Option<Box<Solo>>);
+
+pub struct Solo {
+    pub game: fnv_game::game::GameSnapshot,
+    pub engine: EngineSnapshot,
+    /// The header's place, location and game date then.
+    pub header: SaveHeader,
+}
+
 /// The engine part waiting for the runtime to be restored.
 #[derive(Resource)]
 pub struct PendingEngine(pub EngineSnapshot, pub PathBuf, pub Option<OrderChange>);
@@ -429,7 +457,7 @@ impl Plugin for SavePlugin {
             .add_message::<LoadRequest>()
             .add_message::<LoadRefused>()
             .add_systems(Update, (requests, autosaves).in_set(PlaySet::Ui))
-            .add_systems(Update, (death_recovery::update, write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
+            .add_systems(Update, (death_recovery::update, write_saves, take_shot, finish_writes, apply_engine, keep_solo).chain().after(PlaySet::Sync))
             .add_systems(Last, flush_on_exit);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
@@ -678,7 +706,20 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         game.format = "fnv.game.state/2".into();
     }
     let engine = engine_snapshot(world);
-    let header = header(world, r.kind, &game, &engine);
+    let mut header = header(world, r.kind, &game, &engine);
+    // A co-op guest's save: its own game, with the character as it is now.
+    let (game, engine) = match world.get_resource::<SoloBase>().and_then(|s| s.0.as_deref()) {
+        Some(solo) => {
+            let mut e = solo.engine.clone();
+            (e.third_person, e.distance, e.sneak, e.always_run, e.flashlight, e.magazine) = (engine.third_person, engine.distance, engine.sneak, engine.always_run, engine.flashlight, engine.magazine);
+            let h = &solo.header;
+            (header.place, header.location, header.weather) = (h.place.clone(), h.location.clone(), h.weather.clone());
+            (header.game_year, header.game_month, header.game_day, header.game_hour) = (h.game_year, h.game_month, h.game_day, h.game_hour);
+            info!("save: a co-op guest's save: its own game at {} with the character as it is now", h.location);
+            (solo.game.clone().with_character_of(&game), e)
+        }
+        None => (game, engine),
+    };
     let refs = game.sim.refs.len();
     let body = SaveBody { format: BODY_FORMAT.into(), game, engine };
     let bytes = serde_json::to_vec(&body).map_err(|e| e.to_string())?;
@@ -1233,6 +1274,32 @@ fn header(world: &World, kind: SaveKind, game: &fnv_game::game::GameSnapshot, en
         .collect();
     h.weather = engine.extra.get("sky").and_then(|v| v.get("weather")).and_then(|w| w.as_str()).map(str::to_string);
     h
+}
+
+/// Take this game as the co-op guest's own ([`KeepSolo`], module notes) once it runs and a
+/// save it loaded is back, before anything moves the player.
+fn keep_solo(world: &mut World) {
+    if !world.contains_resource::<KeepSolo>() || world.contains_resource::<SoloBase>() || world.contains_resource::<PendingEngine>() {
+        return;
+    }
+    let Some(st) = world.get_resource::<ScriptState>() else { return };
+    if st.off.is_some() {
+        world.insert_resource(SoloBase(None));
+        return;
+    }
+    if st.rt.is_none() || st.pending_game_waiting() || world.resource::<crate::loading::Loading>().active() {
+        return;
+    }
+    let game = world.resource_scope(|world, mut sim: Mut<SimState>| {
+        let mut st = world.resource_mut::<ScriptState>();
+        let rt = st.rt.as_mut()?;
+        Some(crate::script::with_world(rt, &mut sim, |rt| rt.game.snapshot()))
+    });
+    let Some(game) = game else { return };
+    let engine = engine_snapshot(world);
+    let header = header(world, SaveKind::Auto, &game, &engine);
+    info!("save: this game kept as the co-op guest's own: {} at {:?}; its saves come back here", header.location, header.place.feet);
+    world.insert_resource(SoloBase(Some(Box::new(Solo { game, engine, header }))));
 }
 
 /// Put back the engine's part once the runtime holds the restored game.

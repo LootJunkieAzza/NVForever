@@ -270,6 +270,9 @@ pub struct Graphics {
     /// Twinkling stars, a moon glow and moonlit clouds (night_sky.rs; off in every preset)
     /// [design, #2995].
     pub night_sky_detail: bool,
+    /// Physical PBR lighting (graphics-enhanced.md §3.25; off in both presets, fixed at the
+    /// start: nvf_assets `authored::set_physical_pbr`) [design, #3827].
+    pub physical_pbr: bool,
     /// The sun's light in the air (medium_air_demand.rs; a prototype, off in every preset)
     /// [design, #3032 stage 3].
     pub volumetric_light: bool,
@@ -284,7 +287,7 @@ pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
 /// shadow-filter, full-detail, distant-object and cloud-level choices that are not vanilla's, in the
 /// order of [`Graphics::describe`].
-pub const KEYS: [&str; 32] = [
+pub const KEYS: [&str; 33] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -316,6 +319,7 @@ pub const KEYS: [&str; 32] = [
     "volumetric-light",
     "aerial-perspective",
     "night-sky-detail",
+    "physical-pbr",
     "distant-lights",
 ];
 
@@ -397,6 +401,7 @@ impl Graphics {
             aerial_perspective: false,
             // Off in every preset: an addition of our own [design, #2995].
             night_sky_detail: false,
+            physical_pbr: false,
             // Off in every preset: a prototype of our own [design, #3032 stage 3].
             volumetric_light: false,
         }
@@ -428,6 +433,7 @@ impl Graphics {
             "volumetric-clouds" => &mut self.volumetric_clouds,
             "aerial-perspective" => &mut self.aerial_perspective,
             "night-sky-detail" => &mut self.night_sky_detail,
+            "physical-pbr" => &mut self.physical_pbr,
             AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
             AUTHORED_REFLECTIONS_KEY => &mut self.authored_reflections,
             "distant-lights" => &mut self.distant_lights,
@@ -513,6 +519,7 @@ impl Graphics {
             (self.volumetric_light, "volumetric light"),
             (self.aerial_perspective, "aerial perspective"),
             (self.night_sky_detail, "night sky detail"),
+            (self.physical_pbr, "physical PBR lighting"),
             (self.distant_lights, "distant lights"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
@@ -752,6 +759,27 @@ impl Plugin for GraphicsPlugin {
             // What the player's fixed steps cost, counted while this resource exists and
             // logged with the frame time (`nvf_play::phys_load`).
             app.init_resource::<nvf_play::phys_load::PhysLoad>();
+            // What the GPU API holds, logged with the frame time: every command buffer costs
+            // by how many buffers, textures and bind groups exist, so a count that only grows
+            // over a session slows every frame (the playtest of 2026-11-24: a session an hour
+            // long ran at two thirds of a fresh one's frame rate in the same room).
+            let every = ft.every;
+            if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
+                render_app.add_systems(bevy::render::Render, (move |instance: Res<bevy::render::renderer::RenderInstance>, mut last: Local<Option<std::time::Instant>>| {
+                    let now = std::time::Instant::now();
+                    if last.is_some_and(|l| now.duration_since(l).as_secs_f32() < every) {
+                        return;
+                    }
+                    *last = Some(now);
+                    if let Some(report) = instance.generate_report() {
+                        let h = report.hub_report();
+                        info!(
+                            "gpu resources: {} buffers, {} textures, {} texture views, {} bind groups, {} bind group layouts, {} samplers, {} render pipelines, {} compute pipelines, {} shader modules, {} command buffers",
+                            h.buffers.num_allocated, h.textures.num_allocated, h.texture_views.num_allocated, h.bind_groups.num_allocated, h.bind_group_layouts.num_allocated, h.samplers.num_allocated, h.render_pipelines.num_allocated, h.compute_pipelines.num_allocated, h.shader_modules.num_allocated, h.command_buffers.num_allocated
+                        );
+                    }
+                }).in_set(bevy::render::RenderSystems::Cleanup));
+            }
             // (time in this period, time counted, slowest, frames counted, cycle index)
             #[allow(clippy::type_complexity)]
             app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut cpu_at: Local<Option<(f64, f64)>>, mut start_shadows: Local<Option<(bool, f32, crate::sky::CascadeLayout, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>, mut phys_load: ResMut<nvf_play::phys_load::PhysLoad>| {
@@ -1085,7 +1113,7 @@ fn apply(
         }
         // FSR already runs its own RCAS sharpening; do not sharpen the picture twice.
         if g.bloom || (g.sharpen && fsr.is_none()) {
-            e.insert(PostEffects::new(g.bloom, g.sharpen && fsr.is_none()));
+            e.insert(PostEffects::new_with_hdr_glow(g.bloom, g.sharpen && fsr.is_none(), nvf_assets::authored::physical_pbr() && g.glow));
         } else {
             e.remove::<PostEffects>();
         }
@@ -1105,12 +1133,13 @@ fn apply(
         // tonemapping (medium.rs, volumetric_clouds.rs), so its row keeps the view HDR whatever
         // the glow and the upscaler say [design, #3032 decision 10]; the light in the air of
         // stage 3 likewise.
-        if temporal || g.volumetric_clouds || crate::hdr::on() || air {
+        // Physical lighting works on linear light up to the tonemapper (§3.25).
+        if temporal || g.volumetric_clouds || crate::hdr::on() || air || nvf_assets::authored::physical_pbr() {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
         // its own switch.
-        if g.glow && g.eye_adaptation {
+        if (g.glow || nvf_assets::authored::physical_pbr()) && g.eye_adaptation {
             e.insert(crate::eye_adapt::auto_exposure(&eye));
         } else {
             e.remove::<bevy::post_process::auto_exposure::AutoExposure>();

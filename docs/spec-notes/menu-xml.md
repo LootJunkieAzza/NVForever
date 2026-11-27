@@ -310,7 +310,13 @@ The names with no record in the vanilla masters, by spelling:
 - A trait holds a number or a string; in the original it is both at once [documented:
   AddTraitToTile notes]. NVForever holds one and reads it as the other on demand:
   - text reads as a number when it is one, else 0;
-  - a whole number reads as text without a point [hypothesis].
+  - a whole number reads as text without a point; a fractional number prints as the
+    shortest text that reads back as the same single-precision float (`f32`), falling
+    back to `f64` when `f32` overflows or underflows to zero [hypothesis: original-game
+    float-to-string formatting for traits is not captured; single precision avoids
+    exposing `f64` rounding tails when code-written `f32` fractions such as `user5`
+    are multiplied by XML constants like `_VUI+CNDmax`; design: `f64` fallback outside
+    finite non-zero `f32` range].
 - A trait is written either as a plain value (`<width> 400 </width>`, `<visible>
   &false; </visible>`, `<string> &-sTitle; </string>`) or as operators (§4).
 - Names are compared without case. Traits beginning `_` are the files' own (`_Value`,

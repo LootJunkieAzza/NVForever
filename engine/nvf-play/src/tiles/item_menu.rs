@@ -208,6 +208,17 @@ pub fn settle(ui: &mut Ui, s: &Snapshot, st: &mut MenuTiles, write_sizes: &mut d
         }
         ui.update();
     }
+    if s.ysi_icons {
+        let mut moved = false;
+        for side in SIDES {
+            for row in &st.rows[side as usize] {
+                moved |= fnv_game::ui_ysi::sync_row_icon_x(ui, row.tile);
+            }
+        }
+        if moved {
+            ui.update();
+        }
+    }
     for side in SIDES {
         let i = side as usize;
         let Some(list_tile) = ui.find_tile(st.paths.lists[i]) else { continue };
@@ -430,6 +441,10 @@ pub fn row_commands_with(side: Side, index: usize, on_it: bool, shift: bool, ctr
         (true, false, false) => vec![Command::Select(side, index)],
     }
 }
+
+#[cfg(test)]
+#[path = "item_menu_ysi_tests.rs"]
+mod item_menu_ysi_tests;
 
 #[cfg(test)]
 mod tests {

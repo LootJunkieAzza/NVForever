@@ -594,8 +594,12 @@ All of it is in `GameSnapshot`.
   no `dialogue_started`. What a conversation of that one line did is kept: the Add
   Topics list is applied when the line ends and the actor counts as having talked to
   the player (GetTalkedToPC); no SayToDone block runs [hypothesis for the three].
-  Talking to the actor again while it speaks cuts the line (no end result) and starts
-  the greeting afresh [hypothesis, as for a second SayTo]. A Goodbye line of a topic
+  The player talking to the actor again while it speaks does nothing: the line plays
+  to its end and no second line starts [player report #4683, 2026-11-26: "New phrase
+  should trigger only after previous phrase has ended"; the runtime's activation,
+  `Runtime::talk_after`, checks `Game::greets_player`]. Before #4683 it cut the line
+  and started the greeting afresh [hypothesis then, as for a second SayTo];
+  `Game::start_dialogue` called directly still does that. A Goodbye line of a topic
   named by StartConversation still opens a conversation that ends with it [hypothesis:
   the statement is about GREETING]. Through a talking activator the greeting opens a
   conversation that the line ends, as below [owner statement 2026-10-22, of the REPCONN

@@ -519,7 +519,14 @@ impl Settings {
         // `settings_layout::NEEDS` and `NEEDS_CHOICE`, which the launcher follows too).
         crate::settings_layout::needs(key).into_iter().find_map(|r| {
             let p = self.index(r.parent)?;
-            let holds = if r.choices.is_empty() { self.value(world, p) >= 0.5 } else { self.choices(p).is_some_and(|c| r.choices.contains(&(c.chosen)(world).as_str())) };
+            let holds = if r.choices.is_empty() {
+                self.value(world, p) >= 0.5
+            } else if let Some(c) = self.choices(p) {
+                r.choices.contains(&(c.chosen)(world).as_str())
+            } else {
+                // A switch: its choices are "On" and "Off".
+                r.choices.contains(&if self.value(world, p) >= 0.5 { "On" } else { "Off" })
+            };
             (!holds).then_some(r.why)
         })
     }

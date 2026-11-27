@@ -10,12 +10,16 @@
 //! The built-in rules, in order:
 //! - **Rate.** A token bucket per sender address and message [`Kind`] ([`Rate`], a table
 //!   with defaults, [`default_rate`], and a setter, [`Guard::set_rate`]); a message over
-//!   it is dropped.
-//! - **Host-only messages** (Welcome, Full, Who, Names) from a guest are dropped.
+//!   it is dropped. The reliable stream's items have one per guest and item kind, for
+//!   the kinds that have a rate ([`Guard::admit_item`]; kept until the guest says Hello
+//!   again or leaves).
+//! - **Host-only messages** (Welcome, Full, Who, Names, and the world's: Npcs, Lines,
+//!   Presence, Wear, Clock, Scene, Actors) from a guest are dropped.
 //! - **Hello**: the name keeps its printable characters only, cut to
 //!   [`crate::net::NAME_MAX`] bytes. (The lobby's proof is the session's
 //!   [`crate::seam::Admission`]; a wrong one is counted here as [`Reason::Secret`].)
 //! - **Look**: at most [`crate::net::LOOK_MAX`] bytes.
+//! - **Revive**: its perks keep the bits this build knows ([`crate::net::revive_perk::KNOWN`]).
 //! - **Rel**: each item within [`crate::rel::ITEM_MAX`], and the frame within
 //!   [`crate::rel::PACKET_BUDGET`] as a sender packs one.
 //! - **State**: every float finite, the feet within the world ([`WORLD_XY`], [`WORLD_Z`]),
@@ -28,12 +32,14 @@
 //!   [`SLACK`]. A farther jump is dropped, unless the guest keeps reporting from the new
 //!   spot for [`SETTLE`] (a fast travel within one worldspace, a script moving the
 //!   player): then it is taken. A change of place (a door, a fast travel to another
-//!   worldspace) is taken at once.
+//!   worldspace) is taken at once. The accepted state's weapon is the guest's, and the one
+//!   it held before, for a while ([`LastState::weapon_before`]).
 //!
 //! Then the **rules** a layer above registers per kind ([`Guard::add_rule`], [`Rule`]),
 //! for messages and for reliable items alike (an item's kind is [`Kind::Item`] of its
 //! first byte, the `crate::repl` kind). A rule sees the message or item and the
-//! guest's last accepted state ([`Guard::last_state`]).
+//! guest's last accepted state ([`Guard::last_state`]). The world's are
+//! `crate::world`'s ([`crate::world::add_world_rules`]).
 //!
 //! Every drop is counted by kind and reason ([`Guard::stats`]), and each drop other than
 //! the rate's counts as a bad message against the guest that sent it ([`Guard::bad`]),
@@ -45,8 +51,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::net::{attack, emote, more_flag, Msg, Place, PlayerState, LOOK_MAX, MAX_WORN, NAME_MAX, REL_PACKETS, SEND_HZ, TICK};
+use crate::net::{attack, emote, more_flag, revive_perk, Msg, Place, PlayerState, COPIES, LOOK_MAX, MAX_WORN, NAME_MAX, REL_PACKETS, SEND_HZ, TICK};
 use crate::rel::{Frame, ITEM_MAX, PACKET_BUDGET};
+use crate::repl::kind as repl_kind;
 
 /// The kinds of message, and of reliable item, the guard limits, counts and holds rules
 /// for.
@@ -62,6 +69,19 @@ pub enum Kind {
     Names,
     Look,
     Rel,
+    /// The world's ([`crate::net`]): guest to host (and the host's to its guests).
+    Hit,
+    Unlock,
+    Door,
+    Revive,
+    /// The world's, from the host only.
+    Npcs,
+    Lines,
+    Presence,
+    Wear,
+    Clock,
+    Scene,
+    Actors,
     /// An item of the reliable stream, by its first byte (its `crate::repl` kind).
     Item(u8),
 }
@@ -81,15 +101,32 @@ const TICKS: f32 = 1000.0 / TICK.as_millis() as f32;
 /// not limited on its own (a reliable item: its frames are). [design: each well above
 /// what a game sends: a state [`SEND_HZ`] times a second, the reliable stream's whole
 /// budget ([`REL_PACKETS`] every network tick), a Hello every half second while
-/// unanswered, a look every two seconds; half as much again or more on top.]
+/// unanswered, a look every two seconds; half as much again or more on top. The world's
+/// guest messages each go [`COPIES`] times, so their rates are in copies: hits as a fast
+/// automatic weapon or a shotgun's pellets land, a burst of 40 and 30 a second; unlocks
+/// 2 a second, doors 4, revives 1. A guest's reliable items: a carried object's poses
+/// (sent 20 times a second) 30 a second, drops and takes 10, a digest's items (one
+/// every few seconds, a crowded area's in several) 4, and the syncing screen's ask, the
+/// only effect a guest sends, one per 5 seconds: each ask makes the host send the
+/// guest's whole area again.]
 pub fn default_rate(kind: Kind) -> Option<Rate> {
     let r = |burst: f32, per_sec: f32| Some(Rate { burst, per_sec });
+    let copies = |burst: f32, per_sec: f32| r(burst * COPIES as f32, per_sec * COPIES as f32);
     match kind {
+        Kind::Hit => copies(40.0, 30.0),
+        Kind::Unlock => copies(4.0, 2.0),
+        Kind::Door => copies(8.0, 4.0),
+        Kind::Revive => copies(3.0, 1.0),
+        Kind::Npcs | Kind::Lines | Kind::Presence | Kind::Wear | Kind::Clock | Kind::Scene | Kind::Actors => r(10.0, 10.0),
         Kind::State | Kind::Ping => r(2.0 * SEND_HZ as f32, 3.0 * SEND_HZ as f32),
         Kind::Rel => r(300.0, 1.5 * REL_PACKETS as f32 * TICKS),
         Kind::Hello => r(10.0, 5.0),
         Kind::Look => r(10.0, 5.0),
         Kind::Bye | Kind::Welcome | Kind::Full | Kind::Who | Kind::Names => r(10.0, 10.0),
+        Kind::Item(repl_kind::CARRY) => r(60.0, 30.0),
+        Kind::Item(repl_kind::LOOSE) => r(20.0, 10.0),
+        Kind::Item(repl_kind::DIGEST) => r(16.0, 4.0),
+        Kind::Item(repl_kind::EFFECTS) => r(1.0, 0.2),
         Kind::Item(_) => None,
     }
 }
@@ -102,8 +139,9 @@ pub const BUCKETS_MAX: usize = 256;
 pub const WORLD_XY: f32 = 1_000_000.0;
 pub const WORLD_Z: f32 = 100_000.0;
 /// The highest reliable item kind (an item's first byte, the `crate::repl` kind): any other
-/// is refused [design: 16 kinds, of which the records use a few].
-pub const ITEM_KIND_MAX: u8 = 0x0F;
+/// is refused [design: piece 1's 0x00-0x0F and the world's 0x10-0x2F; a later piece raises it
+/// with its own range].
+pub const ITEM_KIND_MAX: u8 = 0x2F;
 /// The longest an emote's clip time can be, seconds [design].
 pub const EMOTE_T_MAX: f32 = 3600.0;
 /// The fastest a player's feet move, game units a second [design: several times a
@@ -128,6 +166,13 @@ pub trait FormCheck: Send + Sync {
     /// A place a player can be in: a known interior cell or worldspace.
     fn place(&self, place: Place) -> bool {
         let _ = place;
+        true
+    }
+    /// A playable inventory item a player can drop (ALCH, AMMO, ARMO, BOOK, KEYM, MISC,
+    /// WEAP, NOTE, CHIP, CMNY, IMOD; not one the data marks unplayable). By default every
+    /// form passes.
+    fn item(&self, form: u32) -> bool {
+        let _ = form;
         true
     }
 }
@@ -157,11 +202,16 @@ pub enum Verdict {
     Drop(Reason),
 }
 
-/// A guest's last accepted state: where it was, and when the host took it.
+/// A guest's last accepted state: where it was, what it held, and when the host took it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LastState {
     pub place: Place,
     pub feet: [f32; 3],
+    /// The weapon in hand (0: none), as the state's form checks left it.
+    pub weapon: u32,
+    /// The weapon it held before this one, and when it changed (None: no change seen):
+    /// a hit of a shot fired before the switch may come after it.
+    pub weapon_before: Option<(u32, Instant)>,
     pub at: Instant,
 }
 
@@ -220,6 +270,8 @@ struct Jump {
 #[derive(Default)]
 pub struct Guard {
     buckets: HashMap<(SocketAddr, Kind), Bucket>,
+    /// Reliable items' buckets, per guest and item kind.
+    item_buckets: HashMap<(u8, Kind), Bucket>,
     rates: HashMap<Kind, Option<Rate>>,
     tracks: HashMap<u8, Track>,
     rules: HashMap<Kind, Vec<Box<dyn Rule>>>,
@@ -270,14 +322,16 @@ impl Guard {
         self.tracks.get(&id).map(|t| t.last)
     }
 
-    /// Guest `id` starts again (a Hello): its next state is taken wherever it is.
+    /// Guest `id` starts again (a Hello): its next state is taken wherever it is, and
+    /// its reliable items' buckets are full again (its stream starts again too).
     pub fn forget(&mut self, id: u8) {
         self.tracks.remove(&id);
+        self.item_buckets.retain(|(g, _), _| *g != id);
     }
 
     /// Guest `id` left (or a new guest takes its slot): everything kept of it goes.
     pub fn drop_guest(&mut self, id: u8) {
-        self.tracks.remove(&id);
+        self.forget(id);
         self.bad.remove(&id);
     }
 
@@ -326,7 +380,8 @@ impl Guard {
         v
     }
 
-    /// [`Guard::admit`] for an item of guest `id`'s reliable stream, by its kind.
+    /// [`Guard::admit`] for an item of guest `id`'s reliable stream, by its kind, after
+    /// the guest's rate for that kind (if it has one).
     pub fn admit_item(&mut self, id: u8, item: &[u8], now: Instant) -> Verdict {
         // An empty item has no kind, and a kind past the last is none the host knows: both
         // are refused before any rule sees them.
@@ -335,6 +390,13 @@ impl Guard {
         if first.is_none_or(|k| k > ITEM_KIND_MAX) {
             self.note(kind, Reason::Bounds, Some(id));
             return Verdict::Drop(Reason::Bounds);
+        }
+        if let Some(rate) = self.rate(kind) {
+            let b = self.item_buckets.entry((id, kind)).or_insert(Bucket { tokens: rate.burst, at: now });
+            if !take_token(b, rate, now) {
+                self.note(kind, Reason::Rate, Some(id));
+                return Verdict::Drop(Reason::Rate);
+            }
         }
         self.admit(Some(id), kind, &Subject::Item(item), now)
     }
@@ -352,6 +414,13 @@ impl Guard {
         }
         match msg {
             Msg::Welcome { .. } | Msg::Full { .. } | Msg::Who | Msg::Names { .. } => Err(Reason::HostOnly),
+            Msg::Npcs { .. } | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Wear { .. } | Msg::Clock(_) | Msg::Scene(_) | Msg::Actors { .. } => Err(Reason::HostOnly),
+            Msg::Revive { perks, .. } => {
+                *perks &= revive_perk::KNOWN;
+                Ok(None)
+            }
+            // Their checks are the world's rules (`crate::world`).
+            Msg::Hit { .. } | Msg::Unlock { .. } | Msg::Door { .. } => Ok(None),
             Msg::Hello { name, .. } => {
                 *name = clean_name(name);
                 Ok(None)
@@ -384,15 +453,7 @@ impl Guard {
             }
         }
         let b = self.buckets.entry(key).or_insert(Bucket { tokens: rate.burst, at: now });
-        let elapsed = now.saturating_duration_since(b.at).as_secs_f32();
-        b.tokens = (b.tokens + elapsed * rate.per_sec).min(rate.burst);
-        b.at = now;
-        if b.tokens >= 1.0 {
-            b.tokens -= 1.0;
-            true
-        } else {
-            false
-        }
+        take_token(b, rate, now)
     }
 
     /// Clear the forms the host's game says the player cannot have there.
@@ -421,8 +482,10 @@ impl Guard {
     /// Whether guest `id`'s feet could have got here from its last accepted state; the
     /// state to keep as its last if every check takes it.
     fn movement(&mut self, id: u8, s: &PlayerState, now: Instant) -> Result<LastState, Reason> {
-        let take = LastState { place: s.place, feet: s.feet, at: now };
+        let take = LastState { place: s.place, feet: s.feet, weapon: s.weapon, weapon_before: None, at: now };
         let Some(t) = self.tracks.get_mut(&id) else { return Ok(take) };
+        let before = if t.last.weapon != s.weapon { Some((t.last.weapon, now)) } else { t.last.weapon_before };
+        let take = LastState { weapon_before: before, ..take };
         if t.last.place != s.place || reachable(t.last.feet, t.last.at, s.feet, now) {
             return Ok(take);
         }
@@ -438,6 +501,19 @@ impl Guard {
             jump => *jump = Some(Jump { feet: s.feet, since: now, at: now }),
         }
         Err(Reason::Moved)
+    }
+}
+
+/// Refill `b` at `rate` up to `now`; whether it had a token for one more (taken).
+fn take_token(b: &mut Bucket, rate: Rate, now: Instant) -> bool {
+    let elapsed = now.saturating_duration_since(b.at).as_secs_f32();
+    b.tokens = (b.tokens + elapsed * rate.per_sec).min(rate.burst);
+    b.at = now;
+    if b.tokens >= 1.0 {
+        b.tokens -= 1.0;
+        true
+    } else {
+        false
     }
 }
 
@@ -689,6 +765,29 @@ mod tests {
         assert_eq!(g.last_state(1).map(|l| l.feet), Some([1_000.0, 0.0, 100.0]));
         // The next walking state, near where it was, still passes.
         assert_eq!(check(&mut g, &mut state(at(1_010.0, 0.0)), now), Verdict::Accept);
+    }
+
+    #[test]
+    fn the_last_state_keeps_the_weapon_and_the_one_before() {
+        let mut g = Guard::default();
+        let now = Instant::now();
+        let held = |w: u32, x: f32| state(PlayerState { weapon: w, ..at(x, 0.0) });
+        assert_eq!(check(&mut g, &mut held(0x10, 0.0), now), Verdict::Accept);
+        assert_eq!(g.last_state(1).map(|l| (l.weapon, l.weapon_before)), Some((0x10, None)));
+        let later = now + Duration::from_millis(50);
+        assert_eq!(check(&mut g, &mut held(0x20, 1.0), later), Verdict::Accept);
+        assert_eq!(g.last_state(1).map(|l| (l.weapon, l.weapon_before)), Some((0x20, Some((0x10, later)))));
+        // The same weapon again keeps the switch as it was.
+        assert_eq!(check(&mut g, &mut held(0x20, 2.0), later + Duration::from_millis(50)), Verdict::Accept);
+        assert_eq!(g.last_state(1).map(|l| l.weapon_before), Some(Some((0x10, later))));
+    }
+
+    #[test]
+    fn a_revives_perks_keep_the_known_bits() {
+        let mut g = Guard::default();
+        let mut msg = Msg::Revive { target: 0, by: 1, perks: 0xFF };
+        assert_eq!(check(&mut g, &mut msg, Instant::now()), Verdict::Accept);
+        assert_eq!(msg, Msg::Revive { target: 0, by: 1, perks: revive_perk::KNOWN });
     }
 
     #[test]
