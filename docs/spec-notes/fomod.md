@@ -36,7 +36,14 @@ sources leave a rule open, the launcher's choice is tagged `[design]`.
   `./` entry, as `tar -C folder -cf mod.tar .` writes it, is the mod's folder itself and is
   skipped [design; `unpack_tar`].
 - An outside program first lists the archive, and every name it lists must pass the
-  launcher's path rule (`rel_path`) before it unpacks anything. A refused name, or a listing
+  launcher's path rule (`rel_path`) before it unpacks anything. Every listed entry must also be
+  a file or a folder: a link, hard link, junction or device entry is refused before anything is
+  unpacked, as the built-in readers refuse it, since a link unpacked first could carry a later
+  entry out of the mod's folder before the check for links after unpacking. The type comes from
+  each program's own listing: 7z's `-slt` `Attributes`, `Mode`, `Symbolic Link` and
+  `Hard Link`; the first letter of each `bsdtar -tvf` line; `unrar lt`'s `Type`; `lsar -j`'s
+  link keys [design; `extract_external`; observed: 7-Zip 26.06, bsdtar 3.8 and UNRAR 7.23 listings
+  of archives holding links; hypothesis: lsar's keys, not run]. A refused entry, or a listing
   with no names, ends the install [design; `extract_external`].
 - The launcher's own readers refuse an archive whose entries add up to more than 100 times the
   archive's size; an archive inside it counts against the same limit, and each entry counts as at

@@ -1731,61 +1731,169 @@ fn unpack_tar<R: std::io::Read>(reader: R, dest: &Path, limit: u64, bad: &impl F
     Ok(())
 }
 
-/// The entry names in a `7z l -slt -ba` listing: one `Path = <name>` line an entry.
-fn names_7z(listing: &str) -> Vec<String> {
-    listing.lines().filter_map(|l| l.strip_prefix("Path = ")).map(|n| n.trim_end_matches('\r').to_string()).collect()
+/// The refusal for an entry that is a link, device or anything else but a file or a folder.
+fn not_file_or_folder(name: &str) -> String {
+    format!("entry {name} is not a file or folder")
 }
 
-/// The entry names in a listing of one name a line (`bsdtar -tf`, `unrar lb`).
-fn names_per_line(listing: &str) -> Vec<String> {
-    listing.lines().map(|l| l.trim_end_matches('\r')).filter(|l| !l.is_empty()).map(str::to_string).collect()
+/// A Unix mode as listings print it (`-rw-r--r--`, `lrwxrwxrwx`): its first letter is the
+/// entry's type, `-` a file and `d` a folder.
+fn unix_mode(token: &str) -> Option<char> {
+    let mut chars = token.chars();
+    let kind = chars.next()?;
+    let rest: Vec<char> = chars.collect();
+    (rest.len() == 9 && rest.iter().all(|c| "rwxsStT-".contains(*c))).then_some(kind)
 }
 
-/// The entry names in an `lsar` listing: its first line names the archive and its format.
-fn names_lsar(listing: &str) -> Vec<String> {
-    names_per_line(listing).into_iter().skip(1).collect()
+/// The entry names in a `7z l -slt -ba` listing, one block of `Key = value` lines an entry,
+/// each starting with `Path = <name>`. Refused before anything is unpacked: an entry whose
+/// `Symbolic Link`, `Hard Link` or `Copy Link` is set; whose Unix mode (in `Attributes`, or
+/// `Mode` for a tar) is not a file's or folder's; or whose Windows attributes have `L`
+/// (a reparse point: a link or junction) or `d` (a device). [observed: 7-Zip 26.06 listings of
+/// .7z, .rar and .tar archives holding a link, made on this machine]
+fn names_7z(listings: &[String]) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    let mut current: Option<String> = None;
+    for line in listings.first().map(String::as_str).unwrap_or("").lines().map(|l| l.trim_end_matches('\r')) {
+        if let Some(name) = line.strip_prefix("Path = ") {
+            names.push(name.to_string());
+            current = Some(name.to_string());
+            continue;
+        }
+        let Some(name) = current.as_deref() else { continue };
+        let Some((key, value)) = line.split_once(" = ").or_else(|| line.strip_suffix(" =").map(|k| (k, ""))) else { continue };
+        let value = value.trim();
+        let refused = match key {
+            "Symbolic Link" | "Hard Link" | "Copy Link" => !value.is_empty(),
+            "Mode" => unix_mode(value).is_some_and(|k| k != '-' && k != 'd'),
+            "Attributes" => value.split_whitespace().any(|t| match unix_mode(t) {
+                Some(k) => k != '-' && k != 'd',
+                None => t.contains(['L', 'd']),
+            }),
+            _ => false,
+        };
+        if refused {
+            return Err(not_file_or_folder(name));
+        }
+    }
+    Ok(names)
+}
+
+/// The entry names in `bsdtar -tf`, checked against `bsdtar -tvf` line by line: each verbose
+/// line starts with the entry's mode, `l` for a link and `h` for a hard link, so only `-` and
+/// `d` pass. Two listings that do not line up are refused. [observed: bsdtar 3.8 on this
+/// machine, tar, .7z and .rar archives holding a link and a hard link]
+fn names_bsdtar(listings: &[String]) -> Result<Vec<String>, String> {
+    let lines = |s: Option<&String>| -> Vec<String> {
+        s.map(String::as_str).unwrap_or("").lines().map(|l| l.trim_end_matches('\r')).filter(|l| !l.is_empty()).map(str::to_string).collect()
+    };
+    let names = lines(listings.first());
+    let verbose = lines(listings.get(1));
+    if names.len() != verbose.len() {
+        return Err("the archive's two listings do not match, so its entries could not be checked".into());
+    }
+    for (name, line) in names.iter().zip(&verbose) {
+        if !matches!(line.chars().next(), Some('-' | 'd')) {
+            return Err(not_file_or_folder(name));
+        }
+    }
+    Ok(names)
+}
+
+/// The entry names in an `unrar lt` listing: each entry has a `Name: ` line and a `Type: `
+/// line, and only `File` and `Directory` pass (a link is `Unix symbolic link`, `Windows
+/// symbolic link`, `Junction` or `Hard link`). [observed: UNRAR 7.23 on this machine]
+fn names_unrar(listings: &[String]) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    let mut typed = 0;
+    for line in listings.first().map(String::as_str).unwrap_or("").lines().map(|l| l.trim_end_matches('\r').trim_start()) {
+        if let Some(name) = line.strip_prefix("Name: ") {
+            names.push(name.to_string());
+        } else if let Some(kind) = line.strip_prefix("Type: ") {
+            typed += 1;
+            if names.len() != typed || !matches!(kind.trim(), "File" | "Directory") {
+                return Err(not_file_or_folder(names.last().map_or("", String::as_str)));
+            }
+        }
+    }
+    if names.len() != typed {
+        return Err("the archive's listing gives no type for an entry, so it could not be checked".into());
+    }
+    Ok(names)
+}
+
+/// The entry names in an `lsar -j` listing (JSON, `lsarContents` one object an entry, the
+/// name in `XADFileName`). Refused: an entry with `XADIsLink` or `XADIsHardLink` true, an
+/// `XADLinkDestination`, a Unix type that is not a file's or folder's in
+/// `XADPosixPermissions`, or the reparse-point bit (0x400) in `XADWindowsAttributes`.
+/// [hypothesis: the key names of The Unarchiver's XADArchiveParser; lsar was not installed
+/// on the machine this was written on]
+fn names_lsar(listings: &[String]) -> Result<Vec<String>, String> {
+    let json: serde_json::Value = serde_json::from_str(listings.first().map(String::as_str).unwrap_or(""))
+        .map_err(|e| format!("lsar's listing could not be read, so its entries could not be checked: {e}"))?;
+    let entries = json.get("lsarContents").and_then(|c| c.as_array()).ok_or("lsar's listing has no entries, so none could be checked")?;
+    let mut names = Vec::new();
+    for entry in entries {
+        let name = entry.get("XADFileName").and_then(|n| n.as_str()).ok_or("lsar listed an entry without a name")?;
+        let flag = |key: &str| entry.get(key).is_some_and(|v| v.as_bool() == Some(true) || v.as_i64().is_some_and(|n| n != 0));
+        let posix = entry.get("XADPosixPermissions").and_then(|v| v.as_u64()).map(|m| m & 0o170_000);
+        let windows = entry.get("XADWindowsAttributes").and_then(|v| v.as_u64()).unwrap_or(0);
+        if flag("XADIsLink") || flag("XADIsHardLink") || entry.get("XADLinkDestination").is_some()
+            || posix.is_some_and(|t| t != 0 && t != 0o100_000 && t != 0o040_000)
+            || windows & 0x400 != 0
+        {
+            return Err(not_file_or_folder(name));
+        }
+        names.push(name.to_string());
+    }
+    Ok(names)
 }
 
 /// Unpack with an outside tool, for a format the built-in readers do not read. Each tool first
-/// lists the archive's entries, and every name goes through `rel_path` before anything is
-/// unpacked: a refused name, or a listing with no names, ends the install and no other tool gets
-/// the archive. A tool that is not installed, or cannot open the archive, gives way to the next.
+/// lists the archive's entries, and every entry must be a file or a folder and every name go
+/// through `rel_path` before anything is unpacked: a link written first could carry a later
+/// entry out of the mod folder before `reject_links` looks. A refused entry, or a listing with
+/// no names, ends the install and no other tool gets the archive. A tool that is not installed,
+/// or cannot open the archive, gives way to the next.
 fn extract_external(src: &Path, dest: &Path) -> Result<(), String> {
     let src_s = src.display().to_string();
     let dest_s = dest.display().to_string();
-    /// An outside tool: the program that lists the archive, its arguments and how to read its
-    /// listing, then the program and arguments that unpack.
+    /// An outside tool: the program that lists the archive, the arguments of each listing it
+    /// makes and how to read them, then the program and arguments that unpack.
     struct Tool {
         lister: &'static str,
-        list_args: Vec<String>,
-        names: fn(&str) -> Vec<String>,
+        listings: Vec<Vec<String>>,
+        names: fn(&[String]) -> Result<Vec<String>, String>,
         bin: &'static str,
         args: Vec<String>,
     }
-    let list_7z = vec!["l".to_string(), "-slt".into(), "-ba".into(), src_s.clone()];
+    let list_7z = vec![vec!["l".to_string(), "-slt".into(), "-ba".into(), src_s.clone()]];
     let unpack_7z = vec!["x".to_string(), "-y".into(), format!("-o{dest_s}"), src_s.clone()];
     let attempts = [
-        Tool { lister: "7z", list_args: list_7z.clone(), names: names_7z, bin: "7z", args: unpack_7z.clone() },
-        Tool { lister: "7zz", list_args: list_7z, names: names_7z, bin: "7zz", args: unpack_7z },
-        Tool { lister: "bsdtar", list_args: vec!["-tf".into(), src_s.clone()], names: names_per_line, bin: "bsdtar", args: vec!["-xf".into(), src_s.clone(), "-C".into(), dest_s.clone()] },
-        Tool { lister: "lsar", list_args: vec![src_s.clone()], names: names_lsar, bin: "unar", args: vec!["-f".into(), "-o".into(), dest_s.clone(), src_s.clone()] },
-        Tool { lister: "unrar", list_args: vec!["lb".into(), src_s.clone()], names: names_per_line, bin: "unrar", args: vec!["x".into(), "-o+".into(), "-y".into(), src_s.clone(), format!("{dest_s}/")] },
+        Tool { lister: "7z", listings: list_7z.clone(), names: names_7z, bin: "7z", args: unpack_7z.clone() },
+        Tool { lister: "7zz", listings: list_7z, names: names_7z, bin: "7zz", args: unpack_7z },
+        Tool { lister: "bsdtar", listings: vec![vec!["-tf".into(), src_s.clone()], vec!["-tvf".into(), src_s.clone()]], names: names_bsdtar, bin: "bsdtar", args: vec!["-xf".into(), src_s.clone(), "-C".into(), dest_s.clone()] },
+        Tool { lister: "lsar", listings: vec![vec!["-j".into(), src_s.clone()]], names: names_lsar, bin: "unar", args: vec!["-f".into(), "-o".into(), dest_s.clone(), src_s.clone()] },
+        Tool { lister: "unrar", listings: vec![vec!["lt".into(), src_s.clone()]], names: names_unrar, bin: "unrar", args: vec!["x".into(), "-o+".into(), "-y".into(), src_s.clone(), format!("{dest_s}/")] },
     ];
     let mut last = String::new();
     let mut missing = true;
-    for Tool { lister, list_args, names, bin, args } in &attempts {
-        let listing = match Command::new(lister).args(list_args).output() {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(format!("{lister}: {e}")),
-            Ok(out) if !out.status.success() => {
-                missing = false;
-                let err = String::from_utf8_lossy(&out.stderr);
-                last = format!("{lister}: {}", err.lines().next().unwrap_or("could not open the archive"));
-                continue;
+    'tools: for Tool { lister, listings, names, bin, args } in &attempts {
+        let mut outputs = Vec::new();
+        for list_args in listings {
+            match Command::new(lister).args(list_args).output() {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue 'tools,
+                Err(e) => return Err(format!("{lister}: {e}")),
+                Ok(out) if !out.status.success() => {
+                    missing = false;
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    last = format!("{lister}: {}", err.lines().next().unwrap_or("could not open the archive"));
+                    continue 'tools;
+                }
+                Ok(out) => outputs.push(String::from_utf8_lossy(&out.stdout).into_owned()),
             }
-            Ok(out) => out,
-        };
-        let listed = names(&String::from_utf8_lossy(&listing.stdout));
+        }
+        let listed = names(&outputs).map_err(|e| format!("{src_s}: {e}"))?;
         if listed.is_empty() {
             return Err(format!("{src_s}: {lister} listed no entries, so none could be checked"));
         }
@@ -2431,10 +2539,128 @@ mod tests {
 
     #[test]
     fn outside_tools_listings_give_every_entry_name() {
-        let seven = "Path = Mod/Plugin.esp\r\nFolder = -\r\nSize = 4\r\n\r\nPath = ../evil.esp\r\nFolder = -\r\n";
-        assert_eq!(super::names_7z(seven), ["Mod/Plugin.esp", "../evil.esp"]);
-        assert_eq!(super::names_per_line("Mod/Plugin.esp\n../evil.esp\n\n"), ["Mod/Plugin.esp", "../evil.esp"]);
-        assert_eq!(super::names_lsar("Evil.7z: 7-Zip\nMod/Plugin.esp\n..\\evil.esp\n"), ["Mod/Plugin.esp", "..\\evil.esp"]);
+        let one = |s: &str| vec![s.to_string()];
+        let seven = "Path = Mod/Plugin.esp\r\nFolder = -\r\nSize = 4\r\nAttributes = A -rw-r--r--\r\nSymbolic Link = \r\n\r\nPath = ../evil.esp\r\nFolder = -\r\n\r\nPath = Mod\r\nAttributes = D drwxr-xr-x\r\n";
+        assert_eq!(super::names_7z(&one(seven)).unwrap(), ["Mod/Plugin.esp", "../evil.esp", "Mod"]);
+        let tf = "Mod/\nMod/Plugin.esp\n../evil.esp\n\n".to_string();
+        let tvf = "drwxr-xr-x  0 a a 0 Nov 27 14:46 Mod/\n-rw-r--r--  0 a a 4 Nov 27 14:46 Mod/Plugin.esp\n-rw-r--r--  0 a a 4 Nov 27 14:46 ../evil.esp\n".to_string();
+        assert_eq!(super::names_bsdtar(&[tf, tvf]).unwrap(), ["Mod/", "Mod/Plugin.esp", "../evil.esp"]);
+        let unrar = "\nUNRAR 7.23 freeware\n\nArchive: x.rar\nDetails: RAR 5\n\n        Name: Mod/Plugin.esp\n        Type: File\n        Size: 4\n\n        Name: Mod\n        Type: Directory\n";
+        assert_eq!(super::names_unrar(&one(unrar)).unwrap(), ["Mod/Plugin.esp", "Mod"]);
+        let lsar = r#"{"lsarFormatName":"7-Zip","lsarContents":[{"XADFileName":"Mod/Plugin.esp","XADPosixPermissions":33188},{"XADFileName":"..\\evil.esp"},{"XADFileName":"Mod","XADIsDirectory":true,"XADPosixPermissions":16877}]}"#;
+        assert_eq!(super::names_lsar(&one(lsar)).unwrap(), ["Mod/Plugin.esp", "..\\evil.esp", "Mod"]);
+    }
+
+    /// Listings, as each tool printed them on this machine, of archives holding a link
+    /// (`Mod/link`, to `/etc`) or a hard link (`Mod/a.esp`): every one is refused.
+    #[test]
+    fn outside_tools_listings_refuse_link_entries() {
+        let one = |s: &str| vec![s.to_string()];
+        let refused = |r: Result<Vec<String>, String>, name: &str| {
+            let e = r.expect_err("a link entry was let through");
+            assert_eq!(e, super::not_file_or_folder(name));
+        };
+        // 7z: a .7z (Unix mode in Attributes), a .rar (Symbolic Link), a tar (Mode, Hard Link).
+        refused(super::names_7z(&one("Path = Mod/a.esp\nAttributes = A -rw-r--r--\n\nPath = Mod/link\nSize = 4\nAttributes = A lrwxrwxrwx\nCRC = 08E1E5AF\n")), "Mod/link");
+        refused(super::names_7z(&one("Path = Mod/link\nFolder = -\nAttributes =  lrwxrwxrwx\nSymbolic Link = /etc\nHard Link = \n")), "Mod/link");
+        refused(super::names_7z(&one("Path = Mod/link\nFolder = -\nSymbolic Link = /etc\n")), "Mod/link");
+        refused(super::names_7z(&one("Path = Mod/link\nFolder = -\nMode = lrwxrwxrwx\n")), "Mod/link");
+        refused(super::names_7z(&one("Path = Mod/a.esp\nMode = -rw-r--r--\nSymbolic Link = \nHard Link = Mod/hard.esp\n")), "Mod/a.esp");
+        refused(super::names_7z(&one("Path = Mod/a.esp\nMode = hrw-r--r--\n")), "Mod/a.esp");
+        // Windows attributes: L is a reparse point (link or junction), d a device.
+        refused(super::names_7z(&one("Path = Mod\\link\r\nAttributes = DL\r\n")), "Mod\\link");
+        refused(super::names_7z(&one("Path = Mod\\dev\r\nAttributes = Ad\r\n")), "Mod\\dev");
+        // bsdtar: a link `l`, a hard link `h`; listings that do not line up are refused too.
+        let tf = "Mod/\nMod/link\n".to_string();
+        refused(super::names_bsdtar(&[tf.clone(), "drwxr-xr-x  0 a a 0 Nov 27 14:46 Mod/\nlrwxrwxrwx  0 a a 0 Nov 27 14:46 Mod/link -> /etc\n".into()]), "Mod/link");
+        let tf_hard = "Mod/hard.esp\nMod/a.esp\n".to_string();
+        refused(super::names_bsdtar(&[tf_hard, "-rw-r--r--  0 a a 3 Nov 27 14:46 Mod/hard.esp\nhrw-r--r--  0 a a 0 Nov 27 14:46 Mod/a.esp link to Mod/hard.esp\n".into()]), "Mod/a.esp");
+        assert!(super::names_bsdtar(&[tf, "drwxr-xr-x  0 a a 0 Nov 27 14:46 Mod/\n".into()]).is_err());
+        // unrar lt: Type other than File or Directory, or an entry with no Type.
+        refused(super::names_unrar(&one("        Name: Mod/a.esp\n        Type: File\n\n        Name: Mod/link\n        Type: Unix symbolic link\n      Target: /etc\n")), "Mod/link");
+        refused(super::names_unrar(&one("        Name: Mod\\link\r\n        Type: Junction\r\n")), "Mod\\link");
+        assert!(super::names_unrar(&one("        Name: Mod/a.esp\n\n        Name: Mod/b.esp\n        Type: File\n")).is_err());
+        assert!(super::names_unrar(&one("        Name: Mod/a.esp\n")).is_err());
+        // lsar -j: link flags, a link target, a Unix type or the Windows reparse-point bit.
+        refused(super::names_lsar(&one(r#"{"lsarContents":[{"XADFileName":"Mod/link","XADIsLink":true}]}"#)), "Mod/link");
+        refused(super::names_lsar(&one(r#"{"lsarContents":[{"XADFileName":"Mod/a.esp","XADIsHardLink":1}]}"#)), "Mod/a.esp");
+        refused(super::names_lsar(&one(r#"{"lsarContents":[{"XADFileName":"Mod/link","XADLinkDestination":"/etc"}]}"#)), "Mod/link");
+        refused(super::names_lsar(&one(r#"{"lsarContents":[{"XADFileName":"Mod/link","XADPosixPermissions":41471}]}"#)), "Mod/link");
+        refused(super::names_lsar(&one(r#"{"lsarContents":[{"XADFileName":"Mod/link","XADWindowsAttributes":1040}]}"#)), "Mod/link");
+        assert!(super::names_lsar(&one("Evil.7z: 7-Zip\nMod/a.esp\n")).is_err());
+    }
+
+    /// A tar written under a .7z name, so no built-in reader takes it and it goes to the
+    /// outside tools, holding a link entry and then a file written through that link.
+    #[cfg(unix)]
+    #[test]
+    fn an_outside_tools_archive_with_a_link_entry_is_not_unpacked() {
+        let installed = ["7z", "7zz", "bsdtar", "lsar", "unrar"].iter().any(|b| Command::new(b).arg("--help").output().is_ok());
+        for (case, hard) in [("sym", false), ("hard", true)] {
+            let t = std::env::temp_dir().join(format!("nvf-fomod-outside-link-{case}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&t);
+            std::fs::create_dir_all(t.join("inside")).unwrap();
+            std::fs::create_dir_all(t.join("outside")).unwrap();
+            std::fs::write(t.join("outside").join("victim.esp"), b"KEEP").unwrap();
+            let archive = t.join("inside").join("Evil.7z");
+            {
+                let mut b = tar::Builder::new(std::fs::File::create(&archive).unwrap());
+                let mut h = tar::Header::new_gnu();
+                h.set_size(0);
+                h.set_mode(0o777);
+                if hard {
+                    // A hard link to a file outside, then a file of that name that overwrites it.
+                    h.set_entry_type(tar::EntryType::Link);
+                    b.append_link(&mut h, "Mod/victim.esp", t.join("outside").join("victim.esp")).unwrap();
+                    let mut f = tar::Header::new_gnu();
+                    f.set_size(4);
+                    f.set_mode(0o644);
+                    f.set_entry_type(tar::EntryType::Regular);
+                    b.append_data(&mut f, "Mod/victim.esp", &b"EVIL"[..]).unwrap();
+                } else {
+                    // A link to the folder outside, then a file written through it.
+                    h.set_entry_type(tar::EntryType::Symlink);
+                    b.append_link(&mut h, "Mod/link", t.join("outside")).unwrap();
+                    let mut f = tar::Header::new_gnu();
+                    f.set_size(4);
+                    f.set_mode(0o644);
+                    f.set_entry_type(tar::EntryType::Regular);
+                    b.append_data(&mut f, "Mod/link/evil.esp", &b"EVIL"[..]).unwrap();
+                }
+                b.finish().unwrap();
+            }
+            let e = stage_error(&archive);
+            if installed {
+                assert!(e.contains("is not a file or folder"), "{case}: {e}");
+            }
+            assert!(!t.join("outside").join("evil.esp").exists(), "{case}: written through the link");
+            assert_eq!(std::fs::read(t.join("outside").join("victim.esp")).unwrap(), b"KEEP", "{case}: written through the hard link");
+            assert_eq!(std::fs::read_dir(t.join("inside")).unwrap().count(), 1, "{case}: only the archive");
+            let _ = std::fs::remove_dir_all(&t);
+        }
+    }
+
+    /// A real .7z holding a link, made by 7z itself (`-snl` stores links as links): 7z's own
+    /// listing refuses it, before 7z or any other tool unpacks anything.
+    #[cfg(unix)]
+    #[test]
+    fn a_7z_archive_with_a_link_entry_is_refused_by_its_listing() {
+        if Command::new("7z").arg("--help").output().is_err() {
+            return;
+        }
+        let t = std::env::temp_dir().join(format!("nvf-fomod-7z-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(t.join("src").join("Mod")).unwrap();
+        std::fs::create_dir_all(t.join("inside")).unwrap();
+        std::fs::write(t.join("src").join("Mod").join("Plugin.esp"), b"TES4").unwrap();
+        std::os::unix::fs::symlink(t.join("outside"), t.join("src").join("Mod").join("link")).unwrap();
+        let archive = t.join("inside").join("Evil.7z");
+        let made = Command::new("7z").args(["a", "-snl"]).arg(&archive).arg("Mod").current_dir(t.join("src")).output().unwrap();
+        assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+        let e = stage_error(&archive);
+        assert!(e.ends_with(&super::not_file_or_folder("Mod/link")), "{e}");
+        assert_eq!(std::fs::read_dir(t.join("inside")).unwrap().count(), 1, "only the archive");
+        let _ = std::fs::remove_dir_all(&t);
     }
 
     #[test]
