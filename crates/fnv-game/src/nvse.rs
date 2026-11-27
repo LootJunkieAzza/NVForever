@@ -175,6 +175,27 @@ impl Game<'_> {
         }
     }
 
+    /// Session `DNAM/on_hit` override for a `WEAP` (clone-first, original fallback),
+    /// from `SetWeaponOnHitSetting` (0 Normal, 1 Dismember Only, 2 Explode Only,
+    /// 3 No Dismember/Explode) [documented: JIP LN SetWeaponOnHitSetting].
+    /// Returns `None` for non-weapons, absent edits, or out-of-range values.
+    pub fn weapon_on_hit_override(&self, weapon: FormId) -> Option<u8> {
+        let original = self.unclone(weapon);
+        if self.data.sig(original) != Some(*b"WEAP") {
+            return None;
+        }
+        let key = "DNAM/on_hit";
+        let value = self.field_overrides.get(&(weapon, key.into()))
+            .or_else(|| self.field_overrides.get(&(original, key.into())))?;
+        match value {
+            XVal::Num(n) if n.is_finite() => {
+                let code = n.trunc() as i64;
+                (0..=3).contains(&code).then_some(code as u8)
+            }
+            _ => None,
+        }
+    }
+
     /// Snapshot `source`'s effective `WEAP CRDT critical_damage` onto its `TempCloneForm`
     /// `clone` at clone creation time so later edits to `source` do not leak into `clone`,
     /// and edits to `clone` do not affect `source` [hypothesis; design: `ext-last-core.md`

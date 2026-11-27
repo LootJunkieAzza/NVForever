@@ -154,7 +154,10 @@ fn test_hits(
             let part = parts.data_of(target.0).and_then(|d| c.forms.body_parts.get(&d)).and_then(|d| {
                 d.parts.iter().position(|p| p.actor_value.as_deref().and_then(fnv_game::combat::limb_condition) == Some(l.condition))
             });
-            let w = weapon.and_then(|w| c.forms.weapons.get(&w)).cloned().unwrap_or_default();
+            let mut w = weapon.and_then(|w| c.forms.weapons.get(&w)).cloned().unwrap_or_default();
+            if let Some(weapon) = weapon {
+                crate::combat::script_weapon_on_hit(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), weapon, &mut w);
+            }
             let at = sim.world.peek(target).map_or([0.0; 3], |s| [s.pos[0], s.pos[1], s.pos[2] + 40.0]);
             // The blow goes from the player to the target, level.
             let from = sim.world.peek(FormId::PLAYER_REF).map_or(at, |s| s.pos);

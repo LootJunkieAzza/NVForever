@@ -26,6 +26,27 @@ impl OnHit {
         }
     }
 
+    /// From a WEAP `DNAM/on_hit` numeric code (0 Normal, 1 Dismember Only, 2 Explode
+    /// Only, 3 No Dismember/Explode) [documented: GECK wiki SetWeaponOnHitSetting].
+    pub fn from_code(code: u8) -> OnHit {
+        match code {
+            1 => OnHit::DismemberOnly,
+            2 => OnHit::ExplodeOnly,
+            3 => OnHit::Neither,
+            _ => OnHit::Normal,
+        }
+    }
+
+    /// The schema label matching [`OnHit::from_label`].
+    pub fn label(self) -> &'static str {
+        match self {
+            OnHit::Normal => "Normal formula behavior",
+            OnHit::DismemberOnly => "Dismember Only",
+            OnHit::ExplodeOnly => "Explode Only",
+            OnHit::Neither => "No Dismember/Explode",
+        }
+    }
+
     pub fn may_explode(self) -> bool {
         matches!(self, OnHit::Normal | OnHit::ExplodeOnly)
     }
@@ -356,5 +377,20 @@ mod tests {
 
         // Ordinary sole torso without Absolute: still 0 % without Bloody Mess.
         assert_eq!(chances(&torso(), &sole_blow, &s), (0.0, 0.0));
+    }
+
+    #[test]
+    fn on_hit_code_roundtrips_with_schema_label() {
+        for (code, expected) in [
+            (0, OnHit::Normal),
+            (1, OnHit::DismemberOnly),
+            (2, OnHit::ExplodeOnly),
+            (3, OnHit::Neither),
+            (99, OnHit::Normal),
+        ] {
+            let parsed = OnHit::from_code(code);
+            assert_eq!(parsed, expected);
+            assert_eq!(OnHit::from_label(Some(parsed.label())), expected);
+        }
     }
 }
