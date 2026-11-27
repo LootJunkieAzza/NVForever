@@ -4910,7 +4910,7 @@ args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", 
 messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "main 2026-10-23 (origin/main cd54601d+, 13 blows): the add-ons' load message boxes hold the game for about 8 s of the 30 (list 7 W4: 12 and 14 on its branch)" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [100, 170], label = "the dogs bite from their reach and body, (RNAM 48 + 62 for the Dog skeleton) x 1.2 = 132 at most, not from inside the player (the original's dogs began a median 133 units away; ours 121 on 2026-10-17; npc-behaviour-compare.md §3, #1334)" },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
@@ -9964,7 +9964,7 @@ args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", 
 run_seconds = 130
 expect = [
   { re = 'npc combat: 0x000(F36F|15CE)\S* 0x\S+ fights (FiendCookCookRef|0x000F9CE)', label = "the NCR troopers fight the Fiends" },
-  { re = 'battle: .* killed by ', min = 3, label = "three or more killed" },
+  { re = 'battle: .* killed by ', min = 3, label = "three or more killed", known_failing = "#1162: the fight's own course: 2 killed in some runs (1 of 4 runs on 2026-11-27; about 1 in 7 when the issue was opened), on main as on branches; the Fiends that stand are fighting on when the run ends at 120 s" },
   { re = 'battle summary: 2 sides, (?P<n>\d+) actors', range = [5, 12], label = "battle summary: 2 sides" },
 ]
 
@@ -10011,8 +10011,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', range = [26, 1000], all = true, label = "every cover spot has room for the capsule" },
-  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek (?P<n>\d+)', range = [26, 1000], all = true, label = "every peek point has room for the capsule" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', label = "a fighter takes cover in the battle", known_failing = "#1162: in about 1 run of 3 nobody reaches cover before the fight is over (0 cover taken, the battle resolved in 43-53 s; Take Cover Chance is rolled every 10 s), so no cover spot is there to measure; the room round each spot that is taken is checked by the forbid lines below" },
   { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the battle" },
   { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the battle is over full scale" },
   { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
@@ -10020,7 +10019,11 @@ expect = [
   { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
   { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no sound of the battle cut mid-waveform (each stop fades out)" },
 ]
-forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
+forbid = [
+  { re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot ([0-9]|1[0-9]|2[0-5])(\D|$)', label = "a cover spot with less room than the capsule needs (26)" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek ([0-9]|1[0-9]|2[0-5])(\D|$)', label = "a peek point with less room than the capsule needs (26)" },
+]
 
 [[scenario]]
 name = "person-armour-pace"
@@ -11394,10 +11397,10 @@ expect = [{ re = 'provocation summary: .*aggro radius: (?P<n>\d+) warnings, (?P<
 [[scenario]]
 name = "aggro-spawned-no-warning"
 source = "#1341 (crates/fnv-game/src/aggro.rs \"Spawned actors do not warn\", docs/design/combat-ai.md §13.1): an actor created at run time (PlaceAtMe) attacks a player inside its aggro radius at once, without the placed one's warnings; the original's CrCoyote did so at the placed coyote's spot, 700 of 1,024 units off (capture o25_coyote, 2026-11-06)"
-note = "the setup of aggro-radius (the player about 600 units from VERGSCoyote6REF 0x00157B38, past half its 1,024 radius, where a placed one warns); the six Goodsprings coyotes are disabled and a CrCoyote (the first created reference, 0xFF0000xx) is PlaceAtMe'd at coyote 6's spot at 3 s"
+note = "the setup of aggro-radius (the player about 600 units from VERGSCoyote6REF 0x00157B38, past half its 1,024 radius, where a placed one warns); the six Goodsprings coyotes are disabled and a CrCoyote (the first created reference, 0xFF0000xx) is PlaceAtMe'd at coyote 6's spot at 3 s. Coyote 6 is first set back on its editor place (-58705, -753, 8838), 595 units from the player [observed: fnvtool world refs]: it wanders in the 2.5 s before it is disabled, and the spawn followed it out of the band in 2 of 4 runs (#1162)"
 areas = ["combat", "alert"]
 paths = ["crates/fnv-game/src/aggro.rs", "engine/nvforever/src/provoked.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,3:call:VERGSCoyote6REF:PlaceAtMe:CrCoyote:1" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,2.6:call:VERGSCoyote6REF:SetPos:x:-58705,2.7:call:VERGSCoyote6REF:SetPos:y:-753,2.8:call:VERGSCoyote6REF:SetPos:z:8838,3:call:VERGSCoyote6REF:PlaceAtMe:CrCoyote:1" }
 args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 25
 expect = [{ re = 'provocation: .*0xFF0000[0-9A-F]{2} attacks the player, who stayed inside its aggro radius \((?P<n>\d+) of 1024 units\)', range = [513, 1024], label = "the spawned coyote attacks past half its radius" }]
