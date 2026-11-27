@@ -101,6 +101,9 @@ import bevy_pbr::{
 // while the view has the plumbing (the shader def then exists: bevy_pbr mesh.rs).
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
+// The probe volume's bounce light (nvforever rtgi_volume.rs), only in the pipelines that read
+// it (nif_material.rs `reads_rtgi_volume`).
+@if(!PREPASS_PIPELINE && NVF_RTGI_VOLUME) import nvforever::rtgi_volume::nvf_rtgi_face;
 
 import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
 @if(NVF_PBR_VIEW_OCCLUSION && !PREPASS_PIPELINE) import nvf_assets::nif_surface_bindings::occlusion_texel;
@@ -170,6 +173,30 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
         sum += lights.directional_lights[i].color.rgb * (view.exposure / 3.14159265);
     }
     return clamp(sum, vec3(0.0), vec3(1.0));
+}
+
+// The direction the cube is read in (env_map.rs `lookup`, its CPU mirror): the view reflected
+// about the interpolated normal (`mark` 2) or the shading normal (1), turned as `axes` says
+// (env_map.rs Axes). Which side the normal faces does not matter: reflect(I, N) is
+// reflect(I, -N). An interpolated normal of no length (a vertex stores none, or opposing ones
+// meet) falls back to the view direction, so nothing that is not finite is sampled.
+@if(!PREPASS_PIPELINE && !NIF_SURFACE_BLEND) fn env_lookup(v: vec3<f32>, shading: vec3<f32>, interpolated: vec3<f32>, axes: f32, mark: f32) -> vec3<f32> {
+    var n = shading;
+    if mark > 1.5 {
+        let squared = dot(interpolated, interpolated);
+        n = select(v, interpolated * inverseSqrt(max(squared, 1e-12)), squared > 1e-12);
+    }
+    let r = reflect(-v, n);
+    if axes > 3.5 {
+        return vec3(r.x, -r.z, r.y);
+    } else if axes > 2.5 {
+        return vec3(r.x, r.y, r.z);
+    } else if axes > 1.5 {
+        return vec3(r.x, -r.y, -r.z);
+    } else if axes > 0.5 {
+        return vec3(-r.x, r.y, -r.z);
+    }
+    return vec3(r.x, r.y, -r.z);
 }
 
 // Main-pass geometry uses the render viewport, which can be smaller than the
@@ -501,6 +528,18 @@ const BODY_CLEARANCE: f32 = 24.0;
     return cascade;
 }
 
+// The sRGB transfer both ways, held at 0 below, as the display-value sum uses it
+// (nvforever lights/display_shader.rs `nvf_linear_to_display`, `nvf_display_to_linear`).
+@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn shade_display(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
+}
+
+@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn shade_linear(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
+}
+
 @if(!PREPASS_PIPELINE && SHADE_LIGHT) fn with_shade_light(in: PbrInput, shadowed: vec4<f32>) -> vec4<f32> {
     if (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) == 0u {
         return shadowed;
@@ -560,11 +599,12 @@ const BODY_CLEARANCE: f32 = 24.0;
     let k = (v_lit + share - sun_shadow_value(sun, in, wanted, view_z)) / missing;
     if lights.ambient_color.a < 0.0 {
         // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
-        // texture × sum^2.2, so its display value (^(1/2.2)) is linear in the shadow
-        // values; the same algebra there (the specular part is taken along).
-        let lit_d = pow(max(lit.rgb, vec3(0.0)), vec3(1.0 / 2.2));
-        let shadowed_d = pow(max(shadowed.rgb, vec3(0.0)), vec3(1.0 / 2.2));
-        return vec4(pow(max(lit_d - (lit_d - shadowed_d) * k, vec3(0.0)), vec3(2.2)), shadowed.a);
+        // the linear colour of the texture's display value × the sum (sRGB curve), so its
+        // display value is linear in the shadow values; the same algebra there (the
+        // specular part is taken along).
+        let lit_d = shade_display(lit.rgb);
+        let shadowed_d = shade_display(shadowed.rgb);
+        return vec4(shade_linear(lit_d - (lit_d - shadowed_d) * k), shadowed.a);
     }
     return lit - (lit - shadowed) * k;
 }
@@ -608,6 +648,9 @@ fn nif_fragment(
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_wdy = dpdy(in.world_position.xyz);
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dx = vec2(terrain_wdx.x, -terrain_wdx.z);
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dy = vec2(terrain_wdy.x, -terrain_wdy.z);
+    // The probe volume's reads are moved off the surface along its geometric normal, taken
+    // here for the same reason.
+    @if(NVF_RTGI_VOLUME && !PREPASS_PIPELINE) nvf_rtgi_face(in.world_position.xyz);
     // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
     @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
@@ -891,12 +934,14 @@ fn nif_fragment(
         @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY) out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
         // Environment map (nif_material.rs NifSurface::env, env_how; docs/spec-notes/nif.md
         // §6 "Window glass and environment maps", "Environment maps on other shapes"): the
-        // cube read in the view direction reflected about the normal, × the scale × the
+        // cube read in the view direction reflected about the normal (`env_lookup`), × the scale × the
         // mask × the distance fade, added to the lit colour. The game is Z-up and the
         // cube's faces are laid out Y-up: the game-space direction (x, y, z) is looked up
         // as (x, z, y), which from Bevy's Y-up world space (x, z, -y of the game) is
-        // (x, y, -z) [hypothesis]; env_how.x picks another orientation for a debug switch
-        // (env_map.rs Axes: 1 flip x, 2 flip y, 3 flip z, 4 swap y and z). A premultiplied
+        // (x, y, -z) [hypothesis, window shapes]. env_how.x 4, every other shape by default
+        // (#4392): the game-space direction as it is, Bevy's (x, -z, y) [hypothesis, from the
+        // original's picture of the Goodsprings camper]; 1 flip x, 2 flip y, 3 flip z are
+        // debug switches (env_map.rs Axes). A premultiplied
         // shape (a blended window shape that reflects) has its colour multiplied by its
         // alpha first, so the reflection lies over the blend whatever the alpha; a blended
         // shape is weighted by its alpha, reflection included [hypothesis]. Not in the blend
@@ -924,18 +969,7 @@ fn nif_fragment(
             out.color = vec4(select(out.color.rgb, out.color.rgb * out.color.a, premultiplied), out.color.a);
         }
         @if(!NIF_SURFACE_BLEND) if surface.env.x > 0.0 && env_fade > 0.0 {
-            let r = reflect(-pbr_input.V, pbr_input.N);
-            var dir = vec3(r.x, r.y, -r.z);
-            let axes = surface.env_how.x;
-            if axes > 3.5 {
-                dir = vec3(dir.x, dir.z, dir.y);
-            } else if axes > 2.5 {
-                dir = vec3(dir.x, dir.y, -dir.z);
-            } else if axes > 1.5 {
-                dir = vec3(dir.x, -dir.y, dir.z);
-            } else if axes > 0.5 {
-                dir = vec3(-dir.x, dir.y, dir.z);
-            }
+            let dir = env_lookup(pbr_input.V, pbr_input.N, pbr_input.world_normal, surface.env_how.x, surface.env_how.w);
             var mask = 1.0;
             @if(VERTEX_UVS_A) if surface.env.y > 0.5 && surface.env.y < 1.5 {
                 mask = env_mask_texel(in.instance_index, (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy);

@@ -474,7 +474,7 @@ pub(crate) mod tests {
     pub(crate) fn snapshot() -> Snapshot {
         let row = |id, equipped| item_menu::RowShown {
             key: RowKey { units: (FormId(id), None, 0), reference: None, nth: 0 },
-            name: format!("Item {id}"), text: format!("Item {id}"), equipped, ysi: None,
+            name: format!("Item {id}"), text: format!("Item {id}"), equipped, dim: false, ysi: None,
         };
         Snapshot {
             common: item_menu::Snapshot {

@@ -179,6 +179,9 @@ pub struct PlayerControl {
     /// A kill camera has the view (`crate::kill_cam`): it counts as a third-person view,
     /// so the body is drawn and the first-person arms are not.
     pub cinematic: bool,
+    /// A minigame's camera has the view (the slot machine's, nvforever `slots_view.rs`):
+    /// counted as a third-person view, as [`Self::cinematic`] is.
+    pub scene_cam: bool,
     /// A conversation's close-up from third person (`crate::dialogue_zoom`): how far the
     /// camera has travelled from its place behind the player to the first-person eye, 0 to 1.
     /// [`Self::pov`] stays the player's own.
@@ -207,6 +210,7 @@ impl Default for PlayerControl {
             crosshair: None,
             portrait: None,
             cinematic: false,
+            scene_cam: false,
             talk_camera: 0.0,
         }
     }
@@ -235,7 +239,7 @@ impl PlayerControl {
     /// conversation's close-up has come so close that the body goes
     /// ([`TALK_CAMERA_CLOSE`]), or a camera that does (the creator's, a kill camera).
     pub fn third_person_view(&self) -> bool {
-        self.portrait.is_some() || self.cinematic || (self.own_third_person() && self.talk_camera < TALK_CAMERA_CLOSE)
+        self.portrait.is_some() || self.cinematic || self.scene_cam || (self.own_third_person() && self.talk_camera < TALK_CAMERA_CLOSE)
     }
 
     /// The heading the view looks along for a player facing `heading`: turned by the

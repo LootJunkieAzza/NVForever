@@ -40,6 +40,19 @@ pub struct Sampler {
     levels: Vec<Level>,
     to_linear: Box<[f32; 256]>,
     wrap: [Wrap; 2],
+    srgb: bool,
+}
+
+/// A texture as rays read it.
+#[derive(Clone, Copy, Debug)]
+pub struct Texels<'a> {
+    /// The levels that [`Lookup::Alpha`] and [`Lookup::Color`] read; they may be the same one.
+    pub alpha: &'a Level,
+    pub color: &'a Level,
+    pub srgb: bool,
+    /// What a colour's byte stands for.
+    pub to_linear: &'a [f32; 256],
+    pub wrap: [Wrap; 2],
 }
 
 impl Sampler {
@@ -60,7 +73,11 @@ impl Sampler {
             }
         }));
         let levels = t.levels.into_iter().take(color + 1).skip(alpha).collect();
-        Some(Sampler { levels, to_linear, wrap: t.wrap })
+        Some(Sampler { levels, to_linear, wrap: t.wrap, srgb: t.srgb })
+    }
+
+    pub fn texels(&self) -> Texels<'_> {
+        Texels { alpha: &self.levels[0], color: &self.levels[self.levels.len() - 1], srgb: self.srgb, to_linear: &self.to_linear, wrap: self.wrap }
     }
 
     /// Texels, levels and the table, as they are held.

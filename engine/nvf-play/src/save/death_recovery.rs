@@ -105,6 +105,14 @@ pub(super) fn update(world: &mut World) {
         return;
     }
     let Some(rt) = world.get_resource::<ScriptState>().and_then(|s| s.rt.as_ref()) else { return };
+    // In co-op a player at 0 Health is down, waiting to be revived or to respawn: co-op's
+    // own rules decide what follows (`nvforever`'s `coop.rs` and `coop/revive.rs`, the
+    // downed screen `crate::coop_downed`). Recovering here would send a downed player to
+    // the Load menu mid-revive [design].
+    if rt.game.coop_game {
+        *world.resource_mut::<DeathRecovery>() = DeathRecovery::default();
+        return;
+    }
     let dead = rt.game.is_dead(FormId::PLAYER_REF);
     let delay = rt.game.world.setting_f32(DELAY_SETTING).filter(|v| v.is_finite() && *v >= 0.0).unwrap_or(DEFAULT_DELAY);
     if !dead {

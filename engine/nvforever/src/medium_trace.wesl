@@ -29,7 +29,7 @@ struct MediumTrace {
     grid: vec4<f32>,
     // The default mode's cast pattern: x the phase; y the start offsets (0 turning, 1 fixed,
     // 2 blue, 3 centre: NVF_PLAY_DEBUG_MEDIUM_OFFSETS); z the tile side (1, 2 or 3:
-    // NVF_PLAY_DEBUG_MEDIUM_TILE); w unused (all 0 in the reference mode).
+    // NVF_PLAY_DEBUG_MEDIUM_TILE); w is the water plane's height above a mirror eye, zero for the main view.
     tiles: vec4<f32>,
 }
 
@@ -137,7 +137,16 @@ fn medium_offset(texel: vec2<u32>, phase: u32, mode: u32, cycle: u32) -> f32 {
 
 @fragment
 fn medium_trace_refined(in: FullscreenVertexOutput) -> TraceOutput {
-    let ray = MediumRay(medium.origin.xyz, medium_ray_dir(in.position.xy), 0.0, medium.grid.w, medium.origin.w);
+    let dir = medium_ray_dir(in.position.xy);
+    var start = 0.0;
+    if medium.tiles.w > 0.0 {
+        // Only the reflected line of sight from the water surface onward is visible.
+        if dir.y <= 0.0 {
+            return medium_output(MediumSample(vec3<f32>(0.0), 1.0, -1.0));
+        }
+        start = medium.tiles.w / dir.y;
+    }
+    let ray = MediumRay(medium.origin.xyz, dir, start, medium.grid.w, medium.origin.w);
     var s: MediumSample;
     let view = vc_view_code(volume);
     if view == 1u || view == 2u || view == 4u {

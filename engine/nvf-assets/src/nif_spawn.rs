@@ -200,6 +200,8 @@ pub(crate) struct Props {
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
     shader: bool,
+    /// The shape is a shadow patch baked into its model ([`baked_shadow_patch`]).
+    pub(crate) shadow_patch: bool,
 }
 
 impl Props {
@@ -738,7 +740,62 @@ pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_blo
         }
     }
     props.vertex_faded = props.vertex_faded && props.unlit && props.alpha.is_none() && vertex_alpha_below_one(dec, o.block);
+    props.shadow_patch = baked_shadow_patch(&props, dec, o.block);
+    // A shadow patch takes its vertex alpha whatever the flag ([`baked_shadow_patch`]).
+    props.vertex_alpha |= props.shadow_patch;
     props
+}
+
+/// NiAlphaProperty flags that blend SRC_ALPHA / INV_SRC_ALPHA [documented: nif.xml
+/// AlphaFlags: bit 0 blending, bits 1-4 the source factor, bits 5-8 the destination's;
+/// 6 SRC_ALPHA, 7 INV_SRC_ALPHA].
+pub(crate) fn blends_over(flags: i64) -> bool {
+    flags & 1 != 0 && (flags >> 1) & 15 == 6 && (flags >> 5) & 15 == 7
+}
+
+/// Whether these vertex colours (as stored) are a shadow's: every one black (each channel
+/// at most [`SHADOW_BLACK`] once cleaned), some alpha below 1 and some above 0.
+pub(crate) fn shadow_colours(colours: &[[f32; 4]]) -> bool {
+    let clean: Vec<[f32; 4]> = colours.iter().map(|c| clean_vertex_color(*c, true)).collect();
+    !clean.is_empty()
+        && clean.iter().all(|c| c[0] <= SHADOW_BLACK && c[1] <= SHADOW_BLACK && c[2] <= SHADOW_BLACK)
+        && clean.iter().any(|c| c[3] < 1.0)
+        && clean.iter().any(|c| c[3] > 0.0)
+}
+
+/// The largest colour channel a shadow patch's vertex may hold [engineering choice: the
+/// patches store exact black].
+pub(crate) const SHADOW_BLACK: f32 = 0.02;
+
+/// Whether a shape is a shadow patch baked into its model: the dark polygon the game's
+/// furniture carries on the floor under it. An unlit shape (BSShaderNoLightingProperty)
+/// that names no texture, blends SRC_ALPHA / INV_SRC_ALPHA ([`blends_over`]) and whose
+/// vertex colours are black with an alpha that varies ([`shadow_colours`]) [observed:
+/// `CardTable01:1` of `meshes\clutter\casino\cardtable01.nif`, decoded: 20 vertices on
+/// the floor plane under the table, colour 0 0 0, alpha 0 along the outline and 0.7
+/// inside, NiAlphaProperty 0x10ED, shader flags 0x82000000].
+///
+/// Such a shape takes its vertex alpha whether or not its shader sets "Vertex_Alpha"
+/// [hypothesis, playtest 2026-11-25: the card table's does not set it, and with the alpha
+/// taken as 1 ([`clean_vertex_color`]) the patch was an opaque black octagon with a hard
+/// outline; its stored alpha is the picture of a shadow, nothing at its edge and 70% in
+/// the middle, which only shows if the alpha is drawn. No frame of the original was
+/// compared; docs/spec-notes/nif.md §6 "Vertex colours"]. It does not fade where it meets
+/// the surface behind it either (`nif_material::soft_intersections`): it lies on that
+/// surface, and the fade's test of that (the two facings from screen derivatives) failed
+/// from a few metres away, so the patch went from half gone to whole as the camera moved
+/// (the player's video of that table).
+///
+/// 1,314 shapes of the base game's and the add-ons' archives are such [observed 2026-11-25,
+/// `crates/fnv-nif/examples/baked_shadow_survey.rs`]: the patches under furniture (alpha
+/// 0.4 to 0.8), and 196 that are black in full somewhere, the dark of recessed ceiling
+/// lights, tunnel mouths, doorways and wall holes.
+pub(crate) fn baked_shadow_patch(props: &Props, dec: &Decoded, shape: usize) -> bool {
+    if !props.unlit || !props.textures.iter().all(|t| t.is_empty()) || !props.alpha.is_some_and(|(flags, _)| blends_over(flags)) {
+        return false;
+    }
+    let data = dec.blocks.get(shape).and_then(|b| b.as_ref().ok()).and_then(|s| s.block_ref("data")).and_then(|r| dec.get(r));
+    data.and_then(|d| d.floats("vertex_colors")).is_some_and(|c| shadow_colours(c.as_chunks::<4>().0))
 }
 
 /// Perceptual roughness for a NiMaterialProperty glossiness, read as a Blinn-Phong
@@ -1432,7 +1489,9 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         unlit_vertex_colors(&mut material);
     }
     material.extension.decal = props.decal;
-    if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
+    // A baked shadow patch lies on the surface behind it: no fade where they meet
+    // ([`baked_shadow_patch`]).
+    if !props.shadow_patch && crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
     }
     if let Some(strength) = props.refraction {
@@ -2630,6 +2689,29 @@ mod tests {
     }
 
     #[test]
+    fn a_baked_shadow_patch_is_black_vertices_with_a_varying_alpha_that_blend() {
+        // The card table's patch: alpha 0 along the outline, 0.7 inside.
+        let patch = [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.7], [0.0, 0.0, 0.0, 0.0]];
+        assert!(shadow_colours(&patch));
+        assert!(!shadow_colours(&[]), "no colours");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 1.0]; 3]), "alpha 1 everywhere: nothing to show");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 0.0]; 3]), "alpha 0 everywhere: nothing drawn");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 0.0], [0.9, 0.5, 0.1, 0.7]]), "a coloured glow, not a shadow");
+        assert!(shadow_colours(&[[0.01, 0.0, 0.02, 0.0], [0.0, 0.0, 0.0, 0.5]]), "within SHADOW_BLACK");
+        // Garbage alphas are cleaned to 1 first (`clean_vertex_color`).
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, f32::NAN], [0.0, 0.0, 0.0, 1.0]]));
+        // 0x10ED: blending, SRC_ALPHA / INV_SRC_ALPHA, no test.
+        assert!(blends_over(0x10ED));
+        assert!(!blends_over(0x10EC), "blending off");
+        assert!(!blends_over(0x100D), "SRC_ALPHA / ONE: additive");
+        // The shape takes its vertex alpha though its shader does not set the flag.
+        let props = Props { unlit: true, alpha: Some((0x10ED, 0)), shadow_patch: true, vertex_alpha: true, textures: vec![String::new()], ..Default::default() };
+        assert!(matches!(shape_alpha_mode(&props), AlphaMode::Blend));
+        assert_eq!(clean_vertex_color([0.0, 0.0, 0.0, 0.7], props.vertex_alpha)[3], 0.7);
+        assert_eq!(clean_vertex_color([0.0, 0.0, 0.0, 0.7], false)[3], 1.0, "without it: the opaque black patch");
+    }
+
+    #[test]
     fn falloff_only_when_blended() {
         let props = Props { falloff: Falloff::from_fields(0.985, 0.174, 1.0, 0.0), ..Default::default() };
         assert!(shape_falloff(&props, AlphaMode::Add).is_some());
@@ -2973,7 +3055,7 @@ mod tests {
         let (m, _) = shape_material_inner(&props, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
         assert!(m.extension.env_cube.is_some() && m.extension.env_mask.is_some(), "cube and mask bound");
         assert_eq!((m.extension.env.x, m.extension.env.y), (1.5, 1.0), "the scale and the slot-5 mask");
-        assert_eq!((m.extension.env_how.z, m.extension.env_how.w), (0.0, 1.0), "a reflecting shape, not a window");
+        assert_eq!((m.extension.env_how.z, m.extension.env_how.w), (0.0, 2.0), "a reflecting shape, not a window: the vertex normal");
         let window = env_model_props((1 << 7) | (1 << 21));
         let (w, _) = shape_material_inner(&window, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
         assert_eq!(w.extension.env_how.z, 1.0, "both flags: a window shape");

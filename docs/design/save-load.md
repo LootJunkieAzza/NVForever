@@ -405,9 +405,11 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   not done.
 - **Console**: `save <name>`, `load [name]` (the quicksave without a name), `saves` (the
   list: name, level, place, game date, kind).
-- **Thumbnail** (`save.rs`): the snapshot is taken at the end of the frame as before; that
-  frame is drawn without the UI (the root UI nodes are hidden for it, shown again the next
-  frame, so a menu blinks for one frame) and captured from the window. When the picture
+- **Thumbnail** (`save.rs`): the snapshot is taken at the end of the frame as before; the
+  render world blits the main 3D view's post-processed texture into a temporary RGBA8 sRGB
+  capture texture in `Core3d` after `Core3dSystems::PostProcess` and before `ui_pass` and
+  reads it back asynchronously after `RenderGraphSystems::Submit`, so the thumbnail has no
+  HUD or menus and no UI node is hidden or blinks on screen (#3808). When the picture
   arrives, a writer thread takes its middle 16:9, scales it to 512×288 by area averaging,
   encodes an RGB PNG (`png` crate, the version Bevy already builds) and writes the file.
   Measured in the smoke run: the frame spends about 1 ms on the snapshot; the file is on

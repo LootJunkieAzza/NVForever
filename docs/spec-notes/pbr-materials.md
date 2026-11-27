@@ -555,58 +555,31 @@ game beyond the field test below [documented: `engine/nvf-assets/src/authored.rs
 
 ### Known limits (stage 3)
 
-From the source reviews of 2026-11-19 and 2026-11-20 [documented: the files named]. Two
-are not fixed:
+From the source reviews of 2026-11-19 and 2026-11-20 [documented: the files named]:
 
-- **A script's material edit during a fade.** The property mirror
-  (`engine/nvforever/src/nif_mirror.rs`) makes the shape's private material from the
-  material it wears, which during a fade is the fade's copy, while the fade
-  (`engine/nvf-play/src/fade.rs` `Fading`, `engine/nvforever/src/effect_shaders.rs` `Faded`)
-  keeps the older original and puts it back when it ends. The edit is then lost: on an
-  authored shape the set's roughness first looks right, and a later swap to a diffuse
-  without a set brings back the gloss stored before the edit. Fixing it means the fades
-  rebuilding their copies from a per-shape material, a change to the fade system itself.
+- **A script's material edit during a fade (fixed in #3105).** Previously, the property
+  mirror (`engine/nvforever/src/nif_mirror.rs`) copied the worn fade copy and the fade's
+  end discarded the edit. Under #3105's single `nvf_play::fade::Fading` owner,
+  `mutate_shape_material` resolves `nvf_play::fade::persistent_material`, edits the mesh's
+  own private persistent copy, and calls `queue_retarget` to rebuild the see-through copy
+  in place, so the edit is drawn during the fade and kept after it ends.
 - **A placed shape the mirror gave a private material, then swapped.** The swap matches
   shapes by their original material, and a placed shape without a shape name no longer
   matches once the mirror replaced it, so its old diffuse stays drawn with its authored
   fields (set, mark, metallic). This predates stage 3 (`texture_swap.rs`, `nif_mirror.rs`).
 
-What holds for a texture swap while the shape fades, and what does not:
+What holds for a texture swap and overlapping fades (#3105):
 
-- **SetActorAlpha and a fade on one mesh, then a swap.** Whichever of the two started
-  second copied what the mesh wore then, so its stored original can be the other's
-  see-through copy. The swap matches and copies the mesh's own material beneath both
-  (`engine/nvforever/src/effect_shaders.rs` `persistent_material`, `texture_swap.rs`), so
-  the swapped material carries the new diffuse with the mesh's own alpha, blend mode and
-  depth write, in both start orders [documented: test `texture_swap.rs`
-  `a_swap_under_both_fades_copies_the_mesh_own_material_in_either_start_order`, through
-  `Swapping::sync`, the fade's step and `AlphaDrawing::sync` on a named shape, with the
-  fade stepped before the actor's alpha in that fixture; not seen in the game]. An unnamed
-  shape is matched by the same handle, its model's material [hypothesis, from the source:
-  the test has no model-backed unnamed shape]. When the actor's alpha outlasts one fade and
-  a second fade runs, the alpha's stored original is the first fade's removed copy; the
-  swap then takes the second fade's original [documented: test
-  `a_swap_during_a_second_fade_under_one_actor_alpha_copies_the_mesh_own_material`]. Two
-  sequences still give the swap a wrong source [hypothesis, from the source; neither system
-  keeps the mesh's own handle apart from its copies]: the alpha outliving a fade with no
-  second fade running (its stored original is a removed copy, so the swap is not made), and
-  the alpha released while a fade that started second still runs (the fade's original is
-  the alpha's copy, so the swapped material is see-through). Both go with the issue below.
-- **Not changed, and not whole: how the two see-through copies hand the mesh back.** With
-  no swap, two orders leave the mesh wrong after both have ended: the actor's alpha started
-  first and released first (the fade's end puts the alpha's copy back, the mesh stays
-  see-through), and the fade started first and ended first (the alpha's release puts back
-  the fade's copy, which the fade removed). The other two orders, and all four after a swap,
-  end on the mesh's own or swapped material, opaque [documented: the same test's `HELD`
-  list, each change in its own update, in the fixture's order of the two systems]. While
-  both run the two factors are not consistently composed: a fade that starts under the
-  actor's alpha multiplies the alpha copy's opacity, but an alpha that starts or changes
-  under a fade replaces what is drawn. The game declares no order between the fade's step
-  and the actor's alpha, and two ends in one update are not covered by the test
-  [hypothesis, from reading `fade.rs` `step` and `effect_shaders.rs` `AlphaDrawing::sync`].
-  This predates stage 3 and needs one
-  owner of the drawn material (base opacity x actor alpha x fade); it is left for its own
-  issue.
+- **Single owner of `SetActorAlpha` and presence fades (#3105).** `nvf_play::fade::Fading`
+  owns one see-through copy per mesh for presence fades (`fade.rs`) and `SetActorAlpha`
+  (`effect_shaders.rs`) alike, scaling the mesh's own persistent material's opacity and
+  cut-out threshold by `presence * actor_alpha` and restoring `Fading::original()` when
+  the last effect ends. Both `SwapTexture` (`texture_swap.rs`) and scripted material edits
+  (`nif_mirror.rs`) resolve `nvf_play::fade::persistent_material` and retarget `Fading` in
+  place, so all eight overlap/swap start-and-end orders (named and model-backed unnamed
+  shapes alike, including two ends in one update and either command-flush ordering) restore
+  the mesh's own or swapped material opaque [documented: tests in `fade.rs`,
+  `texture_swap.rs`, `effect_shaders.rs`, `nif_mirror.rs`].
 
 ## Reflections on authored materials
 
@@ -812,7 +785,8 @@ reflection); computed on the CPU from what the renderer already lights the room 
   0.38, 0.35) or a ceiling (0.45, 0.45, 0.43). It is lit as the display-value sum lights a
   diffuse surface: light = the cell's ambient + its directional light x N.L + for each lamp
   colour x brightness x the game's attenuation saturate(1 - d^2 / radius^2) x N.L (x the
-  cone), and the surface writes min(albedo x light^2.2, 1), the units of stage 1's ground.
+  cone), and the surface writes the linear colour of min(albedo's display value x light, 1)
+  (sRGB curve; world.md §8 "Dark values of the sum"), the units of stage 1's ground.
   The renderer's lamps cast no shadows, so neither do these; a lamp behind a wall lights it
   as on screen. The cell's directional light lights the walls at full (its shadows left
   out). The cell's fog mixes walls toward its colour by distance as the fog does indoors.
@@ -919,17 +893,32 @@ and is off by default and in both presets [design].
   `TX04` (six `SuburbanRubble01_p` for NIF shapes, five impact decals) [documented:
   FalloutNV.esm, counted with `fnvtool esm decode` on the test install, 2026-11-21]. An
   authored set's `_p` is therefore the landscape's only height source.
-- [design] **The base is flat.** A quadrant's base texture takes no height map in this stage:
-  a quadrant without painted layers is drawn by the separate landscape material, which
-  stays unshifted, and a moving base would break at that quadrant's edge.
+- [design] **The base marches too** (#3846; flat in the first stage). Much of the ground is
+  base: in WastelandNV's 17,510 quadrants with painted layers it makes up 59% of the blend on
+  average and more than half of it at 59% of the vertices; the other 48,042 have no painted
+  layer, most of them cells without a base record either, outside the map (world.md §3)
+  [observed: the LAND records of FalloutNV.esm and its DLC masters, `ATXT` and `VTXT` as
+  stored, read with `fnv_world::land` as `crates/fnv-world/examples/land_layers.rs` reads
+  them]. Its height comes from where a layer's does and adds its share x its own depth x (1 -
+  height) to the one march. A quadrant without painted layers is drawn by the folded material
+  with no layers when its base has an authored height map, or no active set and a BC3 diffuse
+  (whose alpha may be one, whatever the switch, so the draws do not change with it), and marches
+  with its neighbours; every other one keeps the separate landscape material. The game's own
+  ground always does: of the 78 distinct diffuses the base game's and the DLCs' LTEX records
+  name, 75 are in the archives, all DXT1 [observed: their DDS headers]. The folded draw also
+  darkens burnt ground (docs/design/grass-fire.md), which the separate one does not.
+  Authored base height maps are loaded with the material, as the layers' are, whatever the
+  switch. No quadrant has more than six painted layers in those records,
+  so the layers drawn on their own (flat) are the edge stitching's (world.md §3), each painted
+  on an edge row.
 - [design] **One march.** Six layers in one draw rule out a march per layer. The folded
   draw marches once, steep parallax with the relief refinement, as NIF shapes march (the
   vendored `parallaxed_uv`'s relief method: its steps, view vector, tangent frame, signs and
   grazing clamp; "The march" below), over one blended depth: the sum over the layers of share x the layer's own depth x (1 - height),
   the share the layer's ordered share (painted opacity, laid
   over the earlier layers as the ordinary blend lays them; the diffuse's alpha has no part in
-  it, world.md §3 "Landscape layers: the diffuse's alpha"); the base and a layer without a
-  height map add no depth (flat at the surface). Then every texture of the quadrant, the
+  it, world.md §3 "Landscape layers: the diffuse's alpha"), and the base's likewise; one without
+  a height map adds no depth (flat at the surface). Then every texture of the quadrant, the
   base's and the layers', diffuse and normal map, is read at the one moved coordinate.
   Flat at the surface rather than mid-height so that the shift falls to nothing as a
   height-mapped layer's share does.
@@ -1068,7 +1057,7 @@ and is off by default and in both presets [design].
     "Texture Block Compression in Direct3D 11"]), mips included, and goes into the layer's
     height slot. The shader, the march, the weights and the edges are those above; only the
     depth differs: 0.03 for every pack (`ALPHA_HEIGHT_DEPTH`; no scalar file sets it).
-  - *Which textures.* A folded layer's diffuse that is DXT5 with sides in multiples of 4 and
+  - *Which textures.* A folded layer's or base's diffuse that is DXT5 with sides in multiples of 4 and
     whose alpha varies by at least 16 of 255 on its largest level of at most 256 texels a side.
     The diffuses FalloutNV.esm's LTEX records name are opaque DXT1 in the base game's archives
     [observed: jojokengly, #3486; world.md §3], so nothing is read from them. Other layouts with alpha
@@ -1139,9 +1128,9 @@ and is off by default and in both presets [design].
   itself is chosen at vertices, where no interpolation enters.
 - **Not done in stage 1** (owed): a passing run of the two ground-pack scenarios; the
   frame-time cost with and without the switch at a ground-heavy and a layer-heavy place;
-  before/after pictures with a ground pack (the readback aid saves its shots); the base's own
-  `_p`; height maps for the separate landscape materials and for the layers past the first
-  six of a quadrant (drawn on their own over the folded draw, unshifted).
+  before/after pictures with a ground pack (the readback aid saves its shots). Still without
+  height maps: the separate landscape materials (GPUs without bindless textures) and the layers
+  drawn on their own over the folded draw. (The base's own: #3846, above.)
 
 ## Load order: per file, so ship complete sets
 

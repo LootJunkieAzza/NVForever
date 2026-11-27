@@ -3505,6 +3505,174 @@ fn event_handlers_are_set_dispatched_filtered_and_removed() {
 }
 
 #[test]
+fn is_event_handler_first_and_last_match_execution_priority_order() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    q(
+        &mut g,
+        "SetEventHandler \"W6Ev\" TestSet \"priority\"::10
+         SetEventHandler \"W6Ev\" TestMap \"priority\"::5
+         SetEventHandler \"W6Ev\" TestAdd \"priority\"::5
+         SetEventHandler \"W6Ev\" TestSet \"priority\"::1",
+    );
+    // Highest priority (10) is first (1) and not last (0).
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 10)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 10)"), XVal::Num(0.0));
+    // Tied middle priority (5) is neither first nor last.
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestMap 5)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestMap 5)"), XVal::Num(0.0));
+    // Lowest priority (1) is not first (0) and is last (1).
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 1)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 1)"), XVal::Num(1.0));
+    // Unregistered priority (99) is 0 for both.
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerFirst \"W6Ev\" TestSet 99)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (IsEventHandlerLast \"W6Ev\" TestSet 99)"), XVal::Num(0.0));
+}
+
+#[test]
+fn on_disable_and_on_enable_fire_pre_update_with_null_self() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(
+            &format!("int afterDis\nint afterEn\nBegin Function {{ }}\n{body}\nEnd\n"),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let res = q(
+        &mut g,
+        "set TestGlobal to 0
+         SetEventHandler \"OnDisable\" (Begin Function {ref r, int z}
+           if eval (GetSelfAlt == 0) && (r == TestActivatorREF) && (z == 0) && (r.GetDisabled == 0)
+             let TestGlobal := TestGlobal + 1
+           endif
+         End)
+         SetEventHandler \"OnEnable\" (Begin Function {ref r, int z}
+           if eval (GetSelfAlt == 0) && (r == TestActivatorREF) && (z == 0) && (r.GetDisabled == 1)
+             let TestGlobal := TestGlobal + 10
+           endif
+         End)
+         TestActivatorREF.Disable 0
+         let afterDis := TestActivatorREF.GetDisabled
+         TestActivatorREF.Enable 0
+         let afterEn := TestActivatorREF.GetDisabled
+         SetFunctionValue (afterDis * 10 + afterEn)",
+    );
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+        "unexpected script error: {:?}",
+        g.events
+    );
+    assert_eq!(res, XVal::Num(10.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 11.0);
+}
+
+#[test]
+fn on_disable_and_on_enable_reentrancy_does_not_recurse_or_duplicate_events() {
+    use fnv_game::trace::EventKind;
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let res = g
+        .run_query(
+            "int afterDis
+             int afterEn
+             Begin Function { }
+               set TestGlobal to 0
+               SetEventHandler \"OnDisable\" (Begin Function {ref r, int z}
+                 let TestGlobal := TestGlobal + 1
+                 r.Disable 0
+               End)
+               SetEventHandler \"OnEnable\" (Begin Function {ref r, int z}
+                 let TestGlobal := TestGlobal + 10
+                 r.Enable 0
+               End)
+               TestActivatorREF.Disable 0
+               let afterDis := TestActivatorREF.GetDisabled
+               TestActivatorREF.Enable 0
+               let afterEn := TestActivatorREF.GetDisabled
+               SetFunctionValue (afterDis * 10 + afterEn)
+             End",
+            Default::default(),
+        )
+        .unwrap();
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, EventKind::ScriptError { .. })),
+        "unexpected script error on reentrant Disable/Enable: {:?}",
+        g.events
+    );
+    assert_eq!(res, XVal::Num(10.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 11.0);
+    let dis_count = g.events.iter().filter(|e| matches!(e.kind, EventKind::RefDisabled { .. })).count();
+    let en_count = g.events.iter().filter(|e| matches!(e.kind, EventKind::RefEnabled { .. })).count();
+    assert_eq!(dis_count, 1, "expected exactly 1 RefDisabled event");
+    assert_eq!(en_count, 1, "expected exactly 1 RefEnabled event");
+}
+
+#[test]
+fn dispatch_event_returns_one_and_overwrites_info_map_keys() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(
+            &format!("array_var m\nint r1\nint r2\nint ok\nBegin Function {{ }}\n{body}\nEnd\n"),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let res = q(
+        &mut g,
+        "SetEventHandler \"W6DEv\" (Begin Function {array_var a}
+           let a[\"mut\"] := 1
+         End)
+         let r1 := DispatchEvent \"W6DEv\"
+         let m := Ar_Construct \"stringmap\"
+         let m[\"eventName\"] := \"Wrong\"
+         let m[\"eventSender\"] := \"OldSnd\"
+         let r2 := DispatchEvent \"W6DEv\" m \"NewSnd\"
+         let ok := r1 * 1000 + r2 * 100
+         if eval (m[\"mut\"] == 1)
+           let ok := ok + 10
+         endif
+         if eval (m[\"eventName\"] == \"W6DEv\") && (m[\"eventSender\"] == \"NewSnd\")
+           let ok := ok + 1
+         endif
+         SetFunctionValue ok",
+    );
+    assert_eq!(res, XVal::Num(1111.0));
+    // Case-variant caller keys ("EventName", "eventsender") must overwrite in place rather than
+    // pushing duplicate entries into the stringmap.
+    let res_case = q(
+        &mut g,
+        "let m := Ar_Construct \"stringmap\"
+         let m[\"EventName\"] := \"Wrong\"
+         let m[\"eventsender\"] := \"OldSnd\"
+         let r1 := DispatchEvent \"W6DEv\" m \"CaseSnd\"
+         let ok := r1 * 1000
+         if eval (Ar_Size m == 3)
+           let ok := ok + 100
+         endif
+         if eval (m[\"eventName\"] == \"W6DEv\") && (m[\"eventSender\"] == \"CaseSnd\")
+           let ok := ok + 10
+         endif
+         if eval (m[\"EventName\"] == \"W6DEv\") && (m[\"eventsender\"] == \"CaseSnd\")
+           let ok := ok + 1
+         endif
+         SetFunctionValue ok",
+    );
+    assert_eq!(res_case, XVal::Num(1111.0));
+}
+
+#[test]
 fn set_event_handler_and_alt_deduplicate_identical_registrations() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();
@@ -3741,6 +3909,84 @@ fn set_delay_elapsed_returns_zero_and_updates_remaining_delay() {
 }
 
 #[test]
+fn get_debug_mode_state_reports_combat_ai_default_and_toggles() {
+    // [observed 2026-11-24: w6t2_24_jip_fall_time_and_is_in_air_edges -> dbg(0,1,1,0,0,0,tgm=1)]
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(0.0), "god mode off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 1)"), XVal::Num(1.0), "AI enabled by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 2)"), XVal::Num(1.0), "Combat AI enabled by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 3)"), XVal::Num(0.0), "collision debug off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 4)"), XVal::Num(0.0), "borders off by default");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 5)"), XVal::Num(0.0), "out-of-range mode reads 0");
+
+    g.toggles.god_mode = true;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(1.0), "tgm sets mode 0 to 1");
+    g.toggles.god_mode = false;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 0)"), XVal::Num(0.0));
+
+    g.toggles.actors_ai_off = true;
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 1)"), XVal::Num(0.0), "tai sets mode 1 to 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetDebugModeState 2)"), XVal::Num(1.0), "mode 2 stays 1 independently");
+}
+
+#[test]
+fn get_event_handlers_showoff_known_and_filter_keys() {
+    // [observed 2026-11-24: w6t2_16_xnvse_get_event_handlers_filter_keys ->
+    // empty(cross=-1,soAdd=0)|std(first,second)|alt(0,1)]
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+
+    // Known ShowOff:* events return an empty Map (size 0), while OnCrosshairOn and unknown
+    // event names return ar_Null (size -1).
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"ShowOff:OnAdd\"))"), XVal::Num(0.0), "ShowOff:OnAdd empty Map");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"ShowOff:OnFireWeapon\"))"), XVal::Num(0.0), "ShowOff:OnFireWeapon empty Map");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"OnCrosshairOn\"))"), XVal::Num(-1.0), "OnCrosshairOn returns ar_Null when unregistered");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"UnknownUserEvent\"))"), XVal::Num(-1.0), "unknown event returns ar_Null");
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetEventHandlers \"\"))"), XVal::Num(0.0), "unfiltered GetEventHandlers remains empty");
+
+    // Standard SetEventHandler stores filter StringMap keys as "first"/"second".
+    assert_eq!(
+        q(
+            &mut g,
+            "SetEventHandler \"OnActivate\" TestAdd \"first\"::PlayerREF \"second\"::TestGlobal\n\
+             array_var aAct = GetEventHandlers \"OnActivate\" TestAdd 1\n\
+             array_var aF = aAct[0][1]\n\
+             array_var aK = ar_Keys aF\n\
+             string_var sOut = sv_Construct \"%z,%z\" (aK[0]) (aK[1])\n\
+             RemoveEventHandler \"OnActivate\" TestAdd\n\
+             SetFunctionValue sOut",
+        ),
+        XVal::Str("first,second".into()),
+        "SetEventHandler filter keys are first,second"
+    );
+
+    // SetEventHandlerAlt stores filter StringMap keys as numeric index strings "0"/"1".
+    assert_eq!(
+        q(
+            &mut g,
+            "SetEventHandlerAlt \"OnActivate\" TestAdd 0::PlayerREF 1::TestGlobal\n\
+             array_var aAlt = GetEventHandlers \"OnActivate\" TestAdd 1\n\
+             array_var aF = aAlt[0][1]\n\
+             array_var aK = ar_Keys aF\n\
+             string_var sOut = sv_Construct \"%z,%z\" (aK[0]) (aK[1])\n\
+             RemoveEventHandler \"OnActivate\" TestAdd\n\
+             SetFunctionValue sOut",
+        ),
+        XVal::Str("0,1".into()),
+        "SetEventHandlerAlt filter keys are 0,1"
+    );
+}
+
+#[test]
 fn queries_run_function_scripts_and_keep_what_they_change() {
     // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
     // query are read by the next, and the saved ones are in the snapshot.
@@ -3791,10 +4037,12 @@ fn player_value_changes_cripples_and_ragdolls_reach_their_handlers() {
     assert_eq!(g.run_query(reg, ctx()), Ok(XVal::Num(0.0)));
     let size = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarSize \"{s}\")\nEnd\n"), ctx()).unwrap();
     let read = |g: &mut Game, s: &str, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.AuxVarGetFlt \"{s}\" {i})\nEnd\n"), ctx()).unwrap();
-    // A hit is no script function, and the handler still hears of it, once, rounded.
+    // A hit is no script function, and the handler still hears of it, once, truncated
+    // (100.0 -> 94.6 truncates to 100.0 -> 94.0, delta -6.0; observed 2026-11-24:
+    // w6t2p2_10_jg_on_av_change_timed / w6t2p3_10_av_m1_exact).
     g.hit(FormId::PLAYER_REF, 5.4, fnv_game::combat::HitInfo { location: -1, ..Default::default() });
     assert_eq!(size(&mut g, "*av"), XVal::Num(1.0));
-    assert_eq!((read(&mut g, "*av", 0), read(&mut g, "*avd", 0)), (XVal::Num(16.0), XVal::Num(-5.0)));
+    assert_eq!((read(&mut g, "*av", 0), read(&mut g, "*avd", 0)), (XVal::Num(16.0), XVal::Num(-6.0)));
     // DamageAV takes the left arm to 0: crippled, limb 2; the change is told once more.
     g.run_query("Begin Function { }\nPlayerREF.DamageAV LeftAttackCondition 200\nEnd\n", ctx()).unwrap();
     assert_eq!((size(&mut g, "*limb"), read(&mut g, "*limb", 0)), (XVal::Num(1.0), XVal::Num(2.0)));
@@ -4685,9 +4933,23 @@ fn generic_form_lists_validate_target_type_and_past_end_index() {
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, -2)"), XVal::Num(0.0), "empty FLST Add(-2) returns 0");
     assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "empty FLST Add(-2) appends (n: 0->1)");
     assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    // Exact boundary `i == n` when `n > 0` returns -1 without appending, whereas `i == 0`
+    // succeeds on an empty list (`n == 0`) [observed: w6t2p3_25_generic_form_real_flst].
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, 0)"), XVal::Ref(0x0000_0813));
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestHair, 0)"), XVal::Num(0.0), "empty FLST Add(0) inserts at 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestEye, 1)"), XVal::Num(-1.0), "non-empty FLST (n=1) Add(1 == n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestEmptyFlst, TestPkg, 2)"), XVal::Num(-1.0), "non-empty FLST (n=1) Add(2 > n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(1.0), "Add(n) did not append");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, -1)"), XVal::Ref(0x0000_0811), "Delete(-1) removes sole entry");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, TestEmptyFlst, -2)"), XVal::Ref(0), "Delete(-2) on now-empty list returns 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestEmptyFlst)"), XVal::Num(0.0));
 
     // Non-empty FLST (TestMultiFlst = [TestHair 0x811, TestEye 0x812, TestPkg 0x813], n0=3):
-    // Add: ONLY -2 appends (ret = n0 - 1 = 2, n = 4); -1/-3/-10/n+5 return -1.
+    // Add: `i == n` (3) returns -1 without mutating; `0..n` inserts in-range; ONLY -2 appends (ret = n0 - 1 = 2, n = 4); -1/-3/-10/n+5 return -1.
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, 3)"), XVal::Num(-1.0), "non-empty FLST (n=3) Add(3 == n) returns -1");
+    assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -1)"), XVal::Num(-1.0));
     assert_eq!(q(&mut g, "SetFunctionValue (ListGetCount TestMultiFlst)"), XVal::Num(3.0));
     assert_eq!(q(&mut g, "SetFunctionValue (GenericAddForm 13, TestMultiFlst, TestRace, -2)"), XVal::Num(2.0));
@@ -4725,15 +4987,17 @@ fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
     let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(|p: &str| {
         (p.eq_ignore_ascii_case("nvse\\user_defined_functions\\sub\\add.txt")).then(|| b"begin Function { int iA, int iB }\nSetFunctionValue iA + iB\nend\n".to_vec())
     });
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new() });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { hosted_from: None, read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new(), list: None });
     let f = udf_fixture();
     let mut g = game(&f);
     let ctx = fnv_game::game::RunCtx::default;
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("ref rF\nref rG\nfloat fRes\narray_var aA\nBegin Function {{ }}\n{body}\nEnd\n"), ctx());
     assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (Call rF 2 3)"), Ok(XVal::Num(5.0)));
+    // A compiled script is a valid form while it lasts (#4491).
+    assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (IsFormValid rF)"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "let rF := CompileScript \"sub\\add.txt\"\nlet rG := GetUDFFromFile \"Sub/Add.txt\"\nSetFunctionValue (rF == rG)"), Ok(XVal::Num(1.0)), "cached by path");
     assert_eq!(q(&mut g, "SetFunctionValue (CompileScript \"Sub/None.txt\")"), Ok(XVal::Ref(0)), "no file");
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new() });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { hosted_from: None, read: Vec::new(), config: None, write: None, lookup: None, reader: None, archives: Vec::new(), list: None });
 
     g.console_out.clear();
     q(&mut g, "let fRes := 2.5\nlet aA := ar_List 2, 4\nPrintVar fRes, aA").unwrap();
@@ -5528,6 +5792,9 @@ fn built_in_plugins_report_installed() {
     assert_eq!(q(&mut g, "GetPluginVersion \"SUP NVSE Plugin\" >= 250"), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, "GetPluginVersion \"CUI\""), Ok(XVal::Num(120.0)));
     assert_eq!(q(&mut g, "GetPluginVersion \"Improved Console\""), Ok(XVal::Num(3.0)));
+    // No script functions; the engine does their work itself (#4491).
+    assert_eq!(q(&mut g, "GetPluginVersion \"Engine Optimizations\""), Ok(XVal::Num(100.0)));
+    assert_eq!(q(&mut g, "GetPluginVersion \"HighResLocalMaps\""), Ok(XVal::Num(12.0)));
     for name in ["yUI", "NVTF", "No Such Plugin"] {
         assert_eq!(q(&mut g, &format!("IsPluginInstalled \"{name}\"")), Ok(XVal::Num(0.0)), "{name}");
         assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");
