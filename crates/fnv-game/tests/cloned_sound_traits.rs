@@ -157,4 +157,9 @@ fn temp_cloned_sounds_inherit_isolate_and_chain_source_and_numeric_traits() {
     call(&mut g, "setsoundtraitnumeric", &[XVal::Ref(orig.0), XVal::Num(12.0), XVal::Num(77.0)]);
     assert_eq!(call(&mut g, "getsoundtraitnumeric", &[XVal::Ref(orig.0), XVal::Num(12.0)]), p0);
     assert_eq!(g.sound_trait_override(orig, 12), None);
+
+    // Non-SOUN forms are ignored by SetSoundSourceFile [observed: w6d2p3_07_sound_source_file_and_clone].
+    call(&mut g, "setsoundsourcefile", &[XVal::Ref(STAT_OTHER), XVal::Str("w6d2_bad.wav".into())]);
+    assert_eq!(call(&mut g, "getsoundsourcefile", &[XVal::Ref(STAT_OTHER)]), XVal::Str(String::new()));
+    assert_eq!(g.sound_source_override(FormId(STAT_OTHER)), None);
 }

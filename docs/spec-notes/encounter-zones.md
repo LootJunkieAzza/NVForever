@@ -150,8 +150,17 @@ actors, `resolve_changed_at`), `engine/nvforever/src/zones.rs` (the engine's cop
 ## 6. Functions
 
 - `GetInZone zone` (0x11BE): 1 when the calling reference's current cell has the zone
-  (CELL XEZN, else its worldspace's) [documented: GECK wiki GetInZone; hypothesis: a
-  reference's own XEZN does not count, the wiki speaks of cells].
+  (CELL XEZN, else its worldspace's); a reference's own `SetRefEncounterZone` does not
+  satisfy `GetInZone` or `GetZone`, whereas `SetCellEncounterZone` satisfies both,
+  `SetZoneFlag`/`GetZoneFlag` also store higher `u8` flag bits such as bit `4`, and
+  `SetZoneRespawns rDamZ 0` sets `GetZoneFlag rDamZ 1` (Never Resets) to `1`
+  [documented: GECK wiki GetInZone; observed: Fallout: New Vegas 1.4.0.525 (040020D0) +
+  xNVSE 6.4.9 + AnhNVSE 131 + ShowOffNVSE Plugin 184 + JIP LN NVSE 57.30 (5730) +
+  JohnnyGuitarNVSE 528, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base
+  masters, read-only console probe `w6d10_11_encounter_zone_getinzone_cell_ref_and_flags`
+  (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+  `PROBE|w6d10_11_encounter_zone_getinzone_cell_ref_and_flags|inZ(0=0,ref=0,gzRefZ=1,cell=1,gzCell=1)|cz(1=1,clr=0,setC=1,bad=0)|fl(1,0,b4=0->1)|resp(1->0,f1=1)|dam(lvl=0,min=10,mat=0,ownZ=1)`;
+  zero DLL, PDB, or third-party source consulted].
 
 ## 7. Not built, open
 

@@ -158,7 +158,9 @@ fn equipped(g: &mut Game, actor: FormId, mask: u32) -> Vec<(FormId, fnv_sim::inv
         if slots == 0 {
             continue;
         }
-        let pick = if mask & SLOT_BITS == 0 { !g.is_item_non_playable(item) } else { slots & mask & SLOT_BITS != 0 };
+        // Omitted/0 mask selects all playable items; a nonzero mask with no bits in
+        // SLOT_BITS (e.g. 1 << 20) matches nothing [observed 2026-11-25: w6d7p2_32].
+        let pick = if mask == 0 { !g.is_item_non_playable(item) } else { slots & mask & SLOT_BITS != 0 };
         if pick {
             out.push((item, extra));
         }

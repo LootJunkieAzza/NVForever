@@ -596,3 +596,19 @@ SetWeapon1stPersonModel TestGun 0"#);
     assert!(back.weapon_model_changes().is_empty());
     assert_eq!(back.weapon_model_stamp(), empty);
 }
+
+#[test]
+fn set_equipped_weapon_mod_flags_ignores_out_of_range_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "PlayerREF.AddItem TestGun 1 1\nPlayerREF.EquipItem TestGun 0 1");
+    q(&mut g, "PlayerREF.SetEquippedWeaponModFlags 5");
+    assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponModFlags"), 5.0);
+    // Out-of-range values (15, -1) leave existing flags untouched [observed: w6d6p2_29_set_mod_flags_edges].
+    q(&mut g, "PlayerREF.SetEquippedWeaponModFlags 15");
+    assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponModFlags"), 5.0);
+    q(&mut g, "PlayerREF.SetEquippedWeaponModFlags -1");
+    assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponModFlags"), 5.0);
+    q(&mut g, "PlayerREF.SetEquippedWeaponModFlags 7");
+    assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponModFlags"), 7.0);
+}

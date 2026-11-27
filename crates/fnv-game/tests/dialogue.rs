@@ -3128,7 +3128,7 @@ SetFunctionValue (Ar_Size aQ) * 10 + (aQ[0] == QA)"), n(11.0));
     );
     assert_eq!(q(&mut g, "SetFunctionValue (AddNoteQuest TestTapeNote QHi) + (AddNoteQuest TestTapeNote QHi) + (RemoveNoteQuest TestTapeNote QA)"), n(3.0));
     assert_eq!(q(&mut g, "let aQ := GetNoteQuestList TestTapeNote
-SetFunctionValue (Ar_Size aQ) * 10 + (aQ[0] == QHi)"), n(11.0));
+SetFunctionValue (Ar_Size aQ) * 10 + (aQ[0] == QHi)"), n(21.0));
     assert_eq!(q(&mut g, "SetFunctionValue (SetNoteType TestTapeNote 9) * 10 + (SetNoteType Talker 1)"), n(0.0));
     // The read flag: the Pip-Boy marks it (saved); SetNoteRead without serialize lasts the
     // session, with it the save.

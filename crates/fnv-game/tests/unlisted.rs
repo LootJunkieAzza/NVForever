@@ -209,6 +209,30 @@ fn center_of_the_bounds() {
     assert!((n(&mut g, "BoxRef.GetCenterPos Z") - 111.5).abs() < 1e-3);
     assert!((n(&mut g, "BoxRef.GetCenterPos X") - 300.0).abs() < 1e-3);
     assert!((n(&mut g, "BoxRef.GetCenterPos Y") - 400.0).abs() < 1e-3);
+    // Asymmetric OBND with non-zero Z heading: GetCenterPos does NOT rotate OBND center
+    // [observed: w6d4_17_center_pos_rotated_and_pos_str_edges].
+    const ASYM: u32 = 0x970;
+    const ASYM_REF: u32 = 0x971;
+    let asym = edid(b"CONT", ASYM, "AsymDresser", &[sub(b"OBND", i16s(&[-35, -50, -98, 11, 47, 70]))]);
+    let mut data_bytes = [f32b(100.0), f32b(200.0), f32b(300.0), f32b(0.0), f32b(0.0), f32b(5.20_f32)].concat();
+    let asym_ref = record(b"REFR", 0, ASYM_REF, &[sub(b"EDID", z("AsymRef")), sub(b"NAME", ASYM.to_le_bytes().to_vec()), sub(b"DATA", std::mem::take(&mut data_bytes))]);
+    let cell = edid(b"CELL", 0x972, "AsymCell", &[sub(b"FULL", z("Asym")), sub(b"DATA", vec![1])]);
+    let children = group(0x972u32.to_le_bytes(), 6, &group(0x972u32.to_le_bytes(), 9, &asym_ref));
+    let raw = [plugin_bytes(), top(b"CONT", &asym), top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat())))].concat();
+    let plugins = vec![Plugin::parse(&raw, "UnlistedAsym.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f2 = Fixture { data, forms, refs };
+    let mut g2 = game(&f2);
+    assert!((n(&mut g2, "AsymRef.GetCenterPos X") - 88.0).abs() < 1e-3);
+    assert!((n(&mut g2, "AsymRef.GetCenterPos Y") - 198.5).abs() < 1e-3);
+    assert!((n(&mut g2, "AsymRef.GetCenterPos Z") - 286.0).abs() < 1e-3);
 }
 
 #[test]
@@ -255,7 +279,14 @@ fn attach_light_adds_a_node_and_remove_takes_it() {
 fn the_rest_answer_as_observed() {
     let f = fixture();
     let mut g = game(&f);
-    assert!((n(&mut g, "GetConditionDamagePenalty") - 0.67).abs() < 1e-9);
+    assert!((n(&mut g, "GetConditionDamagePenalty") - 0.67).abs() < 1e-6);
+    // SetConditionDamagePenalty updates GetConditionDamagePenalty live [observed: w6d6p3_05_cond_penalty_curve_invref].
+    assert_eq!(n(&mut g, "SetConditionDamagePenalty 0.0"), 0.0);
+    assert!((n(&mut g, "GetConditionDamagePenalty") - 0.0).abs() < 1e-6);
+    assert_eq!(n(&mut g, "SetConditionDamagePenalty 1.0"), 0.0);
+    assert!((n(&mut g, "GetConditionDamagePenalty") - 1.0).abs() < 1e-6);
+    assert_eq!(n(&mut g, "SetConditionDamagePenalty 0.67"), 0.0);
+    assert!((n(&mut g, "GetConditionDamagePenalty") - 0.67).abs() < 1e-5);
     assert_eq!(s(&mut g, "NpcRef.GetHitNode"), "NULL");
     for call in [
         "NpcRef.RefreshAnimData",
@@ -678,4 +709,114 @@ fn update_player_3d_queues_one_shot_and_is_transient() {
     assert!(g.take_update_player_3d());
     assert!(!g.update_player_3d_pending());
     assert!(!g.take_update_player_3d(), "one-shot");
+}
+
+#[test]
+fn get_world_map_pos_mults_writes_exterior_uvs_and_preserves_interior_vars() {
+    const WRLD: u32 = 0x980;
+    const EXT_CELL: u32 = 0x981;
+    const MK_GS: u32 = 0x982;
+    const MK_NEL: u32 = 0x983;
+    const MK_SL: u32 = 0x984;
+    const MK_NV: u32 = 0x985;
+    const STAT: u32 = 0x986;
+    let stat = edid(b"STAT", STAT, "MapMarkerStat", &[]);
+    let wrld = edid(b"WRLD", WRLD, "TestWasteland", &[]);
+    let ext_cell = edid(b"CELL", EXT_CELL, "TestExtCell", &[sub(b"DATA", vec![0]), sub(b"XCLC", [0i32.to_le_bytes().to_vec(), 0i32.to_le_bytes().to_vec()].concat())]);
+    let ext_refs = [
+        placed(b"REFR", MK_GS, "MkGoodsprings", STAT, [-70992.0, 2560.0, 0.0]),
+        placed(b"REFR", MK_NEL, "MkNellis", STAT, [34322.0, 125976.0, 0.0]),
+        placed(b"REFR", MK_SL, "MkSearchlight", STAT, [26319.0, -96652.0, 0.0]),
+        placed(b"REFR", MK_NV, "MkNovac", STAT, [22205.0, -32624.0, 0.0]),
+    ].concat();
+    let ext_children = group(EXT_CELL.to_le_bytes(), 6, &group(EXT_CELL.to_le_bytes(), 9, &ext_refs));
+    let world_children = group(WRLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &[ext_cell, ext_children].concat())));
+    let raw = [plugin_bytes(), top(b"STAT", &stat), top(b"WRLD", &[wrld, world_children].concat())].concat();
+    let plugins = vec![Plugin::parse(&raw, "UnlistedWorld.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    // WastelandNV MNAM bounds: NW (-35, 35), SE (25, -25).
+    q(&mut g, "SetWorldspaceMapBounds TestWasteland -35 35 25 -25");
+    // Interior references return 0 and preserve caller out-vars unchanged.
+    let check = |g: &mut Game, target: &str| -> (f64, f64, f64) {
+        let src = format!(
+            "float fA\nfloat fB\nint iR\nBegin Function {{ }}\nlet fA := -9\nlet fB := -9\nlet iR := {target}.GetWorldMapPosMults fA fB\nSetFunctionValue (sv_Construct \"%.0f|%.4f|%.4f\" iR fA fB)\nEnd\n"
+        );
+        let XVal::Str(s) = g.run_query(&src, RunCtx::default()).unwrap() else { panic!("expected string") };
+        let parts: Vec<f64> = s.split('|').map(|x| x.parse::<f64>().unwrap()).collect();
+        (parts[0], parts[1], parts[2])
+    };
+    assert_eq!(check(&mut g, "PlayerREF"), (0.0, -9.0, -9.0));
+    assert_eq!(check(&mut g, "NpcRef"), (0.0, -9.0, -9.0));
+    for (mk, eu, ev) in [
+        ("MkGoodsprings", 0.3323, 0.5636),
+        ("MkNellis", 0.6682, 0.1701),
+        ("MkSearchlight", 0.6427, 0.8800),
+        ("MkNovac", 0.6296, 0.6758),
+    ] {
+        let (r, u, v) = check(&mut g, mk);
+        assert_eq!(r, 0.0, "{mk} ret");
+        assert!((u - eu).abs() < 5e-4, "{mk} u={u:.4} expected {eu:.4}");
+        assert!((v - ev).abs() < 5e-4, "{mk} v={v:.4} expected {ev:.4}");
+    }
+}
+
+#[test]
+fn get_camera_movement_writes_two_float_outvars_and_returns_zero() {
+    let f = fixture();
+    let mut g = game(&f);
+    let XVal::Str(out) = g.run_query(
+        "float fZ\nfloat fY\nint iR\nBegin Function { }\nlet fZ := -9\nlet fY := -9\nlet iR := GetCameraMovement fZ fY\nSetFunctionValue (sv_Construct \"%.0f|%.4f|%.4f\" iR fZ fY)\nEnd\n",
+        RunCtx::default(),
+    ).unwrap() else { panic!("expected string") };
+    assert_eq!(out, "0|0.0000|0.0000");
+}
+
+#[test]
+fn get_equipped_armor_refs_returns_inv_refs_including_cloned_armor() {
+    const ARMO_BODY: u32 = 0x990;
+    const ARMO_HAT: u32 = 0x991;
+    // BMDT: biped_flags (u32) + general_flags (u8) + pad[3]: slot 2 (upper body) and slot 0 (head).
+    let bmdt = |mask: u32| [mask.to_le_bytes().to_vec(), vec![0, 0, 0, 0]].concat();
+    let armos = [
+        edid(b"ARMO", ARMO_BODY, "TestBodyArmor", &[sub(b"BMDT", bmdt(1 << 2))]),
+        edid(b"ARMO", ARMO_HAT, "TestHatArmor", &[sub(b"BMDT", bmdt(1 << 0))]),
+    ].concat();
+    let raw = [plugin_bytes(), top(b"ARMO", &armos)].concat();
+    let plugins = vec![Plugin::parse(&raw, "UnlistedArmor.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    let XVal::Str(out) = g.run_query(
+        "ref rCl\narray_var a\nref r0\nref r1\nBegin Function { }\nPlayerREF.AddItem TestBodyArmor 1\nPlayerREF.EquipItem TestBodyArmor 0 1\nlet rCl := TempCloneForm TestHatArmor\nPlayerREF.AddItem rCl 1\nPlayerREF.EquipItem rCl 0 1\nlet a := PlayerREF.GetEquippedArmorRefs\nlet r0 := a[0]\nlet r1 := a[1]\nSetFunctionValue (sv_Construct \"%g|%i|%i|%i|%i|%i\" (ar_Size a) r0 (r0.GetBaseObject) r1 (r1.GetBaseObject) rCl)\nEnd\n",
+        RunCtx::default(),
+    ).unwrap() else { panic!("expected string") };
+    let parts: Vec<&str> = out.split('|').collect();
+    assert_eq!(parts[0], "2", "both vanilla and cloned armor listed: {out}");
+    let r0 = u32::from_str_radix(parts[1], 16).unwrap();
+    let b0 = u32::from_str_radix(parts[2], 16).unwrap();
+    let r1 = u32::from_str_radix(parts[3], 16).unwrap();
+    let b1 = u32::from_str_radix(parts[4], 16).unwrap();
+    let cl = u32::from_str_radix(parts[5], 16).unwrap();
+    assert!(g.temp_item(FormId(r0)).is_some(), "r0 is an inventory ref: {out}");
+    assert!(g.temp_item(FormId(r1)).is_some(), "r1 is an inventory ref: {out}");
+    assert_ne!(r0, b0);
+    assert_ne!(r1, b1);
+    let bases = [b0, b1];
+    assert!(bases.contains(&ARMO_BODY) && bases.contains(&cl), "bases={bases:X?} expected {ARMO_BODY:X} and {cl:X}");
 }

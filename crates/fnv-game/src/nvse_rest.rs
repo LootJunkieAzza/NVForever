@@ -37,11 +37,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let zero = XVal::Num(0.0);
     let v = match name {
-        // `eyes`: the NPC base's eyes (ENAM), for the reference's base and so every
-        // reference of it; 1 when set [documented: SetEyes, "Returns 1 for success",
-        // "affects their baseform"]. The look changes when the 3D is rebuilt (Update3D).
+        // `eyes`: the NPC base's eyes (ENAM), for the reference's base (including placed
+        // `TempCloneForm` NPCs) and so every reference of it; returns 1 when `eyes` is an
+        // `EYES` form, or 0 without mutating on non-`EYES` forms (`Stimpak`) [documented:
+        // SetEyes, "Returns 1 for success", "affects their baseform"; observed: 2026-11-25,
+        // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // JIP LN 57.30, `w6d4p3_07_set_eyes_and_nth_package_placed` (`wave6d4_set_eyes.json`):
+        // `eyes(e0=00004253,ok=1,m1=1,bad=0,m2=1)`]. Accepting cloned `EYES` via `g.unclone(e)`
+        // and rejecting non-`NPC_` subjects (returning 0 without mutating) remain [hypothesis].
+        // The look changes when the 3D is rebuilt.
         "seteyes" => match (form(args, 0), subject.map(|s| base(g, s))) {
-            (Some(e), Some(npc)) if g.data.sig(npc) == Some(*b"NPC_") => {
+            (Some(e), Some(npc))
+                if g.data.sig(g.unclone(npc)) == Some(*b"NPC_")
+                    && g.data.sig(g.unclone(e)) == Some(*b"EYES") =>
+            {
                 g.field_overrides.insert((npc, "ENAM/".into()), XVal::Ref(e.0));
                 XVal::Num(1.0)
             }
@@ -86,10 +95,29 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // forms tried did not compile in the game, `let x := ref.SetNthPackage p i` did].
         "setnthpackage" => {
             let (Some(actor), Some(p)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Ref(0))) };
+            // Reject non-PACK forms without mutating, and treat index -1 as the last
+            // package entry [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+            // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+            // `w6d4p7_08_set_nth_package_isolated` (`wave6d4_set_nth_package.json`):
+            // `cnt=9|ok(m=1,old=1)|oob=00000000|neg(oldEqLast=1,newEq=1)|bad(ret=00000000,kept=1)`;
+            // hypothesis: negative indices < -1 and empty-list -1 return 0; design: missing
+            // or non-finite index arg returns 0 without mutating].
+            if g.data.sig(g.unclone(p)) != Some(*b"PACK") {
+                return Some(Ok(XVal::Ref(0)));
+            }
             let Some(b) = crate::functions::base_of(g, actor) else { return Some(Ok(XVal::Ref(0))) };
             let mut list = g.package_list(actor);
-            let i = num(args, 1, -1.0);
-            match usize::try_from(i as i64).ok().filter(|&i| i < list.len()) {
+            let idx_f = num(args, 1, -2.0);
+            if !idx_f.is_finite() {
+                return Some(Ok(XVal::Ref(0)));
+            }
+            let raw = idx_f.trunc() as i64;
+            let idx = if raw == -1 {
+                list.len().checked_sub(1)
+            } else {
+                usize::try_from(raw).ok().filter(|&i| i < list.len())
+            };
+            match idx {
                 Some(i) => {
                     let old = std::mem::replace(&mut list[i], p);
                     g.other.package_lists.insert(b, list);
@@ -98,14 +126,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 None => XVal::Ref(0),
             }
         }
-        // `count`: a placed stack's count [documented: SetRefCount]; an inventory
-        // reference's stack is not changed here [hypothesis: the page warns of older
-        // versions only].
+        // `count`: a placed stack's count [documented: SetRefCount]; non-positive counts
+        // (`<= 0`) are ignored and keep the prior count [observed: Fallout: New Vegas
+        // 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+        // `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+        // `w6d10_07_placeatme_count_dist_dir_and_refcount_edges`
+        // (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+        // `setRC(10=10,z=10,neg=10)`]; an inventory reference's stack is not changed here
+        // [hypothesis: the page warns of older versions only].
         "setrefcount" => {
-            let n = num(args, 0, 1.0).max(0.0) as i32;
-            if let Some(r) = subject.filter(|&r| g.temp_item(r).is_none()) {
-                if let Ok(s) = g.world.get(r) {
-                    s.count = n;
+            let raw = num(args, 0, 0.0);
+            if raw.is_finite() && raw >= 1.0 {
+                let n = raw.trunc().min(i32::MAX as f64) as i32;
+                if let Some(r) = subject.filter(|&r| g.temp_item(r).is_none()) {
+                    if let Ok(s) = g.world.get(r) {
+                        s.count = n;
+                    }
                 }
             }
             zero
@@ -181,3 +217,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let _ = ctx;
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_setrefcount_tests.rs"]
+mod w6d10_setrefcount_tests;

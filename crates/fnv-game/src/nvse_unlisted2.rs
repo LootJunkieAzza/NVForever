@@ -34,7 +34,17 @@ pub struct Unlisted2State {
     pub new_game: bool,
     /// SetRaceVoice / SetRaceAgeRace for the session: (race, voice, second) -> form.
     pub race_sets: std::collections::BTreeMap<(FormId, bool, bool), FormId>,
+    /// SetCasinoDeckTexture for the session: (casino, index) -> texture path.
+    pub casino_deck_textures: std::collections::BTreeMap<(FormId, usize), String>,
+    /// ToggleHitEffects: true when hit effects have been switched off (default false = enabled/1).
+    /// Currently tracks script-visible toggle state/return value only; renderer visual hit-effect
+    /// suppression is not yet wired [design].
+    pub hit_effects_disabled: bool,
 }
+
+#[cfg(test)]
+#[path = "w6d12_toggle_hit_effects_tests.rs"]
+mod w6d12_toggle_hit_effects_tests;
 
 /// The current command an `_OLD` one answers as [observed: rest1.old.* and new.* read
 /// the same where both compiled: IsMatrix, Dump, ListAddArray] (§4).
@@ -274,9 +284,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [observed: rest4.casinodeck.0 "terminals\NV_PlayingCards\DeckB\cardB_Back.dds"
         // for the Atomic Wrangler, whose ICO2 entries all name it].
         "getcasinodecktexture" => {
-            let at = args.get(1).and_then(|v| if let XVal::Num(n) = v { Some(*n as usize) } else { None }).unwrap_or(0);
+            let at = args.get(1).and_then(|v| if let XVal::Num(n) = v { usize::try_from(*n as i64).ok() } else { None }).unwrap_or(0);
             let tex = form_arg(args, 0).and_then(|c| {
-                g.data.record_fields.get(&c).and_then(|subs| subs.iter().filter(|(s, _)| s == b"ICO2").nth(at).and_then(|(_, v)| v.as_str().map(str::to_string)))
+                g.other
+                    .unlisted2
+                    .casino_deck_textures
+                    .get(&(c, at))
+                    .cloned()
+                    .or_else(|| {
+                        g.data
+                            .record_fields
+                            .get(&c)
+                            .and_then(|subs| subs.iter().filter(|(s, _)| s == b"ICO2").nth(at).and_then(|(_, v)| v.as_str().map(str::to_string)))
+                    })
+                    .or_else(|| (at == 0).then(|| g.data.casinos.get(&c).and_then(|d| d.back_texture.clone())).flatten())
             });
             XVal::Str(tex.unwrap_or_default())
         }
@@ -291,14 +312,43 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getactorcoverinfo" => XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::StringMap, Vec::new())),
         // No form outside a SayTo [observed: rest4.sayto.*].
         "sayto_getspeakingactor" | "sayto_getquest" => XVal::Ref(0),
-        "getnifstringbyid" | "getcameramovement" => XVal::Str(String::new()),
+        "getnifstringbyid" => XVal::Str(String::new()),
+        // `GetCameraMovement fZ fY`: returns 0 and writes two float out-vars (0.0, 0.0 at
+        // rest) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New
+        // Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, `w6d4_14_get_camera_movement_outvars`:
+        // `r=0|z=0.0000,y=0.0000`; design: live moving-camera per-frame deltas are not yet
+        // wired from the renderer, so NVForever writes `(0.0, 0.0)`].
+        "getcameramovement" => {
+            let entries = vec![
+                (fnv_script::vm::XKey::Num(0.0), XVal::Num(0.0)),
+                (fnv_script::vm::XKey::Num(1.0), XVal::Num(0.0)),
+                (fnv_script::vm::XKey::Num(2.0), XVal::Num(0.0)),
+            ];
+            XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+        }
         // The answers the original gave (§8), with what each is not known to change.
         "getactorcoverstate" | "getweapadditionalfloat" | "hudbarsetforcehide" => XVal::Num(-1.0),
         "getextraaccuracypenaltymult" | "setextraaccuracypenaltymult" | "removeextraaccuracypenaltymult" | "getcamerashotpath"
         | "setcamerashotpath" | "setmusictypepath" | "setmedialocationcontrolleroverride" | "clearmedialocationcontrolleroverride" => XVal::Num(1.0),
-        // Not probed: 1 as JohnnyGuitar's other setters answered, and GetCasinoDeckTexture
-        // keeps reading the casino's own deck [hypothesis, §8].
-        "setcasinodecktexture" => XVal::Num(1.0),
+        // `casino index path`: updates the casino deck texture returned by
+        // GetCasinoDeckTexture for the session and returns 1 [observed: 2026-11-25,
+        // FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
+        // w6d9_44_casino_traits_chip_decks_payout_reels_and_decktex: tex(l=46,st=2,r=1,chg=1)].
+        // [design]: unprobed non-CSNO forms and negative indices return 0 without mutating state.
+        "setcasinodecktexture" => {
+            let Some(c) = form_arg(args, 0).filter(|c| g.data.sig(*c) == Some(*b"CSNO")) else {
+                return Some(Ok(XVal::Num(0.0)));
+            };
+            let Some(at) = num_arg(args, 1).and_then(|n| usize::try_from(n as i64).ok()) else {
+                return Some(Ok(XVal::Num(0.0)));
+            };
+            let path = match args.get(2) {
+                Some(XVal::Str(s)) => s.clone(),
+                _ => String::new(),
+            };
+            g.other.unlisted2.casino_deck_textures.insert((c, at), path);
+            XVal::Num(1.0)
+        }
         // `to from`: NPC base `to` takes `from`'s look for the session, every reference
         // of it [documented: CopyFaceGenFrom, the reference form; the name's "Base" and
         // ShowOff's `to from` order, hypothesis]: race, sex, face, skin tone, hair, eyes
@@ -339,12 +389,25 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             XVal::Num(0.0)
         }
-        // The actor's equipped armour [observed: rest5.equippedarmor.*, 3 for the player,
-        // 1 for Doc; hypothesis: the original's inventory references are the base forms here].
+        // The actor's equipped armour as temporary inventory references (`0xFFxxxxxx`),
+        // including equipped `TempCloneForm` armor [observed: rest5.equippedarmor.*,
+        // jip_53_equipped_armor_refs_kind (`2,FF001342`), and 2026-11-25,
+        // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // JIP LN 57.30, `w6d4_18_hit_node_collision_nodes_cloned_armor`
+        // (`wave6d4_equipped_armor_refs.json`): `eqArm(sz=2,id=FF00131F,isBase=0)`].
         "getequippedarmorrefs" => {
-            let worn = subject.and_then(|a| g.world.inventory_mut(a).ok().map(|inv| inv.equipped())).unwrap_or_default();
-            let armour: Vec<FormId> = worn.into_iter().filter(|&f| g.data.sig(f) == Some(*b"ARMO")).collect();
-            let entries = armour.into_iter().enumerate().map(|(i, f)| (fnv_script::vm::XKey::Num(i as f64), XVal::Ref(f.0))).collect();
+            let entries: Vec<_> = match subject {
+                Some(a) => {
+                    let worn = g.world.inventory_mut(a).ok().map(|inv| inv.equipped()).unwrap_or_default();
+                    let armour: Vec<FormId> = worn.into_iter().filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"ARMO")).collect();
+                    armour
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, f)| (fnv_script::vm::XKey::Num(i as f64), XVal::Ref(g.temp_ref(a, f).0)))
+                        .collect()
+                }
+                None => Vec::new(),
+            };
             XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
         }
         // `array index`: the element; 0 for no array [observed: rest5.arrayvalue 20 of
@@ -395,8 +458,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             });
             XVal::Num(f64::from(u8::from(has)))
         }
-        // [observed: rest5.questtargetschanged 1, toggle.hiteffects 1]
-        "getquesttargetschanged" | "togglehiteffects" => XVal::Num(1.0),
+        // [observed: rest5.questtargetschanged 1]
+        "getquesttargetschanged" => XVal::Num(1.0),
+        // `[enable]`: returns previous enabled state (1 default), updating it when an arg
+        // is passed [observed: w6d12_23_toggle_hit_effects_and_highlight_bodypart_alt].
+        "togglehiteffects" => {
+            let prev = !g.other.unlisted2.hit_effects_disabled;
+            if let Some(n) = num_arg(args, 0) {
+                g.other.unlisted2.hit_effects_disabled = n == 0.0;
+            }
+            XVal::Num(f64::from(u8::from(prev)))
+        }
         "getobjectiveteleportlinks" => XVal::Array(0),
         "getcollisionnodes" => XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, Vec::new())),
         "getbodypartvatstarget" => XVal::Str(String::new()),
@@ -406,8 +478,46 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         | "suppressquestmessages" | "unlockrecipemenuquantity" | "setitemfilter" | "settexturetransformkey" | "clearmodelalttextures"
         | "initrockitlauncher" | "enableimprovedrecipemenu" | "setwindspeedmult" | "swapobjectlod" | "scrollmousewheel"
         | "inititemfilter" | "initminimap" | "updateminimap" | "reloadcharcontroller" | "reloadcloudtextures"
-        | "resetclouds" | "executescript" | "showlevelupmenuex" | "ccctaskpackageflags" | "gettranslatedpos" | "getworldmapposmults"
+        | "resetclouds" | "executescript" | "showlevelupmenuex" | "ccctaskpackageflags" | "gettranslatedpos"
         | "transformworldtolocal" => XVal::Num(0.0),
+        // `ref.GetWorldMapPosMults fX fY`: returns 0 and writes the reference's normalized
+        // world-map `(u, v)` (matching `WorldMap::uv`, `MAP_SPAN = 51/64`, `CELL = 4096.0`)
+        // into the two float out-vars when the reference sits in an exterior worldspace with
+        // `MNAM` map bounds; on interior references (or missing bounds), returns 0 without
+        // modifying the caller's out-vars [observed: 2026-11-25, `GSDocMitchellHouse`
+        // (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+        // `w6d4_13_get_world_map_pos_mults_outvars` (`p(r=0,-9.0000,-9.0000)|d(r=0,-9.0000,-9.0000)|m(r=0,0.3323,0.5636)`)
+        // and `w6d4p3_13c_world_map_pos_mults_4markers` (`gs(-70992,2560->0.3323,0.5636)|nel(34322,125976->0.6682,0.1701)|srch(26319,-96652->0.6427,0.8800)|nov(22205,-32624->0.6296,0.6758)`);
+        // hypothesis: child worldspace `ONAM` map-scale/offset inheritance and worldspaces
+        // without `MNAM` bounds leave out-vars unchanged; design: clamp cell span to >= 1].
+        "getworldmapposmults" => {
+            let uv = subject.and_then(|r| {
+                let cell = g.cell_of(r)?;
+                let world = g.world.placed.world_of(cell)?;
+                let [nw_x, nw_y, se_x, se_y] = g.world_map_bounds(world)?;
+                let (pos, _) = g.ref_pos_rot(r)?;
+                const CELL: f64 = 4096.0;
+                const MAP_SPAN: f64 = 51.0 / 64.0;
+                let across = f64::from((se_x - nw_x + 1).max(1));
+                let down = f64::from((nw_y - se_y + 1).max(1));
+                let cx = (f64::from(pos[0]) / CELL - f64::from(nw_x)) / across;
+                let cy = (f64::from(nw_y + 1) - f64::from(pos[1]) / CELL) / down;
+                let u = 0.5 + MAP_SPAN * (cx - 0.5);
+                let v = 0.5 + MAP_SPAN * (cy - 0.5);
+                Some((u, v))
+            });
+            match uv {
+                Some((u, v)) => {
+                    let entries = vec![
+                        (fnv_script::vm::XKey::Num(0.0), XVal::Num(0.0)),
+                        (fnv_script::vm::XKey::Num(1.0), XVal::Num(u)),
+                        (fnv_script::vm::XKey::Num(2.0), XVal::Num(v)),
+                    ];
+                    XVal::Array(g.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+                }
+                None => XVal::Num(0.0),
+            }
+        }
         // 1 in a fresh New Game session and 0 in a loaded save [observed: rest1.isnewgame 0
         // in a loaded save; `sup_12_is_new_game` (`wave4a_extenders.json`), see
         // docs/spec-notes/ext-unlisted-rest.md §5]; clearing from 1 to 0 when a save is
@@ -417,3 +527,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_casino_deck_texture_tests.rs"]
+mod w6d9_casino_deck_texture_tests;

@@ -136,12 +136,22 @@ fn set_sound_flag_and_get_sound_flag_support_sndd_sndx_validation_and_temp_clone
     assert!(g.sound_flag(c_late, 0));
     assert!(!g.sound_flag(sndd, 0));
 
-    // Invalid flag IDs and non-SOUN forms are rejected cleanly without mutating state.
-    assert!(!g.set_sound_flag(sndd, 14, true));
+    // Bits 14 and 15 store/read back 1 while `-1` and non-SOUN are rejected [observed:
+    // `w6d2_08_sound_flag_oob_and_clone`]; bits 16..=31 and `>= 32` rejection are [design],
+    // and fractional-index rejection is [hypothesis].
+    assert!(g.set_sound_flag(sndd, 14, true));
+    assert!(g.sound_flag(sndd, 14));
+    assert_eq!(call(&mut g, "setsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(15.0), XVal::Num(1.0)]), XVal::Num(0.0));
+    assert_eq!(call(&mut g, "getsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(15.0)]), XVal::Num(1.0));
+    assert!(g.set_sound_flag(sndd, 31, true));
+    assert!(g.sound_flag(sndd, 31));
+    assert!(!g.set_sound_flag(sndd, 32, true));
     assert!(!g.set_sound_flag(FormId(STAT_OBJ), 4, true));
-    assert_eq!(call(&mut g, "setsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(14.0), XVal::Num(1.0)]), XVal::Num(0.0));
+    assert_eq!(call(&mut g, "setsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(-1.0), XVal::Num(1.0)]), XVal::Num(0.0));
+    assert_eq!(call(&mut g, "setsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(32.0), XVal::Num(1.0)]), XVal::Num(0.0));
     assert_eq!(call(&mut g, "setsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(1.5), XVal::Num(1.0)]), XVal::Num(0.0));
-    assert_eq!(call(&mut g, "getsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(14.0)]), XVal::Num(0.0));
+    assert_eq!(call(&mut g, "getsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(-1.0)]), XVal::Num(0.0));
+    assert_eq!(call(&mut g, "getsoundflag", None, &[XVal::Ref(sndd.0), XVal::Num(32.0)]), XVal::Num(0.0));
     assert_eq!(call(&mut g, "getsoundflag", None, &[XVal::Ref(STAT_OBJ), XVal::Num(4.0)]), XVal::Num(0.0));
 }
 

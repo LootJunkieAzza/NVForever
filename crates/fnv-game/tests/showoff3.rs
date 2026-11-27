@@ -534,3 +534,18 @@ AuxTimerStop "*w6t" 1 player"#,
     );
     assert_eq!(n(&mut g, "player.AuxVarGetFlt \"*stop_n\""), 2.0, "removed stop handler silent after tick");
 }
+
+#[test]
+fn get_equipped_items_nonzero_high_mask_returns_empty() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    for id in [GUN, VEST, HAT] {
+        g.world.add_item(p, FormId(id), 1).unwrap();
+        g.world.equip(p, FormId(id)).unwrap();
+    }
+    let mut want = vec![f64::from(GUN), f64::from(VEST), f64::from(HAT)];
+    want.sort_by(f64::total_cmp);
+    assert_eq!(sorted(&mut g, "player.GetEquippedItems 0"), want);
+    assert!(sorted(&mut g, "player.GetEquippedItems (1 << 20)").is_empty(), "nonzero out-of-range mask matches nothing");
+}

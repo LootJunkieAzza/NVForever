@@ -1,0 +1,89 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_set_nth_package",
+  "description": "Clean-room read-only Wave 6D-4 probe proving SetNthPackage rejects non-PACK forms and maps index -1 to the last entry.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "JIP LN": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d4_set_nth_package",
+      "title": "Wave 6D-4: SetNthPackage PACK validation and -1 last-entry indexing",
+      "extender": "JIP LN",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4p7_08_set_nth_package_isolated",
+          "bucket": "xnvse_core_rest",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 75,
+          "functions_tested": [
+            "GetPackageCount",
+            "GetNthPackage",
+            "SetNthPackage",
+            "TempCloneForm"
+          ],
+          "claim": "Verify SetNthPackage valid replacement, OOB (99), negative (-1 -> last entry), and non-PACK rejection (Stimpak) on a placed TempCloneForm NPC.",
+          "expected": "Non-PACK returns 00000000 and keeps slot unchanged; -1 replaces the last package and returns old last package.",
+          "script_lines": [
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rNpcC = TempCloneForm rDocBase 0",
+            "ref rPlNpc = Player.PlaceAtMe rNpcC 1",
+            "Player.AuxVarSetRef \"*w6_p7n\" rPlNpc"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rPack = GetFormFromMod \"FalloutNV.esm\" \"3939\"",
+                "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+                "ref rPlNpc = Player.AuxVarGetRef \"*w6_p7n\"",
+                "int pc0 = rPlNpc.GetPackageCount",
+                "ref pk0 = rPlNpc.GetNthPackage 0",
+                "ref pkLast = rPlNpc.GetNthPackage (pc0 - 1)",
+                "ref oldOk = rPlNpc.SetNthPackage rPack 0",
+                "ref pk1 = rPlNpc.GetNthPackage 0",
+                "ref oldOob = rPlNpc.SetNthPackage rPack 99",
+                "ref oldNeg = rPlNpc.SetNthPackage rPack -1",
+                "ref pkLastAfter = rPlNpc.GetNthPackage (pc0 - 1)",
+                "ref oldBad = rPlNpc.SetNthPackage rStim 0",
+                "ref pkAfterBad = rPlNpc.GetNthPackage 0",
+                "rPlNpc.Disable",
+                "rPlNpc.MarkForDelete",
+                "PrintToConsole \"PROBE|w6d4p7_08_set_nth_package_isolated|cnt=%g|ok(m=%g,old=%g)|oob=%i|neg(oldEqLast=%g,newEq=%g)|bad(ret=%i,kept=%g)\" pc0 (pk1 == rPack) (oldOk == pk0) oldOob (oldNeg == pkLast) (pkLastAfter == rPack) oldBad (pkAfterBad == rPack)"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

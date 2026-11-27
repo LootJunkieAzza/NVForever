@@ -226,9 +226,18 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 _ => XVal::Ref(0),
             }
         }
-        // [documented: ListAddReference] ListAddForm of the calling reference.
+        // [documented: ListAddReference; observed: `w6d11_02_listaddref_and_addformtoformlist_order`,
+        // `addRef(r0=0,m2=0,m1=-1,m3=-1,big=-1,dup=-1)|n1=2,base=2`] -2 appends and returns
+        // `old_len.saturating_sub(1)` (`m2=0` on a 1-element list), 0 on an empty list or
+        // 0..len inserts, while other negatives (-1, -3), >= len (999), and duplicates
+        // (with checkForDupes) return -1 without mutating; returning -1 on non-FLST targets
+        // (checking `g.unclone(l)` so cloned FLST records work) is [hypothesis] by analogy
+        // with `ListAddForm` (`w6d11_01_listaddform_indices_dupes_and_nonflst`, `bad=-1`).
         "listaddreference" => {
             let l = form(args, 0).unwrap_or(FormId(0));
+            if g.data.sig(g.unclone(l)) != Some(*b"FLST") {
+                return Some(Ok(XVal::Num(-1.0)));
+            }
             let Some(r) = subject else { return Some(Ok(XVal::Num(-1.0))) };
             let at = int(args, 1, -2);
             let dupes = args.get(2).is_some_and(XVal::truthy);
@@ -236,9 +245,19 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             if dupes && list.contains(&r) {
                 return Some(Ok(XVal::Num(-1.0)));
             }
-            let i = usize::try_from(at).ok().filter(|&i| i <= list.len()).unwrap_or(list.len());
+            let old_len = list.len();
+            let (i, ret) = if at == -2 {
+                (old_len, old_len.saturating_sub(1))
+            } else if at == 0 && old_len == 0 {
+                (0, 0)
+            } else {
+                match usize::try_from(at) {
+                    Ok(i) if i < old_len => (i, i),
+                    _ => return Some(Ok(XVal::Num(-1.0))),
+                }
+            };
             list.insert(i, r);
-            XVal::Num(i as f64)
+            XVal::Num(ret as f64)
         }
         // [documented: PickOneOf] a random item both in the inventory and the list; 0
         // when none.
@@ -289,3 +308,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d11_listaddref_tests.rs"]
+mod w6d11_listaddref_tests;

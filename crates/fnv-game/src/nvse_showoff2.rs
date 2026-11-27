@@ -151,7 +151,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "setingestibleconsumesound" => {
             let (Some(s), Some(i)) = (form(args, 0), form(args, 1).or(subject).map(|f| base(g, f))) else { return Some(Ok(zero)) };
-            if g.data.sig(g.unclone(i)) != Some(*b"ALCH") {
+            if g.data.sig(g.unclone(i)) != Some(*b"ALCH") || g.data.sig(g.unclone(s)) != Some(*b"SOUN") {
                 return Some(Ok(zero));
             }
             g.field_overrides.insert((i, "ENIT/sound_consume".into()), XVal::Ref(s.0));
@@ -236,6 +236,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let _ = ctx;
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d12_consume_sound_tests.rs"]
+mod w6d12_consume_sound_tests;
 
 /// An actor value argument: its code, or its name.
 fn av(g: &Game, v: &XVal) -> Option<u16> {

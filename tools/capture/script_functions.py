@@ -266,6 +266,10 @@ PARAM_FIXES = {
     # index` compiled in the game and replaced the package at the index].
     "SetNthPackage": [{"name": "package", "type": "form", "kind": "form"},
                       {"name": "index", "type": "int", "kind": "int"}],
+    # [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + ttw_nvse.dll 333,
+    # `w6d4p2_23_ttw_fixed` (`wave6d4_ttw_weapon_skill.json`): 1-arg call fails to compile;
+    # 0-arg `Player.TTW_GetEquippedWeaponSkill` returns the equipped weapon's skill AV (41)].
+    "TTW_GetEquippedWeaponSkill": [],
     # [documented: GetCellEncounterZone's example "GetCellEncounterZone VikkiAndVance";
     # observed: showoff2, Doc Mitchell's house].
     "GetCellEncounterZone": [{"name": "cell", "type": "form", "kind": "form"}],
@@ -626,8 +630,8 @@ PAGELESS += [
     _x("UpdateMiniMap", _J, "int", [_I("a"), _I("b", True)]), _x("ProjectUITile", _J, "int", [_S("tilePath"), _S("block"), _F("x"), _F("y"), _F("width"), _F("height")], ref="reference"),
     _x("ReloadCharController", _J, "int", ref="reference"), _x("ReloadCloudTextures", _J, "int"), _x("ResetClouds", _J, "int"),
     _x("ExecuteScript", _J, "int"), _x("ShowLevelUpMenuEx", _J, "int", [_I("mode")]),
-    _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "string_var", list(_ANY)),
-    _x("GetTranslatedPos", _J, "int", list(_ANY)), _x("GetWorldMapPosMults", _J, "int", list(_ANY)),
+    _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "int", [_F("fZ"), _F("fY")]),
+    _x("GetTranslatedPos", _J, "int", list(_ANY)), _x("GetWorldMapPosMults", _J, "int", [_F("fX"), _F("fY")], ref="reference"),
     _x("TransformWorldToLocal", _J, "int", list(_ANY)),
 ]
 

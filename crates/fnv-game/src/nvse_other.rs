@@ -574,9 +574,6 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // [documented: Sv_Set; observed: nvse-fifth, `Sv_Set "n=%g" 3 sText` leaves the
-        // string empty] it does nothing [hypothesis: the function is left over].
-        "sv_set" => zero,
         // [documented: GetSoldItemInvRef; observed: outside an OnSell 00000000; OnSell is
         // not sent yet].
         "getsolditeminvref" => XVal::Ref(0),
@@ -691,9 +688,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let out = match name {
                 "addpackageat" => {
                     let Some(p) = form(args, 0) else { return Some(Ok(zero)) };
-                    // -1 appends and gives the index of the last package before it; an
-                    // index past the end gives -1 and adds nothing [observed: nvse-seventh,
-                    // Doc's 10 packages: -1 gave 9, 99 gave -1, 0 gave 0].
+                    // Non-PACK forms return 0 without mutating the list, and -1 append on
+                    // an empty list returns 0 (not -1), while on a non-empty list of n it
+                    // returns n - 1 [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+                    // w6d8p2_03_package_list_add_remove_doc: add0=0 cnt1=10 addEnd=9
+                    // cnt2=11 addHi=-1 addBad=0 cntBad=11 emp=0 addEmp=0 cntAE=1].
+                    if g.data.sig(p) != Some(*b"PACK") {
+                        return Some(Ok(zero));
+                    }
                     let i = num(args, 1, -1.0) as i64;
                     let n = list.len();
                     match usize::try_from(i) {
@@ -704,7 +706,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                         Ok(_) => XVal::Num(-1.0),
                         Err(_) => {
                             list.push(p);
-                            XVal::Num(n as f64 - 1.0)
+                            XVal::Num(n.saturating_sub(1) as f64)
                         }
                     }
                 }
@@ -849,7 +851,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // equipped weapon (1, 2, 4 for mods 1–3).
         "setequippedweaponmodflags" => {
             let a = subject.unwrap_or(FormId(0));
-            let m = (num(args, 0, 0.0) as i64 as u32 & 7) as u8;
+            // Values outside 0..=7 are ignored, preserving existing mod flags
+            // [observed: w6d6p2_29_set_mod_flags_edges].
+            let raw = num(args, 0, -1.0);
+            if !raw.is_finite() || raw.fract() != 0.0 || !(0.0..=7.0).contains(&raw) {
+                return Some(Ok(zero));
+            }
+            let m = raw as u8;
             if let Some(w) = crate::functions::items::equipped_weapon(g, a) {
                 if let Ok(inv) = g.world.inventory_mut(a) {
                     let worn = inv.groups().find(|(i, e, _)| *i == w && e.equipped).map(|(_, e, _)| e);
@@ -864,3 +872,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d8_addpackageat_tests.rs"]
+mod w6d8_addpackageat_tests;

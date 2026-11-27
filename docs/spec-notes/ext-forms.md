@@ -110,6 +110,7 @@ order already assigns these (fnv-esm); D5 maps these functions onto it.
 | Function | Origin | In the catalogue | Core family |
 |---|---|---|---|
 | IsFormValid | FOSE1 | yes | values |
+| BuildRef | FOSE1 | yes | resolves plugin forms, PlayerRef, and dynamic `0xFF` world references (`BuildRef 255 (GetLocalRefIndex rDyn) == rDyn`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_08_form_resolution_gffm_buildref_sourcemod` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `br(c=1,p=1,dm=1,z=1,m=0,dyn=1)`; no DLL or source consulted] |
 | IsReference | FOSE1 | yes | values |
 | TypeOf | NVSE | yes | values |
 | GetObjectType (GetType) | FOSE1 | yes | — |

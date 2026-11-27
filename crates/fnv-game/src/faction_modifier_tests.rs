@@ -241,7 +241,7 @@ fn invalid_factions_and_explicit_empty_receiver_stop_source_without_mutation() {
 }
 
 #[test]
-fn fractional_nonfinite_and_out_of_range_deltas_refuse_without_rounding_or_mutation() {
+fn fractional_deltas_truncate_and_nonfinite_or_out_of_range_deltas_refuse_without_mutation() {
     let f = fixture(None);
     let mut g = game(&f);
     success(&mut g, "SetFactionReaction FirstFaction SecondFaction 10");
@@ -257,7 +257,13 @@ fn fractional_nonfinite_and_out_of_range_deltas_refuse_without_rounding_or_mutat
         let XVal::Num(value) = success(&mut g, &format!("SetFunctionValue {expression}")) else { panic!("non-numeric source value: {expression}") };
         assert!(if nan { value.is_nan() } else { value == f64::INFINITY }, "source value: {expression}: {value}");
     }
-    for delta in ["0.5", huge, upper, "(Pow -1 0.5)", "(Pow 10 400)"] {
+    // Fractional finite deltas truncate toward zero without aborting
+    // (observed: w6d8p2_24_modfactionreaction_float_var: 15 + 0.5 + 1.9 -> 16).
+    success(&mut g, "SetFactionReaction FirstFaction SecondFaction 15\nModFactionReaction FirstFaction SecondFaction 0.5\nModFactionReaction FirstFaction SecondFaction 1.9");
+    assert_eq!(g.forms.faction_modifiers[&A][&B], 16);
+    g.forms.faction_modifiers.clear();
+
+    for delta in [huge, upper, "(Pow -1 0.5)", "(Pow 10 400)"] {
         let saved = g.forms.faction_modifiers.clone();
         let err = run(
             &mut g,
@@ -265,7 +271,7 @@ fn fractional_nonfinite_and_out_of_range_deltas_refuse_without_rounding_or_mutat
             None,
         )
         .unwrap_err();
-        assert!(err.contains("integral i64 delta"), "{delta}: {err}");
+        assert!(err.contains("representable in i64 storage"), "{delta}: {err}");
         assert_eq!(g.forms.faction_modifiers, saved);
     }
     success(&mut g, &format!("ModFactionReaction FirstFaction FirstFaction {lower}"));

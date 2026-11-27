@@ -1,0 +1,145 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-alpha-property-item-ids",
+  "description": "Read-only clean-room probes verifying JohnnyGuitar GetAlphaPropertyValue and SetAlphaPropertyValue unpacked item IDs 0..=5 and item 6 OOB handling.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_alpha_property_item_ids",
+      "title": "Wave 6D-3: GetAlphaPropertyValue / SetAlphaPropertyValue item IDs 0..=5",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_03_alpha_property_live_nif_items",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
+          "spec_line": 31,
+          "functions_tested": [
+            "GetAlphaPropertyValue",
+            "SetAlphaPropertyValue"
+          ],
+          "claim": "Verify GetAlphaPropertyValue / SetAlphaPropertyValue on live in-room DocMitchellDresserRef (0x103E37, guncabinet01.nif, NiTriStrips 'Door:0' with NiAlphaProperty flags=4844, thresh=140; SD-05).",
+          "expected": "Resolve exact item IDs (0=flags vs 1=threshold vs 2/OOB/-1), SetAlphaPropertyValue return value (1 vs 0), non-alpha block 'GunCabinet01:0', and missing block.",
+          "script_lines": [
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "int a0 = rDr.GetAlphaPropertyValue \"Door:0\" 0",
+            "int a1 = rDr.GetAlphaPropertyValue \"Door:0\" 1",
+            "int a2 = rDr.GetAlphaPropertyValue \"Door:0\" 2",
+            "int aNeg = rDr.GetAlphaPropertyValue \"Door:0\" -1",
+            "int aNoProp = rDr.GetAlphaPropertyValue \"GunCabinet01:0\" 0",
+            "int aMiss = rDr.GetAlphaPropertyValue \"W6D3_NoSuchBlock\" 0",
+            "int s1 = rDr.SetAlphaPropertyValue \"Door:0\" 1 64",
+            "int a1After = rDr.GetAlphaPropertyValue \"Door:0\" 1",
+            "int s0 = rDr.SetAlphaPropertyValue \"Door:0\" 0 4845",
+            "int a0After = rDr.GetAlphaPropertyValue \"Door:0\" 0",
+            "int sMiss = rDr.SetAlphaPropertyValue \"W6D3_NoSuchBlock\" 1 64",
+            "int sBadItem = rDr.SetAlphaPropertyValue \"Door:0\" 9 64",
+            "rDr.SetAlphaPropertyValue \"Door:0\" 0 a0",
+            "rDr.SetAlphaPropertyValue \"Door:0\" 1 a1",
+            "PrintToConsole \"PROBE|w6d3_03_alpha_property_live_nif_items|get=%g,%g,%g,%g|noProp=%g,miss=%g|set1=%g->%g,set0=%g->%g|sMiss=%g,sBad=%g\" a0 a1 a2 aNeg aNoProp aMiss s1 a1After s0 a0After sMiss sBadItem"
+          ]
+        },
+        {
+          "id": "w6d3p2_03b_alpha_property_all_items",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
+          "spec_line": 31,
+          "functions_tested": [
+            "GetAlphaPropertyValue",
+            "SetAlphaPropertyValue"
+          ],
+          "claim": "Map all GetAlphaPropertyValue item IDs 0..8 on DocMitchellDresserRef 'Door:0' (NiAlphaProperty flags=4844/0x12EC, threshold=140) and test SetAlphaPropertyValue readback on each.",
+          "expected": "Determine exact NiAlphaProperty bitfield/threshold mapping for items 0..8.",
+          "script_lines": [
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "int iA0 = rDr.GetAlphaPropertyValue \"Door:0\" 0",
+            "int iA1 = rDr.GetAlphaPropertyValue \"Door:0\" 1",
+            "int iA2 = rDr.GetAlphaPropertyValue \"Door:0\" 2",
+            "int iA3 = rDr.GetAlphaPropertyValue \"Door:0\" 3",
+            "int iA4 = rDr.GetAlphaPropertyValue \"Door:0\" 4",
+            "int iA5 = rDr.GetAlphaPropertyValue \"Door:0\" 5",
+            "int iA6 = rDr.GetAlphaPropertyValue \"Door:0\" 6",
+            "int iA7 = rDr.GetAlphaPropertyValue \"Door:0\" 7",
+            "int iA8 = rDr.GetAlphaPropertyValue \"Door:0\" 8",
+            "int iS3 = rDr.SetAlphaPropertyValue \"Door:0\" 3 0",
+            "int iA3A = rDr.GetAlphaPropertyValue \"Door:0\" 3",
+            "int iS5 = rDr.SetAlphaPropertyValue \"Door:0\" 5 77",
+            "int iA5A = rDr.GetAlphaPropertyValue \"Door:0\" 5",
+            "int iS6 = rDr.SetAlphaPropertyValue \"Door:0\" 6 88",
+            "int iA6A = rDr.GetAlphaPropertyValue \"Door:0\" 6",
+            "rDr.SetAlphaPropertyValue \"Door:0\" 3 iA3",
+            "rDr.SetAlphaPropertyValue \"Door:0\" 5 iA5",
+            "rDr.SetAlphaPropertyValue \"Door:0\" 6 iA6",
+            "PrintToConsole \"PROBE|w6d3p2_03b_alpha_property_all_items|get=%g,%g,%g,%g,%g,%g,%g,%g,%g|s3=%g->%g|s5=%g->%g|s6=%g->%g\" iA0 iA1 iA2 iA3 iA4 iA5 iA6 iA7 iA8 iS3 iA3A iS5 iA5A iS6 iA6A"
+          ]
+        },
+        {
+          "id": "w6d3p3_03c_alpha_item6_nosorter",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg-nif-camera.md",
+          "spec_line": 31,
+          "functions_tested": [
+            "GetAlphaPropertyValue",
+            "SetAlphaPropertyValue"
+          ],
+          "claim": "Verify whether AlphaProperty item 6 is NoSorter (takes 0/1) or out-of-range.",
+          "expected": "Confirm SetAlphaPropertyValue item 6 with value 1 returns 0 (OOB) or 1 (NoSorter).",
+          "script_lines": [
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "int iA60 = rDr.GetAlphaPropertyValue \"Door:0\" 6",
+            "int iS6 = rDr.SetAlphaPropertyValue \"Door:0\" 6 1",
+            "int iA61 = rDr.GetAlphaPropertyValue \"Door:0\" 6",
+            "rDr.SetAlphaPropertyValue \"Door:0\" 6 iA60",
+            "PrintToConsole \"PROBE|w6d3p3_03c_alpha_item6_nosorter|before=%g|set1=%g|after=%g\" iA60 iS6 iA61"
+          ]
+        }
+      ]
+    }
+  ]
+}

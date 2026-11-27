@@ -1787,8 +1787,19 @@ Code: `engine/nvforever/src/underwater.rs` (`fog_bytes`, `DEEP_AT`).
     these overrides in place (zero per-frame allocations) across both current and
     fading-out weathers, reaching `DistanceFog`, `GlobalAmbientLight`, `DirectionalLight`,
     `ClearColor`, `SkyDome`, `CloudLayer`, `GetCurrentSkyColor`, and `ImageSpaceGrade`.
-    An explicit `SetWeatherImageSpaceMod weather time 0` clears that time slot's adapter
-    rather than falling back to the authored ESM record [design].
+    Omitting the 3rd argument (`SetWeatherImageSpaceMod weather time`) clears that time
+    slot's adapter rather than falling back to the authored ESM record [design]; explicit
+    null `0` is a no-op [observed: `w6d2p2_17_weather_traits_rgb_imad_textures`].
+  - `SetWeatherRGBColor` ignores both negative values (`-1`) and values above `255255255`
+    (`256000000`) without overwriting the stored colour, while packing in-range values with
+    unmasked byte carry (`100999999` -> `100232002`) and supporting `PNAM` cloud layer
+    writes (`layer 2`: `10020030`) [observed: Fallout: New Vegas 1.4.0.525 (040020D0) +
+    xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+    10 official base masters, read-only console probe
+    `w6d10_15_weather_rgb_color_nam0_pnam_layers_and_packing`
+    (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+    `PROBE|w6d10_15_weather_rgb_color_nam0_pnam_layers_and_packing|nam0(0=50071135,1=150168190,3=87105138,4=255227170,9=127127127)|pnam(0=87196090,1=255255255,3=232235238)|oob(0,0)|set(ok=120200050,cry=100232002,ov=100232002,neg=100232002,p2=10020030)`;
+    zero DLL, PDB, or third-party source consulted].
 - **Game settings (`SetNumericGameSetting`, `SetStringSetting`)**:
   - Vanilla numeric (`f*`, `i*`) and string (`s*`) GMST edits write directly to
     `fnv_sim::World::setting_changes` and are visible live to `World::setting_f32`,

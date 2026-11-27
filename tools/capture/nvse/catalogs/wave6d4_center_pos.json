@@ -1,0 +1,96 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_center_pos",
+  "description": "Clean-room read-only Wave 6D-4 probe proving JIP LN GetCenterPos does not rotate OBND center by heading.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "JIP LN": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d4_center_pos",
+      "title": "Wave 6D-4: JIP LN GetCenterPos unrotated OBND center",
+      "extender": "JIP LN",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4_17_center_pos_rotated_and_pos_str_edges",
+          "bucket": "unlisted_jip_edges",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-unlisted-commands.md",
+          "spec_line": 120,
+          "functions_tested": [
+            "GetCenterPos",
+            "RefToPosStr",
+            "MoveToPosStr",
+            "GetConditionDamagePenalty",
+            "ListToArray",
+            "GetInvRefsForItem"
+          ],
+          "claim": "SD-07: Verify GetCenterPos on heavily Z-rotated placed furniture (DocMitchellDresserRef 5.2 rad, DocMitchellChairREF 2.47 rad), MoveToPosStr on valid/malformed strings, GetConditionDamagePenalty at 100%/50%/10% health, and ListToArray on AmmoList10mm vs non-list.",
+          "expected": "Check whether GetCenterPos rotates bounding-box center by heading, MoveToPosStr return on bad string, and GetConditionDamagePenalty curve.",
+          "script_lines": [
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "ref rCh = GetFormFromMod \"FalloutNV.esm\" \"1055B8\"",
+            "ref rMarkBase = GetFormFromMod \"FalloutNV.esm\" \"34\"",
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rAList = GetFormFromMod \"FalloutNV.esm\" \"1537E6\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "float dx = (rDr.GetCenterPos X) - (rDr.GetPos X)",
+            "float dy = (rDr.GetCenterPos Y) - (rDr.GetPos Y)",
+            "float dz = (rDr.GetCenterPos Z) - (rDr.GetPos Z)",
+            "float cx = (rCh.GetCenterPos X) - (rCh.GetPos X)",
+            "float cy = (rCh.GetCenterPos Y) - (rCh.GetPos Y)",
+            "float cz = (rCh.GetCenterPos Z) - (rCh.GetPos Z)",
+            "ref rM = Player.PlaceAtMe rMarkBase 1",
+            "string_var sPos = rM.RefToPosStr",
+            "int mvOk = rM.MoveToPosStr \"1500,1800,7400\"",
+            "float mx = rM.GetPos X",
+            "int mvBad = rM.MoveToPosStr \"not_a_pos\"",
+            "rM.Disable",
+            "rM.MarkForDelete",
+            "Player.AddItem rGun 1 1",
+            "array_var aG = Player.GetInvRefsForItem rGun",
+            "ref rInv = aG[0]",
+            "float hMax = rInv.GetCurrentHealth",
+            "float p100 = rInv.GetConditionDamagePenalty",
+            "rInv.SetCurrentHealth (hMax * 0.5)",
+            "float p50 = rInv.GetConditionDamagePenalty",
+            "rInv.SetCurrentHealth (hMax * 0.1)",
+            "float p10 = rInv.GetConditionDamagePenalty",
+            "Player.RemoveItem rGun 1 1",
+            "array_var aL1 = ListToArray rAList",
+            "array_var aLBad = ListToArray rStim",
+            "PrintToConsole \"PROBE|w6d4_17_center_pos_rotated_and_pos_str_edges|dr(%.1f,%.1f,%.1f)|ch(%.1f,%.1f,%.1f)|mv(ok=%g,x=%.0f,bad=%g)|cdp(%.3f,%.3f,%.3f)|l2a(%g,%g)\" dx dy dz cx cy cz mvOk mx mvBad p100 p50 p10 (ar_Size aL1) (ar_Size aLBad)"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

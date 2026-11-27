@@ -1,0 +1,90 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_condition_damage_penalty",
+  "description": "Wave 6D-6 read-only probe verifying GetConditionDamagePenalty reads live SetConditionDamagePenalty overrides and scales weapon damage below 75% condition.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_condition_damage_penalty",
+      "title": "GetConditionDamagePenalty live readback and condition curve",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p3_05_cond_penalty_curve_invref",
+          "bucket": "combat_condition",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-actors-11.md",
+          "spec_line": 69,
+          "functions_tested": [
+            "GetConditionDamagePenalty",
+            "SetConditionDamagePenalty",
+            "GetCalculatedWeaponDamage",
+            "GetInvRefsForItem",
+            "SetItemRefCurrentHealth"
+          ],
+          "claim": "SD-10: Verify GetConditionDamagePenalty reflects SetConditionDamagePenalty and measure rInv.GetCalculatedWeaponDamage at 100/75/50/25/5% condition under penalty 0.67 vs 0.0.",
+          "expected": "Record penalty readback and exact invref calculated damage curve.",
+          "script_lines": [
+            "float fOrig = GetConditionDamagePenalty",
+            "float fRet0 = SetConditionDamagePenalty 0.0",
+            "float fRd0 = GetConditionDamagePenalty",
+            "float fRet1 = SetConditionDamagePenalty 1.0",
+            "float fRd1 = GetConditionDamagePenalty",
+            "float fRetR = SetConditionDamagePenalty fOrig",
+            "float fRdR = GetConditionDamagePenalty",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "float fOG = Player.GetBaseAV Guns",
+            "Player.SetAV Guns 100",
+            "Player.RemoveItem r10 99 1",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "array_var aR = Player.GetInvRefsForItem r10",
+            "ref rI = aR[0]",
+            "float fD100 = rI.GetCalculatedWeaponDamage",
+            "rI.SetItemRefCurrentHealth 0.75 1",
+            "float fD75 = rI.GetCalculatedWeaponDamage",
+            "rI.SetItemRefCurrentHealth 0.50 1",
+            "float fD50 = rI.GetCalculatedWeaponDamage",
+            "rI.SetItemRefCurrentHealth 0.25 1",
+            "float fD25 = rI.GetCalculatedWeaponDamage",
+            "rI.SetItemRefCurrentHealth 0.05 1",
+            "float fD05 = rI.GetCalculatedWeaponDamage",
+            "SetConditionDamagePenalty 0.0",
+            "rI.SetItemRefCurrentHealth 0.25 1",
+            "float fD25z = rI.GetCalculatedWeaponDamage",
+            "SetConditionDamagePenalty fOrig",
+            "Player.RemoveItem r10 99 1",
+            "Player.SetAV Guns fOG",
+            "PrintToConsole \"PROBE|w6d6p3_05_cond_penalty_curve_invref|orig=%.3f|set0(%.3f,%.3f)|set1(%.3f,%.3f)|rest(%.3f,%.3f)|dmg=%.2f,%.2f,%.2f,%.2f,%.2f|p0=%.2f\" fOrig fRet0 fRd0 fRet1 fRd1 fRetR fRdR fD100 fD75 fD50 fD25 fD05 fD25z"
+          ]
+        }
+      ]
+    }
+  ]
+}

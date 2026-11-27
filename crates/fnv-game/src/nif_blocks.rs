@@ -127,10 +127,12 @@ pub enum SceneEdit {
     Light { r: FormId, target: String, name: String, light: FormId, offset: [f32; 3] },
     /// One NiMaterialProperty value of a shape (`id` 0-8, as in [`SceneNode::material`]).
     Material { r: FormId, node: String, id: usize, v: f32 },
-    /// One NiAlphaProperty value of a shape (`item`: 0 flags, 1 threshold;
-    /// JohnnyGuitar's SetAlphaPropertyValue, `crate::nvse_jg_nif`).
+    /// One NiAlphaProperty value of a shape (`item`: 0 blendEnable, 1 srcBlend,
+    /// 2 dstBlend, 3 testEnable, 4 testMode, 5 threshold; JohnnyGuitar's
+    /// SetAlphaPropertyValue, `crate::nvse_jg_nif`).
     AlphaProperty { r: FormId, node: String, item: usize, v: f32 },
-    /// One NiStencilProperty value of a shape (`item`: 0 flags, 1 reference, 2 mask;
+    /// One NiStencilProperty value of a shape (`item`: 0 enable, 1 drawMode,
+    /// 2 ref, 3 mask, 4 failAction, 5 zFailAction, 6 passAction, 7 testFunc;
     /// JohnnyGuitar's SetStencilPropertyValue, `crate::nvse_jg_nif`).
     StencilProperty { r: FormId, node: String, item: usize, v: f32 },
     /// A particle system's value by GetNiPSysModifierValue's IDs, 20 the spawn rate
@@ -541,17 +543,99 @@ impl Game<'_> {
     }
 }
 
+/// Reads one JohnnyGuitar `GetAlphaPropertyValue` item (`0..=5`) from packed
+/// `NiAlphaProperty` `[flags, threshold]` [observed: `w6d3_03`, `w6d3p2_03b`, `w6d3p3_03c`]:
+/// `0` blendEnable (`flags & 1`), `1` srcBlend (`(flags >> 1) & 0xF`),
+/// `2` dstBlend (`(flags >> 5) & 0xF`), `3` testEnable (`(flags >> 9) & 1`),
+/// `4` testMode (`(flags >> 10) & 7`), `5` threshold (`u8`); `None` for `item >= 6`.
+pub fn alpha_item_get(a: [f32; 2], item: usize) -> Option<f32> {
+    let flags = a[0].trunc() as i64 as u32;
+    match item {
+        0 => Some((flags & 1) as f32),
+        1 => Some(((flags >> 1) & 0xF) as f32),
+        2 => Some(((flags >> 5) & 0xF) as f32),
+        3 => Some(((flags >> 9) & 1) as f32),
+        4 => Some(((flags >> 10) & 7) as f32),
+        5 => Some(((a[1].trunc() as i64 as u32) & 0xFF) as f32),
+        _ => None,
+    }
+}
+
+/// Writes one JohnnyGuitar `SetAlphaPropertyValue` item (`0..=5`) into packed
+/// `NiAlphaProperty` `[flags, threshold]`; probed writes (`0` `4845->1`, `1` `64->0`,
+/// `3` `0->0`, `5` `77->77`, and `item >= 6` returning `false`) are
+/// [observed: `w6d3_03`, `w6d3p2_03b`, `w6d3p3_03c`]; writes to unprobed items `2` and `4`
+/// as well as unprobed overflow masking/wrapping (`& 0xFF` vs clamping on item `5`,
+/// overflow on item `3`, and negative inputs) are [hypothesis] / [design].
+pub fn alpha_item_set(a: &mut [f32; 2], item: usize, v: f32) -> bool {
+    let raw = v.trunc() as i64 as u32;
+    let flags = a[0].trunc() as i64 as u32;
+    match item {
+        0 => a[0] = ((flags & !1) | (raw & 1)) as f32,
+        1 => a[0] = ((flags & !(0xF << 1)) | ((raw & 0xF) << 1)) as f32,
+        2 => a[0] = ((flags & !(0xF << 5)) | ((raw & 0xF) << 5)) as f32,
+        3 => a[0] = ((flags & !(1 << 9)) | ((raw & 1) << 9)) as f32,
+        4 => a[0] = ((flags & !(7 << 10)) | ((raw & 7) << 10)) as f32,
+        5 => a[1] = (raw & 0xFF) as f32,
+        _ => return false,
+    }
+    true
+}
+
+/// Reads one JohnnyGuitar `GetStencilPropertyValue` item (`0..=7`) from packed
+/// `NiStencilProperty` `[flags, reference, mask]`: items `1` drawMode (`(flags >> 10) & 3`),
+/// `2` ref (`u32`), `3` mask (`u32`), `6` passAction (`(flags >> 7) & 7`), `7` testFunc
+/// (`(flags >> 12) & 0xF`), and `None` (`0`) for `item >= 8` are
+/// [observed: `w6d3_04`, `w6d3p2_04b`]; exact bit positions of items `0` enable (`flags & 1`),
+/// `4` failAction (`(flags >> 1) & 7`), and `5` zFailAction (`(flags >> 4) & 7`) are
+/// [documented: nif.xml `NiStencilProperty` flags; hypothesis: all three read `0` on
+/// `BrightGlowRight:0` and were never written].
+pub fn stencil_item_get(s: [f32; 3], item: usize) -> Option<f32> {
+    let flags = s[0].trunc() as i64 as u32;
+    match item {
+        0 => Some((flags & 1) as f32),
+        1 => Some(((flags >> 10) & 3) as f32),
+        2 => Some(s[1]),
+        3 => Some(s[2]),
+        4 => Some(((flags >> 1) & 7) as f32),
+        5 => Some(((flags >> 4) & 7) as f32),
+        6 => Some(((flags >> 7) & 7) as f32),
+        7 => Some(((flags >> 12) & 0xF) as f32),
+        _ => None,
+    }
+}
+
+/// Writes one JohnnyGuitar `SetStencilPropertyValue` item (`0..=7`) into packed
+/// `NiStencilProperty` `[flags, reference, mask]`: probed writes for item `1` (`7->3`, 2-bit
+/// mask), item `2` (`7->7`), and item `7` (`2->2`) are [observed: `w6d3_04`, `w6d3p2_04b`];
+/// returning `false` (`0`) for `item >= 8`, bit positions for items `0`/`4`/`5`, and write
+/// bitmask widths for items `0`, `3`, `4`, `5`, `6`, `7` (plus unprobed overflow/negative
+/// values on item `2`) are [hypothesis] / [design].
+pub fn stencil_item_set(s: &mut [f32; 3], item: usize, v: f32) -> bool {
+    let raw = v.trunc() as i64 as u32;
+    let flags = s[0].trunc() as i64 as u32;
+    match item {
+        0 => s[0] = ((flags & !1) | (raw & 1)) as f32,
+        1 => s[0] = ((flags & !(3 << 10)) | ((raw & 3) << 10)) as f32,
+        2 => s[1] = raw as f32,
+        3 => s[2] = raw as f32,
+        4 => s[0] = ((flags & !(7 << 1)) | ((raw & 7) << 1)) as f32,
+        5 => s[0] = ((flags & !(7 << 4)) | ((raw & 7) << 4)) as f32,
+        6 => s[0] = ((flags & !(7 << 7)) | ((raw & 7) << 7)) as f32,
+        7 => s[0] = ((flags & !(0xF << 12)) | ((raw & 0xF) << 12)) as f32,
+        _ => return false,
+    }
+    true
+}
+
 /// Puts an alpha or stencil property value on a node; false when it has no such property
 /// or item.
 fn lay_prop(n: &mut SceneNode, alpha: bool, item: usize, v: f32) -> bool {
     let Some(info) = n.info.as_deref_mut() else { return false };
-    let slot = if alpha { info.alpha.as_mut().map(|a| a.as_mut_slice()) } else { info.stencil.as_mut().map(|s| s.as_mut_slice()) };
-    match slot.and_then(|s| s.get_mut(item)) {
-        Some(x) => {
-            *x = v;
-            true
-        }
-        None => false,
+    if alpha {
+        info.alpha.as_mut().is_some_and(|a| alpha_item_set(a, item, v))
+    } else {
+        info.stencil.as_mut().is_some_and(|s| stencil_item_set(s, item, v))
     }
 }
 

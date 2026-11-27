@@ -1,0 +1,83 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d2_set_weapon_1st_person_stat_check",
+  "description": "Wave 6D-2 read-only probe for SetWeapon1stPersonModel STAT validation, null no-op, omit clear, and clone isolation.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_ln_nvse": "57.30 (5730)",
+    "johnnyguitar_nvse": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d2_weapon_1st_person",
+      "title": "Wave 6D-2: SetWeapon1stPersonModel STAT check",
+      "extender": "JohnnyGuitarNVSE 528 + JIP LN NVSE 57.30",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d2_01_weapon_1st_person_model_edges",
+          "bucket": "A",
+          "extender": "JohnnyGuitar 528 + JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 425,
+          "functions_tested": [
+            "GetWeapon1stPersonModel",
+            "SetWeapon1stPersonModel",
+            "TempCloneForm"
+          ],
+          "claim": "Verify SetWeapon1stPersonModel (739 calls across 88 active mods; static audit SD-06) with valid STAT, omitted 3rd arg, explicit null ref 0, non-STAT form (Stimpak), OOB slots -1/8, and TempCloneForm WEAP isolation.",
+          "expected": "Check whether omitted clears to 0, explicit 0 clears vs no-op, non-STAT clears vs no-op, and TempCloneForm WEAP isolates from original.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rLas1 = GetFormFromMod \"FalloutNV.esm\" \"26051\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rNull = 0",
+            "ref m0 = GetWeapon1stPersonModel r10 0",
+            "ref m1 = GetWeapon1stPersonModel r10 1",
+            "ref mOob1 = GetWeapon1stPersonModel r10 -1",
+            "ref mOob8 = GetWeapon1stPersonModel r10 8",
+            "SetWeapon1stPersonModel r10 0 rLas1",
+            "ref afterSet = GetWeapon1stPersonModel r10 0",
+            "SetWeapon1stPersonModel r10 0 rNull",
+            "ref afterNull = GetWeapon1stPersonModel r10 0",
+            "SetWeapon1stPersonModel r10 0 rStim",
+            "ref afterBad = GetWeapon1stPersonModel r10 0",
+            "SetWeapon1stPersonModel r10 0",
+            "ref afterOmit = GetWeapon1stPersonModel r10 0",
+            "SetWeapon1stPersonModel r10 0 m0",
+            "ref rCl = TempCloneForm r10",
+            "SetWeapon1stPersonModel rCl 0 rLas1",
+            "ref clM = GetWeapon1stPersonModel rCl 0",
+            "ref origM = GetWeapon1stPersonModel r10 0",
+            "PrintToConsole \"PROBE|w6d2_01_weapon_1st_person_model_edges|m0z=%g,m1z=%g,oob=%g/%g|set=%g,null=%g,bad=%g,omit=%g|cl=%g,orig=%g\" (m0 == 0) (m1 == 0) (mOob1 == 0) (mOob8 == 0) (afterSet == rLas1) (afterNull == rLas1) (afterBad == rLas1) (afterOmit == 0) (clM == rLas1) (origM == m0)"
+          ]
+        }
+      ]
+    }
+  ]
+}

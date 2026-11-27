@@ -194,11 +194,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `typeID`, 0 None … 14 Vault [documented: the page's table]; another number is
-        // kept as given [hypothesis].
+        // `typeID`, 0 None … 14 Vault [documented: the page's table]; values outside
+        // 0..=14 are ignored without overwriting [observed: Fallout: New Vegas 1.4.0.525
+        // (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+        // `w6d10_37_mapmarker_name_type_oob_and_reputation`: `ty(3,14=14,20=14,-1=14)`].
         "setmapmarkertype" => {
-            if let Some(r) = subject.filter(|&r| g.marker_kind(r).is_some()) {
-                g.other.lutana.lu2.marker_kind.insert(r, num(args, 0, 0.0).clamp(0.0, 255.0) as u8);
+            let ty = num(args, 0, -1.0);
+            if ty.is_finite() && (0.0..=14.0).contains(&ty) {
+                if let Some(r) = subject.filter(|&r| g.marker_kind(r).is_some()) {
+                    g.other.lutana.lu2.marker_kind.insert(r, ty.trunc() as u8);
+                }
             }
             zero
         }
@@ -212,6 +217,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "getradioradius" => XVal::Num(subject.and_then(|r| g.radio_data(r)).map_or(0.0, |d| f64::from(d.radius))),
         "getradiostatic" => XVal::Num(subject.and_then(|r| g.radio_data(r)).map_or(0.0, |d| f64::from(d.static_percent))),
         "getradioposref" => XVal::Ref(subject.and_then(|r| g.radio_data(r)).and_then(|d| d.position_ref).map_or(0, |p| p.0)),
+        // Out-of-range broadcast types outside 0..=4 and negative radius/static values
+        // leave the field unchanged (not clamped), and SetRadioStatic accepts values > 100
+        // unclamped [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+        // w6d9_21_radio_xrdo_radius_static_type_posref_bounds: ty(1,5=1,-1=1)|rad(0.0,500=0.0,-100=0.0)|st(0.0,150=0.0,-10=0.0)|pos(set=0,rest=1);
+        // w6d9p2_20_radio_xrdo_radius_mode: ty(1->0:0->2:2)|rad(500=500.0,-100=500.0)|st(50=50.0,150=150.0,-10=150.0)|pos=1].
         "setradiobroadcasttype" | "setradioradius" | "setradiostatic" | "setradioposref" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let x = num(args, 0, 0.0);
@@ -223,9 +233,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                         d.range = v as u32;
                     }
                 }
-                "setradioradius" => d.radius = x.max(0.0) as f32,
+                "setradioradius" => {
+                    if x.is_finite() && x >= 0.0 {
+                        d.radius = x as f32;
+                    }
+                }
                 "setradiostatic" => {
-                    if x.is_finite() && (0.0..=100.0).contains(&x) {
+                    if x.is_finite() && x >= 0.0 {
                         d.static_percent = x as f32;
                     }
                 }
@@ -322,7 +336,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `form`: the plugins that hold it, defining or overriding, in load order
         // [documented: GetFormMods' example].
         "getformmods" => {
-            let Some(f) = form(args, 0) else { return Some(Ok(list(g, Vec::new()))) };
+            let Some(f) = form(args, 0) else { return Some(Ok(XVal::Array(0))) };
             let names: Vec<XVal> = g.data.form_plugins(f).into_iter().map(XVal::Str).collect();
             list(g, names)
         }
@@ -330,3 +344,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_mapmarker_type_tests.rs"]
+mod w6d10_mapmarker_type_tests;
+
+#[cfg(test)]
+#[path = "w6d9_radio_xrdo_bounds_tests.rs"]
+mod w6d9_radio_xrdo_bounds_tests;

@@ -215,7 +215,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         ("getprojectilerefspeedmult" | "getprojectilerefdamage" | "getprojectilereflifetime" | "getprojectilerefdistancetraveled", None) => zero,
         ("getprojectilerefsource" | "getprojectilerefweapon" | "getprojectilerefimpactref", None) => XVal::Ref(0),
-        ("getprojectilerefimpactmaterial", None) => XVal::Num(-1.0),
+        // Non-projectile refs return 0, while live unimpacted projectiles return -1
+        // [observed: w6d6_38_proj_ref_getters_nonproj_and_live_shot, w6d6p2_38_proj_ref_live_shot].
+        ("getprojectilerefimpactmaterial", None) => zero,
         ("setprojectilerefspeedmult" | "setprojectilerefdamage" | "setprojectilerefsource", None) => zero,
         _ => return None,
     };
