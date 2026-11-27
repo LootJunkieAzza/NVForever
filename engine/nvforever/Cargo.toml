@@ -32,6 +32,8 @@ texpresso.workspace = true
 fnv-spt.workspace = true
 fnv-font.workspace = true
 nvf-play.workspace = true
+# The bounce light volume the lighting reads, and its read on the CPU (rtgi_volume.rs, #3009).
+nvf-rtgi.workspace = true
 nvf-coop.workspace = true
 fnv-actor.workspace = true
 fnv-sim.workspace = true
