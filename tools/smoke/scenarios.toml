@@ -15317,6 +15317,7 @@ run_seconds = 20
 expect = [
   { re = 'scope: WeapSniperRifle \(\S+\) up: interface.HUD.mildotscope\.NIF, sight FOV (?P<n>[\d.]+)°, a plain scope', range = [1, 74.9], label = "aimed, the sniper rifle's scope comes up at its sight FOV" },
   { re = 'scope view: meshes.interface.HUD.mildotscope\.NIF drawn \((?P<n>\d+) shapes\), 920 units high', range = [3, 8], label = "the MOD3 picture is drawn" },
+  { re = 'scope view: picture drawn in (?P<n>\d+) frames; its camera and shapes are gone, the picture kept', range = [1, 600], label = "the picture's camera renders it once and goes (#4781: its window-sized targets are not held while the scope is up)" },
   { re = 'scope sway: PSp [\d.]+, radius [\d.]+°', label = "the view sways through the scope" },
   { re = 'scope: down', label = "letting go of Block takes the scope down" },
   { re = 'scope: night vision', count = 0, label = "a plain scope gives no night vision" },

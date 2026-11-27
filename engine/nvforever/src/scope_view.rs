@@ -37,7 +37,7 @@ use crate::imagespace::ScreenModifiers;
 use crate::sky::SkyState;
 use crate::world::WorldData;
 use bevy::asset::RenderAssetUsages;
-use bevy::camera::visibility::RenderLayers;
+use bevy::camera::visibility::{RenderLayers, ViewVisibility};
 use bevy::camera::{ImageRenderTarget, RenderTarget, ScalingMode};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::AmbientLight;
@@ -147,12 +147,15 @@ struct PictureCheck {
     ready: Arc<AtomicU32>,
 }
 
-fn extract_picture_check(main: Extract<Res<PictureCheck>>, mut render: ResMut<PictureCheck>) {
-    if main.is_changed() {
-        render.camera = main.camera;
-        render.active = main.active;
-        render.shapes.clone_from(&main.shapes);
-    }
+/// The shapes the camera sees, only: one outside its view is culled and never drawn (the
+/// side bars on a screen of 16:10 or narrower) [observed: 1280x800, the bars never queued,
+/// the picture waited for them]. The shapes are on the picture's own layer, so a shape's
+/// `ViewVisibility` is its visibility in this camera.
+fn extract_picture_check(main: Extract<Res<PictureCheck>>, seen: Extract<Query<&ViewVisibility>>, mut render: ResMut<PictureCheck>) {
+    render.camera = main.camera;
+    render.active = main.active;
+    render.shapes.clear();
+    render.shapes.extend(main.shapes.iter().filter(|(e, _, _)| seen.get(e.id()).is_ok_and(|v| v.get())).copied());
 }
 
 /// Count the frame as drawn when every shape's mesh and material are on the GPU (the
@@ -167,23 +170,35 @@ fn observe_picture(
     specialized: Res<SpecializedMaterialPipelineCache>,
     pipelines: Res<PipelineCache>,
     meshes: Res<RenderAssets<RenderMesh>>,
+    mut waited: Local<u32>,
 ) {
     let Some(camera) = check.camera.filter(|_| check.active) else {
         check.ready.store(0, Relaxed);
+        *waited = 0;
         return;
     };
     let entries: Vec<_> = specialized.iter().filter(|(view, _)| view.main_entity == camera).map(|(_, e)| e).collect();
-    let drawable = |(entity, mesh, material): &(MainEntity, AssetId<Mesh>, UntypedAssetId)| {
+    // Each test in turn: mesh, material instance, material bound, pipeline asked, pipeline ready.
+    let flags = |(entity, mesh, material): &(MainEntity, AssetId<Mesh>, UntypedAssetId)| {
         let bound = materials.get(*material).is_some_and(|m| allocators.get(&material.type_id()).and_then(|a| a.get(m.binding.group)).is_some_and(|g| g.bind_group().is_some()));
-        let pipeline = entries.iter().filter_map(|e| e.get(entity)).any(|id| pipelines.get_render_pipeline(*id).is_some());
-        meshes.get(*mesh).is_some() && instances.instances.get(entity).is_some_and(|i| i.asset_id == *material) && bound && pipeline
+        let ids: Vec<_> = entries.iter().filter_map(|e| e.get(entity)).collect();
+        [meshes.get(*mesh).is_some(), instances.instances.get(entity).is_some_and(|i| i.asset_id == *material), bound, !ids.is_empty(), ids.iter().any(|id| pipelines.get_render_pipeline(**id).is_some())]
     };
-    if !check.shapes.is_empty() && check.shapes.iter().all(drawable) {
+    if !check.shapes.is_empty() && check.shapes.iter().all(|s| flags(s).iter().all(|f| *f)) {
         check.ready.fetch_add(1, Relaxed);
-    } else {
-        check.ready.store(0, Relaxed);
+        return;
+    }
+    check.ready.store(0, Relaxed);
+    *waited += 1;
+    // Once, should the picture take long: which test holds it.
+    if *waited == PICTURE_WAIT_LOG_FRAMES {
+        let held: Vec<String> = check.shapes.iter().map(|s| flags(s).iter().map(|f| if *f { '1' } else { '0' }).collect()).collect();
+        info!("scope view: the picture not drawn after {PICTURE_WAIT_LOG_FRAMES} frames; per shape mesh/instance/bound/asked/ready: {}; views with pipelines for the camera: {}", held.join(" "), entries.len());
     }
 }
+
+/// Render frames of waiting after which [`observe_picture`] says what holds the picture.
+const PICTURE_WAIT_LOG_FRAMES: u32 = 60;
 
 /// The picture camera on while the scope is up and the picture is not yet drawn (off while
 /// it is down). Once drawn, the camera and the shapes it drew are despawned and only the
