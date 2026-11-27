@@ -1043,10 +1043,12 @@ fn stubs(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> Valu
             });
         }
     }
+    // An extender condition is answered by name too (`Game::extender_condition`).
+    let by_name_ctda = extender_handled(schema, &l.table, fjson, ctda.keys().map(|f| 0x1000 + f));
     for (f, k) in ctda {
         let op = 0x1000 + f;
         let opcode = format!("0x{op:04X}");
-        if listed.contains(&opcode) {
+        if listed.contains(&opcode) || by_name_ctda.contains(&op) {
             continue;
         }
         let name = l.table.get(op).map(|t| t.name.clone()).unwrap_or_else(|| format!("condition index {f}"));
