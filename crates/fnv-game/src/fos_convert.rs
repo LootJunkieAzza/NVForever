@@ -12,6 +12,7 @@ use crate::actor_values::{CARRY_WEIGHT, HEALTH, LIMB_CONDITIONS, SPECIALS};
 use crate::aid::{grows as av_grows, ChangeKind, RAD_LEVEL, USAGE_MONITOR};
 use crate::chargen::Look;
 use crate::game::{ActiveEffect, Game, GameConfig, GameSnapshot, InstKey};
+use crate::nvse_jip10::ADDED_VAR_BASE;
 use crate::GameData;
 use fnv_save::fos::{
     Fos, FosCreatedActor, FosItem, FosItemEntry, FosScriptVars, VarValue, FORM_DEAD, FORM_DELETED,
@@ -20,8 +21,11 @@ use fnv_save::fos::{
     TYPE_CHAL, TYPE_CLAS, TYPE_CREA, TYPE_ECZN, TYPE_FACT, TYPE_FLST, TYPE_INFO, TYPE_LVLI,
     TYPE_MISC, TYPE_NOTE, TYPE_NPC, TYPE_PGRE, TYPE_QUST, TYPE_REFR, TYPE_REPU, TYPE_TACT,
 };
+use fnv_save::nvse::{
+    format_tag, JipAddedVarVal, JipVal, NvseArrayKey, NvseArrayKind, NvseArrayVal, NvseCosave,
+};
 use fnv_save::{EngineSnapshot, Place, PluginEntry, PluginRemap, SaveBody, SaveHeader, SaveKind};
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArrayKind, Value, XArray, XKey, XVal};
 use fnv_sim::forms::{ItemKind, LeveledEntry, SPECIAL};
 use fnv_sim::inventory::{Extra, Pick};
 use fnv_sim::world::LockState;
@@ -103,12 +107,28 @@ impl FosSummary {
     }
 }
 
+/// Structured summary of an adjacent `.nvse` co-save when inspected alongside a `.fos`
+/// (`docs/spec-notes/nvse-cosaves.md`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CosaveInspectSummary {
+    pub format_version: u32,
+    pub nvse_version: String,
+    pub runtime_version: String,
+    pub plugin_count: u32,
+    pub mods: Vec<String>,
+    pub decoded_counts: BTreeMap<String, usize>,
+    pub parse_errors: BTreeMap<String, usize>,
+    pub unknown_chunks: Vec<String>,
+}
+
 /// Structured offline inspection report for `fnvtool save inspect-fos`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FosInspectReport {
     pub schema: String,
     pub source: FosSummary,
     pub cosave_present: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cosave: Option<CosaveInspectSummary>,
     pub global_tables: Vec<(u32, usize)>,
     pub changed_by_kind: BTreeMap<String, usize>,
     pub decoded_counts: BTreeMap<String, usize>,
@@ -129,6 +149,8 @@ pub struct ConversionReport {
     pub source: FosSummary,
     pub missing_plugins: Vec<String>,
     pub cosave_ignored: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cosave_imported: bool,
     pub converted: BTreeMap<String, usize>,
     /// Counts of converted fields whose `.fos` decoding or `.nvfsave` mapping relies on
     /// `[hypothesis]` readings in `docs/spec-notes/save-files.md` (§§3–6.6).
@@ -167,6 +189,15 @@ pub fn encode_rgb_png(rgb: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
 
 /// Inspect a parsed `.fos` file without needing game plugins.
 pub fn inspect_fos(fos: &Fos, cosave_present: bool) -> FosInspectReport {
+    inspect_fos_with_cosave(fos, cosave_present, None)
+}
+
+/// Inspect a parsed `.fos` file together with an optional parsed sibling `.nvse` co-save.
+pub fn inspect_fos_with_cosave(
+    fos: &Fos,
+    cosave_present: bool,
+    cosave: Option<&NvseCosave>,
+) -> FosInspectReport {
     let mut changed_by_kind: BTreeMap<String, usize> = BTreeMap::new();
     for c in &fos.changed {
         let label = format!("{}({})", fnv_save::fos::kind_name(c.kind), c.kind);
@@ -292,10 +323,13 @@ pub fn inspect_fos(fos: &Fos, cosave_present: bool) -> FosInspectReport {
             }
         };
 
+    let cosave_summary = cosave.map(inspect_nvse_cosave);
+
     FosInspectReport {
         schema: INSPECT_FORMAT.into(),
         source: FosSummary::from_fos(fos),
-        cosave_present,
+        cosave_present: cosave_present || cosave.is_some(),
+        cosave: cosave_summary,
         global_tables: fos.globals_data.iter().map(|(t, d)| (*t, d.len())).collect(),
         changed_by_kind,
         decoded_counts,
@@ -307,6 +341,96 @@ pub fn inspect_fos(fos: &Fos, cosave_present: bool) -> FosInspectReport {
         player_tag_skill_count,
         player_av_parsed,
         player_inventory_items,
+    }
+}
+
+fn inspect_nvse_cosave(nvse: &NvseCosave) -> CosaveInspectSummary {
+    let mut decoded_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut parse_errors: BTreeMap<String, usize> = BTreeMap::new();
+    let mods = match nvse.mod_list() {
+        Ok(Some(m)) => m,
+        Ok(None) => Vec::new(),
+        Err(_) => {
+            *parse_errors.entry("mod_list".into()).or_default() += 1;
+            Vec::new()
+        }
+    };
+    let (arr_ok, arr_err) = partition_results(nvse.arrays());
+    decoded_counts.insert("arrays".into(), arr_ok);
+    if arr_err > 0 {
+        parse_errors.insert("arrays".into(), arr_err);
+    }
+    match nvse.jip_aux_vars() {
+        Ok(v) => {
+            decoded_counts.insert("jip_aux_vars".into(), v.len());
+        }
+        Err(_) => {
+            *parse_errors.entry("jip_aux_vars".into()).or_default() += 1;
+        }
+    }
+    match nvse.jip_refmaps() {
+        Ok(v) => {
+            decoded_counts.insert("jip_refmaps".into(), v.len());
+        }
+        Err(_) => {
+            *parse_errors.entry("jip_refmaps".into()).or_default() += 1;
+        }
+    }
+    match nvse.jip_linked_refs() {
+        Ok(v) => {
+            decoded_counts.insert("jip_linked_refs".into(), v.len());
+        }
+        Err(_) => {
+            *parse_errors.entry("jip_linked_refs".into()).or_default() += 1;
+        }
+    }
+    match nvse.jip_added_script_vars() {
+        Ok(v) => {
+            decoded_counts.insert("jip_added_script_vars".into(), v.len());
+        }
+        Err(_) => {
+            *parse_errors.entry("jip_added_script_vars".into()).or_default() += 1;
+        }
+    }
+    match nvse.jg_extra_misc_stats() {
+        Ok(v) => {
+            decoded_counts.insert("jg_extra_misc_stats".into(), v.len());
+        }
+        Err(_) => {
+            *parse_errors.entry("jg_extra_misc_stats".into()).or_default() += 1;
+        }
+    }
+    match nvse.showoff_strmaps() {
+        Ok(v) => {
+            decoded_counts.insert("showoff_strmaps".into(), v.len());
+        }
+        Err(_) => {
+            *parse_errors.entry("showoff_strmaps".into()).or_default() += 1;
+        }
+    }
+    match nvse.showoff_aux_timers() {
+        Ok(v) => {
+            decoded_counts.insert("showoff_aux_timers".into(), v.len());
+        }
+        Err(_) => {
+            *parse_errors.entry("showoff_aux_timers".into()).or_default() += 1;
+        }
+    }
+    let unknown_chunks = nvse
+        .unknown_chunks()
+        .into_iter()
+        .map(|u| format!("0x{:08X}/{} v{} ({}B)", u.opcode, format_tag(u.tag), u.version, u.length))
+        .collect();
+
+    CosaveInspectSummary {
+        format_version: nvse.header.format_version,
+        nvse_version: format!("0x{:08X}", nvse.header.nvse_version),
+        runtime_version: format!("0x{:08X}", nvse.header.runtime_version),
+        plugin_count: nvse.header.plugin_count,
+        mods,
+        decoded_counts,
+        parse_errors,
+        unknown_chunks,
     }
 }
 
@@ -326,6 +450,19 @@ fn partition_results<T, E>(v: Vec<Result<T, E>>) -> (usize, usize) {
 /// Convert a parsed `.fos` save into an NVForever `.nvfsave` payload over a loaded plugin order.
 pub fn convert_fos(
     fos: &Fos,
+    data: &GameData,
+    forms: &FormStore,
+    refs: &RefTable,
+    opts: &ConvertOptions,
+) -> Result<ConvertedSave, String> {
+    convert_fos_with_cosave(fos, None, data, forms, refs, opts)
+}
+
+/// Convert a parsed `.fos` save and an optional sibling `.nvse` co-save into an NVForever
+/// `.nvfsave` payload over a loaded plugin order (`docs/spec-notes/nvse-cosaves.md`).
+pub fn convert_fos_with_cosave(
+    fos: &Fos,
+    cosave: Option<&NvseCosave>,
     data: &GameData,
     forms: &FormStore,
     refs: &RefTable,
@@ -364,8 +501,8 @@ pub fn convert_fos(
         *skipped.entry(format!("{what}: {why}")).or_default() += 1;
     };
 
-    if opts.cosave_present {
-        warnings.push("adjacent .nvse co-save detected and ignored (NVForever does not import xNVSE co-saves)".into());
+    if opts.cosave_present && cosave.is_none() {
+        warnings.push("adjacent .nvse co-save detected and ignored (not provided or failed to parse)".into());
     }
     if !missing_plugins.is_empty() {
         warnings.push(format!(
@@ -2203,6 +2340,19 @@ pub fn convert_fos(
         }
     }
 
+    // Apply optional sibling `.nvse` co-save chunks onto `g` (`docs/spec-notes/nvse-cosaves.md`).
+    if let Some(nvse) = cosave {
+        apply_nvse_cosave(
+            &mut g,
+            nvse,
+            &fos.plugins,
+            &current_names,
+            &created_map,
+            &mut inc_ok,
+            &mut inc_skip,
+        );
+    }
+
     // Build validated GameSnapshot, SaveBody, SaveHeader, and optional PNG thumbnail.
     let snapshot = g.checked_snapshot()?;
     let mut header = SaveHeader::new(opts.kind);
@@ -2260,7 +2410,8 @@ pub fn convert_fos(
         schema: REPORT_FORMAT.into(),
         source: FosSummary::from_fos(fos),
         missing_plugins,
-        cosave_ignored: opts.cosave_present,
+        cosave_ignored: opts.cosave_present && cosave.is_none(),
+        cosave_imported: cosave.is_some(),
         converted,
         hypothesis_fields,
         skipped,
@@ -2268,6 +2419,366 @@ pub fn convert_fos(
     };
 
     Ok(ConvertedSave { header, shot, body, report })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_nvse_cosave(
+    g: &mut Game<'_>,
+    nvse: &NvseCosave,
+    fos_plugins: &[String],
+    current_names: &[String],
+    created_map: &BTreeMap<u32, FormId>,
+    inc_ok: &mut impl FnMut(&str),
+    inc_skip: &mut impl FnMut(&str, &str),
+) {
+    const JIP_PRIVATE_SEP: char = '\u{1}';
+
+    let cosave_mod_names: Vec<String> = match nvse.mod_list() {
+        Ok(Some(mods)) if !mods.is_empty() => mods,
+        Ok(_) => fos_plugins.to_vec(),
+        Err(_) => {
+            inc_skip("cosave_mod_list", "SDOM chunk malformed; falling back to .fos plugin list");
+            fos_plugins.to_vec()
+        }
+    };
+    let saved_entries: Vec<PluginEntry> = cosave_mod_names
+        .iter()
+        .map(|name| PluginEntry { name: name.clone(), size: 0 })
+        .collect();
+    let cosave_remap = PluginRemap::from_names(&saved_entries, current_names);
+
+    let map_cosave_form = |raw: u32| -> Result<FormId, &'static str> {
+        if raw == 0 {
+            return Ok(FormId(0));
+        }
+        if raw >> 24 == 0xFF {
+            return created_map
+                .get(&raw)
+                .copied()
+                .ok_or("created form (0xFF) not in .fos");
+        }
+        cosave_remap
+            .map(raw)
+            .map(FormId)
+            .ok_or("form of a plugin not loaded")
+    };
+
+    let owning_plugin_lower = |mod_index: u8| -> Result<Option<String>, &'static str> {
+        if mod_index == 0xFF {
+            return Ok(None);
+        }
+        let Some(saved_name) = cosave_mod_names.get(usize::from(mod_index)) else {
+            return Err("owning mod index out of range");
+        };
+        if let Some(cur) = current_names.iter().find(|c| c.eq_ignore_ascii_case(saved_name)) {
+            Ok(Some(cur.to_ascii_lowercase()))
+        } else {
+            Err("owning plugin not loaded")
+        }
+    };
+
+    let resolve_jip_key = |raw_name: &str, mod_index: u8| -> Result<String, &'static str> {
+        if raw_name.starts_with('*') {
+            return Err("temporary (*) variable not persisted");
+        }
+        let lower: String = raw_name.chars().take(79).collect::<String>().to_lowercase();
+        if lower.is_empty() {
+            return Err("empty variable name");
+        }
+        if lower.starts_with('_') {
+            return Ok(lower);
+        }
+        match owning_plugin_lower(mod_index)? {
+            Some(plugin) => Ok(format!("{lower}{JIP_PRIVATE_SEP}{plugin}")),
+            None => Ok(lower),
+        }
+    };
+
+    let map_jip_val = |v: &JipVal| -> Result<XVal, &'static str> {
+        match v {
+            JipVal::Num(x) => {
+                if x.is_finite() {
+                    Ok(XVal::Num(*x))
+                } else {
+                    Err("non-finite value")
+                }
+            }
+            JipVal::Form(raw) => map_cosave_form(*raw).map(|f| XVal::Ref(f.0)),
+            JipVal::Str(s) => Ok(XVal::Str(s.clone())),
+        }
+    };
+
+    // 1. xNVSE RVRA (`ARVR` v2) array variables -> `g.ext.arrays`.
+    for arr_res in nvse.arrays() {
+        let Ok(arr) = arr_res else {
+            inc_skip("cosave_array", "RVRA chunk malformed");
+            continue;
+        };
+        if arr.id == 0 {
+            inc_skip("cosave_array", "zero array ID");
+            continue;
+        }
+        if let Err(why) = owning_plugin_lower(arr.owning_mod) {
+            inc_skip("cosave_array", why);
+            continue;
+        }
+        let kind = match arr.kind {
+            NvseArrayKind::List => ArrayKind::List,
+            NvseArrayKind::Map => ArrayKind::Map,
+            NvseArrayKind::StringMap => ArrayKind::StringMap,
+        };
+        let mut entries = Vec::with_capacity(arr.entries.len());
+        for (k, v) in &arr.entries {
+            let xk = match k {
+                NvseArrayKey::Num(x) => {
+                    if !x.is_finite() {
+                        inc_skip("cosave_array_element", "non-finite key");
+                        continue;
+                    }
+                    XKey::Num(*x)
+                }
+                NvseArrayKey::Str(s) => XKey::Str(s.clone()),
+            };
+            let xv = match v {
+                NvseArrayVal::Num(x) => {
+                    if !x.is_finite() {
+                        inc_skip("cosave_array_element", "non-finite value");
+                        continue;
+                    }
+                    XVal::Num(*x)
+                }
+                NvseArrayVal::Form(raw) => match map_cosave_form(*raw) {
+                    Ok(f) => XVal::Ref(f.0),
+                    Err(why) => {
+                        inc_skip("cosave_array_element", why);
+                        continue;
+                    }
+                },
+                NvseArrayVal::Str(s) => XVal::Str(s.clone()),
+                NvseArrayVal::Array(child_id) => XVal::Array(*child_id),
+            };
+            entries.push((xk, xv));
+            inc_ok("cosave_array_elements");
+        }
+        let refs_count = u32::try_from(arr.ref_mods.len()).unwrap_or(u32::MAX).max(1);
+        g.ext.insert_imported_array(arr.id, XArray { kind, entries, refs: refs_count });
+        inc_ok("cosave_arrays");
+    }
+
+    // 2. JIP LN JPAV v10 permanent Auxiliary Variables -> `g.ext.jip.aux`.
+    match nvse.jip_aux_vars() {
+        Ok(aux_vars) => {
+            for av in aux_vars {
+                let owner = match map_cosave_form(av.owner) {
+                    Ok(f) if f.0 != 0 => f.0,
+                    Ok(_) => {
+                        inc_skip("cosave_jip_aux", "zero owner form ID");
+                        continue;
+                    }
+                    Err(why) => {
+                        inc_skip("cosave_jip_aux", why);
+                        continue;
+                    }
+                };
+                let key = match resolve_jip_key(&av.name, av.mod_index) {
+                    Ok(k) => k,
+                    Err(why) => {
+                        inc_skip("cosave_jip_aux", why);
+                        continue;
+                    }
+                };
+                let mut elems = Vec::with_capacity(av.elements.len());
+                for elem in &av.elements {
+                    match map_jip_val(elem) {
+                        Ok(v) => {
+                            elems.push(v);
+                            inc_ok("cosave_jip_aux_elements");
+                        }
+                        Err(why) => inc_skip("cosave_jip_aux_element", why),
+                    }
+                }
+                if !elems.is_empty() {
+                    g.ext.jip.aux.entry(owner).or_default().insert(key, elems);
+                    inc_ok("cosave_jip_aux_vars");
+                }
+            }
+        }
+        Err(_) => inc_skip("cosave_jip_aux", "JPAV chunk malformed"),
+    }
+
+    // 3. JIP LN JPRM v10 permanent RefMap arrays -> `g.ext.jip.refmaps`.
+    match nvse.jip_refmaps() {
+        Ok(refmaps) => {
+            for rm in refmaps {
+                let key = match resolve_jip_key(&rm.name, rm.mod_index) {
+                    Ok(k) => k,
+                    Err(why) => {
+                        inc_skip("cosave_jip_refmap", why);
+                        continue;
+                    }
+                };
+                let mut pairs: Vec<(u32, XVal)> = Vec::with_capacity(rm.entries.len());
+                for (raw_k, raw_v) in &rm.entries {
+                    let mapped_k = match map_cosave_form(*raw_k) {
+                        Ok(f) if f.0 != 0 => f.0,
+                        Ok(_) => {
+                            inc_skip("cosave_jip_refmap_entry", "zero key form ID");
+                            continue;
+                        }
+                        Err(why) => {
+                            inc_skip("cosave_jip_refmap_entry", why);
+                            continue;
+                        }
+                    };
+                    match map_jip_val(raw_v) {
+                        Ok(v) => {
+                            match pairs.binary_search_by_key(&mapped_k, |(k, _)| *k) {
+                                Ok(i) => pairs[i].1 = v,
+                                Err(i) => pairs.insert(i, (mapped_k, v)),
+                            }
+                            inc_ok("cosave_jip_refmap_entries");
+                        }
+                        Err(why) => inc_skip("cosave_jip_refmap_entry", why),
+                    }
+                }
+                if !pairs.is_empty() {
+                    g.ext.jip.refmaps.insert(key, pairs);
+                    inc_ok("cosave_jip_refmaps");
+                }
+            }
+        }
+        Err(_) => inc_skip("cosave_jip_refmap", "JPRM chunk malformed"),
+    }
+
+    // 4. ShowOff OSMS v10 permanent AuxStringMapArray -> `g.ext.jip.strmaps`.
+    match nvse.showoff_strmaps() {
+        Ok(smaps) => {
+            for sm in smaps {
+                if sm.name.starts_with('*') {
+                    inc_skip("cosave_showoff_strmap", "temporary (*) map not persisted");
+                    continue;
+                }
+                if !sm.name.starts_with('_') {
+                    if let Err(why) = owning_plugin_lower(sm.mod_index) {
+                        inc_skip("cosave_showoff_strmap", why);
+                        continue;
+                    }
+                }
+                let map_key = sm.name.to_lowercase();
+                let mut inner: BTreeMap<String, (String, XVal)> = BTreeMap::new();
+                for (k, raw_v) in &sm.entries {
+                    match map_jip_val(raw_v) {
+                        Ok(v) => {
+                            inner.insert(k.to_lowercase(), (k.clone(), v));
+                            inc_ok("cosave_showoff_strmap_entries");
+                        }
+                        Err(why) => inc_skip("cosave_showoff_strmap_entry", why),
+                    }
+                }
+                if !inner.is_empty() {
+                    g.ext.jip.strmaps.insert(map_key, inner);
+                    inc_ok("cosave_showoff_strmaps");
+                }
+            }
+        }
+        Err(_) => inc_skip("cosave_showoff_strmap", "OSMS chunk malformed"),
+    }
+
+    // 5. JohnnyGuitar SMGJ v1 ExtraMiscStats -> `g.jip2.misc_stats` (`GameSnapshot::extra_misc_stats`).
+    match nvse.jg_extra_misc_stats() {
+        Ok(stats) => {
+            for st in stats {
+                if !st.name.is_empty() {
+                    g.jip2.misc_stats.insert(st.name.to_ascii_lowercase(), f64::from(st.value));
+                    inc_ok("cosave_jg_extra_misc_stats");
+                }
+            }
+        }
+        Err(_) => inc_skip("cosave_jg_extra_misc_stat", "SMGJ chunk malformed"),
+    }
+
+    // 6. JIP LN JPSV v9 runtime-added script variables -> `g.other.jip10.added_vars` + `g.instances`.
+    match nvse.jip_added_script_vars() {
+        Ok(added_vars) => {
+            for var in added_vars {
+                if let Err(why) = owning_plugin_lower(var.mod_index) {
+                    inc_skip("cosave_jip_added_script_var", why);
+                    continue;
+                }
+                let owner = match map_cosave_form(var.owner) {
+                    Ok(f) if f.0 != 0 => f,
+                    Ok(_) => {
+                        inc_skip("cosave_jip_added_script_var", "zero owner form ID");
+                        continue;
+                    }
+                    Err(why) => {
+                        inc_skip("cosave_jip_added_script_var", why);
+                        continue;
+                    }
+                };
+                let Some((inst_key, script_id)) = g.instance_of(owner) else {
+                    inc_skip("cosave_jip_added_script_var", "owner has no script in load order");
+                    continue;
+                };
+                let val = match var.value {
+                    JipAddedVarVal::Num(x) => {
+                        if !x.is_finite() {
+                            inc_skip("cosave_jip_added_script_var", "non-finite value");
+                            continue;
+                        }
+                        Value::Num(x)
+                    }
+                    JipAddedVarVal::Form(raw) => match map_cosave_form(raw) {
+                        Ok(f) => Value::Ref(f.0),
+                        Err(why) => {
+                            inc_skip("cosave_jip_added_script_var", why);
+                            continue;
+                        }
+                    },
+                };
+                let idx = if let Some(existing) = g.added_var_index(script_id, &var.name) {
+                    existing
+                } else {
+                    let list = g.other.jip10.added_vars.entry(script_id).or_default();
+                    let Some(slot) = u16::try_from(list.len()).ok().and_then(|n| ADDED_VAR_BASE.checked_add(n)) else {
+                        inc_skip("cosave_jip_added_script_var", "added variable table full");
+                        continue;
+                    };
+                    list.push(var.name.clone());
+                    slot
+                };
+                g.store(inst_key, Some(script_id), idx, val, "nvse_cosave", false);
+                inc_ok("cosave_jip_added_script_vars");
+            }
+        }
+        Err(_) => inc_skip("cosave_jip_added_script_var", "JPSV chunk malformed"),
+    }
+
+    // 7. Decoded chunks whose target state is not yet persisted in `GameSnapshot` (JPLR, SOAT).
+    match nvse.jip_linked_refs() {
+        Ok(links) => {
+            for _ in links {
+                inc_skip("cosave_jip_linked_ref", "GameSnapshot does not persist linked references");
+            }
+        }
+        Err(_) => inc_skip("cosave_jip_linked_ref", "JPLR chunk malformed"),
+    }
+    match nvse.showoff_aux_timers() {
+        Ok(timers) => {
+            for _ in timers {
+                inc_skip("cosave_showoff_aux_timer", "GameSnapshot does not persist aux timers");
+            }
+        }
+        Err(_) => inc_skip("cosave_showoff_aux_timer", "SOAT chunk malformed"),
+    }
+
+    // 8. Unknown / unmapped plugin chunks (including JIP `JPGF` and any unobserved string chunks).
+    for unk in nvse.unknown_chunks() {
+        inc_skip(
+            "cosave_chunk",
+            &format!("0x{:08X}/{} v{} unmapped", unk.opcode, format_tag(unk.tag), unk.version),
+        );
+    }
 }
 
 fn finite_transform(pos: [f32; 3], rot: [f32; 3]) -> bool {

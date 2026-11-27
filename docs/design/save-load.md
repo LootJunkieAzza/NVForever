@@ -283,16 +283,18 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
 5. **Physics**: objects load at rest where they were.
 6. **Another load order**: forms are remapped by name, those of missing plugins dropped
    with a notice; built 2026-10-21 (§4.1).
-7. **Importing a `.fos`**: the game runtime never reads or writes `.fos` files (the
-   runtime stays `.nvfsave`-only). An accepted offline
-   `fnvtool save convert <input.fos> --out <output.nvfsave>` (and
+7. **Importing a `.fos` (and optional sibling `.nvse` co-save):** the game runtime never
+   reads or writes `.fos` or `.nvse` files (the runtime stays `.nvfsave`-only). An accepted
+   offline `fnvtool save convert <input.fos> --out <output.nvfsave>` (and
    `fnvtool save inspect-fos <input.fos>`) utility converts the decoded `.fos` subset
-   (`crates/fnv-save/src/fos.rs`, `crates/fnv-game/src/fos_convert.rs`) into a standard
-   `NVFSAVE\0` v1 save and emits a structured JSON report separating `converted`,
+   (`crates/fnv-save/src/fos.rs`, `crates/fnv-game/src/fos_convert.rs`) — and, when a
+   sibling `<input>.nvse` co-save is present, decodes its observed chunks
+   (`crates/fnv-save/src/nvse.rs`, `docs/spec-notes/nvse-cosaves.md`, #4747) — into a
+   standard `NVFSAVE\0` v1 save and emits a structured JSON report separating `converted`,
    `hypothesis_fields` (every `[hypothesis]` `.fos` field written, per
-   `docs/spec-notes/save-files.md` §6.6), and `skipped` (`.nvse` co-saves, unsupported
-   created `0xFF` kinds such as `ACRE`/`ACHR`, unpersisted item hotkeys `0x4A`,
-   perks/active effects, and unmapped changed-form/global layouts).
+   `docs/spec-notes/save-files.md` §6.6), and `skipped` (unsupported created `0xFF` kinds,
+   unpersisted item hotkeys `0x4A`, perks/active effects, unmapped `.fos` changed-form/global
+   layouts, and unknown or unpersisted `.nvse` chunks).
 8. **Thumbnail**: 512×288 from the main camera; built (§6), shown on the pause menu's load
    page.
 

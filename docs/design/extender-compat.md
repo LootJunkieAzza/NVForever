@@ -32,8 +32,11 @@ What this gets us, compared with the original game plus DLLs:
 - **Recreating the extenders' engine patches** (bug fixes, INI tweaks, performance hacks). These
   fix the original exe, not ours. Where a patch changes behaviour players rely on, it becomes
   a separate, named NVForever option, decided case by case (§9).
-- **Reading or importing `.nvse` co-saves** of the original game. NVForever's own saves carry
-  the extender state (§5.4). An importer could come later, alongside any `.fos` import.
+- **Reading or writing `.nvse` co-saves at runtime.** NVForever's own `.nvfsave` carries
+  the extender state (§5.4) and the game runtime never reads or writes `.fos` or `.nvse`
+  files. Offline inspection and import of sibling `.nvse` co-saves is supported alongside
+  `.fos` conversion strictly inside `fnvtool save inspect-fos` and `fnvtool save convert`
+  (`crates/fnv-save/src/nvse.rs`, `docs/spec-notes/nvse-cosaves.md`, #4747).
 - **Other extenders**, such as ShowOff (173 function pages), kNVSE (28) and the long tail. The
   design leaves room for them (one module per origin) but they are not in this plan's scope. (Later work built several of them anyway: ShowOff,
   kNVSE, ITR, One111, ppNVSE and others, release v0.6.0; see docs/status.md.)

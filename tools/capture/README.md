@@ -776,6 +776,13 @@ inside `FalloutNV.exe` to write `.fos` saves into the isolated
 [`tools/capture/fos/README.md`](fos/README.md) for manual setup steps, usage,
 and clean-room rules.
 
+## `.nvse` co-save capture & verification harness (`nvse_cosave/`)
+
+`tools/capture/nvse_cosave/` provides a strictly read-only clean-room `.nvse` co-save
+staging/collection helper, stdlib binary parser/differ, 3 declarative A/B campaigns,
+27-assertion verifier, and offline synthetic tests (run live `con_Save` captures only
+in an isolated staging copy per §10); see [`tools/capture/nvse_cosave/README.md`](nvse_cosave/README.md).
+
 ## Tests
 
 ```

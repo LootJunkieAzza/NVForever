@@ -1143,6 +1143,22 @@ impl ExtStore {
         self.fresh.push(id);
         id
     }
+    /// Insert an array imported offline from an `.nvse` co-save while preserving its saved
+    /// array ID and advancing `next` past it so future runtime allocations never collide
+    /// (`docs/spec-notes/nvse-cosaves.md` §6 [design]).
+    pub fn insert_imported_array(&mut self, id: u32, mut array: XArray) {
+        if id == 0 {
+            return;
+        }
+        if array.kind != ArrayKind::List {
+            array.entries.sort_by(|x, y| x.0.cmp(&y.0));
+            array.entries.dedup_by(|x, y| x.0.cmp(&y.0) == std::cmp::Ordering::Equal);
+        }
+        array.renumber();
+        array.refs = array.refs.max(1);
+        self.next = self.next.max(id);
+        self.arrays.insert(id, array);
+    }
     pub fn array(&self, id: u32) -> Option<&XArray> {
         self.arrays.get(&id)
     }

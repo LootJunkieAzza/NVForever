@@ -21,6 +21,7 @@
 //! container version is bumped if it changes encoding.
 
 pub mod fos;
+pub mod nvse;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
