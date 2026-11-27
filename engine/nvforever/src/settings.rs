@@ -414,11 +414,11 @@ const FLASHLIGHT_CUSTOM: &str = "Custom";
 /// spelling [documented: FalloutNV.esm's loading screen text, "Pip-Boy light"].
 const FLASHLIGHT_PIPBOY: &str = "Pip-Boy";
 /// The Flashlight range slider's reach at its top, game units (about 115 m).
-const FLASHLIGHT_RANGE_MAX: f32 = 8000.0;
+const FLASHLIGHT_RANGE_MAX: f32 = nvf_coop::guard::LIGHT_RANGE_MAX;
 /// The Flashlight brightness slider's brightness at its top: four times the default.
 const FLASHLIGHT_BRIGHTNESS_MAX: f32 = 4.0 * crate::flashlight::BRIGHTNESS;
 /// The Beam width slider's half-angle at its top, degrees (a cone 160 degrees across).
-const FLASHLIGHT_HALF_ANGLE_MAX: f32 = 80.0;
+const FLASHLIGHT_HALF_ANGLE_MAX: f32 = nvf_coop::guard::LIGHT_HALF_ANGLE_MAX;
 
 fn flashlight_look(w: &World) -> FlashlightLook {
     w.get_resource::<FlashlightLook>().copied().unwrap_or_default()
@@ -3749,6 +3749,13 @@ mod tree_distance_tests {
     use super::*;
     use clap::Parser;
     use nvf_play::settings::Settings;
+
+    #[test]
+    fn flashlight_tops_match_the_guards_bounds() {
+        assert_eq!(FLASHLIGHT_RANGE_MAX, nvf_coop::guard::LIGHT_RANGE_MAX);
+        assert_eq!(FLASHLIGHT_BRIGHTNESS_MAX, nvf_coop::guard::LIGHT_BRIGHTNESS_MAX);
+        assert_eq!(FLASHLIGHT_HALF_ANGLE_MAX, nvf_coop::guard::LIGHT_HALF_ANGLE_MAX);
+    }
 
     /// #3016: the Tree distance row is a slider of the distant LOD's far limit in steps of
     /// 0.02 (2,500 units at the defaults), starting at `--tree-distance`'s 40,000 on a step,

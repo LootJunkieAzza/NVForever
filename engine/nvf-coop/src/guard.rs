@@ -24,7 +24,10 @@
 //!   [`crate::rel::PACKET_BUDGET`] as a sender packs one.
 //! - **State**: every float finite, the feet within the world ([`WORLD_XY`], [`WORLD_Z`]),
 //!   the yaw wrapped into [0, 2π) and the pitch clamped to ±π/2, at most
-//!   [`crate::net::MAX_WORN`] worn items. Then the forms: the weapon, each worn item and
+//!   [`crate::net::MAX_WORN`] worn items; a flashlight look ([`PlayerState::light`], while
+//!   [`flag::LIGHT`] is set) of a known kind, every number finite and within the Flashlight
+//!   rows' own bounds ([`LIGHT_RANGE_MAX`], [`LIGHT_BRIGHTNESS_MAX`], [`LIGHT_HALF_ANGLE_MAX`],
+//!   a softness of 0 to 1); while it is off the look is the default. Then the forms: the weapon, each worn item and
 //!   the furniture must be 0 or pass the host's [`FormCheck`]; one that does not is
 //!   cleared to 0 (and counted), the rest of the state kept, so a player whose one item
 //!   the host's game does not know still moves. Then movement: in the same [`Place`] the
@@ -51,7 +54,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::net::{attack, emote, more_flag, revive_perk, Msg, Place, PlayerState, COPIES, LOOK_MAX, MAX_WORN, NAME_MAX, REL_PACKETS, SEND_HZ, TICK};
+use crate::net::{attack, emote, flag, light_kind, more_flag, revive_perk, LightLook, Msg, Place, PlayerState, COPIES, LOOK_MAX, MAX_WORN, NAME_MAX, REL_PACKETS, SEND_HZ, TICK};
 use crate::rel::{Frame, ITEM_MAX, PACKET_BUDGET};
 use crate::repl::kind as repl_kind;
 
@@ -144,6 +147,12 @@ pub const WORLD_Z: f32 = 100_000.0;
 pub const ITEM_KIND_MAX: u8 = 0x2F;
 /// The longest an emote's clip time can be, seconds [design].
 pub const EMOTE_T_MAX: f32 = 3600.0;
+/// The most a flashlight look may carry: the Flashlight rows' own tops (Tweaks, the game's
+/// `settings.rs`): a reach in game units, a brightness in display units, a spot's half-angle
+/// in degrees. A sender clamps to them, so a look beyond them is no player's [design].
+pub const LIGHT_RANGE_MAX: f32 = 8000.0;
+pub const LIGHT_BRIGHTNESS_MAX: f32 = 8.0;
+pub const LIGHT_HALF_ANGLE_MAX: f32 = 80.0;
 /// The fastest a player's feet move, game units a second [design: several times a
 /// sprinting player's speed, with room for a long fall].
 pub const MAX_SPEED: f32 = 2_000.0;
@@ -539,6 +548,21 @@ fn state_bounds(s: &mut PlayerState) -> Result<(), Reason> {
     if s.pipboy > 2 || s.attack_kind > attack::POWER_RIGHT || s.emote.phase > emote::ONCE || !(0.0..=EMOTE_T_MAX).contains(&s.emote.t) || s.more & !known_more != 0 {
         return Err(Reason::Bounds);
     }
+    if s.has(flag::LIGHT) {
+        let l = &s.light;
+        let in_range = |v: f32, max: f32| (0.0..=max).contains(&v);
+        if l.kind > light_kind::POINT
+            || !in_range(l.range, LIGHT_RANGE_MAX)
+            || !in_range(l.brightness, LIGHT_BRIGHTNESS_MAX)
+            || !in_range(l.outer_deg, LIGHT_HALF_ANGLE_MAX)
+            || !in_range(l.softness, 1.0)
+        {
+            return Err(Reason::Bounds);
+        }
+    } else {
+        // Not sent while the light is off: whatever a sender put there reads as the default.
+        s.light = LightLook::default();
+    }
     s.yaw = s.yaw.rem_euclid(TAU);
     // rem_euclid can round up to TAU itself.
     if s.yaw >= TAU {
@@ -691,6 +715,51 @@ mod tests {
             assert_eq!(g.stats().dropped, vec![(Kind::State, Reason::Bounds, 1)]);
             assert_eq!(g.bad(1), 1);
         }
+    }
+
+    #[test]
+    fn a_flashlight_look_outside_the_rows_bounds_is_dropped() {
+        let now = Instant::now();
+        let on = LightLook::default();
+        // The rows' own tops, and a look at the default, pass.
+        let top = LightLook { kind: light_kind::POINT, range: LIGHT_RANGE_MAX, brightness: LIGHT_BRIGHTNESS_MAX, outer_deg: LIGHT_HALF_ANGLE_MAX, softness: 1.0, ..on };
+        for ok in [on, top, LightLook { range: 0.0, brightness: 0.0, outer_deg: 0.0, softness: 0.0, ..on }] {
+            let mut g = Guard::default();
+            let s = PlayerState { flags: flag::LIGHT, light: ok, ..at(0.0, 0.0) };
+            assert_eq!(check(&mut g, &mut state(s), now), Verdict::Accept, "{ok:?}");
+        }
+        for bad in [
+            LightLook { kind: 2, ..on },
+            LightLook { kind: u8::MAX, ..on },
+            LightLook { range: f32::NAN, ..on },
+            LightLook { brightness: f32::INFINITY, ..on },
+            LightLook { outer_deg: f32::NEG_INFINITY, ..on },
+            LightLook { softness: f32::NAN, ..on },
+            LightLook { range: LIGHT_RANGE_MAX + 1.0, ..on },
+            LightLook { range: -1.0, ..on },
+            LightLook { brightness: LIGHT_BRIGHTNESS_MAX + 0.5, ..on },
+            LightLook { brightness: -0.5, ..on },
+            LightLook { outer_deg: LIGHT_HALF_ANGLE_MAX + 1.0, ..on },
+            LightLook { outer_deg: -1.0, ..on },
+            LightLook { softness: 1.5, ..on },
+            LightLook { softness: -0.1, ..on },
+        ] {
+            let mut g = Guard::default();
+            let s = PlayerState { flags: flag::LIGHT, light: bad, ..at(0.0, 0.0) };
+            assert_eq!(check(&mut g, &mut state(s), now), refused(Reason::Bounds), "{bad:?}");
+            assert_eq!(g.stats().dropped, vec![(Kind::State, Reason::Bounds, 1)]);
+            assert_eq!(g.bad(1), 1);
+        }
+    }
+
+    #[test]
+    fn a_flashlight_look_with_the_light_off_reads_as_the_default() {
+        let now = Instant::now();
+        let mut g = Guard::default();
+        let mut msg = state(PlayerState { light: LightLook { range: f32::NAN, kind: 9, ..LightLook::default() }, ..at(0.0, 0.0) });
+        assert_eq!(check(&mut g, &mut msg, now), Verdict::Accept);
+        let Msg::State { state, .. } = msg else { panic!() };
+        assert_eq!(state.light, LightLook::default());
     }
 
     #[test]
