@@ -107,6 +107,30 @@ pub const COMBAT_TURN_WIDE: f32 = 275.0 * std::f32::consts::PI / 180.0;
 /// coyotes were in combat at once].
 pub const COMBAT_REACTION_SECONDS: f64 = 1.1;
 
+/// Seconds to wait before retrying a failed combat `close_in` path search when
+/// neither the target nor the actor has moved significantly [design].
+const CLOSE_FAIL_COOLDOWN: f64 = 1.5;
+/// Target displacement (game units) that cancels a failed `close_in` cooldown early [design].
+const CLOSE_FAIL_TARGET_MOVE: f32 = 128.0;
+/// Actor displacement (game units) that cancels a failed `close_in` cooldown early [design].
+const CLOSE_FAIL_SELF_MOVE: f32 = 64.0;
+
+/// Whether a prior failed `close_in` path search still suppresses retrying this frame [design].
+fn close_failed_cooled(
+    failed: Option<(FormId, f64, [f32; 3], [f32; 3])>,
+    target: FormId,
+    now: f64,
+    at: [f32; 3],
+    feet: [f32; 3],
+) -> bool {
+    failed.is_some_and(|(ft, until, f_at, f_feet)| {
+        ft == target
+            && now < until
+            && goal::dist(at, f_at) < CLOSE_FAIL_TARGET_MOVE
+            && goal::dist(feet, f_feet) < CLOSE_FAIL_SELF_MOVE
+    })
+}
+
 /// The combat turn rate ([`COMBAT_TURN_NEAR`], [`COMBAT_TURN_WIDE`]) with `off` radians
 /// still to turn.
 pub fn combat_turn_rate(off: f32) -> f32 {
@@ -502,9 +526,13 @@ impl Ai {
                 || engage.is_some_and(|(stop, resume)| away > if holding { resume } else if keeps_pace { stop * STOP_SHORT } else { stop });
             let stop = if sees { engage.map_or(0.0, |e| e.0) } else { away * BLIND_CLOSE_SHARE };
             let going = a.activity == Activity::Travelling;
+            let close_cooled = close_failed_cooled(a.close_failed, target, now, at, a.walker.feet);
             match (close_in, a.search) {
                 // On its way, and the way still leads to the target.
                 (true, Some(Search::Closing { target: t, to, since, .. })) if t == target && going && keeps_way(to, since, at, away, stop, now) => {}
+                // Recently failed to find a route to this same unreachable target: hold
+                // until the cooldown expires or either party moves meaningfully [design].
+                (true, Some(Search::Holding { target: t })) if t == target && close_cooled => {}
                 (true, _) => self.close_in(game, nav, actor, target, at, away, stop),
                 (false, Some(Search::Holding { target: t })) if t == target => {}
                 // At the end of its way behind a target that moves: it waits there for
@@ -635,7 +663,10 @@ impl Ai {
     /// without a way there the actor looks about where it stands.
     #[allow(clippy::too_many_arguments)]
     fn search_at(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, to: [f32; 3], centre: [f32; 3], alarm: [f32; 3], points: u32, about: FormId) {
-        let params = self.path_params(game, actor);
+        let mut params = self.path_params(game, actor);
+        // Bound alert search expansions so unreachable points in dense exteriors do not
+        // exhaust the entire loaded navmesh graph on the main thread [design].
+        params.max_expanded = params.max_expanded.min(12_000);
         let speed = self.alert_speeds(actor).walk;
         let now = game.time;
         let a = self.agents.get_mut(&actor).expect("listed");
@@ -669,7 +700,11 @@ impl Ai {
     /// Without a way there the actor holds its ground.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_in(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, target: FormId, at: [f32; 3], away: f32, stop: f32) {
-        let params = self.path_params(game, actor);
+        let mut params = self.path_params(game, actor);
+        // Bound combat close-in pathfinding so multi-actor fights across rubble/barriers
+        // do not exhaust 400k triangles searching long wasteland detours [design].
+        params.max_expanded = params.max_expanded.min(12_000);
+        params.max_cost = Some((away * 6.0).max(4096.0));
         let aiming = game.awareness.aiming.contains(&actor);
         let own = self.alert_speeds(actor);
         let speed = if aiming { own.walk } else { own.run * game.awareness.pace_of(actor) };
@@ -697,6 +732,7 @@ impl Ai {
                 a.trip_started = now;
                 a.trip_from = a.walker.travelled;
                 a.search = Some(Search::Closing { target, to: at, since: now, drift });
+                a.close_failed = None;
                 if first {
                     self.log(game, actor, AiEvent::Close { target, to: p, away, length, aiming });
                 }
@@ -704,6 +740,7 @@ impl Ai {
             _ => {
                 a.walker.follower = None;
                 a.activity = Activity::There;
+                a.close_failed = Some((target, now + CLOSE_FAIL_COOLDOWN, at, a.walker.feet));
                 if a.search != Some(Search::Holding { target }) {
                     a.search = Some(Search::Holding { target });
                     self.log(game, actor, AiEvent::Hold { target, away });
@@ -770,13 +807,24 @@ impl Ai {
             }
             _ => {}
         }
-        let params = self.path_params(game, actor);
+        let mut params = self.path_params(game, actor);
         let speed = self.post_speed(game, actor, post);
         let a = self.agents.get_mut(&actor).expect("listed");
         let from = a.walker.feet;
         let point = nav.nearest(space, post.at, 256.0).map(|(_, p)| p);
         (a.walker.speed, a.walk_pace) = (speed, None);
-        let path = point.and_then(|p| a.walker.go_to(nav, Place { space, pos: p }, &params).ok()).map(|path| path.length);
+        let path = point.and_then(|p| {
+            // Prune A* once the admissible f-score exceeds a bounded detour multiple
+            // (scaled by max terrain cost factor so valid water/avoid detours still pass)
+            // and cap triangle expansions so unreachable tactical posts reject quickly
+            // instead of exhausting all loaded exterior cells [design].
+            let straight = goal::dist(from, p);
+            let max_len = (straight * 3.0).max(512.0);
+            let cost_scale = params.water_cost.max(params.avoid_cost).max(1.0);
+            params.max_cost = Some(max_len * cost_scale);
+            params.max_expanded = params.max_expanded.min(6_000);
+            a.walker.go_to(nav, Place { space, pos: p }, &params).ok()
+        }).map(|path| path.length);
         match (point, path) {
             (Some(p), Some(length)) => {
                 a.activity = Activity::Travelling;
@@ -905,11 +953,33 @@ impl Ai {
     pub(crate) fn search_over(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, why: &'static str) {
         let a = self.agents.get_mut(&actor).expect("listed");
         a.search = None;
+        a.close_failed = None;
         if a.activity == Activity::Travelling {
             a.walker.follower = None;
             a.activity = Activity::There;
         }
         self.log(game, actor, AiEvent::SearchOver { why });
         self.back_to_package(game, nav, actor, |package, away| AiEvent::SearchBack { package, away });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_in_failure_cooldown_blocks_per_frame_retries_until_expiry_or_movement() {
+        let target = FormId(0x14);
+        let other = FormId(0x99);
+        let at = [1000.0, 2000.0, 0.0];
+        let feet = [100.0, 200.0, 0.0];
+        let failed = Some((target, 10.0 + CLOSE_FAIL_COOLDOWN, at, feet));
+
+        assert!(!close_failed_cooled(None, target, 10.5, at, feet));
+        assert!(close_failed_cooled(failed, target, 10.5, [1050.0, 2000.0, 0.0], [120.0, 200.0, 0.0]));
+        assert!(!close_failed_cooled(failed, target, 10.0 + CLOSE_FAIL_COOLDOWN, at, feet));
+        assert!(!close_failed_cooled(failed, other, 10.5, at, feet));
+        assert!(!close_failed_cooled(failed, target, 10.5, [1000.0 + CLOSE_FAIL_TARGET_MOVE, 2000.0, 0.0], feet));
+        assert!(!close_failed_cooled(failed, target, 10.5, at, [100.0 + CLOSE_FAIL_SELF_MOVE, 200.0, 0.0]));
     }
 }

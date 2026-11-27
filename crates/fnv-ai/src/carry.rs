@@ -689,6 +689,10 @@ pub struct Agent {
     /// What it does in a combat state (`crate::alert`): its package's own doings wait
     /// meanwhile.
     pub search: Option<crate::alert::Search>,
+    /// Cooldown after a failed combat [`crate::alert`] `close_in` path search:
+    /// `(target, retry_after, target_pos_at_fail, self_feet_at_fail)`. Prevents an
+    /// unreachable combat target from re-running bounded A* searches every frame [design].
+    pub(crate) close_failed: Option<(FormId, f64, [f32; 3], [f32; 3])>,
     /// It cannot walk (a creature without movement animations, a raven): it stays where
     /// it is, whatever its packages say ([`Ai::root`]).
     pub rooted: bool,
@@ -703,6 +707,9 @@ pub struct Agent {
     /// planned, from when (`Game::time`) it may be planned again, and how fast the
     /// target went before that plan, when known.
     following: Option<(Place, f64, Option<f32>)>,
+    /// Cooldown after arriving at the nearest navmesh point for a Follow target so an
+    /// off-navmesh target does not trigger 60 Hz replanning [design].
+    follow_cooldown: Option<(Place, f64)>,
     /// The number of the script's weapon use it carries out ([`Ai::weapon_step`]).
     pub(crate) weapon_order: Option<u64>,
     /// An Escort, Find, Use Item At, Ambush or Flee Not Combat package's progress
@@ -1211,7 +1218,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0, calm_at: None, held: false });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, close_failed: None, face_to: None, following: None, follow_cooldown: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0, calm_at: None, held: false });
         Ok(())
     }
 
@@ -2116,7 +2123,16 @@ impl Ai {
             return;
         }
         if self.agents[&actor].activity == Activity::There && away > keep + FOLLOW_SLACK {
-            self.follow_plan(game, nav, actor, package, f, target, away, lead_away, None, true);
+            // If we already walked to the closest navmesh point for this same target
+            // position (e.g. target stands slightly off-navmesh or across a ledge), hold
+            // until the target moves > REPLAN_DISTANCE or REPLAN_SECONDS elapses instead
+            // of replanning A* and cycling physics bodies every frame [design].
+            let hold = self.agents[&actor].follow_cooldown.is_some_and(|(to, until)| {
+                to.space == target.space && goal::dist(to.pos, target.pos) <= REPLAN_DISTANCE && game.time < until
+            });
+            if !hold {
+                self.follow_plan(game, nav, actor, package, f, target, away, lead_away, None, true);
+            }
         }
     }
 
@@ -2189,6 +2205,7 @@ impl Ai {
                 }
                 a.activity = Activity::Travelling;
                 a.following = Some((target, game.time + REPLAN_SECONDS, target_pace));
+                a.follow_cooldown = None;
                 if first {
                     let away = away.is_finite().then_some(away);
                     self.log(game, actor, AiEvent::Follow { package, target: f.target, away, length, doors, running });
@@ -3399,9 +3416,11 @@ impl Ai {
             return;
         }
         // The end of the way to the one it follows: it stands until the target is away
-        // again (`follow_step`).
+        // again (`follow_step`), remembering the target position we just walked to with
+        // a replan cooldown so an off-navmesh target does not trigger 60 Hz replanning.
         if matches!(a.goal, Some(Goal::Follow(_))) {
             a.activity = Activity::There;
+            a.follow_cooldown = a.following.map(|(to, _, _)| (to, game.time + REPLAN_SECONDS));
             a.following = None;
             return;
         }
