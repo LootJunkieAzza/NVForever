@@ -21,12 +21,16 @@ pub(crate) fn call(g: &mut Game, ctx: &Ctx, receiver: Option<Value>, name: &str,
         _ => return None,
     };
     Some((|| {
-        // Keep an explicit empty receiver distinct from an omitted receiver before
-        // Host::ext_call converts it to Option<FormId>.
+        // Valid explicit receivers and explicit null (`0`) receivers are ignored and
+        // still target the player [observed: w4g_06_player_cmds_explicit_receiver];
+        // non-zero unknown references are still rejected [hypothesis].
         if let Some(value) = receiver {
-            let r = value.as_form().map(FormId).ok_or("invalid calling reference")?;
-            if r != FormId::PLAYER_REF && g.world.placed.get(r).is_none() && g.world.peek(r).is_none() {
-                return Err("invalid calling reference".into());
+            let explicit_null = matches!(value, Value::Ref(0)) || matches!(value, Value::Num(x) if x == 0.0);
+            if !explicit_null {
+                let r = value.as_form().map(FormId).ok_or("invalid calling reference")?;
+                if r != FormId::PLAYER_REF && g.world.placed.get(r).is_none() && g.world.peek(r).is_none() {
+                    return Err("invalid calling reference".into());
+                }
             }
         }
         if values.len() < min_args || values.len() > max_args {

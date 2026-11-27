@@ -160,6 +160,7 @@ pub struct DetectionPlugin;
 impl Plugin for DetectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DetectionState>()
+            .add_message::<crate::coop::PuppetShot>()
             .add_systems(Update, measure.after(nvf_play::PlaySet::Scripts).before(crate::residents::drive))
             .add_systems(Last, report);
     }
@@ -291,6 +292,8 @@ struct Person {
     turning: u8,
     /// Its character swims (the physics' word; IsSwimming).
     swimming: bool,
+    /// Its character is airborne (physics: not grounded and not swimming; IsInAir).
+    in_air: bool,
 }
 
 impl Person {
@@ -779,9 +782,11 @@ fn measure(
     mut phys: Option<ResMut<PhysState>>,
     (player, intent, control, location, combat, sky, flashlight): Inputs,
     mut shots: MessageReader<ShotFired>,
-    (mut impacts, mut hits, mut booms): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>),
+    (mut impacts, mut hits, mut booms, mut puppet_shots): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>, MessageReader<crate::coop::PuppetShot>),
     (sfx, visuals): (Option<Res<Sfx>>, Option<Res<ShotVisuals>>),
-    actors: Query<Watched>,
+    // Co-op puppets (coop.rs) are other players: on the host, targets as the player is
+    // (their actors' AI is off, so they watch nobody); elsewhere, not measured at all.
+    actors: Query<(Watched, Has<crate::coop::Puppet>)>,
     (point_lights, spot_lights, camera, world): Scene,
     mut gauges: Option<ResMut<nvf_play::sneak_gauges::SneakGauges>>,
     mut cover: Option<ResMut<nvf_play::sound_cover::SoundCover>>,
@@ -790,6 +795,14 @@ fn measure(
     // Shots, heard at the next measurement.
     for s in shots.read() {
         hear_shot(state, combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)), s);
+    }
+    // The other players' shots too (coop.rs), heard as the player's are.
+    for s in puppet_shots.read() {
+        let level = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)).and_then(|w| w.sound_level.as_deref());
+        let loud = level.map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(l));
+        let heard = state.shots.entry(s.shooter.0).or_default();
+        *heard = heard.max(loud);
+        state.shot_levels.insert(s.shooter.0, loud);
     }
     let settings_now = state.settings.unwrap_or_default();
     let level = |l: Option<&str>| l.map(|l| settings_now.firing_sound(l));
@@ -900,12 +913,13 @@ fn measure(
         sneaking: control.as_deref().is_some_and(|c| c.sneak),
         turning: turning(FormId::PLAYER_REF.0, player.heading, &mut state.headings),
         swimming: phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming),
+        in_air: phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| !c.grounded && !c.swimming),
     });
     // The drawn bodies (dying or dead), measured from the player's camera alone for
     // GetLineOfSight ([`bodies_seen`]), at the point the camera looks for.
     let mut bodies: Vec<(u32, [f32; 3])> = Vec::new();
-    for (rig, g, vis, dying, corpse, name) in &actors {
-        if !vis.get() {
+    for ((rig, g, vis, dying, corpse, name), puppet) in &actors {
+        if !vis.get() || (puppet && !rt.game.is_coop_actor(FormId(rig.reference))) {
             continue;
         }
         if dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
@@ -935,6 +949,7 @@ fn measure(
             sneaking: rt.game.sneaks(FormId(rig.reference)),
             turning: turning(rig.reference, flat.x.atan2(flat.y), &mut state.headings),
             swimming: phys.as_deref().and_then(|p| p.npcs.get(&rig.reference)).is_some_and(|n| n.ch.swimming),
+            in_air: phys.as_deref().and_then(|p| p.npcs.get(&rig.reference)).is_some_and(|n| !n.ch.grounded && !n.ch.swimming),
         });
     }
     state.last.retain(|_, (_, t)| now - *t < 5.0);
@@ -1057,7 +1072,7 @@ fn measure(
         for p in &people {
             // The player's speed mode is the Walk toggle, moving or not (IsRunning).
             let run_mode = if p.id == FormId::PLAYER_REF.0 { player_run_mode } else { p.running };
-            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning, run_mode, swimming: p.swimming });
+            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning, run_mode, swimming: p.swimming, in_air: p.in_air });
         }
         // Every two within reach of each other, both ways; the player detects too.
         let feet: Vec<[f32; 3]> = people.iter().map(|p| p.feet).collect();
@@ -1218,6 +1233,10 @@ fn measure(
             }
         }
         g.detection.forget_older_than(g.time - 1.0);
+        // A target out of the round (its cell unloaded, out of reach) is not detected any
+        // more: the fight goes Lost and ends on the timers (#3390).
+        let drawn: BTreeSet<FormId> = people.iter().map(|p| FormId(p.id)).collect();
+        g.lose_unmeasured(&drawn);
 
         // Detection events: impacts, projectiles in flight, explosions (the module
         // notes), CreateDetectionEvent.
@@ -1293,7 +1312,11 @@ fn measure(
         for (topic, who, by) in &held {
             debug!("alert: {} does not say {topic}: {} said a line of that kind {:.0} s ago (group cooldown)", g.data.name(*who), g.data.name(*by), g.awareness.said.iter().rev().find(|s| s.speaker == *by).map_or(0.0, |s| g.time - s.time));
         }
-        (g.awareness.take_changes(), std::mem::take(&mut g.awareness.barks), held.len())
+        let changes = g.awareness.take_changes();
+        // Why each one that went into Combat about someone fights them (#3335: a player's
+        // report showed an actor going for the companion and nothing saying why).
+        let why: Vec<Option<String>> = changes.iter().map(|c| (c.to == State::Combat).then_some(c.about).flatten().and_then(|o| g.hostility_text(c.actor, o))).collect();
+        (changes.into_iter().zip(why).collect::<Vec<_>>(), std::mem::take(&mut g.awareness.barks), held.len())
     });
     if let Some(g) = gauges.as_deref_mut() {
         g.noise = player_noise as f32;
@@ -1392,7 +1415,7 @@ fn measure(
 type Bark = (&'static str, FormId, Option<FormId>);
 
 /// The `alert:` log lines and their counts.
-fn log_alerts(st: &mut Stats, people: &[Person], changes: &[Change], barks: &[Bark], heard: &[(String, DetectionEvent, f64, f32)], events: usize, hurt: usize) {
+fn log_alerts(st: &mut Stats, people: &[Person], changes: &[(Change, Option<String>)], barks: &[Bark], heard: &[(String, DetectionEvent, f64, f32)], events: usize, hurt: usize) {
     let label = |id: FormId| people.iter().find(|p| p.id == id.0).map_or_else(|| format!("{:08X}", id.0), |p| p.label.clone());
     st.events += events;
     st.events_heard += heard.len();
@@ -1400,7 +1423,7 @@ fn log_alerts(st: &mut Stats, people: &[Person], changes: &[Change], barks: &[Ba
     for (who, ev, value, dist) in heard {
         info!("alert: {who} heard a {} event of {} (level {:.0}, value {value:.1}, {dist:.0} units away)", ev.kind.name(), label(ev.owner), ev.level);
     }
-    for c in changes {
+    for (c, why) in changes {
         *st.changes.entry((c.from, c.to)).or_default() += 1;
         if c.to == State::Alert {
             st.alerted.insert(c.actor.0);
@@ -1417,6 +1440,9 @@ fn log_alerts(st: &mut Stats, people: &[Person], changes: &[Change], barks: &[Ba
         };
         let value = c.value.map_or(String::new(), |v| format!(", value {v:.1}"));
         info!("alert: {} {} → {}{what}{value}{away}", label(c.actor), c.from.name(), c.to.name());
+        if let (Some(why), Some(o)) = (why, c.about) {
+            info!("hostility: {} against {}: {why}", label(c.actor), label(o));
+        }
     }
     for (topic, who, line) in barks {
         match line {

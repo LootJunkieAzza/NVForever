@@ -38,7 +38,10 @@
 //! simulation and the status line says so [documented: GECK wiki Category:Items, the
 //! player cannot drop one]. Storing one in a container is allowed [hypothesis: the page
 //! does not mention containers]. They cannot be sold [documented: the same page], so the
-//! barter menu does not list them [hypothesis: hidden rather than refused].
+//! barter menu does not list them [hypothesis: hidden rather than refused]. Keys
+//! (`ItemKind::Key`, `KEYM`) are also excluded from both sides of the barter menu (#3432)
+//! [hypothesis: issue #3432 reports that keys do not appear in barter in the original
+//! engine], while remaining listed in the inventory (`Keyring` folder) and in containers.
 //!
 //! Barter ([`Mode::Barter`], [`Trade`]): items are put up from either side and listed on
 //! the other side, first, marked, until the trade is accepted [observed: the owner's
@@ -120,6 +123,9 @@ pub struct Row {
     /// The ammo the player's weapon loads: marked as equipped is (it is not equipped in
     /// the inventory's sense).
     pub loaded: bool,
+    /// Ammo the player's weapon cannot fire, in the Pip-Boy: its row is drawn at half
+    /// brightness [observed: observer check 288, #3442].
+    pub dim: bool,
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
@@ -136,6 +142,9 @@ pub struct Row {
     /// A live explosive planted in this pocket (`Extra::live`): a row of its own, named
     /// with [`LIVE_NOTE`], that no command takes, moves or puts up (#1640).
     pub live: bool,
+    /// Resolved ySI sorting tag, icon texture path, and XML template when ySI is active
+    /// (`None` in vanilla sessions without ySI) [design: `docs/spec-notes/ysi-filename.md`].
+    pub ysi: Option<fnv_game::ui_ysi::YsiItemDisplay>,
 }
 
 /// What a live explosive's row says after its name (`fnv_game::pickpocket`, a grenade or
@@ -155,10 +164,11 @@ pub fn live_refusal(name: &str) -> String {
     format!("Cannot take or move {name}")
 }
 
-/// A folder of the inventory's Misc tab: the keys and the Caravan cards are listed in
-/// one row each, which opens on a list of them [owner's playtest list 7 item 6: "a
-/// keyring item that all keys are added to ... the same for caravan cards", so the Misc
-/// tab is not cluttered; design: the rows' names and places are NVForever's].
+/// A folder of the inventory's list: vanilla Misc's keys and Caravan cards, or a clickable
+/// ySI Pip-Boy category/subfolder ([`Folder::Ysi`], indexing `MenuModel::ysi_categories`)
+/// [owner's playtest list 7 item 6: "a keyring item that all keys are added to ... the same
+/// for caravan cards"; design: the rows' names and places and ySI category folding are
+/// NVForever's].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Folder {
     /// KEYM items.
@@ -166,14 +176,18 @@ pub enum Folder {
     /// The player's Caravan cards: those AddCardToPlayer gave (`fnv_game::caravan`, kept
     /// outside the inventory, [`MenuModel::cards`]) and any CCRD item carried.
     Cards,
+    /// A clickable ySI category or nested subfolder (`index` into
+    /// `YsiCategoryIndex::categories`) [design: `docs/spec-notes/yui-ini.md`].
+    Ysi(u32),
 }
 
 impl Folder {
-    /// The folder row's name.
+    /// The folder row's default name.
     pub fn name(self) -> &'static str {
         match self {
             Folder::Keys => "Keyring",
             Folder::Cards => "Caravan Cards",
+            Folder::Ysi(_) => "Category",
         }
     }
 
@@ -187,7 +201,7 @@ impl Folder {
 pub enum FolderRow {
     /// Opens the folder.
     Open(Folder),
-    /// Back to the Misc list (the first row inside a folder).
+    /// Back to the parent folder or tab root (the first row inside a folder).
     Back,
 }
 
@@ -201,7 +215,40 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, dim: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false, ysi: None }
+    }
+
+    /// A clickable ySI category or subfolder row carrying its resolved display name, member
+    /// row count, large preview picture (`icon`), sorting tag, and row `ySIImage` icon/template
+    /// [design: `docs/spec-notes/yui-ini.md`].
+    fn of_ysi_category(id: u32, cat: &fnv_game::yui_ini::YsiCategoryDef, count: i32) -> Row {
+        Row {
+            item: FormId(0),
+            at: None,
+            name: cat.name.clone(),
+            count,
+            weight: None,
+            value: None,
+            kind: None,
+            equipped: false,
+            quest: false,
+            condition: None,
+            icon: cat.preview_icon.clone(),
+            price: None,
+            bartered: false,
+            loaded: false,
+            dim: false,
+            mods: 0,
+            mods_value: 0,
+            folder: Some(FolderRow::Open(Folder::Ysi(id))),
+            reference: None,
+            live: false,
+            ysi: Some(fnv_game::ui_ysi::YsiItemDisplay {
+                tag: Some(cat.tag.clone()),
+                icon: cat.row_icon.clone(),
+                template: cat.template.clone(),
+            }),
+        }
     }
 }
 
@@ -344,11 +391,50 @@ impl SortBy {
     }
 }
 
-/// The order rows are listed in: put-up rows first, then by name in byte order, then the
-/// best condition first.
+/// The order rows are listed in: put-up rows first, then (when `by_ysi_tag` is true and
+/// any row carries a ySI sorting tag) by ySI tag byte order with untagged rows after
+/// tagged ones [hypothesis: `docs/spec-notes/ysi-filename.md`], then by name in byte
+/// order, then the best condition first. When `by_ysi_tag` is false or no row carries a
+/// ySI tag the order is unchanged from vanilla.
+fn sort_rows_by(rows: &mut [Row], by_ysi_tag: bool) {
+    let has_ysi = by_ysi_tag
+        && rows
+            .iter()
+            .any(|r| r.ysi.as_ref().and_then(|y| y.tag.as_deref()).is_some_and(|t| !t.is_empty()));
+    if has_ysi {
+        let key = |r: &Row| {
+            let tag = r
+                .ysi
+                .as_ref()
+                .and_then(|y| y.tag.as_deref())
+                .filter(|t| !t.is_empty());
+            (
+                !r.bartered,
+                tag.is_none(),
+                tag.unwrap_or("").as_bytes().to_vec(),
+                r.name.as_bytes().to_vec(),
+                r.item,
+                std::cmp::Reverse(r.at.map(f32::to_bits)),
+                r.mods,
+            )
+        };
+        rows.sort_by_cached_key(key);
+    } else {
+        let key = |r: &Row| (!r.bartered, r.name.as_bytes().to_vec(), r.item, std::cmp::Reverse(r.at.map(f32::to_bits)), r.mods);
+        rows.sort_by_cached_key(key);
+    }
+}
+
+/// Marks the ammo rows `firable` leaves out as dim (`Row::dim`); `None` dims nothing.
+/// Only ammo rows: a weapon or a stimpak is never dim [observed: observer check 288].
+fn mark_dim(rows: &mut [Row], firable: Option<&[FormId]>) {
+    for r in rows.iter_mut() {
+        r.dim = r.kind == Some(ItemKind::Ammo) && firable.is_some_and(|f| !f.contains(&r.item));
+    }
+}
+
 fn sort_rows(rows: &mut [Row]) {
-    let key = |r: &Row| (!r.bartered, r.name.as_bytes().to_vec(), r.item, std::cmp::Reverse(r.at.map(f32::to_bits)), r.mods);
-    rows.sort_by_cached_key(key);
+    sort_rows_by(rows, true);
 }
 
 /// The rows of `holder`'s inventory, sorted by name.
@@ -394,12 +480,13 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false, loaded: false,
+            bartered: false, loaded: false, dim: false,
             mods: extra.mods,
             mods_value: forms.mods_value(item, extra.mods),
             folder: None,
             reference: None,
             live: extra.live,
+            ysi: None,
         });
     }
     for r in &mut rows {
@@ -438,12 +525,13 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false, loaded: false,
+            bartered: false, loaded: false, dim: false,
             mods: s.extra.mods,
             mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
             reference: Some(r),
             live: false,
+            ysi: None,
         };
         l.weight += f64::from(row.weight.unwrap_or(0.0)) * f64::from(row.count);
         l.value += (row.value.unwrap_or(0) + row.mods_value) as i64 * row.count as i64;
@@ -559,7 +647,17 @@ impl RowKey {
     pub fn at(rows: &[Row], index: usize) -> Option<RowKey> {
         let row = rows.get(index)?;
         let (units, reference) = (row.units(), row.reference);
-        let nth = rows[..index].iter().filter(|r| r.units() == units && r.reference == reference).count() as u32;
+        let nth = match row.folder {
+            Some(FolderRow::Open(Folder::Ysi(id))) => 0x8000_0000 | id,
+            _ => rows[..index]
+                .iter()
+                .filter(|r| {
+                    r.units() == units
+                        && r.reference == reference
+                        && !matches!(r.folder, Some(FolderRow::Open(Folder::Ysi(_))))
+                })
+                .count() as u32,
+        };
         Some(RowKey { units, reference, nth })
     }
 }
@@ -586,6 +684,11 @@ pub enum Command {
     /// The next commands hold only if the row is still there ([`MenuModel::row_is`]);
     /// `crate::menu::apply_input` drops them otherwise.
     Expect(RowGuard),
+    /// Internal one-shot touch envelope. Only menu::apply_input may resolve it
+    /// against its exact live barter guard; the plain model treats it as a no-op.
+    CommitBarter(u64),
+    /// One-shot normal-presentation touch, resolved only by menu::apply_input.
+    CommitNormalBarter(u64),
     Up,
     Down,
     PageUp,
@@ -609,6 +712,9 @@ pub enum Command {
     /// from the container, store from the player). Barter: put one unit up, or take one
     /// back. Inventory: equip or unequip it (aid items are used).
     One,
+    /// Container and barter menus: move one unit without opening the quantity prompt
+    /// (`quantity-select-short-keys` Ctrl shortcut, #3799) [design].
+    OneSingle,
     /// Container and barter menus: the same for the whole selected stack.
     Stack,
     /// Container menu: take everything from the container.
@@ -620,6 +726,9 @@ pub enum Command {
     Accept,
     /// Inventory: drop one unit of the selected stack into the world.
     Drop,
+    /// Inventory: drop one unit without opening the quantity prompt
+    /// (`quantity-select-short-keys` Ctrl shortcut, #3799) [design].
+    DropSingle,
     /// Inventory: drop the whole selected stack.
     DropStack,
     /// Inventory: leave the open Misc folder ([`Folder`]).
@@ -820,6 +929,10 @@ pub struct MenuModel {
     /// The two columns change category together (the Matching Categories tweak, set
     /// by `crate::tweaks`).
     pub sync_categories: bool,
+    /// When `sync_categories` is on, keep an emptied non-All category selected instead of
+    /// switching both columns back to All (`bPreventSwitchWhenEmptyingCategory`, set by
+    /// `crate::tweaks`).
+    pub prevent_switch_when_emptying_category: bool,
     /// The player cannot offer items in a barter (the No Selling tweak, set by
     /// `crate::tweaks`).
     pub no_selling: bool,
@@ -846,6 +959,12 @@ pub struct MenuModel {
     confirming_take_all: bool,
     /// The player's Store All tweak: Shift with Take All stores instead.
     pub store_all: bool,
+    /// Named NVForever option `quantity-select-short-keys` (off by default; #3799):
+    /// Shift transfers/drops the full stack, Ctrl transfers/drops one unit skipping the
+    /// quantity prompt, and picking up a weightless stack (`count > 1`) from a container
+    /// opens the quantity prompt [documented: JIP LN v57.30 `jip_nvse.ini`
+    /// `bQttSelectShortKeys`; design: docs/spec-notes/quantity-select-short-keys.md].
+    pub qtt_select_short_keys: bool,
     /// The player's tweak: the barter figure shows the whole total, past what the
     /// merchant can pay [design: docs/design/tweaks.md].
     pub full_barter_total: bool,
@@ -864,12 +983,24 @@ pub struct MenuModel {
     /// The ammo the player's carried weapons can fire, listed first in the inventory
     /// under the player's Sort Equipable Ammo tweak (empty: no such order) [design: docs/design/tweaks.md].
     pub usable_ammo: Vec<FormId>,
+    /// Whether tile adapters should instantiate `ySIImage` row icons (`yUI.ini`
+    /// `[Sorting and Icons] bAddInventoryIcons`, gated by `bSortingIcons`) [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub ysi_icons: bool,
     /// The ammo the player's weapon loads now (`crate::combat::Combat::player_ammo`, set by
     /// `crate::tweaks` each frame): its row in the player's inventory carries the
     /// equipped mark; in a container's player column too under the player's Containers
     /// Show Equipped Ammo tweak (`ammo_mark_in_containers`).
     pub current_ammo: Option<FormId>,
     pub ammo_mark_in_containers: bool,
+    /// The ammo the player's weapon can fire (`fnv_combat::data::FormStore::ammo_choices`
+    /// of `crate::combat::Combat::player_weapon`, set by `crate::tweaks` each frame):
+    /// every other ammo row of the player's inventory is dimmed (`Row::dim`). Empty
+    /// with the fists out (every ammo row dim); `None` when not known (no dimming).
+    pub firable_ammo: Option<Vec<FormId>>,
+    /// What the log last said of the Ammo tab's rows ([`MenuModel::refresh`]): said again
+    /// only when it changes.
+    ammo_told: String,
     pub title_case_categories: bool,
     /// The price of things worth nothing in a barter (the tweak; 0: as they are).
     pub free_item_price: f32,
@@ -894,8 +1025,18 @@ pub struct MenuModel {
     amount: Option<i32>,
     /// The container menu is picking a living actor's pocket ([`Steal`]).
     pub steal: Option<Steal>,
-    /// Inventory: the Misc folder open, if any ([`Folder`]).
+    /// Inventory: the folder open, if any ([`Folder`]).
     pub folder: Option<Folder>,
+    /// Inventory: active Pip-Boy ySI category & subfolder definitions (empty in vanilla or
+    /// when `yUI.ini` `[Sorting and Icons] bEnableCategories = 0`) [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    ysi_categories: fnv_game::yui_ini::YsiCategoryIndex,
+    /// Inventory: ancestor stack of open [`Folder::Ysi`] indices for multi-level subfolder
+    /// navigation (`Back` pops back to the parent category before returning to tab root).
+    ysi_folder_stack: Vec<u32>,
+    /// Inventory: ySI category just exited via `Back`, restored onto the matching category
+    /// row when [`MenuModel::apply_ysi_options`] rebuilds folded rows.
+    last_exited_folder: Option<Folder>,
     /// Inventory: the player's Caravan cards, one entry a card, set by the engine from
     /// the scripts' game ([`MenuModel::set_cards`]).
     pub cards: Vec<FormId>,
@@ -1082,6 +1223,17 @@ impl MenuModel {
         self.refresh(world)
     }
 
+    #[cfg(test)]
+    pub(super) fn test_empty(mode: Mode) -> MenuModel {
+        Self::empty(mode, String::new())
+    }
+
+    /// Test-only empty inventory model for unit tests without a synthetic player plugin.
+    #[cfg(test)]
+    pub(crate) fn empty_inventory() -> MenuModel {
+        MenuModel::empty(Mode::Inventory, "Inventory".into())
+    }
+
     fn empty(mode: Mode, title: String) -> MenuModel {
         MenuModel {
             mode,
@@ -1095,6 +1247,7 @@ impl MenuModel {
             lists: [Listing::default(), Listing::default()],
             category: [Category::All; 2],
             sync_categories: false,
+            prevent_switch_when_emptying_category: true,
             no_selling: false,
             vendor_lists_both: false,
             hide_misc_quest: false,
@@ -1104,6 +1257,7 @@ impl MenuModel {
             take_all_confirm: None,
             confirming_take_all: false,
             store_all: false,
+            qtt_select_short_keys: false,
             full_barter_total: false,
             barter_caps_change: false,
             hide_equipped_barter: false,
@@ -1113,8 +1267,11 @@ impl MenuModel {
             hide_hotkeyed_repair: false,
             hotkeyed: Vec::new(),
             usable_ammo: Vec::new(),
+            ysi_icons: true,
             current_ammo: None,
+            firable_ammo: None,
             ammo_mark_in_containers: false,
+            ammo_told: String::new(),
             title_case_categories: false,
             free_item_price: 0.0,
             barter_kind_mults: None,
@@ -1128,6 +1285,9 @@ impl MenuModel {
             amount: None,
             steal: None,
             folder: None,
+            ysi_categories: fnv_game::yui_ini::YsiCategoryIndex::default(),
+            ysi_folder_stack: Vec::new(),
+            last_exited_folder: None,
             cards: Vec::new(),
         }
     }
@@ -1209,6 +1369,26 @@ impl MenuModel {
                         r.loaded = true;
                     }
                 }
+                // Ammo the weapon cannot fire is dimmed in the Pip-Boy; a weapon's other
+                // kinds stay at full strength, and with the fists out every ammo row is dim
+                // [observed: observer check 288, #3442].
+                if side == Side::Player && self.mode == Mode::Inventory {
+                    mark_dim(&mut l.rows, self.firable_ammo.as_deref());
+                }
+                // The Ammo tab's rows in the log, so a report about its marks can be read
+                // (#3442): how many, and which carries the loaded mark.
+                if self.mode == Mode::Inventory && self.category[side as usize] == Category::Ammo {
+                    let marked = match (l.rows.iter().find(|r| r.loaded), self.current_ammo) {
+                        (Some(r), _) => format!("{:?} ({}) carries the loaded mark", r.name, r.item),
+                        (None, Some(a)) => format!("none carries the loaded mark: the weapon loads {a}, which is not in the list"),
+                        (None, None) => "none carries the loaded mark: the weapon loads no ammo".to_string(),
+                    };
+                    let told = format!("menu: Ammo tab: {} rows, {marked}", l.rows.len());
+                    if told != self.ammo_told {
+                        bevy::log::info!("{told}");
+                        self.ammo_told = told;
+                    }
+                }
                 // The player's tweak: the list by value or weight, the most first, name
                 // order kept between equals [design: docs/design/tweaks.md].
                 if self.mode == Mode::Inventory {
@@ -1240,6 +1420,327 @@ impl MenuModel {
         Ok(())
     }
 
+    /// Install the active Pip-Boy ySI category & subfolder definitions (`None` clears them
+    /// so vanilla inventory listing is restored). Resets an open `Folder::Ysi` if its index
+    /// no longer exists in the updated table [design: `docs/spec-notes/yui-ini.md`].
+    pub fn set_ysi_categories(&mut self, index: Option<fnv_game::yui_ini::YsiCategoryIndex>) {
+        self.ysi_categories = index.unwrap_or_default();
+        if let Some(Folder::Ysi(id)) = self.folder {
+            if id as usize >= self.ysi_categories.categories.len() {
+                self.folder = None;
+                self.ysi_folder_stack.clear();
+                self.last_exited_folder = None;
+            }
+        }
+    }
+
+    /// Pip-Boy Inventory tab index (`0..=4`) matching ySI JSON `"tab"` values (`None` for
+    /// `Category::All`).
+    fn tab_index(cat: Category) -> Option<u8> {
+        match cat {
+            Category::Weapons => Some(0),
+            Category::Apparel => Some(1),
+            Category::Aid => Some(2),
+            Category::Misc => Some(3),
+            Category::Ammo => Some(4),
+            Category::All => None,
+        }
+    }
+
+    fn has_ysi_categories_for_tab(&self, tab: u8) -> bool {
+        self.ysi_categories.categories.iter().any(|c| c.tab == tab)
+    }
+
+    fn ysi_category_name(&self, id: u32) -> &str {
+        self.ysi_categories
+            .categories
+            .get(id as usize)
+            .map_or("Category", |c| c.name.as_str())
+    }
+
+    /// Walk `cat_id` -> ancestors up to root, returning `[root, ..., cat_id]`.
+    fn ysi_category_chain(&self, mut cat_id: u32) -> Vec<u32> {
+        let mut chain = Vec::new();
+        for _ in 0..16 {
+            let Some(def) = self.ysi_categories.categories.get(cat_id as usize) else {
+                break;
+            };
+            if chain.contains(&cat_id) {
+                break;
+            }
+            chain.push(cat_id);
+            let Some(parent) = def.parent else {
+                break;
+            };
+            cat_id = parent;
+        }
+        chain.reverse();
+        chain
+    }
+
+    /// Attach resolved ySI sorting tags and icon display metadata to all non-folder rows,
+    /// re-sorting each column's item rows while keeping folder rows (`Keyring`, `Caravan
+    /// Cards`, `Back`) pinned at the top and preserving bartered-first, usable-ammo-first,
+    /// `SortBy` (`Value`/`Weight`), and each column's selected row [design:
+    /// `docs/spec-notes/ysi-filename.md`].
+    pub fn apply_ysi(&mut self, resolve: impl FnMut(FormId) -> Option<fnv_game::ui_ysi::YsiItemDisplay>) {
+        self.apply_ysi_options(true, true, resolve);
+    }
+
+    /// Honor `yUI.ini` `[Sorting and Icons]` `bSortInventory` (`sort_by_tag`),
+    /// `bAddInventoryIcons` (`add_icons`), and `bEnableCategories` (via
+    /// [`MenuModel::set_ysi_categories`]) independently while preserving folder prefix rows,
+    /// bartered-first, usable-ammo-first, `SortBy`, and column selection [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub fn apply_ysi_options(
+        &mut self,
+        sort_by_tag: bool,
+        add_icons: bool,
+        mut resolve: impl FnMut(FormId) -> Option<fnv_game::ui_ysi::YsiItemDisplay>,
+    ) {
+        self.ysi_icons = add_icons;
+        let has_ysi_cats = self.mode == Mode::Inventory && !self.ysi_categories.categories.is_empty();
+        let columns = self.columns();
+        for &side in columns {
+            let i = side as usize;
+            let keep = self.selected_row(side).map(|r| (r.units(), r.bartered, r.folder, r.live));
+            let rows = &mut self.lists[i].rows;
+            let folder_prefix = rows.iter().take_while(|r| r.folder.is_some()).count();
+            let items = &mut rows[folder_prefix..];
+            if !sort_by_tag && !add_icons && !(side == Side::Player && has_ysi_cats) {
+                for r in items.iter_mut() {
+                    r.ysi = None;
+                }
+                continue;
+            }
+            for r in items.iter_mut() {
+                if r.folder.is_none() {
+                    r.ysi = resolve(r.item);
+                }
+            }
+            if side == Side::Player && has_ysi_cats {
+                self.fold_ysi_categories(sort_by_tag, add_icons, keep);
+                continue;
+            }
+            sort_rows_by(items, sort_by_tag);
+            if self.mode == Mode::Inventory && !self.usable_ammo.is_empty() {
+                items.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
+            }
+            if self.mode == Mode::Inventory {
+                self.sort.apply(items);
+            }
+            if !add_icons {
+                for r in items.iter_mut() {
+                    r.ysi = None;
+                }
+            }
+            let at = keep.and_then(|k| self.lists[i].rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k));
+            self.selected[i] = at.unwrap_or(self.selected[i]).min(self.lists[i].rows.len().saturating_sub(1));
+            self.ensure_visible(side);
+        }
+    }
+
+    /// Group the player's Pip-Boy inventory rows into clickable ySI category and nested
+    /// subfolder rows when `yUI.ini` `[Sorting and Icons] bEnableCategories = 1` and the
+    /// active tab has category definitions [design: `docs/spec-notes/yui-ini.md`].
+    fn fold_ysi_categories(
+        &mut self,
+        sort_by_tag: bool,
+        add_icons: bool,
+        keep: Option<(Units, bool, Option<FolderRow>, bool)>,
+    ) {
+        let i = Side::Player as usize;
+        let Some(tab) = Self::tab_index(self.category[i]).filter(|&t| self.has_ysi_categories_for_tab(t)) else {
+            let rows = &mut self.lists[i].rows;
+            let folder_prefix = rows.iter().take_while(|r| r.folder.is_some()).count();
+            let items = &mut rows[folder_prefix..];
+            sort_rows_by(items, sort_by_tag);
+            if !self.usable_ammo.is_empty() {
+                items.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
+            }
+            self.sort.apply(items);
+            if !add_icons {
+                for r in items.iter_mut() {
+                    r.ysi = None;
+                }
+            }
+            let at = keep.and_then(|k| self.lists[i].rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k));
+            self.selected[i] = at.unwrap_or(self.selected[i]).min(self.lists[i].rows.len().saturating_sub(1));
+            self.ensure_visible(Side::Player);
+            return;
+        };
+
+        // Guard against duplicate folding if `apply_ysi_options` is called twice without a
+        // fresh `refresh`.
+        let already_folded = self.lists[i]
+            .rows
+            .iter()
+            .any(|r| matches!(r.folder, Some(FolderRow::Open(Folder::Ysi(_)))))
+            || (matches!(self.folder, Some(Folder::Ysi(_)))
+                && self.lists[i]
+                    .rows
+                    .first()
+                    .is_some_and(|r| r.folder == Some(FolderRow::Back)));
+        if already_folded {
+            if !add_icons {
+                for r in &mut self.lists[i].rows {
+                    r.ysi = None;
+                }
+            }
+            return;
+        }
+
+        // Active search at tab root keeps all matching items flat so players can search
+        // across collapsed categories directly.
+        let searching = !self.search_text().is_empty();
+        if searching && self.folder.is_none() {
+            let rows = &mut self.lists[i].rows;
+            sort_rows_by(rows, sort_by_tag);
+            if !self.usable_ammo.is_empty() {
+                rows.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
+            }
+            self.sort.apply(rows);
+            if !add_icons {
+                for r in rows.iter_mut() {
+                    r.ysi = None;
+                }
+            }
+            let at = keep.and_then(|k| self.lists[i].rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k));
+            self.selected[i] = at.unwrap_or(self.selected[i]).min(self.lists[i].rows.len().saturating_sub(1));
+            self.ensure_visible(Side::Player);
+            return;
+        }
+
+        let flat = std::mem::take(&mut self.lists[i].rows);
+        let mut built: Vec<Row> = Vec::new();
+        let mut prefix_back = false;
+
+        match self.folder {
+            None => {
+                // Tab root: group each row under its root category (for this tab) when the
+                // category meets its `min_count` threshold.
+                let mut counts: BTreeMap<u32, usize> = BTreeMap::new();
+                let mut row_root: Vec<Option<u32>> = Vec::with_capacity(flat.len());
+                for r in &flat {
+                    let root = r
+                        .ysi
+                        .as_ref()
+                        .and_then(|y| y.tag.as_deref())
+                        .and_then(|t| self.ysi_categories.tag_to_category.get(t).copied())
+                        .and_then(|cid| self.ysi_category_chain(cid).first().copied())
+                        .filter(|&rid| {
+                            self.ysi_categories
+                                .categories
+                                .get(rid as usize)
+                                .is_some_and(|c| c.tab == tab)
+                        });
+                    if let Some(rid) = root {
+                        *counts.entry(rid).or_insert(0) += 1;
+                    }
+                    row_root.push(root);
+                }
+                let mut emitted: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+                for (r, root) in flat.into_iter().zip(row_root) {
+                    if let Some(rid) = root {
+                        let cat = &self.ysi_categories.categories[rid as usize];
+                        let n = counts.get(&rid).copied().unwrap_or(0);
+                        if n >= cat.min_count.max(1) {
+                            if emitted.insert(rid) {
+                                built.push(Row::of_ysi_category(rid, cat, n as i32));
+                            }
+                            continue;
+                        }
+                    }
+                    built.push(r);
+                }
+            }
+            Some(Folder::Ysi(open_id)) => {
+                prefix_back = true;
+                // Keep only items belonging to `open_id` (directly or under any descendant
+                // subfolder). When not searching, collapse immediate child subfolders whose
+                // item row count meets `child.min_count`.
+                let mut in_folder: Vec<(Row, Option<u32>)> = Vec::new();
+                let mut child_counts: BTreeMap<u32, usize> = BTreeMap::new();
+                for r in flat {
+                    let Some(cid) = r
+                        .ysi
+                        .as_ref()
+                        .and_then(|y| y.tag.as_deref())
+                        .and_then(|t| self.ysi_categories.tag_to_category.get(t).copied())
+                    else {
+                        continue;
+                    };
+                    let chain = self.ysi_category_chain(cid);
+                    let Some(pos) = chain.iter().position(|&id| id == open_id) else {
+                        continue;
+                    };
+                    let immediate_child = (!searching).then(|| chain.get(pos + 1).copied()).flatten();
+                    if let Some(ch) = immediate_child {
+                        *child_counts.entry(ch).or_insert(0) += 1;
+                    }
+                    in_folder.push((r, immediate_child));
+                }
+                let mut emitted: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+                for (r, child) in in_folder {
+                    if let Some(ch) = child {
+                        let cat = &self.ysi_categories.categories[ch as usize];
+                        let n = child_counts.get(&ch).copied().unwrap_or(0);
+                        if n >= cat.min_count.max(1) {
+                            if emitted.insert(ch) {
+                                built.push(Row::of_ysi_category(ch, cat, n as i32));
+                            }
+                            continue;
+                        }
+                    }
+                    built.push(r);
+                }
+            }
+            Some(Folder::Keys | Folder::Cards) => {
+                built = flat;
+            }
+        }
+
+        sort_rows_by(&mut built, sort_by_tag);
+        if !self.usable_ammo.is_empty() {
+            built.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
+        }
+        self.sort.apply(&mut built);
+
+        if prefix_back {
+            let mut rows = Vec::with_capacity(built.len() + 1);
+            rows.push(Row::of_folder(FolderRow::Back, 0));
+            rows.extend(built);
+            built = rows;
+        }
+        if !add_icons {
+            for r in &mut built {
+                r.ysi = None;
+            }
+        }
+        self.lists[i].rows = built;
+
+        let exited = self.last_exited_folder.take();
+        let at = exited
+            .and_then(|f| {
+                self.lists[i]
+                    .rows
+                    .iter()
+                    .position(|r| r.folder == Some(FolderRow::Open(f)))
+            })
+            .or_else(|| {
+                keep.and_then(|k| {
+                    self.lists[i]
+                        .rows
+                        .iter()
+                        .position(|r| (r.units(), r.bartered, r.folder, r.live) == k)
+                })
+            });
+        self.selected[i] = at
+            .unwrap_or(self.selected[i])
+            .min(self.lists[i].rows.len().saturating_sub(1));
+        self.ensure_visible(Side::Player);
+    }
+
     /// The barter lists: each side's own rows less what it put up, and what the other
     /// side put up; prices; the caps on each side and the trade's balance.
     fn refresh_trade(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
@@ -1262,9 +1763,19 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                // A live explosive (`Row::live`) is not for trade (#1640); items hidden by
+                // Caps, quest items, keys (`ItemKind::Key`, #3432), and live explosives
+                // (`Row::live`, #1640) are not for trade; items hidden by
                 // `HideItemBarterEx` (`t.is_hidden`) stay off the requested side(s).
-                .filter(|r| r.item != t.caps && !r.quest && !r.live && !t.is_hidden(r.item, side) && !(side == Side::Player && hide_equipped && r.equipped) && !(side == Side::Player && hotkeyed.contains(&r.item)))
+                .filter(|r| {
+                    r.item != t.caps
+                        && !r.quest
+                        && !r.live
+                        && r.kind != Some(ItemKind::Key)
+                        && world.resolve_item(r.item).is_none_or(|i| i.kind != ItemKind::Key)
+                        && !t.is_hidden(r.item, side)
+                        && !(side == Side::Player && hide_equipped && r.equipped)
+                        && !(side == Side::Player && hotkeyed.contains(&r.item))
+                })
                 .filter(|r| {
                     // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
                     let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
@@ -1328,7 +1839,44 @@ impl MenuModel {
 
     /// The Misc tab's folders: outside them, the keys and the cards are one row each at
     /// the top (only when there are some); inside one, a "Back" row and what it holds.
+    /// When ySI defines Misc-tab categories (`tab == 3`), Caravan cards from `AddCardToPlayer`
+    /// are merged into `l.rows` and vanilla Keyring/Caravan Cards pre-folding is deferred to
+    /// [`MenuModel::fold_ysi_categories`] so ySI's own Misc categories govern grouping.
     fn fold(&self, l: &mut Listing, forms: &FormStore) {
+        if self.has_ysi_categories_for_tab(3) {
+            if !self.cards.is_empty() {
+                for &card in &self.cards {
+                    match l.rows.iter_mut().find(|r| r.item == card) {
+                        Some(r) => r.count += 1,
+                        None => l.rows.push(Row {
+                            item: card,
+                            at: None,
+                            name: display_name(forms, card),
+                            count: 1,
+                            weight: None,
+                            value: None,
+                            kind: Some(ItemKind::CaravanCard),
+                            equipped: false,
+                            quest: false,
+                            condition: None,
+                            icon: forms.item(card).and_then(|i| i.icon.clone()),
+                            price: None,
+                            bartered: false,
+                            loaded: false,
+                            dim: false,
+                            mods: 0,
+                            mods_value: 0,
+                            folder: None,
+                            reference: None,
+                            live: false,
+                            ysi: None,
+                        }),
+                    }
+                }
+                sort_rows(&mut l.rows);
+            }
+            return;
+        }
         let (inside, rest): (Vec<Row>, Vec<Row>) = std::mem::take(&mut l.rows).into_iter().partition(|r| Folder::Keys.holds(r.kind) || Folder::Cards.holds(r.kind));
         match self.folder {
             None => {
@@ -1357,12 +1905,13 @@ impl MenuModel {
                                 condition: None,
                                 icon: forms.item(card).and_then(|i| i.icon.clone()),
                                 price: None,
-                                bartered: false, loaded: false,
+                                bartered: false, loaded: false, dim: false,
                                 mods: 0,
                                 mods_value: 0,
                                 folder: None,
                                 reference: None,
                                 live: false,
+                                ysi: None,
                             }),
                         }
                     }
@@ -1370,6 +1919,30 @@ impl MenuModel {
                 }
                 l.rows = std::iter::once(Row::of_folder(FolderRow::Back, 0)).chain(held).collect();
             }
+        }
+    }
+
+    /// Leave the active folder: pops one level of [`MenuModel::ysi_folder_stack`] for nested
+    /// ySI subfolders or returns to the tab root (`None`), remembering the exited folder so
+    /// selection restores onto its row.
+    fn exit_folder(&mut self, world: &mut World<'_>) -> Result<String, SimError> {
+        match self.folder {
+            Some(Folder::Ysi(leaving)) => {
+                let parent = self.ysi_folder_stack.pop().map(Folder::Ysi);
+                self.last_exited_folder = Some(Folder::Ysi(leaving));
+                self.enter(world, parent)?;
+                Ok(match parent {
+                    Some(Folder::Ysi(pid)) => format!("Back to {}", self.ysi_category_name(pid)),
+                    _ => format!("Back to {}", self.category[Side::Player as usize].title()),
+                })
+            }
+            Some(_) => {
+                self.ysi_folder_stack.clear();
+                self.last_exited_folder = None;
+                self.enter(world, None)?;
+                Ok("Back to Misc".into())
+            }
+            None => Ok(String::new()),
         }
     }
 
@@ -1475,6 +2048,8 @@ impl MenuModel {
                 }
                 self.category[i] = cat;
                 self.folder = None;
+                self.ysi_folder_stack.clear();
+                self.last_exited_folder = None;
                 self.selected[i] = 0;
                 self.scroll[i] = 0;
                 if self.sync_categories {
@@ -1520,12 +2095,12 @@ impl MenuModel {
             Command::Close => out.close = true,
             Command::Back => {
                 if self.mode == Mode::Inventory && self.folder.is_some() {
-                    if let Err(e) = self.enter(world, None) {
+                    if let Err(e) = self.exit_folder(world) {
                         self.status = Some(format!("Cannot list the inventories: {e}"));
                     }
                 }
             }
-            Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
+            Command::CommitBarter(_) | Command::CommitNormalBarter(_) | Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
             _ => {
                 // The player's Take All Confirmation tweak: the first Take All asks, the next
                 // does it; anything else takes the question back [design: docs/design/tweaks.md].
@@ -1535,11 +2110,12 @@ impl MenuModel {
                     self.status = Some(format!("Take all {n} items? Take All again to confirm"));
                     return out;
                 }
-                if let Some(q) = self.asks_quantity(cmd) {
+                if let Some(q) = self.asks_quantity(world, cmd) {
                     self.quantity = Some(q);
                     self.status = None;
                     return out;
                 }
+                let had_rows = [Side::Container, Side::Player].map(|s| !self.lists[s as usize].rows.is_empty());
                 let r = self.act(world, cmd, &mut out);
                 self.amount = None;
                 self.status = Some(match r {
@@ -1549,6 +2125,29 @@ impl MenuModel {
                 if out.changed {
                     if let Err(e) = self.refresh(world) {
                         self.status = Some(format!("Cannot list the inventories: {e}"));
+                    } else if self.sync_categories
+                        && !self.prevent_switch_when_emptying_category
+                        && matches!(self.mode, Mode::Container(_) | Mode::Barter(_))
+                    {
+                        // When synchronized categories allow switching on empty
+                        // (`bPreventSwitchWhenEmptyingCategory = 0`), emptying a non-All
+                        // category returns both columns to All [design; Stewie's Tweaks
+                        // public INI `nvse_stewie_tweaks.ini`].
+                        let emptied = self.columns().iter().any(|&side| {
+                            let i = side as usize;
+                            self.category[i] != Category::All
+                                && had_rows[i]
+                                && self.lists[i].rows.is_empty()
+                                && self.search_hidden(side) == 0
+                        });
+                        if emptied {
+                            self.category = [Category::All; 2];
+                            self.selected = [0; 2];
+                            self.scroll = [0; 2];
+                            if let Err(e) = self.refresh(world) {
+                                self.status = Some(format!("Cannot list the inventories: {e}"));
+                            }
+                        }
                     }
                 }
             }
@@ -1577,8 +2176,25 @@ impl MenuModel {
         self.confirming_take_all
     }
 
-    /// The prompt asked for by `cmd` on the selected row, if its stack is large enough.
-    fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
+    /// Whether `r` is effectively weightless for the player (ammo outside Hardcore mode,
+    /// kinds marked weightless by `WeightRules`, or items with weight `<= 0` / none)
+    /// [design: docs/spec-notes/quantity-select-short-keys.md].
+    fn row_is_weightless(world: &World<'_>, r: &Row) -> bool {
+        let rules = world.weight_rules(PLAYER);
+        let ammo_has_weight = rules.ammo_weight.unwrap_or(world.config().hardcore);
+        if r.kind == Some(ItemKind::Ammo) && !ammo_has_weight {
+            return true;
+        }
+        if r.kind.is_some_and(|k| rules.weightless(k, false, false)) {
+            return true;
+        }
+        r.weight.unwrap_or(0.0) <= 0.0
+    }
+
+    /// The prompt asked for by `cmd` on the selected row, if its stack is large enough
+    /// (or, with `quantity-select-short-keys` enabled, when picking up a weightless stack
+    /// of more than one unit from a container).
+    fn asks_quantity(&self, world: &World<'_>, cmd: Command) -> Option<Quantity> {
         let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
         let r = self.selected_row(self.focus)?;
         // The player's tweak: storing with a companion, no more than it can carry (at
@@ -1587,7 +2203,12 @@ impl MenuModel {
             (Mode::Container(_), Side::Player, Some(cap)) => carry_cap(r.count, r.weight.unwrap_or(0.0), cap - self.lists[Side::Container as usize].weight as f32),
             _ => r.count,
         };
-        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && !r.live && r.kind != Some(ItemKind::CaravanCard)).then_some(Quantity {
+        let weightless_container_pickup = self.qtt_select_short_keys
+            && matches!((self.mode, self.focus, cmd), (Mode::Container(_), Side::Container, Command::One))
+            && Self::row_is_weightless(world, r)
+            && r.count > 1;
+        let threshold_met = r.count > ASK_QUANTITY_ABOVE || weightless_container_pickup;
+        (asks && self.amount.is_none() && threshold_met && r.folder.is_none() && !r.live && r.kind != Some(ItemKind::CaravanCard)).then_some(Quantity {
             cmd,
             side: self.focus,
             row: self.selected[self.focus as usize],
@@ -1660,7 +2281,7 @@ impl MenuModel {
                 out.changed = n > 0;
                 Ok(if n == 0 { "Nothing to store".into() } else { format!("Stored everything ({n} items)") })
             }
-            (Mode::Container(c), Command::One | Command::Stack) => {
+            (Mode::Container(c), Command::One | Command::OneSingle | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 let (from, to) = match self.focus {
                     Side::Container => (c, PLAYER),
@@ -1684,7 +2305,7 @@ impl MenuModel {
                         });
                     }
                 }
-                let want = self.want(cmd == Command::One, &r);
+                let want = self.want(matches!(cmd, Command::One | Command::OneSingle), &r);
                 if let Some(st) = self.steal.as_mut() {
                     let chance = st.chance(&r, want);
                     if !st.unnoticed(chance) {
@@ -1707,13 +2328,13 @@ impl MenuModel {
                 let verb = if self.focus == Side::Container { "Took" } else { "Stored" };
                 Ok(format!("{verb} {} x{n}", name(&r)))
             }
-            (Mode::Barter(_), Command::One | Command::Stack) => {
+            (Mode::Barter(_), Command::One | Command::OneSingle | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 if r.live {
                     self.amount = None;
                     return Ok(live_refusal(&r.name));
                 }
-                let want = self.want(cmd == Command::One, &r);
+                let want = self.want(matches!(cmd, Command::One | Command::OneSingle), &r);
                 let Some(t) = self.trade.as_mut() else { return Ok(String::new()) };
                 out.changed = true;
                 if r.bartered {
@@ -1739,13 +2360,22 @@ impl MenuModel {
             (Mode::Inventory, Command::One) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 match r.folder {
+                    Some(FolderRow::Open(Folder::Ysi(id))) => {
+                        if let Some(Folder::Ysi(prev)) = self.folder {
+                            self.ysi_folder_stack.push(prev);
+                        }
+                        self.last_exited_folder = None;
+                        self.enter(world, Some(Folder::Ysi(id)))?;
+                        return Ok(format!("Opened {}", self.ysi_category_name(id)));
+                    }
                     Some(FolderRow::Open(f)) => {
+                        self.ysi_folder_stack.clear();
+                        self.last_exited_folder = None;
                         self.enter(world, Some(f))?;
                         return Ok(format!("Opened {}", f.name()));
                     }
                     Some(FolderRow::Back) => {
-                        self.enter(world, None)?;
-                        return Ok("Back to Misc".into());
+                        return self.exit_folder(world);
                     }
                     None => {}
                 }
@@ -1784,7 +2414,7 @@ impl MenuModel {
                     (false, false) => format!("Equipped {} (took off {})", name(&r), off.join(", ")),
                 })
             }
-            (Mode::Inventory, Command::Drop | Command::DropStack) => {
+            (Mode::Inventory, Command::Drop | Command::DropSingle | Command::DropStack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 // A folder row is no item; the cards AddCardToPlayer gave are not in the
                 // inventory [design: carried CCRD items are not dropped either].
@@ -1794,7 +2424,7 @@ impl MenuModel {
                 if r.kind == Some(ItemKind::CaravanCard) {
                     return Ok(format!("{} can't be dropped", name(&r)));
                 }
-                let want = self.want(cmd == Command::Drop, &r);
+                let want = self.want(matches!(cmd, Command::Drop | Command::DropSingle), &r);
                 let created = match world.player_drop_item_at(r.item, want, r.pick()) {
                     Err(SimError::QuestItem(_)) => return Ok(format!("{} is a quest item and can't be dropped", name(&r))),
                     other => other?,
@@ -1804,8 +2434,8 @@ impl MenuModel {
                 out.created = created;
                 Ok(format!("Dropped {} x{want}", name(&r)))
             }
-            (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
-            (Mode::Inventory, Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
+            (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropSingle | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
+            (Mode::Inventory, Command::OneSingle | Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
             _ => Ok(String::new()),
         }
     }
@@ -1943,6 +2573,9 @@ impl BarterKindMults {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "model/ysi_categories_tests.rs"]
+mod ysi_categories_tests;
 /// [design, #2403] Synthetic list/quantity/confirmation states for detector regressions.
 #[cfg(feature = "report-test-support")]
 #[doc(hidden)]
@@ -1963,12 +2596,13 @@ pub fn report_progress_fixture(mode: Mode, step: usize) -> MenuModel {
             icon: None,
             price: None,
             bartered: false,
-            loaded: false,
+            loaded: false, dim: false,
             mods: 0,
             mods_value: 0,
             folder: None,
             reference: None,
             live: false,
+            ysi: None,
         })
         .collect();
     m.lists = [Listing { rows: rows.clone(), ..Default::default() }, Listing { rows, ..Default::default() }];

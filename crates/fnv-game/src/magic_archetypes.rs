@@ -80,8 +80,6 @@ impl Game<'_> {
         let Some(e) = self.effects.iter().find(|e| e.id == id) else { return };
         let (target, source, effect, seconds) = (e.target, e.source, e.effect, e.duration - e.elapsed);
         let caster = e.caster;
-        let data = self.data;
-        let arch = |e: &crate::game::ActiveEffect| data.magic_effects.get(&e.effect).map(|m| m.archetype);
         match archetype {
             ARCHETYPE_PARALYSIS => {
                 // Down for as long as a Paralysis effect lasts (`tick_knockouts`).
@@ -89,11 +87,13 @@ impl Game<'_> {
                 self.magic_news.push(MagicNews::Paralyzed { actor: target, effect, seconds });
             }
             ARCHETYPE_CURE_PARALYSIS => {
-                let n = self.dispel(target, None, |e| e.id != id && arch(e) == Some(ARCHETYPE_PARALYSIS));
+                let drop: Vec<u32> = self.effects.iter().filter(|e| e.target == target && e.id != id && self.magic_effect_def(e.effect).is_some_and(|m| m.archetype == ARCHETYPE_PARALYSIS)).map(|e| e.id).collect();
+                let n = self.dispel(target, None, |e| drop.contains(&e.id));
                 self.magic_news.push(MagicNews::Cured { actor: target, what: "Cure Paralysis", count: n });
             }
             ARCHETYPE_CURE_POISON => {
-                let n = self.dispel(target, None, |e| e.id != id && data.spell_types.get(&e.source) == Some(&SPELL_POISON));
+                let drop: Vec<u32> = self.effects.iter().filter(|e| e.target == target && e.id != id && self.spell_type(e.source) == Some(SPELL_POISON)).map(|e| e.id).collect();
+                let n = self.dispel(target, None, |e| drop.contains(&e.id));
                 self.magic_news.push(MagicNews::Cured { actor: target, what: "Cure Poison", count: n });
             }
             ARCHETYPE_DISPEL => {
@@ -106,7 +106,7 @@ impl Game<'_> {
 
     /// Whether an active (started) Paralysis effect lasts on `r`.
     pub fn paralysis_holds(&self, r: FormId) -> bool {
-        self.effects.iter().any(|e| e.target == r && !e.inactive && self.data.magic_effects.get(&e.effect).is_some_and(|m| m.archetype == ARCHETYPE_PARALYSIS))
+        self.effects.iter().any(|e| e.target == r && !e.inactive && self.magic_effect_def(e.effect).is_some_and(|m| m.archetype == ARCHETYPE_PARALYSIS))
     }
 
     /// The speed the world's clock runs at for Turbo: [`TURBO_TIME_SCALE`] while the
@@ -128,9 +128,8 @@ impl Game<'_> {
     /// One frame: an actor with an active Concussion effect whose head has just become
     /// crippled is concussed (see the module notes).
     pub fn tick_concussions(&mut self) {
-        let data = self.data;
         let mut able: Vec<FormId> =
-            self.effects.iter().filter(|e| !e.inactive && data.magic_effects.get(&e.effect).is_some_and(|m| m.archetype == ARCHETYPE_CONCUSSION)).map(|e| e.target).collect();
+            self.effects.iter().filter(|e| !e.inactive && self.magic_effect_def(e.effect).is_some_and(|m| m.archetype == ARCHETYPE_CONCUSSION)).map(|e| e.target).collect();
         able.sort();
         able.dedup();
         // Those no longer able forget their head (a crippling later counts as new).
@@ -181,7 +180,7 @@ impl Game<'_> {
             return false;
         }
         let applied = self.start_hit_effect(target, palm, Some(FormId::PLAYER_REF));
-        let took = applied.iter().any(|a| self.data.magic_effects.get(&a.effect).is_some_and(|m| m.archetype == ARCHETYPE_PARALYSIS));
+        let took = applied.iter().any(|a| self.magic_effect_def(a.effect).is_some_and(|m| m.archetype == ARCHETYPE_PARALYSIS));
         if took {
             self.count_stat(PARALYZING_PUNCHES, 1.0);
             self.magic_news.push(MagicNews::Palm { target });

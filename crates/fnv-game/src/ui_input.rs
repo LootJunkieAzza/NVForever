@@ -33,16 +33,22 @@ pub fn tile_id(ui: &Ui, tile: TileId) -> f64 {
 
 /// One frame of tile input for `menus` (back to front), then the script events:
 /// SetOnMouseoverChangeEventHandler's when the highlight moved (with the menu ID of the
-/// tile now highlighted, else of the one left) and SetOnMenuClickEventHandler's for each
-/// click [documented: their pages, jip-events.md §2]. Repeated same-named sibling tiles
-/// carry `:<index>` (0-based in child order, `Ui::indexed_name_of` / `Ui::indexed_path_of`)
-/// [documented: SetOnMenuClickEventHandler; hypothesis: 0-based among same-named siblings].
+/// tile now highlighted, else of the one left), JohnnyGuitar's
+/// SetJohnnyOnKeyboardControllerSelectionChangeEventHandler (`SetOnKBCTrlUIDeltaHandler`)
+/// when keyboard/controller navigation moved the highlight (`report.over_by_key`), and
+/// SetOnMenuClickEventHandler's for each click [documented: their pages, jip-events.md
+/// §2, ext-jg8.md §1]. Repeated same-named sibling tiles carry `:<index>` (0-based in
+/// child order, `Ui::indexed_name_of` / `Ui::indexed_path_of`) [documented:
+/// SetOnMenuClickEventHandler; hypothesis: 0-based among same-named siblings].
 pub fn step(g: &mut Game, menus: &[TileId], input: &Input, measure: &Measure<'_>) -> Report {
     let report = g.ui_pointer.step(&mut g.ui_tree, menus, input, measure);
     if let Some((from, to)) = report.over {
         if let Some(t) = to.or(from).filter(|&t| g.ui_tree.is_live(t)) {
             let id = menu_id(&g.ui_tree, t);
             g.jip_event("mouseoverchange", None, vec![XVal::Num(id)]);
+            if report.over_by_key {
+                g.jg8_keyboard_selection(id);
+            }
         }
     }
     for click in &report.clicks {

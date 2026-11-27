@@ -119,7 +119,8 @@ def configure_test(p, name):
         p.add_argument("--batch", type=int, default=25, help="markers per launch")
         p.add_argument("--every", type=float, default=30.0, help="seconds between one marker's ask and the next's")
         p.add_argument("--hang", type=float, default=180.0, help="seconds without progress that count as a hang")
-        p.add_argument("--start", default="GSGeneralStore", help="the cell each launch starts in (--cell)")
+        p.add_argument("--start", default="Goodsprings",
+                       help="the cell each launch starts in (--cell); an exterior: interiors refuse fast travel (#3434)")
     elif name == "tour":
         p.add_argument("--world", default="WastelandNV")
         p.add_argument("--path", choices=["towns", "ring"], default="towns",

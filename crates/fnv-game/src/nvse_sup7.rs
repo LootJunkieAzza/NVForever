@@ -281,7 +281,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // world pc calcStart`): from start to end in timer seconds by mode [documented:
         // the pages]; calcStart takes the block's value now as the start [documented:
         // "Scale N will be calculated automatically"]. 1 when it runs, 0 without a
-        // reference or a block name [hypothesis]. The translation's world flag is not
+        // reference or a block name (see docs/spec-notes/ext-sup7.md §1). The translation's world flag is not
         // used [decision: the mirror holds and sets values in the parent's space].
         "nifblockinterpolatetranslation" | "nifblockinterpolaterotation" | "nifblockinterpolatescale" => {
             let (Some(r), Some(node)) = (on, text(args, 0)) else { return Some(Ok(zero)) };
@@ -317,12 +317,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `[block] [type] [pc]` [documented: NifBlockInterpolateStop, IsNifBlockInterpolated].
         // Is: 1 when one matches; without a block 0 [observed: sup7 scale.start and
-        // event.wait, 0 with a scale running, against the page's example]. Stop: 1 when
-        // one matched [hypothesis: "success:bool"], -1 when none [observed: sup7
-        // scale.next, types 1 and 2 beside a running scale]; without arguments 0 and
-        // nothing stopped [observed: sup7 types.translation, the block still interpolated
-        // after it, against the page's "Will stop all interpolations on Player"]. A
-        // stopped block keeps the value it had [hypothesis].
+        // event.wait, 0 with a scale running, against the page's example]. Stop: 0 when
+        // no arguments or when the reference has zero active interpolations [observed:
+        // sup7 types.translation; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + SUP NVSE
+        // 855, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+        // `w4d_36_sup_random_keymap_and_dialog` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
+        // #3679): `nifStop(0arg=0,miss=0)`; no DLL or source consulted]; 1 when one
+        // matched [observed: `sup_23_nif_interp_stop_and_type`], -1 when the reference
+        // has active interpolations but none match [observed: sup7 scale.next;
+        // `sup_23_nif_interp_stop_and_type`]. A stopped block keeps the value it had
+        // (see docs/spec-notes/ext-sup7.md §1).
         "nifblockinterpolatestop" | "isnifblockinterpolated" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let (block, kind, pc) = search(args, 0);
@@ -334,6 +338,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let any = g.sup7.interps.iter().any(hit);
             if !stop {
                 return Some(Ok(yes(any)));
+            }
+            if !g.sup7.interps.iter().any(|it| it.r == r) {
+                return Some(Ok(zero));
             }
             g.sup7.interps.retain(|it| !hit(it));
             XVal::Num(if any { 1.0 } else { -1.0 })
@@ -355,7 +362,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `udf [loops]` [documented: SetSUPOnInterpolateFinishEvent]; the same handler
-        // again changes its loops flag [hypothesis]. Every reference's interpolations
+        // again changes its loops flag (see docs/spec-notes/ext-sup7.md §1). Every reference's interpolations
         // [documented: "when an interpolation on object will end", the handler given the
         // object].
         "setsuponinterpolatefinishevent" => {

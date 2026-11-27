@@ -6,9 +6,10 @@
 //! script (EPFT 4, the entry's SCHR/SCDA) and a Run Immediately flag (EPF3) [documented:
 //! GECK wiki Entry Point, "Activate: run when the player activates something; presents
 //! a choice list to the player that can trigger a script"; xEdit PERK]. The masters have
-//! four, all entry point code 27 with function 9, three conditions tabs' worth of DATA
+//! seven, all entry point code 27 with function 9, three conditions tabs' worth of DATA
 //! [observed: FalloutNV.esm Cannibal "Devour", Ghastly Scavenger "Devour", Dine and Dash
-//! "Dine and Dash", Mister Sandman "Murder"; HonestHearts.esm one more Devour]: so code
+//! "Dine and Dash", Mister Sandman "Murder", Robotics Expert "Deactivate"; HonestHearts.esm
+//! one more Devour; OldWorldBlues.esm Robot Compliance "Deactivate"]: so code
 //! 27 is Activate and function 9 Add Activate Choice [hypothesis by elimination]. An
 //! entry is offered when the player owns the perk (the rank rule of `crate::perks`) and
 //! its conditions pass: tab 0 on the player, tab 1 on the activated reference
@@ -20,7 +21,11 @@
 //! entry's script runs with the activated reference as its calling reference and the
 //! player as the action reference [observed: the fragments call `StartCannibal Player`
 //! and `StartMisterSandman Player` without a reference, so the act starts on the
-//! target]. Run Immediately is kept but changes nothing here: the masters' four are off.
+//! target]. Run Immediately is kept but changes nothing here: the masters' seven are off.
+//! A target E otherwise does nothing to (a hostile actor, a creature with nothing to say:
+//! Robotics Expert's "Deactivate", #3479) has no default action: the last button closes
+//! the list instead ([`Game::open_activate_menu_only`]) [design; what the original shows:
+//! docs/handoff/observer-checks/3479-robotics-expert-deactivate.md].
 //!
 //! **Cannibal** (`victim.StartCannibal eater`): the eater is in the cannibalism
 //! animation for [`CANNIBAL_SECONDS`] (GetCannibal 1 at once) [documented: GetCannibal
@@ -84,11 +89,14 @@ pub struct ActivateChoice {
 }
 
 /// The choice list open for an activation (module notes): the choices, then the
-/// default action.
+/// default action or, with none, a button that closes the list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActivateMenu {
     pub target: FormId,
     pub choices: Vec<ActivateChoice>,
+    /// E does nothing to the target without the list: no default action.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_default: bool,
 }
 
 /// What the player picked in the choice list.
@@ -98,6 +106,8 @@ pub enum Picked {
     Choice(ActivateChoice),
     /// The default action: the engine activates the target as E does, without the list.
     Default(FormId),
+    /// The list of a target with no default action was closed: nothing happens.
+    Closed(FormId),
 }
 
 /// A perk's act under way (GetCannibal, GetSandman).
@@ -155,6 +165,16 @@ impl Game<'_> {
     /// opens (a message box menu, MenuMode 1001 [hypothesis]) and the activation waits
     /// for it. Returns whether it opened.
     pub fn open_activate_menu(&mut self, target: FormId) -> bool {
+        self.open_activate_list(target, false)
+    }
+
+    /// [`Game::open_activate_menu`] for a target whose default action is nothing (a
+    /// hostile actor, a creature with nothing to say): the perks' choices only.
+    pub fn open_activate_menu_only(&mut self, target: FormId) -> bool {
+        self.open_activate_list(target, true)
+    }
+
+    fn open_activate_list(&mut self, target: FormId, no_default: bool) -> bool {
         if self.activate_menu.is_some() {
             return false;
         }
@@ -162,13 +182,14 @@ impl Game<'_> {
         if choices.is_empty() {
             return false;
         }
-        self.activate_menu = Some(ActivateMenu { target, choices });
+        self.activate_menu = Some(ActivateMenu { target, choices, no_default });
         self.open_menu(menus::MESSAGE);
         true
     }
 
     /// The player picks button `index` of the open choice list: a choice runs its
-    /// script; the one after the choices is the default action. The list closes.
+    /// script; the one after the choices is the default action, or closes the list of a
+    /// target that has none. The list closes.
     pub fn pick_activate_choice(&mut self, index: usize) -> Option<Picked> {
         let m = self.activate_menu.take()?;
         if self.menu == Some(menus::MESSAGE) && self.boxes.is_empty() {
@@ -179,6 +200,7 @@ impl Game<'_> {
                 self.run_activate_choice(m.target, c);
                 Some(Picked::Choice(c.clone()))
             }
+            None if m.no_default => Some(Picked::Closed(m.target)),
             None => Some(Picked::Default(m.target)),
         }
     }

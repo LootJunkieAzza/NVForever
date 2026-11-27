@@ -141,6 +141,11 @@ fn bodies_through_the_view() {
     assert_eq!(n(&mut g, "BoxRef.GetCollisionObjProperty \"Box\" 7"), 12.0);
     assert_eq!(n(&mut g, "BoxRef.GetRigidBodyMass"), 12.0);
     assert_eq!(n(&mut g, "NpcRef.GetRigidBodyMass"), 0.0, "an actor's is 0 [documented]");
+    // Static (non-dynamic) rigid body reports 0.0, not 100.0 [observed: w4c_b4_06_jip13_physics_queries].
+    let mut static_view = box_view();
+    static_view.bodies[0].dynamic = false;
+    g.set_phys_view(FormId(OTHER_REF), Some(static_view));
+    assert_eq!(n(&mut g, "OtherRef.GetRigidBodyMass"), 0.0, "static rigid body returns 0.0");
     // Revolutions a second; 7 game units a second the linear unit.
     assert!(close(n(&mut g, "BoxRef.GetAngularVelocity \"Box\" Z"), 1.0));
     q(&mut g, "let fX := 0\nlet aList := 0");
@@ -254,7 +259,7 @@ fn moves_and_rotations() {
     assert!(g.world.get(FormId(BOX_REF)).unwrap().pos[1] > 50.0, "not yet moved to OtherRef's place");
     // The reticle: no hit, nothing.
     assert_eq!(n(&mut g, "GetReticlePosAlt fX fY fZ"), 0.0);
-    g.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: [0.0, 0.0, 100.0], dir: [0.0, 1.0, 0.0], hit: Some(50.0) });
+    g.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: [0.0, 0.0, 100.0], dir: [0.0, 1.0, 0.0], hit: Some(50.0), limb: None });
     assert_eq!(s_of(&mut g, "GetReticlePosAlt fX fY fZ\nSetFunctionValue (sv_Construct \"%g %g %g\" fX fY fZ)"), "0 50 100");
     q(&mut g, "BoxRef.MoveToReticle 1000 0 0 10");
     assert_eq!(g.world.get(FormId(BOX_REF)).unwrap().pos, [0.0, 50.0, 110.0]);

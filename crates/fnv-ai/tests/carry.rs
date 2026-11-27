@@ -1232,11 +1232,11 @@ fn open_locked_in_place_door_allows_arrival_despite_script_refusal() {
 fn open_locked_in_place_doors_reach_actor_path_parameters() {
     // [design, #2716] Synthetic barrier across cell A, using a fixture reference:
     // exercise closed, script-opened, untouched default-open, and script-closed states.
-    for mode in ["closed", "script", "default", "closed-default"] {
+    for mode in ["closed", "script", "default", "closed-default", "set-default-open", "clear-default-open"] {
         let mut f = fixture();
         let placed = f.refs.refs.get_mut(&FormId(M1)).unwrap();
         placed.lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
-        placed.open_by_default = matches!(mode, "default" | "closed-default");
+        placed.open_by_default = matches!(mode, "default" | "closed-default" | "clear-default-open");
         let mut s = sim(&f, &[R_TRAVEL]);
         s.nav.set_in_place_doors(vec![fnv_nav::InPlaceDoor {
             door: M1,
@@ -1250,11 +1250,14 @@ fn open_locked_in_place_doors_reach_actor_path_parameters() {
         assert!(s.game.world.peek(FormId(M1)).is_none());
         if matches!(mode, "script" | "closed-default") {
             s.game.set_ref_open(FormId(M1), mode == "script").unwrap();
+        } else if matches!(mode, "set-default-open" | "clear-default-open") {
+            s.game.world.set_default_open(FormId(M1), mode == "set-default-open").unwrap();
+            assert!(s.game.world.peek(FormId(M1)).is_none(), "SetDefaultOpen does not materialize an untouched door");
         }
         s.run(1.0);
         let events = s.events(R_TRAVEL);
-        if matches!(mode, "closed" | "closed-default") {
-            assert!(events.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{events:?}");
+        if matches!(mode, "closed" | "closed-default" | "clear-default-open") {
+            assert!(events.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{mode}: {events:?}");
         } else {
             assert!(events.iter().any(|e| matches!(e, AiEvent::Trip { .. })), "{mode}: {events:?}");
             assert!(!events.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{mode}: {events:?}");
@@ -1366,6 +1369,37 @@ fn a_door_that_closed_the_way_opening_brings_the_package_back() {
     s.run(40.0);
     assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?} {:?}", s.feet(R_TRAVEL), s.events(R_TRAVEL));
     assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
+/// #3472 (Rex in Jacobstown): a package set aside as out of reach comes back the moment a
+/// script puts the actor somewhere else, not an hour later: here the way to its place is
+/// shut by a locked door, and a scripted door puts the actor on the far side.
+#[test]
+fn a_package_set_aside_comes_back_when_a_script_moves_the_actor() {
+    let mut f = fixture();
+    let actor = FormId(R_TRAVEL);
+    let door = FormId(M1);
+    f.refs.refs.get_mut(&door).unwrap().lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav.set_in_place_doors(vec![fnv_nav::InPlaceDoor {
+        door: M1, space: A, position: [200.0, 200.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0,
+        bounds: ([-4.0, -200.0, 0.0], [4.0, 200.0, 200.0]),
+    }], |_| Some(DoorLock { level: 255, key: None }));
+    s.ai.apply_door_locks(&mut s.game, &mut s.nav);
+    s.run(1.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)));
+    assert!(s.game.extra.get(&actor).is_some_and(|e| e.package_blocked.contains_key(&FormId(P_TRAVEL_B))), "set aside");
+    s.run(5.0);
+    assert_eq!(s.feet(R_TRAVEL), START, "set aside, it stays");
+    // A script puts it in cell B, where its package's place is.
+    s.game.run_source("ScriptDoor.Activate TravellerRef", Default::default()).unwrap();
+    assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+    assert_eq!(s.ai.moved_by_scripts(&mut s.game), vec![(actor, true)]);
+    assert!(s.game.extra.get(&actor).is_none_or(|e| e.package_blocked.is_empty()), "the move lifts the block");
+    assert_eq!(s.game.extra.get(&actor).and_then(|e| e.current_package), Some(FormId(P_TRAVEL_B)), "chosen again at once");
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?} {:?}", s.feet(R_TRAVEL), s.events(R_TRAVEL));
 }
 
 /// A scripted door that does not let the actor through (its OnActivate block called no
@@ -1641,7 +1675,7 @@ fn arrival_heading_needs_an_existing_link() {
     assert_eq!(s.ai.agents[&FormId(R_TO_HEADING)].face_to, None);
 }
 
-// [hypothesis, #2526, observer check 213] Travel and standing Guard restore the
+// (#2526, observer check 213; see crates/fnv-ai/src/carry.rs) Travel and standing Guard restore the
 // editor heading on returning to a small editor location, using the standing turn.
 #[test]
 fn arrival_heading_at_small_editor_locations_restores_editor_rotation() {
@@ -2462,6 +2496,35 @@ fn a_sandbox_that_only_wanders_walks_about_inside_its_radius() {
 }
 
 #[test]
+fn a_sandbox_with_always_run_runs_between_its_spots() {
+    // Freeside's chased rat: a Sandbox package with Always Run (#4487). Without the flag
+    // the wanderer walks at its walk speed (100); with it, at its run (400).
+    let f = fixture();
+    let fastest = |s: &mut Sim| {
+        let mut top = 0.0f32;
+        for _ in 0..60 {
+            s.run(1.0);
+            let a = &s.ai.agents[&FormId(R_SB_WANDER)];
+            if a.activity == Activity::Travelling {
+                top = top.max(a.walker.speed);
+            }
+        }
+        top
+    };
+    let mut walking = sim(&f, &[R_SB_WANDER]);
+    let walk = fastest(&mut walking);
+    assert!(walk > 0.0 && walk <= 100.0 + 1e-3, "walks at its walk: {walk}");
+    let mut running = sim(&f, &[R_SB_WANDER]);
+    running.game.run_query("Begin Function { }
+SetPackageFlag SandboxWander 13 1
+End
+", Default::default()).unwrap();
+    let run = fastest(&mut running);
+    assert!((run - 400.0).abs() < 1.0, "runs at its run: {run}");
+    assert!(doings(&running, R_SB_WANDER).iter().all(|d| *d == Doing::Wandering));
+}
+
+#[test]
 fn a_sandbox_without_wandering_takes_turns_at_the_chair_and_the_idle_marker() {
     let f = fixture();
     let mut s = sim(&f, &[R_SB_OBJECTS]);
@@ -3104,7 +3167,7 @@ fn an_actor_going_into_combat_stands_a_moment_then_turns_at_the_combat_rate() {
 #[test]
 fn a_creature_going_into_combat_turns_at_once() {
     // People only stand 1.1 s on going into combat (#1352); a creature turns to its
-    // target at once, as before [hypothesis: a creature's reaction is unmeasured].
+    // target at once, as before (see crates/fnv-ai/src/carry.rs).
     let f = fixture();
     let mut s = sim(&f, &[R_HOUND]);
     s.run(1.0);
@@ -3520,14 +3583,19 @@ fn a_chase_is_planned_again_sooner_near_its_target_and_leads_one_that_moves() {
     assert!(keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 10.5));
     assert!(!keeps_way(to, 10.0, [30.0, 0.0, 0.0], 250.0, 150.0, 10.5), "the target moved 30 units, 25 allowed");
     assert!(!keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 11.6), "1.5 s have passed");
-    // The target's speed: measured over 0.05 s or more, evened with the one before.
+    // The target's speed: measured over 0.05 s or more; the first measurement as it is
+    // (#3256: evened with the "standing" it began with, a walking target read as half
+    // its speed and was taken for standing), each later one evened with the one before.
     let d = Drift::begin(to, 10.0);
-    assert_eq!(d.speed, [0.0, 0.0]);
+    assert_eq!((d.speed, d.measured), ([0.0, 0.0], false));
     assert_eq!(d.on([5.0, 0.0, 0.0], 10.02), d, "too soon to measure");
     let d = d.on([30.0, 0.0, 0.0], 10.1);
-    assert!((d.speed[0] - 150.0).abs() < 0.01 && d.speed[1] == 0.0, "{d:?}");
-    let d = d.on([60.0, 0.0, 0.0], 10.2);
-    assert!((d.speed[0] - 225.0).abs() < 0.01, "{d:?}");
+    assert!((d.speed[0] - 300.0).abs() < 0.01 && d.speed[1] == 0.0 && d.measured, "{d:?}");
+    let d = d.on([40.0, 0.0, 0.0], 10.2);
+    assert!((d.speed[0] - 200.0).abs() < 0.01, "{d:?}");
+    // A player walking backwards (69 units/s) is a moving target from the first measurement.
+    let walk = Drift::begin(to, 10.0).on([6.9, 0.0, 0.0], 10.1);
+    assert!(walk.speed[0] >= fnv_ai::alert::CHASE_LEAD_MIN_SPEED, "{walk:?}");
     // A moving target is closed in on 0.35 s ahead of it, at most 96 units; a slow one
     // where it is.
     assert_eq!(lead([100.0, 50.0, 7.0], [200.0, 0.0]), [170.0, 50.0, 7.0]);
@@ -4157,7 +4225,7 @@ fn weapon_worlds(f: &mut Fixture, sibling: bool) -> Space {
     Space::World(a.0)
 }
 
-/// [hypothesis, #2652] Only non-actor targets with a shared immediate parent project;
+/// (#2652; see crates/fnv-ai/src/goal.rs) Only non-actor targets with a shared immediate parent project;
 /// [design] ordinary place_of_ref and actor/interior space checks stay unchanged.
 #[test]
 fn weapon_target_place_projects_only_sibling_objects() {
@@ -5072,8 +5140,8 @@ fn a_cornered_fighter_with_only_an_explosive_weapon_fights_with_its_fists_until_
 }
 
 /// Stay-at locations given by an object, and a Guard that remains near what it guards
-/// (#961, `goal::stay_at`, packages.md §7.7) [hypothesis: no source says how either
-/// chooses its place]: Near Object ID walks to the nearest reference of the base (the
+/// (#961, `goal::stay_at`, see docs/spec-notes/packages.md §7.7): Near Object ID walks
+/// to the nearest reference of the base (the
 /// idle marker, 500 units off); Remain Near Reference to Guard walks to the guarded
 /// reference, within the target's distance (120), though the location is "near current".
 #[test]
@@ -5594,7 +5662,11 @@ fn sandbox_interrupt_normal_spectator_flee_cancels_the_active_seat() {
     let player = s.game.world.get(FormId::PLAYER_REF).unwrap();
     (player.cell, player.pos) = (Some(FormId(CELL_C)), player_at);
     s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 200.0, ..GroupSettings::default() });
-    // The non-resident loner fights the player; the sandboxer stays a neutral observer.
+    // The non-resident loner fights the player beside it; the sandboxer stays a neutral
+    // observer. The loner is put near: a foe with no place near the player is near no one
+    // (#3223), and its placed spot is in another cell.
+    let loner = s.game.world.get(FormId(R_LONER)).unwrap();
+    (loner.cell, loner.pos) = (Some(FormId(CELL_C)), [player_at[0] - 150.0, player_at[1], player_at[2]]);
     fighting(&mut s, R_LONER, player_at);
     let saved = s.ai.agents[&actor].sandbox.as_ref().unwrap().schedule();
     s.ai.social(&mut s.game, &s.nav, 0.5);

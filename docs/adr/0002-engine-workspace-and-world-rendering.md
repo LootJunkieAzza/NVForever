@@ -35,5 +35,9 @@
 
 ## Consequences
 
-- CI builds and lints the `engine/` workspace on all three platforms (`viewer` job).
+- CI builds, tests and lints the `engine/` workspace on Linux (the `engine` and
+  `engine-clippy` jobs) and lints it on Windows (`windows-clippy`, #3143); it does not
+  build or test on Windows and does nothing on macOS, which the local checks before a
+  push cover. (This line said "on all three platforms (`viewer` job)" until 2026-11-21,
+  which had not been true since the jobs were split.)
 - Paths in docs and commands changed from `viewer/` to `engine/`.

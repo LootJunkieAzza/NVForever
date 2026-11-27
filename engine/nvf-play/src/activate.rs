@@ -27,6 +27,8 @@
 
 pub mod outcome;
 pub mod pick;
+pub mod see_through;
+pub mod touch;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -49,6 +51,7 @@ pub struct ActivatePlugin;
 impl Plugin for ActivatePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Target>()
+            .init_resource::<touch::TouchActivation>()
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
             .insert_resource(AutoActivate::from_env())
@@ -74,6 +77,9 @@ pub struct Targeted {
     /// A container to open, or a body to search, with nothing in it the menu would list:
     /// the prompt says "[Empty]" under the name ([`holds_nothing`]).
     pub empty: bool,
+    /// Picked through this reference's see-through collision (cell bars, a fence: #3233,
+    /// [`see_through`]): E only opens the conversation.
+    pub through: Option<u32>,
 }
 
 impl Targeted {
@@ -207,15 +213,43 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
         .or_else(|| c.edid.clone())
 }
 
+/// Resolve the body part location (`BodyLocation` enum, 0..=14) for an actor hit under
+/// the crosshair (`GetReticleTargetLimb`). Returns `Some(0)` (Torso, default body
+/// location [design]) for single-capsule fallback actors (`fnv_phys::actors::WHOLE`) so
+/// scripts distinguish hitting an actor from a miss, and returns `None` (`-1` to scripts)
+/// for non-actors, misses, and detached gore pieces (`fnv_phys::gore::GORE_PART`).
+pub(crate) fn reticle_target_limb(
+    owner: Owner,
+    parts: Option<&crate::hitvol::ActorParts>,
+    combat: Option<&crate::combat::Combat>,
+) -> Option<i32> {
+    let Owner::Actor { form_id, part, .. } = owner else {
+        return None;
+    };
+    if part == crate::hitvol::WEAPON_PART {
+        return Some(14);
+    }
+    if part == fnv_phys::actors::WHOLE {
+        return Some(0);
+    }
+    if part == fnv_phys::gore::GORE_PART {
+        return None;
+    }
+    let data = parts?.data_of(form_id)?;
+    let loc = combat?.forms.body_parts.get(&data)?.parts.get(part as usize)?.location();
+    (loc >= 0).then_some(loc)
+}
+
 /// The collision ray under the crosshair (the player's capsule and trigger volumes
 /// ignored), or a door just behind what it hits (`pick::door_behind`), then the
-/// render-bounds fallback (`pick`). In first person it is the eye's
+/// render-bounds fallback (`pick`), then someone to talk to behind bars
+/// (`see_through`, #3233). In first person it is the eye's
 /// view ray; in third person the camera's, through the crosshair over the shoulder
 /// (`control::Crosshair`; playtest list 4, item 11).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn find_target(
     player: Option<Res<Player>>,
-    phys: Option<ResMut<PhysState>>,
+    mut phys: Option<ResMut<PhysState>>,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     visuals: crate::PickVisuals,
@@ -223,23 +257,92 @@ pub(crate) fn find_target(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
+    (mut touch,cameras,windows,admission,input,time):touch::Context,
     parts: Option<Res<crate::hitvol::ActorParts>>,
+    combat: Option<Res<crate::combat::Combat>>,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
     let (eye, dir) = crate::control::Crosshair::ray(crosshair.as_ref(), player.eye(), player.look_dir());
+    let mut picker=TargetPicker {phys:phys.as_deref_mut(),sim:&mut sim,play:&play,
+        visuals:&visuals,script:script.as_deref_mut(),talkers:&mut talkers,parts:parts.as_deref(),combat:combat.as_deref()};
+    let (new, note)=picker.at(eye,dir,true);
+    if let Some(touch)=touch.as_deref_mut() {
+        if let Some(point)=touch.point() {
+            if admission.allows(point.id) && input.virtual_action_allowed(crate::bindings::Control::Activate) {
+                let selected=touch::camera_ray(point,&cameras,&windows).and_then(|(camera,direction)|{
+                    let view=crate::control::Crosshair {camera,dir:direction,pivot:player.eye(),shoulder:[0.;2]};
+                    let (origin,dir)=crate::control::Crosshair::ray(Some(&view),player.eye(),player.look_dir());
+                    let target=picker.at(origin,dir,false).0?;
+                    let hit=Vec3::from_array(origin)+Vec3::from_array(dir)*target.distance;
+                    let delta=hit-Vec3::from_array(player.eye());
+                    let distance=delta.length();
+                    if !(0.001..=REACH).contains(&distance){return None;}
+                    // The camera can peek around cover; the player still needs LOS.
+                    let legal=picker.at(player.eye(),(delta/distance).to_array(),false).0?;
+                    (legal.form_id==target.form_id).then_some(legal)
+                });
+                touch.publish(selected,time.as_ref().map_or(0.,|t|t.delta_secs()));
+            } else {touch.cancel();}
+        }
+    }
+    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty, t.through));
+    if key(&target.0) != key(&new) {
+        if let Some(note) = note {
+            info!("{note}");
+        }
+        match &new {
+            Some(t) => info!(
+                "target 0x{:08X} {} ({}{}{}) by {:?}{} at {:.0}",
+                t.form_id,
+                t.name,
+                t.action.label(),
+                if t.crime { ", owned" } else { "" },
+                if t.empty { ", empty" } else { "" },
+                t.source,
+                t.through.map_or_else(String::new, |b| format!(" through 0x{b:08X}")),
+                t.distance
+            ),
+            None => info!("target none"),
+        }
+    }
+    if target.0 != new {
+        target.0 = new;
+    }
+}
+
+struct TargetPicker<'a,'w,'s>{
+    phys:Option<&'a mut PhysState>,sim:&'a mut SimState,play:&'a PlayWorld,
+    visuals:&'a crate::PickVisuals<'w,'s>,script:Option<&'a mut crate::script::ScriptState>,
+    talkers:&'a mut HashMap<u32,(bool,f64)>,parts:Option<&'a crate::hitvol::ActorParts>,
+    combat:Option<&'a crate::combat::Combat>,
+}
+impl TargetPicker<'_,'_,'_>{
+    fn at(&mut self,eye:[f32;3],dir:[f32;3],publish_crosshair:bool)->(Option<Targeted>, Option<String>){
+        let phys=self.phys.as_deref_mut();
+        let sim=&mut *self.sim;
+        let play=self.play;
+        let visuals=self.visuals;
+        let mut script=self.script.as_deref_mut();
+        let talkers=&mut *self.talkers;
+        let parts=self.parts;
+        let combat=self.combat;
     // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
     let mut far = None;
     let mut far_ref = None;
+    let mut far_limb = None;
     // The node of what the far ray meets (GetReticleNode, `fnv_game::nvse_jip13`).
     let mut far_node = None;
     let mut behind = None;
-    let hit = phys.and_then(|mut p| {
+    // An actor behind bars or a fence the ray stops on (`see_through::actor_behind`).
+    let mut through = None;
+    let hit = phys.and_then(|p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
         // Trigger volumes do not block the view [hypothesis].
         filter.exclude_layers.insert(layers::TRIGGER);
         let far_hit = p.world.queries().ray(eye, dir, fnv_game::functions::senses::RETICLE_REACH, &filter);
         far = far_hit.as_ref().map(|h| h.distance);
+        far_limb = far_hit.as_ref().and_then(|h| reticle_target_limb(h.owner, parts, combat));
         far_node = far_hit.as_ref().and_then(|h| match h.owner {
             Owner::Ref { form_id, object, .. } => p.world.object_node(form_id, object).map(str::to_string),
             _ => None,
@@ -250,11 +353,15 @@ pub(crate) fn find_target(
         });
         // Invisible walls do not take the crosshair: what stands behind one is activated
         // (#1602: the Gun Runners' kiosk, nv_gunrun_kiosk.nif, is one body on layer 27
-        // Invisible Wall, the Vendortron inside it) [hypothesis: by the layer's name, as
-        // sight (nvforever detection.rs) and blast cover (combat.rs) pass it too]. The far
+        // Invisible Wall, the Vendortron inside it) [documented: GECK wiki "Collision
+        // layer": "the player can activate / loot objects through this layer"]. The far
         // ray above (PlaceAtReticle) keeps stopping at them.
         filter.exclude_layers.insert(layers::INVISIBLE_WALL);
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
+        // A door, closed, hides what is behind it whatever its collision layer.
+        let s: &SimState = sim;
+        let closed_door = |id: u32| s.base_of(id).and_then(|b| s.forms.get(b)).is_some_and(|f| matches!(f.data, BaseData::Door(_))) && s.world.peek(FormId(id)).is_none_or(|st| !st.open);
+        through = see_through::actor_behind(&mut p.world, eye, dir, REACH, &h, &filter, closed_door);
         let owner = |o: Owner| match o {
             // An actor's hit volume (combat C3) targets the actor.
             Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
@@ -283,12 +390,13 @@ pub(crate) fn find_target(
         if sc.distance(o) - sr > REACH {
             return None;
         }
-        Some((r.0, pick::ray_box(o, d, &t, c, h)?))
+        let (entry, exit) = pick::ray_box_span(o, d, &t, c, h)?;
+        Some((r.0, entry, exit))
     });
     // An actor's box is rough (`pick::choose_precise_first`, #3125).
-    let bounds: Vec<(u32, f32, bool)> = bounds.map(|(id, d)| (id, d, sim.is_actor(id))).collect();
-    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-        rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
+    let bounds: Vec<pick::BoxSpan> = bounds.map(|(id, entry, exit)| (id, entry, exit, sim.is_actor(id))).collect();
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_| publish_crosshair) {
+        rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far, limb: far_limb });
         if rt.game.other.jip13.reticle_node != far_node {
             rt.game.set_reticle_node(far_node);
         }
@@ -302,6 +410,25 @@ pub(crate) fn find_target(
     // when furniture is under the crosshair.
     let is_furniture = |id: u32| sim.base_of(id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Furniture));
     let furniture_seen = hit.and_then(|h| h.form_id).into_iter().chain(bounds.iter().map(|b| b.0)).any(is_furniture);
+    // Beds among the boxes (FURN marker flags with Sleep, bit 31, furniture.md §1) may
+    // yield to what lies in them (`pick::set_aside_enclosing`, #3323).
+    // The containers among the boxes give way to what lies inside them (#3351), activators
+    // to an item lying in their box (the note on a radio, #3937), nothing else
+    // (`pick::choose_inside`).
+    let of_kind = |kind: fn(&BaseData) -> bool| -> std::collections::HashSet<u32> {
+        bounds.iter().map(|b| b.0).chain(hit.and_then(|h| h.form_id)).filter(|&id| sim.base_of(id).and_then(|b| sim.forms.get(b)).is_some_and(|f| kind(&f.data))).collect()
+    };
+    let containers = of_kind(|d| matches!(d, BaseData::Container(_)));
+    let activators = of_kind(|d| matches!(d, BaseData::Activator));
+    let items = of_kind(|d| matches!(d, BaseData::Item(_)));
+    let yields = |outer: u32, inner: u32| containers.contains(&outer) || (activators.contains(&outer) && items.contains(&inner));
+    let beds: std::collections::HashSet<u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
+        Some(rt) if furniture_seen => {
+            let bed = |id: u32| sim.base_of(id).and_then(|b| rt.game.data.furniture.get(&b)).is_some_and(|f| f & fnv_game::package::furniture::SLEEP != 0);
+            bounds.iter().map(|b| b.0).filter(|&id| bed(id)).collect()
+        }
+        _ => Default::default(),
+    };
     let sleepers: HashMap<u32, u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
         Some(rt) if furniture_seen => rt
             .game
@@ -329,19 +456,21 @@ pub(crate) fn find_target(
                     return None;
                 }
                 let pile = rt.as_deref().is_some_and(|rt| rt.game.ash_pile_source(FormId(id)).is_some());
-                describe(&sim, play.index, id).map(|(n, a)| match a {
+                describe(sim, play.index, id).map(|(n, a)| match a {
                     // An ash or goo pile is searched as the body was (ash-piles.md §3).
                     Action::Activate if pile => (n, Action::Search),
                     Action::Activate if rt.as_deref().is_some_and(|rt| rt.game.drink_water(FormId(id)).is_some()) => {
                         // The player's tweak: the prompt says the H2O a drink takes off [design: docs/design/tweaks.md].
                         let h2o = rt.as_deref_mut().filter(|rt| rt.game.tweaks.water_shows_h2o).and_then(|rt| {
                             let spell = rt.game.drink_water(FormId(id)).and_then(|w| rt.game.water_effect(w))?;
-                            crate::script::with_world(rt, &mut sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, spell)).into_iter().find(|(c, _)| *c == fnv_game::aid::DEHYDRATION).map(|(_, a)| a)
+                            crate::script::with_world(rt, sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, spell)).into_iter().find(|(c, _)| *c == fnv_game::aid::DEHYDRATION).map(|(_, a)| a)
                         });
                         (water_label(&n, h2o), Action::Drink)
                     }
                     Action::Talk => {
-                        let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
+                        // An actor's shown name, never its base's Editor ID (#3445): one with no
+                        // name in its template chain is prompted for without one.
+                        let name = sim.ref_shown_name(rt.as_deref().map(|rt| &rt.game), id).unwrap_or_default().to_string();
                         // The player's tweak marks someone not yet spoken to [design: docs/design/tweaks.md].
                         let unspoken = rt.as_deref().is_some_and(|rt| rt.game.tweaks.mark_unspoken && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
                         let name = if unspoken { format!("{name} *") } else { name };
@@ -349,9 +478,9 @@ pub(crate) fn find_target(
                         // player (a body is named still, as Search) [design: docs/design/tweaks.md].
                         let unknown = rt.as_deref().is_some_and(|rt| rt.game.tweaks.hide_unknown_names && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
                         let name = if unknown { String::new() } else { name };
-                        (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
+                        (name, actor_action(rt.as_deref_mut(), sim, id, talkers))
                     }
-                    Action::Access => (n, terminal_action(rt.as_deref_mut(), &mut sim, id)),
+                    Action::Access => (n, terminal_action(rt.as_deref_mut(), sim, id)),
                     // An interior a script renamed (Fallout 3's SetCellFullName,
                     // `fnv_game::functions::fo3`) is offered by its new name.
                     Action::Travel { to } => {
@@ -367,12 +496,38 @@ pub(crate) fn find_target(
             })
             .clone()
     };
+    // A bed's box does not hide the suitcase lying in it (`pick::set_aside_enclosing`,
+    // #3323), cut off at the raw first hit, not a door promoted from behind it.
+    let kept = pick::set_aside_enclosing(hit, &bounds, REACH, |id| beds.contains(&id), |id| describe_once(id).is_some());
+    // `NVF_PLAY_TEST_PICK_LOG`: what the pick was made from, logged with each new target.
+    let note = pick_log().then(|| {
+        let aside: Vec<String> = bounds.iter().filter(|b| !kept.iter().any(|k| k.0 == b.0)).map(|b| format!("0x{:08X}", b.0)).collect();
+        let boxes: Vec<String> = bounds.iter().map(|b| format!("0x{:08X} {:.1}-{:.1}{}{}", b.0, b.1, b.2, if b.3 { " rough" } else { "" }, if beds.contains(&b.0) { " bed" } else { "" })).collect();
+        format!("pick: raw hit {:?}; boxes [{}]; set aside [{}]", hit.map(|h| (h.form_id.map(|id| format!("0x{id:08X}")), h.distance)), boxes.join(", "), aside.join(", "))
+    });
+    let raw_hit = hit;
     let hit = pick::door_behind(hit, behind, |id| describe_once(id).is_some());
-    let picked = pick::choose_precise_first(hit, bounds, REACH, |id| describe_once(id).is_some());
+    // What is inside a container wins over it (an open locker's shelves, #3351), an item
+    // over the activator it lies on (#3937), among the boxes the bed rule kept. When only
+    // rough actor boxes remain, prefer the actor whose posed body segments are nearest the
+    // crosshair ray (#3664).
+    let kept: Vec<pick::BoxSpan> = bounds.iter().filter(|b| kept.iter().any(|k| k.0 == b.0)).copied().collect();
+    let rough_limit = hit.map_or(REACH, |h| (h.distance + pick::SURFACE_SLACK).min(REACH));
+    let ray_origin = Vec3::from_array(eye);
+    let ray_dir = Vec3::from_array(dir);
+    let body_ray_distance = |actor: u32| {
+        let posed = parts.and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty())?;
+        posed
+            .segments
+            .iter()
+            .map(|s| pick::ray_segment_distance(ray_origin, ray_dir, rough_limit, Vec3::from_array(s.a), Vec3::from_array(s.b)))
+            .reduce(f32::min)
+    };
+    let picked = pick::choose_inside_with_body(hit, raw_hit, kept, REACH, yields, body_ray_distance, |id| describe_once(id).is_some());
     // How far the sleeper's body is from the eye: its posed bones (`crate::hitvol::ActorParts`,
     // which follow the lying body), else its render boxes (rough: the bind pose).
     let body_distance = |actor: u32| {
-        let posed = parts.as_deref().and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty());
+        let posed = parts.and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty());
         if let Some(posed) = posed {
             let e = Vec3::from_array(eye);
             return posed.segments.iter().map(|s| pick::segment_distance(e, Vec3::from_array(s.a), Vec3::from_array(s.b))).reduce(f32::min);
@@ -384,36 +539,30 @@ pub(crate) fn find_target(
             .reduce(f32::min)
     };
     let picked = pick::to_occupant(picked, |id| sleepers.get(&id).and_then(|&a| Some((a, body_distance(a)?))), REACH, |id| describe_once(id).is_some());
+    // Nothing offered and the ray stopped on bars: talk to whoever stands behind them
+    // (#3233). Only Talk passes; GetCrosshairRef (above) stays the first collision hit.
+    let (picked, through) = see_through::talk_through(picked, through, REACH, |id| matches!(describe_once(id), Some((_, Action::Talk))));
     let chosen = picked.and_then(|p| describe_once(p.form_id).map(|d| (p, d)));
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
-    let new = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
-        let crime = owned_by_other(game, &sim, form_id, &action);
-        let empty = holds_nothing(game, &mut sim, form_id, &action);
-        Targeted { form_id, name, action, distance, source, crime, empty }
+    let chosen = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
+        let crime = owned_by_other(game, sim, form_id, &action);
+        let empty = holds_nothing(game, sim, form_id, &action);
+        Targeted { form_id, name, action, distance, source, crime, empty, through }
     });
-    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
-    if key(&target.0) != key(&new) {
-        match &new {
-            Some(t) => info!(
-                "target 0x{:08X} {} ({}{}{}) by {:?} at {:.0}",
-                t.form_id,
-                t.name,
-                t.action.label(),
-                if t.crime { ", owned" } else { "" },
-                if t.empty { ", empty" } else { "" },
-                t.source,
-                t.distance
-            ),
-            None => info!("target none"),
-        }
-    }
-    if target.0 != new {
-        target.0 = new;
+    (chosen, note)
     }
 }
 
 /// How far past a surface the ray behind it starts, game units.
 const NUDGE: f32 = 0.5;
+
+/// Whether `NVF_PLAY_TEST_PICK_LOG` is on: each new target logs the raw first collision
+/// hit, every render box the view ray enters (reference, entry and exit, rough, bed) and
+/// the boxes set aside (`pick::set_aside_enclosing`, #3323).
+fn pick_log() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_PICK_LOG").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "off" | "false")))
+}
 
 /// Seconds a creature's "has something to say" answer is kept before it is asked again.
 const TALKER_SECONDS: f64 = 2.0;
@@ -451,17 +600,40 @@ fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks
 
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let r = FormId(id);
+    // Another player of a co-op game: only its name (there is no one to talk to).
+    if g.is_coop_actor(r) {
+        return Action::Name;
+    }
     // The player's tweak: a knocked-out companion is revived [design: docs/design/tweaks.md].
     if g.can_revive(r) {
-        return Action::Revive;
+        return Action::ReviveCompanion;
     }
     // The player's tweak lets an unconscious actor be searched as a dead one is [design: docs/design/tweaks.md].
     if g.is_dead(r) || (g.tweaks.loot_unconscious && g.knockout(r).is_some()) {
         return Action::Search;
     }
     let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
-    if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
+    // On a co-op guest, the host's word too (`Game::coop_hostile`, as the compass reads
+    // it): the host's quest stages turn people hostile (VMS16 stage 70's SetEnemy) in its
+    // world, which the guest's own factions don't know [observed: buckallobill, in game,
+    // NVForever co-op: the Powder Gangers fighting in Goodsprings offered Talk on the
+    // guest]. Empty outside co-op.
+    if fighting_player || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Hostile;
+    }
+    // A co-op guest talks only to trade, to play and to change chips at a cashier
+    // (`fnv_game::Game::guest_lines`); the host's world runs the rest [design].
+    if g.coop_guest {
+        let now = g.time;
+        let talks = match talkers.get(&id) {
+            Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
+            _ => {
+                let t = g.guest_can_talk(r);
+                talkers.insert(id, (t, now));
+                t
+            }
+        };
+        return if talks { Action::Talk } else { Action::Name };
     }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.
@@ -617,7 +789,7 @@ pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pa
 
 /// What E acts on: the target, a queued activation, VATS mode or the weapon wheel holding
 /// the keys, the grab.
-type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>), Option<ResMut<'w, crate::grab::GrabState>>);
+type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>), Option<ResMut<'w, crate::grab::GrabState>>, Option<ResMut<'w, touch::TouchActivation>>);
 
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -625,7 +797,7 @@ pub(crate) fn activate(
     input: crate::bindings::ControlInput,
     (time, clock, world): AidClocks,
     auto: Option<ResMut<AutoActivate>>,
-    (target, next, (vats, wheel), mut grab): ActivateFrom,
+    (target, next, (vats, wheel), mut grab, mut touched): ActivateFrom,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     mut hud: ResMut<HudMessage>,
@@ -647,11 +819,13 @@ pub(crate) fn activate(
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
     let mut script = script;
+    let touched=touched.as_deref_mut().and_then(|t|t.take_ready(&input))
+        .filter(|_|!input.just_pressed(crate::bindings::Control::Activate));
     let again = script.as_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| rt.activate_again.take()).map(|f| (f.0, "the perks' choice list chose its default action"));
     let queued = next.and_then(|mut n| n.0.take()).map(|id| (id, "its lock was just opened")).or(again).and_then(|(id, why)| {
         let (name, action) = describe(&sim, play.index, id)?;
         info!("activate 0x{id:08X} {name}: {why}");
-        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false, empty: false })
+        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false, empty: false, through: None })
     });
     // A press held off because the target can be held (`crate::grab`): activated now
     // that E came up before the hold picked it up.
@@ -699,7 +873,7 @@ pub(crate) fn activate(
         pressed_now = full;
         *hold = None;
     }
-    if !pressed_now && !fired && queued.is_none() {
+    if !pressed_now && !fired && queued.is_none() && touched.is_none() {
         return;
     }
     // VATS mode has Activate for itself (it fires the marks, docs/design/vats-mode.md §11.5).
@@ -719,7 +893,7 @@ pub(crate) fn activate(
         }
         return;
     }
-    let Some(t) = queued.as_ref().or(target.0.as_ref()) else {
+    let Some(t) = queued.as_ref().or(touched.as_ref()).or(target.0.as_ref()) else {
         // On furniture with nothing under the crosshair (lying on a bed, the bed is out
         // of view): Activate gets up [design].
         // (Not under the player's Activate Doesn't Stand Up tweak, docs/design/tweaks.md.)
@@ -728,16 +902,59 @@ pub(crate) fn activate(
     };
     // E pressed on something the player can hold: a tap activates it when E comes up,
     // a hold picks it up (`crate::grab`, docs/spec-notes/grab.md §2).
-    if queued.is_none() && !fired && !full {
+    if queued.is_none() && touched.is_none() && !fired && !full {
         if let Some(g) = grab.as_mut().filter(|g| g.holdable(t.form_id) && g.tap.is_none()) {
             let candidate = g.candidate.expect("holdable has a candidate");
             g.tap = Some(crate::grab::Tap { target: Some(t.clone()), candidate, held: 0.0 });
             return;
         }
     }
+    // A downed co-op player: the revive takes E (`nvforever`'s `coop.rs`).
+    if matches!(t.action, Action::Revive { .. }) {
+        return;
+    }
     // An actor shown by name only (hostile, or a creature with nothing to say): E does
-    // nothing (playtest list 4, item 19).
+    // nothing (playtest list 4, item 19) except:
+    // - open the perks' choices, if they offer any on it now (Robotics Expert's, #3479);
+    // - for a non-hostile creature shown by name only (`Action::Name`) whose script has
+    //   an OnActivate block (e.g. CRBrahminScript brahmin pushing, #3669), run its
+    //   OnActivate block while keeping the default activation behind it "nothing".
+    // Hostile actors keep #2536's rule.
     if matches!(t.action, Action::Name | Action::Hostile) {
+        if crate::script::choices_by_hand(script.as_deref_mut(), &mut sim, t.form_id) {
+            return;
+        }
+        if t.action == Action::Name {
+            if let Some(done) = crate::script::script_activate_by_hand(script.as_deref_mut(), &mut sim, t.form_id) {
+                match done {
+                    Ok(crate::script::ByHand::Script) => {
+                        sounds.write(crate::world_sounds::Activated { reference: t.form_id });
+                        info!("activate 0x{:08X} {} ({}): its script's OnActivate ran", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(crate::script::ByHand::Refused) => {
+                        info!("activate 0x{:08X} {}: destroyed or prevented, it cannot be activated", t.form_id, t.name);
+                    }
+                    Ok(crate::script::ByHand::Talk) => {
+                        info!("activate 0x{:08X} {} ({}): a conversation started", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(crate::script::ByHand::Greeted) => {
+                        info!("activate 0x{:08X} {} ({}): it said its greeting, no conversation", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(crate::script::ByHand::Woken) => {
+                        info!("activate 0x{:08X} {} ({}): asleep, it wakes and gets up before talking", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(crate::script::ByHand::Wheel) => {
+                        info!("activate 0x{:08X} {} ({}): the companion wheel opened", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!("activate 0x{:08X} {}: {e}", t.form_id, t.name);
+                        hud.show(format!("{}: {e}", t.name));
+                    }
+                }
+                return;
+            }
+        }
         info!("activate 0x{:08X} {}: nothing to do ({})", t.form_id, t.name, if t.action == Action::Hostile { "hostile" } else { "name only" });
         return;
     }
@@ -762,7 +979,7 @@ pub(crate) fn activate(
         return;
     }
     // The player's tweak: a Stimpak gets a knocked-out companion up [design: docs/design/tweaks.md].
-    if t.action == Action::Revive {
+    if t.action == Action::ReviveCompanion {
         let done = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.revive(FormId(t.form_id))));
         match done {
             Some(Ok(())) => info!("activate 0x{:08X} {} (Revive): a Stimpak used, they get up (tweak)", t.form_id, t.name),
@@ -808,7 +1025,22 @@ pub(crate) fn activate(
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
     // The player's Quick Use tweak: Shift held as an item is taken [design: docs/design/tweaks.md].
     let quick = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.quick_use) && input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
+    // Picked through bars or a fence (#3233, [`see_through`]): E only opens the
+    // conversation; no OnActivate block, perks' choices, companion wheel or waking.
+    if let Some(bars) = t.through {
+        match crate::script::talk_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
+            Ok(crate::script::ByHand::Talk) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): a conversation started", t.form_id, t.name),
+            Ok(crate::script::ByHand::Greeted) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): it said its greeting, no conversation", t.form_id, t.name),
+            Ok(_) => info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): no conversation", t.form_id, t.name),
+            Err(e) => {
+                info!("activate 0x{:08X} {} (Talk through 0x{bars:08X}): no conversation: {e}", t.form_id, t.name);
+                hud.show(format!("{} has nothing to say", t.name));
+            }
+        }
+        return;
+    }
+    let mut script = script.map(|s| s.into_inner());
+    let a = match crate::script::activate_by_hand(script.as_deref_mut(), &mut sim, t.form_id) {
         Ok(crate::script::ByHand::Default(a)) => {
             sounds.write(crate::world_sounds::Activated { reference: t.form_id });
             if t.action == Action::Drink {
@@ -859,13 +1091,21 @@ pub(crate) fn activate(
     if let (true, Outcome::PickedUp { item, .. }) = (quick, &a.outcome) {
         let armour = sim.forms.item(*item).is_some_and(|i| i.kind == ItemKind::Armor && i.armor_dt.is_some_and(|dt| dt > 0.0));
         if !armour {
-            let r = crate::hotkeys::use_slot(&mut sim.world, Some(crate::hotkeys::Slot { item: item.0, mods: 0 }));
-            if let crate::hotkeys::Used::UsedUp(u) = r {
-                if let Some(m) = used.as_mut() {
-                    m.write(crate::ItemUsed { item: u.0, limb: None });
+            let allowed = match script.and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.has_pre_activate_inventory_handlers()) {
+                Some(rt) => crate::script::with_world(rt, &mut sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, *item, 0, true)),
+                None => true,
+            };
+            if allowed {
+                let r = crate::hotkeys::use_slot(&mut sim.world, Some(crate::hotkeys::Slot { item: item.0, mods: 0 }));
+                if let crate::hotkeys::Used::UsedUp(u) = r {
+                    if let Some(m) = used.as_mut() {
+                        m.write(crate::ItemUsed { item: u.0, limb: None });
+                    }
                 }
+                info!("activate 0x{:08X} {}: quick use: {} (tweak)", t.form_id, t.name, r.describe(&t.name));
+            } else {
+                info!("activate 0x{:08X} {}: quick use prevented by script", t.form_id, t.name);
             }
-            info!("activate 0x{:08X} {}: quick use: {} (tweak)", t.form_id, t.name, r.describe(&t.name));
         }
     }
     // Opened with the player's key: the lock's opening sound, as a picked lock's
@@ -943,6 +1183,15 @@ pub(crate) fn drawn(sim: &SimState, script: Option<&crate::script::ScriptState>,
     sim.present(id) && !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.culled(FormId(id)))
 }
 
+/// Whether a `RefChanged` entry should emit its own `info!` line: always for live
+/// changes (`!all_restored`) and for any restored reference that actually updated drawn
+/// render entities (`updated > 0`). Restored references in unloaded cells (`updated == 0`)
+/// are counted into a single summary `info!` line so loading a mature save does not flood
+/// the log with tens of thousands of no-op lines.
+fn log_ref_change_individually(all_restored: bool, updated: usize) -> bool {
+    !all_restored || updated > 0
+}
+
 /// Hide or show `RefVisual` entities from the simulation's state ([`drawn`]): every entity
 /// of a reference named by `RefChanged`, and new entities as cells stream in (a taken item
 /// must not come back when its cell reloads).
@@ -959,17 +1208,24 @@ pub fn sync_visuals(
             v.set_if_neq(Visibility::Hidden);
         }
     }
-    let mut changed: HashMap<u32, usize> = changes.read().map(|m| (m.form_id, 0)).collect();
+    let mut changed: HashMap<u32, (usize, bool)> = HashMap::new();
+    for m in changes.read() {
+        changed
+            .entry(m.form_id)
+            .and_modify(|(_, all_restored)| *all_restored &= m.restored)
+            .or_insert((0, m.restored));
+    }
     if changed.is_empty() {
         return;
     }
     for (r, mut v) in &mut visuals.p1() {
-        if let Some(n) = changed.get_mut(&r.0) {
+        if let Some((n, _)) = changed.get_mut(&r.0) {
             v.set_if_neq(if drawn(&sim, script, r.0) { Visibility::Inherited } else { Visibility::Hidden });
             *n += 1;
         }
     }
-    for (id, n) in changed {
+    let mut restored_unloaded = 0usize;
+    for (id, (n, all_restored)) in changed {
         let how = if !sim.present(id) {
             "gone"
         } else if drawn(&sim, script, id) {
@@ -977,6 +1233,14 @@ pub fn sync_visuals(
         } else {
             "culled (critical stage)"
         };
-        info!("reference 0x{id:08X} {how}: {n} render entities updated");
+        if log_ref_change_individually(all_restored, n) {
+            info!("reference 0x{id:08X} {how}: {n} render entities updated");
+        } else {
+            restored_unloaded += 1;
+            debug!("reference 0x{id:08X} {how}: 0 render entities updated");
+        }
+    }
+    if restored_unloaded > 0 {
+        info!("references restored from save: {restored_unloaded} not drawn (0 render entities updated)");
     }
 }

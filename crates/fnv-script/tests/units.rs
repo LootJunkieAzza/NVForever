@@ -260,3 +260,92 @@ fn serialized_extender_variable_kinds_survive_the_unit_reader() {
     assert_eq!(variables.iter().map(|v| v.index).collect::<Vec<_>>(), [1, 2, 3, 4]);
     assert_eq!(variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["textSlot", "arraySlot", "refSlot", "unknownSlot"]);
 }
+
+/// An `ACHR` whose base `NPC_` inherits its script via `TPLT` + `ACBS` `Use Script`
+/// (bit 9 = 0x0200) resolves `Ref.Var` for both compilation (`LoadOrderIndex` /
+/// `PluginEnv::script_vars`) and decompilation (`ScriptIndex::script_of`).
+#[test]
+fn templated_actor_ref_resolves_remote_variables_through_use_script() {
+    use fnv_script::compile::{compile, env::LoadOrderIndex};
+
+    const TPL_SCRIPT: u32 = 0x910;
+    const CHILD_SCRIPT: u32 = 0x911;
+    const TPL_NPC: u32 = 0x920;
+    const MID_NPC: u32 = 0x921;
+    const CHILD_NPC: u32 = 0x922;
+    const NO_FLAG_NPC: u32 = 0x923;
+    const TPL_REF: u32 = 0x930;
+    const NO_FLAG_REF: u32 = 0x931;
+
+    let acbs = |template_flags: u16| -> Vec<u8> {
+        let mut b = vec![0u8; 24];
+        b[22..24].copy_from_slice(&template_flags.to_le_bytes());
+        b
+    };
+    let scpt = |fid, name: &str, vars: &[(u32, &str, u8)]| {
+        let mut s = vec![sub(b"EDID", z(name))];
+        s.extend(unit(0, &[0x1D, 0, 0, 0], &format!("scn {name}"), vars, &[]));
+        record(b"SCPT", fid, &s)
+    };
+    let scripts = [
+        scpt(TPL_SCRIPT, "TplActorScript", &[(1, "TemplateFlag", 1)]),
+        scpt(CHILD_SCRIPT, "ChildActorScript", &[(2, "OwnFlag", 1)]),
+    ]
+    .concat();
+    let npcs = [
+        record(b"NPC_", TPL_NPC, &[sub(b"EDID", z("TplNpc")), sub(b"ACBS", acbs(0)), sub(b"SCRI", TPL_SCRIPT.to_le_bytes().to_vec())]),
+        record(b"NPC_", MID_NPC, &[sub(b"EDID", z("MidNpc")), sub(b"ACBS", acbs(1 << 9)), sub(b"TPLT", TPL_NPC.to_le_bytes().to_vec())]),
+        // Child carries its own SCRI, but Use Script (bit 9) delegates to MidNpc -> TplNpc.
+        record(
+            b"NPC_",
+            CHILD_NPC,
+            &[
+                sub(b"EDID", z("ChildNpc")),
+                sub(b"ACBS", acbs(1 << 9)),
+                sub(b"SCRI", CHILD_SCRIPT.to_le_bytes().to_vec()),
+                sub(b"TPLT", MID_NPC.to_le_bytes().to_vec()),
+            ],
+        ),
+        // Same TPLT without Use Script keeps ChildActorScript.
+        record(
+            b"NPC_",
+            NO_FLAG_NPC,
+            &[
+                sub(b"EDID", z("NoFlagNpc")),
+                sub(b"ACBS", acbs(0)),
+                sub(b"SCRI", CHILD_SCRIPT.to_le_bytes().to_vec()),
+                sub(b"TPLT", TPL_NPC.to_le_bytes().to_vec()),
+            ],
+        ),
+    ]
+    .concat();
+    let refs = [
+        record(b"ACHR", TPL_REF, &[sub(b"EDID", z("TemplatedActorRef")), sub(b"NAME", CHILD_NPC.to_le_bytes().to_vec())]),
+        record(b"ACHR", NO_FLAG_REF, &[sub(b"EDID", z("DirectActorRef")), sub(b"NAME", NO_FLAG_NPC.to_le_bytes().to_vec())]),
+    ]
+    .concat();
+    let bytes = [tes4(&[]), top(b"SCPT", &scripts), top(b"NPC_", &npcs), top(b"ACHR", &refs)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "Tpl.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (units, issues) = read_load_order(&lo, &schema);
+    assert!(issues.is_empty(), "{issues:?}");
+
+    let ix = LoadOrderIndex::build(&lo, &units);
+    let src = "scn Test\nbegin GameMode\nif TemplatedActorRef.TemplateFlag == 1\nset TemplatedActorRef.TemplateFlag to 2\nlet TemplatedActorRef.TemplateFlag := 3\nendif\nif DirectActorRef.OwnFlag == 0\nset DirectActorRef.OwnFlag to 1\nendif\nend\n";
+    let c = compile(src, &table(), &ix.env(0), None);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert_eq!(c.refs, [RefSlot::Form(TPL_REF), RefSlot::Form(NO_FLAG_REF)]);
+
+    // Negative: OwnFlag is shadowed by Use Script on TemplatedActorRef, and missing names fail.
+    let bad = compile("scn Bad\nbegin GameMode\nset TemplatedActorRef.OwnFlag to 1\nend\n", &table(), &ix.env(0), None);
+    assert_eq!(bad.errors().next().map(|e| e.kind), Some("unresolved_remote_variable"));
+
+    // ScriptIndex (decompiler) resolves the same template script.
+    let mut dummy = units[0].clone();
+    dummy.refs = vec![RefSlot::Form(TPL_REF), RefSlot::Form(NO_FLAG_REF)];
+    let idx = ScriptIndex::build(&lo, &schema, &[units[0].clone(), units[1].clone(), dummy]);
+    assert_eq!(idx.script_of(TPL_REF, Viewer::LoadOrder), Some(TPL_SCRIPT));
+    assert_eq!(idx.script_of(NO_FLAG_REF, Viewer::LoadOrder), Some(CHILD_SCRIPT));
+    assert_eq!(idx.remote_var(TPL_REF, 1, Viewer::LoadOrder).map(|v| v.name.as_str()), Some("TemplateFlag"));
+}

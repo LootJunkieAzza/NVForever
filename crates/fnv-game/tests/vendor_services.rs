@@ -107,6 +107,7 @@ const STIMPAK: u32 = 0x853;
 const PISTOL: u32 = 0x854;
 const BULLETS: u32 = 0x855;
 const JUNK: u32 = 0x856;
+const DOOR_KEY: u32 = 0x857;
 const CELL: u32 = 0x860;
 const R_BARKEEP: u32 = 0x870;
 const R_TRADER: u32 = 0x871;
@@ -141,6 +142,7 @@ fn plugin_bytes() -> Vec<u8> {
     let weap = record(b"WEAP", PISTOL, &[sub(b"EDID", z("Pistol"))]);
     let ammo = record(b"AMMO", BULLETS, &[sub(b"EDID", z("Bullets"))]);
     let misc = record(b"MISC", JUNK, &[sub(b"EDID", z("Junk"))]);
+    let key = record(b"KEYM", DOOR_KEY, &[sub(b"EDID", z("DoorKey")), sub(b"DATA", [25i32.to_le_bytes(), 0f32.to_le_bytes()].concat())]);
     let refs = [placed(R_BARKEEP, "BarkeepRef", N_BARKEEP), placed(R_TRADER, "TraderRef", N_TRADER), placed(R_SPAWN, "SpawnRef", N_SPAWN)].concat();
     let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("Bar"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs))].concat();
     [
@@ -153,6 +155,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"WEAP", &weap),
         top(b"AMMO", &ammo),
         top(b"MISC", &misc),
+        top(b"KEYM", &key),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
     ]
     .concat()
@@ -261,4 +264,27 @@ End
     assert_eq!(g.services(FormId(R_TRADER)), services::WEAPONS | services::MISC, "Autocalc Service keeps the class's");
     assert!(g.sells(FormId(R_TRADER), FormId(PISTOL)));
     assert_eq!(g.services(FormId(R_BARKEEP)), services::ALCOHOL | services::FOOD | services::REPAIR, "the AI data's gain the flag");
+}
+
+#[test]
+fn keys_are_never_sold_by_vendors() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (bar, trader) = (FormId(R_BARKEEP), FormId(R_TRADER));
+    assert_eq!(services::item_service(&f.data, FormId(DOOR_KEY)), None);
+    assert_eq!(g.item_service(FormId(DOOR_KEY)), None);
+    assert_eq!(g.refused_category(trader, FormId(DOOR_KEY)), None);
+    assert!(!g.sells(trader, FormId(DOOR_KEY)), "even a MISC vendor never sells KEYM");
+    assert!(!g.sells(bar, FormId(DOOR_KEY)));
+    assert!(g.sells(trader, FormId(JUNK)), "ordinary MISC stays sellable");
+    // TempCloneForm clones of a KEYM are also never sold.
+    let cloned = match g
+        .run_query("Begin Function { }\nSetFunctionValue (TempCloneForm DoorKey 1)\nEnd\n", RunCtx::default())
+        .unwrap()
+    {
+        fnv_script::vm::XVal::Ref(id) if id != 0 => FormId(id),
+        other => panic!("expected cloned key ref, got {other:?}"),
+    };
+    assert_eq!(g.item_service(cloned), None);
+    assert!(!g.sells(trader, cloned));
 }

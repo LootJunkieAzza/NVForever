@@ -168,7 +168,7 @@ fn composed_production_blend_module_validates_with_key_on_and_off() {
             }
             // Round 9 reuses origin.z; round 6's enabled width and ordinary layouts stay fixed.
             // #2551 added the ordinary `terrain` row (144 bytes); the blend's three rows follow.
-            assert_eq!(surface_sizes, vec![if blend { 192 } else { 160 }], "the ordinary type alone has #2462's env row after the 144 bytes");
+            assert_eq!(surface_sizes, vec![if blend { 192 } else { 176 }], "the ordinary type alone has #2462's env row and #2841's env_how row after the 144 bytes");
             // The blend type reuses the ordinary table and slots (nif_surface_blend.rs notes);
             // round 10a's bindless blend row is longer by the palette's 400 entries.
             if bindless { assert_eq!(index_sizes, vec![if blend { 16 + 4 * nvf_assets::nif_surface_blend::PALETTE_ENTRIES as u32 } else { 28 }], "the ordinary row: four entries, then the window environment map's three (#2462)"); }
@@ -325,10 +325,10 @@ fn shader_detail_transcribes_the_mesh_triangles_and_the_record_layout() {
         "m.normal += t.weights[i] * vec3(detail_snorm(w1 >> 16u), detail_snorm(w2), detail_snorm(w2 >> 16u));",
         "m.tangent += t.weights[i] * vec3(detail_snorm(w3), detail_snorm(w3 >> 16u), detail_snorm(w4));",
         "let h = 9u + k;",
-        // Ordered opacities: saturate(opacity) x the diffuse alpha, folded overlays tinted by
+        // Ordered opacities (the diffuse's alpha has no part, #3789), folded overlays tinted by
         // the base material's colour, overflow ones by white.
         "let o = saturate(detail_opacity(instance_index, t, k));",
-        "let share = o * texel.a;",
+        "let share = o;",
         "colour = mix(colour, texel.rgb * a.tint * select(vec3(1.0), base_rgb, k < folded), share);",
         "normal = mix(normal, layer_n, share);",
         "return TerrainDetail(colour, normalize(normal));",
@@ -461,7 +461,7 @@ fn shader_ground_lookup_reads_the_surface_squares() {
     }
 }
 
-fn nif_defs(bindless: bool, blend: bool, prepass: bool, soft_edges: bool, layout: nvf_assets::nif_surface_blend::HeightLayout) -> Vec<ShaderDefVal> {
+pub(crate) fn nif_defs(bindless: bool, blend: bool, prepass: bool, soft_edges: bool, layout: nvf_assets::nif_surface_blend::HeightLayout) -> Vec<ShaderDefVal> {
     let mut defs = vec![
         ShaderDefVal::Bool("BINDLESS".into(), bindless),
         ShaderDefVal::Bool("NIF_SURFACE_BLEND".into(), blend),
@@ -547,7 +547,7 @@ fn without_pbr_debug(source: &str) -> String {
 /// at brace depth 0 (attribute lines included) to the line that brings the depth back to 0
 /// ending in `}` or `;`; blank lines at depth 0 separate nothing and are dropped, blank lines
 /// inside a body stay in it. The composed WGSL has no comments or strings.
-fn declarations(source: &str) -> Vec<String> {
+pub(crate) fn declarations(source: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current: Vec<&str> = Vec::new();
     let mut depth = 0i32;
@@ -570,7 +570,7 @@ fn declarations(source: &str) -> Vec<String> {
 }
 
 /// The first of two sorted declaration lists' differences, as a message (`None`: equal).
-fn declaration_difference(ours: &[String], theirs: &[String]) -> Option<String> {
+pub(crate) fn declaration_difference(ours: &[String], theirs: &[String]) -> Option<String> {
     let i = (0..ours.len().max(theirs.len())).find(|&i| ours.get(i) != theirs.get(i))?;
     let (a, b) = (ours.get(i).map_or("", String::as_str), theirs.get(i).map_or("", String::as_str));
     let at = first_difference(a, b).unwrap_or(0);
@@ -653,7 +653,7 @@ fn nif_forward_composes_with_the_authored_debug_defs_and_is_unchanged_without_th
                     assert!(declaration_difference(&declarations(&compose(&modules, entry, &defs)), &off).is_some(), "{key} {set:?}: the defs change no declaration");
                 }
                 // The march needs coordinates and tangents, independently of a normal map.
-                assert_eq!(composed.contains("1.0 - height"), uvs, "{key}: the march inverts the stored height");
+                assert_eq!(composed.contains("1.0 - clamp(height, 0.0, 1.0)"), uvs, "{key}: the march inverts the stored height, held to 0..1");
                 if !bindless {
                     assert_eq!(texture_bindings(&composed).contains(&(3, 11)), uvs, "{key}: the march reads the depth map");
                 }
@@ -696,30 +696,11 @@ fn declarations_are_split_whole_and_compared_in_any_order() {
 fn terrain_surface_bake_composes_for_the_folded_base() {
     // [design] terrain.wesl with the ordinary and folded-bake variants (terrain.rs
     // TerrainLayersKey), through the same CPU ShaderCache and naga validation.
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut modules = vendored_modules();
-    for name in ["terrain", "terrain_surface", "terrain_weights"] {
-        modules.push((format!("embedded://nvforever/{name}.wesl"), std::fs::read_to_string(manifest.join("src").join(format!("{name}.wesl"))).unwrap()));
-    }
     // #2550/#2551: the bake copy of a folded base keeps the near draw's height blending and
     // anti-tiling (terrain.rs `TerrainLayersKey`), so terrain.wesl composes with them too.
-    let root = manifest.join("../nvf-assets/src");
-    sources(&root, "nvf_assets", &root, &mut modules);
+    let modules = terrain_modules();
     for bindless in [false, true] { for bake in [false, true] { for (height, anti) in [(false, false), (true, false), (false, true), (true, true)] {
-        let defs = vec![
-            ShaderDefVal::Bool("BINDLESS".into(), bindless),
-            ShaderDefVal::Bool("SURFACE_BAKE".into(), bake),
-            ShaderDefVal::Bool("TERRAIN_HEIGHT_BLEND".into(), height),
-            ShaderDefVal::Bool("TERRAIN_ANTI_TILING".into(), anti),
-            "VERTEX_POSITIONS".into(), "VERTEX_NORMALS".into(), "VERTEX_UVS_A".into(), "VERTEX_UVS_B".into(),
-            "VERTEX_TANGENTS".into(), "VERTEX_COLORS".into(), "VERTEX_OUTPUT_INSTANCE_INDEX".into(),
-            "AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_3".into(), "AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_6".into(),
-            ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3),
-            ShaderDefVal::UInt("MAX_DIRECTIONAL_LIGHTS".into(), 10),
-            ShaderDefVal::UInt("MAX_CASCADES_PER_LIGHT".into(), 4),
-            ShaderDefVal::UInt("MAX_RECT_LIGHTS".into(), 1),
-        ];
-        compose(&modules, "embedded://nvforever/terrain.wesl", &defs);
+        compose(&modules, "embedded://nvforever/terrain.wesl", &terrain_defs(bindless, bake, height, anti, false));
     }}}
     assert!(!include_str!("terrain.wesl").contains("SURFACE_BAKE_LAYER"), "layer copies use the single-texture capture");
     // The bake's return comes after every composition path, so it stores what they compose.
@@ -728,6 +709,64 @@ fn terrain_surface_bake_composes_for_the_folded_base() {
     for path in ["@if(TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) {", "@if(TERRAIN_ANTI_TILING) {\n            // One set of taps"] {
         assert!(terrain.find(path).expect(path) < bake, "{path}");
     }
+}
+
+/// The folded TerrainMaterial's main-pass defs (terrain.rs `TerrainLayersKey`) on the
+/// landscape's mesh layout.
+pub(crate) fn terrain_defs(bindless: bool, bake: bool, height: bool, anti: bool, parallax: bool) -> Vec<ShaderDefVal> {
+    vec![
+        ShaderDefVal::Bool("BINDLESS".into(), bindless),
+        ShaderDefVal::Bool("SURFACE_BAKE".into(), bake),
+        ShaderDefVal::Bool("TERRAIN_HEIGHT_BLEND".into(), height),
+        ShaderDefVal::Bool("TERRAIN_ANTI_TILING".into(), anti),
+        ShaderDefVal::Bool("TERRAIN_PARALLAX".into(), parallax),
+        "VERTEX_POSITIONS".into(), "VERTEX_NORMALS".into(), "VERTEX_UVS_A".into(), "VERTEX_UVS_B".into(),
+        "VERTEX_TANGENTS".into(), "VERTEX_COLORS".into(), "VERTEX_OUTPUT_INSTANCE_INDEX".into(),
+        "AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_3".into(), "AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_6".into(),
+        ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 3),
+        ShaderDefVal::UInt("MAX_DIRECTIONAL_LIGHTS".into(), 10),
+        ShaderDefVal::UInt("MAX_CASCADES_PER_LIGHT".into(), 4),
+        ShaderDefVal::UInt("MAX_RECT_LIGHTS".into(), 1),
+    ]
+}
+
+fn terrain_modules() -> Vec<(String, String)> {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut modules = vendored_modules();
+    for name in ["terrain", "terrain_surface", "terrain_weights"] {
+        modules.push((format!("embedded://nvforever/{name}.wesl"), std::fs::read_to_string(manifest.join("src").join(format!("{name}.wesl"))).unwrap()));
+    }
+    let root = manifest.join("../nvf-assets/src");
+    sources(&root, "nvf_assets", &root, &mut modules);
+    modules
+}
+
+#[test]
+fn terrain_parallax_composes_with_every_folded_variant_and_is_absent_without_its_def() {
+    // #3322: terrain.wesl with TERRAIN_PARALLAX beside height blending and anti-tiling, both
+    // bindings, through the same CPU ShaderCache and naga validation. Without the def (the
+    // switch off, or a material without a height map: terrain.rs `parallax_def`) the composed
+    // shader reads no height map and holds no march: the pipeline there always was.
+    let modules = terrain_modules();
+    let entry = "embedded://nvforever/terrain.wesl";
+    let heights: std::collections::BTreeSet<(u32, u32)> = (64..70).map(|b| (3, b)).collect();
+    for bindless in [false, true] { for (height, anti) in [(false, false), (true, false), (false, true), (true, true)] {
+        let off = compose(&modules, entry, &terrain_defs(bindless, false, height, anti, false));
+        let on = compose(&modules, entry, &terrain_defs(bindless, false, height, anti, true));
+        assert!(!off.contains("parallax_shift") && !off.contains("layer_height"), "bindless={bindless} height={height} anti={anti}: no march without the def");
+        assert!(on.contains("parallax_shift") && on.contains("layer_height"), "bindless={bindless} height={height} anti={anti}: the march with it");
+        assert!(declaration_difference(&declarations(&on), &declarations(&off)).is_some());
+        if !bindless {
+            // Without bindless every texture is its own binding: the height maps are read
+            // only with the def (the folded type is used only with bindless; this checks
+            // the reads, terrain.rs `TerrainMaterials::folds`).
+            let (t_off, t_on) = (texture_bindings(&off), texture_bindings(&on));
+            assert!(t_off.is_disjoint(&heights), "{t_off:?}: no height map without the def");
+            assert!(heights.is_subset(&t_on), "{t_on:?}: every layer's height map with it");
+        }
+    }}
+    // A bake copy never takes the def (terrain.rs `parallax_def`), but the variant composes.
+    compose(&modules, entry, &terrain_defs(true, true, false, false, true));
 }
 
 fn capture_source(colours: bool, uvs: bool) -> String {
@@ -759,9 +798,10 @@ fn single_texture_capture_composes_for_base_and_layer_meshes() {
         assert_eq!(textures.len(), usize::from(uvs), "sampled where the mesh has coordinates");
     }}
     let capture = include_str!("terrain_capture.wesl");
-    // Base: alpha 1; layer: material x vertex x diffuse alpha. Missing texture: white.
+    // Base: alpha 1; layer: material x vertex alpha (the diffuse's has no part, #3789).
+    // Missing texture: white.
     assert!(capture.contains("out.color = vec4(colour.rgb, select(1.0, colour.a, surface_capture.uv_offset_flags.w > 0.5));"));
-    assert!(capture.contains("colour *= select(vec4(1.0), texel, surface_capture.uv_offset_flags.z > 0.5);"));
+    assert!(capture.contains("colour *= vec4(select(vec3(1.0), texel.rgb, surface_capture.uv_offset_flags.z > 0.5), 1.0);"));
     assert!(capture.find("colour *= in.color;").unwrap() < capture.find("out.color =").unwrap());
     // #2551: an anti-tiled source's copy reads its one texture at the taps, at the world
     // place over the repeat (as terrain_pbr.wesl `terrain_footprint`), with or without the
@@ -772,7 +812,7 @@ fn single_texture_capture_composes_for_base_and_layer_meshes() {
         assert!(source.contains("textureSampleGrad") && !source.contains("textureSample("), "the anti-tiled read only");
     }}
     assert!(capture.contains("let at_uv = mat2x2<f32>(surface_capture.uv_axes.xy, surface_capture.uv_axes.zw) * terrain_world_uv(in.world_position.xyz, surface_capture.anti_tiling.x) + surface_capture.uv_offset_flags.xy;"));
-    assert!(capture.contains("colour *= select(vec4(1.0), at_texel, surface_capture.uv_offset_flags.z > 0.5);"));
+    assert!(capture.contains("colour *= vec4(select(vec3(1.0), at_texel.rgb, surface_capture.uv_offset_flags.z > 0.5), 1.0);"));
 }
 
 /// [design] #2661 with #2550/#2551: the detail's weighted composition (nif_surface_bindings.wesl
@@ -801,8 +841,9 @@ fn shader_detail_composes_height_blending_and_anti_tiling_as_the_near_draw() {
         // terrain.wesl's walk and weights, line for line (terrain.rs `detail_mirror`).
         "if remaining == 0.0 {",
         "if o == 0.0 {",
-        "w[k + 1u] = s * remaining;",
-        "remaining *= 1.0 - s;",
+        "w[k + 1u] = o * remaining;",
+        "remaining *= 1.0 - o;",
+        "paint[k] = o;",
         "w = terrain_ordered_shares(paint, n);",
         "f = terrain_height_weights(w, height, depth);",
         "normal = select(plain, normalize(normal_sum), dot(normal_sum, normal_sum) > 1e-12);",
@@ -812,7 +853,7 @@ fn shader_detail_composes_height_blending_and_anti_tiling_as_the_near_draw() {
     ] {
         assert!(detail.contains(line), "{line}");
     }
-    for line in ["if remaining == 0.0 {", "if o == 0.0 {", "w[k + 1u] = a * remaining;", "remaining *= 1.0 - a;", "f = terrain_height_weights(w, height, anti_params.x);", "pbr_input.N = select(plain, normalize(normal_sum), dot(normal_sum, normal_sum) > 1e-12);"] {
+    for line in ["if remaining == 0.0 {", "if o == 0.0 {", "w[k + 1u] = o * remaining;", "remaining *= 1.0 - o;", "f = terrain_height_weights(w, height, anti_params.x);", "pbr_input.N = select(plain, normalize(normal_sum), dot(normal_sum, normal_sum) > 1e-12);"] {
         assert!(terrain.contains(line), "terrain.wesl still: {line}");
     }
     // The height reference is placed as terrain.wesl's `height_reference_at` places it.

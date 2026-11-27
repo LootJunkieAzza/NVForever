@@ -94,6 +94,27 @@ impl Game<'_> {
     pub fn set_vats(&mut self, mode: u8, shot: Option<VatsShot>) {
         self.vats = VatsState { mode, shot: shot.filter(|_| mode == MODE_PLAYBACK), outcome: None, room: None, player_damage_mult: self.vats.player_damage_mult };
     }
+
+    /// Exit active VATS mode/targeting screen and queue a one-shot camera/mode exit
+    /// request for the engine (`EndVATScam`) [documented: GECK wiki EndVATScam; design:
+    /// clears `vats` and `ui_vats` immediately and records `end_vats_cam_requested` for
+    /// the engine to consume via `take_end_vats_cam_request`].
+    pub fn end_vats_cam(&mut self) {
+        self.vats = VatsState::default();
+        self.ui_vats = false;
+        self.other.end_vats_cam_requested = true;
+    }
+
+    /// Whether `EndVATScam` requested ending VATS mode/camera since the engine last
+    /// consumed it.
+    pub fn end_vats_cam_requested(&self) -> bool {
+        self.other.end_vats_cam_requested
+    }
+
+    /// Consume and clear a pending `EndVATScam` request for the engine.
+    pub fn take_end_vats_cam_request(&mut self) -> bool {
+        std::mem::take(&mut self.other.end_vats_cam_requested)
+    }
 }
 
 /// Existing camera-room maximum, reused by named source queries [design].

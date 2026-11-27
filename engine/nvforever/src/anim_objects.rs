@@ -74,15 +74,40 @@ pub fn read(mut a: ResMut<AnimObjects>, world: Res<WorldData>) {
     }
 }
 
+/// The bind transform an object hung from `b` misses while the idle `clip` plays: the
+/// node's own bind (local to its parent) when `b` is the clip's accumulation root, which
+/// the animator holds at the identity (anim_blend.rs, actors.md §7.2); else the identity.
+/// The objects hung from `Bip01` were made against its bind: `aogenericmeal.nif` and
+/// `aostudenttestpaper.nif` hold the plate and the paper 42 and 51 units along their
+/// root's axes, which only that bind (turned 90° and 67.8 up) puts in front of the
+/// seated actor at the table's height; under the identity the plate lay on the floor
+/// at his side (#3610) [observed: `fnvtool nif decode` of the two and of
+/// `characters\_male\skeleton.nif`; hypothesis: the original hangs them from the bind].
+fn held_root_bind(skel: &nvf_assets::actor::PreparedSkeleton, b: usize, clip: &nvf_assets::anim_play::Clip) -> Affine3A {
+    let held = clip.accum_root.as_deref().is_some_and(|r| skel.names.get(b).and_then(|n| n.as_deref()).is_some_and(|n| n.eq_ignore_ascii_case(r)));
+    if !held {
+        return Affine3A::IDENTITY;
+    }
+    let Some(&world) = skel.bind_world.get(b) else { return Affine3A::IDENTITY };
+    match skel.parents.get(b).copied().flatten().and_then(|p| skel.bind_world.get(p)) {
+        Some(parent) => parent.inverse() * world,
+        None => world,
+    }
+}
+
 /// [design, #2685] Spawn one complete ANIO tree under Prn, falling back to root.
 fn attach_model(
     commands: &mut Commands, rig: &ActorRig, prepared: &nvf_assets::model::PreparedModel,
     model: &str, clip: &Arc<nvf_assets::anim_play::Clip>, prn: Option<&str>, time: f32,
 ) -> Option<(Entity, HashMap<String, Entity>, String)> {
-    let b = prn.and_then(|name| rig.skel.by_name.get(name)).copied().unwrap_or(0);
+    let found = prn.and_then(|name| rig.skel.by_name.get(name)).copied();
+    if let (Some(name), None) = (prn, found) {
+        warn!("anim object: {model}: its parent node {name} is not in the skeleton; hung from the root");
+    }
+    let b = found.unwrap_or(0);
     let &parent = rig.nodes.get(b)?;
     let bone_name = rig.skel.names[b].clone().unwrap_or_else(|| "<root>".into());
-    let local = rigid_local(&rig.skel, b, &prepared.root, &Affine3A::IDENTITY);
+    let local = held_root_bind(&rig.skel, b, clip) * rigid_local(&rig.skel, b, &prepared.root, &Affine3A::IDENTITY);
     let part = prepared.rig.as_ref()?;
     // [design, #2685] Preparation also expands tracks to shapes sharing properties.
     let drawn_clip = part.idle.as_ref().unwrap_or(clip);
@@ -170,6 +195,40 @@ mod tests {
     use fnv_nif::anim::{Channel, Sequence, Track, TrackData, ValueTrack};
     use nvf_assets::anim_play::Clip;
     use nvf_assets::model::{PreparedModel, Rig, RigNode, RigShape};
+
+    /// #3610: a meal hung from `Bip01`, the accumulation root the animator holds at the
+    /// identity, gets `Bip01`'s bind back; a hand's object and a clip without that
+    /// root do not.
+    #[test]
+    fn an_object_on_the_held_accumulation_root_gets_its_bind_back() {
+        let turned = Affine3A::from_rotation_translation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2), Vec3::new(0.0, 0.657, 67.771));
+        let hand = Affine3A::from_translation(Vec3::new(20.0, 0.0, 0.0));
+        let skel = nvf_assets::actor::PreparedSkeleton {
+            names: vec![Some("Scene Root".into()), Some("Bip01".into()), Some("Bip01 R Hand".into())],
+            parents: vec![None, Some(0), Some(1)],
+            bind_world: vec![Affine3A::IDENTITY, turned, turned * hand],
+            ..default()
+        };
+        let clip = |accum: Option<&str>| Clip::from_sequence(&Sequence {
+            block: 0, name: Some("SitTableChairEatA".into()), start_time: 0.0, stop_time: 1.0,
+            frequency: 1.0, cycle_type: 0, accum_root_name: accum.map(String::from), text_keys: Vec::new(), tracks: Vec::new(),
+        });
+        let eat = clip(Some("Bip01"));
+        assert!(held_root_bind(&skel, 1, &eat).abs_diff_eq(turned, 1e-5));
+        assert_eq!(held_root_bind(&skel, 2, &eat), Affine3A::IDENTITY);
+        assert_eq!(held_root_bind(&skel, 1, &clip(None)), Affine3A::IDENTITY);
+        // The meal's authored root and node offset [observed: aogenericmeal.nif] land in
+        // front of the seated actor at the table's height with the bind, on the floor
+        // at his side without it.
+        let root = Affine3A::from_mat3(Mat3::from_cols_array(&[
+            -0.010611, 0.633814, 0.773413, -0.998467, -0.048737, 0.026242, 0.054326, -0.771949, 0.633359,
+        ]).transpose());
+        let meal = Vec3::new(-1.215, 41.551, 55.598);
+        let placed = (held_root_bind(&skel, 1, &eat) * root).transform_point3(meal);
+        assert!(placed.y > 60.0 && placed.z > 60.0 && placed.x.abs() < 5.0, "{placed}");
+        let lost = root.transform_point3(meal);
+        assert!(lost.z < 10.0, "{lost}");
+    }
 
     #[test]
     fn idle_attaches_full_model_reaches_materials_holds_end_and_detaches_on_replacement() {

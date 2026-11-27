@@ -18,7 +18,7 @@
 use crate::world::{base_object_with_model, ref_affine, spawn_model, CellEntity, Streamer, WorldData};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use fnv_world::placed::{base_object, placement};
+use fnv_world::placed::base_object;
 use nvf_assets::model::ModelCtx;
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
@@ -114,7 +114,7 @@ fn swap_models(
         // Its entities directly under a cell (a static model's shapes, a rig's root).
         let mine: Vec<(Entity, Entity)> = drawn.iter().filter(|(_, v, c)| v.0 == r && cells.contains(c.parent())).map(|(e, _, c)| (e, c.parent())).collect();
         let Some(&(_, cell_e)) = mine.first() else { continue };
-        let (Ok(cell), Some(p)) = (cells.get(cell_e), placement(world.lo, world.schema, r)) else { continue };
+        let (Ok(cell), Some(p)) = (cells.get(cell_e), world.index.placement(world.lo, world.schema, r)) else { continue };
         let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
         for (e, _) in &mine {
             commands.entity(*e).try_despawn();
@@ -140,7 +140,7 @@ fn swap_models(
     let Some(ring) = ring.as_deref_mut().filter(|r| !r.pending_swaps.is_empty()) else { return };
     let started = std::time::Instant::now();
     for r in std::mem::take(&mut ring.pending_swaps) {
-        let Some(p) = placement(world.lo, world.schema, r) else { continue };
+        let Some(p) = world.index.placement(world.lo, world.schema, r) else { continue };
         let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
         let base = match streamer.model_overrides.get(&r) {
             Some(m) => base_object_with_model(base, m),

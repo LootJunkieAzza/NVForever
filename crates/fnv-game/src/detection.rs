@@ -484,6 +484,14 @@ pub struct Detection {
     pub clear: bool,
 }
 
+impl Detection {
+    /// Not detected: the value held at the top of the Hidden band, sight as measured.
+    fn hide(&mut self, settings: &Settings) {
+        self.value = self.value.min(settings.noticed_min);
+        self.band = Band::Hidden;
+    }
+}
+
 /// Seconds of game time an actor the player woke stays up ([`Game::wake`]) [our choice].
 pub const WAKE_SECONDS: f64 = 30.0;
 
@@ -531,9 +539,14 @@ impl Detections {
             .map(|((d, _), (det, _))| (*d, *det))
     }
 
-    /// Forget every pair one of whose actors is `r` (it unloaded, died or was disabled).
+    /// Forget every pair involving `r` after unload or disable.
     pub fn forget(&mut self, r: FormId) {
         self.pairs.retain(|(d, t), _| *d != r && *t != r);
+    }
+
+    /// Forget detections made by `r`, preserving other actors' detections of it.
+    pub fn forget_detector(&mut self, r: FormId) {
+        self.pairs.retain(|(d, _), _| *d != r);
     }
 
     /// Forget pairs not measured since `time`.
@@ -580,7 +593,7 @@ impl Game<'_> {
     }
 
     pub fn player_detected_for_sneak(&self) -> bool {
-        self.detection.highest_among(FormId::PLAYER_REF, |d| !self.with_player(d)).is_some_and(|(_, d)| d.band == Band::Detected)
+        self.detection.highest_among(FormId::PLAYER_REF, |d| !self.with_player(d) && !self.is_dead(d)).is_some_and(|(_, d)| d.band == Band::Detected)
     }
 
     /// Whether `actor` may force-greet `target` as far as sight goes: nothing solid
@@ -694,12 +707,14 @@ impl Game<'_> {
 
     /// The weight and class of the armour an actor wears in the torso slot.
     pub fn body_armor(&mut self, actor: FormId) -> Option<(f64, ArmorClass)> {
-        let forms = self.world.forms;
-        let inv = self.world.get(actor).ok()?.inventory.as_ref()?;
-        inv.equipped().into_iter().find_map(|i| {
-            let it = forms.item(i)?;
-            (it.kind == ItemKind::Armor && it.slots.is_some_and(|s| s & UPPER_BODY != 0))
-                .then(|| (it.weight.unwrap_or(0.0) as f64, it.armor_class))
+        let equipped = self.world.get(actor).ok()?.inventory.as_ref()?.equipped();
+        equipped.into_iter().find_map(|i| {
+            let it = self.world.resolve_item(i)?;
+            (it.kind == ItemKind::Armor && self.world.effective_slots(i).is_some_and(|s| s & UPPER_BODY != 0)).then(|| {
+                let weight = self.world.effective_weight(i).unwrap_or(0.0) as f64;
+                let class = self.world.effective_armor_class(i).unwrap_or(it.armor_class);
+                (weight, class)
+            })
         })
     }
 
@@ -730,7 +745,12 @@ impl Game<'_> {
     /// functions at the current game time. An enemy of a ghost does not detect it
     /// ([`Game::ghost_hidden_from`]): the value is held at the top of the Hidden band
     /// [engineering choice: the note says only that it is not detected], sight
-    /// (GetLineOfSight) as measured.
+    /// (GetLineOfSight) as measured. So is an unconscious detector's (SetUnconscious),
+    /// which detects no one: "Actors that are unconscious will not use AI behavior"
+    /// [documented: GECK wiki SetUnconscious; hypothesis: detecting is part of it;
+    /// observer check 3479-robotics-expert-deactivate]. Old World Blues' X-13 test needs
+    /// it: its script watches GetDetected on the robots the player has shut down too
+    /// [observed: SCTX of OldWorldBlues.esm SCPT 0x01006DA6] (#3479).
     pub fn detect(&mut self, settings: &Settings, detector: FormId, target: FormId, s: &Situation) -> (Detection, Option<Band>) {
         let p = self.detection_pair(detector, target);
         let mut d = settings.evaluate(&p, s);
@@ -741,12 +761,21 @@ impl Game<'_> {
             d.value = self.forced_detection(target, d.value);
             d.band = if d.value > 0.0 { Band::Detected } else if d.value > settings.noticed_min { Band::Noticed } else { Band::Hidden };
         }
-        if self.ghost_hidden_from(detector, target) {
-            d.value = d.value.min(settings.noticed_min);
-            d.band = Band::Hidden;
+        if self.extra.get(&detector).is_some_and(|e| e.unconscious) || self.ghost_hidden_from(detector, target) {
+            d.hide(settings);
         }
         let before = self.detection.record(detector, target, d, self.time);
         (d, before)
+    }
+
+    /// `actor` was set unconscious: what it last detected reads Hidden at once, as its
+    /// measurements do from then on ([`Game::detect`]). Awake again, its next measurement
+    /// decides.
+    pub fn forget_detected_by(&mut self, actor: FormId) {
+        let settings = Settings::read(self);
+        for (_, (d, _)) in self.detection.pairs.iter_mut().filter(|((by, _), _)| *by == actor) {
+            d.hide(&settings);
+        }
     }
 }
 
@@ -760,7 +789,7 @@ impl Game<'_> {
 pub fn get_detected(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let detector = ctx.subject()?;
     let target = a.form(0)?;
-    let d = g.detection.get(detector, target).is_some_and(|d| d.band == Band::Detected);
+    let d = !g.is_dead(detector) && g.detection.get(detector, target).is_some_and(|d| d.band == Band::Detected);
     Ok(Value::Num(if d { 1.0 } else { 0.0 }))
 }
 
@@ -856,7 +885,7 @@ mod tests {
             assert!(near(standing.value, sneaking.value), "{distance}: {} vs {}", standing.value, sneaking.value);
             assert_eq!(sneaking.target_skill, 0.0);
         }
-        // Seen, sneaking still lowers it; heard while unseen too [hypothesis].
+        // Seen, sneaking still lowers it; heard while unseen too (see production `evaluate` above).
         let seen = outdoors(50.0);
         assert!(s.evaluate(&p, &Situation { sneaking: true, ..seen }).value < s.evaluate(&p, &seen).value);
         let heard = Situation { in_view: false, moving: true, ..outdoors(50.0) };
@@ -936,7 +965,7 @@ mod tests {
         assert_eq!(q.band, Band::Noticed);
         let shot = Situation { action_sound: s.firing_sound("Loud"), ..quiet };
         // a = (2200/2500)² = 0.7744; sound 0.7744 · 0.1 · 1.6 · 200 ≈ 24.8; heard, the
-        // Sneak skill counts again [hypothesis].
+        // Sneak skill counts again (see production `evaluate` above).
         let d = s.evaluate(&p, &shot);
         assert!(near(d.sound, 0.7744 * 0.1 * 1.6 * 200.0));
         assert!(near(d.value, -35.0 + d.sound + 0.5 * (0.7744 * 50.0 - 40.0)));

@@ -2,9 +2,9 @@
 
 Status: built on branch `vats` (2026-11-09 to 2026-11-11), played through by the fork
 owner; §9b lists what is planned. The other style, "Dead Eye"
-(docs/design/vats-mode.md), shares what §6 and §13 name and is the default; this one
-is one row away on the settings page ("V.A.T.S. style") until the owner has ruled on
-which V starts (docs/owner-review.md item 31a; the owner's review of #2102).
+(docs/design/vats-mode.md), shares what §6 and §13 name and is one row away on the
+settings page ("V.A.T.S. style"). This one is what V starts: the owner ruled on
+2026-11-24 (owner-review item 31a) that Classic is the default.
 
 Tags as everywhere: [documented] cites a public page, [observed] the game's data files,
 [hypothesis] an inference, [design] NVForever's own choice. Combat is not a parity
@@ -22,9 +22,8 @@ Sources read 2026-11-09 (public pages only; no executable was read):
 ## 1. The owner's decisions (fork owner, 2026-11-09)
 
 - The original's flow replaces Dead Eye as what V starts; Dead Eye stays as a style the
-  settings page offers. (On the fork. Upstream Dead Eye stays the default and Classic
-  is the style the page offers, until item 31a is answered: the owner's review of
-  #2102, 2026-11-11.)
+  settings page offers. Upstream too since the owner's ruling of 2026-11-24 (item 31a);
+  until then Dead Eye was the default there.
 - A slider sets how far the world slows while targets are chosen: 50 % to 100 %, 100 %
   a full stop and the default, as the original.
 - The slider acts on choosing targets only. The attacks then play as before.
@@ -414,3 +413,13 @@ notes are the full account).
   AP display, AP cost, the wider playback HUD and target-change timing remain open
   in observer check 215; no changes are made for those comparisons. Body-part keys
   (issue item 10) remain open as well.
+
+## 14. Optional direct touch selection [design]
+
+The independently saved Off/Tap/Hold presentation is specified in
+[Android VATS touch](android-vats-touch.md). It uses actual posed-body ray hits and
+the existing AP/legality queue consumer, without changing the physical/controller
+rules above. Selecting queues; only a separate touch Fire confirmation starts the
+existing execution path. The separate look-space double tap only enters VATS.
+The source and authored App controls await compiler/runtime/phone qualification;
+this addition does not alter the currently served APK.

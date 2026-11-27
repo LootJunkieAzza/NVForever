@@ -107,6 +107,16 @@
    "text": "Stand-in for the trip to the Mantis nest: the player at the quest nest, activated by hand."
   },
   {
+   "op": "note",
+   "text": "The Mantis eggs lie behind Vault 22's food cave door 000EB555, whose terminal 0x000EFB18 offers Disengage Lock only with V22BaileysKeycard 0x000F3D50 (REFR 0x0017AAEB in Vault22d) [observed: round 13 triage]. Stand-in for finding it: the keycard."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "V22BaileysKeycard",
+   "count": 1
+  },
+  {
    "op": "move_player",
    "to": "VPitMantisEggsREF"
   },

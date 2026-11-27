@@ -129,7 +129,20 @@ pub fn set_quest_delay(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
 /// SetObjectiveCompleted, scripts.md §5].
 pub fn complete_all_objectives(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
-    let ids: Vec<i32> = g.data.quests[&q].objectives.keys().copied().collect();
+    // Iterate in QOBJ record order rather than ascending index order
+    // [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin 184,
+    // 2026-11-23, GSDocMitchellHouse (0x00103DF9), 10 official base masters, probe
+    // `w1_3656_objectives_unholster_imod` in #3679 (`StartQuest 0x000E282D`,
+    // `SetObjectiveDisplayed 50 1`, `SetObjectiveDisplayed 5 1`, `CompleteAllObjectives`
+    // -> fires `ShowOff:OnCompleteObjective` only for displayed objectives in QOBJ record
+    // order: 50 then 5, not 5 then 50)].
+    let def = &g.data.quests[&q];
+    let ids: Vec<i32> = if def.objective_order.is_empty() {
+        def.objectives.keys().copied().collect()
+    } else {
+        let mut seen = std::collections::HashSet::new();
+        def.objective_order.iter().copied().filter(|i| seen.insert(*i)).collect()
+    };
     for i in ids {
         // Also on a completed or failed quest (`Game::set_objective_whatever`).
         g.set_objective_whatever(q, i, None, Some(true));

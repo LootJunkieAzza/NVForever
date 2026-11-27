@@ -246,7 +246,7 @@ impl Furnishings {
                 None => (rest, None),
             };
             let furniture = hex(target).ok_or_else(bad)?;
-            let placed = fnv_world::placed::placement(world.lo, world.schema, furniture).ok_or_else(|| format!("--npc-sit {spec}: no placed reference {furniture:08X}"))?;
+            let placed = world.index.placement(world.lo, world.schema, furniture).ok_or_else(|| format!("--npc-sit {spec}: no placed reference {furniture:08X}"))?;
             let base = placed.base.filter(|b| f.bases.contains_key(b)).ok_or_else(|| format!("--npc-sit {spec}: {furniture:08X} is not furniture"))?;
             let record = f.bases[&base].clone();
             // Where the actor starts, to pick the entry point it will come up to.
@@ -326,7 +326,7 @@ impl Furnishings {
     /// answers the idle conditions that are about the game's state ([`game_value`]).
     fn plan(&mut self, world: &WorldData, ctx: &mut ActorCtx, furniture: u32, from: [f32; 3], who: Who, game: furn::World) -> Result<Plan, PlanError> {
         let missing = |what: &str| refused(Refusal::MissingContent, what);
-        let placed = fnv_world::placed::placement(world.lo, world.schema, furniture).ok_or_else(|| missing("no such reference"))?;
+        let placed = world.index.placement(world.lo, world.schema, furniture).ok_or_else(|| missing("no such reference"))?;
         let base = placed.base.ok_or_else(|| missing("no base"))?;
         let record = self.bases.get(&base).ok_or_else(|| missing("not furniture"))?.clone();
         let model = record.model.clone().ok_or_else(|| missing("the furniture has no model"))?;
@@ -506,6 +506,23 @@ impl Approach {
         let k = if self.turn_out > 0.0 { (t - self.walk) / self.turn_out } else { 1.0 };
         let (heading, turn) = turning(self.way, self.to.heading, k);
         Step { at: Frame { pos: self.to.pos, heading }, velocity: [0.0; 2], turn }
+    }
+}
+
+impl OnFurniture {
+    /// The furniture reference used.
+    pub fn furniture(&self) -> u32 {
+        self.plan.furniture
+    }
+
+    /// On it (getting on, staying or getting off), not walking up to it.
+    pub fn seated(&self) -> bool {
+        matches!(self.stage, Stage::Using(_))
+    }
+
+    /// Getting off it, or asked to while still getting on.
+    pub fn leaving(&self) -> bool {
+        matches!(&self.stage, Stage::Using(u) if u.phase == Phase::GettingOff || u.leave_wanted)
     }
 }
 
@@ -983,6 +1000,9 @@ pub fn drive_player(
             seat.hold = Some(b.pos);
             seat.bed = lying && u.usage.phase != Phase::GettingOff;
             seat.on = Some(u.plan.furniture);
+            seat.seated = u.usage.phase == Phase::On;
+            // Getting off is sent to the co-op players as off (`coop.rs`).
+            seat.getting_off = u.usage.phase == Phase::GettingOff;
             body.0 = Some(b);
         }
         None => {
@@ -995,6 +1015,7 @@ pub fn drive_player(
             seat.hold = None;
             seat.bed = false;
             seat.on = None;
+            seat.seated = false;
             body.0 = None;
             f.stats.player_stood += 1;
             f.release(u.plan.furniture, who.reference);

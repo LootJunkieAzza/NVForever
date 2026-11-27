@@ -143,10 +143,9 @@
       "text": "[documented: #2534 owner brief, fnvtool decode/decompile, main session 2026-11-14] The equipment quest confiscates weapons into NVCCPlayerStorageREF. [design] Add one pistol before agreeing, then read both inventories after confiscation."
     },
     {
-      "op": "add_item",
-      "to": "player",
-      "item": "Weap10mmPistol",
-      "count": 1
+      "op": "call",
+      "line": "player.AddItem Weap10mmPistol 1",
+      "label": "test aid: one 10mm pistol given (not found in the world: an add_item step sent the pilot to a pistol lying in another worldspace, The Divide in sweep2 and the Capital Wasteland before)"
     },
     {
       "op": "get_item_count",

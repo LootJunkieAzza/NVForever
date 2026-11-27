@@ -25,6 +25,9 @@ pub struct Jg6State {
     /// Every live mine not going off, the player's included (the engine's mines,
     /// `nvf-play` mines.rs); GetMineArmed's set leaves the player's out.
     pub armed_mines_all: HashSet<FormId>,
+    /// Last exterior worldspace the player entered, retained indoors so `GetMoonPhase`
+    /// keeps using that worldspace's active climate (`Game::player_entered`).
+    pub last_exterior_world: Option<FormId>,
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -311,14 +314,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // 0 full … 4 new … 7 waxing gibbous [documented: GetMoonPhase]: the days passed
         // over the climate's phase length (TNAM, low six bits), as the sky draws it
-        // (`fnv_world::sky::moon_phase`); the climate of the player's worldspace, none
-        // indoors (phase 0) [hypothesis].
+        // (`fnv_world::sky::moon_phase`); indoors in `GSDocMitchellHouse` (`0x00103DF9`),
+        // `GetMoonPhase` returns `1` alongside `GameDaysPassed = 5.5011` and
+        // `GetCurrentClimate = 0000015F` (`DefaultClimate`, phase length 3 ->
+        // `floor(5.5011 / 3.0) % 8 = 1`) [observed: 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528
+        // with the 10 official base masters, read-only `PrintToConsole` probes
+        // `w4c_b3_03_jg6_actor_world_misc` (`tools/capture/nvse/catalogs/wave4c_extenders.json`,
+        // #3678 / PR #3679): `furnP=00000000,furnD=001059B0,hdP=0,moon=1,ta=00000000,tresp=0`,
+        // and `w4h_07_moon_phase_days_climate` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
+        // #3803): `PROBE|w4h_07_moon_phase_days_climate|moon=1|days=5.5011|clim=0000015F|date=2281-9-18|hour=12.026`;
+        // no DLL or source consulted]. NVForever resolves via `moon_climate` (current exterior
+        // climate, else `ForceClimate`, `SetCurrentClimate`, last exterior worldspace
+        // climate, or `DefaultClimate` `0x0000015F` / `NVDefaultClimate`; phase 0 when no
+        // climate is loaded) [design].
         "getmoonphase" => {
-            let w = g.cell_of(FormId::PLAYER_REF).and_then(|c| g.world.placed.world_of(c));
-            let climate = match w.and_then(|w| crate::nvse::record_value(g, w, "CNAM", "")) {
-                Some(XVal::Ref(c)) if c != 0 => Some(FormId(c)),
-                _ => None,
-            };
+            let climate = moon_climate(g).map(|c| g.unclone(c));
             let len = match climate.and_then(|c| crate::nvse::record_value(g, c, "TNAM", "moons_phase_length")) {
                 Some(XVal::Num(x)) => (x as u64 & 0x3F) as u8,
                 _ => 0,
@@ -502,4 +513,22 @@ fn run_each(g: &mut Game, ctx: &RunCtx, func: &XVal, refs: Vec<FormId>) -> Resul
 /// The whole numbers of an array, in its order.
 fn numbers(g: &Game, id: u32) -> Vec<i64> {
     g.ext.array(id).map(|a| a.entries.iter().filter_map(|(_, v)| if let XVal::Num(x) = v { Some(*x as i64) } else { None }).collect()).unwrap_or_default()
+}
+
+/// Active climate for `GetMoonPhase` indoors and outdoors: current exterior climate, else
+/// `ForceClimate`, `SetCurrentClimate`, the last entered exterior worldspace's effective
+/// climate, or `DefaultClimate` (`0x0000015F` / EDID `"DefaultClimate"`) /
+/// `"NVDefaultClimate"` when loaded [design; observed indoors:
+/// `w4c_b3_03_jg6_actor_world_misc`].
+fn moon_climate(g: &Game) -> Option<FormId> {
+    g.current_climate()
+        .or(g.other.jip12.forced_climate)
+        .or_else(|| g.other.jip12.set_climate.map(|(c, _)| c))
+        .or_else(|| g.other.jg6.last_exterior_world.and_then(|w| g.worldspace_climate(w)))
+        .or_else(|| {
+            [Some(FormId(0x0000_015F)), g.data.by_edid("DefaultClimate"), g.data.by_edid("NVDefaultClimate")]
+                .into_iter()
+                .flatten()
+                .find(|&c| g.data.sig(g.unclone(c)) == Some(*b"CLMT"))
+        })
 }

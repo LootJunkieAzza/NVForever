@@ -29,11 +29,13 @@ import package::render::mesh_view_types::{
     POINT_LIGHT_FLAGS_VOLUMETRIC_BIT,
     POINT_LIGHT_FLAGS_SPOT_LIGHT_Y_NEGATIVE,
 };
+// NVForever held light shadow maps: `nvf_spot_shadow_layer`.
 import package::render::shadow_sampling::{
     sample_shadow_map_hardware,
     sample_shadow_cubemap,
     sample_shadow_map,
-    SPOT_SHADOW_TEXEL_SIZE
+    SPOT_SHADOW_TEXEL_SIZE,
+    nvf_spot_shadow_layer
 };
 import package::render::shadows::{get_cascade_index, world_to_directional_light_local};
 import package::render::utils::interleaved_gradient_noise;
@@ -506,7 +508,8 @@ fn fetch_spot_shadow_without_normal(light_id: u32, frag_position: vec4<f32>, fra
     return sample_shadow_map(
         shadow_uv,
         depth,
-        i32(light_id) + lights.spot_light_shadowmap_offset,
+        // NVForever held light shadow maps: the light's layer from its flags, else Bevy's.
+        nvf_spot_shadow_layer(light_id),
         frag_coord_xy,
         SPOT_SHADOW_TEXEL_SIZE
     );

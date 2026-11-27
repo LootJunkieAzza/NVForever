@@ -384,6 +384,8 @@ impl Plugin for MaterialsPlugin {
                 .init_gpu_resource::<PendingMeshMaterialQueues>()
                 .allow_ambiguous_resource::<PendingMeshMaterialQueues>()
                 .init_gpu_resource::<PendingShadowQueues>()
+                // NVForever kept shadow phases (render/light.rs).
+                .init_resource::<NvfParkedShadowViews>()
                 .allow_ambiguous_resource::<PendingShadowQueues>()
                 .add_render_command::<Shadow, DrawPrepass>()
                 .add_render_command::<Shadow, DrawDepthOnlyPrepass>()

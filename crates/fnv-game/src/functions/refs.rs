@@ -3,7 +3,7 @@
 use super::{base_of, none, yes, Args, Ctx};
 use crate::game::{ActMode, Game};
 use crate::trace::EventKind;
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArgValue, Value, XVal};
 use fnv_sim::FormId;
 
 /// `ref.Enable [FadeIn]`: the reference is drawn and its actor's AI runs again; it fades
@@ -27,12 +27,26 @@ pub fn enable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String> 
         return none();
     }
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled();
-    g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
     if !was {
+        if !g.enable_event_active.insert(r) {
+            return none();
+        }
+        // The extender's OnEnable fires PRE-update (GetDisabled still 1) with null
+        // calling reference (GetSelfAlt == 0) and args (ref, 0) [observed: 2026-11-24,
+        // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_on_enable_disable_pre_update.json` probe
+        // `w6d1p2_07_on_enable_tick`:
+        // `PROBE|w6d1p2_07_on_enable_tick|dis=1->0|en(n1=1,n2=1,s0=1,sR=0,a1R=1,a2z=1,inDis=1)`;
+        // no DLL, PDB, or third-party source consulted].
+        g.dispatch_event("OnEnable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], None);
+        g.enable_event_active.remove(&r);
+    }
+    let still_disabled = !g.world.get(r).map_err(|e| e.to_string())?.enabled();
+    g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
+    if still_disabled {
         g.emit(EventKind::RefEnabled { reference: r, fade });
         g.note_enabled(r);
-        // The extender's OnEnable: the reference, then 0 [observed: nvse-events].
-        g.dispatch_event("OnEnable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
     none()
 }
@@ -73,6 +87,10 @@ pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String>
         tracing::info!("script: Disable of the player ignored: the player stays enabled (doors.md §6)");
         return none();
     }
+    // A dead actor disabled forgets when it died (GetTimeDead).
+    if let Some(e) = g.extra.get_mut(&r) {
+        e.died_day = None;
+    }
     let held = g.script_looks.fading_out.contains_key(&r);
     if fade && held {
         return none();
@@ -84,11 +102,26 @@ pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String>
     }
     g.script_looks.fading_out.remove(&r);
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled();
-    g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
     if was {
+        if !g.enable_event_active.insert(r) {
+            return none();
+        }
+        // The extender's OnDisable fires PRE-update (GetDisabled still 0) with
+        // GetSelfAlt != ref and args (ref, 0) [observed: 2026-11-24, Fallout: New
+        // Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, ShowOffNVSE 184,
+        // GSDocMitchellHouse (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_on_enable_disable_pre_update.json` probe
+        // `w6d1_07_on_enable_on_disable_args`:
+        // `PROBE|w6d1_07_on_enable_on_disable_args|dis(n1=1,n2=1,sOk=0,a1Ok=1,a2z=1,inDis=0)|en(n1=0,sOk=0,a1Ok=0,inDis=0)|par(d=0,da=1,ea=0)`;
+        // no DLL, PDB, or third-party source consulted]; passing `None` (`GetSelfAlt == 0`)
+        // matches `OnEnable` (`s0=1`) [hypothesis].
+        g.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], None);
+        g.enable_event_active.remove(&r);
+    }
+    let still_enabled = g.world.get(r).map_err(|e| e.to_string())?.enabled();
+    g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
+    if still_enabled {
         g.emit(EventKind::RefDisabled { reference: r, fade });
-        // The extender's OnDisable: the reference, then 0 [observed: nvse-events].
-        g.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
     none()
 }
@@ -255,6 +288,11 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
     if r == FormId::PLAYER_REF {
         g.player_entered(cell);
         g.bring_teammates(from);
+        // A co-op host's guests go with it (a script's move, not a door's or travel's)
+        // [design].
+        if let Some(out) = g.coop_effects.as_mut().filter(|o| o.len() < crate::sound::MAX_PENDING) {
+            out.push(crate::sound::CoopEffect::PlayerMoved);
+        }
     }
     Ok(())
 }
@@ -283,15 +321,25 @@ pub fn get_is_reference(_g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
 
 /// 1 when the caller's cell's Editor ID begins with the given cell's [documented:
 /// catalogue summary].
+///
+/// A co-op random encounter's `player.GetInCell`: whether any player is there
+/// (`crate::coop`, the encounter notes).
 pub fn get_in_cell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let want = a.form(0)?;
-    let Some(cell) = g.cell_of(r) else { return yes(false) };
-    if cell == want {
-        return yes(true);
+    if r == FormId::PLAYER_REF && ctx.self_ref.is_some_and(|s| g.coop_encounter(s)) {
+        return yes(g.any_player(|g, p| in_cell(g, p, want)));
     }
-    let (Some(have), Some(w)) = (g.data.edid_of.get(&cell), g.data.edid_of.get(&want)) else { return yes(false) };
-    yes(have.to_ascii_lowercase().starts_with(&w.to_ascii_lowercase()))
+    yes(in_cell(g, r, want))
+}
+
+fn in_cell(g: &Game, r: FormId, want: FormId) -> bool {
+    let Some(cell) = g.cell_of(r) else { return false };
+    if cell == want {
+        return true;
+    }
+    let (Some(have), Some(w)) = (g.data.edid_of.get(&cell), g.data.edid_of.get(&want)) else { return false };
+    have.to_ascii_lowercase().starts_with(&w.to_ascii_lowercase())
 }
 
 pub fn get_in_worldspace(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -303,13 +351,14 @@ pub fn get_in_worldspace(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
 
 /// `ref.GetInZone zone`: 1 when the calling reference is in a cell attached to the
 /// encounter zone [documented: GECK wiki GetInZone, "Returns 1 if FredRef is currently in
-/// a cell attached to the ParadiseFallsZone"]: its current cell's zone (CELL XEZN, else
-/// the worldspace's; docs/spec-notes/encounter-zones.md §1) [hypothesis: a reference's
-/// own XEZN does not count; the wiki speaks of cells].
+/// a cell attached to the ParadiseFallsZone"]: its current cell's effective zone
+/// (`World::cell_zone_of`: session `SetCellEncounterZone`, else CELL XEZN, else
+/// `SetWorldspaceEncounterZone` / WRLD XEZN; docs/spec-notes/encounter-zones.md §1)
+/// [hypothesis: a reference's own XEZN does not count; the wiki speaks of cells].
 pub fn get_in_zone(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let zone = a.form(0)?;
-    yes(g.cell_of(r).and_then(|c| g.world.placed.cell_zone(c)) == Some(zone))
+    yes(g.cell_of(r).and_then(|c| g.world.cell_zone_of(c)) == Some(zone))
 }
 
 pub fn get_in_same_cell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -330,6 +379,14 @@ pub fn is_in_interior(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
 pub fn get_distance(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let t = a.form(0)?;
+    // A co-op random encounter's `player.GetDistance X` and `GetDistance player`: the
+    // nearest player's (`crate::coop`, the encounter notes).
+    if (r == FormId::PLAYER_REF || t == FormId::PLAYER_REF) && ctx.self_ref.is_some_and(|s| g.coop_encounter(s)) {
+        let from = if r == FormId::PLAYER_REF { t } else { r };
+        if let Some(d) = g.nearest_player_distance(from) {
+            return Ok(Value::Num(d as f64));
+        }
+    }
     let (c1, p1, _) = place(g, r)?;
     let (c2, p2, _) = place(g, t)?;
     let space = |c: Option<FormId>| c.map(|c| g.world.placed.world_of(c).unwrap_or(c));
@@ -432,12 +489,22 @@ pub fn get_starting_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     Ok(Value::Num(f64::from(starting_place(g, r).0[i])))
 }
 
-/// `GetStartingAngle axis`, in degrees [documented: GECK wiki GetStartingAngle].
+/// `GetStartingAngle axis`, in degrees [documented: GECK wiki GetStartingAngle;
+/// observed: `b3_jip4_02_session_time_and_start_angle` (`wave4b_extenders.json`, #3679):
+/// `PROBE|b3_jip4_02_session_time_and_start_angle|sess=5.31,docZ=22.92,dynZ=270.00`,
+/// dynamic `PlaceAtMe` refs return their creation heading in degrees rather than 0].
 pub fn get_starting_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
+    let rot = if r == FormId::PLAYER_REF {
+        [0.0; 3]
+    } else if let Some(p) = g.world.placed.get(r) {
+        p.rot
+    } else {
+        g.world.peek(r).and_then(|s| s.made_rot).unwrap_or([0.0; 3])
+    };
     // + 0.0: a stored -0 reads 0, as in the game [observed: jip4, DocMitchellRef Y].
-    Ok(Value::Num(f64::from(starting_place(g, r).1[i]).to_degrees() + 0.0))
+    Ok(Value::Num(f64::from(rot[i]).to_degrees() + 0.0))
 }
 
 pub fn get_linked_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
@@ -584,9 +651,9 @@ pub fn list_members(g: &Game, list: FormId) -> Vec<FormId> {
 }
 
 /// The items that can repair `item`: the members of its repair list (WEAP/ARMO `REPL`),
-/// authored and added at run time (docs/spec-notes/repair.md §5).
+/// authored, overridden by `SetRepairList`, and added at run time (docs/spec-notes/repair.md §5).
 pub fn repair_list(g: &Game, item: FormId) -> Vec<FormId> {
-    g.data.repair_lists.get(&item).map(|&l| list_members(g, l)).unwrap_or_default()
+    g.effective_repair_list_form(item).map(|l| list_members(g, l)).unwrap_or_default()
 }
 
 /// 1 when the caller's base form is in the list.
@@ -651,6 +718,51 @@ pub fn get_open_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
     }
     let open = g.world.get(r).map_err(|e| e.to_string())?.open;
     Ok(Value::Num(if open { 1.0 } else { 3.0 }))
+}
+
+/// `ref.GetDefaultOpen`: 1 if the calling reference's default state is open, else 0
+/// (`0x10D7`, CTDA condition index `215`) [documented: GECK wiki GetDefaultOpen].
+pub fn get_default_open(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let open = g.world.check_default_open(r).map_err(|e| e.to_string())?;
+    Ok(Value::Num(if open { 1.0 } else { 0.0 }))
+}
+
+/// Catalogue-unnumbered vanilla reference functions handled as named source calls
+/// (docs/spec-notes/default-open.md).
+pub(crate) fn handles_source(name: &str) -> bool {
+    name.eq_ignore_ascii_case("SetDefaultOpen")
+}
+
+/// Execute a catalogue-unnumbered vanilla reference source call (`SetDefaultOpen`).
+/// An explicit empty or unknown receiver fails rather than falling back to `ctx.self_ref`.
+pub(crate) fn call_source(
+    g: &mut Game,
+    ctx: &Ctx,
+    receiver: Option<Value>,
+    name: &str,
+    values: &[XVal],
+) -> Option<Result<XVal, String>> {
+    if !name.eq_ignore_ascii_case("setdefaultopen") {
+        return None;
+    }
+    Some((|| {
+        let r = match receiver {
+            Some(value) => value.as_form().map(FormId).ok_or("invalid calling reference")?,
+            None => ctx.self_ref.ok_or("SetDefaultOpen requires a calling reference")?,
+        };
+        if values.len() != 1 {
+            return Err("setdefaultopen expects 1 argument".into());
+        }
+        let arg = match &values[0] {
+            XVal::Num(n) if n.is_finite() => ArgValue::Value(Value::Num(*n)),
+            _ => return Err("SetDefaultOpen expects a numeric defaultOpen argument".into()),
+        };
+        let args = [arg];
+        let open = Args(&args).int(0)? != 0;
+        g.world.set_default_open(r, open).map_err(|e| e.to_string())?;
+        Ok(XVal::Num(0.0))
+    })())
 }
 
 /// A trigger-enter event on the calling trigger, by the given reference [documented:

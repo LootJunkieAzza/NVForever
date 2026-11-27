@@ -10,6 +10,7 @@ use crate::functions::{actor_value, av_code, set_actor_value_current, Ctx};
 use crate::game::{event, menus, ActMode, Game, GameConfig, InstKey};
 use crate::trace::EventKind;
 use crate::GameData;
+use fnv_script::ir::Stmt;
 use fnv_script::vm::{literal, to_int_storage, ArgValue, Value};
 use fnv_sim::world::SimConfig;
 use fnv_sim::{FormId, FormStore, RefTable, World};
@@ -119,6 +120,10 @@ pub enum Given {
         /// The actor has talked to the player (GetTalkedToPC).
         #[serde(default)]
         talked_to_pc: Option<bool>,
+        /// Locked (at its own level) or unlocked, as a script's Lock/Unlock leaves it: the
+        /// Nellis gate Raquel's welcome unlocks, for chains that start past it.
+        #[serde(default)]
+        locked: Option<bool>,
     },
     /// A faction's group combat reaction towards another (0 neutral, 1 enemy, 2 ally,
     /// 3 friend), as SetEnemy/SetAlly leave it (a save's faction changes).
@@ -364,6 +369,11 @@ pub enum Action {
         event: Option<String>,
         #[serde(default)]
         frames: Option<u64>,
+        /// A reference the player faces while inside (the pilot; the headless run has no
+        /// heading to turn): a trigger whose script tests GetHeadingAngle to it (Vault
+        /// 101's picture trigger: within 45 degrees of Jonas).
+        #[serde(default)]
+        face: Option<String>,
     },
     /// The player picks a button of the open message box.
     PressButton { button: i32 },
@@ -662,6 +672,7 @@ fn ref_field(g: &mut Game, r: FormId, f: &str) -> Result<Json, String> {
     Ok(match f {
         "dead" => json!(g.extra.get(&r).is_some_and(|e| e.dead)),
         "destroyed" => json!(g.extra.get(&r).is_some_and(|e| e.destroyed)),
+        "locked" => json!(g.world.lock_of(r).is_some_and(|l| l.locked)),
         "disabled" => json!(!g.world.is_enabled(r).map_err(|e| e.to_string())?),
         _ => match f.strip_prefix("var.") {
             Some(v) => {
@@ -822,6 +833,12 @@ fn label(l: &Option<String>, i: usize) -> String {
 
 /// Run a console line (`reference.Function words…`) through the console's reading of
 /// its words.
+/// A console line's value, as `call_until` reads it each frame (for a caller with frames
+/// of its own: the quest pilot).
+pub fn call_value(g: &mut Game, line: &str) -> Result<f64, String> {
+    call_line(g, line).map(|c| c.value.num())
+}
+
 fn call_line(g: &mut Game, line: &str) -> Result<crate::functions::console::Called, String> {
     let (on, func, args) = crate::functions::console::split_call(line).ok_or("an empty line")?;
     let on = match on {
@@ -868,6 +885,42 @@ pub fn apply_given_entries(g: &mut Game, given: &[Json]) -> Vec<Json> {
     errors
 }
 
+/// The functions of a done stage's result script that a given replays: the world's doors
+/// and references as the stage left them.
+const GIVEN_WORLD_CALLS: [&str; 5] = ["Enable", "Disable", "Lock", "Unlock", "SetOpenState"];
+
+/// A given that marks stages done leaves the world as those stages left it: each stage's
+/// result script's top-level calls of [`GIVEN_WORLD_CALLS`] on a reference are run, in
+/// stage order, where the entry's conditions pass. Nothing else of the script runs (no
+/// MoveTo, items, messages or stages), and nothing inside an `if` [design]. Tale of Two
+/// Wastelands' chains start after earlier quests: the Pitt's Hole and Downtown gates
+/// (Unsafe Working Conditions' stages 120 and 200) and Point Lookout's cathedral gate
+/// (Walking With Spirits' stage 180) stayed locked, and the quest pilot stood at them.
+fn given_stage_world(g: &mut Game, q: FormId, done: &[i32]) {
+    let data = g.data;
+    let Some(def) = data.quests.get(&q) else { return };
+    let ops: Vec<u16> = GIVEN_WORLD_CALLS.iter().filter_map(|n| data.table.by_name(n)).collect();
+    let mut stages: Vec<i32> = done.to_vec();
+    stages.sort_unstable();
+    stages.dedup();
+    let player = Some(FormId::PLAYER_REF);
+    for st in stages {
+        let Some(entries) = def.stages.get(&st) else { continue };
+        for e in entries {
+            let Some(u) = e.unit else { continue };
+            if !g.conditions_pass(&e.conditions, player, player, &format!("QUST {q} stage {st} (given)")) {
+                continue;
+            }
+            let top = &data.unit(u).program.top;
+            for i in 0..top.len() {
+                if matches!(&top[i], Stmt::Call { call } if call.on.is_some() && ops.contains(&call.opcode)) {
+                    g.run_stmts(u, &top[i..=i], crate::game::RunCtx { quest: Some(q), ..Default::default() });
+                }
+            }
+        }
+    }
+}
+
 fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
     match gv {
         Given::Quest { quest: name, running, completed, stage, done, not_done, objectives, vars, refs } => {
@@ -910,6 +963,7 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
                     e.completed = c;
                 }
             }
+            given_stage_world(g, q, done);
         }
         Given::Global { name, value } => {
             let id = resolve(g, name)?;
@@ -936,7 +990,7 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             let r = resolve(g, of)?;
             g.world.set_enabled(r, !disabled).map_err(|e| e.to_string())?;
         }
-        Given::Ref { reference, vars, dead, disabled, deleted, talked_to_pc } => {
+        Given::Ref { reference, vars, dead, disabled, deleted, talked_to_pc, locked } => {
             let r = resolve(g, reference)?;
             for (k, v) in vars {
                 let (key, script, i) = ref_var(g, r, k)?;
@@ -954,6 +1008,11 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             }
             if let Some(t) = talked_to_pc {
                 g.extra.entry(r).or_default().talked_to_pc = *t;
+            }
+            match locked {
+                Some(true) => g.world.lock(r, None).map_err(|e| e.to_string())?,
+                Some(false) => g.world.unlock(r).map_err(|e| e.to_string())?,
+                None => {}
             }
         }
         Given::FactionReaction { faction, other, reaction } => {
@@ -1279,7 +1338,7 @@ struct RunState {
 
 /// Run one action; returns its observation fields (for labelled actions).
 /// A labelled observation: label and fields.
-type Observed = Option<(String, Map<String, Json>)>;
+pub type Observed = Option<(String, Map<String, Json>)>;
 
 fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String> {
     let mut obs = Map::new();
@@ -1676,7 +1735,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 return Err(format!("{} has no OnFire block", g.data.name(w)));
             }
         }
-        Action::TriggerEnter { trigger, actor, event: ev, frames } => {
+        Action::TriggerEnter { trigger, actor, event: ev, frames, .. } => {
             let t = resolve(g, trigger)?;
             let a = match actor {
                 Some(a) => resolve(g, a)?,
@@ -1857,7 +1916,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 Some(w) => Some(resolve(g, w)?),
                 None => None,
             };
-            let info = crate::combat::HitInfo { attacker: Some(attacker), weapon, location: -1, critical: false, limb: None };
+            let info = crate::combat::HitInfo { attacker: Some(attacker), weapon, location: -1, ..Default::default() };
             let actor = matches!(crate::functions::base_of(g, t).and_then(|b| g.data.sig(b)).as_ref(), Some(b"NPC_") | Some(b"CREA"));
             if actor {
                 let r = g.hit(t, damage.unwrap_or(0.0), info);
@@ -2485,6 +2544,83 @@ fn run_as(
         },
     });
     Ok((trace, g.coverage.take()))
+}
+
+/// The runner's own state between actions, for a caller that applies actions to a game
+/// it runs itself ([`apply_now`]).
+#[derive(Default)]
+pub struct Applier(RunState);
+
+/// Whether [`apply_now`] takes the action: the ones whose step runs no frame of its own.
+/// The others wait on the game (`choose`, `wait_talk`, `wait_quest`, `press_button`,
+/// `dismiss_message_boxes`, `trigger_enter`, the samplers), `wait_frames` and
+/// `advance_seconds` are waits, and `get_quest` is read by the run loop
+/// ([`quest_field`]); a caller with its own frames carries those out itself.
+pub fn applies_now(a: &Action) -> bool {
+    !matches!(
+        a,
+        Action::CallUntil { .. }
+            | Action::SampleItems { .. }
+            | Action::MenuGap { .. }
+            | Action::TriggerEnter { .. }
+            | Action::PressButton { .. }
+            | Action::DismissMessageBoxes { .. }
+            | Action::WaitQuest { .. }
+            | Action::WaitMenu { .. }
+            | Action::GetMenus { .. }
+            | Action::GetTagSkills { .. }
+            | Action::GetRef { .. }
+            | Action::GetQuest { .. }
+            | Action::WaitAv { .. }
+            | Action::HoldMenu { .. }
+            | Action::SampleAv { .. }
+            | Action::SampleAvDamage { .. }
+            | Action::SampleJumps { .. }
+            | Action::SampleVar { .. }
+            | Action::SampleRefVar { .. }
+            | Action::Choose { .. }
+            | Action::WaitTalk { .. }
+            | Action::WaitFrames { .. }
+            | Action::AdvanceSeconds { .. }
+    )
+}
+
+/// One action on a game the caller runs (the quest pilot in play, #2365): what the
+/// headless run does for it, with no frame run here. The observation of a labelled
+/// action is its label and fields. An action [`applies_now`] refuses is an error.
+pub fn apply_now(g: &mut Game, st: &mut Applier, a: &Action) -> Result<Observed, String> {
+    if !applies_now(a) {
+        return Err("this action waits on the game: the caller carries it out".into());
+    }
+    step(g, &mut st.0, a)
+}
+
+/// The label of a labelled action.
+pub fn label_of(a: &Action) -> Option<String> {
+    action_label(a)
+}
+
+/// The choice a `choose` action names among the ones offered now.
+pub fn choice_index(g: &Game, topic: &Option<String>, prompt: &Option<String>, index: &Option<usize>) -> Result<usize, String> {
+    pick_choice(g, topic, prompt, index)
+}
+
+/// One field of a quest as `get_quest` and `wait_quest` read it.
+pub fn quest_field(g: &Game, q: &str, f: &str) -> Result<Json, String> {
+    let q = quest(g, q)?;
+    field(g, q, f)
+}
+
+/// One field of a reference as `get_ref` reads it.
+pub fn reference_field(g: &mut Game, r: &str, f: &str) -> Result<Json, String> {
+    let r = resolve(g, r)?;
+    ref_field(g, r, f)
+}
+
+/// Where `go_to_cell` puts the player in a cell: the cell and the point.
+pub fn cell_arrival(g: &Game, cell: &str) -> Result<(FormId, [f32; 3]), String> {
+    let c = resolve(g, cell)?;
+    Ok((c, coc_destination(g, c)?))
 }
 
 fn action_label(a: &Action) -> Option<String> {

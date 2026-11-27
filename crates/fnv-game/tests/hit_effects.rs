@@ -143,6 +143,30 @@ fn a_hit_effect_drains_health_by_the_second() {
     assert!(g.effects.is_empty());
 }
 
+/// A burn's drain on the player is damage taken: the difficulty scales it as a hit
+/// (docs/spec-notes/difficulty.md §3.4): 10 over 5 s at Normal, 20 at Very Hard, 5 at
+/// Very Easy, and Custom's NPC Damage (here 250%: 25).
+#[test]
+fn the_difficulty_scales_a_drain_on_the_player() {
+    use fnv_game::difficulty::{CustomDifficulty, Difficulty};
+    let f = fixture();
+    for (d, custom, lost) in [
+        (Difficulty::Normal, None, 10.0),
+        (Difficulty::VeryHard, None, 20.0),
+        (Difficulty::VeryEasy, None, 5.0),
+        (Difficulty::Custom, Some(CustomDifficulty { taken: 2.5, ..CustomDifficulty::default() }), 25.0),
+    ] {
+        let mut g = game(&f);
+        if let Some(c) = custom {
+            g.set_custom_difficulty(c);
+        }
+        g.set_difficulty(d);
+        g.apply_hit_effect(P, FormId(BURNING), None);
+        g.frames(360);
+        assert!((100.0 - health(&mut g) - lost).abs() < 1e-3, "{d:?}: lost {}", 100.0 - health(&mut g));
+    }
+}
+
 #[test]
 fn resistance_cuts_the_magnitude() {
     let f = fixture();
@@ -202,7 +226,7 @@ fn a_drains_death_has_no_killing_hit() {
     const GET_KILLING_BLOW_LIMB: u16 = 0x11F0;
     let f = fixture();
     let mut g = game(&f);
-    assert!(!g.hit(P, 10.0, HitInfo { attacker: None, weapon: None, location: 3, critical: false, limb: None }).died);
+    assert!(!g.hit(P, 10.0, HitInfo { location: 3, ..HitInfo::default() }).died);
     g.apply_hit_effect(P, FormId(DEADLY), None);
     g.frames(180);
     assert!(g.is_dead(P));

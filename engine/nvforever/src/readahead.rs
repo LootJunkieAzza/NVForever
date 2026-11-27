@@ -30,7 +30,7 @@
 use crate::actors::{ActorPose, ActorWorld};
 use crate::world::{Streamer, WorldData};
 use bevy::prelude::*;
-use fnv_world::placed::{base_object, placement};
+use fnv_world::placed::base_object;
 use bevy::tasks::{futures::check_ready, Task};
 use fnv_actor::locomotion::Body;
 use fnv_actor::weapon::AnimType;
@@ -526,7 +526,7 @@ impl ReadAhead {
 /// start enabled: (reference, base, creature).
 fn placed_actors<'a>(world: &WorldData, refs: impl Iterator<Item = &'a u32>) -> CellActors {
     refs.filter_map(|&r| {
-        let p = placement(world.lo, world.schema, r).filter(|p| !p.deleted() && world.enabled(p, 0))?;
+        let p = world.index.placement(world.lo, world.schema, r).filter(|p| !p.deleted() && world.enabled(p, 0))?;
         let b = p.base.and_then(|b| base_object(world.lo, world.schema, b)).filter(|b| matches!(&b.sig, b"NPC_" | b"CREA"))?;
         Some((r, b.form_id, &b.sig == b"CREA"))
     })

@@ -1,0 +1,720 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave4h_reconcile",
+  "description": "Wave 4H strictly read-only console-only maintainer-requested reconciliation probe catalog (11 follow-up probes covering XML parenting, EXPL slot 4 null vs omit, UIO <ln> nonzero start, float crit damage, multi-tick SetCombatDisabled, hex DisableMuzzleFlashLights, indoor GetMoonPhase/GameDaysPassed/Climate, StewieGetValue whitespace, ApplyWeaponPoison Stimpak vs poison, SetSystemColor truncation, and SUP GetLockPickMenuValue shut/open tiers).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184",
+    "JohnnyGuitarNVSE": "528",
+    "kNVSE": "37",
+    "SUP NVSE Plugin": "855",
+    "AnhNVSE": "131",
+    "yUI": "140 (1.4d)",
+    "UI Organizer Plugin": "230",
+    "hNVSE": "120",
+    "lStewieAl's Tweaks": "1005"
+  },
+  "batches": [
+    {
+      "id": "w4h_01_maintainer_reconcile",
+      "title": "Wave 4H Batch 1 - Maintainer-Requested Reconciliation Probes",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528 + SUP 855 + UIO 230 + Stewie 1005",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll",
+        "supNVSE.dll",
+        "ui_organizer.dll",
+        "nvse_stewie_tweaks.dll"
+      ],
+      "probes": [
+        {
+          "id": "w4h_01_quest_added_button2_parent",
+          "bucket": "A",
+          "extender": "UI Organizer 230",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ui_organizer.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/menu-xml.md",
+          "spec_line": 40,
+          "functions_tested": [
+            "GetUIFloat"
+          ],
+          "claim": "Verify original FNV XML tile parenting when <hotrect> is closed with </rect> (as in vanilla quest_added.xml) and <rect> is closed with </hotrect>.",
+          "expected": "Button2 becomes a child of MainRect (HUDMainMenu/W4H_MainRect/W4H_Button2/user0 == 22, under Button1 and Menu == -999); reverse rect/hotrect behaves symmetrically.",
+          "script_lines": [
+            "float mLoad = GetUIFloat \"HUDMainMenu/W4H_MainRect/_loaded\"",
+            "float b1 = GetUIFloat \"HUDMainMenu/W4H_MainRect/W4H_Button1/user0\"",
+            "float b2UnderMain = GetUIFloat \"HUDMainMenu/W4H_MainRect/W4H_Button2/user0\"",
+            "float b2UnderB1 = GetUIFloat \"HUDMainMenu/W4H_MainRect/W4H_Button1/W4H_Button2/user0\"",
+            "float b2UnderMenu = GetUIFloat \"HUDMainMenu/W4H_Button2/user0\"",
+            "float rLoad = GetUIFloat \"HUDMainMenu/W4H_RevRect/_loaded\"",
+            "float rIn = GetUIFloat \"HUDMainMenu/W4H_RevRect/W4H_Inner/user0\"",
+            "float rSibMain = GetUIFloat \"HUDMainMenu/W4H_RevRect/W4H_Sib/user0\"",
+            "float rSibIn = GetUIFloat \"HUDMainMenu/W4H_RevRect/W4H_Inner/W4H_Sib/user0\"",
+            "float rSibMenu = GetUIFloat \"HUDMainMenu/W4H_Sib/user0\"",
+            "PrintToConsole \"PROBE|w4h_01_quest_added_button2_parent|hotrect_rect(ld=%g,b1=%g,b2Main=%g,b2B1=%g,b2Menu=%g)|rect_hotrect(ld=%g,in=%g,sibMain=%g,sibIn=%g,sibMenu=%g)\" mLoad b1 b2UnderMain b2UnderB1 b2UnderMenu rLoad rIn rSibMain rSibIn rSibMenu"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/uio/public/W4HTest.txt",
+              "content": "W4H\\w4h_quest_added.xml::HUDMainMenu\ntrue\nW4H\\w4h_uio_ln.xml::HUDMainMenu\ntrue\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4H/w4h_quest_added.xml",
+              "content": "<rect name=\"W4H_MainRect\">\n  <_loaded> 1 </_loaded>\n  <hotrect name=\"W4H_Button1\">\n    <user0> 11 </user0>\n  </rect>\n  <hotrect name=\"W4H_Button2\">\n    <user0> 22 </user0>\n  </rect>\n</rect>\n<rect name=\"W4H_RevRect\">\n  <_loaded> 1 </_loaded>\n  <rect name=\"W4H_Inner\">\n    <user0> 33 </user0>\n  </hotrect>\n  <rect name=\"W4H_Sib\">\n    <user0> 44 </user0>\n  </rect>\n</rect>\n"
+            }
+          ]
+        },
+        {
+          "id": "w4h_02_explosion_slot4_reconcile",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-records.md",
+          "spec_line": 84,
+          "functions_tested": [
+            "GetExplosionTraitForm",
+            "SetExplosionTraitForm",
+            "GetLoadedTypeArray"
+          ],
+          "claim": "Reconcile SetExplosionTraitForm null-ref variable vs omitted 3rd argument across slots 0, 4, 5, and 6, and scan all 223 loaded EXPL forms for ESM-populated slot 4.",
+          "expected": "Passing rNull=0 is ignored (unchanged) on every slot 0/4/5/6, whereas omitting the 3rd arg clears every slot 0/4/5/6 to 00000000 (reconciling w4d_27 vs gaps7).",
+          "script_lines": [
+            "array_var aExpls = GetLoadedTypeArray 81",
+            "int nExpl = ar_Size aExpls",
+            "int nPop4 = 0",
+            "int i = 0",
+            "while i < nExpl",
+            "  ref rCand = aExpls[i]",
+            "  if (GetExplosionTraitForm rCand 4) != 0",
+            "    let nPop4 += 1",
+            "  endif",
+            "  let i += 1",
+            "loop",
+            "ref rE = GetFormFromMod \"FalloutNV.esm\" \"179DA\"",
+            "ref rEuc = GetFormFromMod \"FalloutNV.esm\" \"172FBD\"",
+            "ref rStat = GetFormFromMod \"FalloutNV.esm\" \"3B\"",
+            "ref rNull = 0",
+            "ref s4_0 = GetExplosionTraitForm rE 4",
+            "SetExplosionTraitForm rE 4 rStat",
+            "ref s4_set = GetExplosionTraitForm rE 4",
+            "SetExplosionTraitForm rE 4 rNull",
+            "ref s4_null = GetExplosionTraitForm rE 4",
+            "ref fLit0 = CompileScript \"nvseprobe_h_w4h02_lit0_4.gek\"",
+            "ref s4_lit0 = s4_null",
+            "if fLit0",
+            "  Call fLit0",
+            "  let s4_lit0 := GetExplosionTraitForm rE 4",
+            "endif",
+            "SetExplosionTraitForm rE 4 rStat",
+            "ref fOm4 = CompileScript \"nvseprobe_h_w4h02_omit4.gek\"",
+            "ref s4_omit = rStat",
+            "if fOm4",
+            "  Call fOm4",
+            "  let s4_omit := GetExplosionTraitForm rE 4",
+            "endif",
+            "ref s0_0 = GetExplosionTraitForm rE 0",
+            "SetExplosionTraitForm rE 0 rNull",
+            "ref s0_null = GetExplosionTraitForm rE 0",
+            "SetExplosionTraitForm rE 0 s0_0",
+            "ref fOm0 = CompileScript \"nvseprobe_h_w4h02_omit0.gek\"",
+            "ref s0_omit = s0_0",
+            "if fOm0",
+            "  Call fOm0",
+            "  let s0_omit := GetExplosionTraitForm rE 0",
+            "endif",
+            "SetExplosionTraitForm rE 0 s0_0",
+            "ref s6_0 = GetExplosionTraitForm rE 6",
+            "SetExplosionTraitForm rE 6 rNull",
+            "ref s6_null = GetExplosionTraitForm rE 6",
+            "SetExplosionTraitForm rE 6 s6_0",
+            "ref fOm6 = CompileScript \"nvseprobe_h_w4h02_omit6.gek\"",
+            "ref s6_omit = s6_0",
+            "if fOm6",
+            "  Call fOm6",
+            "  let s6_omit := GetExplosionTraitForm rE 6",
+            "endif",
+            "SetExplosionTraitForm rE 6 s6_0",
+            "ref s5_0 = GetExplosionTraitForm rEuc 5",
+            "SetExplosionTraitForm rEuc 5 rNull",
+            "ref s5_null = GetExplosionTraitForm rEuc 5",
+            "SetExplosionTraitForm rEuc 5 s5_0",
+            "ref fOm5 = CompileScript \"nvseprobe_h_w4h02_omit5.gek\"",
+            "ref s5_omit = s5_0",
+            "if fOm5",
+            "  Call fOm5",
+            "  let s5_omit := GetExplosionTraitForm rEuc 5",
+            "endif",
+            "SetExplosionTraitForm rEuc 5 s5_0",
+            "int iLit0Ok = fLit0 != 0",
+            "int iOm4Ok = fOm4 != 0",
+            "string_var sA = sv_Construct \"esmPop4=%g/%g|s4(0=%i,set=%i,null=%i,lit0(%g)=%i,omit(%g)=%i)\" nPop4 nExpl s4_0 s4_set s4_null iLit0Ok s4_lit0 iOm4Ok s4_omit",
+            "string_var sB = sv_Construct \"s0(0=%i,null=%i,omit=%i)|s5(0=%i,null=%i,omit=%i)|s6(0=%i,null=%i,omit=%i)\" s0_0 s0_null s0_omit s5_0 s5_null s5_omit s6_0 s6_null s6_omit",
+            "PrintToConsole \"PROBE|w4h_02_explosion_slot4_reconcile|%z|%z\" sA sB"
+          ],
+          "helper_scripts": {
+            "nvseprobe_h_w4h02_omit4.gek": [
+              "ref rE = GetFormFromMod \"FalloutNV.esm\" \"179DA\"",
+              "SetExplosionTraitForm rE 4"
+            ],
+            "nvseprobe_h_w4h02_lit0_4.gek": [
+              "ref rE = GetFormFromMod \"FalloutNV.esm\" \"179DA\"",
+              "SetExplosionTraitForm rE 4 0"
+            ],
+            "nvseprobe_h_w4h02_omit0.gek": [
+              "ref rE = GetFormFromMod \"FalloutNV.esm\" \"179DA\"",
+              "SetExplosionTraitForm rE 0"
+            ],
+            "nvseprobe_h_w4h02_omit6.gek": [
+              "ref rE = GetFormFromMod \"FalloutNV.esm\" \"179DA\"",
+              "SetExplosionTraitForm rE 6"
+            ],
+            "nvseprobe_h_w4h02_omit5.gek": [
+              "ref rE = GetFormFromMod \"FalloutNV.esm\" \"172FBD\"",
+              "SetExplosionTraitForm rE 5"
+            ]
+          }
+        },
+        {
+          "id": "w4h_03_uio_ln_nonzero_start",
+          "bucket": "A",
+          "extender": "UI Organizer 230",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ui_organizer.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": true,
+          "requires_isolated_staging": true,
+          "spec_file": "docs/spec-notes/uio-four-operators.md",
+          "spec_line": 7,
+          "functions_tested": [
+            "GetUIFloat"
+          ],
+          "claim": "Test UIO 230 <ln>, <pow>, <neg>, <bt>, <sin>, <cos> with nonzero starting accumulator against an unknown-tag control (<unknown_w4h_op>).",
+          "expected": "<ln> leaves every nonzero accumulator unchanged (identical to <unknown_w4h_op>), proving <ln> is ignored as an unknown tag in UIO 230 while pow/neg/bt/sin/cos execute.",
+          "script_lines": [
+            "float vLd = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_loaded\"",
+            "float vLn5e = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_ln_5_e\"",
+            "float vLn10_1 = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_ln_10_1\"",
+            "float vLnE0 = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_ln_e_0\"",
+            "float vLn10_0 = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_ln_10_0\"",
+            "float vLn5_10 = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_ln_5_10\"",
+            "float vUnk = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_unk_5_2\"",
+            "float vPow = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_pow_5_2\"",
+            "float vNeg = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_neg_5_3\"",
+            "float vBt = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_bt_5_2\"",
+            "float vSin = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_sin_5_30\"",
+            "float vCos = GetUIFloat \"HUDMainMenu/W4H_UIO_LN/_cos_5_60\"",
+            "PrintToConsole \"PROBE|w4h_03_uio_ln_nonzero_start|ld=%g|ln(5_e=%.4f,10_1=%.4f,e_0=%.4f,10_0=%.4f,5_10=%.4f)|unk(5_2=%.4f)|pow=%.2f|neg=%.2f|bt=%.2f|sin=%.4f|cos=%.4f\" vLd vLn5e vLn10_1 vLnE0 vLn10_0 vLn5_10 vUnk vPow vNeg vBt vSin vCos"
+          ],
+          "fixtures": [
+            {
+              "rel_path": "Data/uio/public/W4HTest.txt",
+              "content": "W4H\\w4h_quest_added.xml::HUDMainMenu\ntrue\nW4H\\w4h_uio_ln.xml::HUDMainMenu\ntrue\n"
+            },
+            {
+              "rel_path": "Data/Menus/Prefabs/W4H/w4h_uio_ln.xml",
+              "content": "<rect name=\"W4H_UIO_LN\">\n  <_loaded> 1 </_loaded>\n  <_ln_5_e> <copy> 5 </copy> <ln> 2.7182818 </ln> </_ln_5_e>\n  <_ln_10_1> <copy> 10 </copy> <ln> 1 </ln> </_ln_10_1>\n  <_ln_e_0> <copy> 2.7182818 </copy> <ln> 0 </ln> </_ln_e_0>\n  <_ln_10_0> <copy> 10 </copy> <ln> 0 </ln> </_ln_10_0>\n  <_ln_5_10> <copy> 5 </copy> <ln> 10 </ln> </_ln_5_10>\n  <_unk_5_2> <copy> 5 </copy> <unknown_w4h_op> 2 </unknown_w4h_op> </_unk_5_2>\n  <_pow_5_2> <copy> 5 </copy> <pow> 2 </pow> </_pow_5_2>\n  <_neg_5_3> <copy> 5 </copy> <neg> 3 </neg> </_neg_5_3>\n  <_bt_5_2> <copy> 5 </copy> <bt> 2 </bt> </_bt_5_2>\n  <_sin_5_30> <copy> 5 </copy> <sin> 30 </sin> </_sin_5_30>\n  <_cos_5_60> <copy> 5 </copy> <cos> 60 </cos> </_cos_5_60>\n</rect>\n"
+            }
+          ]
+        },
+        {
+          "id": "w4h_04_weapon_crit_damage_float",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 120,
+          "functions_tested": [
+            "SetWeaponCritDamage",
+            "GetWeaponCritDamage"
+          ],
+          "claim": "Verify GetWeaponCritDamage read into a float variable (%.4f) after SetWeaponCritDamage with 12.7, 12.3, -5.0, and 70000.0.",
+          "expected": "Fractional inputs truncate to integer (12.0000), -5 wraps u16 to 65531.0000, and 70000 wraps u16 to 4464.0000.",
+          "script_lines": [
+            "ref rW = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "float f0 = GetWeaponCritDamage rW",
+            "float in1 = 12.7",
+            "SetWeaponCritDamage in1 rW",
+            "float f127 = GetWeaponCritDamage rW",
+            "float in2 = 12.3",
+            "SetWeaponCritDamage in2 rW",
+            "float f123 = GetWeaponCritDamage rW",
+            "float inNeg = -5.0",
+            "SetWeaponCritDamage inNeg rW",
+            "float fNeg = GetWeaponCritDamage rW",
+            "float inOver = 70000.0",
+            "SetWeaponCritDamage inOver rW",
+            "float fOver = GetWeaponCritDamage rW",
+            "SetWeaponCritDamage f0 rW",
+            "PrintToConsole \"PROBE|w4h_04_weapon_crit_damage_float|f0=%.4f|12.7=%.4f|12.3=%.4f|neg=%.4f|over70k=%.4f\" f0 f127 f123 fNeg fOver"
+          ]
+        },
+        {
+          "id": "w4h_05_set_combat_disabled_multitick",
+          "bucket": "B",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 181,
+          "functions_tested": [
+            "SetCombatDisabled",
+            "GetCombatDisabled",
+            "StartCombat",
+            "IsInCombat"
+          ],
+          "claim": "Verify whether SetCombatDisabled 1 on an actor already in combat keeps IsInCombat=1 across ticks 0, 2, and 5 or ends combat after tick 0.",
+          "expected": "Same-tick t0 keeps IsInCombat=1, but by tick 2 (t2) and tick 5 (t5) IsInCombat drops to 0 (SetCombatDisabled 1 ends active combat on subsequent AI ticks).",
+          "script_lines": [
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rA = Player.PlaceAtMe rDocBase 1",
+            "rA.StartCombat Player",
+            "Player.AuxVarSetRef \"*w4h05_a\" rA"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "t0",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rA = Player.AuxVarGetRef \"*w4h05_a\"",
+                "int cPre = rA.IsInCombat",
+                "rA.SetCombatDisabled 1",
+                "int cd0 = rA.GetCombatDisabled",
+                "int cT0 = rA.IsInCombat",
+                "Player.AuxVarSetFlt \"*w4h05_pre\" cPre",
+                "Player.AuxVarSetFlt \"*w4h05_cd0\" cd0",
+                "Player.AuxVarSetFlt \"*w4h05_t0\" cT0"
+              ]
+            },
+            {
+              "suffix": "t2",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rA = Player.AuxVarGetRef \"*w4h05_a\"",
+                "int cT2 = rA.IsInCombat",
+                "int cd2 = rA.GetCombatDisabled",
+                "Player.AuxVarSetFlt \"*w4h05_t2\" cT2",
+                "Player.AuxVarSetFlt \"*w4h05_cd2\" cd2"
+              ]
+            },
+            {
+              "suffix": "t5",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rA = Player.AuxVarGetRef \"*w4h05_a\"",
+                "int cT5 = rA.IsInCombat",
+                "int cd5 = rA.GetCombatDisabled",
+                "rA.SetCombatDisabled 0",
+                "rA.StopCombat",
+                "rA.Disable 0",
+                "rA.MarkForDelete",
+                "int cPre = Player.AuxVarGetFlt \"*w4h05_pre\"",
+                "int cd0 = Player.AuxVarGetFlt \"*w4h05_cd0\"",
+                "int cT0 = Player.AuxVarGetFlt \"*w4h05_t0\"",
+                "int cT2 = Player.AuxVarGetFlt \"*w4h05_t2\"",
+                "int cd2 = Player.AuxVarGetFlt \"*w4h05_cd2\"",
+                "PrintToConsole \"PROBE|w4h_05_set_combat_disabled_multitick|pre=%g|t0(cd=%g,inCmb=%g)|t2(cd=%g,inCmb=%g)|t5(cd=%g,inCmb=%g)\" cPre cd0 cT0 cd2 cT2 cd5 cT5"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4h_06_disable_muzzle_flash_hex",
+          "bucket": "A",
+          "extender": "JohnnyGuitarNVSE 528 + SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 26,
+          "functions_tested": [
+            "DisableMuzzleFlashLights",
+            "DebugTextCreate",
+            "DebugTextExists",
+            "DebugTextDestroy",
+            "GetCommandOpcode"
+          ],
+          "claim": "Verify exact %x/%i return of DisableMuzzleFlashLights 99 (0xFFFFFFFF) and check whether SUP NVSE 855 exposes any DebugTextGet* getters.",
+          "expected": "DisableMuzzleFlashLights 99 prints hex=FFFFFFFF; DebugTextCreate returns 1 then -1 on existing name; GetCommandOpcode confirms 0 getters exist in SUP 855.",
+          "script_lines": [
+            "int dm99 = DisableMuzzleFlashLights 99",
+            "int dm1 = DisableMuzzleFlashLights 1",
+            "int dm0 = DisableMuzzleFlashLights 0",
+            "int dt1 = DebugTextCreate \"w4h_dt\" 100 100 \"First\"",
+            "int ex1 = DebugTextExists \"w4h_dt\"",
+            "int dt2 = DebugTextCreate \"w4h_dt\" 200 200 \"Second\"",
+            "int ex2 = DebugTextExists \"w4h_dt\"",
+            "DebugTextDestroy \"w4h_dt\"",
+            "int ex3 = DebugTextExists \"w4h_dt\"",
+            "int opGetP = GetCommandOpcode \"DebugTextGetPos\"",
+            "int opGetS = GetCommandOpcode \"DebugTextGetString\"",
+            "int opGetZ = GetCommandOpcode \"DebugTextGetZoom\"",
+            "PrintToConsole \"PROBE|w4h_06_disable_muzzle_flash_hex|dm99(hex=%x,i=%i,g=%g)|dm1(%x,%g)|dm0(%x,%g)|dt(c1=%g,ex1=%g,c2=%g,ex2=%g,ex3=%g)|getOps(%g,%g,%g)\" dm99 dm99 dm99 dm1 dm1 dm0 dm0 dt1 ex1 dt2 ex2 ex3 opGetP opGetS opGetZ"
+          ]
+        },
+        {
+          "id": "w4h_07_moon_phase_days_climate",
+          "bucket": "A",
+          "extender": "JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg6.md",
+          "spec_line": 43,
+          "functions_tested": [
+            "GetMoonPhase",
+            "GetCurrentClimate"
+          ],
+          "claim": "Indoors in GSDocMitchellHouse, log GetMoonPhase together with GameDaysPassed, GetCurrentClimate, and calendar date/hour.",
+          "expected": "moon=1, GameDaysPassed=5.5011, GetCurrentClimate=0000015F (DefaultClimate), date=2281-9-18 hour=12.026.",
+          "script_lines": [
+            "int mp = GetMoonPhase",
+            "float gdp = GameDaysPassed",
+            "ref rClim = GetCurrentClimate",
+            "float gh = GameHour",
+            "int gd = GameDay",
+            "int gm = GameMonth",
+            "int gy = GameYear",
+            "PrintToConsole \"PROBE|w4h_07_moon_phase_days_climate|moon=%g|days=%.4f|clim=%i|date=%g-%g-%g|hour=%.3f\" mp gdp rClim gy gm gd gh"
+          ]
+        },
+        {
+          "id": "w4h_08_stewie_get_value_whitespace",
+          "bucket": "A",
+          "extender": "lStewieAl's Tweaks 1005",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "nvse_stewie_tweaks.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-small.md",
+          "spec_line": 200,
+          "functions_tested": [
+            "StewieGetValue"
+          ],
+          "claim": "Verify StewieGetValue 'Key:Section', 'Section:Key', and bare key lookups with leading, trailing, and around-colon whitespace.",
+          "expected": "Exact 'bUseConsoleOutputFile:Tweaks' returns 1; all leading/trailing/around-colon whitespace variants return 0 (no whitespace trimming).",
+          "script_lines": [
+            "float sk0 = StewieGetValue \"Tweaks:bUseConsoleOutputFile\"",
+            "float skL = StewieGetValue \" Tweaks:bUseConsoleOutputFile\"",
+            "float skR = StewieGetValue \"Tweaks:bUseConsoleOutputFile \"",
+            "float skM = StewieGetValue \"Tweaks : bUseConsoleOutputFile\"",
+            "float ks0 = StewieGetValue \"bUseConsoleOutputFile:Tweaks\"",
+            "float ksL = StewieGetValue \" bUseConsoleOutputFile:Tweaks\"",
+            "float ksR = StewieGetValue \"bUseConsoleOutputFile:Tweaks \"",
+            "float ksM = StewieGetValue \"bUseConsoleOutputFile : Tweaks\"",
+            "float b0 = StewieGetValue \"bUseConsoleOutputFile\"",
+            "float bL = StewieGetValue \" bUseConsoleOutputFile\"",
+            "float bR = StewieGetValue \"bUseConsoleOutputFile \"",
+            "PrintToConsole \"PROBE|w4h_08_stewie_get_value_whitespace|sk(0=%g,L=%g,R=%g,M=%g)|ks(0=%g,L=%g,R=%g,M=%g)|bare(0=%g,L=%g,R=%g)\" sk0 skL skR skM ks0 ksL ksR ksM b0 bL bR"
+          ]
+        },
+        {
+          "id": "w4h_09_apply_weapon_poison_stimpak",
+          "bucket": "B",
+          "extender": "JohnnyGuitarNVSE 528 + JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 24,
+          "functions_tested": [
+            "ApplyWeaponPoison",
+            "GetEquippedWeaponPoison",
+            "GetIsPoison"
+          ],
+          "claim": "Verify ApplyWeaponPoison on equipped melee weapon with real poisons (BleakVenom 0x1613D0, SilverSting 0x167475) vs non-poison ALCH Stimpak (0x15169).",
+          "expected": "Real poisons return 1 and read back via GetEquippedWeaponPoison; Stimpak (GetIsPoison=0) returns 0 and leaves poison 00000000.",
+          "script_lines": [
+            "ref rKnife = GetFormFromMod \"FalloutNV.esm\" \"4326\"",
+            "ref rBleak = GetFormFromMod \"FalloutNV.esm\" \"1613D0\"",
+            "ref rSilver = GetFormFromMod \"FalloutNV.esm\" \"167475\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "Player.AddItem rKnife 1 1",
+            "Player.AddItem rBleak 1 1",
+            "Player.AddItem rSilver 1 1",
+            "Player.AddItem rStim 1 1",
+            "Player.EquipItem rKnife 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "apply",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rKnife = GetFormFromMod \"FalloutNV.esm\" \"4326\"",
+                "ref rBleak = GetFormFromMod \"FalloutNV.esm\" \"1613D0\"",
+                "ref rSilver = GetFormFromMod \"FalloutNV.esm\" \"167475\"",
+                "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+                "ref rEq = Player.GetEquippedObject 5",
+                "int ipB = GetIsPoison rBleak",
+                "int ipS = GetIsPoison rSilver",
+                "int ipSt = GetIsPoison rStim",
+                "ref pInit = Player.GetEquippedWeaponPoison",
+                "int rB = Player.ApplyWeaponPoison rBleak",
+                "ref pB = Player.GetEquippedWeaponPoison",
+                "int rClr1 = Player.ApplyWeaponPoison",
+                "ref pClr1 = Player.GetEquippedWeaponPoison",
+                "int rSt = Player.ApplyWeaponPoison rStim",
+                "ref pSt = Player.GetEquippedWeaponPoison",
+                "int rSil = Player.ApplyWeaponPoison rSilver",
+                "ref pSil = Player.GetEquippedWeaponPoison",
+                "int rClr2 = Player.ApplyWeaponPoison",
+                "ref pClr2 = Player.GetEquippedWeaponPoison",
+                "Player.UnequipItem rKnife 0 1",
+                "Player.RemoveItem rKnife 1 1",
+                "string_var sA = sv_Construct \"eq=%i|isPois(b=%g,s=%g,st=%g)|init=%i|bleak(%g:%i)|clr1(%g:%i)\" rEq ipB ipS ipSt pInit rB pB rClr1 pClr1",
+                "string_var sB = sv_Construct \"stim(%g:%i)|silver(%g:%i)|clr2(%g:%i)\" rSt pSt rSil pSil rClr2 pClr2",
+                "PrintToConsole \"PROBE|w4h_09_apply_weapon_poison_stimpak|%z|%z\" sA sB"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w4h_10_set_system_color_fractional",
+          "bucket": "A",
+          "extender": "JIP LN 57.30 + JohnnyGuitarNVSE 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-ui-9.md",
+          "spec_line": 45,
+          "functions_tested": [
+            "SetSystemColor",
+            "GetSystemColor"
+          ],
+          "claim": "Verify whether SetSystemColor truncates or rounds fractional RGB channel inputs via GetSystemColor hex readback.",
+          "expected": "SetSystemColor truncates fractional values toward zero: (12.7, 12.3, 12.5) -> 0x0C0C0C and (13.5, 0.4, 254.6) -> 0x0D00FE.",
+          "script_lines": [
+            "int c0 = GetSystemColor 1",
+            "float fr1 = 12.7",
+            "float fg1 = 12.3",
+            "float fb1 = 12.5",
+            "SetSystemColor 1 fr1 fg1 fb1",
+            "int c1 = GetSystemColor 1",
+            "float fr2 = 13.5",
+            "float fg2 = 0.4",
+            "float fb2 = 254.6",
+            "SetSystemColor 1 fr2 fg2 fb2",
+            "int c2 = GetSystemColor 1",
+            "int r0 = (c0 / 65536) % 256",
+            "int g0 = (c0 / 256) % 256",
+            "int b0 = c0 % 256",
+            "SetSystemColor 1 r0 g0 b0",
+            "int cRest = GetSystemColor 1",
+            "PrintToConsole \"PROBE|w4h_10_set_system_color_fractional|c0=%x|f1(12.7,12.3,12.5)=%x|f2(13.5,0.4,254.6)=%x|rest=%x\" c0 c1 c2 cRest"
+          ]
+        },
+        {
+          "id": "w4h_11_sup_lockpick_menu_tiers",
+          "bucket": "B",
+          "extender": "SUP NVSE 855",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "supNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-sup6.md",
+          "spec_line": 75,
+          "functions_tested": [
+            "GetLockPickMenuValue",
+            "Lock",
+            "Unlock",
+            "Activate"
+          ],
+          "claim": "Verify GetLockPickMenuValue for indices 0, 1, 2, 3, -1 when LockPickMenu is shut and when open at Lock 1, 25, 50, 75, 100.",
+          "expected": "Shut returns -1.0 for all indices 0/1/2/3/-1; open Lock 50 returns v1=2.0, v2=100.0, v3=0.0, v-1=0.0; tiers 1/25/50/75/100 map to 1.0/1.0/2.0/3.0/4.0.",
+          "script_lines": [
+            "float s0 = GetLockPickMenuValue 0",
+            "float s1 = GetLockPickMenuValue 1",
+            "float s2 = GetLockPickMenuValue 2",
+            "float s3 = GetLockPickMenuValue 3",
+            "float sNeg = GetLockPickMenuValue -1",
+            "Player.AuxVarSetFlt \"*w4h11_s0\" s0",
+            "Player.AuxVarSetFlt \"*w4h11_s1\" s1",
+            "Player.AuxVarSetFlt \"*w4h11_s2\" s2",
+            "Player.AuxVarSetFlt \"*w4h11_s3\" s3",
+            "Player.AuxVarSetFlt \"*w4h11_sn\" sNeg",
+            "ref rPin = GetFormFromMod \"FalloutNV.esm\" \"A\"",
+            "Player.AddItem rPin 10 1",
+            "Player.SetAV Lockpick 100",
+            "Player.AuxVarSetFlt \"*np_keepmenu\" 1",
+            "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+            "rDoor.Lock 50",
+            "rDoor.Activate Player 0"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "l50_to_l1",
+              "wait_ticks": 2,
+              "script_lines": [
+                "int mm50 = GetActiveMenuMode",
+                "float o0 = GetLockPickMenuValue 0",
+                "float o1 = GetLockPickMenuValue 1",
+                "float o2 = GetLockPickMenuValue 2",
+                "float o3 = GetLockPickMenuValue 3",
+                "float oNeg = GetLockPickMenuValue -1",
+                "Player.AuxVarSetFlt \"*w4h11_mm50\" mm50",
+                "Player.AuxVarSetFlt \"*w4h11_o0\" o0",
+                "Player.AuxVarSetFlt \"*w4h11_o1\" o1",
+                "Player.AuxVarSetFlt \"*w4h11_o2\" o2",
+                "Player.AuxVarSetFlt \"*w4h11_o3\" o3",
+                "Player.AuxVarSetFlt \"*w4h11_on\" oNeg",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "rDoor.Lock 1",
+                "rDoor.Activate Player 0"
+              ]
+            },
+            {
+              "suffix": "l1_to_l25",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*w4h11_t1\" (GetLockPickMenuValue 1)",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "rDoor.Lock 25",
+                "rDoor.Activate Player 0"
+              ]
+            },
+            {
+              "suffix": "l25_to_l75",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*w4h11_t25\" (GetLockPickMenuValue 1)",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "rDoor.Lock 75",
+                "rDoor.Activate Player 0"
+              ]
+            },
+            {
+              "suffix": "l75_to_l100",
+              "wait_ticks": 2,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*w4h11_t75\" (GetLockPickMenuValue 1)",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "rDoor.Lock 100",
+                "rDoor.Activate Player 0"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "float t100 = GetLockPickMenuValue 1",
+                "Player.AuxVarSetFlt \"*np_keepmenu\" 0",
+                "CloseActiveMenu",
+                "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"1062AC\"",
+                "rDoor.Unlock",
+                "float s0 = Player.AuxVarGetFlt \"*w4h11_s0\"",
+                "float s1 = Player.AuxVarGetFlt \"*w4h11_s1\"",
+                "float s2 = Player.AuxVarGetFlt \"*w4h11_s2\"",
+                "float s3 = Player.AuxVarGetFlt \"*w4h11_s3\"",
+                "float sNeg = Player.AuxVarGetFlt \"*w4h11_sn\"",
+                "int mm50 = Player.AuxVarGetFlt \"*w4h11_mm50\"",
+                "float o0 = Player.AuxVarGetFlt \"*w4h11_o0\"",
+                "float o1 = Player.AuxVarGetFlt \"*w4h11_o1\"",
+                "float o2 = Player.AuxVarGetFlt \"*w4h11_o2\"",
+                "float o3 = Player.AuxVarGetFlt \"*w4h11_o3\"",
+                "float oNeg = Player.AuxVarGetFlt \"*w4h11_on\"",
+                "float t1 = Player.AuxVarGetFlt \"*w4h11_t1\"",
+                "float t25 = Player.AuxVarGetFlt \"*w4h11_t25\"",
+                "float t75 = Player.AuxVarGetFlt \"*w4h11_t75\"",
+                "string_var sS = sv_Construct \"shut(%.1f,%.1f,%.1f,%.1f,%.1f)\" s0 s1 s2 s3 sNeg",
+                "string_var sO = sv_Construct \"open50(mm=%g,%.2f,%.1f,%.1f,%.1f,%.1f)\" mm50 o0 o1 o2 o3 oNeg",
+                "string_var sT = sv_Construct \"tiers(1=%.1f,25=%.1f,50=%.1f,75=%.1f,100=%.1f)\" t1 t25 o1 t75 t100",
+                "PrintToConsole \"PROBE|w4h_11_sup_lockpick_menu_tiers|%z|%z|%z\" sS sO sT"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

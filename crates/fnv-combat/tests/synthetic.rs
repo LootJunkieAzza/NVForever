@@ -16,6 +16,7 @@ const AMMO_SPECIAL: u32 = 0x831;
 const AMMO_EFFECT: u32 = 0x840;
 const BLAST: u32 = 0x850;
 const BODY: u32 = 0x860;
+const RAVEN_BODY: u32 = 0x861;
 const SETTING: u32 = 0x870;
 
 fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
@@ -134,6 +135,25 @@ fn plugin_bytes() -> Vec<u8> {
             sub(b"NAM4", z("")),
         ],
     );
+    // BPTD: a nameless single-part torso flagged Explodable + Absolute (0x48) at 100 %,
+    // matching FalloutNV.esm's NVraven02 (#3435).
+    let raven_bpnd = Buf::new(84)
+        .f32(0, 1.0) // damage_mult
+        .put(4, &[0x48, 0, 5, 25, 100, 100]) // flags (Explodable | Absolute), Torso, 5 %, Perception Condition, to-hit 100, explode 100 %
+        .0;
+    let raven_bptd = record(
+        b"BPTD",
+        RAVEN_BODY,
+        &[
+            sub(b"EDID", z("TestRavenBody")),
+            sub(b"BPNN", z("Bip01 RigPelvis")),
+            sub(b"BPNT", z("Bip01 RigPelvis")),
+            sub(b"BPNI", z("")),
+            sub(b"BPND", raven_bpnd),
+            sub(b"NAM1", z("")),
+            sub(b"NAM4", z("")),
+        ],
+    );
     let gmst = record(b"GMST", SETTING, &[sub(b"EDID", z("fDamageSkillBase")), sub(b"DATA", 0.5f32.to_le_bytes().to_vec())]);
 
     [
@@ -145,7 +165,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"FLST", &flst),
         top(b"PROJ", &[bullet, grenade].concat()),
         top(b"EXPL", &expl),
-        top(b"BPTD", &bptd),
+        top(b"BPTD", &[bptd, raven_bptd].concat()),
     ]
     .concat()
 }
@@ -230,4 +250,26 @@ fn body_parts_group_with_and_without_names() {
     assert_eq!(b.parts[0].part_type.as_deref(), Some("Torso"));
     assert_eq!((b.parts[1].name.as_deref(), b.parts[1].node.as_deref()), (None, Some("Bip01 Head")));
     assert_eq!((b.parts[1].part_type.as_deref(), b.parts[1].damage_mult, b.parts[1].health_percent), (Some("Head 1"), 2.0, 60));
+}
+
+#[test]
+fn explodable_absolute_bptd_decodes_and_explodes_without_bloody_mess() {
+    use fnv_combat::dismember::{chances, Blow, OnHit, Settings};
+    let c = forms();
+    assert!(c.issues.is_empty(), "{}", c.issues.to_json());
+    let b = &c.body_parts[&FormId(RAVEN_BODY)];
+    assert_eq!(b.parts.len(), 1);
+    let p = &b.parts[0];
+    assert_eq!((p.name.as_deref(), p.node.as_deref(), p.part_type.as_deref()), (None, Some("Bip01 RigPelvis"), Some("Torso")));
+    assert!(p.explodable() && p.explodable_absolute() && !p.severable());
+    assert_eq!(p.explodable_chance_percent, 100);
+    let s = Settings::default();
+    for on_hit in [OnHit::Normal, OnHit::ExplodeOnly] {
+        let blow = Blow { on_hit, crippled: true, overkill: 10.0, max_health: 6.0, bloody_mess: false, corpse: false, sole_part: b.parts.len() == 1 };
+        assert_eq!(chances(p, &blow, &s), (100.0, 0.0), "{on_hit:?}");
+    }
+    for on_hit in [OnHit::Neither, OnHit::DismemberOnly] {
+        let blow = Blow { on_hit, crippled: true, overkill: 10.0, max_health: 6.0, bloody_mess: false, corpse: false, sole_part: b.parts.len() == 1 };
+        assert_eq!(chances(p, &blow, &s), (0.0, 0.0), "{on_hit:?}");
+    }
 }

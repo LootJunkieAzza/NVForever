@@ -128,19 +128,26 @@ fn calculate_start_value_takes_the_block_as_it_is() {
 fn a_back_and_forth_loop_stops_when_asked() {
     let f = fixture();
     let mut g = game(&f);
+    // Wave 4D w4d_36_sup_random_keymap_and_dialog [observed]: when a reference has zero
+    // active interpolations, NifBlockInterpolateStop returns 0 (not -1) even with a
+    // block argument.
+    assert_eq!(n(&mut g, "PlayerREF.NifBlockInterpolateStop"), 0.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "NoSuchBlockXYZ" 0 0"#), 0.0);
     n(&mut g, r#"PlayerREF.NifBlockInterpolateScale "Bip01 Head" 1 2 1 2 0 0"#);
     for _ in 0..5 {
         g.tick();
     }
     assert_eq!(scales(&mut g), vec![1.0, 1.5, 2.0, 1.5, 1.0]);
     assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head""#), 1.0);
-    // Another type on the block stops nothing, -1 [observed: sup7 scale.next]; the
-    // scale's type does.
+    // Another type on the block while an interpolation is active stops nothing, -1
+    // [observed: sup7 scale.next, sup_23_nif_interp_stop_and_type]; the scale's type does.
     assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 1"#), -1.0);
     // A bare Stop gives 0 and stops nothing [observed: sup7 second run].
     assert_eq!(n(&mut g, "PlayerREF.NifBlockInterpolateStop"), 0.0);
     assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head""#), 1.0);
     assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 0"#), 1.0);
+    // Once all interpolations on the reference are stopped, a miss returns 0 again.
+    assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 0"#), 0.0);
     g.tick();
     assert!(scales(&mut g).is_empty());
 }

@@ -697,8 +697,6 @@ dependencies = [
 [[package]]
 name = "bevy_core_pipeline"
 version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2463cf477b683bfe8567c43142295d00ed980f8e2a293c0a69e2f9e10e9c0aaf"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -720,6 +718,7 @@ dependencies = [
  "bevy_utils",
  "bevy_window",
  "bitflags 2.13.2",
+ "bytemuck",
  "indexmap",
  "nonmax",
 ]
@@ -1182,8 +1181,6 @@ dependencies = [
 [[package]]
 name = "bevy_light"
 version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8454efb3391cff0b059470779e6bd4f2147c549833fa36e489f9b51019d7a0a"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -4649,6 +4646,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-android"
+version = "0.8.1"
+dependencies = [
+ "bevy",
+ "jni 0.21.1",
+ "nvf-launcher",
+ "nvforever",
+]
+
+[[package]]
 name = "nvf-assets"
 version = "0.8.1"
 dependencies = [
@@ -4663,6 +4670,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-coop"
+version = "0.8.1"
+dependencies = [
+ "getrandom 0.3.4",
+]
+
+[[package]]
 name = "nvf-dlss-files"
 version = "0.8.1"
 dependencies = [
@@ -4672,6 +4686,18 @@ dependencies = [
  "tracing",
  "ureq",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nvf-launcher"
+version = "0.8.1"
+dependencies = [
+ "fnv-install",
+ "fnv-save",
+ "fnv-util",
+ "nvf-settings-layout",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4699,6 +4725,7 @@ dependencies = [
  "fnv-voice",
  "fnv-world",
  "infinitier_bik_decoder",
+ "jiff",
  "nvf-assets",
  "nvf-settings-layout",
  "png",
@@ -4707,6 +4734,18 @@ dependencies = [
  "rodio",
  "serde",
  "serde_json",
+ "swash",
+]
+
+[[package]]
+name = "nvf-rtgi"
+version = "0.8.1"
+
+[[package]]
+name = "nvf-rtgi-live"
+version = "0.8.1"
+dependencies = [
+ "nvf-rtgi",
 ]
 
 [[package]]
@@ -4767,22 +4806,27 @@ dependencies = [
  "fnv-voice",
  "fnv-world",
  "half",
+ "jni 0.21.1",
  "libc",
  "libloading",
  "nvf-assets",
+ "nvf-coop",
  "nvf-dlss-files",
  "nvf-play",
  "png",
+ "rapier3d",
  "rayon",
  "rfd",
  "serde_json",
  "sysinfo",
  "texpresso",
+ "tiny-skia",
  "tracy-client",
  "ureq",
  "uuid",
  "wgpu",
  "wgpu-ffx",
+ "windows",
  "windows-sys 0.61.2",
  "winit",
  "winresource",
@@ -5654,8 +5698,6 @@ checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
 [[package]]
 name = "rapier3d"
 version = "0.36.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "033e2edc815d61ab97bd74ed5d1cbea5ebe575218774a7cfedbd3551f0033317"
 dependencies = [
  "approx",
  "arrayvec",
@@ -7797,8 +7839,6 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 [[package]]
 name = "winit"
 version = "0.30.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6755fa58a9f8350bd1e472d4c3fcc25f824ec358933bba33306d0b63df5978d"
 dependencies = [
  "ahash",
  "android-activity",

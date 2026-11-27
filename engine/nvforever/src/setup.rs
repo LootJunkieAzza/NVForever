@@ -22,7 +22,7 @@
 //! profile instead (`fnv_install::mo2`; docs/mod-organizer-2.md).
 
 use fnv_install::{check_separation, Config, EngineHome, GameInstall, InstallError};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// The game at `dir`, or why it cannot be used, in words for the player.
 fn validate(dir: &Path, home: &EngineHome) -> Result<GameInstall, String> {
@@ -92,34 +92,66 @@ pub fn game_install(cli: Option<&Path>) -> Result<GameInstall, String> {
 /// `NVF_CODE_PAGE`, else `[Text] CodePage` of the home's NVForever.ini, else
 /// Windows-1252. Set before any of the game's text is read. The flag says whether one of
 /// the two named it; when neither did, [`guess_code_page`] may change it once the
-/// plugins are open.
-pub fn text_code_page() -> Result<(fnv_util::text::CodePage, bool), String> {
-    let ini = EngineHome::user().and_then(|h| Config::load(&h).ok()).and_then(|c| c.code_page).filter(|v| !v.trim().is_empty());
-    let env = std::env::var(fnv_util::text::ENV).ok().filter(|v| !v.trim().is_empty());
-    let named = ini.is_some() || env.is_some();
-    fnv_util::text::chosen(ini.as_deref()).map(|c| (c, named))
+/// plugins are open. Read the optional CJK font path from the same INI.
+pub fn text_code_page() -> Result<(fnv_util::text::CodePage, bool, Option<PathBuf>), String> {
+    let (ini, cjk_font_path) = EngineHome::user().and_then(|home| {
+        let cfg = Config::load(&home).ok()?;
+        let cjk_font_path = cfg.cjk_font_path.map(|path| home.root.join(path));
+        Some((cfg.code_page, cjk_font_path))
+    }).unwrap_or_default();
+    fnv_util::text::configured(ini.as_deref())
+        .map(|page| (page.unwrap_or_default(), page.is_some(), cjk_font_path))
 }
 
 /// The code page read from the plugins' own text when no setting names one (#1443,
 /// `fnv_esm::text_guess`): set and said in the log when it is not the default. Runs after
-/// the plugins are opened and before any of their text is decoded.
-pub fn guess_code_page(plugins: &[fnv_esm::Plugin]) {
+/// the plugins are opened and before their record text is decoded. False: the text tells
+/// none.
+pub fn guess_code_page(plugins: &[fnv_esm::Plugin]) -> bool {
     let g = fnv_esm::text_guess::guess(plugins);
-    if let Some(c) = g.code_page {
-        eprintln!(
-            "setup: game text read as {c}, found in the plugins' text ({}); set [Text] CodePage in NVForever.ini to choose another",
-            g.cyrillic().join(", ")
-        );
-        fnv_util::text::set_code_page(c);
-    }
+    let Some(c) = g.code_page else { return false };
+    eprintln!(
+        "setup: game text read as {c}, found in the plugins' text ({}); set [Text] CodePage in NVForever.ini to choose another",
+        g.supporting_plugins().join(", ")
+    );
+    fnv_util::text::set_code_page(c);
+    true
 }
 
-/// NVForever's own words in the language of the game's text (#1948,
+/// The language Steam installed the game in (`fnv_install::steam`, #1443): its code page
+/// and the language of NVForever's own words, said in the log when it is not English.
+/// `data` is the game's `Data` folder; `None` outside a Steam library or for a language
+/// this build does not know.
+pub fn steam_language(data: &std::path::Path) -> Option<(fnv_util::text::CodePage, Option<&'static str>)> {
+    let name = fnv_install::steam::manifest_language(data.parent()?)?;
+    let found = fnv_util::words::for_steam_language(&name);
+    match found {
+        Some((page, _)) if name != "english" => eprintln!("setup: Steam installed the game in {name} ({page}), used when no setting and no plugin text names a code page"),
+        None => eprintln!("setup: Steam installed the game in {name}, a language this build does not know; the code page comes from the plugins' text"),
+        _ => {}
+    }
+    found
+}
+
+/// The code page Steam's language names (`steam_language`), set when no setting names one.
+pub fn use_code_page(page: fnv_util::text::CodePage) {
+    fnv_util::text::set_code_page(page);
+}
+
+/// NVForever's own words in the language Steam installed the game in, when its file was
+/// read and the run reads the game's text in that language's code page; else in the
+/// language of the game's text (#1948,
 /// `fnv_util::words::follow_code_page`): chosen and said in the log when the run's code
 /// page names a language and its file was read. Runs after the code page is settled and
 /// before NVForever.ini's rows are applied, so a `language=` there wins.
-pub fn follow_text_language() {
+pub fn follow_text_language(steam: Option<(fnv_util::text::CodePage, Option<&'static str>)>) {
     let page = fnv_util::text::code_page();
+    if let Some((steam_page, Some(id))) = steam.filter(|s| s.0 == page) {
+        if let Some(id) = fnv_util::words::follow_language(id) {
+            eprintln!("setup: NVForever's own words in {id}, the language Steam installed the game in ({steam_page}); set language in NVForever.ini or on the settings page to choose another");
+            return;
+        }
+    }
     if let Some(id) = fnv_util::words::follow_code_page(page) {
         eprintln!("setup: NVForever's own words in {id}, the language of the game's text ({page}); set language in NVForever.ini or on the settings page to choose another");
     }
@@ -130,7 +162,8 @@ pub fn follow_text_language() {
 /// read-only input; the per-user `My Games\FalloutNV` copy is never read
 /// (docs/design/install-layout.md). A localized install pointing these at its own files is
 /// [hypothesis: no localized install looked at, observer check 77].
-pub fn install_fonts(game: &GameInstall) {
+pub fn install_fonts(game: &GameInstall, cjk_font_path: Option<PathBuf>) {
+    nvf_play::interface::set_cjk_font_path(cjk_font_path);
     let Some(text) = fnv_install::child_ci(&game.root, "Fallout_default.ini").and_then(|p| std::fs::read(p).ok()) else {
         return;
     };

@@ -26,10 +26,10 @@ extensive testing"]:
 | 6 | "the throwable weapon has left the player's hand" | the frame after it left, as 3 after a semi-automatic shot [hypothesis] |
 | 7 | block | blocking, a block's reaction |
 | 8 | stagger: "staggered by an npc that is blocking" | a blocked blow's recoil |
-| 9 | reload | any reload, round by round included |
+| 9 | reload | any reload (round by round included), and a player weapon jam (`AnimAction::Jam`, with `IsAnimPlayingEx 4 == 0`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin 184, 2026-11-23, GSDocMitchellHouse (`0x00103DF9`), 10 official base masters, probe `w1_3632_onfireweapon_and_forcejam` in #3679 (`Player.ForceWeaponJamAnim` on drawn `Weap10mmPistol` `0x0000434F` -> `GetAnimAction == 9`, `IsAnimPlayingEx 4 == 0`); no DLL or source consulted; hypothesis: generalizing `Phase::Jammed -> AnimAction::Jam` (`9` instead of `13`) to natural vanilla weapon-condition jams] |
 | 10–11 | dodge, wait for lower body ("may be left overs") | never: no observer sample read them [observed] |
 | 12 | wait for special idle | the player's landing clip after a jump or fall [hypothesis; observed: the player read 12 after a jump, below]; an NPC's or creature's landing clip the same (actor-jumps.md §5) [hypothesis: no NPC was seen landing] |
-| 13 | "every action not included above": furniture, PlayIdle idles, crippled-limb staggers, getting up | PlayIdle and package begin/end/change idles, cowering, PlayGroup groups, crippled-limb staggers, a jam (player) |
+| 13 | "every action not included above": furniture, PlayIdle idles, crippled-limb staggers, getting up | PlayIdle and package begin/end/change idles, cowering, PlayGroup groups, crippled-limb staggers |
 | 17 | not in the table | a round-by-round reload (.357 revolver, lever-actions, hunting shotgun) while its opening clip plays, player and NPCs [hypothesis, below] |
 
 What the observer recorded at about 60 samples a second [observed: `anim_action` field,

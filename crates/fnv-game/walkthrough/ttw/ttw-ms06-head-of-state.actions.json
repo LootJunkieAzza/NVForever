@@ -1,0 +1,38 @@
+{
+  "format": "fnv.script.actions/1",
+  "plugins": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm", "The Mod Configuration Menu.esp"],
+  "title": "Headless Head of State (MS06, TTW)",
+  "given": [
+    {"kind": "quest", "quest": "CG04", "running": false, "completed": true, "stage": 200, "done": [200]},
+    {"kind": "quest", "quest": "MQ01", "running": true, "completed": false, "stage": 10, "done": [10]},
+    {"kind": "quest", "quest": "MS16", "running": true, "completed": false}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path (the slavers' side): Leroy Walker's slavers hold the Lincoln Memorial; he introduces himself (stage 50) and asks the player to find the runaway slaves (findHannibal); the player finds the Temple of the Union and Hannibal Hamlin there and kills him (the pilot fights); Leroy is told (110, Complete Quest). The abolitionists' side (100) needs the escaped slaves' journey to the Memorial, carried by their packages."},
+    {"op": "note", "text": "Starts with the player out of Vault 101 (the given): Escape! (CG04) done at stage 200, whose script starts Following in His Footsteps (MQ01 stage 10) and Trouble on the Homefront (MS16). [observed: CG04 stage 200 script]"},
+    {"op": "note", "text": "Stand-in for the walk to the Lincoln Memorial: the player at Leroy Walker."},
+    {"op": "move_player", "to": "LeroyWalkerRef"},
+    {"op": "talk", "actor": "LeroyWalkerRef", "label": "leroy greeting"},
+    {"op": "choose", "topic": "MS06WhoAreYou", "label": "leroy: who are you"},
+    {"op": "choose", "topic": "MS06FindSlaves", "label": "leroy: find the slaves"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "MS06", "fields": ["stage", "done.50", "var.FindHannibal", "objective.55.displayed"], "label": "milestone: MS06 50 (find the runaways)"},
+    {"op": "note", "text": "Stand-in for the walk to the Temple of the Union, north-east of the Memorial: Hannibal Hamlin greets the stranger at the gate (his first line sets hannibalFound), then the player kills him (the pilot fights)."},
+    {"op": "move_player", "to": "HannibalHamlinRef"},
+    {"op": "talk", "actor": "HannibalHamlinRef", "label": "hannibal greeting"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "MS06", "fields": ["var.HannibalFound"], "label": "hannibal found"},
+    {"op": "kill", "target": "HannibalHamlinRef", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "note", "text": "Back to Leroy Walker at the Memorial."},
+    {"op": "move_player", "to": "LeroyWalkerRef"},
+    {"op": "talk", "actor": "LeroyWalkerRef", "label": "leroy greeting"},
+    {"op": "choose", "topic": "MS06HamlinDead", "label": "leroy: Hamlin is dead"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "MS06", "fields": ["stage", "done.110", "completed", "running", "var.HamlinDead"], "label": "final: MS06 110 (completed)"}
+  ]
+}

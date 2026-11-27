@@ -154,10 +154,11 @@ fn cnd_pad_x_cycles_all_limbs_and_wraps_to_the_body() {
     for expected in (0..6).map(Some).chain([None, Some(0)]) {
         let mut input = ButtonInput::default();
         input.press(key);
-        assert_eq!(keys(&input, &mut view, 0), None);
+        assert_eq!(keys(&input, &mut view, 0, false), None);
         assert_eq!(view.limb, expected);
         assert_eq!(view.aimed(), expected);
-        assert_eq!(hint_pressed(&view, model::STIMPAK).unwrap().limb, expected);
+        assert_eq!(hint_pressed(&view, model::STIMPAK, false).unwrap().limb, expected);
+        assert_eq!(hint_pressed(&view, model::DOCTORS_BAG, true).unwrap().limb, expected);
     }
     // A pointer left on a limb must not mask the new choice.
     view.hover = Some(Spot::Limb(2));
@@ -167,9 +168,111 @@ fn cnd_pad_x_cycles_all_limbs_and_wraps_to_the_body() {
         let mut view = StatsView { status, ..default() };
         let mut input = ButtonInput::default();
         input.press(key);
-        keys(&input, &mut view, tab);
+        keys(&input, &mut view, tab, false);
         assert_eq!(view.limb, None);
     }
+}
+
+#[test]
+fn hardcore_cnd_selects_limbs_for_doctors_bag_and_keeps_body_when_none_aimed() {
+    let mut view = StatsView::default();
+    // Selecting a limb via digit 3 (left arm, index 2) and pressing E targets that limb in Hardcore.
+    let mut input = ButtonInput::default();
+    input.press(KeyCode::Digit3);
+    assert_eq!(keys(&input, &mut view, 0, true), None);
+    assert_eq!(view.aimed(), Some(2));
+    let mut input = ButtonInput::default();
+    input.press(KeyCode::KeyE);
+    assert_eq!(keys(&input, &mut view, 0, true), Some(UseHint { hint: model::DOCTORS_BAG, limb: Some(2) }));
+    // Outside Hardcore, Doctor's Bag still heals the whole body even with a limb chosen.
+    assert_eq!(keys(&input, &mut view, 0, false), Some(UseHint { hint: model::DOCTORS_BAG, limb: None }));
+    // Hovering another limb overrides keyboard choice; pressing digit 3 again clears hover and toggles back to body.
+    view.hover = Some(Spot::Limb(5));
+    assert_eq!(keys(&input, &mut view, 0, true), Some(UseHint { hint: model::DOCTORS_BAG, limb: Some(5) }));
+    let mut toggle = ButtonInput::default();
+    toggle.press(KeyCode::Digit3);
+    keys(&toggle, &mut view, 0, true);
+    assert_eq!(view.aimed(), None);
+    assert_eq!(keys(&input, &mut view, 0, true), Some(UseHint { hint: model::DOCTORS_BAG, limb: None }));
+}
+
+#[test]
+fn hardcore_use_hints_targets_selected_hurt_limb_and_refuses_unhurt_limb() {
+    const DRBAG: FormId = FormId(0x101);
+    let mut forms = FormStore::default();
+    let item = Item {
+        kind: ItemKind::Aid, value: Some(55), money: None, weight: Some(1.0), slots: None,
+        projectile: None, health: None, non_playable: false, cant_drop: false,
+        armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None,
+        weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false,
+        thrown: false, quest_item: false, icon: None, placed_count: None, teaches: None,
+        cant_be_taken: false, modulates_voice: false, weapon_traits: None,
+    };
+    for (id, data) in [
+        (DRBAG, BaseData::Item(item)),
+        (FormId::PLAYER_BASE, BaseData::Actor(ActorBase { entries: Vec::new(), attributes: Some([5; 7]) })),
+    ] {
+        forms.bases.insert(id, BaseForm {
+            id, sig: if id == DRBAG { *b"ALCH" } else { *b"NPC_" },
+            edid: None, name: Some("Doctor's Bag".into()), script: None,
+            prompt: None, voice_filter: false, data,
+        });
+    }
+    forms.edids.insert("nvdoctorbag".into(), DRBAG);
+    let forms = Box::leak(Box::new(forms));
+    let refs = Box::leak(Box::new(RefTable::default()));
+    let mut world = fnv_sim::World::new(forms, refs, SimConfig::default());
+    world.add_item(FormId::PLAYER_REF, DRBAG, 2).unwrap();
+    let sim = crate::sim::SimState { forms, refs, world };
+
+    let mut script = crate::script::ScriptState::over_no_plugins();
+    let g = &mut script.rt.as_mut().unwrap().game;
+    g.set_hardcore(true);
+    fnv_game::functions::add_actor_value_damage(g, FormId::PLAYER_REF, model::LIMBS[2], 100.0);
+
+    let mut app = App::new();
+    app.init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<super::super::KeysTaken>()
+        .init_resource::<crate::menu::PromptKeys>()
+        .init_resource::<crate::menu::ActiveMenu>()
+        .insert_resource(Time::<()>::default())
+        .init_resource::<crate::pause::PlayClock>()
+        .init_resource::<Prepared>()
+        .insert_resource(sim)
+        .insert_resource(script)
+        .insert_resource(PipBoy { page: Page::Stats, phase: super::super::Phase::Up, tabs: [0, 0, 0], ..default() })
+        .insert_resource(StatsView { status: 0, ..default() })
+        .add_message::<super::super::PipBoyInput>()
+        .add_message::<UseHint>()
+        .add_message::<MouseWheel>()
+        .add_message::<crate::ItemUsed>()
+        .add_message::<crate::ui_sounds::UiSound>()
+        .add_systems(Update, (prepare, use_hints).chain());
+    // Frame 1: open page (first frame is `new`).
+    app.update();
+    // Frame 2: select right arm (digit 4 -> index 3, which is whole) and press E -> refused, 2 bags remain.
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.reset_all();
+        keys.press(KeyCode::Digit4);
+        keys.press(KeyCode::KeyE);
+    }
+    app.update();
+    let used: Vec<_> = app.world_mut().resource_mut::<Messages<crate::ItemUsed>>().drain().collect();
+    assert!(used.is_empty(), "unhurt limb must not consume a Doctor's Bag");
+    assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF, DRBAG).unwrap(), 2);
+    // Frame 3: select left arm (digit 3 -> index 2, crippled) and press E -> uses 1 bag on LeftAttackCondition (27).
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.reset_all();
+        keys.press(KeyCode::Digit3);
+        keys.press(KeyCode::KeyE);
+    }
+    app.update();
+    let used: Vec<_> = app.world_mut().resource_mut::<Messages<crate::ItemUsed>>().drain().collect();
+    assert_eq!(used.len(), 1);
+    assert_eq!((used[0].item, used[0].limb), (DRBAG.0, Some(model::LIMBS[2])));
+    assert_eq!(app.world_mut().resource_mut::<crate::sim::SimState>().world.item_count(FormId::PLAYER_REF, DRBAG).unwrap(), 1);
 }
 
 #[test]
@@ -203,4 +306,56 @@ fn cnd_draws_three_hints_in_the_existing_slots() {
         assert_eq!([hint_key(&StatsView::default(), 0), hint_key(&StatsView::default(), SWITCH_LIMBS), hint_key(&StatsView::default(), 1)], expected);
     }
     crate::pad::set_labels(crate::pad::Labels::Keys);
+}
+
+#[test]
+fn projected_mobile_scroll_uses_real_stats_view_bounds_and_does_not_use_a_hint(){
+    let mut app=input_app(0,2);
+    {let mut view=app.world_mut().resource_mut::<StatsView>();view.lens[2]=20;view.set_rows_shown(2,5);}
+    let mut scroll=super::super::touch_scroll::WheelFrame::default();
+    scroll.set(app.world().resource::<PipBoy>(),Vec2::new(40.0,100.0),-60.0);app.insert_resource(scroll);app.update();
+    assert_eq!(app.world().resource::<StatsView>().top[2],3);
+    assert!(app.world().resource::<Messages<UseHint>>().is_empty());
+}
+
+#[test]
+fn physical_mouse_and_wheel_keep_their_description_target_and_a_later_pure_touch_scrolls_the_list(){
+    use crate::pipboy::{self,touch_items::TouchItems,touch_scroll::{TouchPointerPlugin,WheelFrame,PhysicalPriority}};
+    use bevy::input::touch::{TouchInput,TouchPhase};
+    fn project(mut touch:ResMut<TouchItems>){touch.project(Some);}
+    fn finger(app:&mut App,phase:TouchPhase,at:Vec2,id:u64){assert!(app.world_mut().resource_mut::<TouchItems>().event(&TouchInput{window:Entity::PLACEHOLDER,id,phase,position:at,force:None},0));}
+    for cause in 0..7 {
+        let mut app=input_app(0,2);let desc=desc_rect(2).unwrap().center();let list=Vec2::new(40.,100.);
+        {let mut view=app.world_mut().resource_mut::<StatsView>();view.lens[2]=20;view.set_rows_shown(2,5);view.set_desc_bound(100);view.desc=10;}
+        app.init_resource::<TouchItems>().init_resource::<pipboy::PipBoyAid>().init_resource::<pipboy::PointerMoved>();
+        let camera=app.world_mut().spawn_empty().id();app.insert_resource(pipboy::PipBoyScreen{image:Handle::default(),camera,on_model:false,pointer:Some(desc),scale:1.0});
+        app.add_plugins(TouchPointerPlugin).add_systems(Last,project);app.update();
+        if cause!=6 {
+            finger(&mut app,TouchPhase::Started,list,201);app.update();app.update();
+            finger(&mut app,TouchPhase::Moved,list-Vec2::Y*60.,201);app.update();
+            finger(&mut app,TouchPhase::Ended,list-Vec2::Y*60.,201);
+        }
+        match cause {
+            0=>app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left),
+            1=>app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Right),
+            2=>{let mut m=app.world_mut().resource_mut::<ButtonInput<MouseButton>>();m.press(MouseButton::Left);m.release(MouseButton::Left);},
+            3=>{let mut m=app.world_mut().resource_mut::<ButtonInput<MouseButton>>();m.press(MouseButton::Left);m.clear();m.release(MouseButton::Left);},
+            4|6=>{app.world_mut().write_message(MouseWheel{window:Entity::PLACEHOLDER,unit:MouseScrollUnit::Line,x:0.,y:1.,phase:TouchPhase::Moved});},
+            _=>{}
+        }
+        app.update();
+        if cause!=5 {assert!(app.world().resource::<PhysicalPriority>().active);assert_eq!(app.world().resource::<WheelFrame>().lines(app.world().resource::<PipBoy>()),0.);}
+        assert_eq!(app.world().resource::<StatsView>().top[2],if cause==5 {3}else{0});
+        assert_eq!(app.world().resource::<StatsView>().desc,if cause==4||cause==6 {9}else{10});
+        if cause==0 {assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));}
+        if cause==1 {assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Right));}
+        if cause==3 {assert!(app.world().resource::<ButtonInput<MouseButton>>().just_released(MouseButton::Left));}
+        {let mut mouse=app.world_mut().resource_mut::<ButtonInput<MouseButton>>();mouse.release(MouseButton::Left);mouse.release(MouseButton::Right);mouse.clear();}
+        app.update();app.update();
+        let before=app.world().resource::<StatsView>().top[2];
+        finger(&mut app,TouchPhase::Started,list,202);finger(&mut app,TouchPhase::Moved,list-Vec2::Y*60.,202);finger(&mut app,TouchPhase::Ended,list-Vec2::Y*60.,202);
+        for _ in 0..5{app.update();}
+        assert_eq!(app.world().resource::<StatsView>().top[2],before+3,"pure touch resumes with a fresh source-owned contact");
+        assert_eq!(app.world().resource::<StatsView>().desc,if cause==4||cause==6 {9}else{10});
+    }
 }

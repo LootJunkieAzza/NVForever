@@ -17,6 +17,15 @@ use crate::jip_provenance::Registrar;
 /// SetOnCriticalHitEventHandler].
 const XMARKER: u32 = 0x0000_003B;
 
+/// Analog controller trigger press threshold (`0.0..=1.0`): standard XInput
+/// `XINPUT_GAMEPAD_TRIGGER_THRESHOLD` (30 / 255) [documented: Microsoft XInput
+/// `XINPUT_GAMEPAD_TRIGGER_THRESHOLD`; hypothesis: used for JIP trigger down/up edges].
+pub const TRIGGER_PRESS_THRESHOLD: f32 = 30.0 / 255.0;
+
+/// Default `fAutoAimMaxDistance` when the load order lacks the GMST
+/// [documented: GECK wiki Auto Aim Settings, 1800].
+pub const DEFAULT_AUTO_AIM_MAX_DISTANCE: f64 = 1800.0;
+
 /// The JIP registrations of a session.
 #[derive(Debug, Clone, Default)]
 pub struct JipEvents {
@@ -33,6 +42,15 @@ pub struct JipEvents {
     pub controls_held: u32,
     /// Last gamepad button mask snapshot (XInput bits), for OnButtonDown/OnButtonUp.
     pub buttons_held: u32,
+    /// Last controller trigger bitmask (bit 0 = left trigger, bit 1 = right trigger),
+    /// for SetOnTriggerDownEventHandler / SetOnTriggerUpEventHandler.
+    pub triggers_held: u8,
+    /// Last actor target reported to SetOnPCTargetChangeEventHandler.
+    pub pc_target: Option<FormId>,
+    /// Last `(crosshair_ref, crosshair_far, reticle_hit_bits, auto_aim_max_bits)`
+    /// snapshot synced from `Senses`, so explicit `set_pc_target` calls are not
+    /// overwritten on ticks when `Senses` has not changed.
+    last_crosshair_senses: (Option<FormId>, Option<FormId>, Option<u32>, u64),
     /// ScriptWait: the waiting block of each script instance (one at a time
     /// [documented: ScriptWait]); not saved [hypothesis, as the registrations].
     pub waits: std::collections::HashMap<crate::game::InstKey, Waiting>,
@@ -106,11 +124,28 @@ pub struct Waiting {
 pub struct JipHit {
     pub attacker: Option<FormId>,
     pub weapon: Option<FormId>,
+    pub projectile: Option<FormId>,
     pub health_damage: f64,
     pub limb_damage: f64,
+    pub fatigue_damage: f64,
+    pub base_weapon_damage: f64,
     pub location: i32,
-    /// GetHitExtendedFlag's bits: 1 critical, 2 fatal, 5 limb crippled (bit n = flag n).
+    /// GetHitExtendedFlag's bits: 0 blocking, 1 critical, 2 fatal, 5 limb crippled,
+    /// 7 sneak attack, 8 explosion hit (bit n = flag n).
     pub flags: u16,
+    /// World-space 3D impact point (`GetHit3DData 0` and first 3 elements of type 2);
+    /// `[0.0; 3]` for an explosion hit [observed: 2026-11-23, GSDocMitchellHouse
+    /// (0x00103DF9), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 (10
+    /// official base masters), #3678 / PR #3679 probe `w1_3606_hit_3d_dir_and_base_damage`:
+    /// `GrenadeFragExplosion` placed via `PlaceAtMe`].
+    pub hit_pos: Option<[f32; 3]>,
+    /// Unit 3D incoming travel direction vector `(nx, ny, nz)` (`GetHit3DData 1` and last
+    /// 3 elements of type 2); `[0.0; 3]` for an explosion hit [observed: 2026-11-23,
+    /// GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+    /// JIP LN 57.30 (10 official base masters), #3678 / PR #3679 probe
+    /// `w1_3606_hit_3d_dir_and_base_damage`: South->North `+Y`, East->West `-X`, and
+    /// `GrenadeFragExplosion`].
+    pub hit_dir: Option<[f32; 3]>,
 }
 
 /// One `SetOn<Event>EventHandler handler 1 filters…`.
@@ -180,8 +215,6 @@ pub struct MainLoop {
     pub flags: u32,
     pub due: u64,
     pub(crate) seq: u64,
-    /// Quantized game clock at registration or the last actual invocation.
-    pub(crate) last_clock: f64,
 }
 
 impl MainLoop {
@@ -210,8 +243,8 @@ fn slots(event: &str) -> &'static [Slot] {
         "animaction" | "playgroup" => &[Slot::On, Slot::ExactArg(0)],
         "criticalhit" => &[Slot::On, Slot::Arg(0), Slot::Arg(1)],
         "queststage" => &[Slot::Arg(0), Slot::Arg(1)],
-        "controldown" | "controlup" => &[Slot::ExactArg(0)],
-        "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "triggerdown" | "triggerup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
+        "controldown" | "controlup" | "triggerdown" | "triggerup" => &[Slot::ExactArg(0)],
+        "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
         _ => &[],
     }
 }
@@ -260,7 +293,14 @@ impl Game<'_> {
     /// as Just Assorted Mods' sprint relies on: it registers its key handler per key and
     /// removes it with no key before registering again or when the sprint is turned off,
     /// observed in its script source; issue #2952]. Returns whether anything changed.
-    pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
+    pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, mut filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
+        if event == "playgroup" {
+            if let Some(XVal::Str(name)) = filters.get(1) {
+                if let Some(code) = self.anim_group_code(name) {
+                    filters[1] = XVal::Num(f64::from(code));
+                }
+            }
+        }
         let filters_eq = |a: &XVal, b: &XVal| match (event.as_str(), a, b) {
             ("menuclick", XVal::Str(sa), XVal::Str(sb)) => normalize_click_filter(sa) == normalize_click_filter(sb),
             _ => a == b,
@@ -312,10 +352,12 @@ impl Game<'_> {
         if !add {
             return;
         }
-        // Refuse null/zero callable tokens at registration time with registrar
+        // Refuse null/zero callable tokens — including any numeric value that
+        // `run_function_here` (`*x as u32`) would coerce to form 0 (0.0, negative
+        // numbers, fractions below 1.0, NaN) — at registration time with registrar
         // attribution rather than enqueuing a form-0 callback that fails every frame
         // (#2603) [design].
-        let is_zero = matches!(func, XVal::Ref(0)) || matches!(func, XVal::Num(n) if n == 0.0);
+        let is_zero = matches!(func, XVal::Ref(0)) || matches!(func, XVal::Num(n) if (n as u32) == 0);
         if is_zero {
             let receiver = on.map_or_else(|| "none".into(), |r| format!("0x{:08X}", r.0));
             let callable = diagnostic_value(&func);
@@ -337,7 +379,6 @@ impl Game<'_> {
             flags,
             due: self.frame + delay,
             seq,
-            last_clock: crate::functions::clock_now(self.time),
         });
         if let Some(registrar) = registrar {
             self.jip.registrars.insert(seq, registrar);
@@ -351,6 +392,25 @@ impl Game<'_> {
         }
         let hs = self.jip.handlers.iter().filter(|h| h.event == event && self.jip_matches(h, on, &args)).map(|h| self.jip.attempt(h)).collect();
         self.jip_run(event, hs, on, args)
+    }
+
+    /// Fire JIP's `SetOnAnimActionEventHandler` (`animaction`) for `actor` starting
+    /// `action` (0–13, `GetAnimAction` code) [documented: SetOnAnimActionEventHandler].
+    pub fn fire_anim_action(&mut self, actor: FormId, action: i32) -> usize {
+        if action < 0 {
+            return 0;
+        }
+        self.jip_event("animaction", Some(actor), vec![XVal::Num(f64::from(action))])
+    }
+
+    /// Fire JIP's `SetOnPlayGroupEventHandler` (`playgroup`) for `actor` starting
+    /// animation group `group` [documented: SetOnPlayGroupEventHandler]. Ignores
+    /// internal sentinel codes (`SEQUENCE`, `OPEN_GROUP`, `CLOSE_GROUP`).
+    pub fn fire_play_group(&mut self, actor: FormId, group: u16) -> usize {
+        if matches!(group, crate::anims::SEQUENCE | crate::anims::OPEN_GROUP | crate::anims::CLOSE_GROUP) {
+            return 0;
+        }
+        self.jip_event("playgroup", Some(actor), vec![XVal::Num(f64::from(group))])
     }
 
     /// SetOnMenuClickEventHandler's event: a tile was clicked (task T8). `menu` is the
@@ -392,7 +452,7 @@ impl Game<'_> {
             .filter_map(|h| {
                 let matched = match h.filters.first() {
                     None => Some(topic_val.clone()),
-                    Some(f) if self.jip_wildcard(f) => Some(topic_val.clone()),
+                    Some(f) if self.jip_wildcard("dialogtopic", f) => Some(topic_val.clone()),
                     Some(f) if self.filter_matches(f, &info_val, false) => Some(info_val.clone()),
                     Some(f) if self.filter_matches(f, &topic_val, false) => Some(topic_val.clone()),
                     Some(_) => None,
@@ -446,7 +506,7 @@ impl Game<'_> {
 
     fn jip_matches(&self, h: &JipHandler, on: Option<FormId>, args: &[XVal]) -> bool {
         slots(&h.event).iter().zip(&h.filters).all(|(s, f)| {
-            if !matches!(s, Slot::ExactArg(_)) && self.jip_wildcard(f) {
+            if !matches!(s, Slot::ExactArg(_)) && self.jip_wildcard(&h.event, f) {
                 return true;
             }
             let v = match s {
@@ -457,12 +517,24 @@ impl Game<'_> {
         })
     }
 
-    /// A filter that lets everything through: none (0), XMarker, or an empty form list
-    /// [documented: SetOnAnimActionEventHandler, an empty list means any actor].
-    fn jip_wildcard(&self, f: &XVal) -> bool {
+    /// A filter that lets everything through: none (0), an empty form list
+    /// [documented: SetOnAnimActionEventHandler, an empty list means any actor],
+    /// or `XMarker` (`0x3B`) strictly for `SetOnCriticalHitEventHandler` where 0 is
+    /// refused [documented: SetOnCriticalHitEventHandler; observed: 2026-11-24,
+    /// Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, GSDocMitchellHouse
+    /// (0x00103DF9), 10 official base masters,
+    /// `tools/capture/nvse/catalogs/wave6d1_jip_xmarker_wildcard_scope.json` probes
+    /// `w6d1_21_jip_health_damage_filters_dups_rem` (`xm=0`),
+    /// `w6d1_22_jip_use_aid_item_filters` (`xm=0`),
+    /// `w6d1_24_jip_anim_action_and_play_group` (`draw(1,0,0)|jam(1,1,0)`), and
+    /// `w6d1_25_jip_crippled_limb_and_note_added` (`xm=0`); no DLL, PDB, or
+    /// third-party source consulted; design: other unprobed JIP events also exclude
+    /// `XMarker` wildcard].
+    fn jip_wildcard(&self, event: &str, f: &XVal) -> bool {
         match f {
             XVal::Num(x) => *x == 0.0,
-            XVal::Ref(0) | XVal::Ref(XMARKER) => true,
+            XVal::Ref(0) => true,
+            XVal::Ref(XMARKER) => event == "criticalhit",
             XVal::Ref(r) => self.jip_empty_form_list(FormId(*r)),
             _ => false,
         }
@@ -495,14 +567,35 @@ impl Game<'_> {
     }
 
     /// A GetHit… value of `actor`'s current or last hit; `None` when it had none.
-    pub(crate) fn hit_value(&self, actor: FormId, what: &str, k: i64) -> Option<XVal> {
-        let h = self.jip.hits.get(&actor)?;
+    pub(crate) fn hit_value(&mut self, actor: FormId, what: &str, k: i64) -> Option<XVal> {
+        let h = *self.jip.hits.get(&actor)?;
         Some(match what {
             "attacker" => XVal::Ref(h.attacker.map_or(0, |a| a.0)),
             "weapon" => XVal::Ref(h.weapon.map_or(0, |w| w.0)),
+            "projectile" => XVal::Ref(h.projectile.map_or(0, |p| p.0)),
             "health" => XVal::Num(h.health_damage),
             "limb" => XVal::Num(h.limb_damage),
+            "fatigue" => XVal::Num(h.fatigue_damage),
+            "base_weapon" => XVal::Num(h.base_weapon_damage),
             "flag" => XVal::Num(f64::from(u8::from((0..16).contains(&k) && h.flags & (1 << k) != 0))),
+            "3d" => {
+                let coords: Vec<f32> = match k {
+                    0 => h.hit_pos?.to_vec(),
+                    1 => h.hit_dir?.to_vec(),
+                    2 => {
+                        let p = h.hit_pos?;
+                        let d = h.hit_dir?;
+                        vec![p[0], p[1], p[2], d[0], d[1], d[2]]
+                    }
+                    _ => return None,
+                };
+                let entries = coords
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, c)| (fnv_script::vm::XKey::Num(i as f64), XVal::Num(f64::from(c))))
+                    .collect();
+                XVal::Array(self.ext.new_array(fnv_script::vm::ArrayKind::List, entries))
+            }
             _ => return None,
         })
     }
@@ -520,9 +613,123 @@ impl Game<'_> {
     pub(crate) fn jip_keys(&mut self) {
         let controls = self.input.controls_for_events();
         let buttons = self.jip2.told.pad.buttons | self.jip2.told.pad.held_buttons;
+        let triggers = self.trigger_mask();
         self.jip_key_edges();
         self.control_edges(controls);
         self.button_edges(buttons);
+        self.trigger_edges(triggers);
+        self.sync_pc_target();
+    }
+
+    fn sanitize_trigger(value: f32) -> f32 {
+        if value.is_finite() { value.clamp(0.0, 1.0) } else { 0.0 }
+    }
+
+    fn trigger_mask(&self) -> u8 {
+        let p = &self.jip2.told.pad;
+        let left = p.held_triggers[0] || p.triggers[0] >= TRIGGER_PRESS_THRESHOLD;
+        let right = p.held_triggers[1] || p.triggers[1] >= TRIGGER_PRESS_THRESHOLD;
+        u8::from(left) | (u8::from(right) << 1)
+    }
+
+    /// Publish sanitized controller trigger values (`0.0..=1.0`, left then right) for
+    /// `GetLeftTrigger` / `GetRightTrigger` and the frame's `Game::jip_keys` trigger edge
+    /// dispatch (`Game::tick` / `Game::page_tick`) without running script callbacks
+    /// immediately [design: engine input systems run before `PlaySet::Scripts` and outside
+    /// `with_world` / pause / menu-page guards].
+    pub fn publish_pad_triggers(&mut self, left: f32, right: f32) {
+        self.jip2.told.pad.triggers = [Self::sanitize_trigger(left), Self::sanitize_trigger(right)];
+    }
+
+    /// Publish controller trigger values (`0.0..=1.0`, left then right) and immediately
+    /// dispatch any `SetOnTriggerDownEventHandler` / `SetOnTriggerUpEventHandler` edge
+    /// transitions (`0` left, `1` right) [documented: SetOnTriggerDownEventHandler,
+    /// SetOnTriggerUpEventHandler].
+    pub fn set_pad_triggers(&mut self, left: f32, right: f32) {
+        self.publish_pad_triggers(left, right);
+        let now = self.trigger_mask();
+        self.trigger_edges(now);
+    }
+
+    fn trigger_edges(&mut self, now: u8) {
+        let before = std::mem::replace(&mut self.jip.triggers_held, now);
+        let changed = now ^ before;
+        if changed == 0 {
+            return;
+        }
+        let jip = self.jip.handlers.iter().any(|h| h.event == "triggerdown" || h.event == "triggerup");
+        if !jip {
+            return;
+        }
+        for code in 0u8..2 {
+            let bit = 1u8 << code;
+            if changed & bit == 0 {
+                continue;
+            }
+            let down = now & bit != 0;
+            self.jip_event(if down { "triggerdown" } else { "triggerup" }, None, vec![XVal::Num(f64::from(code))]);
+        }
+    }
+
+    fn is_pc_target_actor(&self, r: FormId) -> bool {
+        r != FormId::PLAYER_REF
+            && matches!(
+                crate::functions::base_of(self, r).and_then(|b| self.data.sig(b)).as_ref(),
+                Some(b"NPC_") | Some(b"CREA")
+            )
+    }
+
+    fn pc_target_from_senses(&self, max_dist: f64) -> Option<FormId> {
+        let from_far = self.senses.crosshair_far.is_some();
+        let candidate = self.senses.crosshair_far.or(self.senses.crosshair_ref)?;
+        if !self.is_pc_target_actor(candidate) {
+            return None;
+        }
+        if from_far && max_dist > 0.0 {
+            let dist = self
+                .senses
+                .reticle
+                .and_then(|r| r.hit)
+                .map(f64::from)
+                .or_else(|| crate::nvse_showoff5::distance_between(self, FormId::PLAYER_REF, candidate));
+            if dist.is_some_and(|d| d > max_dist) {
+                return None;
+            }
+        }
+        Some(candidate)
+    }
+
+    /// Synchronize `SetOnPCTargetChangeEventHandler` (`pctargetchange`) against `Senses`
+    /// (`crosshair_far`, `crosshair_ref`, `reticle`, and `fAutoAimMaxDistance`) whenever
+    /// any of those inputs changed.
+    pub(crate) fn sync_pc_target(&mut self) {
+        let max_dist = crate::combat::setting(self, "fAutoAimMaxDistance", DEFAULT_AUTO_AIM_MAX_DISTANCE);
+        let snap = (
+            self.senses.crosshair_ref,
+            self.senses.crosshair_far,
+            self.senses.reticle.and_then(|r| r.hit).map(f32::to_bits),
+            max_dist.to_bits(),
+        );
+        if snap == self.jip.last_crosshair_senses {
+            return;
+        }
+        self.jip.last_crosshair_senses = snap;
+        let target = self.pc_target_from_senses(max_dist);
+        self.set_pc_target(target);
+    }
+
+    /// Update the actor under the player's reticle and fire JIP's
+    /// `SetOnPCTargetChangeEventHandler` (`pctargetchange`) if it changed: no calling
+    /// reference, 1 argument (`newTargetRef` or `0` for none). Non-actor references
+    /// normalize to `None` [documented: SetOnPCTargetChangeEventHandler,
+    /// docs/spec-notes/jip-events.md §2]. Returns how many handlers ran.
+    pub fn set_pc_target(&mut self, target: Option<FormId>) -> usize {
+        let next = target.filter(|&r| self.is_pc_target_actor(r));
+        if next == self.jip.pc_target {
+            return 0;
+        }
+        self.jip.pc_target = next;
+        self.jip_event("pctargetchange", None, vec![XVal::Ref(next.map_or(0, |r| r.0))])
     }
 
     fn control_edges(&mut self, now: u32) {
@@ -638,7 +845,12 @@ impl Game<'_> {
     /// When `dedup_same_frame` is true (`Game::projectile_fired`), skip if
     /// `(self.frame, actor, weapon)` already fired this frame so a player shot
     /// (`weapon_fired` followed by `projectile_fired`) or a multi-pellet shotgun burst
-    /// fires once per round [hypothesis].
+    /// fires once per round [hypothesis]. Player normal firing (`so=1,jp=1`) and player
+    /// god-mode suppression (`so=1,jp=0`) are [observed 2026-11-24: Fallout: New Vegas
+    /// 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 + ShowOffNVSE 184, 10 official base masters,
+    /// `GSDocMitchellHouse`, committed probe `w6t2p3_04_fire_god_melee`
+    /// (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+    /// `norm(so=1,jp=1)|god(so=1,jp=0)|melee(so=1,jp=1)`].
     pub(crate) fn fire_weapon_jip_event(&mut self, actor: FormId, weapon: FormId, dedup_same_frame: bool) -> usize {
         let is_actor = actor == FormId::PLAYER_REF
             || matches!(
@@ -689,12 +901,12 @@ impl Game<'_> {
             .filter(|m| m.due <= frame && m.flags & want != 0)
             .map(|m| (m.clone(), self.jip.registrars.get(&m.seq).cloned()))
             .collect();
+        // Main-loop callbacks observe the single-frame delta, not accumulated time across
+        // skipped callDelay frames [observed: w4g_03_jip_callback_getsecondspassed].
+        let seconds = self.stateless_udf_seconds();
         for (m, registrar) in due {
-            let now = crate::functions::clock_now(self.time);
-            let seconds = (now - m.last_clock).max(0.0);
             for x in self.jip.main_loop.iter_mut().filter(|x| x.func == m.func && x.on == m.on) {
                 x.due = frame + x.delay;
-                x.last_clock = now;
             }
             let on = m.on.unwrap_or(FormId::PLAYER_REF);
             let ctx = RunCtx { self_ref: Some(on), ..RunCtx::default() };

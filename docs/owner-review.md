@@ -3,7 +3,8 @@
 Only decisions that change how the game plays and that need **you**: design choices,
 feel, and places where NVForever chose to differ from the original. Most important first.
 Anything that asks "what does the original do here?" is not here: the observer can
-answer it, and it is in [observer-checks.md](handoff/observer-checks.md).
+answer it, and it is in [observer-checks.md](handoff/observer-checks.md) or, the newer ones,
+in [observer-checks/](handoff/observer-checks/README.md).
 
 Condensed 2026-10-24 from the full running log (8,300 lines, 2026-10-09 to 2026-10-23).
 Merge records, tooling, look-only guesses and items already ruled were dropped. The full
@@ -17,12 +18,26 @@ and 2026-10-25 were folded in below (items 27-32). That last full copy is
 in their spec notes.
 
 **Adding an item:** one bullet in the right tier, what was chosen and what changes if you
-rule otherwise, with its spec link. If the original game can answer it, add it to
-observer-checks.md instead. **Ruling on one:** delete the bullet and note the ruling in
-the spec it links to.
+rule otherwise, with its spec link. If the original game can answer it, add a file to
+[observer-checks/](handoff/observer-checks/README.md) instead. **Ruling on one:** delete
+the bullet and note the ruling in the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
+- **A melee creature barely faster than you cannot keep hitting you when you back away
+  (#3256).** [observed: runs on the Searchlight Airport runway, main 069ef9bde,
+  2026-11-21, the player backing away at a run for 12 s, 20,000 health, no god mode]
+  A feral ghoul (runs 384 units/s against your 273) lands 11 to 12 blows, a coyote (366)
+  6 to 7, about what they land on a standing player. A young gecko (286) lands 2 to 3,
+  with 4 to 5.5 s between blows, against 10 on a standing player. The cause is not the
+  chase: every blow that lands knocks you back about 50 units (the knockback rule), and
+  at a 13 units/s advantage the gecko needs about 4 s to make that up. Three ways to
+  change it, none built: (a) such a creature begins its forward lunge from as far as the
+  lunge carries it (tried: it then lunges every 1.7 s, but half the lunges miss and the
+  blows that land do not go up); (b) no knockback on the player from a creature's
+  ordinary blow; (c) leave it, if the original is the same. Observer check 253 asks the
+  original. Until you rule, nothing changes
+  ([combat rules](spec-notes/combat-rules.md), "Knockback").
 - **Automatic device switching (#2200).** [design, #2200] Switch the saved two-device
   choice on fresh use, default ON with a Controls/INI opt-out; ignore only the switching
   press edge, preserve all releases, and require the old device idle at frame start with
@@ -73,6 +88,8 @@ the spec it links to.
    - [design, #2010] A Lost search with no completed share for 300 s gives up, even
      with shares still pending; each completed share renews that safety deadline.
      A different bound changes how long unavailable navigation/AI holds combat.
+     Out of the loaded area nobody searches: it gives up once its target has been
+     hidden for 30 s (#3390).
      ([alert section 2](design/alert.md))
    - Fire only with the target within 30° ahead, turning at 240°/s.
    - Creatures start blows on the run from up to 200 units beyond reach (minimum
@@ -158,6 +175,13 @@ the spec it links to.
     soldiers with Helps Friends and Allies join the player's fights. If allies now pile
     into fights you start (they join once the other side fights back), say where.
     Observer check 217 asks the original. ([combat-ai §10.3](design/combat-ai.md))
+
+- **While VATS targets are chosen, world sounds and voices slow only as far as while
+  VATS fires (0.71 speed), no longer to 0.4 (#3784).** A player took 17 s to mark in the
+  NCRCF fight and read the voices, played more than an octave down all that time, as
+  broken sound. Your "more drawn out and lower pitch like the base game" still holds;
+  rule otherwise for the old 0.4 drone, or for silence (or ducking) while marking.
+  [docs/design/vats-mode.md](design/vats-mode.md) §4.
 
 ## Tier 2: movement and controls feel
 
@@ -305,6 +329,35 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Killing soldiers of a side you started a fight with costs karma (#3401).** [design:
+  your earlier ask that killing innocents cost karma] A Neutral NPC killed in a fight the
+  player started is a murder, −25 karma each (a quarter of `fKarmaModKillingEvilActor`).
+  Legion soldiers are Neutral in the data (karma 0; VCaesarsLegionFaction has no Evil
+  flag), so opening fire on Nipton's Legion costs 25 karma per legionary, while Vulpes
+  (Very Evil) gives +100. Players on Discord and in #3401 expect no karma for Neutral
+  enemies, as they believe the original does (not observed yet). Choices: (a) keep it;
+  (b) a Neutral NPC already fighting the player when it dies is no murder, whoever
+  started the fight, which keeps the cost for shooting bystanders; (c) Neutral kills give
+  no karma at all, as HelpKarma's rule reads. Until you rule, (a) stays
+  ([crime-karma §4](spec-notes/crime-karma.md)).
+- **Chinese and other multi-byte game text, and a bundled font (#1443 step 4).** [design,
+  #1443] NVForever's own words have a Simplified Chinese file (`lang/zh.toml`) and the
+  menus draw it with a CJK font only when the system has one or `[Interface] CjkFontPath`
+  names one; nothing is bundled. Game text in Chinese needs plugins in a multi-byte
+  encoding (`[Text] CodePage=936` reads GBK/GB18030; which encoding community
+  translations use is not known) and the game's 256-glyph `.fnt` fonts cannot draw it.
+  Nothing more is built until you choose: (a) leave it as now (a font the player
+  supplies), (b) bundle an open-licence CJK font (about 10-20 MB per weight; licence and
+  size to pick), or (c) also draw every game-font text through it when the code page is
+  936. ([fonts §2](spec-notes/fonts.md), lang/README.md "Simplified Chinese and fonts")
+- **Switching the game's language means another game folder (#1443 step 2).** [design,
+  #1443] A language is a different set of data files, and Steam keeps one install of the
+  game, so a second language is a copy of the folder. The launcher's Game folder page
+  already restarts into another folder; no in-game Language-of-the-game row is built (the
+  settings page's Language row switches NVForever's own words live). Keep it in the
+  launcher, or add an in-game row that lists game folders and restarts into one?
+  (lang/README.md, `crates/nvf-launcher` Game folder page)
+
 - **Saving while a mod's temporary clone is placed (#3147).** [design, #3147] While a
   reference whose base was made by `TempCloneForm` is alive, every save is refused
   whole (`Game::checked_snapshot`; a failed save now says so in a corner message). A mod
@@ -324,13 +377,12 @@ the spec it links to.
   a mean bone-weight share of `PART_TRIANGLE_SHARE = 0.5`, then filled at the same mask
   opacity as whole parts. A different threshold changes the boundary, not its strength;
   coarse meshes may need finer clipping. [Classic VATS §12](design/vats-classic.md#12-the-selected-part-lit-on-the-target-2026-11-10).
-- **SayTo's "no target look" flag turns nobody (#2796).** [hypothesis, #2796] A SayTo with
-  `noTargetLookFlag` 1 now turns neither the speaker nor the target, so Curtis talks into
-  his radio in the McCarran tower without turning to the player below. Without the flag
-  the speaker still turns to whom it talks (your 2026-10-11 rule). This changes the 22
-  shipped SayTo calls to the player that carry the flag (the monorail guards would warn
-  you without turning). The narrower reading, the speaker stays only when the target is
-  the player, is a one-line change. ([dialogue-play §9.2](design/dialogue-play.md))
+- **SayTo's "no target look" flag turns the speaker again (#3989).** [observed, check 218]
+  The original turns a standing speaker to its target with the flag as without it; only
+  the target is not made to look. NVForever now does the same, so Curtis may turn to the
+  player for his radio call in the McCarran tower again (#2796), until what keeps him
+  still in the original (his package or idle there, check 218's open part) is matched.
+  ([dialogue-play §9.2](design/dialogue-play.md))
 - **Hold CLAMP effect idles (#2685).** [design, #2685] `HOLD_CLAMP_EFFECT_IDLES` keeps
   a CLAMP actor idle with material/emitter tracks at its exact end until replacement or
   stop, overriding repeat counts. This keeps attached chamber effects and pod glow;
@@ -451,6 +503,11 @@ the spec it links to.
   property, and ruling otherwise means a per-model exception. Check the storm in game at
   night in HVDustStorm ([activators section 6.1](spec-notes/activators.md)).
 
+- **Map markers on the compass use a fixed range (#2348).** [design, owner 2026-11-18]
+  The maintainer chose `iMapMarkerVisibleDistance` (10,000 units by default) for found
+  and unfound places, replacing the Perception-based range from playtest list 5 item 12.
+  Quest targets remain visible at any distance. ([hud §11](spec-notes/hud.md); observer check 227)
+
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
     allows leaving? ([dialogue](design/dialogue.md))
@@ -485,13 +542,10 @@ the spec it links to.
     Slash, Mauler, Lights Out, Grand Slam: WEAP VATS/VANM) need a choice per mark, which
     VATS mode does not have, so they are not built. Wanted, and how would you pick one
     (a key cycling the mark's attack)? ([weapon-data-fields §7](spec-notes/weapon-data-fields.md))
-31a. **Which VATS style V starts (a contribution from the fork h9x000,
-    2026-11-11).** A classic style is built: the original's flow, the world stopped, a
-    target and a body part chosen from their chances, a queue of attacks, cameras as
-    they play. It is one row away on the settings page ("V.A.T.S. style"); Dead Eye,
-    your VATS mode ("Mark and Fire" on that page, a name of ours for you to change),
-    stays what V starts until you say otherwise (the fork's owner plays Classic as the
-    default). What Dead Eye shares with it and so changes too: marks on a dead target
+31a. **The classic VATS style's other choices (a contribution from the fork h9x000,
+    2026-11-11).** You ruled on 2026-11-24 that Classic is what V starts; Dead Eye
+    ("Mark and Fire" on the settings page, a name of ours for you to change) stays one
+    row away. What Dead Eye shares with Classic and so changes too: marks on a dead target
     are dropped and the mode ends 2 s later, the HUD hides from the first shot, the
     enemy bar is at the top, explosives hold the mode's end, and every kill camera's
     last shot is held 3 s longer (vats-classic.md §13).

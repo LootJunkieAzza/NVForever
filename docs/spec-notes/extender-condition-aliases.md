@@ -28,7 +28,8 @@ encoding is changed.
 [design] Route only these three CTDA entries to the existing named numeric
 handlers. Keep the established null-form condition shortcut ahead of the route.
 Preserve `CallFailed` reporting for handler errors and the ordinary unhandled
-path for every unrelated opcode. This is not a generic extender condition bridge
+path for every unrelated opcode. This was not a generic extender condition bridge (one
+followed: see below)
 or a new classic-bytecode adapter.
 
 [observed: existing portable policy] `IsPlayerSwimming` reads the player's
@@ -50,3 +51,39 @@ following an NPC's `Motion.swimming`), fresh-`Game` and unrelated unknown
 controls. Null-form controls retain their separate behavior. The fixture uses
 only existing public APIs and no process-global file roots, assets or installed
 mod source.
+
+## The generic bridge (#3616, 2026-11-23)
+
+[observed: player reports, the script-stub table to 2026-11-23] Sixteen more extender
+functions reached the stub path by opcode on players' installs (IsSpellTargetAlt
+0x27EC on 16 installs with TTW, AuxVarGetFltCond, GetArmorClass, GetRadiationLevelAlt,
+GetQuestFailed and eleven more; #3616). [hypothesis] A mod's CTDA is how: the call
+counts are condition-like, and a compiled script call carries the name in the mod's
+own source.
+
+[design] The three-only rule above gives way to a bridge. `Game::condition_value`
+hands any condition index the function registry has no entry for to the named
+extender dispatcher (`crate::nvse::call`), trying each name and alias the original's
+opcode table (`schemas/script/command_opcodes.json`) gives `0x1000 + index`. A name
+with no handler goes on to the ordinary unhandled path; a handler's error is reported
+as `CallFailed`; the null-form shortcut still comes first.
+
+[design] Parameters: `cond::ParamTypes` gives every extender function of the catalogue
+an entry at its opcode less 0x1000, read from the catalogue's parameter kinds: `int`
+an integer, a form, reference or other record a FormID through the plugin's masters,
+none for a function without parameters (so no phantom parameters reach a handler).
+A function with a parameter a CTDA's four bytes cannot hold (a string, a float) gets
+no entry unless `cond::EXTENDER_CTDA_TYPES` gives one: AuxVarGetFltCond's condition
+form takes a quest and the index of its script's string variable [documented: GECK
+wiki AuxVarGetFltCond]. The three aliases keep their own entries.
+
+[documented: GECK wiki GetArmorClass] GetArmorClass (alias GetAC), the one of the
+sixteen with no handler, is built (`nvse_jip7`): the given armour's class, 1 Light,
+2 Medium, 3 Heavy; with none given, the calling actor's UpperBody armour's; 0 without
+one or for a form that is no armour.
+
+[design] Tests: `crates/fnv-game/src/extender_ctda_tests.rs` checks the sixteen's
+parameter types and that each reaches a named handler, and reads GetArmorClass,
+GetQuestFailed, IsInAir and AuxVarGetFltCond's parameters through CTDAs built in the
+test. [hypothesis] Whether the original evaluates each of them in a condition as its
+script form does has not been captured.

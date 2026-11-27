@@ -152,9 +152,52 @@ fn exact_removal_keeps_fractions_other_axis_other_reputation_and_events() {
 }
 
 #[test]
-fn bad_arguments_and_explicit_empty_receivers_do_not_mutate_player_state() {
+fn explicit_null_receiver_continues_and_mutates_player_while_non_player_commands_still_abort() {
+    let f = fixture();
+    let mut g = game(&f);
+    let before_str = functions::actor_value_parts(&mut g, FormId::PLAYER_REF, av::STRENGTH).unwrap();
+    let neighbor_str = functions::actor_value(&mut g, NPC, av::STRENGTH).unwrap();
+
+    // Uninitialized `ref rNull` and explicit `let rNull := 0` both continue execution
+    // and mutate the player, matching w4g_06_player_cmds_explicit_receiver.
+    assert_eq!(
+        success(&mut g, "ref rNull\nrNull.ModPCAttribute Strength 1\nSetFunctionValue 1"),
+        XVal::Num(1.0)
+    );
+    assert_eq!(
+        functions::actor_value_parts(&mut g, FormId::PLAYER_REF, av::STRENGTH).unwrap(),
+        [before_str[0] + 1.0, before_str[1], before_str[2]]
+    );
+    assert_eq!(
+        success(&mut g, "ref rNull\nlet rNull := 0\nrNull.ModPCAttribute Strength 1\nSetFunctionValue 1"),
+        XVal::Num(1.0)
+    );
+    assert_eq!(
+        functions::actor_value_parts(&mut g, FormId::PLAYER_REF, av::STRENGTH).unwrap(),
+        [before_str[0] + 2.0, before_str[1], before_str[2]]
+    );
+    assert_eq!(functions::actor_value(&mut g, NPC, av::STRENGTH).unwrap(), neighbor_str);
+
+    // Sibling player-source commands share the same null-receiver policy.
+    let level = g.player_level();
+    assert_eq!(success(&mut g, "ref rNull\nrNull.AdvancePCLevel\nSetFunctionValue 1"), XVal::Num(1.0));
+    assert_eq!(g.player_level(), level + 1.0);
+    success(&mut g, "SetReputation ProgressionRep 0 3.5");
+    assert_eq!(
+        success(&mut g, "ref rNull\nrNull.RemoveReputationExact ProgressionRep 0 0.5\nSetFunctionValue 1"),
+        XVal::Num(1.0)
+    );
+    assert_eq!(g.player.reputation[&REP], [3.0, 0.0]);
+
+    // Non-player extender commands MUST still reject explicit null receivers before dispatch.
+    runtime_failure(&mut g, "ref rNull\nrNull.ClampToGround\nSetFunctionValue 1", "clamptoground called on no reference");
+    runtime_failure(&mut g, "ref rNull\nrNull.GetDroppedRefs\nSetFunctionValue 1", "getdroppedrefs called on no reference");
+}
+
+#[test]
+fn bad_arguments_and_unknown_nonzero_receivers_do_not_mutate_player_state() {
     let f = fixture(); let mut g = game(&f);
-    // A missing implementation could fail null-receiver admission in the VM too.
+    // A missing implementation could fail receiver admission in the VM too.
     // Require actual supported dispatch first, on a separate stateful control game.
     let mut admitted = game(&f);
     success(&mut admitted, "ModPCAttribute Strength 1\nRemoveReputationExact ProgressionRep 0 0.5\nAdvancePCLevel");
@@ -169,9 +212,6 @@ fn bad_arguments_and_explicit_empty_receivers_do_not_mutate_player_state() {
         ("ModPCAttribute Strength \"bad\"", "parameter 2 is missing"),
         // Player resolves to reference 0x14; this fixture names its base, not the reference.
         ("RemoveReputationExact Player 0 1", "0x00000014 is not a reputation"),
-        ("ref receiver\nreceiver.AdvancePCLevel", "advancepclevel called on no reference"),
-        ("ref receiver\nreceiver.ModPCAttribute Strength 1", "modpcattribute called on no reference"),
-        ("ref receiver\nreceiver.RemoveReputationExact ProgressionRep 0 1", "removereputationexact called on no reference"),
         ("ref receiver\nlet receiver := 0x123456\nreceiver.ModPCAttribute Strength 1", "invalid calling reference"),
     ] {
         runtime_failure(&mut g, body, reason);
@@ -241,7 +281,7 @@ fn focused_vanilla_census_keeps_source_support_separate_from_native_encoding() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
     let catalogue = serde_json::from_str(&std::fs::read_to_string(root).unwrap()).unwrap();
     let (console, other) = functions::console::unhandled_unused(&catalogue);
-    assert_eq!((console.len(), other.len()), (33, 87));
+    assert_eq!((console.len(), other.len()), (33, 76)); // SameSexAsPC registered (#3787)
     for name in ["AdvancePCLevel", "ModPCAttribute", "RemoveReputationExact", "SetPCExpelled", "GetPCExpelled", "ShowNameMenu", "KillAllActors"] {
         assert!(!console.iter().chain(&other).any(|n| n == name));
     }
@@ -305,8 +345,15 @@ fn set_and_get_pc_expelled_track_membership_ctda_persistence_and_guards() {
     assert_eq!(restored.eval_conditions(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "cleared")[0].value, 0.0);
     assert_eq!(success(&mut restored, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(0.0));
 
-    // Receiver and invalid-input boundaries fail cleanly without mutating state.
-    runtime_failure(&mut restored, "ref empty\nempty.SetPCExpelled ExpelledFaction 1", "setpcexpelled called on no reference");
+    // Explicit null receiver still targets the player and continues execution.
+    assert_eq!(
+        success(&mut restored, "ref empty\nempty.SetPCExpelled ExpelledFaction 1\nSetFunctionValue (GetPCExpelled ExpelledFaction)"),
+        XVal::Num(1.0)
+    );
+    success(&mut restored, "ref empty\nempty.SetPCExpelled ExpelledFaction 0");
+    assert_eq!(success(&mut restored, "SetFunctionValue (GetPCExpelled ExpelledFaction)"), XVal::Num(0.0));
+
+    // Unknown non-zero receiver and invalid-input boundaries fail cleanly without mutating state.
     runtime_failure(&mut restored, "ref receiver\nlet receiver := 0x123456\nreceiver.SetPCExpelled ExpelledFaction 1", "invalid calling reference");
     runtime_failure(&mut restored, "SetPCExpelled ProgressionRep 1", "parameter 1 (0x00000850) is not a faction");
     runtime_failure(&mut restored, "SetPCExpelled NoSuchFaction 1", "unknown faction \"NoSuchFaction\"");
@@ -331,10 +378,14 @@ fn show_name_menu_opens_the_name_menu_and_guards_receivers() {
     let f = fixture();
     let mut g = game(&f);
 
-    // Invalid/empty receivers must fail without opening the menu.
-    runtime_failure(&mut g, "ref empty\nempty.ShowNameMenu", "shownamemenu called on no reference");
+    // Unknown non-zero receivers must fail without opening the menu.
     runtime_failure(&mut g, "ref r\nlet r := 0x123456\nr.ShowNameMenu", "invalid calling reference");
     assert_eq!(g.menu, None);
+
+    // Explicit null receiver opens menus::NAME (1051) and continues execution.
+    let mut g_null = game(&f);
+    assert_eq!(success(&mut g_null, "ref empty\nempty.ShowNameMenu\nSetFunctionValue (MenuMode 1051)"), XVal::Num(1.0));
+    assert_eq!(g_null.menu, Some(fnv_game::game::menus::NAME));
 
     // Omitted receiver opens menus::NAME (1051) and emits MenuOpened once.
     success(&mut g, "ShowNameMenu");
@@ -356,11 +407,18 @@ fn source_kill_all_actors_and_alias_share_the_loaded_area_kill_pass() {
     g.loaded_cells.insert(ROOM);
     success(&mut g, "ProgressionEssentialRef.SetActorRefEssential 1");
 
-    // Invalid receiver or killer must fail without killing or knocking out any loaded actor.
-    runtime_failure(&mut g, "ref empty\nempty.KillAllActors", "killallactors called on no reference");
+    // Unknown non-zero receiver or invalid killer must fail without killing or knocking out any loaded actor.
+    runtime_failure(&mut g, "ref r\nlet r := 0x123456\nr.KillAllActors", "invalid calling reference");
     runtime_failure(&mut g, "ref k\nlet k := 0x123456\nKillAllActors k", "invalid killer reference");
     runtime_failure(&mut g, "KillAllActors \"bad\"", "KillAllActors killer argument must be a reference");
     assert!(!g.is_dead(NPC) && !g.is_dead(ESSENTIAL_NPC) && !g.is_dead(REMOTE_NPC));
+
+    // Explicit null receiver still executes KillAllActors cleanly.
+    let mut g_null = game(&f);
+    g_null.loaded_cells.insert(ROOM);
+    assert_eq!(success(&mut g_null, "ref empty\nempty.KillAllActors\nSetFunctionValue 1"), XVal::Num(1.0));
+    assert!(g_null.is_dead(NPC));
+    assert!(!g_null.is_dead(FormId::PLAYER_REF));
 
     // KillAllActors with explicit killer kills loaded non-essential actors, knocks out
     // essential ones, attributes the killer, and spares the player and unloaded cells.

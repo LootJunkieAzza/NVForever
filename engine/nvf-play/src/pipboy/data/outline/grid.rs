@@ -5,13 +5,13 @@ use super::{extent, EXTERIOR_STEP, FEET_SNAP, INTERIOR_STEP, OutlineKey};
 use bevy::prelude::Vec2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum Basis {
+pub(crate) enum Basis {
     WorldNorth,
     Oriented(f32),
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Request {
+pub(crate) struct Request {
     pub interior: Option<u32>,
     pub world: u32,
     pub centre: [f32; 2],
@@ -23,14 +23,14 @@ pub(super) struct Request {
 
 /// Explicit caller limits, not defaults or a claim about total engine/GPU memory.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Limits {
+pub(crate) struct Limits {
     pub max_edge: u32,
     pub max_pixels: u64,
     pub max_payload_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Rejected {
+pub enum Rejected {
     UnsupportedOrientation,
     InvalidLimits,
     InvalidInput,
@@ -44,7 +44,7 @@ pub(super) enum Rejected {
 
 /// Requested payloads only: allocator overhead/capacity and GPU uploads are separate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Payload {
+pub(crate) struct Payload {
     pub pixels: u64,
     pub heights: u64,
     pub alpha: u64,
@@ -54,7 +54,7 @@ pub(super) struct Payload {
 
 /// Complete effective frame; private fields prevent callers editing a checked grid.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct OutlineGrid {
+pub(crate) struct OutlineGrid {
     key: OutlineKey,
     extent: Vec2,
     origin: [f32; 2],
@@ -64,7 +64,7 @@ pub(super) struct OutlineGrid {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct CheckedGrid {
+pub(crate) struct CheckedGrid {
     grid: OutlineGrid,
     payload: Payload,
 }
@@ -139,6 +139,7 @@ impl OutlineGrid {
     }
 
     pub fn key(self) -> OutlineKey { self.key }
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn extent(self) -> Vec2 { self.extent }
     pub fn origin(self) -> [f32; 2] { self.origin }
     pub fn step(self) -> f32 { self.step }

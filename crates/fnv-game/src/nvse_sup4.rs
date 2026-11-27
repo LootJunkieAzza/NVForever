@@ -165,10 +165,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // there is one player [decision: nothing is done].
         "allocateplayer" => zero,
         // A random key of the array: a number for Ar_GetRandomKey, a string for the map
-        // form (a number key given as its text) [documented]; an empty array 0 [observed:
-        // sup4 randomkey], "" for the map form [hypothesis]. The original's map key was
-        // neither of the two keys of `Ar_Map "LALALA"::1, "TROLOLO"::2` by `==` [observed:
-        // sup4 randomkey; open: what it gives is not known].
+        // form (numeric map keys — including negative floats — and `Ar_List` indices
+        // formatted with 6 decimal places, e.g. `"7.000000"`, `"-3.500000"`, `"2.000000"`)
+        // [documented; observed: 2026-11-23 & 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, SUP NVSE 855 with
+        // the 10 official base masters, `sup_26_ar_getrandomkey_num_map` (`"7.000000"`)
+        // and `w4d_36_sup_random_keymap_and_dialog`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+        // `rnd(str=[0.000000],neg=[-3.500000],arr=[2.000000],empLen=8)`; no DLL or source
+        // consulted]; an empty array returns 0 for Ar_GetRandomKey [observed: sup4
+        // randomkey; 2026-11-23, `sup_08_ar_getrandomkey_empty`].
+        // On stringmaps, `sup_08_ar_getrandomkey_empty` and `w4d_36_sup_random_keymap_and_dialog`
+        // observed `"0.000000"` and buffer garbage on empty maps; NVForever keeps
+        // returning the string key on stringmaps [documented] and `""` on empty arrays
+        // [design].
         "ar_getrandomkey" | "ar_getrandomkeymap" => {
             let keys: Vec<XKey> = entries(g, args.first()).unwrap_or_default().into_iter().map(|(k, _)| k).collect();
             let pick = (!keys.is_empty()).then(|| keys[g.rng.next_u32() as usize % keys.len()].clone());
@@ -176,7 +186,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 ("ar_getrandomkey", Some(XKey::Num(k))) => XVal::Num(k),
                 ("ar_getrandomkey", _) => zero,
                 (_, Some(XKey::Str(s))) => XVal::Str(s),
-                (_, Some(XKey::Num(k))) => XVal::Str(fnv_ui::Value::Num(k).text()),
+                (_, Some(XKey::Num(k))) => XVal::Str(format!("{k:.6}")),
                 _ => XVal::Str(String::new()),
             }
         }
@@ -193,26 +203,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(f64::from(u8::from(bad)))
         }
         // `array f1 … f10`: the VM writes the variables (`fnv_script::vm` `out_params`):
-        // 0, then the array's numbers in key order [documented: the example, f1 3, f2 8,
-        // f3 5]; an element that is no number gives 0 [hypothesis].
+        // key 0 is the return value 0, and key `i + 1` is written only when the `i`-th
+        // element (in key order) is a number; non-numeric elements and positions past
+        // the array's length leave their output variables unchanged [documented: the
+        // example, f1 3, f2 8, f3 5; observed: 2026-11-24, `w6_t1_13_sup_ar_setfloats`:
+        // `[3.5, "abc", 8.25]` into `(11, 22, 33, 44)` yields `(3.50, 22.00, 8.25, 44.00)`].
         "ar_setfloatsfrom" => {
-            let vals: Vec<XVal> = entries(g, args.first())
-                .unwrap_or_default()
-                .into_iter()
-                .take(10)
-                .map(|(_, v)| {
-                    XVal::Num(match v {
-                        XVal::Num(x) => x,
-                        _ => 0.0,
-                    })
-                })
-                .collect();
-            list(g, std::iter::once(zero).chain(vals).collect())
+            let mut out = vec![(XKey::Num(0.0), zero)];
+            for (i, (_, v)) in entries(g, args.first()).unwrap_or_default().into_iter().take(10).enumerate() {
+                if let XVal::Num(x) = v {
+                    out.push((XKey::Num((i + 1) as f64), XVal::Num(x)));
+                }
+            }
+            XVal::Array(g.ext.new_array(ArrayKind::Map, out))
         }
         // `udf [frames] [removeOnLoad]`: the UDF `frames` frames later (1 to 1000, 1
         // without), on the calling reference; with removeOnLoad 0 it outlasts a load
         // [documented: the page's notes and examples]. A lambda does not outlast a load
-        // [hypothesis: as the extender's other kept callbacks, `Game::take_session`].
+        // (see docs/spec-notes/ext-sup4.md §1; `Game::take_session`).
         "callfunctionnextframe" => {
             let Some(f) = args.first().filter(|f| matches!(f, XVal::Ref(r) if *r != 0)).cloned() else { return Some(Ok(zero)) };
             let frames = num(args, 1, 1.0).clamp(1.0, 1000.0) as u64;

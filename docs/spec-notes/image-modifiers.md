@@ -98,9 +98,27 @@ at once), `fnv_game` (`Game::image_modifiers`, the three script functions),
 - Between keys the value moves in a straight line; before the first and after the last
   key it holds [hypothesis: xEdit calls the lists interpolators, the curve is not
   documented].
-- **Applying one that is already playing starts it again** (one instance per record)
-  [hypothesis; the game may stack instances. VCG00 applies Addiction01ISFX at stages 27
-  and 30, half a second apart].
+- **Applying one that is already playing stacks another instance in application order**
+  [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-23, GSDocMitchellHouse
+  (`0x00103DF9`), 10 official base masters, clean-room script probes
+  `w1_3656_objectives_unholster_imod` (`imod` twice + `rimod` twice on `WhiteNonAnimated`
+  `0x000C9AFA`; `imod GetHit` `0x00000162` 0.4 s + ~1.5 s wait) and
+  `b3_core_ex_06_on_apply_imod_event` (`ApplyImageSpaceModifier`/`RemoveImageSpaceModifier`
+  on `0x00144C41`) in #3679; and 2026-11-24 with JIP LN 57.30, `w4d_24_active_imods_order`
+  (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679): applying non-animatable
+  `0x00054E13`, `0x001736A8`, `0x00054E13` yields `n=3,0=00054E13,1=001736A8,2=00054E13`
+  from `GetActiveIMODs`; no DLL or source consulted: re-applying an active IMAD fires
+  `OnApplyIMOD` with `IsImageSpaceActive == 1` and stacks another instance; a single
+  `RemoveImageSpaceModifier` removes all matching instances and fires `OnRemoveIMOD` once
+  per removed instance (twice for two stacked instances). VCG00 also applies
+  Addiction01ISFX at stages 27 and 30, half a second apart]. Because the probes measured
+  event counts and `GetActiveIMODs` order rather than whether the original blends duplicate
+  instances visually, NVForever keeps each stacked instance (animatable and non-animatable)
+  in `Game::image_modifiers` in exact application order, caps stacked instances per form at
+  `Game::MAX_IMOD_STACK = 64` (evicting the oldest matching entry at capacity so repeated
+  re-applies cannot grow unbounded), and draws **one instance per `IMAD` form** (the most
+  recently applied entry) in `nvforever::imagespace::screen_effect` so unmodded visuals stay
+  unchanged [design].
 - **A modifier's time passes with the game outside menus and loading screens,
   conversations included** [hypothesis: `Game::tick` ages modifiers where it advances a
   conversation's lines]. Not known: whether an animated modifier goes on behind a
@@ -481,15 +499,23 @@ Log lines: `eye adaptation: … modifiers +1.00 EV` when a Target LUM change sta
 ends; `eye adaptation: speed S EV/s (Eye Adapt Speed E)` when the speed changes.
 
 
-## Live nonanimated cinematic trait edits
+## Live nonanimated trait edits
 
 [documented: GECK wiki SetImageSpaceModTrait,
-https://geckwiki.com/index.php/SetImageSpaceModTrait] Traits 37–44 edit the
-cinematic multiply/add pairs; 45–46 edit blur and double vision; 47–50 edit tint RGBA.
+https://geckwiki.com/index.php/SetImageSpaceModTrait] Traits 1–2 edit the radial blur
+centre X/Y; 3–36 edit the 17 HDR/bloom multiply/add pairs (`\x00IAD`..`\x10IAD` /
+`@IAD`..`PIAD`); 37–44 edit the cinematic multiply/add pairs; 45–46 edit blur and double
+vision; 47–50 edit tint RGBA; 51–54 edit fade RGBA (`NAM3`); 55–59 edit radial blur
+strength/ramps (`RNAM`, `SNAM`, `UNAM`, `NAM1`, `NAM2`); 60–62 edit depth of field
+strength/distance/range (`WNAM`, `XNAM`, `YNAM`); 63 edits full-screen motion blur
+strength (`NAM4`).
 
 [design, mapped; engine design choice] For a nonanimatable modifier actually selected
 for the screen or lens, evaluate its ordinary record and then apply the current session's
-assigned values. Follow the existing IMAD getter and decoder: 37–38 are saturation,
+assigned values across traits 1–63 (with a fast exit when no trait overrides exist in the
+session). Follow the existing IMAD getter and decoder: 3–36 map directly to the 17
+`Hdr` multiply/add pairs (`ScreenModifiers::hdr`, feeding eye adaptation, light glow,
+sunlight dimmer, and emissive fog scale), 37–38 are saturation,
 39–40 are contrast average luminance (`0x12`/`0x52` IAD), 41–42 are contrast
 (`0x13`/`0x53` IAD), and 43–44 are brightness [hypothesis: this trait-to-field order
 is the existing getter's, not a capture of the original setter]. Tint RGBA (47–50) are
@@ -509,19 +535,23 @@ contributor playtest in NVForever with that mod (2026-11-18) visually confirmed 
 builds in irradiated water that before this PR the cyan effect persisted, with trait 50
 read as 0–1 alpha the whole screen turned cyan, and with 47–50 all read as 0–255 the tint
 looked correct.
+Fade RGB (51–53) divide by 255 like the getter; NAM3 alpha (54) keeps its normalized
+getter units (unobserved).
 Leave every unassigned component, other effect, sound, duration and track alone.
 [engine design choice] Read only bounded fields of active modifiers; do not clone the
 record cache, mutate the load order or scan unrelated forms each frame. Nonfinite values
-which cannot be represented as finite renderer floats are left off the visual override;
-the existing core setter/getter state and admission policy are unchanged.
+(and finite `f64` values that overflow `f32` to infinity) which cannot be represented as
+finite renderer floats are left off the visual override; the existing core setter/getter
+state and admission policy are unchanged.
 
 [hypothesis] This maps the installed radiation controller's edit/apply/update/
-remove cycle onto the existing grade consumer. Native first-key versus whole-track
-editing for animatable records remains open; this bridge leaves animated
-evaluation unchanged. NAM3 alpha (54) keeps its normalized getter units (unobserved).
+remove cycle (and other nonanimated trait edits) onto the existing grade and HDR
+consumers. Native first-key versus whole-track editing for animatable records remains
+open; this bridge leaves animated evaluation unchanged.
 Existing session-only trait lifetime is preserved, and removal must restore the
 current base/other effects rather than replay a cached grade. Authored fixtures
-must exercise compiled setter calls and getter-to-setter round trips through
-actual ImageSpaceGrade output, warm-cache updates, removal, re-entry, lens
-isolation, missing runtime and fresh restore.
+exercise compiled setter calls and getter-to-setter round trips through
+actual ImageSpaceGrade and ScreenModifiers::hdr output, warm-cache updates, nonfinite
+and f32-overflow guards, removal, re-entry, lens isolation, missing runtime and fresh
+restore.
 No native, GPU or full installed-mod acceptance follows from CPU controls.

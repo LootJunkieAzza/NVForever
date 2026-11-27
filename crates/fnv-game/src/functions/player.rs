@@ -154,6 +154,14 @@ pub fn disable_player_controls(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Valu
     // A left-out parameter is 0: the group is left as it is [hypothesis; §5.2 has a
     // capture that does not fit any simple rule].
     let which = controls(a, [true, true, true, true, false, false, false], false);
+    // A co-op guest runs no world scripts but what it sets off itself (a door's
+    // OnActivate): their locks would never be taken off here, where the script that does
+    // so runs only in the host's world. A guest is held only by the host's scenes
+    // (`Game::coop_host_locks`) [design].
+    if g.coop_guest {
+        tracing::info!("co-op: {} would disable this guest's controls {which:?}: not here (only the host's scenes hold a guest)", ctx.unit);
+        return none();
+    }
     for (d, w) in g.player.controls_disabled.iter_mut().zip(which) {
         *d |= w;
     }
@@ -256,8 +264,14 @@ pub fn set_hardcore(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
 pub fn show_map(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let m = a.form(0)?;
     g.player.map_markers.insert(m);
+    if g.marker_flag_override(m, crate::nvse_lu2::MARKER_VISIBLE) == Some(false) {
+        g.clear_marker_flag_override(m, crate::nvse_lu2::MARKER_VISIBLE);
+    }
     if a.num_or(1, 0.0) != 0.0 {
         g.player.travel_markers.insert(m);
+        if g.marker_flag_override(m, crate::nvse_lu2::MARKER_TRAVEL) == Some(false) {
+            g.clear_marker_flag_override(m, crate::nvse_lu2::MARKER_TRAVEL);
+        }
     }
     none()
 }
@@ -279,19 +293,34 @@ impl Game<'_> {
 
 /// `marker.GetMapMarkerVisible`: 0 not on the map, 1 on it without fast travel, 2 on it
 /// and a fast-travel target [documented: GECK wiki GetMapMarkerVisible, "Marker State"].
-/// A marker the player found reads 2 [observed: the Goodsprings marker in the save
-/// nvftest, capture `fa_batch1_queries`]; ShowMap's canTravel and ShowAllMapMarkers'
-/// travel flag give 2 to the others. The marker's Hidden flag is not read here: a marker
-/// counts as not hidden [engineering choice: the game crate has no marker data; the
-/// Pip-Boy map reads it]; markers authored Visible are not known here either (0 until
-/// found or shown).
+/// Before discovery, authored `FNAM` flags read 0 (`0`), 1 (`1` Visible), 2 (`3`
+/// Visible | Can Travel To, e.g. Honest Hearts' Southern Passage), and 0 (`2` Can Travel
+/// To alone); `ShowMap 0` gives 1 (and leaves a marker already at 2 at 2), `ShowMap 1`
+/// and player discovery give 2 (and set `GetMapMarkerTravel` to 1); `SetMapMarkerVisible`
+/// sets/clears only bit 0, `SetMapMarkerTravel 1` alone keeps 0 while setting travel,
+/// `SetMapMarkerTravel 0` drops 2 to 1, and `SetMapMarkerHidden 1` does not zero it
+/// [observed: observer check 252 (#3468, `o31_mapmarker_visible` control + probe plugin)
+/// and the 2026-11-22 live map-marker probe documented in `docs/spec-notes/ext-lutana.md` §9].
 pub fn get_map_marker_visible(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    let flags = g.marker_flags(r);
+    let hidden = flags.is_some_and(|f| f & crate::nvse_lu2::MARKER_HIDDEN != 0);
+    let visible_flag = flags.is_some_and(|f| f & crate::nvse_lu2::MARKER_VISIBLE != 0);
+    let script_visible = g.marker_flag_override(r, crate::nvse_lu2::MARKER_VISIBLE);
     let found = g.player.found_markers.contains(&r);
-    if !(found || g.map_marker_shown(r, false)) {
+    let shown = g.map_marker_shown(r, hidden);
+    let visible = match script_visible {
+        Some(false) => shown,
+        _ => found || shown || visible_flag,
+    };
+    if !visible {
         return Ok(Value::Num(0.0));
     }
-    let travel = found || g.player.travel_markers.contains(&r) || g.player.all_markers.is_some_and(|a| a.shown && a.travel);
+    let travel = if flags.is_some() {
+        g.marker_travel(r)
+    } else {
+        found || (shown && (g.player.travel_markers.contains(&r) || g.player.all_markers.is_some_and(|a| a.shown && a.travel)))
+    };
     Ok(Value::Num(if travel { 2.0 } else { 1.0 }))
 }
 

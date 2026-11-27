@@ -424,3 +424,145 @@ fn radiation_controller_alpha_is_0_to_255_like_its_rgb() {
     a.update();
     tint(grade(&a, main).tint, Vec4::new(0.0, 1.0, 33.0 / 255.0, 0.3));
 }
+
+#[test]
+fn nonanimated_hdr_fade_radial_dof_and_motion_traits_reach_grade_and_restore() {
+    use fnv_world::imagespace::{HDR_BRIGHT_SCALE, HDR_EMISSIVE_MULT, HDR_TARGET_LUM};
+    let (mut a, main, _) = app();
+    selected(&mut a, "AuthoredRadiationEffect");
+    a.update();
+    for (id, value) in [
+        (1, 0.25),
+        (2, 0.75),
+        // HDR_EMISSIVE_MULT = slot 3 -> traits 9 (mult), 10 (add).
+        (9, 2.0),
+        (10, 0.5),
+        // HDR_TARGET_LUM = slot 4 -> trait 11 (mult).
+        (11, 1.5),
+        // HDR_BRIGHT_SCALE = slot 6 -> trait 15 (mult).
+        (15, 3.0),
+        // Fade RGB (0–255) and normalized alpha.
+        (51, 255.0),
+        (52, 127.5),
+        (53, 0.0),
+        (54, 0.4),
+        // Radial blur tracks.
+        (55, 2.5),
+        (56, 0.6),
+        (57, 0.2),
+        (58, 0.4),
+        (59, 0.8),
+        // Depth of field tracks.
+        (60, 0.75),
+        (61, 40.0),
+        (62, 320.0),
+        // Motion blur.
+        (63, 0.35),
+    ] {
+        set(&mut a, id, value);
+    }
+    a.update();
+    let g = grade(&a, main);
+    tint(g.fade, Vec4::new(1.0, 0.5, 0.0, 0.4));
+    tint(g.radial, Vec4::new(2.5, 0.6, 0.2, 0.4));
+    tint(g.radial2, Vec4::new(0.8, 0.25, 0.75, 0.0));
+    tint(g.dof, Vec4::new(0.75, 40.0, 320.0, -1.0));
+    close(g.motion.x, 0.35);
+    let mods = a.world().resource::<ScreenModifiers>();
+    close(mods.hdr_ratio(HDR_EMISSIVE_MULT), 2.5);
+    close(mods.hdr_ratio(HDR_TARGET_LUM), 1.5);
+    close(mods.hdr_ratio(HDR_BRIGHT_SCALE), 3.0);
+
+    source(&mut a, "RIMOD AuthoredRadiationEffect");
+    a.update();
+    let g = grade(&a, main);
+    tint(g.fade, Vec4::ZERO);
+    tint(g.radial, Vec4::ZERO);
+    tint(g.radial2, Vec4::new(0.0, 0.5, 0.5, 0.0));
+    tint(g.dof, Vec4::new(0.0, 0.0, 0.0, -1.0));
+    close(g.motion.x, 0.0);
+    let mods = a.world().resource::<ScreenModifiers>();
+    close(mods.hdr_ratio(HDR_EMISSIVE_MULT), 1.0);
+    close(mods.hdr_ratio(HDR_TARGET_LUM), 1.0);
+    close(mods.hdr_ratio(HDR_BRIGHT_SCALE), 1.0);
+}
+
+#[test]
+fn nonfinite_and_f32_overflow_trait_overrides_leave_grade_and_hdr_finite() {
+    use fnv_world::imagespace::HDR_EMISSIVE_MULT;
+    let (mut a, main, _) = app();
+    selected(&mut a, "AuthoredRadiationEffect");
+    // Valid sibling edit alongside NaN, +/-inf, and finite f64 that overflows f32.
+    set(&mut a, 48, 204.0);
+    a.world_mut()
+        .resource_scope(|world, mut script: Mut<ScriptState>| {
+            let mut sim = world.resource_mut::<SimState>();
+            with_world(script.rt.as_mut().unwrap(), &mut sim, |rt| {
+                const IMAD_FAMILY: u8 = 4;
+                let form = fnv_sim::FormId(MAIN);
+                rt.game.traits.values.insert((form, IMAD_FAMILY, 9), 1.0e300);
+                rt.game.traits.values.insert((form, IMAD_FAMILY, 37), f64::NEG_INFINITY);
+                rt.game.traits.values.insert((form, IMAD_FAMILY, 45), f64::INFINITY);
+                rt.game.traits.values.insert((form, IMAD_FAMILY, 47), f64::NAN);
+                rt.game.traits.values.insert((form, IMAD_FAMILY, 50), 1.0e300);
+            });
+        });
+    a.update();
+    let g = grade(&a, main);
+    tint(g.tint, Vec4::new(0.1, 0.8, 0.8, 0.7));
+    close(g.saturation, 1.0);
+    close(g.blur, 0.0);
+    close(a.world().resource::<ScreenModifiers>().hdr_ratio(HDR_EMISSIVE_MULT), 1.0);
+}
+
+#[test]
+fn stacked_imod_draws_single_instance_per_form_while_events_count_instances() {
+    let (mut a, main, _) = app();
+    source(
+        &mut a,
+        r#"SetEventHandler "OnRemoveIMOD" (Begin Function {ref rImad}
+SetModLocalData "rm.count" ((GetModLocalData "rm.count") + 1)
+End)"#,
+    );
+
+    // 1. Non-animatable IMAD applied once vs twice: contrast/tint stay single-drawn (not doubled),
+    //    ScreenModifiers::shown holds one entry, and RIMOD fires OnRemoveIMOD twice.
+    selected(&mut a, "AuthoredRadiationEffect");
+    a.update();
+    let single = grade(&a, main);
+    close(single.contrast, 1.625);
+    tint(single.tint, Vec4::new(0.1, 0.3, 0.8, 0.7));
+    assert_eq!(a.world().resource::<ScreenModifiers>().shown, vec![MAIN]);
+
+    selected(&mut a, "AuthoredRadiationEffect");
+    a.update();
+    let stacked = grade(&a, main);
+    close(stacked.contrast, single.contrast);
+    close(stacked.contrast_avg_lum, single.contrast_avg_lum);
+    tint(stacked.tint, single.tint);
+    assert_eq!(a.world().resource::<ScreenModifiers>().shown, vec![MAIN]);
+
+    source(&mut a, "RIMOD AuthoredRadiationEffect");
+    a.update();
+    assert_eq!(source(&mut a, r#"SetFunctionValue (GetModLocalData "rm.count")"#), XVal::Num(2.0));
+    assert!(a.world().resource::<ScreenModifiers>().shown.is_empty());
+
+    // 2. Animatable IMAD re-applied while active (as VCG00's Addiction01ISFX at stages 27 & 30):
+    //    screen_effect deduplicates per form so it draws once, while RIMOD fires OnRemoveIMOD twice.
+    selected(&mut a, "AuthoredAnimatedEffect");
+    a.update();
+    let anim_single = grade(&a, main);
+    tint(anim_single.tint, Vec4::new(0.2, 0.4, 0.6, 0.5));
+    assert_eq!(a.world().resource::<ScreenModifiers>().shown, vec![ANIMATED]);
+
+    selected(&mut a, "AuthoredAnimatedEffect");
+    a.update();
+    let anim_stacked = grade(&a, main);
+    tint(anim_stacked.tint, anim_single.tint);
+    assert_eq!(a.world().resource::<ScreenModifiers>().shown, vec![ANIMATED]);
+
+    source(&mut a, "RIMOD AuthoredAnimatedEffect");
+    a.update();
+    assert_eq!(source(&mut a, r#"SetFunctionValue (GetModLocalData "rm.count")"#), XVal::Num(4.0));
+    assert!(a.world().resource::<ScreenModifiers>().shown.is_empty());
+}

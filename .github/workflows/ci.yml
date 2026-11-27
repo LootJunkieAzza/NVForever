@@ -17,7 +17,12 @@ name: ci
 #   Docs-only pushes to main do not run at all (a *.md under tools/ does).
 # - a newer push to the same pull request cancels its run still in progress; on main every
 #   push's run completes, so a red main can be traced to the merge that caused it (#2000).
-# Windows/macOS are covered by the local checks in CLAUDE.md before each push.
+# - one Windows job, `windows-clippy`, lints both workspaces (#3143): about 35 source
+#   files carry `cfg(windows)` code (DLSS, the crash handler, the exit watch, CPU
+#   placement, the launcher) that the Linux jobs never compile, and a Windows-only clippy
+#   failure reached main that way (#3059). Clippy only, no build and no tests: it checks
+#   every Windows item at a fraction of a build's time. The tests on Windows and all of
+#   macOS are still covered by the local checks in CLAUDE.md before each push.
 on:
   push:
     branches: [main]
@@ -137,6 +142,31 @@ jobs:
         run: cargo clippy --release --locked --all-targets -- -D warnings
         working-directory: engine
 
+  # The Windows-only code (`cfg(windows)`), linted on a Windows runner (#3143, header).
+  # The same two clippy commands as the Linux jobs, both workspaces in one job with one
+  # cache each. No system libraries to install: Bevy's Windows dependencies are in the
+  # toolchain.
+  windows-clippy:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: |
+            . -> target
+            engine -> target
+      - name: Core clippy (Windows)
+        run: cargo clippy --workspace --all-targets --release --locked -- -D warnings
+      - name: Engine clippy (Windows)
+        run: cargo clippy --release --locked --all-targets -- -D warnings
+        working-directory: engine
+
   # Runs on docs-only pull requests too: the Python suites catch a renamed doc (#2000).
   tools:
     needs: changes
@@ -174,16 +204,16 @@ jobs:
         run: python -m unittest discover -s tools/release/tests -v
 
   # The one required status check: passes when every job above passed or was skipped
-  # (a docs-only pull request skips core and engine), fails when any failed or was
+  # (a docs-only pull request skips core, engine and the Windows lint), fails when any failed or was
   # cancelled.
   ci:
-    needs: [changes, core, engine, engine-clippy, tools]
+    needs: [changes, core, engine, engine-clippy, windows-clippy, tools]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Every check passed
         run: |
-          echo 'changes=${{ needs.changes.result }} core=${{ needs.core.result }} engine=${{ needs.engine.result }} engine-clippy=${{ needs.engine-clippy.result }} tools=${{ needs.tools.result }}'
+          echo 'changes=${{ needs.changes.result }} core=${{ needs.core.result }} engine=${{ needs.engine.result }} engine-clippy=${{ needs.engine-clippy.result }} windows-clippy=${{ needs.windows-clippy.result }} tools=${{ needs.tools.result }}'
           case '${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}' in
             true) exit 1 ;;
           esac

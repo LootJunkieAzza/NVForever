@@ -513,6 +513,29 @@ impl Game<'_> {
         Ok(())
     }
 
+    /// Revive every living teammate knocked out at zero health on cell change under the
+    /// Revive Unconscious Companions tweak (`bReviveWhenChangingCells`, without consuming a
+    /// Stimpak) [design: docs/design/tweaks.md]. Returns the revived companions' FormIDs.
+    pub fn revive_companions_on_cell_change(&mut self) -> Vec<FormId> {
+        if !self.tweaks.revive_companions || !self.tweaks.revive_on_cell_change {
+            return Vec::new();
+        }
+        let down: Vec<(FormId, KnockOut)> = self
+            .extra
+            .iter()
+            .filter_map(|(&r, e)| {
+                let k = e.knocked_out?;
+                (k.cause == Cause::Essential && k.lying() && self.is_teammate(r) && !self.is_dead(r)).then_some((r, k))
+            })
+            .collect();
+        let mut revived = Vec::with_capacity(down.len());
+        for (r, k) in down {
+            self.begin_getting_up(r, k);
+            revived.push(r);
+        }
+        revived
+    }
+
     /// Seconds a knocked-out essential actor `r` lies at least: [`ESSENTIAL_DOWN`], or for
     /// a companion the time the Revive Unconscious Companions tweak sets (0 keeps ours).
     fn essential_down(&self, r: FormId) -> f64 {

@@ -2,7 +2,7 @@
 //! events of scripted items.
 
 use super::{none, yes, Args, Ctx};
-use crate::game::{event, Game, InstKey};
+use crate::game::{event, menus, Game, InstKey};
 use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::forms::ItemKind;
@@ -52,7 +52,17 @@ pub fn add_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         }
     }
     review_equipment(g, to);
+    mark_item_menu_refresh(g);
     none()
+}
+
+/// Request a one-shot menu refresh when `AddItem` or `AddItemHealthPercent` runs while
+/// an inventory, container, or barter menu is open, keeping `MenuModel` aligned with
+/// `World` [design; Stewie's Tweaks 9.70 public changelog].
+fn mark_item_menu_refresh(g: &mut Game) {
+    if g.menu_open(menus::INVENTORY) || g.menu_open(menus::CONTAINER) || g.menu_open(menus::BARTER) {
+        g.gaps.jip3.refresh_items_list = true;
+    }
 }
 
 /// An actor given something by AddItem equips the best armour and weapon it has
@@ -154,6 +164,12 @@ pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
+    if g.handled(crate::nvse_showoff::ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT)
+        && g.world.item_count(actor, item).unwrap_or(0) > 0
+        && !g.pre_activate_inventory_item_alt(actor, item, 0, true)
+    {
+        return none();
+    }
     if g.world.equip_lock(actor, item) == Some(EquipLock::NoEquip) {
         g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }
@@ -202,6 +218,20 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
+    // Scripted UnequipItem dispatches ShowOff:OnPreActivateInventoryItemAlt (with
+    // bEquipping = 1) and honors SetFunctionValue 0 veto [observed: 2026-11-24,
+    // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+    // (0x00103DF9), 10 official base masters,
+    // `tools/capture/nvse/catalogs/wave6d1_pre_activate_inv_alt_unequip.json` probes
+    // `w6d1_15_pre_activate_inv_aid_and_unequip` and
+    // `w6d1p3_15_unequip_alt_beq_and_veto`: `pre=1|veto(eq=1,n=1,bEq=1)|alw(eq=0,n=2,bEq=1)`;
+    // no DLL, PDB, or third-party source consulted].
+    if g.handled(crate::nvse_showoff::ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT)
+        && g.world.get(actor).ok().and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item))
+        && !g.pre_activate_inventory_item_alt(actor, item, 0, true)
+    {
+        return none();
+    }
     if g.world.equip_lock(actor, item) == Some(EquipLock::NoUnequip) {
         g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }
@@ -221,6 +251,16 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
 pub fn get_equipped(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let wanted = items(g, a.form(0)?);
+    // A co-op guest's shot, run as the player's: the weapon it was fired with
+    // is what the player has equipped as far as weapons go.
+    if let Some(w) = g.shot_for_player.filter(|_| actor == FormId::PLAYER_REF) {
+        if wanted.contains(&w) {
+            return yes(true);
+        }
+        if wanted.iter().all(|&i| g.world.forms.item(i).is_some_and(|f| f.kind == fnv_sim::forms::ItemKind::Weapon)) {
+            return yes(false);
+        }
+    }
     let s = g.world.get(actor).map_err(|e| e.to_string())?;
     yes(s.inventory.as_ref().is_some_and(|i| wanted.iter().any(|&w| i.is_equipped(w))))
 }
@@ -277,12 +317,20 @@ impl Game<'_> {
     }
 }
 
-/// The weapon an actor has equipped, if any.
+/// The weapon an actor has equipped, if any (including `TempCloneForm` weapons).
 pub fn equipped_weapon(g: &mut Game, actor: FormId) -> Option<FormId> {
     let forms = g.world.forms;
+    let clones = &g.clones;
     let s = g.world.get(actor).ok()?;
     let inv = s.inventory.as_ref()?;
-    inv.equipped().into_iter().find(|&i| forms.item(i).is_some_and(|it| it.kind == ItemKind::Weapon))
+    inv.equipped().into_iter().find(|&i| {
+        let mut orig = i;
+        for _ in 0..16 {
+            let Some(&p) = clones.get(&orig) else { break };
+            orig = p;
+        }
+        forms.item(orig).is_some_and(|it| it.kind == ItemKind::Weapon)
+    })
 }
 
 /// Inventory form types by the codes RemoveAllTypedItems takes. 40 is the weapons
@@ -347,14 +395,16 @@ pub fn remove_all(g: &mut Game, from: FormId, how: &RemoveAll) -> Result<(), Str
         s.inventory.as_ref().map(|i| i.iter().collect()).unwrap_or_default()
     };
     for (item, n) in stacks {
-        let Some(it) = forms.item(item) else { continue };
-        if (it.non_playable_biped() && !how.unplayable) || except.contains(&item) {
+        if g.world.resolve_item(item).is_none() {
+            continue;
+        }
+        if (g.world.effective_non_playable_biped(item) && !how.unplayable) || except.contains(&item) {
             continue;
         }
         if from == FormId::PLAYER_REF && !how.quest_items && g.world.is_quest_item(item) {
             continue;
         }
-        if code != -1 && forms.sig(item).as_ref().and_then(form_type_code) != Some(code) {
+        if code != -1 && forms.sig(g.unclone(item)).as_ref().and_then(form_type_code) != Some(code) {
             continue;
         }
         let groups = fnv_sim::inventory::unequipped(g.world.inventory_mut(from).map_err(|e| e.to_string())?.take(item, n));
@@ -388,12 +438,14 @@ pub fn add_item_health_percent(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Valu
             g.emit(EventKind::ItemAdded { to, item: i, count: n, silent });
             g.item_event(to, i, event::ON_ADD, Some(Value::Ref(to.0)));
         }
+        mark_item_menu_refresh(g);
         return none();
     }
     let extra = Extra { condition: (health < 1.0).then_some(health), ..Extra::default() };
     g.world.add_item_extra(to, item, count, extra).map_err(|e| e.to_string())?;
     g.emit(EventKind::ItemAdded { to, item, count, silent: hide_flag(a, 3) });
     g.item_event(to, item, event::ON_ADD, Some(Value::Ref(to.0)));
+    mark_item_menu_refresh(g);
     none()
 }
 
@@ -454,6 +506,8 @@ pub fn is_weapon_skill_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
 pub fn reset_inventory(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.world.reset_inventory(r).map_err(|e| e.to_string())?;
+    g.clear_npc_weapon_mods_roll(r);
+    g.maybe_apply_npc_weapon_mods(r);
     none()
 }
 
@@ -496,13 +550,121 @@ pub fn set_quest_object(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 /// Blues]: 1 gives items at 1 % as the page reads [observed: capture `leveled_list_health`,
 /// 2026-10-18: Vance's 9mm SMG drawn from a list entry added at 50 had 375 of 750 health,
 /// at 1 had 7.5].
-/// Count and level below 1 are read as 1 [hypothesis].
+/// Level `0` is stored verbatim and integral levels convert into the 16-bit `LVLO` level
+/// field by low-16-bit wrap (`(raw_level as i64) as u16`, e.g. `0 -> 0`, `1 -> 1`,
+/// `65535 -> 0xFFFF`, `70000 -> 4464`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
+/// 6.4.9, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+/// isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes to game
+/// install or Saves), `w4d_41_vanilla_player_and_lists`
+/// (`tools/capture/nvse/catalogs/wave4d_extenders.json`, PR #3803 / #3802):
+/// `PROBE|w4d_41_vanilla_player_and_lists|xp(0->25)|modAttr(5->7)|lvli(n0=4,l0=5:0,l1=6:1,l65k=7:-1,l70k=8:4464)|pkg(doc=14,pl=0)|rmMerch=ok`;
+/// zero DLL, PDB, or third-party source consulted — `GetNumLevItems` on `0x00000AA1` grew
+/// `4->5->6->7->8` and `GetNthLevItemLevel` read back `0`, `1`, `-1` (`0xFFFF`), and
+/// `4464`]. Non-finite levels yield `0` [design]; count below `1` stays clamped to `1`
+/// [hypothesis].
 pub fn add_item_to_leveled_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let list = a.form(0)?;
     let item = a.form(1)?;
-    let level = a.num_or(2, 1.0).clamp(1.0, u16::MAX as f64) as u16;
+    let raw_level = a.num_or(2, 1.0);
+    let level = if raw_level.is_finite() { (raw_level as i64) as u16 } else { 0 };
     let count = a.num_or(3, 1.0).clamp(1.0, u16::MAX as f64) as u16;
     let condition = a.num(4).ok().map(|h| (h / 100.0).clamp(0.0, 1.0) as f32).filter(|c| *c < 1.0);
     g.world.add_to_leveled_list(list, fnv_sim::forms::LeveledEntry { level, item, count, condition }).map_err(|e| e.to_string())?;
     none()
+}
+
+#[cfg(test)]
+mod add_item_to_leveled_list_tests {
+    use super::*;
+    use crate::common::*;
+    use crate::game::{GameConfig, RunCtx};
+    use crate::GameData;
+    use fnv_esm::{LoadOrder, Plugin, Schema};
+    use fnv_script::vm::XVal;
+    use fnv_script::FunctionTable;
+    use fnv_sim::{FormStore, RefTable, SimConfig, World};
+
+    const ITEM_A: u32 = 0x801;
+    const ITEM_B: u32 = 0x802;
+    const LIST_ID: u32 = 0x810;
+
+    struct Fixture {
+        data: GameData,
+        forms: FormStore,
+        refs: RefTable,
+    }
+
+    fn fixture() -> Fixture {
+        let misc = [
+            record(b"MISC", 0, ITEM_A, &[sub(b"EDID", z("OwnedCap"))]),
+            record(b"MISC", 0, ITEM_B, &[sub(b"EDID", z("OwnedChip"))]),
+        ]
+        .concat();
+        let lvlo = [1u16.to_le_bytes().to_vec(), vec![0; 2], ITEM_A.to_le_bytes().to_vec(), 1u16.to_le_bytes().to_vec(), vec![0; 2]].concat();
+        let lvli = record(b"LVLI", 0, LIST_ID, &[sub(b"EDID", z("OwnedLootList")), sub(b"LVLD", vec![0]), sub(b"LVLF", vec![0]), sub(b"LVLO", lvlo)]);
+        let bytes = [tes4(), top(b"MISC", &misc), top(b"LVLI", &lvli)].concat();
+        let plugins = [Plugin::parse(&bytes, "OwnedLvli.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = Schema::load_dir(root.join("fnv")).unwrap();
+        let path = root.join("script/functions.json");
+        let catalogue = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let forms = FormStore::build(&lo, &schema);
+        let refs = RefTable::build(&lo, &schema);
+        let data = GameData::build(&lo, &schema, FunctionTable::load(&path).unwrap(), &catalogue, &refs);
+        Fixture { data, forms, refs }
+    }
+
+    fn game(f: &Fixture) -> Game<'_> {
+        Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..Default::default() })
+    }
+
+    #[test]
+    fn add_item_to_leveled_list_accepts_zero_and_wraps_u16_levels() {
+        use fnv_script::vm::ArgValue;
+
+        let f = fixture();
+        let mut g = game(&f);
+        let ctx = Ctx { unit: "test".into(), opcode: 0x1236, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        assert_eq!(g.world.leveled_list(FormId(LIST_ID)).unwrap().entries.len(), 1);
+
+        // Matches w4d_41_vanilla_player_and_lists: 0, 1, 65535, and 70000 all append entries.
+        for (level, count, health) in [(0.0, 1.0, 100.0), (1.0, 2.0, 50.0), (65535.0, 1.0, 100.0), (70000.0, 0.0, 100.0)] {
+            let vals = [
+                ArgValue::Value(Value::Ref(LIST_ID)),
+                ArgValue::Value(Value::Ref(ITEM_B)),
+                ArgValue::Value(Value::Num(level)),
+                ArgValue::Value(Value::Num(count)),
+                ArgValue::Value(Value::Num(health)),
+            ];
+            add_item_to_leveled_list(&mut g, &ctx, &Args(&vals)).unwrap();
+        }
+        // Non-finite level does not panic and maps to 0.
+        let nan_vals = [
+            ArgValue::Value(Value::Ref(LIST_ID)),
+            ArgValue::Value(Value::Ref(ITEM_B)),
+            ArgValue::Value(Value::Num(f64::NAN)),
+            ArgValue::Value(Value::Num(1.0)),
+        ];
+        add_item_to_leveled_list(&mut g, &ctx, &Args(&nan_vals)).unwrap();
+
+        let entries = g.world.leveled_list(FormId(LIST_ID)).unwrap().entries;
+        assert_eq!(entries.len(), 6);
+        assert_eq!(entries[1].level, 0, "level 0 stored verbatim");
+        assert_eq!(entries[2].level, 1);
+        assert_eq!(entries[2].count, 2);
+        assert_eq!(entries[2].condition, Some(0.5));
+        assert_eq!(entries[3].level, 65535);
+        assert_eq!(entries[4].level, 70000u32 as u16, "70000 wraps into u16 (4464)");
+        assert_eq!(entries[4].count, 1, "count below 1 stays clamped to 1");
+        assert_eq!(entries[5].level, 0, "non-finite level maps to 0");
+
+        // Verify GetNumLevItems / GetNthLevItemLevel readback through the script runtime.
+        let num_items = g.run_query("Begin Function { }\nSetFunctionValue (GetNumLevItems OwnedLootList)\nEnd\n", RunCtx::default()).unwrap();
+        assert_eq!(num_items, XVal::Num(6.0));
+        let lv_zero = g.run_query("Begin Function { }\nSetFunctionValue (GetNthLevItemLevel OwnedLootList 1)\nEnd\n", RunCtx::default()).unwrap();
+        assert_eq!(lv_zero, XVal::Num(0.0));
+        let lv_wrap = g.run_query("Begin Function { }\nSetFunctionValue (GetNthLevItemLevel OwnedLootList 4)\nEnd\n", RunCtx::default()).unwrap();
+        assert_eq!(lv_wrap, XVal::Num(4464.0));
+    }
 }

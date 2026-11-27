@@ -9,10 +9,14 @@
 //! - after FSR ([`crate::fsr::fsr_pass`]): frame interpolation's prepare pass dilates the
 //!   frame's depth and motion (the same inputs FSR gets);
 //! - after the post passes and before the UI: a copy of the frame without the HUD;
-//! - after the UI, before Bevy's upscaling blit: optical flow on the HUD-less frame, then the
-//!   frame halfway between the previous real frame and this one, into a texture of its own.
-//!   AMD's HUD-less mode puts this frame's HUD pixels (wherever the frame with the HUD
-//!   differs from the one without) over it, so the HUD and menus are never interpolated.
+//! - after the UI, before Bevy's upscaling blit: the UI drawn a second time, alone, into a
+//!   texture of its own (`fg_ui_layer.rs`); optical flow on the HUD-less frame, then the frame
+//!   halfway between the previous real frame and this one (from the HUD-less frames only), into
+//!   a texture of its own, and the UI layer drawn over it, so the generated frame carries this
+//!   real frame's HUD exactly and the HUD and menus are never interpolated. With
+//!   `NVF_FG_UI_LAYER=0` (or a frame the layer could not be drawn for) AMD's HUD-less mode puts
+//!   this frame's HUD pixels over it instead, wherever the frame with the HUD differs from the
+//!   one without, weighted by how much: the HUD's faint parts then mix with the scene.
 //! - The window's images are not Bevy's while it runs (the vendored bevy_render's
 //!   `DeferredSwapchain`, 2026-11-08): the frame is drawn into a stand-in texture, and once
 //!   Bevy's `render_system` has submitted the frame's commands (and a screenshot's copy into the
@@ -73,7 +77,7 @@ use bevy::render::{
     view::{prepare_view_targets, prepare_windows, DeferredSwapchain, ExtractedWindow, SurfaceData, ViewTarget, STAND_INS},
     Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
 };
-use bevy::ui_render::ui_pass;
+use bevy::ui_render::{ui_pass, UiCameraView};
 use wgpu_ffx::frameinterpolation::{
     FrameInterpolationContext, FrameInterpolationDispatchInfo, FrameInterpolationFlags, FrameInterpolationPrepareInfo, FrameInterpolationView,
 };
@@ -162,16 +166,18 @@ pub struct DlssgRequest {
 
 /// Why the row's DLSS choice cannot run now, in the settings page's words: the loader's reason
 /// (`dlss::frame_generation_unavailable`: the files, the GPU, Windows' GPU scheduling, the
-/// driver), no upscaler drawing (DLSS-G takes the upscaler's depth and motion), or vsync on
+/// driver), no upscaler drawing (DLSS-G takes the upscaler's depth and motion), or Vertical sync
 /// (DLSS-G requires vsync off on Vulkan [observed: its requirements' "vsync off required yes",
 /// fork-notes `fg-spike-results.md`; documented: "VSync with Frame Generation is only supported
-/// on D3D12", `ProgrammingGuideDLSS_G.md` §22.5]).
+/// on D3D12", `ProgrammingGuideDLSS_G.md` §22.5]). Variable refresh is no bar: while DLSS-G is
+/// asked for it presents with vsync off and keeps its cap, through Reflex
+/// (`frame_pace::FramePace::presents_vsync`).
 pub fn dlss_unavailable_reason(world: &World) -> Option<&'static str> {
     if let Some(why) = crate::dlss::frame_generation_unavailable(|| crate::settings::dlss_download_offered(world)) {
         Some(why)
     } else if !crate::upscaler::temporal_active(world) {
         Some("Needs an upscaler")
-    } else if world.resource::<crate::frame_pace::FramePace>().sync.vsync() {
+    } else if world.resource::<crate::frame_pace::FramePace>().sync == crate::frame_pace::DisplaySync::Vsync {
         Some("Needs vsync off")
     } else {
         None
@@ -362,17 +368,14 @@ fn storage_without_format(adapter: &wgpu::Adapter) -> bool {
 /// one `graphics::apply` puts on the camera in the same frame (FSR's prepare then sees the
 /// request and FSR's component together, as when both read `Graphics::fsr`).
 fn add_switch_systems(app: &mut App) {
-    app.add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace).after(crate::upscaler::follow_request));
+    app.add_systems(Update, request_dlssg.after(crate::upscaler::follow_request).before(crate::frame_pace::ApplyFramePace))
+        .add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace).after(crate::upscaler::follow_request));
 }
 
-/// FSR frame generation was asked for while DLSS-G is loaded (said once).
-static SAID_DLSSG: AtomicBool = AtomicBool::new(false);
-
-fn follow_switch(world: &mut World) {
-    if world.resource::<FrameGeneration>().fsr() && crate::dlss::frame_generation_loaded() && !SAID_DLSSG.swap(true, Ordering::Relaxed) {
-        warn!("frame generation: FSR 3.1 frame generation waits until Streamline's DLSS Frame Generation is unloaded");
-    }
-    // DLSS Frame Generation's request for the render world.
+/// DLSS Frame Generation's request for the render world, before the frame pacing: with Variable
+/// refresh, the window's present mode follows it (`frame_pace::apply_vsync`), so the swapchain
+/// DLSS-G's load makes in this frame's extraction is already made with vsync off.
+fn request_dlssg(world: &mut World) {
     let request = DlssgRequest {
         on: world.resource::<FrameGeneration>().kind == FrameGenKind::Dlss && dlss_unavailable_reason(world).is_none(),
         // At most what the GPU allows once it is known (`DLSSGState::numFramesToGenerateMax`).
@@ -383,6 +386,15 @@ fn follow_switch(world: &mut World) {
     };
     if *world.resource::<DlssgRequest>() != request {
         *world.resource_mut::<DlssgRequest>() = request;
+    }
+}
+
+/// FSR frame generation was asked for while DLSS-G is loaded (said once).
+static SAID_DLSSG: AtomicBool = AtomicBool::new(false);
+
+fn follow_switch(world: &mut World) {
+    if world.resource::<FrameGeneration>().fsr() && crate::dlss::frame_generation_loaded() && !SAID_DLSSG.swap(true, Ordering::Relaxed) {
+        warn!("frame generation: FSR 3.1 frame generation waits until Streamline's DLSS Frame Generation is unloaded");
     }
     let usable = usable(world);
     let playing = world.get_resource::<State<nvf_play::PlayState>>().is_none_or(|s| *s.get() == nvf_play::PlayState::Playing);
@@ -623,6 +635,12 @@ pub(crate) struct PreparedFrameGen {
     /// This frame may have a generated frame (playing).
     playing: bool,
     logged: AtomicBool,
+    /// The UI drawn alone (`fg_ui_layer.rs`) and its view; `None` with `NVF_FG_UI_LAYER=0`.
+    ui_layer: Option<(wgpu::Texture, wgpu::TextureView)>,
+    /// The pass that draws the UI layer over the generated frame (made the first time).
+    composite: Mutex<Option<crate::fg_ui_layer::Composite>>,
+    /// The UI layer could not be drawn once (said once; that frame used AMD's HUD-less mode).
+    ui_said: AtomicBool,
 }
 
 impl PreparedFrameGen {
@@ -636,7 +654,8 @@ impl PreparedFrameGen {
             output_size,
             hudless: std::array::from_fn(|_| texture("frame_gen_hudless", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC)),
             hudless_at: AtomicUsize::new(0),
-            outputs: std::array::from_fn(|_| texture("frame_gen_output", U::STORAGE_BINDING | U::TEXTURE_BINDING | U::COPY_SRC)),
+            // A render attachment too: the UI layer is drawn over it.
+            outputs: std::array::from_fn(|_| texture("frame_gen_output", U::STORAGE_BINDING | U::TEXTURE_BINDING | U::COPY_SRC | U::RENDER_ATTACHMENT)),
             output_next: AtomicU64::new(0),
             reals: std::sync::OnceLock::new(),
             real_next: AtomicU64::new(0),
@@ -645,9 +664,21 @@ impl PreparedFrameGen {
             history: AtomicBool::new(false),
             playing,
             logged: AtomicBool::new(false),
+            ui_layer: crate::fg_ui_layer::ENABLED.then(|| {
+                let size = wgpu::Extent3d { width: output_size.x, height: output_size.y, depth_or_array_layers: 1 };
+                let layer = crate::fg_ui_layer::layer_texture(device, size, FRAME_FORMAT, "frame_gen_ui_layer");
+                let view = layer.create_view(&wgpu::TextureViewDescriptor::default());
+                (layer, view)
+            }),
+            composite: Mutex::new(None),
+            ui_said: AtomicBool::new(false),
         }
     }
 }
+
+/// The format the frames are generated in (the main texture's, which the HUD-less copy is
+/// copied from).
+const FRAME_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// A display-sized texture in the format the frames are generated in.
 fn frame_texture(device: &wgpu::Device, size: UVec2, label: &str, usage: wgpu::TextureUsages) -> wgpu::Texture {
@@ -657,7 +688,7 @@ fn frame_texture(device: &wgpu::Device, size: UVec2, label: &str, usage: wgpu::T
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba16Float,
+        format: FRAME_FORMAT,
         usage,
         view_formats: &[],
     })
@@ -691,7 +722,7 @@ fn prepare(
         let pair = renderer.0.get_or_insert_with(|| {
             let device = device.wgpu_device();
             let flags = FrameInterpolationFlags::DEPTH_INVERTED | FrameInterpolationFlags::DEPTH_INFINITE | FrameInterpolationFlags::HDR_COLOR_INPUT;
-            (OpticalFlowContext::new(device, true), FrameInterpolationContext::new(device, flags, wgpu::TextureFormat::Rgba16Float))
+            (OpticalFlowContext::new(device, true), FrameInterpolationContext::new(device, flags, FRAME_FORMAT))
         });
         match old {
             Some(mut old) if old.render_size == fsr.render_size && old.output_size == fsr.output_size => {
@@ -744,7 +775,7 @@ fn prepare_pass(
 }
 
 /// The frame as the post passes leave it, before the UI is drawn over it.
-fn capture_hudless(view: ViewQuery<(&ViewTarget, &PreparedFrameGen)>, mut ctx: RenderContext) {
+pub(crate) fn capture_hudless(view: ViewQuery<(&ViewTarget, &PreparedFrameGen)>, mut ctx: RenderContext) {
     let (target, fg) = view.into_inner();
     if !fg.prepared.load(Ordering::Relaxed) {
         return;
@@ -758,9 +789,15 @@ fn capture_hudless(view: ViewQuery<(&ViewTarget, &PreparedFrameGen)>, mut ctx: R
 /// the real frame, which Bevy's upscaling draws into the stand-in. Where the render thread
 /// presents (`NVF_FG_PRESENTER=0`), the generated frame goes into the main texture (so Bevy's
 /// upscaling shows it first) and the real one aside for [`show_real`].
-#[allow(clippy::too_many_arguments)]
+///
+/// The HUD: the passes interpolate the frame without it, and the UI drawn alone
+/// (`fg_ui_layer.rs`) is drawn over the generated frame, so it shows this real frame's HUD
+/// exactly. Without the layer (`NVF_FG_UI_LAYER=0`, or it could not be drawn) AMD's HUD-less
+/// mode takes the HUD from where the frame differs from its copy without it.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn generate(
-    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFrameGen, &ExtractedCamera), With<PreparedFsr>>,
+    world: &World,
+    view: ViewQuery<(&ViewTarget, &PreparedUpscale, &PreparedFrameGen, &ExtractedCamera, Option<&UiCameraView>), With<PreparedFsr>>,
     renderer: Res<FrameGenRenderer>,
     pending: Res<PendingReal>,
     pending_generated: Res<PendingGenerated>,
@@ -771,7 +808,7 @@ fn generate(
     windows: Query<(MainEntity, &ExtractedWindow, Option<&DeferredSwapchain>)>,
     mut ctx: RenderContext,
 ) {
-    let (target, fsr, fg, camera) = view.into_inner();
+    let (target, fsr, fg, camera, ui) = view.into_inner();
     let Some((optical_flow, interpolation)) = &renderer.0 else { return };
     if !fg.prepared.swap(false, Ordering::Relaxed) || !fg.playing {
         // Nothing to interpolate from next frame: it starts again with a reset.
@@ -789,6 +826,19 @@ fn generate(
     use bevy::render::diagnostic::RecordDiagnostics;
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_frame_generation");
     let main: &wgpu::Texture = target.main_texture();
+    // The UI alone, for a frame that gets a generated one; it must match the main texture,
+    // which the UI's pipelines are made for.
+    let ui_layer = fg.ui_layer.as_ref().filter(|(layer, _)| !reset && layer.format() == main.format() && layer.size() == main.size()).and_then(|(_, view)| {
+        match crate::fg_ui_layer::draw(world, ui, camera, &mut ctx, view) {
+            Ok(()) => Some(view),
+            Err(why) => {
+                if !fg.ui_said.swap(true, Ordering::Relaxed) {
+                    warn!("frame generation: {why}; such frames take the HUD from the frame without it (AMD's HUD-less mode) (said once)");
+                }
+                None
+            }
+        }
+    });
     let encoder = ctx.command_encoder();
     // This frame's HUD-less copy ([`capture_hudless`]) and the frame before's; the next frame
     // writes over the older one.
@@ -806,9 +856,12 @@ fn generate(
         min_max_luminance: [0.0, 80.0],
     });
     let frame_id = fg.frame_id.fetch_add(1, Ordering::Relaxed);
+    // With the UI layer the passes see the frame without the HUD only, and the layer goes over
+    // their result.
+    let (current, current_hudless) = if ui_layer.is_some() { (hudless, None) } else { (main, Some(hudless)) };
     interpolation.dispatch(&mut fg.interpolation.lock().unwrap(), encoder, &FrameInterpolationDispatchInfo {
-        current_backbuffer: main,
-        current_backbuffer_hudless: Some(hudless),
+        current_backbuffer: current,
+        current_backbuffer_hudless: current_hudless,
         output,
         optical_flow: &of_view,
         render_size: fsr.render_size.to_array(),
@@ -824,6 +877,12 @@ fn generate(
         previous_source: Some(previous),
     });
     drop(of_view);
+    if let Some(layer) = ui_layer {
+        let mut composite = fg.composite.lock().unwrap();
+        let composite = composite.get_or_insert_with(|| crate::fg_ui_layer::Composite::new(device.wgpu_device(), FRAME_FORMAT));
+        let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+        composite.draw(device.wgpu_device(), encoder, layer, &output_view);
+    }
     fg.history.store(true, Ordering::Relaxed);
     stats.real.fetch_add(1, Ordering::Relaxed);
     // Where the camera draws this frame. A presenter's window: its stand-in. A window the
@@ -842,6 +901,11 @@ fn generate(
         generated.0.fetch_add(1, Ordering::Relaxed);
         if !fg.logged.swap(true, Ordering::Relaxed) {
             info!("frame generation active: {}x{}, generated frame presented first, the real frame second", fg.output_size.x, fg.output_size.y);
+            if ui_layer.is_some() {
+                info!("frame generation: the HUD is the UI drawn alone over each generated frame (premultiplied), not interpolated");
+            } else {
+                info!("frame generation: the HUD is taken from where the frame differs from its copy without it (AMD's HUD-less mode{})", if *crate::fg_ui_layer::ENABLED { "" } else { ", NVF_FG_UI_LAYER=0" });
+            }
         }
     };
     if reset {
@@ -1380,6 +1444,34 @@ mod tests {
         assert_eq!(app.world().resource::<crate::upscaler::UpscalerStatus>().effective().fsr(), Some(UpscaleQuality::Quality));
         assert!(app.world().resource::<FrameGenUsable>().0, "usable in the frame FSR became effective");
         assert!(app.world().resource::<crate::anti_lag::LatencyReduction>().by_frame_generation);
+    }
+
+    /// DLSS-G's request is made before the frame pacing, which sets the window's present mode
+    /// from it with Variable refresh: both in the same frame.
+    #[test]
+    fn the_dlssg_request_is_made_before_the_frame_pacing() {
+        #[derive(Resource, Default)]
+        struct Seen(u32);
+        let mut app = App::new();
+        app.insert_resource(crate::graphics::Graphics::preset(crate::graphics::Preset::Vanilla))
+            .insert_resource(crate::fsr::FsrSupport(true))
+            .insert_resource(FrameGenSupport(true))
+            .insert_resource(FrameGeneration { kind: FrameGenKind::Fsr })
+            .insert_resource(crate::frame_pace::FramePace { sync: crate::frame_pace::DisplaySync::Variable, cap: 0 })
+            .insert_resource(crate::frame_pace::Refresh::default())
+            .insert_resource(crate::anti_lag::LatencyReduction { on: false, by_frame_generation: false })
+            .init_resource::<DlssgFrames>()
+            .init_resource::<DlssgRequest>()
+            .init_resource::<FrameGenCap>()
+            .init_resource::<FrameGenUsable>()
+            .init_resource::<Seen>();
+        add_switch_systems(&mut app);
+        app.add_systems(Update, crate::upscaler::follow_request);
+        app.add_systems(Update, (|r: Res<DlssgRequest>, mut seen: ResMut<Seen>| seen.0 = r.frames).in_set(crate::frame_pace::ApplyFramePace));
+        app.update();
+        app.world_mut().resource_mut::<DlssgFrames>().0 = 2;
+        app.update();
+        assert_eq!(app.world().resource::<Seen>().0, 2, "the frame pacing sees this frame's request");
     }
 
     #[test]

@@ -732,7 +732,7 @@ fn swing(
             s.stats.landed += 1;
             s.stats.harmless_blows += 1;
             // Its OnHit and OnHitWith blocks run, as for a harmless shot (#2433).
-            let info = fnv_game::combat::HitInfo { attacker: Some(me), weapon, location: -1, critical: false, limb: None };
+            let info = fnv_game::combat::HitInfo { attacker: Some(me), weapon, location: -1, ..Default::default() };
             let ran = g.harmless_hit(b.target, info);
             s.stats.harmless_blow_scripts += usize::from(ran);
             info!("use weapon: {}'s harmless blow lands on {}{}", x.name, x.target_name, if ran { ": its hit blocks ran" } else { "" });
@@ -943,7 +943,8 @@ mod tests {
                         blocks.list.push(block);
                     } else {
                         let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), at);
-                        phys.npcs.insert(id, NpcBody { ch, prev_feet: at, velocity: [25.0, 0.0], jump: false, sink: 0.0, lift: Default::default() });
+                        let standing_height = ch.params.height;
+                        phys.npcs.insert(id, NpcBody { ch, prev_feet: at, velocity: [25.0, 0.0], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
                     }
                 }
                 let bodies = CombatBodies::new(Some(&phys), Some(&blocks));

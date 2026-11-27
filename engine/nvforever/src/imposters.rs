@@ -15,7 +15,7 @@
 use crate::emittance::EmittanceState;
 use crate::world::{bevy_to_game, ref_affine, spawn_model, Streamer, WorldData, WorldRoot};
 use bevy::prelude::*;
-use fnv_world::placed::{base_object, placement};
+use fnv_world::placed::base_object;
 use nvf_assets::model::ModelCtx;
 use std::collections::{BTreeSet, HashMap};
 
@@ -59,7 +59,7 @@ pub fn update(
     // Disable later is `RefVisual` sync's (nvf-play).
     let want: Vec<(u32, fnv_world::Placement)> = listed
         .iter()
-        .filter_map(|&r| Some((r, placement(world.lo, world.schema, r)?)))
+        .filter_map(|&r| Some((r, world.index.placement(world.lo, world.schema, r)?)))
         .filter(|(_, p)| p.imposter && world.enabled(p, 0))
         .collect();
     let gone: Vec<u32> = state.drawn.keys().filter(|r| !listed.contains(r)).copied().collect();

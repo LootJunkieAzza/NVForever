@@ -135,6 +135,49 @@ pub fn compile_runtime(src: &str, table: &FunctionTable, env: &dyn Env) -> Compi
     })
 }
 
+/// Compile source at runtime (as [`compile_runtime`]) against an existing persistent
+/// local-variable scope (the interactive console's session locals, `docs/design/console.md`).
+///
+/// Existing variables keep their 1-based indices and `ref`-ness; new declarations append
+/// without emitting `variable_added` warnings, and re-declaring a name with a different
+/// type updates its slot's type in place. Returns the compiled unit together with the
+/// updated set of lower-case `ref` local names.
+pub fn compile_runtime_with_locals(
+    src: &str,
+    table: &FunctionTable,
+    env: &dyn Env,
+    variables: &[VarDecl],
+    ref_vars: &std::collections::HashSet<String>,
+) -> (Compiled, std::collections::HashSet<String>) {
+    let run = |s: &str| {
+        let mut g = gen::Gen::new(table, env, None);
+        g.runtime = true;
+        g.vars = variables.to_vec();
+        g.ref_vars = ref_vars.clone();
+        g.declared_types_win = true;
+        g.unit_with_ref_vars(s)
+    };
+    if !nvsescript::is_nvsescript(src) {
+        return run(src);
+    }
+    match nvsescript::translate(src) {
+        Ok(t) => {
+            let (mut c, refs) = run(&t.text);
+            for d in &mut c.diags {
+                if d.line >= 1 {
+                    d.line = t.lines.get(d.line - 1).copied().unwrap_or(d.line);
+                }
+            }
+            c.diags.extend(t.diags);
+            (c, refs)
+        }
+        Err(d) => (
+            Compiled { bytes: Vec::new(), variables: Vec::new(), refs: Vec::new(), diags: vec![d] },
+            ref_vars.clone(),
+        ),
+    }
+}
+
 /// A mod's text compiled at run time (JIP's Script Runner files, CompileScript's): as
 /// [`compile_runtime`], and as a mod's source the engine compiles ([`Seed::unknown_calls`]):
 /// a name nothing knows where a call stands is a call of that name, which reports "not

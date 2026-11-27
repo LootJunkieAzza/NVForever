@@ -216,9 +216,12 @@ pub fn get_killing_blow_limb(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 /// world's equipped flags; the condition of the armour is not counted [hypothesis].
 pub fn get_armor_rating(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let forms = g.world.forms;
     let equipped = g.world.get(r).ok().and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
-    let dr: f32 = equipped.into_iter().filter_map(|i| forms.item(i)).filter(|it| it.kind == ItemKind::Armor).filter_map(|it| it.armor_dr).sum();
+    let dr: f32 = equipped
+        .into_iter()
+        .filter(|&i| g.world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor))
+        .filter_map(|i| g.world.effective_armor_dr(i))
+        .sum();
     Ok(Value::Num(dr.floor() as f64))
 }
 

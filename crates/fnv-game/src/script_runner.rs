@@ -10,8 +10,10 @@
 //! The engine calls [`Game::run_script_runner`] at each moment (`nvf-play` script.rs):
 //! [`Moment::Restart`] when the runtime is made, then [`Moment::Load`] after a save's
 //! LoadGame events or [`Moment::NewGame`] on the first frame of a run without one (after
-//! the main menu's New Game; not behind the main menu, #1548). A load while
-//! playing starts a new run in NVForever, so Restart comes again after every load, as
+//! the main menu's New Game; not behind the main menu, #1548), and [`Moment::Exit`]
+//! (via [`Game::run_exit_scripts`]) once when the run exits (`AppExit` in `Last`, before
+//! process teardown so cached mod INI/JSON writes flush to disk). A load while playing
+//! starts a new run in NVForever, so Restart comes again after every load, as
 //! GetGameRestarted does.
 
 use crate::game::{Game, RunCtx};
@@ -23,6 +25,11 @@ use std::collections::HashMap;
 /// to ..\Data\NVSE\plugins\scripts\"].
 pub const FOLDER: &str = "nvse\\plugins\\scripts";
 
+/// A file that takes this long to compile and run is named in the log [engineering choice:
+/// 219 files of Nuclear Sunset held the loading screen ~80 s on 2026-11-25 (log
+/// nvforever-20261125-142835-8120.log), most well under this].
+const SLOW_FILE_MS: u128 = 250;
+
 /// When the files run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Moment {
@@ -32,6 +39,8 @@ pub enum Moment {
     NewGame,
     /// A save was loaded.
     Load,
+    /// The game is exiting (`gx_` files).
+    Exit,
 }
 
 impl Moment {
@@ -40,6 +49,7 @@ impl Moment {
             Moment::Restart => "game restart",
             Moment::NewGame => "new game",
             Moment::Load => "game load",
+            Moment::Exit => "game exit",
         }
     }
 }
@@ -57,8 +67,8 @@ pub enum Prefix {
     /// `ln_`: a save loaded or a new game [hypothesis: as gl_; the files guard work they
     /// should do once with a flag of their own].
     LoadOrNew,
-    /// `gx_`: the game's exit [hypothesis: MCM Extender's file says "on game exit"]. Not
-    /// run yet: the engine has no exit moment for scripts (ext-script-runner.md §4).
+    /// `gx_`: game exit [hypothesis: MCM Extender's file says "on game exit"; no extender
+    /// DLL/source consulted] (ext-script-runner.md §2).
     Exit,
 }
 
@@ -80,7 +90,11 @@ impl Prefix {
     pub fn runs_at(self, m: Moment) -> bool {
         matches!(
             (self, m),
-            (Prefix::Restart, Moment::Restart) | (Prefix::Load, Moment::Load) | (Prefix::NewGame, Moment::NewGame) | (Prefix::LoadOrNew, Moment::Load | Moment::NewGame)
+            (Prefix::Restart, Moment::Restart)
+                | (Prefix::Load, Moment::Load)
+                | (Prefix::NewGame, Moment::NewGame)
+                | (Prefix::LoadOrNew, Moment::Load | Moment::NewGame)
+                | (Prefix::Exit, Moment::Exit)
         )
     }
 }
@@ -112,9 +126,20 @@ pub struct SrState<'a> {
     units: HashMap<String, Result<&'a Compiled, String>>,
     /// The moment whose files are running.
     running: Option<Moment>,
+    /// Whether `Moment::Exit` (`gx_`) files have already run for this game instance [design:
+    /// repeated exit signals must not execute exit scripts twice].
+    exit_ran: bool,
+    /// While files run: each extender function's calls and time in µs (`Game::ext_call`),
+    /// named in the log after the moment's files so a slow call can be found.
+    pub(crate) call_times: HashMap<String, (u32, u128)>,
 }
 
 impl SrState<'_> {
+    /// Whether files are running now (`Game::ext_call` keeps time only then).
+    pub(crate) fn is_running(&self) -> bool {
+        self.running.is_some()
+    }
+
     pub(crate) fn take_registered(&mut self) -> Vec<String> {
         std::mem::take(&mut self.registered).into_iter().map(|f| f.path).collect()
     }
@@ -134,8 +159,20 @@ impl<'a> Game<'a> {
     /// they were registered; a file registered while the Restart files run, with the gr_
     /// prefix, runs after them [hypothesis]. A file that does not compile is skipped and
     /// traced (`Skipped`), as are the errors of one that runs; nothing here stops the game.
+    ///
+    /// [`Moment::Exit`] is idempotent per [`Game`] instance and returns immediately with no
+    /// work when no `gx_` files are discovered or registered [design].
     pub fn run_script_runner(&mut self, m: Moment) -> Vec<SrRun> {
+        if m == Moment::Exit {
+            if self.sr.exit_ran {
+                return Vec::new();
+            }
+            self.sr.exit_ran = true;
+        }
         self.sr_list();
+        if !self.sr_has_files_for(m) {
+            return Vec::new();
+        }
         self.sr.running = Some(m);
         let mut runs = Vec::new();
         let mut i = 0;
@@ -147,20 +184,47 @@ impl<'a> Game<'a> {
             if !file.prefix.runs_at(m) {
                 continue;
             }
-            let result = self.sr_unit(&file.path).and_then(|unit| {
+            let started = std::time::Instant::now();
+            let unit = self.sr_unit(&file.path);
+            let compiled = started.elapsed();
+            let result = unit.and_then(|unit| {
                 if self.run_statements(unit, RunCtx::default()) {
                     Ok(())
                 } else {
                     Err("the script stopped on an error".into())
                 }
             });
+            // A slow file holds the loading screen (Nuclear Sunset has 219 of them): name it.
+            let took = started.elapsed();
+            if took.as_millis() >= SLOW_FILE_MS {
+                tracing::info!("script runner: {} took {} ms ({} ms to read and compile)", file.path, took.as_millis(), compiled.as_millis());
+            }
             if let Err(e) = &result {
                 self.emit(crate::trace::EventKind::Skipped { unit: format!("Script Runner {}", file.path), what: e.clone() });
             }
             runs.push(SrRun { path: file.path, result });
         }
         self.sr.running = None;
+        let mut calls: Vec<_> = std::mem::take(&mut self.sr.call_times).into_iter().collect();
+        calls.sort_by_key(|c| std::cmp::Reverse(c.1 .1));
+        let top: Vec<String> = calls.iter().take(8).filter(|(_, (_, us))| *us >= 50_000).map(|(n, (c, us))| format!("{n} {c}x {} ms", us / 1000)).collect();
+        if !top.is_empty() {
+            tracing::info!("script runner: {} files' slowest functions: {}", m.name(), top.join(", "));
+        }
         runs
+    }
+
+    /// Run the Script Runner exit files (`gx_*.txt`) once on game shutdown.
+    ///
+    /// Repeated calls on the same [`Game`] instance are a no-op, and runs with no `gx_`
+    /// files return an empty list with no script execution [design].
+    pub fn run_exit_scripts(&mut self) -> Vec<SrRun> {
+        self.run_script_runner(Moment::Exit)
+    }
+
+    /// Whether any discovered or registered Script Runner file matches `m`.
+    fn sr_has_files_for(&self, m: Moment) -> bool {
+        self.sr.files.iter().flatten().chain(&self.sr.registered).any(|f| f.prefix.runs_at(m))
     }
 
     /// Compile every file of the folder without running one (`fnvtool ext script-runner`):
@@ -257,6 +321,8 @@ mod tests {
     fn prefixes_and_their_moments() {
         assert_eq!(Prefix::of("gr_P6MeleeWeapons.txt"), Some(Prefix::Restart));
         assert_eq!(Prefix::of("GL_x.txt"), Some(Prefix::Load));
+        assert_eq!(Prefix::of("gx_flush.txt"), Some(Prefix::Exit));
+        assert_eq!(Prefix::of("GX_FLUSH.TXT"), Some(Prefix::Exit));
         assert_eq!(Prefix::of("readme.txt"), None);
         assert_eq!(Prefix::of("g"), None);
         assert!(Prefix::LoadOrNew.runs_at(Moment::Load) && Prefix::LoadOrNew.runs_at(Moment::NewGame));
@@ -265,5 +331,10 @@ mod tests {
         for m in [Moment::Restart, Moment::NewGame, Moment::Load] {
             assert!(!Prefix::Exit.runs_at(m));
         }
+        assert!(Prefix::Exit.runs_at(Moment::Exit));
+        for p in [Prefix::Restart, Prefix::Load, Prefix::NewGame, Prefix::LoadOrNew] {
+            assert!(!p.runs_at(Moment::Exit));
+        }
+        assert_eq!(Moment::Exit.name(), "game exit");
     }
 }

@@ -598,6 +598,20 @@ fn the_fixed_ground_leaves_out_dynamic_bodies() {
 }
 
 #[test]
+fn a_co_op_guests_copy_of_a_host_moved_object_is_not_written_back() {
+    let d = play_data();
+    let (mut sim, id, _) = sim_with_crate();
+    let mut p = state(true);
+    p.load(&LoadCtx { d: &d, sim: &sim, data: None }, PhysCell::Exterior(0, 0));
+    p.follow_only.insert(id);
+    for _ in 0..240 {
+        p.world.step();
+        assert!(p.settle_placed(&mut sim.world).is_empty(), "the host owns its pose");
+    }
+    assert!(sim.moved_pose(id).is_none());
+}
+
+#[test]
 fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
     let d = play_data();
     let (mut sim, id, placed) = sim_with_crate();
@@ -999,6 +1013,32 @@ fn a_place_near_loaded_collision_only_is_refused_and_a_character_goes_exactly_wh
     // The player takes up room.
     p.place_player(feet, 48.0, 400.0);
     assert_eq!(p.npc_spot(7, [at[0] + 5.0, at[1], at[2]]), Err(NpcSpotRefused::NoRoom));
+}
+
+/// #3428: a placed item of several dynamic bodies (the teddy bear) becomes one dynamic
+/// body, which the grab key can hold; a fixture of several (a hanging lamp, base STAT or
+/// ACTI) is left for `hold_jointed`; an item of one body or with a fixed part is left too.
+#[test]
+fn a_jointed_item_is_joined_and_a_jointed_fixture_is_not() {
+    let part = |x: f32, motion: Motion| CollisionObject { node_transform: Iso { translation: [x, 0.0, 0.0], rotation: Iso::IDENTITY.rotation }, mass: 1.0, ..object(2.0, motion) };
+    let bear = || vec![part(0.0, Motion::Dynamic), part(5.0, Motion::Dynamic), part(-5.0, Motion::Dynamic)];
+    let mut tallies = Vec::new();
+    let mut item = bear();
+    prepare::join_jointed_item(Some(*b"MISC"), &mut item, &mut tallies);
+    assert_eq!((item.len(), item[0].motion, item[0].mass), (1, Motion::Dynamic, 3.0));
+    assert_eq!(tallies, vec!["jointed_item_joined"]);
+    for sig in [*b"STAT", *b"ACTI", *b"MSTT", *b"LIGH"] {
+        let mut fixture = bear();
+        prepare::join_jointed_item(Some(sig), &mut fixture, &mut tallies);
+        assert_eq!(fixture.len(), 3, "{}", String::from_utf8_lossy(&sig));
+    }
+    let mut no_base = bear();
+    prepare::join_jointed_item(None, &mut no_base, &mut tallies);
+    assert_eq!(no_base.len(), 3);
+    let mut with_fixed = vec![part(0.0, Motion::Dynamic), part(5.0, Motion::Static)];
+    prepare::join_jointed_item(Some(*b"MISC"), &mut with_fixed, &mut tallies);
+    assert_eq!(with_fixed.len(), 2);
+    assert_eq!(tallies.len(), 1);
 }
 
 #[test]

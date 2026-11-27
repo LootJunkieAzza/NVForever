@@ -1,0 +1,607 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "o31_mapmarker_visible",
+ "title": "Observer check 252 (#3268): GetMapMarkerVisible on map markers the player has not found, then after ShowMap 0, ShowMap 1 and discovery (player.MoveTo the marker); Goodsprings 0x000CDF51, Coyote Den 0x00154A69, Hoover Dam 0x00135E5F, Jacobstown 0x000CDF57 in Variable01-04, their JIP flag reads (IsMapMarker + 2 GetMapMarkerTravel + 4 GetMapMarkerHidden) in Variable05-08, GetPCMiscStat Locations Discovered in Variable09, a read counter in Variable10 (-1: that read did not run)",
+ "save": "nvfdoc",
+ "defaults": {
+  "fields": "fight",
+  "every": 10,
+  "depth": 0,
+  "settle_frames": 120,
+  "hours": 0.05,
+  "max_actors": 1,
+  "console_first": [
+   "CloseAllMenus",
+   "tgm"
+  ],
+  "extra_header": [
+   [
+    "v1",
+    "num",
+    "player.GetAV Variable01"
+   ],
+   [
+    "v2",
+    "num",
+    "player.GetAV Variable02"
+   ],
+   [
+    "v3",
+    "num",
+    "player.GetAV Variable03"
+   ],
+   [
+    "v4",
+    "num",
+    "player.GetAV Variable04"
+   ],
+   [
+    "v5",
+    "num",
+    "player.GetAV Variable05"
+   ],
+   [
+    "v6",
+    "num",
+    "player.GetAV Variable06"
+   ],
+   [
+    "v7",
+    "num",
+    "player.GetAV Variable07"
+   ],
+   [
+    "v8",
+    "num",
+    "player.GetAV Variable08"
+   ],
+   [
+    "v9",
+    "num",
+    "player.GetAV Variable09"
+   ],
+   [
+    "v10",
+    "num",
+    "player.GetAV Variable10"
+   ]
+  ]
+ },
+ "sessions": [
+  {
+   "name": "a_before",
+   "do": [
+    "player.SetAV Variable01 -1",
+    "player.SetAV Variable02 -1",
+    "player.SetAV Variable03 -1",
+    "player.SetAV Variable04 -1",
+    "player.SetAV Variable05 -1",
+    "player.SetAV Variable06 -1",
+    "player.SetAV Variable07 -1",
+    "player.SetAV Variable08 -1",
+    "player.SetAV Variable09 -1",
+    "player.SetAV Variable10 -1"
+   ],
+   "timed": [
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.GetMapMarkerVisible",
+       "player.SetAV Variable01 fA",
+       "set fA to {1}.GetMapMarkerVisible",
+       "player.SetAV Variable02 fA",
+       "set fA to {2}.GetMapMarkerVisible",
+       "player.SetAV Variable03 fA",
+       "set fA to {3}.GetMapMarkerVisible",
+       "player.SetAV Variable04 fA",
+       "set fA to (player.GetAV Variable10) + 1",
+       "if fA < 1",
+       "  set fA to 1",
+       "endif",
+       "player.SetAV Variable10 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA",
+       "float fB",
+       "float fC"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.IsMapMarker",
+       "set fB to {0}.GetMapMarkerTravel",
+       "set fC to {0}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable05 fA",
+       "set fA to {1}.IsMapMarker",
+       "set fB to {1}.GetMapMarkerTravel",
+       "set fC to {1}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable06 fA",
+       "set fA to {2}.IsMapMarker",
+       "set fB to {2}.GetMapMarkerTravel",
+       "set fC to {2}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable07 fA",
+       "set fA to {3}.IsMapMarker",
+       "set fB to {3}.GetMapMarkerTravel",
+       "set fC to {3}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable08 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "lines": [
+       "set fA to GetPCMiscStat \"Locations Discovered\"",
+       "player.SetAV Variable09 fA"
+      ]
+     }
+    }
+   ],
+   "note": "a: nothing done; the four markers as the save has them (Doc Mitchell's house)"
+  },
+  {
+   "name": "b_showmap",
+   "do": [
+    "player.SetAV Variable01 -1",
+    "player.SetAV Variable02 -1",
+    "player.SetAV Variable03 -1",
+    "player.SetAV Variable04 -1",
+    "player.SetAV Variable05 -1",
+    "player.SetAV Variable06 -1",
+    "player.SetAV Variable07 -1",
+    "player.SetAV Variable08 -1",
+    "player.SetAV Variable09 -1",
+    "player.SetAV Variable10 -1",
+    [
+     "ShowMap {0} 0",
+     "0x00135E5F"
+    ],
+    [
+     "ShowMap {0} 1",
+     "0x000CDF57"
+    ],
+    {
+     "frames": 30
+    }
+   ],
+   "timed": [
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.GetMapMarkerVisible",
+       "player.SetAV Variable01 fA",
+       "set fA to {1}.GetMapMarkerVisible",
+       "player.SetAV Variable02 fA",
+       "set fA to {2}.GetMapMarkerVisible",
+       "player.SetAV Variable03 fA",
+       "set fA to {3}.GetMapMarkerVisible",
+       "player.SetAV Variable04 fA",
+       "set fA to (player.GetAV Variable10) + 1",
+       "if fA < 1",
+       "  set fA to 1",
+       "endif",
+       "player.SetAV Variable10 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA",
+       "float fB",
+       "float fC"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.IsMapMarker",
+       "set fB to {0}.GetMapMarkerTravel",
+       "set fC to {0}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable05 fA",
+       "set fA to {1}.IsMapMarker",
+       "set fB to {1}.GetMapMarkerTravel",
+       "set fC to {1}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable06 fA",
+       "set fA to {2}.IsMapMarker",
+       "set fB to {2}.GetMapMarkerTravel",
+       "set fC to {2}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable07 fA",
+       "set fA to {3}.IsMapMarker",
+       "set fB to {3}.GetMapMarkerTravel",
+       "set fC to {3}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable08 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "lines": [
+       "set fA to GetPCMiscStat \"Locations Discovered\"",
+       "player.SetAV Variable09 fA"
+      ]
+     }
+    }
+   ],
+   "note": "b: ShowMap Hoover Dam 0 (no travel), ShowMap Jacobstown 1; Coyote Den and Goodsprings untouched"
+  },
+  {
+   "name": "c_find_coyote",
+   "do": [
+    "player.SetAV Variable01 -1",
+    "player.SetAV Variable02 -1",
+    "player.SetAV Variable03 -1",
+    "player.SetAV Variable04 -1",
+    "player.SetAV Variable05 -1",
+    "player.SetAV Variable06 -1",
+    "player.SetAV Variable07 -1",
+    "player.SetAV Variable08 -1",
+    "player.SetAV Variable09 -1",
+    "player.SetAV Variable10 -1",
+    [
+     "player.MoveTo {0}",
+     "0x00154A69"
+    ],
+    {
+     "frames": 300
+    }
+   ],
+   "timed": [
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.GetMapMarkerVisible",
+       "player.SetAV Variable01 fA",
+       "set fA to {1}.GetMapMarkerVisible",
+       "player.SetAV Variable02 fA",
+       "set fA to {2}.GetMapMarkerVisible",
+       "player.SetAV Variable03 fA",
+       "set fA to {3}.GetMapMarkerVisible",
+       "player.SetAV Variable04 fA",
+       "set fA to (player.GetAV Variable10) + 1",
+       "if fA < 1",
+       "  set fA to 1",
+       "endif",
+       "player.SetAV Variable10 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA",
+       "float fB",
+       "float fC"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.IsMapMarker",
+       "set fB to {0}.GetMapMarkerTravel",
+       "set fC to {0}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable05 fA",
+       "set fA to {1}.IsMapMarker",
+       "set fB to {1}.GetMapMarkerTravel",
+       "set fC to {1}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable06 fA",
+       "set fA to {2}.IsMapMarker",
+       "set fB to {2}.GetMapMarkerTravel",
+       "set fC to {2}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable07 fA",
+       "set fA to {3}.IsMapMarker",
+       "set fB to {3}.GetMapMarkerTravel",
+       "set fC to {3}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable08 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "lines": [
+       "set fA to GetPCMiscStat \"Locations Discovered\"",
+       "player.SetAV Variable09 fA"
+      ]
+     }
+    }
+   ],
+   "note": "c: the player put on Coyote Den's marker (never shown): found by walking range (no XRDS, iMapMarkerRevealDistance)",
+   "hours": 0.1
+  },
+  {
+   "name": "d_find_hoover",
+   "do": [
+    "player.SetAV Variable01 -1",
+    "player.SetAV Variable02 -1",
+    "player.SetAV Variable03 -1",
+    "player.SetAV Variable04 -1",
+    "player.SetAV Variable05 -1",
+    "player.SetAV Variable06 -1",
+    "player.SetAV Variable07 -1",
+    "player.SetAV Variable08 -1",
+    "player.SetAV Variable09 -1",
+    "player.SetAV Variable10 -1",
+    [
+     "player.MoveTo {0}",
+     "0x00135E5F"
+    ],
+    {
+     "frames": 300
+    }
+   ],
+   "timed": [
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.GetMapMarkerVisible",
+       "player.SetAV Variable01 fA",
+       "set fA to {1}.GetMapMarkerVisible",
+       "player.SetAV Variable02 fA",
+       "set fA to {2}.GetMapMarkerVisible",
+       "player.SetAV Variable03 fA",
+       "set fA to {3}.GetMapMarkerVisible",
+       "player.SetAV Variable04 fA",
+       "set fA to (player.GetAV Variable10) + 1",
+       "if fA < 1",
+       "  set fA to 1",
+       "endif",
+       "player.SetAV Variable10 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA",
+       "float fB",
+       "float fC"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.IsMapMarker",
+       "set fB to {0}.GetMapMarkerTravel",
+       "set fC to {0}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable05 fA",
+       "set fA to {1}.IsMapMarker",
+       "set fB to {1}.GetMapMarkerTravel",
+       "set fC to {1}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable06 fA",
+       "set fA to {2}.IsMapMarker",
+       "set fB to {2}.GetMapMarkerTravel",
+       "set fC to {2}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable07 fA",
+       "set fA to {3}.IsMapMarker",
+       "set fB to {3}.GetMapMarkerTravel",
+       "set fC to {3}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable08 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "lines": [
+       "set fA to GetPCMiscStat \"Locations Discovered\"",
+       "player.SetAV Variable09 fA"
+      ]
+     }
+    }
+   ],
+   "note": "d: the player put on Hoover Dam's marker (shown by ShowMap 0 in b)",
+   "hours": 0.1
+  },
+  {
+   "name": "e_find_goodsprings",
+   "do": [
+    "player.SetAV Variable01 -1",
+    "player.SetAV Variable02 -1",
+    "player.SetAV Variable03 -1",
+    "player.SetAV Variable04 -1",
+    "player.SetAV Variable05 -1",
+    "player.SetAV Variable06 -1",
+    "player.SetAV Variable07 -1",
+    "player.SetAV Variable08 -1",
+    "player.SetAV Variable09 -1",
+    "player.SetAV Variable10 -1",
+    [
+     "player.MoveTo {0}",
+     "0x000CDF51"
+    ],
+    {
+     "frames": 300
+    }
+   ],
+   "timed": [
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.GetMapMarkerVisible",
+       "player.SetAV Variable01 fA",
+       "set fA to {1}.GetMapMarkerVisible",
+       "player.SetAV Variable02 fA",
+       "set fA to {2}.GetMapMarkerVisible",
+       "player.SetAV Variable03 fA",
+       "set fA to {3}.GetMapMarkerVisible",
+       "player.SetAV Variable04 fA",
+       "set fA to (player.GetAV Variable10) + 1",
+       "if fA < 1",
+       "  set fA to 1",
+       "endif",
+       "player.SetAV Variable10 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA",
+       "float fB",
+       "float fC"
+      ],
+      "names": [
+       "0x000CDF51",
+       "0x00154A69",
+       "0x00135E5F",
+       "0x000CDF57"
+      ],
+      "lines": [
+       "set fA to {0}.IsMapMarker",
+       "set fB to {0}.GetMapMarkerTravel",
+       "set fC to {0}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable05 fA",
+       "set fA to {1}.IsMapMarker",
+       "set fB to {1}.GetMapMarkerTravel",
+       "set fC to {1}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable06 fA",
+       "set fA to {2}.IsMapMarker",
+       "set fB to {2}.GetMapMarkerTravel",
+       "set fC to {2}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable07 fA",
+       "set fA to {3}.IsMapMarker",
+       "set fB to {3}.GetMapMarkerTravel",
+       "set fC to {3}.GetMapMarkerHidden",
+       "set fA to fA + 2 * fB + 4 * fC",
+       "player.SetAV Variable08 fA"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "float fA"
+      ],
+      "lines": [
+       "set fA to GetPCMiscStat \"Locations Discovered\"",
+       "player.SetAV Variable09 fA"
+      ]
+     }
+    }
+   ],
+   "note": "e: the player put on Goodsprings' marker (control: a found marker read 2 in nvftest, fa_batch1_queries)",
+   "hours": 0.1
+  }
+ ]
+}

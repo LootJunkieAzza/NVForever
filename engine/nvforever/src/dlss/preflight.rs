@@ -907,6 +907,51 @@ pub(super) fn pin(devices: &[DeviceCaps], checked: &[usize], user_name: Option<&
     Pin::Set(Checked::of(device))
 }
 
+/// The Vulkan loader's variable that keeps only the drivers whose manifest file name matches its
+/// glob [documented: Khronos Vulkan-Loader `docs/LoaderInterfaceArchitecture.md`, "Table of
+/// Debug Environment Variables", `VK_LOADER_DRIVERS_SELECT`, loader 1.3.234 and later], and its
+/// companion that drops drivers; with either set by the player, NVForever adds no filter.
+#[cfg(windows)]
+pub(super) const DRIVERS_SELECT: &str = "VK_LOADER_DRIVERS_SELECT";
+#[cfg(windows)]
+pub(super) const DRIVERS_DISABLE: &str = "VK_LOADER_DRIVERS_DISABLE";
+
+/// NVIDIA's 64-bit Vulkan driver manifest by file name [observed 2026-11-17: driver 616.56,
+/// the RTX 4070's `VulkanDriverName` in the display adapter's registry key ends in
+/// `nv-vk64.json`]. Only a guess at the name: [`narrowed_usable`] checks what the loader then
+/// shows, and a name that no longer matches leaves the game as it was without the filter.
+#[cfg(windows)]
+pub(super) const NVIDIA_DRIVER_GLOB: &str = "*nv-vk64.json";
+
+/// Whether a second look with only NVIDIA's driver is worth taking: an NVIDIA GPU beside another
+/// maker's (a desktop CPU's integrated graphics, a laptop's), which fails the device check for
+/// the other one alone (#2921).
+pub(super) fn mixed_vendors(devices: &[DeviceCaps]) -> bool {
+    devices.iter().any(|d| d.vendor_id == NVIDIA_VENDOR) && devices.iter().any(|d| d.vendor_id != NVIDIA_VENDOR)
+}
+
+/// Whether the snapshot taken with only NVIDIA's driver (`narrowed`) can stand in for the full
+/// one: it shows at least one GPU, every one NVIDIA's, and the same NVIDIA GPUs (name and LUID)
+/// the full snapshot shows; `Err` says why not, for the log.
+pub(super) fn narrowed_usable(full: &Snapshot, narrowed: &Snapshot) -> Result<(), String> {
+    let ids = |s: &Snapshot| -> Vec<(String, Option<[u8; 8]>)> {
+        let mut v: Vec<_> = s.devices.iter().filter(|d| d.vendor_id == NVIDIA_VENDOR).map(|d| (d.name.clone(), d.luid)).collect();
+        v.sort();
+        v
+    };
+    if narrowed.devices.is_empty() {
+        return Err("the loader then showed no GPU".to_string());
+    }
+    let others: Vec<String> = narrowed.devices.iter().filter(|d| d.vendor_id != NVIDIA_VENDOR).map(DeviceCaps::label).collect();
+    if !others.is_empty() {
+        return Err(format!("the loader still showed {} (a loader before 1.3.234 ignores the filter)", others.join(", ")));
+    }
+    if ids(full) != ids(narrowed) {
+        return Err("the loader then showed other NVIDIA GPUs than without it".to_string());
+    }
+    Ok(())
+}
+
 /// A LUID for the log, its eight bytes in hex.
 pub(super) fn luid_text(luid: Option<[u8; 8]>) -> String {
     luid.map_or_else(|| "none".to_string(), |l| l.iter().map(|b| format!("{b:02x}")).collect())
@@ -1325,6 +1370,27 @@ mod tests {
         assert_eq!(FEATURES_13.iter().collect::<BTreeSet<_>>().len(), 15);
         assert_eq!(DeviceKind::from_vk(vk::PhysicalDeviceType::DISCRETE_GPU), DeviceKind::Discrete);
         assert_eq!(DeviceKind::from_vk(vk::PhysicalDeviceType::from_raw(99)), DeviceKind::Other);
+    }
+
+    /// #2921: an RTX beside integrated graphics fails the check for the integrated GPU alone; the
+    /// second look with only NVIDIA's driver may stand in only when it shows the same NVIDIA GPUs
+    /// and nothing else.
+    #[test]
+    fn a_second_look_with_only_nvidias_driver() {
+        let req = dlss_requirements();
+        let both = snapshot(vec![igpu(), rtx()]);
+        assert!(mixed_vendors(&both.devices));
+        assert!(!mixed_vendors(&[rtx()]) && !mixed_vendors(&[igpu()]));
+        assert!(judge(&both, &req).is_err());
+        let only_rtx = snapshot(vec![rtx()]);
+        assert_eq!(narrowed_usable(&both, &only_rtx), Ok(()));
+        assert!(judge(&only_rtx, &req).is_ok());
+        // A loader that ignores the filter, one that then shows nothing, another NVIDIA GPU.
+        assert!(narrowed_usable(&both, &both).unwrap_err().contains("still showed AMD Radeon(TM) 610M"));
+        assert!(narrowed_usable(&both, &snapshot(Vec::new())).is_err());
+        let mut other = rtx();
+        other.luid = Some([9; 8]);
+        assert!(narrowed_usable(&both, &snapshot(vec![other])).is_err());
     }
 
     #[test]

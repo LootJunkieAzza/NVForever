@@ -108,10 +108,17 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
 - Ours bounds the Neutral rule by the aggro radius [hypothesis, #2547; observer checks
   144 and 163]: a Very Aggressive actor whose AI data turns on Aggro Radius Behavior
   (and whose package allows it) attacks a Neutral actor it detects only inside its
-  aggro radius; a fight once begun, a hit (a grudge) and an Enemy are not bounded, and
-  the player is left to the aggro radius rules (combat-ai.md §13). HELIOS One's guard
-  dogs (CrDogNCRAggressive, radius 2,000) no longer go for the troopers 2,800 units
-  west of their yard (`crates/fnv-game/src/awareness.rs` neutral_out_of_reach).
+  aggro radius; a fight once begun with that target, a hit (a grudge) and an Enemy are
+  not bounded, and the player is left to the aggro radius rules (combat-ai.md §13).
+  HELIOS One's guard dogs (CrDogNCRAggressive, radius 2,000) no longer go for the
+  troopers 2,800 units west of their yard (`crates/fnv-game/src/awareness.rs`
+  `neutral_out_of_reach`). Fighting a third party (such as the player) does not lift the
+  bound for unrelated Neutral bystanders, and `join_against_dangers`
+  (`crates/fnv-game/src/provocation.rs`) respects the same bound so a Neutral bystander
+  outside that aggro radius does not turn on the Very Aggressive actor or alarm its own
+  faction when the actor fights the player [design, #3459]. Open observer check (#3459):
+  whether `CrDogNCRAggressive` attacks the player in the original game at neutral/low
+  NCR standing (the records alone say yes via `GeneralHostileToPlayerFaction`).
 - The two lists of a pair often differ [observed]: of the 975 entries naming another
   faction, Enemy is answered by Enemy 178 times, by Neutral 5 times and by no entry 81
   times; Ally by Friend 21 times. One-way enemies include `CentaurFaction → PlayerFaction`,

@@ -91,7 +91,41 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
     scripts.md §7.6].
   - With a duration it acts **magnitude per second** while it lasts [hypothesis: the
     Hardcore Stimpak restores 5 for 6 s where the normal one restores 30 at once; Nuka-Cola
-    2 for 25 s]. An ability (no duration) without Recover acts once [hypothesis].
+    2 for 25 s]. An ability (no duration) without Recover acts once [hypothesis], but for
+    a regeneration:
+  - **Regeneration** (#3471). The base effect `Regen` (0x000F3D42, named "Regeneration":
+    Health, flags Self and No Duration, no Recover) is the only Health one with No Duration
+    in FalloutNV.esm and the add-ons [observed: `fnvtool esm decode` of every MGEF in the ten
+    masters, 2026-11-24]. Its users: the
+    stages of radiation sickness `Radiation200` to `Radiation800` (Disease; 2, 4, 6, 8, on
+    `HasPerk RadChild`), and the Abilities `PerkSolarPowered` (1, outdoors from 6 to 18),
+    `RegenLow` (3) and `RegenMed` (5; `VLegateScript`, God), Dead Money's
+    `NVDLC01RegenDean` (1), `…02` (3) and `…03` (5) and `NVDLC01HologramRegen` (100), and
+    Old World Blues's `NVDLC03HologramRegen` (100) [observed]. The perks' words are "you
+    will regenerate more and more health" and "slowly regenerate lost Health" [observed:
+    PERK DESC of `RadChild`, `SolarPowered`], though the GECK wiki calls a No Duration
+    effect "instantaneous" [documented: Base Effect]. So in a permanent effect (an ability,
+    a stage's) such an effect that is neither Hostile nor Detrimental gives Health back
+    every frame while it is active, never past the maximum, magnitude ×
+    `fnv_game::aid::REGENERATION_RATE` (1) per real second [observed:
+    obs284_rad_child_regen, obs284_stage250: 2, 4, 6 and 8 at the stages, 1 for Solar
+    Powered, 5 for the Legate, 100 for Dead Money's holograms], and not on the dead
+    [hypothesis]. Cast once it acts at once. A stage change swaps the rate in the frame
+    [observed: obs284_rad_child_regen]; a perk added or lost is noticed within a second
+    (0.3 to 0.9 s [observed: obs284_rad_child_regen, obs284_stage250]), here at the next
+    condition check (§13). A wait gives the seconds its hours stand for (§6)
+    [hypothesis: observer check 3471-rad-child-regeneration-rate, still open for the Wait
+    menu; moving `GameHour` or `TimeScale` gave nothing extra [observed:
+    obs284_rad_child_regen]]. A game saved before
+    2026-11-23 holds it as a single restoration, which a load turns into the rate.
+  - Left acting once, for want of evidence that they repeat [hypothesis]: "Restore Health"
+    (without the flag) in `GhoulRadHeal` (10, with the subject in radiation), Lonesome
+    Road's `NVDLC04MarkedMenRadHeal` (15) and its worn `NVDLC04ArmorPowerNCRScorchedOE` (2),
+    and the limb restorations of `MS03PerkMutation` (1 each, from 400 rads) and
+    `NVDLC03TorsoRestoration` (100). "Damage Health" 10,000 of the fatal stages
+    (`Radiation1000`, `Dehydration1000`, `Starvation1000`, `SleepDeprivation1000`) is
+    Hostile and Detrimental and stays at once [observed: their records]. The Monocyte
+    Breeder and Old World Blues's regenerating helmets are Script effects [observed].
 - The **sign**: Detrimental lowers, the rest raise or restore [hypothesis: the effect names,
   "Increase …"/"Restore …" without the flag, "Reduce …"/"Damage …" with it].
 - **Values that grow** — Rad Level (rads), Dehydration, Hunger, Sleep Deprivation — go the
@@ -119,7 +153,12 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   outside Hardcore also runs `RestoreAllBodyPartsSCRIPT` (effect `RestoreAllLimbs`): with
   it every limb is whole after the use; in Hardcore its limbs get 36 × potency
   [observed: `fnvtool actor aid --use NVDoctorBag`, 2026-10-23, Medicine 15: a left arm
-  at 0 went to 100, and to 46.8 with `--hardcore`].
+  at 0 went to 100, and to 46.8 with `--hardcore`]. Used on one limb from the Pip-Boy's
+  CND page in Hardcore (pipboy.md §5.1, `Game::ingest_on` with `limb: Some(code)` on an
+  instant Limb Condition effect; duration effects like Hydra stay un-aimed), only that
+  limb is restored to full (`amount.max(100.0)`) and the others are untouched [design:
+  #3431; hypothesis: exact original-game Hardcore single-limb vs all-limbs magnitudes
+  remain to be captured].
 - **Hardcore on and off while the game runs** (SetHardcore, `Game::set_hardcore`):
   the needs and the weight of ammunition follow it; the simulation counts ammunition's
   weight by its own switch (`fnv_sim::World::set_hardcore`), which SetHardcore now
@@ -239,8 +278,16 @@ Food:      fMagicSurvivalSkillBase + fMagicSurvivalSkillMult × Survival / 100  
   FalloutNV.esm); that effects go with them, and at the TimeScale's pace, is ours].
   Buffout (240 s) wears off in the second hour waited; the usage monitors (108,000 s)
   last 900 hours waited. Each effect runs one ScriptEffectUpdate with the hour's
-  seconds, a value changed by the second changes by the seconds of its duration left,
-  and an effect whose time is up finishes [hypothesis].
+  seconds, a value changed by the second changes by the seconds of its duration left
+  (a regeneration, §3, by all of them), and an effect whose time is up finishes
+  [hypothesis]. Conditions are checked before each step, with the clock already moved
+  [design: the game's own time stands still in the menu, so the once-a-second check
+  would not come round, and Solar Powered would heal all night]. **Known limit**: a
+  jump of several hours in one step (SetGameHour, fast travel) checks conditions once,
+  at the destination, and then advances the whole jump under that answer. Solar Powered
+  from 17:00 to 20:00 heals nothing, and from 3:00 to 9:00 the whole six hours. The
+  Sleep / Wait menu steps hour by hour, so its error is at most an hour. Not split into
+  intervals [design].
 - An effect with a duration whose conditions fail when it is applied (a Stimpak's
   Hardcore heal over time used outside Hardcore) is held inactive, as a spell's is
   (§5.3), and its time runs all the same: it goes when its duration has passed, with no
@@ -540,6 +587,28 @@ the temporary modifier to zero. Separate controls cover a false condition becomi
 true, an empty ability, invalid magic-item refusal and later synchronization of a
 different actor. These are NVForever implementation regressions, not native timing
 or original-mod acceptance claims.
+
+9. **Live `SetObjectEffect` (`EITM`) overrides**: `SetObjectEffect form [effect]` sets or
+   clears (when `effect` is omitted or null `0`) the object effect (`EITM`) of an `ARMO`,
+   `WEAP`, or `EXPL` base form [documented: GECK wiki SetObjectEffect], rejecting
+   mismatched enchantment types (`ENIT` type 3 Apparel for `ARMO`, type 2 Weapon for
+   `WEAP`/`EXPL`), invalid non-form second arguments, and unsupported base form types
+   [observed: gaps6, apparel enchantment refused on a pistol; hypothesis: `EXPL` requires
+   Weapon type and other record types or non-form second arguments are refused].
+   `Game::object_effect` and `Game::object_effect_override` unify `SetObjectEffect`
+   overrides ahead of authored `EITM` data for `GetObjectEffect`, `Game::worn_enchantments`
+   (filtered to `ARMO` + Apparel), and `Game::item_effect_text` / `GetItemEffectString`.
+   `TempCloneForm` snapshots effective `EITM` via `Game::snapshot_object_effect` so
+   pre-clone edits carry onto the clone while post-clone edits on the source or clone stay
+   isolated, including clone-of-clone chains [design: copy-at-clone snapshot isolation].
+   When an `ARMO` override changes, stale `worn_dispelled` entries for that item are
+   cleared and loaded actors' worn enchantments resync immediately [design: immediate
+   resync on live edit]. Overrides on loaded base forms carry across `Game::take_session`
+   / `Game::put_session` so startup (`gr_`) edits survive save loads within the same
+   session [hypothesis: session-scoped base-form edits are not save-baked; transient
+   `TempCloneForm` overrides are excluded]. Engine-side weapon/explosion hit-effect
+   consumers (`hit_effects.rs`) are not modified by this core-only change and can query
+   `Game::object_effect_override` in a follow-up.
 
 Not settled: GetActorValueModifier did not compile in the game's probe script (the
 function needs a different form), and the script name `PoisonResist` (the original answers

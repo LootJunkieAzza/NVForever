@@ -32,6 +32,11 @@ struct Grade {
     // the last one's (imagespace.rs).
     motion: vec4<f32>,
     reproject: mat4x4<f32>,
+    // Photo mode: warmth, vignette, film grain, letterbox aspect (imagespace.rs).
+    photo: vec4<f32>,
+    // Photo mode's lens blur (bokeh.rs): the aperture (0: off), the focus (game units),
+    // the largest disc (a part of the screen height).
+    bokeh: vec4<f32>,
 }
 
 @group(0) @binding(0) var screen: texture_2d<f32>;
@@ -127,6 +132,10 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         }
     }
     var c = to_srgb(clamp(lin, vec3(0.0), vec3(1.0)));
+    // HDR output (hdr.rs): light above 1, which an SDR screen clips, is graded apart and
+    // added back to the graded picture. With SDR output the tonemapping pass has clipped
+    // it already, so this part is zero.
+    var excess = max(lin - vec3(1.0), vec3(0.0));
     let marked = abs(src.a - SCREEN_MARK) < 0.02;
     if !marked {
         let lum = dot(c, vec3(0.2125, 0.7154, 0.0721));
@@ -135,6 +144,10 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         c = c * grade.brightness;
         c = mix(vec3(grade.contrast_avg_lum), c, grade.contrast);
         c = clamp(c, vec3(0.0), vec3(1.0));
+        let le = dot(excess, vec3(0.2125, 0.7154, 0.0721));
+        excess = mix(vec3(le), excess, grade.saturation);
+        excess = mix(excess, le * grade.tint.rgb, grade.tint.a);
+        excess = max(excess * grade.brightness, vec3(0.0));
     }
     // VATS mode: the amber grade left of the swipe's edge, the band riding the edge, the
     // wash over the whole screen.
@@ -143,6 +156,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         // The classic style: no colour over the picture, only less light, down to the
         // tint's fourth figure at full strength (imagespace.rs).
         c = c * mix(1.0, grade.vats_tint.a, clamp(vats.w, 0.0, 1.0));
+        excess = excess * mix(1.0, grade.vats_tint.a, clamp(vats.w, 0.0, 1.0));
     } else if vats.y > 0.0 || vats.z > 0.0 || vats.w > 0.0 {
         let x = in.uv.x;
         let behind = 1.0 - smoothstep(vats.x - VATS_SOFT, vats.x + VATS_SOFT, x);
@@ -150,11 +164,55 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let corner = 1.0 - VATS_VIGNETTE * smoothstep(0.4, 1.35, length((in.uv - vec2(0.5)) * 2.0));
         let amber = clamp(vec3(l) * grade.vats_tint.rgb, vec3(0.0), vec3(1.0)) * corner;
         c = mix(c, amber, clamp(vats.w * VATS_GRADE * behind, 0.0, 1.0));
+        excess = excess * (1.0 - clamp(vats.w * VATS_GRADE * behind, 0.0, 1.0));
         let band = vats.y * smoothstep(vats.x - VATS_BAND, vats.x, x) * behind;
         c = mix(c, VATS_WASH, clamp(band + vats.z, 0.0, 1.0));
+        excess = excess * (1.0 - clamp(band + vats.z, 0.0, 1.0));
     }
     // The fade colour covers the graded picture [observed: the opening is white while a
     // modifier holds the brightness at zero, image-modifiers.md §5].
     c = mix(c, grade.fade.rgb, clamp(grade.fade.a, 0.0, 1.0));
-    return vec4(to_linear(clamp(c, vec3(0.0), vec3(1.0))), select(src.a, 1.0, marked));
+    excess = excess * (1.0 - clamp(grade.fade.a, 0.0, 1.0));
+    c = photo_look(c, in.uv);
+    return vec4(to_linear(clamp(c, vec3(0.0), vec3(1.0))) + excess, select(src.a, 1.0, marked));
+}
+
+// Photo mode's look (nvf_play::photo_mode) on the display values [design]: warmth leans
+// the colours towards orange or blue, the vignette darkens towards the corners, film grain
+// adds a fresh noise each frame, and letterbox bars cover what lies outside the aspect
+// chosen. All off (0) outside photo mode.
+fn photo_look(col: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
+    let p = grade.photo;
+    var c = col;
+    if p.x != 0.0 {
+        c = c * vec3(1.0 + 0.14 * p.x, 1.0 + 0.03 * p.x, 1.0 - 0.14 * p.x);
+    }
+    if p.y > 0.0 {
+        let r = length(uv - vec2(0.5)) * 1.4142;
+        c = c * (1.0 - p.y * smoothstep(0.35, 1.05, r));
+    }
+    if p.z > 0.0 {
+        let dims = vec2<f32>(textureDimensions(screen));
+        let px = floor(uv * dims);
+        let n = fract(sin(dot(px + vec2(fract(grade.time * 7.13) * 431.0, fract(grade.time * 3.71) * 173.0), vec2(12.9898, 78.233))) * 43758.547);
+        c = c + vec3((n - 0.5) * 0.22 * p.z);
+    }
+    if p.w > 0.0 {
+        let dims = vec2<f32>(textureDimensions(screen));
+        let screen_aspect = dims.x / dims.y;
+        if p.w > screen_aspect {
+            // Bars above and below.
+            let keep = screen_aspect / p.w;
+            if abs(uv.y - 0.5) > 0.5 * keep {
+                c = vec3(0.0);
+            }
+        } else if p.w < screen_aspect {
+            // Bars at the sides.
+            let keep = p.w / screen_aspect;
+            if abs(uv.x - 0.5) > 0.5 * keep {
+                c = vec3(0.0);
+            }
+        }
+    }
+    return clamp(c, vec3(0.0), vec3(1.0));
 }

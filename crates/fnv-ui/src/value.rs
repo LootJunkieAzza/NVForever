@@ -129,27 +129,39 @@ impl Value {
         }
     }
 
-    /// The value as a number: text that is no number (nor a known XML entity string),
-    /// and a constant of unknown number, read 0 [hypothesis].
+    /// The value as a number: text that is no number (including literal XML entity
+    /// strings written via `SetUIString`, such as `"&true"`, `"&false"`, `"&center"`),
+    /// and a constant of unknown number, read 0 [observed: Fallout: New Vegas 1.4.0.525,
+    /// xNVSE 6.4.9, JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10
+    /// official base masters, `w4d_43_nif_selector_and_ui_entities`
+    /// (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679): `SetUIString` of
+    /// `"&false"`, `"&true"`, and `"&center"` on `HUDMainMenu/ReticleCenter/visible`
+    /// all read back `GetUIFloat == 0` while `GetUIString` kept `"&false"` verbatim;
+    /// no DLL or source consulted]. Static XML entities parsed as `Value::Sym` keep
+    /// their `sym_number` values (`&true;` -> `1.0`, menu classes -> their IDs).
     pub fn num(&self) -> f64 {
         match self {
             Value::Num(n) => *n,
-            Value::Str(s) => s
-                .trim()
-                .parse()
-                .ok()
-                .or_else(|| entity_name(s).and_then(|sym| sym_number(&sym)))
-                .unwrap_or(0.0),
+            Value::Str(s) => s.trim().parse().unwrap_or(0.0),
             Value::Sym(s) => sym_number(s).unwrap_or(0.0),
         }
     }
 
-    /// The value as text: a whole number without a point [hypothesis: how the original
-    /// prints a number into a string trait is not captured].
+    /// The value as text: a whole number without a point; another number as the shortest
+    /// text that reads back as the same single-precision number, so a code-written
+    /// fraction times a file's constant prints as the product, not with the double-precision
+    /// tail of the fraction's rounding (`0.62` written at single precision, times 800, prints
+    /// `496`, not `496.00000381469727`) [hypothesis: how the original prints a number into a
+    /// string trait is not captured; single precision is taken to be the precision it keeps
+    /// a trait's number at]. A number single precision cannot hold (beyond its range, or a
+    /// tiny one that would read 0) keeps its double-precision text [design].
     pub fn text(&self) -> String {
         match self {
             Value::Num(n) if n.fract() == 0.0 && n.abs() < 1e15 => format!("{}", *n as i64),
-            Value::Num(n) => format!("{n}"),
+            Value::Num(n) => {
+                let single = *n as f32;
+                if single.is_finite() && single != 0.0 { format!("{single}") } else { format!("{n}") }
+            }
             Value::Str(s) => s.clone(),
             Value::Sym(s) => format!("&{s};"),
         }
@@ -189,10 +201,7 @@ impl Value {
                     || match (entity_name(a), entity_name(b)) {
                         (Some(sa), Some(sb)) => sa == sb,
                         _ => {
-                            let numeric = |s: &str| {
-                                s.trim().parse::<f64>().ok().is_some()
-                                    || entity_name(s).as_deref().and_then(sym_number).is_some()
-                            };
+                            let numeric = |s: &str| s.trim().parse::<f64>().ok().is_some();
                             numeric(a) && numeric(b) && self.num() == other.num()
                         }
                     }
@@ -263,10 +272,16 @@ mod tests {
         assert!(!Value::Str(" &FALSE ".into()).truthy());
         assert!(Value::Str("&true".into()).truthy());
         assert!(Value::Str("&true;".into()).truthy());
+        // Literal entity strings written via SetUIString read 0.0 numerically
+        // [observed: w4d_43_nif_selector_and_ui_entities], while static XML Value::Sym
+        // nodes keep their sym_number values.
         assert_eq!(Value::Str("&false".into()).num(), 0.0);
-        assert_eq!(Value::Str("&true".into()).num(), 1.0);
-        assert_eq!(Value::Str("&BarterMenu".into()).num(), 1053.0);
-        assert_eq!(Value::Str("&BarterMenu;".into()).num(), 1053.0);
+        assert_eq!(Value::Str("&true".into()).num(), 0.0);
+        assert_eq!(Value::Str("&center".into()).num(), 0.0);
+        assert_eq!(Value::Str("&BarterMenu".into()).num(), 0.0);
+        assert_eq!(Value::Str("&BarterMenu;".into()).num(), 0.0);
+        assert_eq!(Value::Sym("true".into()).num(), 1.0);
+        assert_eq!(Value::Sym("bartermenu".into()).num(), 1053.0);
         assert_eq!(Value::Str("&false".into()).text(), "&false");
 
         // Equality against Sym, Num, and other Str forms.
@@ -274,12 +289,13 @@ mod tests {
         assert!(Value::Str("&false;".into()).same(&Value::Sym("false".into())));
         assert!(Value::Str("&false".into()).same(&Value::Str("&false;".into())));
         assert!(Value::Str("&false".into()).same(&Value::Num(0.0)));
-        assert!(Value::Str("&true".into()).same(&Value::Num(1.0)));
-        assert!(Value::Str("&true".into()).same(&Value::Str("1".into())));
+        assert!(!Value::Str("&true".into()).same(&Value::Num(1.0)));
+        assert!(Value::Str("&true".into()).same(&Value::Num(0.0)));
+        assert!(!Value::Str("&true".into()).same(&Value::Str("1".into())));
         assert!(Value::Str("&center".into()).same(&Value::Sym("center".into())));
         assert!(!Value::Str("&center".into()).same(&Value::Sym("right".into())));
         assert!(!Value::Str("&center".into()).truthy());
-        assert!(Value::Str("&false".into()).same(&Value::Str("0".into())));
+        assert!(!Value::Str("&false".into()).same(&Value::Str("0".into())));
         assert!(Value::Str("0".into()).same(&Value::Sym("false".into())));
         assert!(Value::Str("1".into()).same(&Value::Sym("true".into())));
         assert!(!Value::Str("0".into()).same(&Value::Sym("center".into())));

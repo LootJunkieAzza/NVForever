@@ -19,6 +19,7 @@
 pub mod mo2;
 pub mod plugins;
 pub mod reports;
+pub mod steam;
 
 use serde::Deserialize;
 use std::fmt;
@@ -201,8 +202,12 @@ impl EngineHome {
         EngineHome { cache_root: root.join("cache"), root }
     }
 
+    /// `NVForever.ini` in the home. When there is no file of exactly that name but one
+    /// whose name differs only in case (`nvforever.ini`, made by hand on a case-sensitive
+    /// file system), that file is the one read and written, as the game's own files are
+    /// found ([`child_ci`], #995). Every reader and writer of the INI goes through here.
     pub fn config_file(&self) -> PathBuf {
-        self.root.join(CONFIG_FILE)
+        child_ci(&self.root, CONFIG_FILE).unwrap_or_else(|| self.root.join(CONFIG_FILE))
     }
     pub fn saves(&self) -> PathBuf {
         self.root.join("saves")
@@ -413,9 +418,9 @@ pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), Instal
 /// ```
 ///
 /// `Path` is the original game's install folder (the one holding `Data`), read-only input.
-/// `CodePage` is the code page of the game's 8-bit text (`fnv_util::text`, #1439): 1252
-/// (the default, English installs), 1251 (Russian) or 1250 (Central European); written
-/// only by hand, never by [`Config::save`].
+/// `CodePage` is the encoding of the game's text (`fnv_util::text`, #1439): 1252
+/// (the default, English installs), 1251 (Russian), 1250 (Central European), or
+/// 936 (GB18030/GBK for simplified Chinese). [`Config::save`] preserves this setting.
 /// Saving changes only the keys it owns and keeps every other line, so the file can carry
 /// comments and settings of later builds.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -424,6 +429,8 @@ pub struct Config {
     pub game_dir: Option<PathBuf>,
     /// `[Text] CodePage`, as written (checked where it is used); None: not set.
     pub code_page: Option<String>,
+    /// `[Interface] CjkFontPath`, absolute or relative to the INI.
+    pub cjk_font_path: Option<PathBuf>,
 }
 
 /// `nvforever.json` of earlier builds; unknown keys are ignored.
@@ -453,13 +460,20 @@ impl Config {
         };
         let c: LegacyConfig =
             serde_json::from_str(&text).map_err(|e| InstallError::Config(format!("{}: {e}", legacy.display())))?;
-        Ok(Config { game_dir: c.game_dir, code_page: None })
+        Ok(Config {
+            game_dir: c.game_dir,
+            ..Config::default()
+        })
     }
 
     pub fn from_ini(text: &str) -> Config {
         Config {
             game_dir: ini_get(text, "Game", "Path").filter(|s| !s.is_empty()).map(PathBuf::from),
             code_page: ini_get(text, "Text", "CodePage").filter(|s| !s.is_empty()),
+            cjk_font_path: ini_get(text, "Interface", "CjkFontPath")
+                .map(|path| path.trim_matches('"').trim().to_owned())
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from),
         }
     }
 
@@ -819,14 +833,59 @@ mod tests {
         std::fs::remove_dir_all(&t).ok();
     }
 
+    /// A hand-made `nvforever.ini` on a case-sensitive file system is the INI read and
+    /// written: a save does not put a second `NVForever.ini` beside it. With both names
+    /// present the exact one wins, as `child_ci` finds it (#995).
+    #[test]
+    fn an_existing_ini_is_used_whatever_its_case() {
+        let t = tmp("cfg-case");
+        let home = EngineHome::new(t.join("home"));
+        home.create().unwrap();
+        let lower = home.root.join("nvforever.ini");
+        std::fs::write(&lower, "[Game]\nPath=F:\\FNV\n").unwrap();
+        let exact = home.root.join(CONFIG_FILE);
+        if exact.exists() {
+            // A case-insensitive file system (Windows, macOS): both names are one file, so
+            // there is no other case to find.
+            std::fs::remove_dir_all(&t).ok();
+            return;
+        }
+        assert_eq!(home.config_file(), lower);
+        assert_eq!(Config::load(&home).unwrap().game_dir, Some(PathBuf::from("F:\\FNV")));
+        Config { game_dir: Some(PathBuf::from("D:\\FNV")), ..Config::default() }.save(&home, None).unwrap();
+        assert!(!exact.exists(), "the save made a second INI");
+        assert_eq!(Config::load(&home).unwrap().game_dir, Some(PathBuf::from("D:\\FNV")));
+        std::fs::write(&exact, "[Game]\nPath=G:\\FNV\n").unwrap();
+        assert_eq!(home.config_file(), exact);
+        std::fs::remove_dir_all(&t).ok();
+    }
+
     #[test]
     fn code_page_is_read_and_kept() {
-        let c = Config::from_ini("[Game]\nPath=C:\\FNV\n\n[Text]\nCodePage = 1251\n");
-        assert_eq!(c.code_page.as_deref(), Some("1251"));
         assert_eq!(Config::from_ini("[Text]\nCodePage=\n").code_page, None);
-        // Saving the game folder keeps the hand-written code page.
-        let again = Config { game_dir: Some(PathBuf::from("D:\\FNV")), ..Config::default() }.to_ini("[Text]\nCodePage=1251\n");
-        assert_eq!(Config::from_ini(&again).code_page.as_deref(), Some("1251"));
+        for page in ["1251", "936"] {
+            let ini = format!("[Game]\nPath=C:\\FNV\n\n[Text]\nCodePage = {page}\n");
+            assert_eq!(Config::from_ini(&ini).code_page.as_deref(), Some(page));
+            let again = Config { game_dir: Some(PathBuf::from("D:\\FNV")), ..Config::default() }.to_ini(&ini);
+            assert_eq!(Config::from_ini(&again).code_page.as_deref(), Some(page));
+        }
+    }
+
+    #[test]
+    fn cjk_font_path_is_optional_and_kept_when_saving() {
+        let text = "[Interface]\nCjkFontPath = \"fonts/My CJK font.otf\"\n";
+        let path = Path::new("fonts/My CJK font.otf");
+        assert_eq!(Config::from_ini(text).cjk_font_path.as_deref(), Some(path));
+        assert_eq!(
+            Config::from_ini("[Interface]\nCjkFontPath=\n").cjk_font_path,
+            None
+        );
+        assert_eq!(
+            Config::from_ini(&Config::default().to_ini(text))
+                .cjk_font_path
+                .as_deref(),
+            Some(path)
+        );
     }
 
     #[test]

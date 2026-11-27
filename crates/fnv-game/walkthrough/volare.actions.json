@@ -2,6 +2,7 @@
   "format": "fnv.script.actions/1",
   "title": "Headless Volare! (VMS15): from Mother Pearl's first talk to the Boomers' B-29 brought home (stage 110), then Pearl's pledge to the player's side (VStoryEventBoomers 1)",
   "given": [
+    {"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}},
     {"kind": "quest", "quest": "VMQYesMan02", "running": true, "completed": false, "objectives": [{"index": 20, "displayed": true}]}
   ],
   "actions": [

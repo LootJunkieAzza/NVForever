@@ -81,6 +81,28 @@ fn a_story_event_starts_the_wait_again() {
     assert!(found.text.contains("last stage set: HoldQuest 10"), "{}", found.text);
 }
 
+/// Issue #3676: a DLC's load message box shown and answered while the controls stay off
+/// starts the wait again, but one hold is one finding until the player is free.
+#[test]
+fn a_message_box_within_a_reported_hold_is_no_second_finding() {
+    let f = fixture();
+    let mut g = game(&f);
+    let mut dog = Watchdog::new(Limits { controls: 5.0, ..Limits::default() });
+    run(&mut g, "DisablePlayerControls");
+    assert_eq!(frames(&mut dog, &g, 5.5), [Kind::ControlsHeld]);
+    g.menu = Some(1001);
+    g.emit(EventKind::MenuOpened { menu: 1001 });
+    assert_eq!(frames(&mut dog, &g, 3.0), [], "the box is the player's turn");
+    g.menu = None;
+    g.emit(EventKind::MenuClosed { menu: 1001 });
+    assert_eq!(frames(&mut dog, &g, 60.0), [], "the same hold, reported once");
+    // Free for a frame, then held again: a new hold.
+    run(&mut g, "EnablePlayerControls");
+    assert_eq!(frames(&mut dog, &g, 0.1), []);
+    run(&mut g, "DisablePlayerControls");
+    assert_eq!(frames(&mut dog, &g, 6.0), [Kind::ControlsHeld], "a new hold is found again");
+}
+
 #[test]
 fn a_restrained_player_is_held_and_a_dead_one_is_not() {
     let f = fixture();
@@ -103,6 +125,26 @@ fn timers_package_choices_chatter_and_others_items_are_not_story() {
     let spent = |from| EventKind::ItemRemoved { from, item: FormId(3), count: 1, silent: false };
     assert!(!story(&spent(FormId(1)), false), "a fighter's spent round");
     assert!(story(&spent(FormId::PLAYER_REF), false), "an item a script takes from the player");
+}
+
+#[test]
+fn the_lines_begun_since_a_count_are_the_new_ones() {
+    let f = fixture();
+    let mut g = game(&f);
+    let line = |info| EventKind::LineStarted { speaker: FormId(1), target: None, topic: FormId(0x913), info: FormId(info), seconds: 1.0 };
+    g.emit(line(1));
+    let mark = g.softlock_seen.lines_begun;
+    assert_eq!(g.softlock_seen.lines_since(mark).count(), 0);
+    g.emit(line(2));
+    g.emit(line(3));
+    assert_eq!(g.softlock_seen.lines_since(mark).collect::<Vec<_>>(), [FormId(2), FormId(3)]);
+    // More lines than are kept: the count still tells the new from the old.
+    for i in 0..fnv_game::softlock::LINES_KEPT as u32 {
+        g.emit(line(100 + i));
+    }
+    let mark = g.softlock_seen.lines_begun;
+    g.emit(line(7));
+    assert_eq!(g.softlock_seen.lines_since(mark).collect::<Vec<_>>(), [FormId(7)]);
 }
 
 #[test]

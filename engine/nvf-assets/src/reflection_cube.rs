@@ -244,8 +244,20 @@ impl ReflectionCube {
     /// Write the specular cube from `colour(world direction, level)` (linear RGB; see
     /// [`specular_levels`]); the render world writes it into the texture at the next frame.
     pub fn fill(&mut self, colour: impl Fn(Vec3, u32) -> Vec3) {
-        self.levels = Arc::new(specular_levels(colour));
+        self.set_levels(specular_levels(colour));
+    }
+
+    /// Take levels made elsewhere (by [`specular_levels`], e.g. on a worker thread) as the
+    /// specular cube's content: no texel is computed here, the bytes are moved in and the
+    /// render world writes them into the texture at the next frame, as for [`fill`](Self::fill).
+    pub fn set_levels(&mut self, levels: Vec<Vec<u8>>) {
+        self.levels = Arc::new(levels);
         self.generation += 1;
+    }
+
+    /// The last fill's levels, as [`specular_levels`] lays them out.
+    pub fn levels(&self) -> &[Vec<u8>] {
+        &self.levels
     }
 
     /// How many fills there have been.

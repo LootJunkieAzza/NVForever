@@ -63,7 +63,11 @@ this item). Everything below that is not tagged otherwise is [hypothesis].
 - **What can be held**: under the crosshair ray, within the activation reach (150), a
   reference whose collision became one dynamic body (placed clutter, a dropped item),
   or a corpse's ragdoll (the body nearest the hit). Not: living actors, static or
-  keyframed collision, a reference with several dynamic bodies.
+  keyframed collision, a reference with several dynamic bodies, and a body on the
+  non-collidable layer (15): the ray passes through it. The pickable plants White Horse
+  Nettle and Broc Flower have one dynamic box of 45 kg there [observed: `fnvtool nif
+  decode`]; held, they came off the ground whole (#3389). They stay rooted [hypothesis: the
+  players' report; observer check 278].
 - **Where**: the grip is the hit point on the body; it is wanted on the crosshair ray at
   the distance it was picked up at, no nearer than 50 units. The body hangs from that
   point and turns about it (its spin damped to 5 % a second).
@@ -89,8 +93,18 @@ this item). Everything below that is not tagged otherwise is [hypothesis].
 ## 4. Scripts
 
 The engine tells `fnv_game` what is held (`Game::set_player_grab`) when a grab starts
-and ends. A change runs the OnRelease blocks of the object let go, then the OnGrab
-blocks of the one picked up (the player as their action reference). IsPlayerGrabbedRef
+and ends (manual release, throw, caught/out-of-range drop, play stopped by a menu/VATS/
+furniture, body or reference gone from simulation/physics, or physics teardown [design]).
+A change updates `senses.grabbed`, runs the OnRelease blocks and `OnPlayerRelease`
+extender event handlers of the object let go, then the OnGrab blocks and `OnPlayerGrab`
+extender event handlers of the one picked up (the player as the block action reference,
+and the grabbed/released reference as `arg0` and calling reference for `OnPlayerGrab` /
+`OnPlayerRelease`, plain and colon-qualified `:formType`) [documented: GECK wiki
+OnPlayerGrab, OnPlayerRelease; hypothesis: handler-vs-block order, colon-qualified
+`:formType` delivery, calling reference `this = grabbedRef`, and `IsPlayerGrabbedRef` /
+`GetPlayerGrabbedRef` reading the updated grab state inside handlers]. Repeating the same
+grab state is a no-op (zero double-fire), and when no `OnPlayerGrab` / `OnPlayerRelease`
+handlers are registered the event path allocates nothing [design]. IsPlayerGrabbedRef
 answers from it (0 at rest [observed: function probes, script-function-coverage.md]).
 Not saved: a save made while holding loads with nothing held.
 

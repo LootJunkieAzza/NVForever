@@ -147,6 +147,8 @@
     {"op": "advance_seconds", "seconds": 2},
     {"op": "dismiss_message_boxes", "max": 2, "wait_frames": 30},
     {"op": "get_quest", "quest": "NVDLC03X8Setup", "fields": ["running", "stage", "objective.50.completed"], "label": "X-8 setup: advanced test passed"},
+    {"op": "note", "text": "The specimen terminal is behind the X-8 kennel door (0x03003DB7 in the run's order, 'Locked (Requires Key)'), which wants NVDLC03X8KennelKey (OldWorldBlues.esm 0x0100E5C5 here) [observed: pilot rerun log, decode]; the scripts that test it (SCPT 0x0300FA4F, 0x0300DD47 in the run's order) only read player.GetItemCount [observed: decompiled]. The chain skips the cyberdog fight, whose loot holds it [hypothesis]. Stand-in: the player is given the key."},
+    {"op": "add_item", "to": "player", "item": "NVDLC03X8KennelKey", "count": 1},
     {"op": "note", "text": "The specimen terminal (NVDLC03X8Terminal02) 'Release Unusual Specimen' sets bSpawn 1. The fights with what it releases in the replayed tests are not run: the records and the triggers are walked as before."},
     {"op": "move_player", "to": "placed:NVDLC03X8Terminal02"},
     {"op": "terminal", "target": "placed:NVDLC03X8Terminal02", "item": 1, "label": "release the unusual specimen"},

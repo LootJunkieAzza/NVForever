@@ -25,7 +25,7 @@ impl Plugin for ProvokedPlugin {
 }
 
 #[derive(Resource, Default)]
-struct Stats {
+pub(crate) struct Stats {
     assaulted: usize,
     tolerated: usize,
     ignored: usize,
@@ -59,7 +59,7 @@ fn yields(control: Option<Res<PlayerControl>>, mut script: Option<ResMut<ScriptS
     info!("provocation: the player puts the weapon away: a yield, accepted by {accepted}");
 }
 
-fn log_notes(mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<Stats>) {
+pub(crate) fn log_notes(mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<Stats>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let notes = rt.game.provocations.take_notes();
     if notes.is_empty() {

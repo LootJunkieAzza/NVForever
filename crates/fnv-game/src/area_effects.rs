@@ -53,7 +53,7 @@ impl Game<'_> {
     /// unless the spell ignores sight; `center` itself left out. With each, the effect
     /// indices whose own radius reaches it.
     pub fn area_targets(&self, center: FormId, item: FormId) -> Vec<(FormId, Vec<usize>)> {
-        let Some(items) = self.data.effect_items.get(&item) else { return Vec::new() };
+        let Some(items) = self.data.effect_items.get(&self.unclone(item)) else { return Vec::new() };
         let radii: Vec<(usize, f32)> = items.iter().enumerate().filter(|(_, e)| e.area > 0).map(|(i, e)| (i, area_radius(e.area))).collect();
         if radii.is_empty() {
             return Vec::new();
@@ -61,7 +61,7 @@ impl Game<'_> {
         let Some((cell, at)) = self.area_place(center) else { return Vec::new() };
         let placed = self.world.placed;
         let space = |c: FormId| placed.world_of(c).unwrap_or(c);
-        let ignores_los = !self.data.spell_types.contains_key(&item) || self.data.spell_flags.get(&item).is_some_and(|f| f & SPELL_AREA_IGNORES_LOS != 0);
+        let ignores_los = self.spell_ignores_los(item);
         let mut actors = self.package_actors();
         actors.insert(FormId::PLAYER_REF);
         let mut out = Vec::new();

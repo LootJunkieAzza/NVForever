@@ -348,6 +348,7 @@ fn hit(g: &mut Game<'_>, on: FormId, damage: f64) {
             location: 0,
             critical: true,
             limb: None,
+            ..HitInfo::default()
         },
     );
     assert!(

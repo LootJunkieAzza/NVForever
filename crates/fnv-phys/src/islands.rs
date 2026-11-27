@@ -7,20 +7,15 @@
 //! "waking any body of a sleeping island wakes the whole island"].
 //!
 //! A query between two steps brings the broad phase up to date first
-//! ([`PhysWorld::update_queries`]) with rapier's collision-only update, which takes every
-//! body's pending changes without telling the island manager [documented: rapier3d 0.36.1
-//! `CollisionPipeline::step` passes no islands to `handle_user_changes_to_rigid_bodies` and
-//! clears the changes after]. A change made since the last step was then lost to the islands:
-//!
-//! - a sleeping body woken (struck, pushed, cut from its ragdoll) was awake but left in its
-//!   sleeping set, never simulated;
-//! - a body turned fixed after a step (`crate::quarantine`) stayed a member of its island.
-//!
-//! Either way one island could end with bodies both in the awake set and in a sleeping one.
-//! When it fell asleep rapier found a body of another set in it and panicked [observed: the
-//! owner's crash of 2026-11-11 after a VATS kill, `extract_sleeping_sub_island`, island.rs:54;
-//! tests/islands.rs `a_sleeping_corpse_struck_before_a_query_wakes_whole`]. After every
-//! refresh [`PhysWorld::repair_islands`] puts that right, whatever made the change.
+//! ([`PhysWorld::update_queries`]) via a zero-length `PhysicsPipeline::step` (`dt = 0.0`)
+//! [documented: rapier3d 0.36.1 `pipeline/physics_pipeline/substep.rs` `step_inner`], which
+//! applies pending user changes to the island manager before computing contacts without
+//! integrating time or forces. Historically this used `CollisionPipeline::step`, which
+//! dropped pending changes without telling the island manager so a woken or fixed body could
+//! split an island and crash rapier [observed: the owner's crash of 2026-11-11 after a VATS
+//! kill, `extract_sleeping_sub_island`, island.rs:54; tests/islands.rs
+//! `a_sleeping_corpse_struck_before_a_query_wakes_whole`]. [`PhysWorld::repair_islands`]
+//! remains after every refresh as a safety net so any split island is put right immediately.
 
 use crate::world::{Owner, PhysWorld};
 use rapier3d::prelude::*;

@@ -27,8 +27,8 @@ fn assert_caches(rt: &mut Runtime, parent: f64, child: f64, individual: f64, pha
 fn loaded_inventory_choices_reach_startup_and_restore_without_importing_conflicting_file_values() {
     let files = OwnedInputs::new();
     let original_path = files.data.join("NVSE/Plugins/nvse_stewie_tweaks.ini");
-    std::fs::write(&original_path, "[Tweaks]\nbHardcoreTweaks=1\nbIndividialItemStats=1\n[Hardcore Tweaks]\nbAmmoWeight=1\n").unwrap();
-    std::fs::write(&files.nvf, "[Settings]\ntweak-hardcore-tweaks=0\ntweak-hardcore-ammo-weight=0\ntweak-single-item-figures=0\n").unwrap();
+    std::fs::write(&original_path, "[Tweaks]\nbHardcoreTweaks=1\nbIndividialItemStats=1\nbSynchronizeContainerCategories=1\n[Hardcore Tweaks]\nbAmmoWeight=1\n[Synchronized Container Categories]\nbPreventSwitchWhenEmptyingCategory=1\n").unwrap();
+    std::fs::write(&files.nvf, "[Settings]\ntweak-hardcore-tweaks=0\ntweak-hardcore-ammo-weight=0\ntweak-single-item-figures=0\ntweak-sync-categories=0\ntweak-sync-categories-keep-empty=0\n").unwrap();
     let original = std::fs::read(&original_path).unwrap();
     let preferences = std::fs::read(&files.nvf).unwrap();
     let file = SettingsFile(Some(files.nvf.clone()));
@@ -40,7 +40,9 @@ fn loaded_inventory_choices_reach_startup_and_restore_without_importing_conflict
     assert!(!settings.game.hardcore_tweaks);
     assert!(!settings.game.hardcore_ammo_weight);
     assert!(!settings.game.single_item_figures);
-    let body = "SetModLocalData \"inventory.parent\" (StewVal \"bHardcoreTweaks:Tweaks\")\nSetModLocalData \"inventory.child\" (StewieGetValue \"bAmmoWeight:Hardcore Tweaks\")\nSetModLocalData \"inventory.single\" (StewVal \"bIndividialItemStats:Tweaks\")\n";
+    assert!(!settings.game.sync_categories);
+    assert!(!settings.game.prevent_switch_when_emptying_category);
+    let body = "SetModLocalData \"inventory.parent\" (StewVal \"bHardcoreTweaks:Tweaks\")\nSetModLocalData \"inventory.child\" (StewieGetValue \"bAmmoWeight:Hardcore Tweaks\")\nSetModLocalData \"inventory.single\" (StewVal \"bIndividialItemStats:Tweaks\")\nSetModLocalData \"inventory.sync\" (StewVal \"bSynchronizeContainerCategories:Tweaks\")\nSetModLocalData \"inventory.keep_empty\" (StewieGetValue \"bPreventSwitchWhenEmptyingCategory:Synchronized Container Categories\")\n";
     for name in ["gr_owned_profile.txt", "ln_owned_profile.txt"] {
         std::fs::write(files.data.join("NVSE/Plugins/scripts").join(name), body).unwrap();
     }
@@ -49,18 +51,24 @@ fn loaded_inventory_choices_reach_startup_and_restore_without_importing_conflict
     preseed_caches(&mut rt);
     script_runner(&mut rt, &mut sim, Moment::Restart);
     assert_caches(&mut rt, 0.0, 0.0, 0.0, "Restart");
+    assert_eq!(source(&mut rt, "SetFunctionValue (GetModLocalData \"inventory.sync\")"), XVal::Num(0.0));
+    assert_eq!(source(&mut rt, "SetFunctionValue (GetModLocalData \"inventory.keep_empty\")"), XVal::Num(0.0));
     preseed_caches(&mut rt);
     script_runner(&mut rt, &mut sim, Moment::NewGame);
     assert_caches(&mut rt, 0.0, 0.0, 0.0, "NewGame");
     let saved = with_world(&mut rt, &mut sim, |rt| rt.game.snapshot());
     settings.game.hardcore_ammo_weight = true;
     settings.game.single_item_figures = true;
+    settings.game.sync_categories = true;
+    settings.game.prevent_switch_when_emptying_category = true;
     rt.restore_save(&mut sim, saved).unwrap();
     rt.game.bind_stewie_stat_settings(&settings.game);
     assert_queries(&mut rt, false, true, true);
     preseed_caches(&mut rt);
     script_runner(&mut rt, &mut sim, Moment::Restart);
     assert_caches(&mut rt, 0.0, 1.0, 1.0, "restored Restart");
+    assert_eq!(source(&mut rt, "SetFunctionValue (GetModLocalData \"inventory.sync\")"), XVal::Num(1.0));
+    assert_eq!(source(&mut rt, "SetFunctionValue (GetModLocalData \"inventory.keep_empty\")"), XVal::Num(1.0));
     preseed_caches(&mut rt);
     script_runner(&mut rt, &mut sim, Moment::Load);
     assert_caches(&mut rt, 0.0, 1.0, 1.0, "Load");

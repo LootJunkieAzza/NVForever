@@ -41,16 +41,17 @@ impl Plugin for AppearancePlugin {
     }
 }
 
-/// The change `actor` has in the game now, for the resolver: the player's only while the
-/// character creator has given no look (the look carries race and sex then).
+/// The change `actor` has in the game now, for the resolver: the player's race and sex
+/// come from `PlayerState::look` once the character creator has given one, while
+/// `SetPCYoung` (`young`) applies both before and after character creation.
 fn change_of(g: &Game, actor: FormId) -> Change {
     if actor == FormId::PLAYER_REF {
         if g.player.look.is_some() {
-            return Change::default();
+            return Change { race: None, female: None, young: g.player.young };
         }
-        return Change { race: g.player.race, female: g.player.female };
+        return Change { race: g.player.race, female: g.player.female, young: g.player.young };
     }
-    g.extra.get(&actor).map_or_else(Change::default, |e| Change { race: e.race, female: e.female })
+    g.extra.get(&actor).map_or_else(Change::default, |e| Change { race: e.race, female: e.female, young: false })
 }
 
 /// The face morphs `actor` has in the game now, for the resolver: a source's base from

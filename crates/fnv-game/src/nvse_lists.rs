@@ -47,7 +47,29 @@ impl Game<'_> {
     /// A generic form list: 0 race hairs (HNAM), 1 race eyes (ENAM), 5 actor base
     /// packages, 6 actor base spells, 7 leveled spells (none read), 10 NPC head parts,
     /// 13 a form list [documented: GenericGetForm's list codes]; a script's change first.
+    /// Returns `None` when `code` is unknown or `target`'s record type does not match the
+    /// list code [observed: 2026-11-23 & 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+    /// Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 with the 10 official base masters,
+    /// isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes to
+    /// game install or Saves), `core_13_generic_add_form_split` (`NPC_` + code 1, `RACE` +
+    /// code 5, `FLST` + code 1) and `w4d_04_generic_form_neg_idx`
+    /// (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3802 / PR #3803:
+    /// `flstC1(g=0,a=-1,r=0,d=0,n=36)` confirming FLST + code 1 rejects Get, Add, Replace,
+    /// and Delete without mutating); zero DLL, PDB, or third-party source consulted].
     pub fn generic_list(&self, code: i64, target: FormId) -> Option<Vec<FormId>> {
+        let sig = self.data.sig(self.unclone(target)).or_else(|| {
+            (target == FormId::PLAYER_BASE || target == FormId::PLAYER_REF).then_some(*b"NPC_")
+        })?;
+        let valid_target = match code {
+            0 | 1 => sig == *b"RACE",
+            5..=7 => matches!(&sig, b"NPC_" | b"CREA"),
+            10 => sig == *b"NPC_",
+            13 => sig == *b"FLST",
+            _ => false,
+        };
+        if !valid_target {
+            return None;
+        }
         if let Some(v) = self.other.generic.get(&(code, target)) {
             return Some(v.clone());
         }
@@ -140,36 +162,83 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // replace give the form taken out [documented].
         "genericgetform" | "genericaddform" | "genericdeleteform" | "genericreplaceform" => {
             let code = num(args, 0, -1.0) as i64;
-            let Some(t) = form(args, 1) else { return Some(Ok(XVal::Ref(0))) };
+            let miss = || if name == "genericaddform" { XVal::Num(-1.0) } else { XVal::Ref(0) };
+            let Some(t) = form(args, 1) else { return Some(Ok(miss())) };
             let t = if matches!(code, 0 | 1 | 13) { t } else { base(g, t) };
-            let Some(mut list) = g.generic_list(code, t) else { return Some(Ok(XVal::Ref(0))) };
+            let Some(mut list) = g.generic_list(code, t) else { return Some(Ok(miss())) };
             let idx_at = if matches!(name, "genericaddform" | "genericreplaceform") { 3 } else { 2 };
             let i = num(args, idx_at, -1.0) as i64;
-            let at = usize::try_from(i).ok().filter(|&i| i < list.len());
+            let n = list.len();
+            let at = usize::try_from(i).ok().filter(|&i| i < n);
             let out = match name {
                 "genericgetform" => return Some(Ok(XVal::Ref(at.map_or(0, |i| list[i].0)))),
                 "genericaddform" => {
                     let Some(f) = form(args, 2) else { return Some(Ok(zero)) };
-                    // The wiki gives no result, but the game gives the index it went in at,
-                    // and for -2 the index of the last entry before it, as AddPackageAt -1
-                    // does [observed: nvse-eighth, Doc's 9 packages: index 0 gave 0, -2
-                    // gave 8 and the count became 10].
-                    let n = list.len();
-                    let (at, out) = match usize::try_from(i).ok().filter(|&i| i <= n) {
-                        Some(at) => (at, at as f64),
-                        _ => (n, n as f64 - 1.0),
+                    // `-2` appends: on an empty list (`n == 0`) it appends and returns `0`
+                    // (`n: 0 -> 1`), and on a non-empty list it appends and returns the
+                    // previous last index (`n - 1`); `0` succeeds on an empty list (`n == 0`,
+                    // inserting at `0` and returning `0`), while on a non-empty list only
+                    // `0..n` inserts at `i` and returns `i`; exact `i == n` when `n > 0`,
+                    // past-end (`> n`), and any negative other than `-2` (`-1`, `-3`, `-10`)
+                    // return `-1` without modifying the list [observed: nvse-eighth;
+                    // 2026-11-23 & 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+                    // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10
+                    // official base masters, isolated clean-room staging copy (read-only
+                    // `PrintToConsole` probes; zero writes to game install or Saves),
+                    // `core_13_generic_add_form_split`, `w4d_04_generic_form_neg_idx`
+                    // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3802 / PR #3803:
+                    // `PROBE|w4d_04_generic_form_neg_idx|emp(n0=0,d=0/0/0/0:0,r=0:0/0:1/0/0:1,a=-1/0:1/-1/-1/-1:1)|ne(n0=38,a=-1/37:39/-1/-1/-1:39,r=0/1/0/0,d=1:38/1:37/1:36/0:36)|flstC1(g=0,a=-1,r=0,d=0,n=36)`),
+                    // and `w6t2p3_25_generic_form_real_flst`
+                    // (`tools/capture/nvse/catalogs/wave6_t2_generic_form.json`:
+                    // `PROBE|w6t2p3_25_generic_form_real_flst|add(0,-1,-1,n=1,past=-1)|delM1(h=1,t=0)|delM2(b=0,c=0)|nEnd=0`,
+                    // confirming `i == 0` succeeds on `n == 0` while `i == 1` on `n == 1`
+                    // returns `-1` without appending); zero DLL, PDB, or third-party source
+                    // consulted].
+                    let (at, out) = if i == -2 {
+                        (n, n.saturating_sub(1) as f64)
+                    } else if let Some(at) = usize::try_from(i).ok().filter(|&i| i < n.max(1)) {
+                        (at, at as f64)
+                    } else {
+                        return Some(Ok(XVal::Num(-1.0)));
                     };
                     list.insert(at, f);
                     XVal::Num(out)
                 }
-                "genericdeleteform" => match at {
-                    Some(i) => XVal::Ref(list.remove(i).0),
-                    None => return Some(Ok(XVal::Ref(0))),
-                },
-                _ => match (at, form(args, 2)) {
-                    (Some(i), Some(f)) => XVal::Ref(std::mem::replace(&mut list[i], f).0),
-                    _ => return Some(Ok(XVal::Ref(0))),
-                },
+                "genericdeleteform" => {
+                    // On a non-empty list, negative indices (`-1`, `-2`, `-3`) each remove
+                    // an entry (returning a non-zero form and decrementing count
+                    // `39 -> 38 -> 37 -> 36`), and return `0` on an empty list; `0..n`
+                    // removes `i`; `>= n` returns `0` [observed: `w4d_04_generic_form_neg_idx`,
+                    // #3802 / PR #3803: `emp(...,d=0/0/0/0:0,...)` and
+                    // `ne(...,d=1:38/1:37/1:36/0:36)`]. Removing index `0` (head of the list)
+                    // for negative indices is [hypothesis] (`w4d_04` checks non-zero return
+                    // and decremented counts, not which position was removed).
+                    let pos = if i < 0 { (n > 0).then_some(0) } else { at };
+                    match pos {
+                        Some(pos) => XVal::Ref(list.remove(pos).0),
+                        None => return Some(Ok(XVal::Ref(0))),
+                    }
+                }
+                _ => {
+                    // `GenericReplaceForm`: `-2` replaces the last entry when non-empty
+                    // (returning the previous last form), and on an empty list returns `0`
+                    // while appending the replacement form (`n: 0 -> 1`); `0..n` replaces
+                    // `i`; other negatives (`-1`, `-3`) and `>= n` return `0` without
+                    // mutating [observed: `w4d_04_generic_form_neg_idx`, #3802 / PR #3803].
+                    let Some(f) = form(args, 2) else { return Some(Ok(XVal::Ref(0))) };
+                    if i == -2 {
+                        if let Some(last) = list.last_mut() {
+                            XVal::Ref(std::mem::replace(last, f).0)
+                        } else {
+                            list.push(f);
+                            XVal::Ref(0)
+                        }
+                    } else if let Some(pos) = at {
+                        XVal::Ref(std::mem::replace(&mut list[pos], f).0)
+                    } else {
+                        return Some(Ok(XVal::Ref(0)));
+                    }
+                }
             };
             g.set_generic_list(code, t, list);
             out

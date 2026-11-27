@@ -565,4 +565,26 @@ mod tests {
         let chains = part_chains(&names, &parents, &bind, &[Some("Bip01 L Foot")]);
         assert_eq!(chains, vec![(0, vec![6])]);
     }
+
+    /// A single-part torso BPTD rooted at a pelvis node under `Bip01 NonAccum` produces a
+    /// body-part chain for part 0 rather than falling back to the whole-actor capsule (#3435).
+    #[test]
+    fn a_single_part_pelvis_builds_a_part_zero_chain() {
+        let nodes: [(&str, Option<usize>, [f32; 3]); 7] = [
+            ("Scene Root", None, [0.0, 0.0, 0.0]),
+            ("Bip01", Some(0), [0.0, 0.0, 0.0]),
+            ("Bip01 NonAccum", Some(1), [0.0, 0.0, 0.0]),
+            ("Bip01 Pelvis", Some(2), [0.0, 0.0, 10.0]),
+            ("Bip01 Spine", Some(3), [10.0, 0.0, 10.0]),
+            ("Bip01 Head", Some(4), [20.0, 0.0, 10.0]),
+            ("Bip01 Tail", Some(3), [-10.0, 0.0, 10.0]),
+        ];
+        let names: Vec<Option<String>> = nodes.iter().map(|n| Some(n.0.to_string())).collect();
+        let parents: Vec<Option<usize>> = nodes.iter().map(|n| n.1).collect();
+        let bind: Vec<Vec3> = nodes.iter().map(|n| Vec3::from(n.2)).collect();
+        let chains = part_chains(&names, &parents, &bind, &[Some("Bip01 Pelvis")]);
+        assert!(!chains.is_empty() && chains.iter().all(|(part, chain)| *part == 0 && !chain.is_empty()), "{chains:?}");
+        assert_eq!(chains[0].1.first().copied(), Some(3), "starts at Bip01 Pelvis");
+        assert_eq!(chains[0].1.last().copied(), Some(5), "reaches Bip01 Head");
+    }
 }

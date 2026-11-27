@@ -129,10 +129,23 @@ pub fn parse(src: &str) -> Doc {
             let line = p.line;
             p.advance(1);
             let name = p.take_while(name_char);
-            let (attrs, empty) = p.attributes(line);
+            let (attrs, empty) = p.attributes(line, &name);
             let el = Element { name, attrs, children: Vec::new(), line };
+            let missing_slash_at = if too_deep == 0
+                && !empty
+                && el.attrs.is_empty()
+                && !is_container(&el.name)
+                && !el.is("include")
+                && !is_operator(&el.name)
+            {
+                open_trait_for_missing_slash(&stack, &el.name)
+            } else {
+                None
+            };
             if too_deep > 0 {
                 too_deep += usize::from(!empty);
+            } else if let Some(at) = missing_slash_at {
+                close_missing_slash(&mut stack, at, &el.name, line, &mut p.warnings);
             } else if !empty && stack.len() > MAX_DEPTH {
                 p.warn(line, &format!("<{}> is nested more than {MAX_DEPTH} deep; left out with what is in it", el.name));
                 too_deep = 1;
@@ -159,31 +172,139 @@ pub fn parse(src: &str) -> Doc {
         }
     }
     while stack.len() > 1 {
-        let el = stack.pop().unwrap();
+        let mut el = stack.pop().unwrap();
         p.warnings.push(format!("line {}: <{}> not closed at the end of the file", el.line, el.name));
-        stack.last_mut().unwrap().children.push(Node::Element(el));
+        let hoisted = if !is_container(&el.name) && !el.is("include") {
+            take_trailing_non_operators(&mut el)
+        } else {
+            Vec::new()
+        };
+        let parent = stack.last_mut().unwrap();
+        parent.children.push(Node::Element(el));
+        parent.children.extend(hoisted);
     }
     Doc { nodes: stack.pop().unwrap().children, warnings: p.warnings }
 }
 
+fn is_container(name: &str) -> bool {
+    crate::tree::TILE_KINDS.iter().any(|k| name.eq_ignore_ascii_case(k)) || name.eq_ignore_ascii_case("template")
+}
+
+fn is_operator(name: &str) -> bool {
+    crate::expr::OpKind::from_tag(name).is_some()
+}
+
+fn has_non_blank_nodes(nodes: &[Node]) -> bool {
+    nodes.iter().any(|n| match n {
+        Node::Text(t) => !t.trim().is_empty(),
+        Node::Entity(_) | Node::Element(_) => true,
+    })
+}
+
+/// Finds an open trait on `stack` with the same name as a repeated attributeless start
+/// tag `<T>` when only operators (if any) are open inside it and the trait already holds
+/// non-blank content [hypothesis: menu XML prefabs sometimes omit `/` on a closing trait
+/// tag (`<height><copy .../><height>`), and closing the open trait keeps subsequent
+/// traits and child tiles on the enclosing tile; menu-xml.md §1.1].
+fn open_trait_for_missing_slash(stack: &[Element], name: &str) -> Option<usize> {
+    for k in (1..stack.len()).rev() {
+        let open = &stack[k];
+        if open.name.eq_ignore_ascii_case(name) {
+            let parent_is_container = k == 1 || is_container(&stack[k - 1].name);
+            return (parent_is_container && has_non_blank_nodes(&open.children)).then_some(k);
+        }
+        if !is_operator(&open.name) {
+            return None;
+        }
+    }
+    None
+}
+
+fn close_missing_slash(stack: &mut Vec<Element>, at: usize, name: &str, line: u32, warnings: &mut Vec<String>) {
+    while stack.len() > at {
+        let el = stack.pop().unwrap();
+        if stack.len() == at {
+            warnings.push(format!("line {line}: <{name}> closes open <{}> (line {}); missing '/'", el.name, el.line));
+        } else {
+            warnings.push(format!("line {line}: <{}> (line {}) closed by <{name}>", el.name, el.line));
+        }
+        stack.last_mut().unwrap().children.push(Node::Element(el));
+    }
+}
+
+/// Detaches contiguous trailing non-operator elements from an implicitly closed trait or
+/// operator element when non-blank content precedes them [hypothesis: when an author omits
+/// `</trait>` before a following sibling trait, tile, include or template inside a tile,
+/// hoisting those trailing elements preserves them on the enclosing tile; menu-xml.md §1.1].
+fn take_trailing_non_operators(el: &mut Element) -> Vec<Node> {
+    let mut cut = el.children.len();
+    let mut saw_element = false;
+    for (idx, node) in el.children.iter().enumerate().rev() {
+        match node {
+            Node::Text(t) if t.trim().is_empty() => {}
+            Node::Element(child) if !is_operator(&child.name) => {
+                cut = idx;
+                saw_element = true;
+            }
+            _ => break,
+        }
+    }
+    if !saw_element || !has_non_blank_nodes(&el.children[..cut]) {
+        return Vec::new();
+    }
+    el.children.split_off(cut).into_iter().filter(|n| matches!(n, Node::Element(_))).collect()
+}
+
+/// Whether an open `<hotrect>` and closing `</rect>` (or `<rect>` and `</hotrect>`) form
+/// a mismatched rect-family container pair [observed: Fallout: New Vegas 1.4.0.525 +
+/// xNVSE 6.4.9 + UI Organizer 230 / vanilla XML parser, 2026-11-24, `GSDocMitchellHouse`
+/// (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only
+/// `PrintToConsole` probe; zero writes to game install or Saves),
+/// `w4h_01_quest_added_button2_parent` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
+/// #3802):
+/// `PROBE|w4h_01_quest_added_button2_parent|hotrect_rect(ld=1,b1=11,b2Main=22,b2B1=-999,b2Menu=-999)|rect_hotrect(ld=1,in=33,sibMain=44,sibIn=-999,sibMenu=-999)`;
+/// zero DLL, PDB, or third-party source consulted — closing `<hotrect>` with `</rect>`
+/// (as in vanilla `quest_added.xml`) closes the inner `<hotrect>` and keeps `Button2`
+/// parented under `MainRect`, and `<rect>` closed with `</hotrect>` behaves symmetrically;
+/// menu-xml.md §1.1].
+fn is_rect_pair(open: &str, close: &str) -> bool {
+    (open.eq_ignore_ascii_case("hotrect") && close.eq_ignore_ascii_case("rect"))
+        || (open.eq_ignore_ascii_case("rect") && close.eq_ignore_ascii_case("hotrect"))
+}
+
 /// An end tag closes the innermost open element of the name it gives (and those opened
-/// inside it); when none of that name is open, it closes the innermost open element
-/// whatever its name; with nothing open it is dropped [hypothesis, from what works in
-/// the original: MCM runs with both `<_KeyInut>` … `</_KeyInput>` and a `<_target>` whose
-/// `<onlyif>` is never closed (ModListRect.xml); the first needs the second rule, the
-/// second the first. Observer check: menu-xml.md §8].
+/// inside it), treating `<hotrect>`/`</rect>` and `<rect>`/`</hotrect>` as matching
+/// rect-family containers [observed: `w4h_01_quest_added_button2_parent`, #3802,
+/// menu-xml.md §1.1] so a typo'd `</rect>` on an inner `<hotrect>` does not pop out
+/// to an enclosing `<rect>`; when none of that name is open, it closes the innermost open
+/// element whatever its name; with nothing open it is dropped [hypothesis for non-rect
+/// mismatches, from what works in the original: MCM runs with both `<_KeyInut>` …
+/// `</_KeyInput>` and a `<_target>` whose `<onlyif>` is never closed (ModListRect.xml).
+/// Observer check: menu-xml.md §8].
 fn close(stack: &mut Vec<Element>, name: &str, line: u32, warnings: &mut Vec<String>) {
     if stack.len() == 1 {
         warnings.push(format!("line {line}: </{name}> closes nothing open; dropped"));
         return;
     }
-    let at = (1..stack.len()).rev().find(|&k| stack[k].name.eq_ignore_ascii_case(name)).unwrap_or(stack.len() - 1);
+    let at = (1..stack.len())
+        .rev()
+        .find(|&k| stack[k].name.eq_ignore_ascii_case(name) || is_rect_pair(&stack[k].name, name))
+        .unwrap_or(stack.len() - 1);
+    let closing_enclosing_container = at < stack.len() - 1 && is_container(&stack[at].name);
     while stack.len() > at {
-        let el = stack.pop().unwrap();
+        let mut el = stack.pop().unwrap();
+        let implicit = stack.len() > at;
         if !el.name.eq_ignore_ascii_case(name) {
             warnings.push(format!("line {line}: <{}> (line {}) closed by </{name}>", el.name, el.line));
         }
-        stack.last_mut().unwrap().children.push(Node::Element(el));
+        let hoisted = if implicit && closing_enclosing_container && !is_container(&el.name) && !el.is("include") {
+            take_trailing_non_operators(&mut el)
+        } else {
+            Vec::new()
+        };
+        let parent = stack.last_mut().unwrap();
+        parent.children.push(Node::Element(el));
+        parent.children.extend(hoisted);
     }
 }
 
@@ -307,8 +428,21 @@ impl Parser<'_> {
         self.warnings.push(format!("line {line}: {what}"));
     }
 
+    fn peek_name_at(&self, offset: usize) -> String {
+        let mut k = offset;
+        let mut out = String::new();
+        while let Some(c) = self.peek_at(k) {
+            if !name_char(c) {
+                break;
+            }
+            out.push(c);
+            k += 1;
+        }
+        out
+    }
+
     /// The attributes up to the tag's `>`; true when it ends `/>`.
-    fn attributes(&mut self, line: u32) -> (Vec<(String, String)>, bool) {
+    fn attributes(&mut self, line: u32, tag: &str) -> (Vec<(String, String)>, bool) {
         let mut attrs = Vec::new();
         loop {
             self.skip_space();
@@ -325,12 +459,15 @@ impl Parser<'_> {
                     self.advance(2);
                     return (attrs, true);
                 }
-                // A start tag cut short by the next tag (`<systemcolor</systemcolor>` in
-                // two vanilla files [observed]): ends there, open, so that the end tag
-                // after it closes it.
+                // A start tag cut short by the next tag:
+                // - When immediately followed by its own end tag (`<systemcolor</systemcolor>`
+                //   in two vanilla files [observed]), end open so the end tag closes it.
+                // - When followed by a different start tag or an enclosing end tag, end empty
+                //   (self-closed) so following sibling traits/tiles are not swallowed [hypothesis].
                 Some('<') => {
                     self.warn(line, "tag cut short by the next one");
-                    return (attrs, false);
+                    let own_close = self.peek_str("</") && self.peek_name_at(2).eq_ignore_ascii_case(tag);
+                    return (attrs, !own_close);
                 }
                 Some(c) if name_char(c) => {
                     let name = self.take_while(name_char);
@@ -466,5 +603,152 @@ mod tests {
     fn latin1_fallback() {
         assert_eq!(decode(&[b'a', 0xE9]), "a\u{e9}");
         assert_eq!(decode(&[0xEF, 0xBB, 0xBF, b'x']), "x");
+    }
+
+    #[test]
+    fn missing_slash_on_repeated_trait_closes_and_preserves_siblings() {
+        // Synthetic control: repeated attributeless trait start tags `<_offset> 20 <_offset>`
+        // and `<height><copy .../><height>` close the open trait instead of swallowing
+        // subsequent traits and child tiles.
+        let src = r#"<rect name="Panel">
+            <_offset> 20 <_offset>
+            <height><copy src="screen()" trait="height"/><height>
+            <x> 12 </x>
+            <text name="Label"><string>ok</string></text>
+        </rect>"#;
+        let d = parse(src);
+        let r = el(&d.nodes[0]);
+        let names: Vec<_> = r.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["_offset", "height", "x", "text"]);
+        assert_eq!(el(&r.children[1]).children, vec![Node::Text(" 20 ".into())]);
+        assert!(d.warnings.iter().any(|w| w.contains("<_offset> closes open <_offset>") && w.contains("missing '/'")), "{:?}", d.warnings);
+        assert!(d.warnings.iter().any(|w| w.contains("<height> closes open <height>") && w.contains("missing '/'")), "{:?}", d.warnings);
+    }
+
+    #[test]
+    fn unclosed_trait_hoists_trailing_sibling_traits_and_tiles_on_container_close() {
+        // Synthetic control: omitted `</alpha>` before `<brightness>` and a child tile
+        // hoists those non-operator siblings onto the enclosing container without
+        // disturbing explicitly closed traits that contain unknown operator tags.
+        let src = r#"<image name="Gauge">
+            <alpha>
+                <copy> 0 </copy>
+                <add> 128 </add>
+                <brightness> 200 </brightness>
+                <rect name="Child"><x> 4 </x></rect>
+        </image>
+        <rect name="Explicit">
+            <_flag><copy> 1 </copy><unknown_op> 2 </unknown_op></_flag>
+        </rect>"#;
+        let d = parse(src);
+        let els: Vec<_> = d.nodes.iter().filter_map(|n| match n {
+            Node::Element(e) => Some(e),
+            _ => None,
+        }).collect();
+        let img = els[0];
+        let img_names: Vec<_> = img.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(img_names, ["alpha", "brightness", "rect"]);
+        let alpha_ops: Vec<_> = img.elements().next().unwrap().elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(alpha_ops, ["copy", "add"]);
+        // Explicitly closed trait retains unknown inner tag for ops_of to warn on as before.
+        let explicit_flag = els[1].elements().next().unwrap();
+        let flag_kids: Vec<_> = explicit_flag.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(flag_kids, ["copy", "unknown_op"]);
+    }
+
+    #[test]
+    fn unclosed_chained_traits_and_eof_fragment_hoist_without_affecting_nested_operators() {
+        let chained = r#"<rect name="Box"><alpha> 120 <brightness> 240 <width> 64 </width></rect>"#;
+        let d = parse(chained);
+        let r = el(&d.nodes[0]);
+        let names: Vec<_> = r.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["alpha", "brightness", "width"]);
+        // Top-level prefab fragment closed at EOF.
+        let eof = r#"<alpha> 90 <brightness> 180 </brightness>"#;
+        let d2 = parse(eof);
+        let top_names: Vec<_> = d2.nodes.iter().filter_map(|n| match n {
+            Node::Element(e) => Some(e.name.as_str()),
+            _ => None,
+        }).collect();
+        assert_eq!(top_names, ["alpha", "brightness"]);
+        // Nested operators of the same name are untouched by missing-slash closing.
+        let nested_op = r#"<rect name="Calc"><x><add> 1 <add> 2 </add></add></x></rect>"#;
+        let d3 = parse(nested_op);
+        assert!(d3.warnings.is_empty(), "{:?}", d3.warnings);
+    }
+
+    #[test]
+    fn rect_and_hotrect_mismatched_end_tags_keep_enclosing_containers_intact() {
+        // Synthetic control mirroring `quest_added.xml`: two `<hotrect>` buttons inside an
+        // enclosing `<rect>` closed by `</rect>` must close each `<hotrect>`, not pop the
+        // enclosing `<rect>` and leave `<menu>` closed prematurely.
+        let src = r#"<menu name="GenericDialog">
+            <rect name="MainRect">
+                <hotrect name="Button1"><x>10</x></rect>
+                <hotrect name="Button2"><alpha>100<x>20</x></rect>
+            </rect>
+        </menu>"#;
+        let d = parse(src);
+        let menu = el(&d.nodes[0]);
+        assert!(menu.is("menu"));
+        let top_children: Vec<_> = menu.elements().map(|e| e.attr("name").unwrap_or("")).collect();
+        assert_eq!(top_children, ["MainRect"]);
+        let main = menu.elements().next().unwrap();
+        let buttons: Vec<_> = main.elements().map(|e| (e.name.as_str(), e.attr("name").unwrap_or(""))).collect();
+        assert_eq!(buttons, [("hotrect", "Button1"), ("hotrect", "Button2")]);
+        // Unclosed `<alpha>` inside Button2 hoisted sibling `<x>` onto Button2 when `</rect>` closed `<hotrect>`.
+        let btn2 = main.elements().nth(1).unwrap();
+        let btn2_traits: Vec<_> = btn2.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(btn2_traits, ["alpha", "x"]);
+        assert_eq!(d.warnings.len(), 3, "{:?}", d.warnings);
+        assert!(d.warnings.iter().all(|w| !w.contains("<menu>") && !w.contains("closes nothing open")), "{:?}", d.warnings);
+
+        // Symmetric case: `<rect>` inside `<hotrect>` closed by `</hotrect>` keeps outer `<hotrect>` open.
+        let sym = r#"<hotrect name="List"><rect name="Row1"><x>1</x></hotrect><rect name="Row2"><x>2</x></rect></hotrect>"#;
+        let d2 = parse(sym);
+        let list = el(&d2.nodes[0]);
+        let rows: Vec<_> = list.elements().map(|e| e.attr("name").unwrap_or("")).collect();
+        assert_eq!(rows, ["Row1", "Row2"]);
+        assert_eq!(d2.warnings.len(), 1, "{:?}", d2.warnings);
+    }
+
+    #[test]
+    fn truncated_start_tag_before_sibling_or_parent_end_does_not_swallow_siblings() {
+        // Cut short before own end tag (`<systemcolor</systemcolor>`): stays open for its own end tag.
+        let own = parse("<image><systemcolor</systemcolor><locus>1</locus></image>");
+        let img = el(&own.nodes[0]);
+        assert_eq!(img.elements().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["systemcolor", "locus"]);
+        assert_eq!(own.warnings.len(), 1, "{:?}", own.warnings);
+
+        // Cut short before a different start tag: self-closes so `<locus>` stays a sibling.
+        let sib = parse("<image><systemcolor\n<locus>1</locus></image>");
+        let img2 = el(&sib.nodes[0]);
+        assert_eq!(img2.elements().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["systemcolor", "locus"]);
+        assert_eq!(sib.warnings.len(), 1, "{:?}", sib.warnings);
+
+        // Cut short right before the parent's closing tag: self-closes without clobbering `</image>`.
+        let end = parse("<image><systemcolor</image>");
+        let img3 = el(&end.nodes[0]);
+        assert_eq!(img3.elements().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["systemcolor"]);
+        assert_eq!(end.warnings.len(), 1, "{:?}", end.warnings);
+    }
+
+    #[test]
+    fn mismatched_single_trait_and_operator_end_tags_preserve_structure() {
+        // Synthetic controls mirroring VUI+/JAM/VATS mismatched closing tags.
+        let src = r#"<rect name="Panel">
+            <_Ratio><copy>16</copy><div>9</div></_Height>
+            <_Action1> 1 </_Interact1>
+            <_Action2> 7 </_Interact2>
+            <width><copy>0</copy><add><copy>256</copy><onlyif>1</onlyif></suaddb><add>12</add></width>
+            <brightness><copy>200</copy></alpha>
+        </rect>"#;
+        let d = parse(src);
+        let r = el(&d.nodes[0]);
+        let names: Vec<_> = r.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["_Ratio", "_Action1", "_Action2", "width", "brightness"]);
+        let width_ops: Vec<_> = r.elements().nth(3).unwrap().elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(width_ops, ["copy", "add", "add"]);
+        assert_eq!(d.warnings.len(), 5, "{:?}", d.warnings);
     }
 }

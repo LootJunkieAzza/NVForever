@@ -389,6 +389,11 @@ impl Plugin for PbrPlugin {
                     prepare_lights
                         .in_set(RenderSystems::CreateViews)
                         .after(sort_cameras),
+                    // NVForever light view counts (engine/vendor/README.md): after the
+                    // frame's views are made and their commands applied.
+                    nvf_count_light_views
+                        .in_set(RenderSystems::Prepare)
+                        .after(prepare_lights),
                     prepare_clusters_for_cpu_clustering
                         .in_set(RenderSystems::PrepareResources)
                         .run_if(

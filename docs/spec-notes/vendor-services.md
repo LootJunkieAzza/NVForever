@@ -56,8 +56,12 @@ looked at, `[hypothesis]` is a reading that nothing has confirmed yet. Implement
     Counts: 103 Food-marked of type Food, 28 unmarked Chems, 26 unmarked Food, 12
     Food-marked Alcohol, 5 Medicine Stimpak, 5 Medicine Chems (RadAway and the like), 5 of
     type 0].
-  - Everything else, MISC and also keys, notes, lights, casino chips, Caravan cards and
-    money, Miscellaneous [hypothesis for all but MISC].
+  - Everything else that can be bartered — MISC and also notes, lights, casino chips,
+    Caravan cards and money — Miscellaneous [hypothesis for all but MISC].
+  - Keys (`KEYM`) are not sold by vendors (`item_service` returns `None`, `Game::sells`
+    returns `false`) and do not appear in barter (#3432; `barter-menu.md` §4)
+    [hypothesis: issue #3432 reports that keys do not appear in barter in the original
+    engine; not yet captured with a parity probe].
   - Caps are the barter menu's money and are never held back.
 - **Recharge, Training** are unused in Fallout 3 and New Vegas [documented: GECK wiki
   Class]; NVForever does nothing with them. **Repair** is the vendor's repair skill

@@ -127,6 +127,10 @@ pub(crate) struct Props {
     /// Glow map: texture-set slot 2 of a BSShaderPPLightingProperty without the face-gen
     /// or hair flag (docs/spec-notes/nif.md §6, "Emissive light").
     glow: Option<String>,
+    /// BSShaderFlags bit 11 "Parallax_Shader_Index_15" of a BSShaderPPLightingProperty
+    /// [documented: nif.xml]: texture-set slot 3 is then drawn as the shape's height map
+    /// ([`game_height_slot`], #2979).
+    parallax: bool,
     glossiness: Option<f32>,
     /// BSShaderFlags bit 0 "Specular" of the shader property [documented: nif.xml].
     specular: bool,
@@ -135,6 +139,10 @@ pub(crate) struct Props {
     vertex_alpha: bool,
     /// NiStencilProperty draw mode DRAW_BOTH; also set on dismemberment caps (actor.rs).
     pub(crate) double_sided: bool,
+    /// NiStencilProperty draw mode (`0..=3`: `DRAW_CCW_OR_BOTH` / `DRAW_CCW`, `DRAW_CW`,
+    /// `DRAW_BOTH`) [documented: nif.xml StencilDrawMode], mapped through
+    /// [`stencil_draw_mode_cull`] so load-time and live `SetStencilPropertyValue` culling match.
+    stencil_draw_mode: Option<i64>,
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
@@ -160,6 +168,10 @@ pub(crate) struct Props {
     /// The Fire Refraction shader flag is set too ([`fire_period`]): seconds for the
     /// normal map to scroll once, else 0.
     fire_period: f32,
+    /// BSShaderFlags2 bit 0 "ZBuffer_Write" [documented: nif.xml]: the shape asks to write
+    /// depth although it is blended. Read for the solid cores only ([`solid_core_rules`]);
+    /// depth writes otherwise follow the alpha mode, as before.
+    z_write: bool,
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
@@ -170,13 +182,17 @@ pub(crate) struct Props {
     pub(crate) animated_emissive: bool,
     /// A clip of the model drives the shape's material alpha ([`shape_alpha_mode`]).
     pub(crate) animated_alpha: bool,
-    /// The `environment_map_scale` of a lit shader property that sets both
-    /// Environment_Mapping and Window_Environment_Mapping ([`window_env_flags`]): the shape
-    /// reflects its texture set's environment cube ([`window_env`]).
-    window_env: Option<f32>,
+    /// The environment-map inputs of a lit shader property that sets Environment_Mapping
+    /// ([`env_flags`]): the shape reflects its texture set's environment cube
+    /// ([`shape_env`]).
+    env: Option<crate::env_map::EnvFlags>,
     /// An actor's part whose material carries an NiAlphaController for the actor's
     /// clips to drive ([`shape_alpha_mode`], [`material_alpha_controlled`]).
     pub(crate) alpha_gated: bool,
+    /// BSShaderFlags bit 3 "Vertex_Alpha" itself, without Dynamic_Alpha's part in
+    /// [`uses_vertex_alpha`], on an unlit shape without a NiAlphaProperty, some stored
+    /// vertex alpha of which is below 1 ([`fades_by_vertex_alpha`]).
+    vertex_faded: bool,
     /// The caller keeps the shape off authored sets (#2981): particle systems, object LOD
     /// (`crate::authored::shape_eligible`).
     pub(crate) no_authored: bool,
@@ -184,6 +200,8 @@ pub(crate) struct Props {
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
     shader: bool,
+    /// The shape is a shadow patch baked into its model ([`baked_shadow_patch`]).
+    pub(crate) shadow_patch: bool,
 }
 
 impl Props {
@@ -237,6 +255,21 @@ impl Props {
     pub(crate) fn is_bare(&self) -> bool {
         !self.has_properties
     }
+
+    /// Drawn without lighting (a BSShaderNoLightingProperty): effects, glows.
+    pub(crate) fn unlit_part(&self) -> bool {
+        self.unlit
+    }
+
+    /// The glow map, when the shape has one.
+    pub(crate) fn glow_part(&self) -> Option<&str> {
+        self.glow.as_deref()
+    }
+
+    /// The shape takes its vertex alpha ([`uses_vertex_alpha`]).
+    pub(crate) fn vertex_alpha_part(&self) -> bool {
+        self.vertex_alpha
+    }
 }
 
 /// Some block of the model derives from BSShaderProperty, so its shapes without any
@@ -271,6 +304,24 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
         return None;
     }
     textures.get(2).filter(|t| !t.is_empty()).cloned()
+}
+
+/// Whether a BSShaderPPLightingProperty's flags ask for parallax: BSShaderFlags bit 11
+/// "Parallax_Shader_Index_15" [documented: nif.xml BSShaderFlags]. Bit 28
+/// "Parallax_Occlusion" is not asked: no shape of the base game or its DLC sets it, and all
+/// 510 shapes with a slot-3 texture set bit 11 [observed: the per-shape survey of upstream
+/// issue #2979, counts only; docs/spec-notes/nif.md §6 "Parallax height maps"].
+pub(crate) fn parallax_flag(shader_flags: i64) -> bool {
+    shader_flags & (1 << 11) != 0
+}
+
+/// The game's own height map of a shape (#2979): texture-set slot 3 ("height"
+/// [documented: nif.xml BSShaderTextureSet]) of a BSShaderPPLightingProperty with the
+/// parallax flag ([`parallax_flag`]); `None` without the flag or with an empty slot. Read
+/// from the slots as they stand, so a record's texture set (`Props::use_texture_set`, TXST
+/// TX04 into slot 3) and the first-person forms replace it as they replace the others.
+pub(crate) fn game_height_slot(props: &Props) -> Option<&str> {
+    props.textures.get(3).filter(|t| props.parallax && !props.unlit && !t.is_empty()).map(String::as_str)
 }
 
 /// The shape is a decal: BSShaderFlags bit 26 "Decal_Single_Pass" or bit 27
@@ -329,21 +380,42 @@ pub(crate) fn uses_falloff(shader_flags: i64) -> bool {
 /// Whether shader flags ask for a window's environment map: BSShaderFlags bit 7
 /// "Environment_Mapping" and bit 21 "Window_Environment_Mapping" [documented: nif.xml flag
 /// names] (docs/spec-notes/nif.md §6 "Window glass and environment maps"). The glass of
-/// windows, bottles and lamps (490 files in `Fallout - Meshes.bsa`, gap audit §2.1);
-/// shapes with bit 7 alone are not given a reflection [design, #2462].
+/// windows, bottles and lamps (490 files in `Fallout - Meshes.bsa`, gap audit §2.1). Kept
+/// apart from [`env_flags`]: the GECK wiki says the window flag only flips the cube's
+/// orientation in this game [documented: GECK wiki "NIF Shader Properties"], so the two
+/// sets can be drawn with different orientations (`env_map::EnvAids::axes_for`), and
+/// window shapes keep #2669's blend rule.
 pub(crate) fn window_env_flags(shader_flags: i64) -> bool {
     shader_flags & (1 << 7) != 0 && shader_flags & (1 << 21) != 0
 }
 
-/// A shape's window environment map ([`window_env_flags`]): the environment cube (texture
-/// set slot 4), the environment mask (slot 5) if the set has one, and the scale
-/// (`environment_map_scale`) [documented: nif.xml BSShaderTextureSet slot order,
-/// BSShaderProperty field]. `None` without the flags, without a cube, on an unlit shape or
-/// at a scale of 0 or less.
-pub(crate) fn window_env(props: &Props) -> Option<(String, Option<String>, f32)> {
-    let scale = props.window_env.filter(|&s| s > 0.0 && !props.unlit)?;
+/// Whether shader flags ask for an environment map: BSShaderFlags bit 7
+/// "Environment_Mapping" [documented: nif.xml flag names; GECK wiki "NIF Shader
+/// Properties": "Enables environment mapping on the object"], with or without the window
+/// flag ([`window_env_flags`]); docs/spec-notes/nif.md §6 "Environment maps on other
+/// shapes" (#2841).
+pub(crate) fn env_flags(shader_flags: i64) -> bool {
+    shader_flags & (1 << 7) != 0
+}
+
+/// A shape's environment map ([`env_flags`]): the environment cube (texture set slot 4),
+/// the environment mask (slot 5) if the set has one, the scale (`environment_map_scale`)
+/// and the window and Env Map Fade flags [documented: nif.xml BSShaderTextureSet slot
+/// order, BSShaderProperty field; GECK wiki "NIF Shader Properties": "Texture 5:
+/// Environment Map (Cubemap)", "Texture 6: Environment Mask"]. `None` without the flag,
+/// without a cube, on an unlit shape, at a scale of 0 or less, and, for a shape without
+/// the window flag, on object LOD block geometry (LOD_Building: drawn only beyond the
+/// loaded cells, farther than the game's end of reflections, `env_map::ENV_MAP_LOD2`
+/// [design]) and while `NVF_PLAY_DEBUG_ENV_NON_WINDOW=0` (env_map.rs). Window shapes are
+/// gated as #2462 gated them, LOD block geometry included. A cube that does not load as a
+/// cube map leaves the shape as it was (`shape_material_inner`).
+pub(crate) fn shape_env(props: &Props, aids: &crate::env_map::EnvAids) -> Option<crate::env_map::ShapeEnv> {
+    let f = props.env.filter(|f| f.scale > 0.0 && !props.unlit)?;
+    if !f.window && (!aids.non_window || props.lod_building) {
+        return None;
+    }
     let slot = |i: usize| props.textures.get(i).filter(|t| !t.is_empty()).cloned();
-    Some((slot(4)?, slot(5), scale))
+    Some(crate::env_map::ShapeEnv { cube: slot(4)?, mask: slot(5), scale: f.scale, window: f.window, light_fade: f.light_fade })
 }
 
 /// Whether a shader property's shapes take their vertex alpha: with BSShaderFlags bit 3
@@ -384,6 +456,8 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         let flags = s.int("shader_flags").unwrap_or(0);
         p.specular = flags & 1 != 0;
         p.vertex_alpha = uses_vertex_alpha(ty, flags);
+        // The flag's part; `shape_props` asks the rest of the shape.
+        p.vertex_faded = flags & (1 << 3) != 0;
         p.dynamic_alpha = ty == "BSShaderNoLightingProperty" && flags & (1 << 19) != 0;
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
@@ -391,13 +465,23 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.decal = is_decal(flags);
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
         p.fire_period = fire_period(flags, s.int("refraction_fire_period"));
+        p.z_write = s.int("shader_flags_2").unwrap_or(0) & 1 != 0;
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
+        p.parallax = false;
         let lit = dec.is_a(r as usize, "BSShaderPPLightingProperty");
-        p.window_env = (lit && window_env_flags(flags)).then(|| s.float("environment_map_scale").unwrap_or(1.0));
+        p.env = (lit && env_flags(flags)).then(|| crate::env_map::EnvFlags {
+            scale: s.float("environment_map_scale").unwrap_or(1.0),
+            window: window_env_flags(flags),
+            light_fade: s.int("shader_flags_2").unwrap_or(0) & (1 << 15) != 0,
+        });
     }
     match ty {
-        "BSShaderPPLightingProperty" => p.glow = glow_map(s.int("shader_flags").unwrap_or(0), &p.textures),
+        "BSShaderPPLightingProperty" => {
+            let flags = s.int("shader_flags").unwrap_or(0);
+            p.glow = glow_map(flags, &p.textures);
+            p.parallax = parallax_flag(flags);
+        }
         "BSShaderNoLightingProperty" => {
             p.unlit = true;
             if let Some(f) = s.text("file_name") {
@@ -430,7 +514,9 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         "NiStencilProperty" => {
             // 20.1.0.3+: draw mode in flags bits 10-11; older files: draw_mode field.
             let mode = s.int("draw_mode").or_else(|| s.int("flags").map(|f| (f >> 10) & 3)).unwrap_or(0);
-            p.double_sided = mode == 3;
+            let (double_sided, _) = stencil_draw_mode_cull(mode);
+            p.double_sided = double_sided;
+            p.stencil_draw_mode = Some(mode);
         }
         "NiVertexColorProperty" => p.vertex_colors_tint = true,
         _ => {}
@@ -463,7 +549,7 @@ pub fn is_editor_marker(name: Option<&str>) -> bool {
 /// so GREATER moves the cutoff half a step above the threshold; other functions keep ≥.
 pub(crate) const BLEND_TEST_CUT: i64 = 64;
 
-pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
+pub fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
     let (src, dst) = ((flags >> 1) & 0xF, (flags >> 5) & 0xF);
     let (blend, test) = (flags & 1 != 0, flags & 0x200 != 0);
     let strict = (flags >> 10) & 7 == 4;
@@ -475,6 +561,35 @@ pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
         (true, _, 1 | 4, _) => AlphaMode::Multiply,
         (true, ..) => AlphaMode::Blend,
         _ => AlphaMode::Opaque,
+    }
+}
+
+/// Double-sided flag and face culling from a `NiStencilProperty` `StencilDrawMode`
+/// (`0/1` `DRAW_CCW_OR_BOTH`/`DRAW_CCW` -> back-face cull, `2` `DRAW_CW` -> front-face cull,
+/// `3` `DRAW_BOTH` -> double-sided / no cull) [documented: nif.xml StencilDrawMode;
+/// design: shared by load-time `NiStencilProperty` material creation and live
+/// `SetStencilPropertyValue` updates so both paths produce identical culling].
+pub fn stencil_draw_mode_cull(draw_mode: i64) -> (bool, Option<bevy::render::render_resource::Face>) {
+    match draw_mode & 3 {
+        3 => (true, None),
+        2 => (false, Some(bevy::render::render_resource::Face::Front)),
+        _ => (false, Some(bevy::render::render_resource::Face::Back)),
+    }
+}
+
+/// Double-sided flag and face culling from `NiStencilProperty` flags bits 10-11
+/// (`draw_mode`: 0/1 `DRAW_CCW`, 2 `DRAW_CW`, 3 `DRAW_BOTH`) [documented: nif.xml
+/// StencilDrawMode; design: Bevy's `StandardMaterial` does not expose per-material
+/// hardware stencil reference/mask state, so only the face-cull mode applies live].
+pub fn stencil_cull(flags: i64) -> (bool, Option<bevy::render::render_resource::Face>) {
+    stencil_draw_mode_cull((flags >> 10) & 3)
+}
+
+fn props_cull(props: &Props) -> (bool, Option<bevy::render::render_resource::Face>) {
+    if props.double_sided {
+        stencil_draw_mode_cull(3)
+    } else {
+        stencil_draw_mode_cull(props.stencil_draw_mode.unwrap_or(0))
     }
 }
 
@@ -521,15 +636,45 @@ pub(crate) const LOD_BUILDING_CUT: f32 = 128.5 / 255.0;
 /// Lost. Drawn opaque whatever the alpha, Yes Man's face covered House's before Yes Man
 /// was uploaded (#1542). Hypothesis: the original skips geometry at material alpha 0 and
 /// draws the rest by depth, as the clips' alphas of 0 and 1 suggest; blending is not
-/// needed for them]. Everything else without the property is opaque.
+/// needed for them]. An unlit shape whose only picture is its vertex alpha ([`fades_by_vertex_alpha`]:
+/// the cone of light at the end of Lonesome Road's silo lift, #3443) is blended by it.
+/// Everything else without the property is opaque.
 pub(crate) fn shape_alpha_mode(props: &Props) -> AlphaMode {
     match props.alpha {
         Some((flags, threshold)) => alpha_mode(flags, threshold),
         None if props.lod_building => AlphaMode::Mask(LOD_BUILDING_CUT),
         None if props.unlit && props.dynamic_alpha && props.animated_alpha => AlphaMode::Blend,
         None if props.unlit && props.dynamic_alpha && props.alpha_gated => AlphaMode::Mask(0.5),
+        None if fades_by_vertex_alpha(props) => AlphaMode::Blend,
         None => AlphaMode::Opaque,
     }
+}
+
+/// Whether a shape is an unlit one whose only picture is its vertex alpha: a
+/// BSShaderNoLightingProperty that names no texture and sets bit 3 "Vertex_Alpha"
+/// (Dynamic_Alpha alone, which also takes the vertex alpha, [`uses_vertex_alpha`], is not
+/// asked for: no shape without texture and NiAlphaProperty has it alone), no
+/// NiAlphaProperty, and some stored vertex alpha below 1. It is blended SRC_ALPHA /
+/// INV_SRC_ALPHA ([`shape_alpha_mode`]) [hypothesis: no frame of the original was compared,
+/// observer check 286; docs/spec-notes/nif.md §6 "Unlit shapes faded by vertex alpha
+/// alone"]. 21 shapes of the base game's and the add-ons' archives are such:
+/// dark patches under gurneys and at tunnel mouths, fog shells, two small orange shapes of
+/// static collections, the silo lift's cone. 1,507 others have the same shader, no texture
+/// and an alpha below 1 and do store the property, 1,458 of them with this blend. The cone,
+/// `Object03:0` of `nvdlc04_silo-elevator-shaft06.nif`, is stored a second time in the
+/// unsplit `nvdlc04_silo-elevator-shaft.nif`: the same vertices, colours, strips, material
+/// and shader, and a NiAlphaProperty 0x10ED [observed, decoded from the archives]. Drawn
+/// opaque it was a flat white cone (player report R-F8KPPE34, #3443).
+pub(crate) fn fades_by_vertex_alpha(props: &Props) -> bool {
+    props.alpha.is_none() && props.unlit && props.vertex_faded && props.textures.iter().all(|t| t.is_empty())
+}
+
+/// Whether a shape's stored vertex colours hold an alpha below 1 (cleaned as they are
+/// drawn, [`clean_vertex_color`]).
+fn vertex_alpha_below_one(dec: &Decoded, shape: usize) -> bool {
+    let data = dec.blocks.get(shape).and_then(|b| b.as_ref().ok()).and_then(|s| s.block_ref("data")).and_then(|r| dec.get(r));
+    let colours = data.and_then(|d| d.floats("vertex_colors"));
+    colours.is_some_and(|f| f.as_chunks::<4>().0.iter().any(|c| clean_vertex_color(*c, true)[3] < 1.0))
 }
 
 /// Whether the NiMaterialProperty that shape block `shape` lists carries an
@@ -594,7 +739,63 @@ pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_blo
             }
         }
     }
+    props.vertex_faded = props.vertex_faded && props.unlit && props.alpha.is_none() && vertex_alpha_below_one(dec, o.block);
+    props.shadow_patch = baked_shadow_patch(&props, dec, o.block);
+    // A shadow patch takes its vertex alpha whatever the flag ([`baked_shadow_patch`]).
+    props.vertex_alpha |= props.shadow_patch;
     props
+}
+
+/// NiAlphaProperty flags that blend SRC_ALPHA / INV_SRC_ALPHA [documented: nif.xml
+/// AlphaFlags: bit 0 blending, bits 1-4 the source factor, bits 5-8 the destination's;
+/// 6 SRC_ALPHA, 7 INV_SRC_ALPHA].
+pub(crate) fn blends_over(flags: i64) -> bool {
+    flags & 1 != 0 && (flags >> 1) & 15 == 6 && (flags >> 5) & 15 == 7
+}
+
+/// Whether these vertex colours (as stored) are a shadow's: every one black (each channel
+/// at most [`SHADOW_BLACK`] once cleaned), some alpha below 1 and some above 0.
+pub(crate) fn shadow_colours(colours: &[[f32; 4]]) -> bool {
+    let clean: Vec<[f32; 4]> = colours.iter().map(|c| clean_vertex_color(*c, true)).collect();
+    !clean.is_empty()
+        && clean.iter().all(|c| c[0] <= SHADOW_BLACK && c[1] <= SHADOW_BLACK && c[2] <= SHADOW_BLACK)
+        && clean.iter().any(|c| c[3] < 1.0)
+        && clean.iter().any(|c| c[3] > 0.0)
+}
+
+/// The largest colour channel a shadow patch's vertex may hold [engineering choice: the
+/// patches store exact black].
+pub(crate) const SHADOW_BLACK: f32 = 0.02;
+
+/// Whether a shape is a shadow patch baked into its model: the dark polygon the game's
+/// furniture carries on the floor under it. An unlit shape (BSShaderNoLightingProperty)
+/// that names no texture, blends SRC_ALPHA / INV_SRC_ALPHA ([`blends_over`]) and whose
+/// vertex colours are black with an alpha that varies ([`shadow_colours`]) [observed:
+/// `CardTable01:1` of `meshes\clutter\casino\cardtable01.nif`, decoded: 20 vertices on
+/// the floor plane under the table, colour 0 0 0, alpha 0 along the outline and 0.7
+/// inside, NiAlphaProperty 0x10ED, shader flags 0x82000000].
+///
+/// Such a shape takes its vertex alpha whether or not its shader sets "Vertex_Alpha"
+/// [hypothesis, playtest 2026-11-25: the card table's does not set it, and with the alpha
+/// taken as 1 ([`clean_vertex_color`]) the patch was an opaque black octagon with a hard
+/// outline; its stored alpha is the picture of a shadow, nothing at its edge and 70% in
+/// the middle, which only shows if the alpha is drawn. No frame of the original was
+/// compared; docs/spec-notes/nif.md §6 "Vertex colours"]. It does not fade where it meets
+/// the surface behind it either (`nif_material::soft_intersections`): it lies on that
+/// surface, and the fade's test of that (the two facings from screen derivatives) failed
+/// from a few metres away, so the patch went from half gone to whole as the camera moved
+/// (the player's video of that table).
+///
+/// 1,314 shapes of the base game's and the add-ons' archives are such [observed 2026-11-25,
+/// `crates/fnv-nif/examples/baked_shadow_survey.rs`]: the patches under furniture (alpha
+/// 0.4 to 0.8), and 196 that are black in full somewhere, the dark of recessed ceiling
+/// lights, tunnel mouths, doorways and wall holes.
+pub(crate) fn baked_shadow_patch(props: &Props, dec: &Decoded, shape: usize) -> bool {
+    if !props.unlit || !props.textures.iter().all(|t| t.is_empty()) || !props.alpha.is_some_and(|(flags, _)| blends_over(flags)) {
+        return false;
+    }
+    let data = dec.blocks.get(shape).and_then(|b| b.as_ref().ok()).and_then(|s| s.block_ref("data")).and_then(|r| dec.get(r));
+    data.and_then(|d| d.floats("vertex_colors")).is_some_and(|c| shadow_colours(c.as_chunks::<4>().0))
 }
 
 /// Perceptual roughness for a NiMaterialProperty glossiness, read as a Blinn-Phong
@@ -614,10 +815,15 @@ pub fn gloss_roughness(gloss: f32) -> f32 {
 /// alphas on 709 of 1,173 vertices)].
 pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
     let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) else { return };
-    let clean = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 };
     for c in colors.iter_mut() {
-        *c = [clean(c[0]), clean(c[1]), clean(c[2]), if vertex_alpha { clean(c[3]) } else { 1.0 }];
+        *c = clean_vertex_color(*c, vertex_alpha);
     }
+}
+
+/// One vertex colour cleaned as [`fix_vertex_colors`] cleans them.
+pub(crate) fn clean_vertex_color(c: [f32; 4], vertex_alpha: bool) -> [f32; 4] {
+    let clean = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 };
+    [clean(c[0]), clean(c[1]), clean(c[2]), if vertex_alpha { clean(c[3]) } else { 1.0 }]
 }
 
 /// The vertex colours of an unlit shape (BSShaderNoLightingProperty) taken as display
@@ -829,6 +1035,10 @@ pub(crate) trait TextureSource {
     /// (`texture::WorkerTextures::alpha_is_mask`): asked only for the shapes
     /// [`blended_cutout`] concerns.
     fn alpha_is_mask(&self, raw_path: &str) -> bool;
+    /// Whether every texel of the texture at a NIF texture path is opaque
+    /// (`texture::alpha_all_opaque`), read from the archives once per file: asked only
+    /// for the shapes [`blend_is_opaque`] concerns.
+    fn alpha_is_opaque(&self, raw_path: &str) -> bool;
     /// The key a NIF texture path loads under (`texture::resolved_path` over this source's
     /// VFS): the diffuse's key is what an authored set is looked up by.
     fn resolve(&self, raw_path: &str) -> String;
@@ -868,6 +1078,9 @@ impl TextureSource for StoreTextures<'_> {
 
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.textures.workers.alpha_is_mask(raw_path, self.data)
+    }
+    fn alpha_is_opaque(&self, raw_path: &str) -> bool {
+        self.textures.workers.alpha_is_opaque(raw_path, self.data)
     }
 
     fn resolve(&self, raw_path: &str) -> String {
@@ -921,6 +1134,170 @@ pub(crate) fn blended_cutout(props: &Props, cut: Option<f32>, alpha_mode: AlphaM
     (matches!(alpha_mode, AlphaMode::Blend) && source_over && tested && alpha_from_texture_only && mask()).then_some(BLENDED_CUTOUT_CUT)
 }
 
+/// Whether a shape that asks to be blended draws the same as an opaque one: it blends
+/// SRC_ALPHA / INV_SRC_ALPHA and nothing gives it an alpha below 1. Its base texture is
+/// opaque in every texel (`opaque_texture`, asked last), its material alpha is 1, it has no
+/// vertex alpha, no vertex-alpha cut, no alpha animation, view-angle falloff, light,
+/// decal, refraction, hair shading or window environment map. With alpha 1 the blend is `colour x 1 + behind x 0`:
+/// the shape's own colour, as if opaque.
+///
+/// Drawn opaque it is in the depth and motion prepasses, which a blended shape is not
+/// (docs/design/fsr-upscaling.md "Blended cut-outs"). Drawn blended, the placed T-45d
+/// Power Armor (`armor\powerarmor\powerarmorgo.nif`: one NiTriStrips, NiAlphaProperty
+/// flags 4333 = blend on, test off, threshold 0, material alpha 1, no vertex colours,
+/// `PowerArmorBody.dds` in DXT1) showed as a faint see-through outline on a table with
+/// DLSS, frame generation and the room's haze on, which all take a blended shape for
+/// something to see through [observed: player report R-C66YZC4D, #3230; fnvtool nif
+/// decode]. In a plain scene it drew solid either way [observed: a placed ArmorPowerT45d
+/// on the Searchlight Airport runway, 2026-11-21].
+pub(crate) fn blend_is_opaque(props: &Props, cut: Option<f32>, alpha_mode: AlphaMode, opaque_texture: impl FnOnce() -> bool) -> bool {
+    let Some((flags, _)) = props.alpha else { return false };
+    let source_over = (flags >> 1) & 0xF == 6 && (flags >> 5) & 0xF == 7;
+    let nothing_thins_it = cut.is_none()
+        && !props.vertex_alpha
+        && props.material_alpha.unwrap_or(1.0) >= 1.0
+        && !props.animated_alpha
+        && props.falloff.is_none()
+        && !props.unlit
+        && !props.decal
+        && props.refraction.is_none()
+        && !props.hair
+        // A shape with a window environment map (`shape_env` with the window flag) keeps
+        // its blend: blended, its reflection is added over it (`premultiply` below), and
+        // that path is left as it is [design, #3230]. (The drinking glass, the glass pitcher and the NCR
+        // glasses are not such shapes: they have the plain environment-map flag only,
+        // material alpha 1 and an opaque texture, so the rule takes them too; they drew
+        // at alpha 1 before as well [observed: fnvtool nif decode of
+        // `clutter\cafeteria\drinkingglass01.nif`; the smoke runs' summary lines].)
+        && !props.env.is_some_and(|e| e.window);
+    matches!(alpha_mode, AlphaMode::Blend) && source_over && nothing_thins_it && opaque_texture()
+}
+
+/// The alpha from which a blended shape's texels belong to its solid core ([`solid_core`])
+/// [engineering choice: at 0.85 and above the blend shows at most 15% of what lies behind, so
+/// the texel is a surface to everything that reads depth. At 0.98, the first choice, the
+/// border texels of `NV_WaterTank.dds` (226 to 244 of 255 [hypothesis: read from the texture on 2026-11-24;
+/// the steps were not kept]) were left out, and the light of what is behind drew a bright line along
+/// the tank's rim, judged by eye in a play test, 2026-11-24].
+pub const SOLID_CORE_CUT: f32 = 0.85;
+/// The cut where the texture has thin parts in that range too, or its alpha cannot be read
+/// (`texture::SolidTexels`): what is solid beyond doubt.
+pub const SOLID_CORE_CUT_THIN: f32 = 0.98;
+
+/// Whether a blended shape may have a solid core ([`solid_core`]) by what its file says, the
+/// cheap part of the question (the base texture's alpha is asked by nvforever `solid_cores.rs`,
+/// and only while cores are wanted): it blends SRC_ALPHA / INV_SRC_ALPHA, is lit, its shader
+/// writes depth ("ZBuffer_Write"), it has a base texture, and nothing but that texture sets
+/// its alpha: material alpha 1, no vertex alpha, no vertex-alpha cut, no alpha animation, no
+/// view-angle falloff, and it is no decal, hair, skin, refracting shape, window reflection or
+/// object LOD block [engineering choice of the enhanced look, docs/design/volumetric-medium.md
+/// "Solid cores"; the flags' names documented: nif.xml]. A shape with a test below
+/// [`BLEND_TEST_CUT`] (the corn rows, [`blended_cutout`]) is included: it is drawn blended
+/// where no temporal upscaler runs. The Goodsprings water tank
+/// (`architecture\goodsprings\nv_watertank.nif`, flags 4333: blend on, no test) is such a
+/// shape (painted with the light of what is behind it: that document says how it was seen).
+pub(crate) fn solid_core_rules(props: &Props, cut: Option<f32>, alpha_mode: AlphaMode) -> bool {
+    let Some((flags, _)) = props.alpha else { return false };
+    let source_over = (flags >> 1) & 0xF == 6 && (flags >> 5) & 0xF == 7;
+    matches!(alpha_mode, AlphaMode::Blend)
+        && flags & 1 != 0
+        && source_over
+        && props.z_write
+        && props.textures.first().is_some_and(|t| !t.is_empty())
+        && cut.is_none()
+        && !props.vertex_alpha
+        && props.material_alpha.unwrap_or(1.0) >= 1.0
+        && !props.animated_alpha
+        && !props.alpha_gated
+        && props.falloff.is_none()
+        && !props.unlit
+        && !props.decal
+        && props.refraction.is_none()
+        && !props.hair
+        && !props.skin
+        && !props.lod_building
+        && !props.env.is_some_and(|e| e.window)
+}
+
+/// The solid core of a blended material as it stands now: a copy drawn as a cut-out at
+/// [`SOLID_CORE_CUT`], so its solid texels are in the depth prepass, or `None` where it has
+/// none. The blended shape goes on being drawn over it: at the core's own depth the main
+/// pass's test (greater or equal) lets it through (as a hair model's layer over its core,
+/// [`hair_model_layer`]), so the soft edges stay the blend's. The colour is not exactly what
+/// it was: the part of the background the blend let through (up to 1 - `cut`) is
+/// now the core's colour, which may also take ambient occlusion the blend does not.
+///
+/// Everything that can change a material while the game runs is asked of the material
+/// itself, not of who changed it: a fade, a script's alpha, a stealth field, an effect
+/// shader's holes, a swapped texture or the FSR cut-outs' alpha test all leave a state this
+/// refuses. The core's cut is hard (`NifSurface::hard_edges`): a soft one would widen the
+/// solid part past the cut. The caller keeps the core from casting a shadow.
+pub fn solid_core(m: &NifMaterial, cut: f32) -> Option<NifMaterial> {
+    let (b, s) = (&m.base, &m.extension);
+    let source = s.solid_core.as_ref()?;
+    let plain = matches!(b.alpha_mode, AlphaMode::Blend)
+        && b.base_color.alpha() >= 1.0
+        && b.base_color_texture.as_ref().is_some_and(|t| t.id() == source.image)
+        && !b.unlit
+        && b.depth_bias == 0.0
+        && b.depth_map.is_none()
+        && b.specular_transmission == 0.0
+        && b.diffuse_transmission == 0.0
+        && s.alpha_cut <= 0.0
+        && s.falloff == Falloff::NONE.params
+        && s.holes == crate::nif_material::NO_HOLES
+        && s.holes_texture.is_none()
+        && s.facegen_offset.is_none()
+        && s.soft == Vec4::ZERO
+        && s.terrain_repeat == 0.0
+        && s.env_how.z == 0.0
+        && !(s.refract || s.decal || s.shade_light || s.depth_write || s.first_person || s.add_linear || s.pipboy_screen);
+    if !plain {
+        return None;
+    }
+    let mut core = m.clone();
+    core.base.alpha_mode = AlphaMode::Mask(cut);
+    core.extension.hard_edges = true;
+    // The core is no source of anything: no FSR switch, no core of its own, no texture swap.
+    core.extension.blended_cutout = None;
+    core.extension.solid_core = None;
+    core.extension.legacy = None;
+    Some(core)
+}
+
+/// How many materials [`blend_is_opaque`] turned opaque this run, and the first few
+/// textures they were for (the exit's summary line).
+static BLEND_DRAWN_OPAQUE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static BLEND_DRAWN_OPAQUE_FIRST: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn note_blend_drawn_opaque(texture: &str) {
+    BLEND_DRAWN_OPAQUE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut first) = BLEND_DRAWN_OPAQUE_FIRST.lock() {
+        let t = texture.to_ascii_lowercase();
+        if first.len() < 8 && !first.contains(&t) {
+            first.push(t);
+        }
+    }
+}
+
+/// The exit's line: how many materials that asked to be blended were made opaque because
+/// nothing could thin them ([`blend_is_opaque`]), and the first few textures.
+pub fn blend_opaque_summary() -> String {
+    let n = BLEND_DRAWN_OPAQUE.load(std::sync::atomic::Ordering::Relaxed);
+    let first = BLEND_DRAWN_OPAQUE_FIRST.lock().map(|f| f.join(", ")).unwrap_or_default();
+    format!("blended shapes drawn opaque: {n} material builds (alpha 1 everywhere: opaque texture, material alpha 1, no vertex alpha){}", if first.is_empty() { String::new() } else { format!("; first textures: {first}") })
+}
+
+/// How many materials were blended by their vertex alpha alone this run
+/// ([`fades_by_vertex_alpha`]; the exit's summary line).
+static VERTEX_ALPHA_BLENDED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The exit's line: how many materials [`fades_by_vertex_alpha`] had blended.
+pub fn vertex_alpha_blended_summary() -> String {
+    let n = VERTEX_ALPHA_BLENDED.load(std::sync::atomic::Ordering::Relaxed);
+    format!("unlit shapes blended by their vertex alpha alone: {n} material builds (no NiAlphaProperty, no texture)")
+}
+
 /// The material for a shape's properties; also returns the base texture path when it
 /// could not be loaded. Adds tangents to `mesh` when a normal map is used.
 pub(crate) fn shape_material(
@@ -955,6 +1332,13 @@ pub(crate) fn shape_material_reusing_tangents(
 /// block ([`crate::tangents`]); every other caller generates them (or keeps them,
 /// [`shape_material_reusing_tangents`]).
 pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource, tangents: Tangents) -> (NifMaterial, Option<String>) {
+    shape_material_inner(props, mesh, textures, tangents, crate::env_map::aids())
+}
+
+/// The material build itself; `aids`: the environment maps' debug switches (this run's,
+/// `env_map::aids`, except in tests, which pass their own so that a developer's
+/// environment cannot change them).
+fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource, tangents: Tangents, aids: &crate::env_map::EnvAids) -> (NifMaterial, Option<String>) {
     fix_vertex_colors(mesh, props.vertex_alpha);
     let diffuse = props.textures.first().filter(|t| !t.is_empty());
     let base = diffuse.and_then(|t| textures.texture(t, true));
@@ -962,23 +1346,46 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     let missing = if base.is_none() { diffuse.cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let had_tangents = mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some();
+    // A copy of a drawn mesh (`Tangents::Keep`: an actor part's kept CPU mesh, for a texture
+    // swap or a record's texture set) only serves to make the material; the actor goes on
+    // drawing the original mesh, so tangents made on the copy never reach the draw. A height
+    // map (a set's or the game's own) is put on such a material only when the mesh already
+    // has them: Bevy marches no parallax on a mesh without tangents (#2979 review).
+    let height_mesh_ok = !matches!(tangents, Tangents::Keep) || had_tangents;
     let normal = normal.filter(|_| has_uv && tangents.add_to(mesh));
     let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
     let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
-    // The window environment map: the cube, the mask and the scale (docs/spec-notes/nif.md
-    // §6 "Window glass and environment maps"). A blended shape that reflects is drawn
-    // premultiplied, so its reflection is added over the blend whatever its alpha.
-    let env = window_env(props).and_then(|(cube, mask, scale)| {
-        let cube = textures.texture(&crate::texture::cube_path(&cube), true)?;
-        let mask = mask.filter(|_| has_uv).and_then(|m| textures.texture(&m, false));
-        Some((cube, mask, scale))
+    if matches!(alpha_mode, AlphaMode::Blend) && fades_by_vertex_alpha(props) {
+        VERTEX_ALPHA_BLENDED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    // A blended shape that nothing can thin is drawn opaque (#3230).
+    let alpha_mode = if blend_is_opaque(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_opaque(t))) {
+        note_blend_drawn_opaque(props.textures.first().map_or("", String::as_str));
+        AlphaMode::Opaque
+    } else {
+        alpha_mode
+    };
+    // The environment map: the cube, the mask and how the mask is read
+    // (docs/spec-notes/nif.md §6 "Window glass and environment maps", "Environment maps
+    // on other shapes"; the debug switches in env_map.rs). A blended window shape that
+    // reflects is drawn premultiplied, so its reflection is added over the blend whatever
+    // its alpha; a blended shape without the window flag keeps its blend, so the
+    // reflection is weighted by its alpha (`env_map::env_alpha_mode`).
+    let env = shape_env(props, aids).and_then(|e| {
+        let cube = textures.texture(&crate::texture::cube_path(&e.cube), true)?;
+        let mask = e.mask.as_deref().filter(|_| has_uv).and_then(|m| textures.texture(m, false));
+        let mode = crate::env_map::mask_mode(mask.is_some(), aids.no_mask, has_uv && normal.is_some() && !unmasked)?;
+        // The normal-alpha variant reads the game's own normal map, bound in the mask's
+        // slot: an authored set may replace the drawn normal map later (`crate::authored`).
+        let mask = if mode == crate::env_map::MaskMode::NormalAlpha { normal.clone() } else { mask };
+        Some((e, cube, mask, mode))
     });
-    // Not a blended cut-out (a tested shape whose texture is a mask): it stays Blend, the
-    // mode `blended_cutout` and the FSR cut-out switch (nif_material.rs) know, and its
-    // reflection is added inside the blend.
-    let premultiply = env.is_some()
-        && matches!(alpha_mode, AlphaMode::Blend)
+    // Premultiplied only where the set's blend rule asks for it (`env_map::env_alpha_mode`:
+    // window shapes by default), and never on a blended cut-out (a tested shape whose
+    // texture is a mask): it stays Blend, the mode `blended_cutout` and the FSR cut-out
+    // switch (nif_material.rs) know, and its reflection is added inside the blend.
+    let premultiply = matches!(crate::env_map::env_alpha_mode(alpha_mode, env.as_ref().map(|(e, ..)| e.window), aids), AlphaMode::Premultiplied)
         && blended_cutout(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_mask(t))).is_none();
     let alpha_mode = if premultiply { AlphaMode::Premultiplied } else { alpha_mode };
     // An authored set (#2981, crate::authored): looked up by the resolved diffuse when the
@@ -1000,15 +1407,28 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     // alpha-tested), single-sided, non-decal shape (`crate::authored::height_gate`, asked
     // again of the built material): only such a shape gains tangents for one.
     let height_wanted = height.is_some()
+        && height_mesh_ok
         && crate::authored::height_alpha(alpha_mode, crate::authored::parallax_mask()).is_ok()
         && !props.double_sided
         && !props.decal;
-    // The final normal is chosen before the tangents are settled: a set's `_n` or `_p` on a
-    // shape without a normal map needs tangents on the drawn mesh, given here from `tangents`
-    // (kept, stored or generated, as for the game's own normal map).
+    // The game's own height map (#2979: texture-set slot 3 with the parallax flag), whatever
+    // the Authored materials setting; the same shapes as a set's height map
+    // (`crate::authored::height_gate`), and none at a game depth of 0 (the development
+    // switch, `crate::authored::game_parallax_depth`). Loaded only for a shape that may draw it.
+    let game_slot = game_height_slot(props).filter(|_| crate::authored::game_parallax_depth() > 0.0);
+    let game_height_wanted = game_slot.is_some()
+        && has_uv
+        && height_mesh_ok
+        && props.refraction.is_none()
+        && crate::authored::height_alpha(alpha_mode, crate::authored::parallax_mask()).is_ok()
+        && !props.double_sided
+        && !props.decal;
+    // The final normal is chosen before the tangents are settled: a set's `_n` or `_p`, or the
+    // game's height map, on a shape without a normal map needs tangents on the drawn mesh,
+    // given here from `tangents` (kept, stored or generated, as for the game's normal map).
     let tangents = if normal.is_some() {
         true
-    } else if (authored.is_some_and(|s| s.normal.is_some()) || height_wanted) && !had_tangents {
+    } else if (authored.is_some_and(|s| s.normal.is_some()) || height_wanted || game_height_wanted) && !had_tangents {
         has_uv && tangents.add_to(mesh)
     } else {
         had_tangents
@@ -1023,6 +1443,7 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         .flatten()
         .and_then(|t| textures.texture(t, true));
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
+    let (double_sided, cull_mode) = props_cull(props);
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
         base_color_texture: base,
@@ -1037,8 +1458,8 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
         emissive_texture: glow,
         alpha_mode,
-        double_sided: props.double_sided,
-        cull_mode: if props.double_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
+        double_sided,
+        cull_mode,
         unlit: props.unlit,
         ..default()
     };
@@ -1048,13 +1469,18 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     }
     material.extension.alpha_cut = cut.unwrap_or(0.0);
     material.extension.blended_cutout = cutout;
+    if solid_core_rules(props, cut, alpha_mode) {
+        material.extension.solid_core = diffuse
+            .zip(material.base.base_color_texture.as_ref())
+            .map(|(t, image)| crate::nif_material::SolidCoreSource { texture: t.clone(), image: image.id(), animated: false });
+    }
     if props.hair && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
         material.extension.alpha_cut = HAIR_DEPTH_CUT;
         material.extension.depth_write = true;
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
-    if let Some((cube, mask, scale)) = env {
-        material.extension.env = Vec4::new(scale, if mask.is_some() { 1.0 } else { 0.0 }, 0.0, 0.0);
+    if let Some((e, cube, mask, mode)) = env {
+        (material.extension.env, material.extension.env_how) = crate::env_map::env_uniforms(&e, mode, aids);
         material.extension.env_cube = Some(cube);
         material.extension.env_mask = mask;
     }
@@ -1063,7 +1489,9 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         unlit_vertex_colors(&mut material);
     }
     material.extension.decal = props.decal;
-    if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
+    // A baked shadow patch lies on the surface behind it: no fade where they meet
+    // ([`baked_shadow_patch`]).
+    if !props.shadow_patch && crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
     }
     if let Some(strength) = props.refraction {
@@ -1075,6 +1503,17 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
     material.extension.hard_edges = props.lod_building;
+    // The game's own height map, before the legacy look is taken (it is part of the game's
+    // material, so a set taken off later puts it back) and before any set (a set's `_p`
+    // replaces it: `crate::authored::apply_height`).
+    // Asked for only once the drawn mesh's tangents are settled: a shape whose tangents could
+    // not be made (or do not reach the drawn mesh) stays flat without loading the file.
+    let drawn_tangents = tangents && height_mesh_ok;
+    let game_drawable = game_height_wanted && drawn_tangents;
+    let game_height = game_slot.map(|slot| {
+        let image = if game_drawable { textures.texture(slot, false) } else { None };
+        crate::authored::apply_game_height(&mut material, image, game_drawable, drawn_tangents)
+    });
     // The authored set last, over the legacy values chosen above and after the extension's
     // `emissive_rule` is assigned (its w lane carries the mark). Shapes that may take a set
     // keep their legacy look for later swaps (`crate::authored::LegacyLook`).
@@ -1085,7 +1524,10 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
             roughness: material.base.perceptual_roughness,
             reflectance: material.base.reflectance,
             metallic: material.base.metallic,
-            tangents,
+            // The drawn mesh's tangents: not those made on a copy of a drawn mesh, so a later
+            // swap (`crate::authored::retexture`) puts no `_n` or `_p` on a mesh that cannot
+            // draw it (#2979 review).
+            tangents: drawn_tangents,
             specular_tint: material.base.specular_tint,
             parallax: crate::authored::Parallax::of(&material.base),
             scripted_tint: None,
@@ -1099,6 +1541,9 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         if let Some(height) = height {
             if crate::authored::apply_height(&mut material, height, &legacy).is_ok() {
                 crate::authored::note_height_built(authored.is_none());
+                if game_height == Some(crate::authored::GameHeight::Drawn) {
+                    crate::authored::note_game_height_replaced();
+                }
             }
         }
         material.extension.legacy = Some(legacy);
@@ -1177,9 +1622,158 @@ pub fn refraction_material(material: &mut NifMaterial, strength: f32, fire_perio
     crate::authored::recheck_height(material);
 }
 
+/// Numeric mesh admission is an Android-only engine policy; see nif-numeric-admission.md.
+#[cfg(any(target_os = "android", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NumericStream {
+    Position,
+    Normal,
+    Uv,
+    Tangent,
+    Color,
+    Weight,
+    NormalizedWeight,
+    InverseBind,
+}
+
+#[cfg(any(target_os = "android", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NumericError {
+    stream: NumericStream,
+    element: usize,
+}
+
+#[cfg(any(target_os = "android", test))]
+fn finite_stream<const N: usize>(values: &[[f32; N]], stream: NumericStream) -> Result<(), NumericError> {
+    match values.iter().position(|v| v.iter().any(|x| !x.is_finite())) {
+        Some(element) => Err(NumericError { stream, element }),
+        None => Ok(()),
+    }
+}
+
+/// Check the actual streams after material preparation, including repaired colours
+/// and generated tangents. Does not rewrite values or discard individual vertices.
+#[cfg(any(target_os = "android", test))]
+fn finite_mesh(mesh: &Mesh) -> Result<(), NumericError> {
+    for (attribute, stream) in [
+        (Mesh::ATTRIBUTE_POSITION, NumericStream::Position),
+        (Mesh::ATTRIBUTE_NORMAL, NumericStream::Normal),
+        (Mesh::ATTRIBUTE_UV_0, NumericStream::Uv),
+        (Mesh::ATTRIBUTE_TANGENT, NumericStream::Tangent),
+        (Mesh::ATTRIBUTE_COLOR, NumericStream::Color),
+        (Mesh::ATTRIBUTE_JOINT_WEIGHT, NumericStream::NormalizedWeight),
+    ] {
+        match mesh.attribute(attribute) {
+            Some(VertexAttributeValues::Float32x2(v)) => finite_stream(v, stream)?,
+            Some(VertexAttributeValues::Float32x3(v)) => finite_stream(v, stream)?,
+            Some(VertexAttributeValues::Float32x4(v)) => finite_stream(v, stream)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+pub(crate) struct AdmittedShape {
+    pub mesh: Mesh,
+    pub triangles: usize,
+    pub skin: Option<Skin>,
+    pub stored: StoredArrays,
+}
+
+/// Numeric errors are separate from absent/unusable optional skin data. A numeric
+/// failure must not become an ordinary unskinned shape in any of the three loaders.
+#[cfg(any(target_os = "android", test))]
+fn admit_shape(dec: &Decoded, shape: &Struct, data: &Struct) -> Result<Option<AdmittedShape>, NumericError> {
+    let Some((mesh, triangles, stored)) = build_mesh(data)? else { return Ok(None) };
+    let skin = shape_skin(dec, shape, mesh.count_vertices())?;
+    Ok(Some(AdmittedShape { mesh, triangles, skin, stored }))
+}
+
+#[cfg(not(target_os = "android"))]
+fn admit_shape_desktop(dec: &Decoded, shape: &Struct, data: &Struct) -> Option<AdmittedShape> {
+    let (mesh, triangles, stored) = build_mesh_desktop(data)?;
+    let skin = shape_skin_desktop(dec, shape, mesh.count_vertices());
+    Some(AdmittedShape { mesh, triangles, skin, stored })
+}
+
+#[derive(Default)]
+pub(crate) struct NumericRejections {
+    #[cfg(any(target_os = "android", test))]
+    total: usize,
+    #[cfg(any(target_os = "android", test))]
+    first: Vec<(usize, NumericError)>,
+}
+
+impl NumericRejections {
+    #[cfg(any(target_os = "android", test))]
+    fn record(&mut self, block: usize, error: NumericError) {
+        self.total = self.total.saturating_add(1);
+        if self.first.len() < 8 {
+            self.first.push((block, error));
+        }
+    }
+
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn admit_android(&mut self, block: usize, dec: &Decoded, shape: &Struct, data: &Struct) -> Option<AdmittedShape> {
+        match admit_shape(dec, shape, data) {
+            Ok(shape) => shape,
+            Err(error) => {
+                self.record(block, error);
+                None
+            }
+        }
+    }
+
+    pub fn admit(&mut self, block: usize, dec: &Decoded, shape: &Struct, data: &Struct) -> Option<AdmittedShape> {
+        #[cfg(target_os = "android")]
+        {
+            self.admit_android(block, dec, shape, data)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = block;
+            admit_shape_desktop(dec, shape, data)
+        }
+    }
+
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn accept_mesh_android(&mut self, block: usize, mesh: &Mesh) -> bool {
+        match finite_mesh(mesh) {
+            Ok(()) => true,
+            Err(error) => {
+                self.record(block, error);
+                false
+            }
+        }
+    }
+
+    pub fn accept_mesh(&mut self, block: usize, mesh: &Mesh) -> bool {
+        #[cfg(target_os = "android")]
+        {
+            self.accept_mesh_android(block, mesh)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (block, mesh);
+            true
+        }
+    }
+
+    pub fn report(&self, source: &str) {
+        #[cfg(any(target_os = "android", test))]
+        if self.total > 0 {
+            let source: String = source.chars().take(240).collect();
+            warn!("NIF numeric admission: {source}: {} shape(s) rejected; first block/reasons: {:?}", self.total, self.first);
+        }
+        #[cfg(not(any(target_os = "android", test)))]
+        let _ = source;
+    }
+}
+
 /// The mesh of a shape-data block, its triangle count, and the tangent arrays it stores
-/// (for [`Tangents::Stored`]; empty when it stores none).
-pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
+/// (for [`Tangents::Stored`]; empty when it stores none) — desktop path matching `main`.
+#[cfg(not(target_os = "android"))]
+fn build_mesh_desktop(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
     let md = mesh_data(data);
     if md.positions.is_empty() || md.triangles.is_empty() {
         return None;
@@ -1198,8 +1792,7 @@ pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
     if md.colors.len() == n {
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, md.colors);
     }
-    let max = n as u32;
-    let idx: Vec<u32> = md.triangles.iter().filter(|t| t.iter().all(|&i| i < max)).flatten().copied().collect();
+    let idx: Vec<u32> = md.triangles.into_iter().filter(|&[a, b, c]| (a as usize) < n && (b as usize) < n && (c as usize) < n).flatten().collect();
     mesh.insert_indices(Indices::U32(idx));
     if !has_normals {
         mesh.compute_normals();
@@ -1207,11 +1800,46 @@ pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
     Some((mesh, tris, StoredArrays { tangents: md.tangents, bitangents: md.bitangents }))
 }
 
+/// The mesh of a shape-data block, its triangle count, and the tangent arrays it stores
+/// (for [`Tangents::Stored`]; empty when it stores none) — Android finite-admission path.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn build_mesh(data: &Struct) -> Result<Option<(Mesh, usize, StoredArrays)>, NumericError> {
+    let md = mesh_data(data);
+    if md.positions.is_empty() || md.triangles.is_empty() {
+        return Ok(None);
+    }
+    finite_stream(&md.positions, NumericStream::Position)?;
+    let n = md.positions.len();
+    let tris = md.triangles.len();
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, md.positions);
+    let has_normals = md.normals.len() == n;
+    if has_normals {
+        finite_stream(&md.normals, NumericStream::Normal)?;
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, md.normals);
+    }
+    if let Some(uv) = md.uv_sets.first().filter(|u| u.len() == n) {
+        finite_stream(uv, NumericStream::Uv)?;
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv.clone());
+    }
+    if md.colors.len() == n {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, md.colors);
+    }
+    let max = n as u32;
+    let idx: Vec<u32> = md.triangles.iter().filter(|t| t.iter().all(|&i| i < max)).flatten().copied().collect();
+    mesh.insert_indices(Indices::U32(idx));
+    if !has_normals {
+        mesh.compute_normals();
+    }
+    Ok(Some((mesh, tris, StoredArrays { tangents: md.tangents, bitangents: md.bitangents })))
+}
+
 /// Per-vertex joint indices and normalised weights (four influences per vertex).
 type SkinWeights = (Vec<[u16; 4]>, Vec<[f32; 4]>);
 
-/// Joint indices and weights per vertex from NiSkinData (top four influences).
-fn skin_weights(skin_data: &Struct, vertices: usize) -> Option<SkinWeights> {
+/// Joint indices and weights per vertex from NiSkinData (top four influences) — desktop path.
+#[cfg(not(target_os = "android"))]
+fn skin_weights_desktop(skin_data: &Struct, vertices: usize) -> Option<SkinWeights> {
     let bones = skin_data.list("bone_list")?;
     let mut infl: Vec<Vec<(u16, f32)>> = vec![Vec::new(); vertices];
     for (b, bone) in bones.iter().enumerate() {
@@ -1248,6 +1876,60 @@ fn skin_weights(skin_data: &Struct, vertices: usize) -> Option<SkinWeights> {
     Some((joints, weights))
 }
 
+/// Joint indices and weights per vertex from NiSkinData (top four influences) — Android path.
+#[cfg(any(target_os = "android", test))]
+fn skin_weights(skin_data: &Struct, vertices: usize) -> Result<Option<SkinWeights>, NumericError> {
+    let Some(bones) = skin_data.list("bone_list") else { return Ok(None) };
+    let mut infl: Vec<Vec<(u16, f32)>> = vec![Vec::new(); vertices];
+    for (b, bone) in bones.iter().enumerate() {
+        let Value::Struct(bone) = bone else { continue };
+        for w in bone.list("vertex_weights").unwrap_or_default() {
+            let Value::Struct(w) = w else { continue };
+            let (Some(i), Some(wt)) = (w.int("index"), w.float("weight")) else { continue };
+            if let Some(v) = infl.get_mut(i as usize) {
+                if !wt.is_finite() {
+                    return Err(NumericError { stream: NumericStream::Weight, element: i as usize });
+                }
+                v.push((b as u16, wt));
+            }
+        }
+    }
+    if infl.iter().all(|v| v.is_empty()) {
+        return Ok(None);
+    }
+    let mut joints = Vec::with_capacity(vertices);
+    let mut weights = Vec::with_capacity(vertices);
+    for (vertex, mut v) in infl.into_iter().enumerate() {
+        v.sort_by(|a, b| b.1.total_cmp(&a.1));
+        v.truncate(4);
+        // Four finite f32 values cannot overflow f64. Compensation also preserves
+        // a small residual when finite signed influences nearly cancel.
+        let (mut sum, mut correction) = (0.0_f64, 0.0_f64);
+        for &(_, weight) in &v {
+            let weight = f64::from(weight);
+            let next = sum + weight;
+            correction += if sum.abs() >= weight.abs() { (sum - next) + weight } else { (weight - next) + sum };
+            sum = next;
+        }
+        let sum = sum + correction;
+        let mut j = [0u16; 4];
+        let mut w = [0f32; 4];
+        for (k, (b, wt)) in v.iter().enumerate() {
+            j[k] = *b;
+            w[k] = if sum > 0.0 { (f64::from(*wt) / sum) as f32 } else { 0.0 };
+            if !w[k].is_finite() {
+                return Err(NumericError { stream: NumericStream::NormalizedWeight, element: vertex });
+            }
+        }
+        if sum <= 0.0 {
+            w[0] = 1.0;
+        }
+        joints.push(j);
+        weights.push(w);
+    }
+    Ok(Some((joints, weights)))
+}
+
 /// A shape's skin: the bone blocks it binds to, per bone the inverse bind matrix in
 /// shape space (the bone's stored skin transform, docs/spec-notes/nif.md §6), and per
 /// vertex the joint indices and weights.
@@ -1267,8 +1949,9 @@ impl Skin {
     }
 }
 
-/// The skin of `shape` (with `vertices` vertices), if it has a usable one.
-pub(crate) fn shape_skin(dec: &Decoded, shape: &Struct, vertices: usize) -> Option<Skin> {
+/// The skin of `shape` (with `vertices` vertices), if it has a usable one — desktop path.
+#[cfg(not(target_os = "android"))]
+fn shape_skin_desktop(dec: &Decoded, shape: &Struct, vertices: usize) -> Option<Skin> {
     let si = shape.block_ref("skin_instance").and_then(|r| dec.get(r))?;
     let bones: Vec<usize> = si.refs("bones").unwrap_or_default().iter().map(|&b| usize::try_from(b).ok()).collect::<Option<_>>()?;
     let sd = si.block_ref("data").and_then(|r| dec.get(r))?;
@@ -1284,7 +1967,30 @@ pub(crate) fn shape_skin(dec: &Decoded, shape: &Struct, vertices: usize) -> Opti
     if inverse_binds.len() != bones.len() {
         return None;
     }
-    Some(Skin { bones, inverse_binds, weights: skin_weights(sd, vertices)? })
+    Some(Skin { bones, inverse_binds, weights: skin_weights_desktop(sd, vertices)? })
+}
+
+/// The skin of `shape` (with `vertices` vertices), if it has a usable one — Android path.
+#[cfg(any(target_os = "android", test))]
+fn shape_skin(dec: &Decoded, shape: &Struct, vertices: usize) -> Result<Option<Skin>, NumericError> {
+    let Some(si) = shape.block_ref("skin_instance").and_then(|r| dec.get(r)) else { return Ok(None) };
+    let Some(sd) = si.block_ref("data").and_then(|r| dec.get(r)) else { return Ok(None) };
+    let weights = skin_weights(sd, vertices)?;
+    let Some(bones) = si.refs("bones").unwrap_or_default().iter().map(|&b| usize::try_from(b).ok()).collect::<Option<Vec<usize>>>() else { return Ok(None) };
+    let mut inverse_binds = Vec::new();
+    for (element, bone) in sd.list("bone_list").unwrap_or_default().iter().enumerate() {
+        let Value::Struct(bone) = bone else { return Ok(None) };
+        let Some(transform) = bone.strukt("skin_transform").and_then(NifTransform::from_struct) else { return Ok(None) };
+        let bind = Mat4::from(affine(&transform));
+        if !bind.is_finite() {
+            return Err(NumericError { stream: NumericStream::InverseBind, element });
+        }
+        inverse_binds.push(bind);
+    }
+    if inverse_binds.len() != bones.len() {
+        return Ok(None);
+    }
+    Ok(weights.map(|weights| Skin { bones, inverse_binds, weights }))
 }
 
 impl SpawnCtx<'_, '_> {
@@ -1378,11 +2084,12 @@ impl SpawnCtx<'_, '_> {
         let to_y_up = Affine3A::from_rotation_x(-FRAC_PI_2);
 
         // Pass 2: geometry and materials.
+        let mut rejected = NumericRejections::default();
         for o in objects.iter().filter(|o| !o.is_node) {
             let Ok(shape) = &dec.blocks[o.block] else { continue };
             let Some(data_ref) = shape.block_ref("data") else { continue };
             let Some(data) = dec.get(data_ref) else { continue };
-            let Some((mut mesh, tris, _)) = build_mesh(data) else { continue };
+            let Some(AdmittedShape { mut mesh, triangles: tris, skin, .. }) = rejected.admit(o.block, &dec, shape, data) else { continue };
 
             let mut props = shape_props(&file, &dec, o, &by_block);
             // Landscape LOD takes no authored set (#2981), as in the model loader.
@@ -1395,6 +2102,9 @@ impl SpawnCtx<'_, '_> {
                 &mut self.images,
                 self.formats.as_deref(),
             );
+            if !rejected.accept_mesh(o.block, &mesh) {
+                continue;
+            }
             report.textures_missing.extend(missing);
             if props.is_helper(shaded) {
                 self.commands.entity(entity_of[&o.block]).insert((NifHidden, Visibility::Hidden));
@@ -1406,7 +2116,7 @@ impl SpawnCtx<'_, '_> {
                 by_name.or_else(|| entity_of.get(b)).copied()
             };
             let mut skinned = None;
-            if let Some(skin) = shape_skin(&dec, shape, mesh.count_vertices()) {
+            if let Some(skin) = skin {
                 if let Some(joints) = skin.bones.iter().map(joint).collect::<Option<Vec<Entity>>>() {
                     let binds = skin.insert_into(&mut mesh);
                     skinned = Some(SkinnedMesh { inverse_bindposes: self.bindposes.add(binds), joints });
@@ -1440,6 +2150,7 @@ impl SpawnCtx<'_, '_> {
             report.shapes += 1;
             report.triangles += tris;
         }
+        rejected.report(path);
         Ok(report)
     }
 }
@@ -1457,6 +2168,9 @@ mod tests {
             false
         }
         fn alpha_is_mask(&self, _: &str) -> bool {
+            false
+        }
+        fn alpha_is_opaque(&self, _: &str) -> bool {
             false
         }
         fn resolve(&self, raw_path: &str) -> String {
@@ -1481,6 +2195,9 @@ mod tests {
         }
         fn alpha_is_mask(&self, raw_path: &str) -> bool {
             raw_path.contains("mask")
+        }
+        fn alpha_is_opaque(&self, raw_path: &str) -> bool {
+            raw_path.contains("solid")
         }
         fn resolve(&self, raw_path: &str) -> String {
             fnv_vfs::texture_path(raw_path)
@@ -1571,6 +2288,138 @@ mod tests {
         }
     }
 
+    /// The water tank's shape (flags 4333, z-write, a base texture) may have a solid core;
+    /// what can thin it, or sets its alpha otherwise, keeps it from one.
+    #[test]
+    fn solid_core_rules_take_only_lit_depth_writing_blends_whose_texture_alone_sets_alpha() {
+        let tank = Props { alpha: Some((4333, 0)), z_write: true, textures: vec!["tank.dds".into()], ..Default::default() };
+        let rules = |p: &Props| solid_core_rules(p, None, shape_alpha_mode(p));
+        assert!(rules(&tank));
+        assert!(rules(&Props { material_alpha: Some(1.0), ..tank.clone() }));
+        // The corn rows: blend and test below the cut.
+        assert!(rules(&Props { alpha: Some((0x12ED, 0)), ..tank.clone() }));
+        assert!(!solid_core_rules(&tank, Some(0.5), AlphaMode::Blend), "a vertex-alpha cut");
+        assert!(!solid_core_rules(&tank, None, AlphaMode::Opaque), "drawn opaque");
+        assert!(!solid_core_rules(&tank, None, AlphaMode::Premultiplied), "a window's reflection");
+        for p in [
+            Props { z_write: false, ..tank.clone() },
+            Props { alpha: None, ..tank.clone() },
+            // Blend off, additive, alpha-tested at a cut of its own.
+            Props { alpha: Some((4332, 0)), ..tank.clone() },
+            Props { alpha: Some((4333 & !(0xF << 5), 0)), ..tank.clone() },
+            Props { alpha: Some((0x12ED, 128)), ..tank.clone() },
+            Props { textures: Vec::new(), ..tank.clone() },
+            Props { textures: vec![String::new()], ..tank.clone() },
+            Props { vertex_alpha: true, ..tank.clone() },
+            Props { material_alpha: Some(0.99), ..tank.clone() },
+            Props { animated_alpha: true, ..tank.clone() },
+            Props { alpha_gated: true, ..tank.clone() },
+            Props { falloff: Some(Falloff { params: Vec4::new(1.0, 0.0, 1.0, 0.0) }), ..tank.clone() },
+            Props { unlit: true, ..tank.clone() },
+            Props { decal: true, ..tank.clone() },
+            Props { refraction: Some(0.1), ..tank.clone() },
+            Props { hair: true, ..tank.clone() },
+            Props { skin: true, ..tank.clone() },
+            Props { lod_building: true, ..tank.clone() },
+            Props { env: Some(crate::env_map::EnvFlags { scale: 1.0, window: true, light_fade: false }), ..tank.clone() },
+        ] {
+            assert!(!rules(&p), "{p:?}");
+        }
+    }
+
+    /// The built material names its core's texture only for such a shape, and the core is a
+    /// hard cut-out copy of it; every run-time change of the blend takes the core away.
+    #[test]
+    fn a_solid_core_is_a_hard_cut_out_copy_and_goes_with_any_change_of_the_blend() {
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        tri.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]]);
+        let tank = Props { alpha: Some((4333, 0)), z_write: true, textures: vec!["tank.dds".into()], ..Default::default() };
+        let build = |p: &Props| shape_material_with(p, &mut tri.clone(), &mut AllTextures, Tangents::Generate).0;
+        let m = build(&tank);
+        let source = m.extension.solid_core.clone().expect("a candidate");
+        assert_eq!(source.texture, "tank.dds");
+        assert_eq!(Some(source.image), m.base.base_color_texture.as_ref().map(Handle::id));
+        assert!(build(&Props { z_write: false, ..tank.clone() }).extension.solid_core.is_none());
+        // Without its texture there is nothing to cut.
+        assert!(shape_material_with(&tank, &mut tri.clone(), &mut NoTextures, Tangents::Generate).0.extension.solid_core.is_none());
+
+        let core = solid_core(&m, SOLID_CORE_CUT).expect("a core");
+        assert_eq!(core.base.alpha_mode, AlphaMode::Mask(SOLID_CORE_CUT));
+        assert!(core.extension.hard_edges);
+        assert!(core.extension.solid_core.is_none() && core.extension.blended_cutout.is_none() && core.extension.legacy.is_none());
+        assert_eq!(core.base.base_color_texture, m.base.base_color_texture);
+        assert!(solid_core(&core, SOLID_CORE_CUT).is_none(), "no core of a core");
+        assert!(!crate::nif_material::see_through(&core));
+
+        type Change = fn(&mut NifMaterial);
+        let changes: [(&str, Change); 12] = [
+            ("a fade's or a script's alpha", |m| m.base.base_color.set_alpha(0.99)),
+            ("drawn opaque", |m| m.base.alpha_mode = AlphaMode::Opaque),
+            ("FSR's cut-out", |m| m.base.alpha_mode = AlphaMode::Mask(0.5)),
+            ("a stealth field", |m| refraction_material(m, 0.1, 0.0)),
+            ("an effect shader's holes", |m| m.extension.holes = Vec4::new(128.0, 0.0, 0.0, 0.0)),
+            ("a texture swap", |m| m.base.base_color_texture = Some(bevy::asset::uuid_handle!("6d0f3f0e-6f5b-4a1c-9a64-2f8f5c7d1e90"))),
+            ("no texture", |m| m.base.base_color_texture = None),
+            ("an alpha cut", |m| m.extension.alpha_cut = 0.5),
+            ("a height map", |m| m.base.depth_map = Some(Handle::default())),
+            ("a first-person copy", |m| m.extension.first_person = true),
+            ("depth written by the blend", |m| m.extension.depth_write = true),
+            ("a decal copy", |m| m.extension.decal = true),
+        ];
+        for (what, change) in changes {
+            let mut c = m.clone();
+            change(&mut c);
+            assert!(solid_core(&c, SOLID_CORE_CUT).is_none(), "{what}");
+        }
+        // Followed, not refused: a changed emissive colour is the core's too.
+        let mut lit = m.clone();
+        lit.base.emissive = LinearRgba::rgb(0.5, 0.2, 0.1);
+        assert_eq!(solid_core(&lit, SOLID_CORE_CUT).expect("still a core").base.emissive, lit.base.emissive);
+    }
+
+    /// #3230: a shape that asks to be blended and that nothing can thin is drawn opaque.
+    /// The placed T-45d Power Armor: blend SRC_ALPHA / INV_SRC_ALPHA, test off, threshold 0
+    /// (flags 4333), material alpha 1, no vertex colours, an opaque texture.
+    #[test]
+    fn a_blended_shape_that_nothing_thins_is_opaque() {
+        let quad = || {
+            let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+            m
+        };
+        let mode = |p: &Props| shape_material_with(p, &mut quad(), &mut MaskTextures, Tangents::Generate).0.base.alpha_mode;
+        let armour = Props { alpha: Some((4333, 0)), material_alpha: Some(1.0), textures: vec![r"armor\powerarmor\powerarmorbody_solid.dds".into()], ..Default::default() };
+        assert!(matches!(mode(&armour), AlphaMode::Opaque), "{:?}", mode(&armour));
+        // No stated material alpha is 1 too; so is one tested below the cut (0x12ED).
+        assert!(matches!(mode(&Props { material_alpha: None, ..armour.clone() }), AlphaMode::Opaque));
+        assert!(matches!(mode(&Props { alpha: Some((0x12ED, 0)), ..armour.clone() }), AlphaMode::Opaque));
+        // A texture with any alpha below 1 (or none loaded), and everything else that can
+        // thin a shape, keeps the blend.
+        for props in [
+            Props { textures: vec![r"clutter\glass.dds".into()], ..armour.clone() },
+            Props { textures: vec![String::new()], ..armour.clone() },
+            Props { textures: Vec::new(), ..armour.clone() },
+            Props { material_alpha: Some(0.99), ..armour.clone() },
+            Props { vertex_alpha: true, ..armour.clone() },
+            Props { animated_alpha: true, ..armour.clone() },
+            Props { falloff: Some(crate::nif_material::Falloff { params: Vec4::new(1.0, 0.5, 1.0, 0.0) }), ..armour.clone() },
+            Props { unlit: true, ..armour.clone() },
+            Props { decal: true, ..armour.clone() },
+            Props { hair: true, ..armour.clone() },
+            Props { env: Some(crate::env_map::EnvFlags { scale: 1.0, window: true, light_fade: false }), ..armour.clone() },
+        ] {
+            assert!(matches!(mode(&props), AlphaMode::Blend), "{props:?} drawn {:?}", mode(&props));
+            assert!(!blend_is_opaque(&props, None, AlphaMode::Blend, || props.textures.first().is_some_and(|t| t.contains("solid"))), "{props:?}");
+        }
+        // Other blends are not this one: additive stays additive, multiply multiply.
+        assert!(matches!(mode(&Props { alpha: Some((4333 & !(0xF << 5), 0)), ..armour.clone() }), AlphaMode::Add));
+        assert!(matches!(mode(&Props { alpha: Some(((4333 & !(0xF << 1)) | (1 << 1), 0)), ..armour.clone() }), AlphaMode::Multiply));
+        // A shape that is not blended at all is as it was.
+        assert!(matches!(mode(&Props { alpha: None, ..armour.clone() }), AlphaMode::Opaque));
+        assert!(matches!(mode(&Props { alpha: Some((0x12ED, 128)), ..armour }), AlphaMode::Mask(_)));
+    }
+
     fn triangle() -> Mesh {
         Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD).with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3])
     }
@@ -1614,6 +2463,14 @@ mod tests {
         assert!(hair_model_layer(&masked).is_none());
     }
 
+    /// Texture-set lists for the environment-map tests.
+    fn texture_set(t: &[&str]) -> Vec<String> {
+        t.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The flags of a window's environment map: both bits; scale 1, no Env Map Fade.
+    const WINDOW_FLAGS: crate::env_map::EnvFlags = crate::env_map::EnvFlags { scale: 1.0, window: true, light_fade: false };
+
     /// A window environment map needs both flags (bits 7 and 21), a lit shader, a cube in
     /// slot 4 and a scale above 0; the mask in slot 5 is optional (`vwindow01.nif`: flags
     /// 0x82200180, ShinyBright_e.dds, no mask; nif.md §6 "Window glass and environment
@@ -1623,15 +2480,152 @@ mod tests {
         assert!(window_env_flags(0x8220_0180));
         assert!(!window_env_flags(1 << 7));
         assert!(!window_env_flags(1 << 21));
-        let set = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let glass = Props { window_env: Some(1.0), textures: set(&["vglass01.dds", "vglass01_n.dds", "", "", "shinybright_e.dds", ""]), ..default() };
-        assert_eq!(window_env(&glass), Some(("shinybright_e.dds".to_string(), None, 1.0)));
-        let masked = Props { textures: set(&["a.dds", "a_n.dds", "", "", "b_e.dds", "a_m.dds"]), ..glass.clone() };
-        assert_eq!(window_env(&masked), Some(("b_e.dds".to_string(), Some("a_m.dds".to_string()), 1.0)));
-        assert_eq!(window_env(&Props { textures: set(&["a.dds", "a_n.dds"]), ..glass.clone() }), None);
-        assert_eq!(window_env(&Props { window_env: Some(0.0), ..glass.clone() }), None);
-        assert_eq!(window_env(&Props { unlit: true, ..glass.clone() }), None);
-        assert_eq!(window_env(&Props { window_env: None, ..glass }), None);
+        let aids = crate::env_map::EnvAids::default();
+        let env = |p: &Props| shape_env(p, &aids).map(|e| (e.cube, e.mask, e.scale, e.window));
+        let glass = Props { env: Some(WINDOW_FLAGS), textures: texture_set(&["vglass01.dds", "vglass01_n.dds", "", "", "shinybright_e.dds", ""]), ..default() };
+        assert_eq!(env(&glass), Some(("shinybright_e.dds".to_string(), None, 1.0, true)));
+        let masked = Props { textures: texture_set(&["a.dds", "a_n.dds", "", "", "b_e.dds", "a_m.dds"]), ..glass.clone() };
+        assert_eq!(env(&masked), Some(("b_e.dds".to_string(), Some("a_m.dds".to_string()), 1.0, true)));
+        assert_eq!(env(&Props { textures: texture_set(&["a.dds", "a_n.dds"]), ..glass.clone() }), None);
+        assert_eq!(env(&Props { env: Some(crate::env_map::EnvFlags { scale: 0.0, ..WINDOW_FLAGS }), ..glass.clone() }), None);
+        assert_eq!(env(&Props { unlit: true, ..glass.clone() }), None);
+        assert_eq!(env(&Props { env: None, ..glass }), None);
+    }
+
+    /// Environment_Mapping alone (bit 7) is enough since #2841; the window flag stays a
+    /// property of its own, and the debug switch NVF_PLAY_DEBUG_ENV_NON_WINDOW=0 brings
+    /// back #2669's set. A shape with the flag but no cube in slot 4 (`winebottle01.nif`
+    /// in the data survey), an unlit one, one at scale 0 and object LOD block geometry do
+    /// not reflect. Fixtures written for the test (a Sunset Sarsaparilla-like bottle:
+    /// scale 1.2, a slot-5 mask, Env Map Fade).
+    #[test]
+    fn env_needs_bit_7_a_lit_shader_and_a_cube_window_or_not() {
+        assert!(env_flags(1 << 7));
+        assert!(env_flags(0x8220_0180));
+        assert!(!env_flags(1 << 21));
+        assert!(!env_flags(0x8000_0001));
+        let aids = crate::env_map::EnvAids::default();
+        let flags = crate::env_map::EnvFlags { scale: 1.2, window: false, light_fade: true };
+        let bottle = Props { env: Some(flags), textures: texture_set(&["bottle.dds", "bottle_n.dds", "", "", "textures\\effects\\shinybright_e.dds", "bottle_m.dds"]), ..default() };
+        assert_eq!(
+            shape_env(&bottle, &aids),
+            Some(crate::env_map::ShapeEnv { cube: "textures\\effects\\shinybright_e.dds".into(), mask: Some("bottle_m.dds".into()), scale: 1.2, window: false, light_fade: true })
+        );
+        let no_cube = Props { textures: texture_set(&["wine.dds", "wine_n.dds", "", "", "", "wine_m.dds"]), ..bottle.clone() };
+        assert_eq!(shape_env(&no_cube, &aids), None);
+        assert_eq!(shape_env(&Props { textures: texture_set(&["a.dds"]), ..bottle.clone() }, &aids), None);
+        assert_eq!(shape_env(&Props { unlit: true, ..bottle.clone() }, &aids), None);
+        assert_eq!(shape_env(&Props { lod_building: true, ..bottle.clone() }, &aids), None);
+        let lod_window = Props { lod_building: true, env: Some(crate::env_map::EnvFlags { window: true, ..flags }), ..bottle.clone() };
+        assert!(shape_env(&lod_window, &aids).is_some(), "window shapes keep #2462's gate on LOD block geometry");
+        assert_eq!(shape_env(&Props { env: Some(crate::env_map::EnvFlags { scale: 0.0, ..flags }), ..bottle.clone() }, &aids), None);
+        let before = crate::env_map::EnvAids { non_window: false, ..aids };
+        assert_eq!(shape_env(&bottle, &before), None);
+        let window = Props { env: Some(crate::env_map::EnvFlags { window: true, ..flags }), ..bottle };
+        assert!(shape_env(&window, &before).is_some_and(|e| e.window));
+    }
+
+    /// Every texture loads (a placeholder handle), with an alpha channel.
+    struct AllTextures;
+    impl TextureSource for AllTextures {
+        fn texture(&mut self, _: &str, _: bool) -> Option<Handle<Image>> {
+            Some(Handle::default())
+        }
+        fn lacks_alpha(&self, _: &Handle<Image>) -> bool {
+            false
+        }
+        fn alpha_is_mask(&self, _: &str) -> bool {
+            false
+        }
+        fn alpha_is_opaque(&self, _: &str) -> bool {
+            false
+        }
+        fn resolve(&self, raw_path: &str) -> String {
+            fnv_vfs::texture_path(raw_path)
+        }
+        fn pbr_set(&mut self, _: &str) -> Option<crate::authored::PbrSet> {
+            None
+        }
+        fn authored_on(&self) -> bool {
+            false
+        }
+    }
+
+    /// [`AllTextures`] whose base textures' alpha is a mask (a blended cut-out's).
+    struct AllMaskTextures;
+    impl TextureSource for AllMaskTextures {
+        fn texture(&mut self, _: &str, _: bool) -> Option<Handle<Image>> {
+            Some(Handle::default())
+        }
+        fn lacks_alpha(&self, _: &Handle<Image>) -> bool {
+            false
+        }
+        fn alpha_is_mask(&self, _: &str) -> bool {
+            true
+        }
+        fn alpha_is_opaque(&self, _: &str) -> bool {
+            false
+        }
+        fn resolve(&self, raw_path: &str) -> String {
+            fnv_vfs::texture_path(raw_path)
+        }
+        fn pbr_set(&mut self, _: &str) -> Option<crate::authored::PbrSet> {
+            None
+        }
+        fn authored_on(&self) -> bool {
+            false
+        }
+    }
+
+    /// The material of a blended reflecting shape: a window one is drawn premultiplied
+    /// (#2669), one without the window flag keeps its blend (the reflection weighted by its
+    /// alpha); a shape with the flag but no cube is drawn as before. Blend SRC_ALPHA /
+    /// INV_SRC_ALPHA without a test (0x10ED, as `vwindow01.nif`); fixtures written for the
+    /// test. The default switches are passed in, so `NVF_PLAY_DEBUG_ENV_*` set on the
+    /// machine does not change the result.
+    #[test]
+    fn blended_env_shapes_premultiply_only_windows() {
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        tri.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]]);
+        let flags = crate::env_map::EnvFlags { scale: 1.0, window: false, light_fade: false };
+        let glass = Props {
+            alpha: Some((0x10ED, 0)),
+            shader: true,
+            has_properties: true,
+            env: Some(flags),
+            textures: texture_set(&["glass.dds", "", "", "", "textures\\effects\\shinybright_e.dds", "glass_m.dds"]),
+            ..default()
+        };
+        let d = crate::env_map::EnvAids::default();
+        let (plain, _) = shape_material_inner(&Props { env: None, ..glass.clone() }, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
+        assert!(matches!(plain.base.alpha_mode, AlphaMode::Blend), "the fixture is blended");
+        let (m, _) = shape_material_inner(&glass, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
+        assert_eq!(m.extension.env, Vec4::new(1.0, 1.0, 0.0, 0.0), "scale 1, the slot-5 mask, no distance fade");
+        assert_eq!(m.extension.env_how.z, 0.0, "not a window");
+        assert!(m.extension.env_cube.is_some() && m.extension.env_mask.is_some());
+        let window = Props { env: Some(crate::env_map::EnvFlags { window: true, ..flags }), ..glass.clone() };
+        let (w, _) = shape_material_inner(&window, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
+        assert!(matches!(w.base.alpha_mode, AlphaMode::Premultiplied));
+        assert_eq!(w.extension.env_how.z, 1.0, "a window");
+        let no_cube = Props { textures: texture_set(&["glass.dds", "", "", "", "", "glass_m.dds"]), ..glass.clone() };
+        let (n, _) = shape_material_inner(&no_cube, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
+        assert!(matches!(n.base.alpha_mode, AlphaMode::Blend));
+        assert_eq!((n.extension.env, n.extension.env_how), (Vec4::ZERO, Vec4::ZERO));
+        assert!(n.extension.env_cube.is_none() && n.extension.env_mask.is_none());
+        let (none, _) = shape_material_inner(&glass, &mut tri.clone(), &mut NoTextures, Tangents::Generate, &d);
+        assert_eq!(none.extension.env, Vec4::ZERO, "a cube that does not load: no reflection");
+        // A blended cut-out (blend with a test below BLEND_TEST_CUT, 0x12ED, and a base
+        // texture whose alpha is a mask) stays blended even with the window flag (main's
+        // rule since #2669), and still reflects.
+        let cutout_window = Props { alpha: Some((0x12ED, 0)), ..window.clone() };
+        let (c, _) = shape_material_inner(&cutout_window, &mut tri.clone(), &mut AllMaskTextures, Tangents::Generate, &d);
+        assert!(matches!(c.base.alpha_mode, AlphaMode::Blend), "a blended cut-out is not premultiplied");
+        assert!(c.extension.blended_cutout.is_some());
+        assert_eq!(c.extension.env_how.z, 1.0);
+        let (wc, _) = shape_material_inner(&cutout_window, &mut tri, &mut AllTextures, Tangents::Generate, &d);
+        assert!(matches!(wc.base.alpha_mode, AlphaMode::Premultiplied), "the same tested blend over a soft alpha is premultiplied");
     }
 
     #[test]
@@ -1692,6 +2686,29 @@ mod tests {
         let screen = Props { animated_alpha: false, alpha_gated: true, ..card };
         assert!(matches!(shape_alpha_mode(&screen), AlphaMode::Mask(t) if t == 0.5));
         assert!(matches!(shape_alpha_mode(&Props { dynamic_alpha: false, ..screen }), AlphaMode::Opaque));
+    }
+
+    #[test]
+    fn a_baked_shadow_patch_is_black_vertices_with_a_varying_alpha_that_blend() {
+        // The card table's patch: alpha 0 along the outline, 0.7 inside.
+        let patch = [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.7], [0.0, 0.0, 0.0, 0.0]];
+        assert!(shadow_colours(&patch));
+        assert!(!shadow_colours(&[]), "no colours");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 1.0]; 3]), "alpha 1 everywhere: nothing to show");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 0.0]; 3]), "alpha 0 everywhere: nothing drawn");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 0.0], [0.9, 0.5, 0.1, 0.7]]), "a coloured glow, not a shadow");
+        assert!(shadow_colours(&[[0.01, 0.0, 0.02, 0.0], [0.0, 0.0, 0.0, 0.5]]), "within SHADOW_BLACK");
+        // Garbage alphas are cleaned to 1 first (`clean_vertex_color`).
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, f32::NAN], [0.0, 0.0, 0.0, 1.0]]));
+        // 0x10ED: blending, SRC_ALPHA / INV_SRC_ALPHA, no test.
+        assert!(blends_over(0x10ED));
+        assert!(!blends_over(0x10EC), "blending off");
+        assert!(!blends_over(0x100D), "SRC_ALPHA / ONE: additive");
+        // The shape takes its vertex alpha though its shader does not set the flag.
+        let props = Props { unlit: true, alpha: Some((0x10ED, 0)), shadow_patch: true, vertex_alpha: true, textures: vec![String::new()], ..Default::default() };
+        assert!(matches!(shape_alpha_mode(&props), AlphaMode::Blend));
+        assert_eq!(clean_vertex_color([0.0, 0.0, 0.0, 0.7], props.vertex_alpha)[3], 0.7);
+        assert_eq!(clean_vertex_color([0.0, 0.0, 0.0, 0.7], false)[3], 1.0, "without it: the opaque black patch");
     }
 
     #[test]
@@ -1973,6 +2990,108 @@ mod tests {
         out
     }
 
+    /// BSShaderPPLightingProperty as [`lit_shader`], with these shader flags,
+    /// `environment_map_scale` and its texture set at block `set`.
+    fn lit_shader_env(flags: u32, scale: f32, set: u32) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        out.extend(1u16.to_le_bytes());
+        words(&mut out, &[1, flags, 0]);
+        floats(&mut out, &[scale]);
+        words(&mut out, &[3, set]);
+        floats(&mut out, &[0.0]);
+        words(&mut out, &[0]);
+        floats(&mut out, &[4.0, 1.0]);
+        out
+    }
+
+    /// BSShaderTextureSet: these paths, slot by slot.
+    fn texture_set_block(paths: &[&str]) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[paths.len() as u32]);
+        for p in paths {
+            words(&mut out, &[p.len() as u32]);
+            out.extend(p.as_bytes());
+        }
+        out
+    }
+
+    /// The properties of the one shape of a synthetic model whose lit shader has `flags`
+    /// and scale 1.5, with a full texture set (diffuse, normal, cube in slot 4, mask in
+    /// slot 5), read through `shape_props` / `apply_property`.
+    fn env_model_props(flags: u32) -> Props {
+        let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+        let bytes = nif(
+            &[
+                ("BSFadeNode", node(0, &[1])),
+                ("NiTriStrips", strips(1, &[2], 4)),
+                ("BSShaderPPLightingProperty", lit_shader_env(flags, 1.5, 3)),
+                ("BSShaderTextureSet", texture_set_block(&["textures\\b.dds", "textures\\b_n.dds", "", "", "textures\\effects\\chrome_e.dds", "textures\\b_m.dds"])),
+                ("NiTriStripsData", square(0.0)),
+            ],
+            &["Bottle", "Bottle:0"],
+        );
+        let file = NifFile::parse(&bytes, Some(&schema)).unwrap();
+        let dec = Decoded::new(&file, &bytes, &schema);
+        let objects = scene_objects(&file, &dec);
+        let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+        let shape = objects.iter().find(|o| !o.is_node).expect("the shape");
+        shape_props(&file, &dec, shape, &by_block)
+    }
+
+    /// #2841's gate end to end: a lit shader property with Environment_Mapping (bit 7)
+    /// alone, decoded from a file, gives a material that binds the slot-4 cube and the
+    /// slot-5 mask at the property's scale; with the window flag too it is a window shape;
+    /// without bit 7 nothing is bound. Restoring the both-bits gate fails the first case.
+    /// Fixtures written for the test.
+    #[test]
+    fn decoded_bit_7_shader_binds_cube_mask_and_scale() {
+        let props = env_model_props(1 << 7);
+        assert_eq!(props.env, Some(crate::env_map::EnvFlags { scale: 1.5, window: false, light_fade: false }));
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        tri.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]]);
+        let d = crate::env_map::EnvAids::default();
+        let (m, _) = shape_material_inner(&props, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
+        assert!(m.extension.env_cube.is_some() && m.extension.env_mask.is_some(), "cube and mask bound");
+        assert_eq!((m.extension.env.x, m.extension.env.y), (1.5, 1.0), "the scale and the slot-5 mask");
+        assert_eq!((m.extension.env_how.z, m.extension.env_how.w), (0.0, 1.0), "a reflecting shape, not a window");
+        let window = env_model_props((1 << 7) | (1 << 21));
+        let (w, _) = shape_material_inner(&window, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
+        assert_eq!(w.extension.env_how.z, 1.0, "both flags: a window shape");
+        let plain = env_model_props(1 << 21);
+        assert_eq!(plain.env, None);
+        let (n, _) = shape_material_inner(&plain, &mut tri, &mut AllTextures, Tangents::Generate, &d);
+        assert!(n.extension.env_cube.is_none() && n.extension.env_mask.is_none());
+        assert_eq!(n.extension.env, Vec4::ZERO);
+    }
+
+    /// The normal-alpha debug variant binds the game's own normal map as the mask (read by
+    /// its alpha), so an authored set that replaces the drawn normal map later
+    /// (`crate::authored::apply`) cannot change what the comparison reads. Fixtures written
+    /// for the test; the mesh keeps its own tangents.
+    #[test]
+    fn normal_alpha_variant_binds_the_legacy_normal_as_mask() {
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        tri.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]]);
+        tri.insert_attribute(Mesh::ATTRIBUTE_TANGENT, vec![[1.0f32, 0.0, 0.0, 1.0]; 3]);
+        let whiskey = Props {
+            shader: true,
+            has_properties: true,
+            env: Some(crate::env_map::EnvFlags { scale: 1.0, window: false, light_fade: false }),
+            textures: texture_set(&["w.dds", "w_n.dds", "", "", "textures\\effects\\shinydull_e.dds", ""]),
+            ..default()
+        };
+        let variant = crate::env_map::EnvAids { no_mask: crate::env_map::NoMask::NormalAlpha, ..default() };
+        let (m, _) = shape_material_inner(&whiskey, &mut tri.clone(), &mut AllTextures, Tangents::Keep, &variant);
+        assert_eq!(m.extension.env.y, 2.0, "read by alpha");
+        assert!(m.base.normal_map_texture.is_some());
+        assert_eq!(m.extension.env_mask, m.base.normal_map_texture, "the legacy normal map is the mask");
+        let (full, _) = shape_material_inner(&whiskey, &mut tri, &mut AllTextures, Tangents::Keep, &crate::env_map::EnvAids::default());
+        assert_eq!((full.extension.env.y, full.extension.env_mask.is_none()), (0.0, true), "by default: no mask, full strength");
+    }
+
     /// The lounge chair's set-up (`furniture\loungechair_tops.nif`): a seat shape with a
     /// shader property, and a marker capsule under its own node with no property at all.
     /// Without `shader` the seat has no property either and block 2 is an empty node.
@@ -2028,6 +3147,122 @@ mod tests {
         assert_eq!(shapes["Capsule01:0"], (false, true));
     }
 
+    /// BSShaderNoLightingProperty: SHADER_NOLIGHTING, these shader flags, this file name,
+    /// the default falloff.
+    fn unlit_shader(flags: u32, texture: &str) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        out.extend(1u16.to_le_bytes());
+        words(&mut out, &[33, flags, 1]);
+        floats(&mut out, &[1.0]);
+        words(&mut out, &[3, texture.len() as u32]);
+        out.extend(texture.as_bytes());
+        floats(&mut out, &[1.0, 0.0, 1.0, 0.0]);
+        out
+    }
+
+    /// NiMaterialProperty: black specular, emissive white × 3, alpha 1.
+    fn white_material() -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        floats(&mut out, &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 10.0, 1.0, 3.0]);
+        out
+    }
+
+    /// NiAlphaProperty with these flags, threshold 0.
+    fn alpha_block(flags: u16) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        out.extend(flags.to_le_bytes());
+        out.push(0);
+        out
+    }
+
+    /// [`square`] at height 0 with white vertex colours of these alphas.
+    fn faded_square(alphas: [f32; 4]) -> Vec<u8> {
+        let mut out = square(0.0);
+        // The vertex colour switch follows the group id, vertex count, three bytes, four
+        // positions, the UV count, the normals switch and the bounding sphere.
+        let at = 4 + 2 + 3 + 48 + 2 + 1 + 16;
+        assert_eq!(out[at], 0);
+        out[at] = 1;
+        let mut colours = vec![];
+        for a in alphas {
+            floats(&mut colours, &[1.0, 1.0, 1.0, a]);
+        }
+        out.splice(at + 1..at + 1, colours);
+        out
+    }
+
+    /// The properties and material of the one shape of a synthetic model: an unlit shader
+    /// with these flags and file name, emissive white × 3, these vertex alphas, and a
+    /// NiAlphaProperty with these flags if any.
+    fn faded_model(flags: u32, texture: &str, alphas: [f32; 4], alpha: Option<u16>) -> (Props, NifMaterial) {
+        let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+        let properties: &[u32] = if alpha.is_some() { &[2, 3, 5] } else { &[2, 3] };
+        let mut blocks = vec![
+            ("BSFadeNode", node(0, &[1])),
+            ("NiTriStrips", strips(1, properties, 4)),
+            ("NiMaterialProperty", white_material()),
+            ("BSShaderNoLightingProperty", unlit_shader(flags, texture)),
+            ("NiTriStripsData", faded_square(alphas)),
+        ];
+        blocks.extend(alpha.map(|a| ("NiAlphaProperty", alpha_block(a))));
+        let bytes = nif(&blocks, &["Shaft", "Shaft:0"]);
+        let file = NifFile::parse(&bytes, Some(&schema)).unwrap();
+        let dec = Decoded::new(&file, &bytes, &schema);
+        assert!(dec.blocks.iter().all(|b| b.is_ok()), "the fixture decodes");
+        let objects = scene_objects(&file, &dec);
+        let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+        let shape = objects.iter().find(|o| !o.is_node).expect("the shape");
+        let props = shape_props(&file, &dec, shape, &by_block);
+        let (mut mesh, ..) = build_mesh(dec.get(4).unwrap()).unwrap().unwrap();
+        let material = shape_material_with(&props, &mut mesh, &mut AllTextures, Tangents::Generate).0;
+        (props, material)
+    }
+
+    /// #3443: the cone of light at the end of Lonesome Road's silo lift. An unlit shape
+    /// with Vertex_Alpha and the falloff bit, no file name, no NiAlphaProperty and an alpha
+    /// that falls across its vertices is blended, as the same shape with the property is;
+    /// anything else without the property stays opaque. Fixtures written for the test.
+    #[test]
+    fn an_unlit_shape_whose_only_picture_is_its_vertex_alpha_is_blended() {
+        const CONE: u32 = 0x8200_0048;
+        let fading = [1.0, 0.1, 0.0, 0.15];
+        let (props, cone) = faded_model(CONE, "", fading, None);
+        assert!(props.alpha.is_none());
+        assert_eq!(shape_alpha_mode(&props), AlphaMode::Blend);
+        assert_eq!(cone.base.alpha_mode, AlphaMode::Blend);
+        // Blended it is no picture: its light is the stored multiplier's, and its edges
+        // fall off by the view angle, as the same shape's with the property.
+        let (_, twin) = faded_model(CONE, "", fading, Some(0x10ED));
+        assert_eq!(twin.base.alpha_mode, AlphaMode::Blend);
+        assert_eq!(cone.base.emissive, LinearRgba::rgb(3.0, 3.0, 3.0));
+        assert_eq!(cone.base.emissive, twin.base.emissive);
+        assert_eq!(cone.extension.falloff, twin.extension.falloff);
+        assert!(cone.extension.falloff != Vec4::ZERO);
+        // The falloff bit is not asked for: some of the dark patches set Vertex_Alpha
+        // without it, with and without the decal bits.
+        for flags in [0x8200_0008, 0x8E00_0008, 0x8E00_0048] {
+            assert_eq!(faded_model(flags, "", fading, None).1.base.alpha_mode, AlphaMode::Blend, "{flags:#x}");
+        }
+        // No Vertex_Alpha, no alpha below 1, or a texture: a picture, opaque as before.
+        assert_eq!(faded_model(0x8200_0040, "", fading, None).1.base.alpha_mode, AlphaMode::Opaque);
+        // Dynamic_Alpha alone takes the vertex alpha, and is not the flag this rule asks for;
+        // with Vertex_Alpha beside it (a fog shell) it does not stand in the way.
+        let (dynamic, opaque) = faded_model(0x8208_0000, "", [0.5; 4], None);
+        assert!(dynamic.vertex_alpha && dynamic.dynamic_alpha);
+        assert_eq!(opaque.base.alpha_mode, AlphaMode::Opaque);
+        assert_eq!(faded_model(0x8208_0008, "", [0.5; 4], None).1.base.alpha_mode, AlphaMode::Blend);
+        assert_eq!(faded_model(CONE, "", [1.0; 4], None).1.base.alpha_mode, AlphaMode::Opaque);
+        assert_eq!(faded_model(CONE, "map.dds", fading, None).1.base.alpha_mode, AlphaMode::Opaque);
+        // Where there is a property its own flags decide.
+        assert_eq!(faded_model(CONE, "", fading, Some(0x100D)).1.base.alpha_mode, AlphaMode::Add);
+        assert_eq!(faded_model(CONE, "", fading, Some(0)).1.base.alpha_mode, AlphaMode::Opaque);
+        // A lit shape has no such rule.
+        assert_eq!(shape_alpha_mode(&Props { unlit: false, ..props }), AlphaMode::Opaque);
+    }
+
     #[test]
     fn decal_flags() {
         // utlhallsm1waypipe01.nif: the rust stain `:8` (bits 26, 27 and 31) and the
@@ -2042,6 +3277,140 @@ mod tests {
         assert!(!is_decal(0xffff_ffff & !(1 << 26 | 1 << 27)));
         // The flags reach the material's properties from the shader property.
         assert!(!Props::default().decal);
+    }
+
+    /// A BSShaderPPLightingProperty like [`lit_shader`] with `flags` and the texture set at
+    /// block `set`.
+    fn lit_shader_with(flags: u32, set: u32) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[u32::MAX, 0, u32::MAX]);
+        out.extend(1u16.to_le_bytes());
+        words(&mut out, &[1, flags, 0]);
+        floats(&mut out, &[1.0]);
+        words(&mut out, &[3, set]);
+        floats(&mut out, &[0.0]);
+        words(&mut out, &[0]);
+        floats(&mut out, &[4.0, 1.0]);
+        out
+    }
+
+    /// A BSShaderTextureSet of these slots.
+    fn texture_set_bytes(slots: &[&str]) -> Vec<u8> {
+        let mut out = vec![];
+        words(&mut out, &[slots.len() as u32]);
+        for s in slots {
+            words(&mut out, &[s.len() as u32]);
+            out.extend(s.as_bytes());
+        }
+        out
+    }
+
+    /// Every texture asked for, with its sRGB flag, as handles made on demand.
+    #[derive(Default)]
+    struct RecordTextures {
+        images: Assets<Image>,
+        asked: Vec<(String, bool)>,
+    }
+    impl TextureSource for RecordTextures {
+        fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>> {
+            self.asked.push((raw_path.to_string(), srgb));
+            Some(self.images.add(Image::default()))
+        }
+        fn lacks_alpha(&self, _: &Handle<Image>) -> bool {
+            true
+        }
+        fn alpha_is_mask(&self, _: &str) -> bool {
+            false
+        }
+        fn alpha_is_opaque(&self, _: &str) -> bool {
+            false
+        }
+        fn resolve(&self, raw_path: &str) -> String {
+            fnv_vfs::texture_path(raw_path)
+        }
+        fn pbr_set(&mut self, _: &str) -> Option<crate::authored::PbrSet> {
+            None
+        }
+        fn authored_on(&self) -> bool {
+            false
+        }
+    }
+
+    /// #2979: bit 11 decoded from a synthetic BSShaderPPLightingProperty with a texture set
+    /// (no game data) marks the shape; its slot 3 is loaded as linear data (sRGB off) and put
+    /// on as the depth map. Without the bit the slot is neither loaded nor drawn.
+    #[test]
+    fn a_decoded_parallax_flag_loads_slot_3_as_linear_height() {
+        let schema = fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap();
+        let slots = [r"textures\test\floor.dds", r"textures\test\floor_n.dds", "", r"textures\test\floor_p.dds", "", ""];
+        let build = |flags: u32| {
+            let bytes = nif(
+                &[
+                    ("BSFadeNode", node(0, &[1])),
+                    ("NiTriStrips", strips(1, &[2], 4)),
+                    ("BSShaderPPLightingProperty", lit_shader_with(flags, 3)),
+                    ("BSShaderTextureSet", texture_set_bytes(&slots)),
+                    ("NiTriStripsData", square(0.0)),
+                ],
+                &["Floor", "Floor:0"],
+            );
+            let file = NifFile::parse(&bytes, Some(&schema)).unwrap();
+            let dec = Decoded::new(&file, &bytes, &schema);
+            let objects = scene_objects(&file, &dec);
+            let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+            let shape = objects.iter().find(|o| !o.is_node).unwrap();
+            shape_props(&file, &dec, shape, &by_block)
+        };
+        let flagged = build(1 << 11);
+        assert!(flagged.parallax, "bit 11 decoded");
+        assert_eq!(game_height_slot(&flagged), Some(slots[3]));
+        let plain = build(0);
+        assert!(!plain.parallax && game_height_slot(&plain).is_none());
+        if crate::authored::game_parallax_depth() <= 0.0 {
+            return;
+        }
+        let mut source = RecordTextures::default();
+        let (m, _) = shape_material_with(&flagged, &mut crate::texture::bc5_tests::triangle(), &mut source, Tangents::Generate);
+        assert!(source.asked.contains(&(slots[3].to_string(), false)), "slot 3 asked for as linear: {:?}", source.asked);
+        assert!(!source.asked.contains(&(slots[3].to_string(), true)), "never as sRGB");
+        assert!(m.base.depth_map.is_some());
+        let mut source = RecordTextures::default();
+        let (m, _) = shape_material_with(&plain, &mut crate::texture::bc5_tests::triangle(), &mut source, Tangents::Generate);
+        assert!(!source.asked.iter().any(|(p, _)| p == slots[3]) && m.base.depth_map.is_none(), "unflagged: slot 3 not loaded");
+    }
+
+    /// #2979 review: a flagged shape whose tangents cannot be made (no vertex normals) stays
+    /// flat and never asks for its slot-3 file.
+    #[test]
+    fn a_failed_tangent_build_does_not_load_the_height_map() {
+        if crate::authored::game_parallax_depth() <= 0.0 {
+            return;
+        }
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]]);
+        let props = Props { textures: vec![r"textures\test\floor.dds".into(), String::new(), String::new(), r"textures\test\floor_p.dds".into()], parallax: true, ..Default::default() };
+        let mut source = RecordTextures::default();
+        let (m, _) = shape_material_with(&props, &mut mesh, &mut source, Tangents::Generate);
+        assert!(mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_none(), "no tangents could be made");
+        assert!(m.base.depth_map.is_none());
+        assert!(!source.asked.iter().any(|(p, _)| p.ends_with("floor_p.dds")), "slot 3 not asked for: {:?}", source.asked);
+    }
+
+    #[test]
+    fn parallax_takes_bit_11_and_slot_3() {
+        assert!(parallax_flag(1 << 11) && parallax_flag(0x8200_0901));
+        assert!(!parallax_flag(1 << 28), "Parallax_Occlusion alone is not asked");
+        assert!(!parallax_flag(0x8200_0101));
+        let set = |t: &[&str], parallax: bool| Props { textures: t.iter().map(|s| s.to_string()).collect(), parallax, ..Default::default() };
+        assert_eq!(game_height_slot(&set(&["d.dds", "d_n.dds", "", "d_p.dds"], true)), Some("d_p.dds"));
+        assert_eq!(game_height_slot(&set(&["d.dds", "d_n.dds", "", "d_p.dds"], false)), None);
+        assert_eq!(game_height_slot(&set(&["d.dds", "d_n.dds", "", ""], true)), None);
+        assert_eq!(game_height_slot(&set(&["d.dds", "d_n.dds"], true)), None);
+        // A record's texture set replaces slot 3 like any other slot.
+        let mut p = set(&["d.dds", "d_n.dds", "", "d_p.dds"], true);
+        p.use_texture_set(&[None, None, None, Some("other_p.dds".into()), None, None]);
+        assert_eq!(game_height_slot(&p), Some(r"textures\other_p.dds"));
     }
 
     #[test]
@@ -2123,6 +3492,9 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+#[path = "nif_numeric_admission_tests.rs"]
+mod numeric_admission_tests;
 
 #[cfg(test)]
 mod authored_tests;
@@ -2168,5 +3540,23 @@ mod bc5_material_tests {
         assert!(refused.base.normal_map_texture.is_none());
         assert!(refused.base.specular_texture.is_none());
         assert_eq!(refused.base.reflectance, 0.3);
+    }
+
+    #[test]
+    fn stencil_cull_maps_draw_mode_bits() {
+        assert_eq!(stencil_cull(0), (false, Some(bevy::render::render_resource::Face::Back)));
+        assert_eq!(stencil_cull(1 << 10), (false, Some(bevy::render::render_resource::Face::Back)));
+        assert_eq!(stencil_cull(2 << 10), (false, Some(bevy::render::render_resource::Face::Front)));
+        assert_eq!(stencil_cull(3 << 10), (true, None));
+        for mode in 0..=3i64 {
+            let flags = (mode << 10) | 0x0015;
+            let expected = stencil_cull(flags);
+            let props = Props {
+                double_sided: mode == 3,
+                stencil_draw_mode: Some(mode),
+                ..Default::default()
+            };
+            assert_eq!(props_cull(&props), expected, "load-time props_cull must match stencil_cull for mode {mode}");
+        }
     }
 }

@@ -78,8 +78,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         "ispowerarmor" => {
             let f = item(g, 0);
-            // SetIsPowerArmor's change first.
-            yes(g.other.power_armor.get(&f).copied().unwrap_or_else(|| g.world.forms.item(f).is_some_and(|i| i.power_armor)))
+            // SetIsPowerArmor and SetEquipmentBipedMask (BMDT bit 5) stay synchronized.
+            yes(g.other.power_armor.get(&f).copied().unwrap_or_else(|| g.world.effective_power_armor(f)))
         }
         // [documented: IsModLoaded] a plugin of the load order, by file name.
         "ismodloaded" => {
@@ -146,15 +146,20 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // `actor.SetClass class` (a base-game function scripts reach by name: the
         // catalogue has no opcode for it): the actor's base takes the class, kept in the
         // save (`FormChanges::classes`) [documented: SetClass, "Changes the class of the
-        // actor to the parameter"; hypothesis: on the base form, as SetEssential]. The
-        // autocalc the page names for actors with autocalc on is not run: NVForever reads
-        // the record's stats. A form that is no class changes nothing.
+        // actor to the parameter"; observed: w4f_04_set_class]. The autocalc the page
+        // names for actors with autocalc on is not run: NVForever reads the record's
+        // stats. Non-actor and null receivers continue without mutation; a non-CLAS or
+        // null class argument aborts the script at runtime leaving the actor's class
+        // unchanged [observed: w4g_05_isactordetected_and_setclass_invalid].
         "setclass" => {
-            let (Some(r), Some(class)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
+            let Some(class) = form(args, 0).filter(|&c| g.data.sig(c) == Some(*b"CLAS")) else {
+                return Some(Err("setclass requires a CLAS form".into()));
+            };
+            let Some(r) = subject else { return Some(Ok(XVal::Num(0.0))) };
             let b = crate::functions::base_of(g, r).unwrap_or(r);
             // Class changes belong to actors, including the actor selected for a
             // placed leveled list; a carrier's signature alone does not classify it.
-            if g.data.sig(class) == Some(*b"CLAS") && g.template_source(b, r, |_| false).is_some() {
+            if g.template_source(b, r, |_| false).is_some() {
                 g.forms.classes.insert(b, class);
             }
             XVal::Num(0.0)
@@ -273,7 +278,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "comparenames" => {
             let a = form(args, 1).or(subject).map(|f| base(g, f));
             let b = form(args, 0).map(|f| base(g, f));
-            let name_of = |f: Option<FormId>| f.and_then(|f| g.name_overrides.get(&f).or_else(|| g.data.full_names.get(&f)).cloned()).unwrap_or_default().to_lowercase();
+            let name_of = |f: Option<FormId>| f.and_then(|f| g.name_overrides.get(&f).or_else(|| g.forms.saved_names.get(&f)).or_else(|| g.data.full_names.get(&f)).cloned()).unwrap_or_default().to_lowercase();
             XVal::Num(match name_of(a).cmp(&name_of(b)) {
                 std::cmp::Ordering::Less => -1.0,
                 std::cmp::Ordering::Equal => 0.0,

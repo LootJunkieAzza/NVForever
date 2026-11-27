@@ -462,9 +462,14 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         return none();
     }
     let amount = a.num(1)?;
-    // God mode: a trap's script does not hurt the player ([`god_keeps_whole`]); no damage,
-    // so no health-damage or crippled-limb handlers either.
-    if amount > 0.0 && god_keeps_whole(g, r, code) {
+    // God mode (`god_keeps_whole`) and JIP `ToggleImmortalMode 2` (for Health) keep
+    // scripted `DamageActorValue` from hurting the player [observed: Fallout: New Vegas
+    // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, probe jip_45_immortal_mode_damageav_bypass:
+    // ToggleImmortalMode 2 kept Health at 200.0 across Player.DamageAV Health 10].
+    if amount > 0.0
+        && (god_keeps_whole(g, r, code)
+            || (r == FormId::PLAYER_REF && g.immortal_mode() == 2 && code == crate::actor_values::HEALTH))
+    {
         return none();
     }
     let limb_before = if crate::actor_values::LIMB_CONDITIONS.contains(&code) { Some(actor_value(g, r, code)?) } else { None };
@@ -583,6 +588,10 @@ pub fn is_weapon_out(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
     if base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"CREA") && super::items::equipped_weapon(g, r).is_none() {
         return yes(false);
     }
+    // A co-op guest's shot, run as the player's: its weapon was out.
+    if r == FormId::PLAYER_REF && g.shot_for_player.is_some() {
+        return yes(true);
+    }
     yes(g.weapon_is_out(r))
 }
 
@@ -629,6 +638,10 @@ impl Game<'_> {
     /// (`Game::set_held_weapon`: NPCs' weapons are not equipped in the inventories here).
     pub fn weapon_anim_type(&mut self, actor: FormId) -> i64 {
         let held = self.extra.get(&actor).and_then(|e| e.held_weapon);
+        // A co-op guest's shot, run as the player's: its weapon.
+        if let Some(w) = self.shot_for_player.filter(|w| actor == FormId::PLAYER_REF && w.0 != 0) {
+            return self.data.weapon_anim_types.get(&w).copied().map_or(1, weapon_anim_code);
+        }
         let record_type = super::items::equipped_weapon(self, actor).or(held).and_then(|w| self.data.weapon_anim_types.get(&w).copied());
         record_type.map_or(1, weapon_anim_code)
     }
@@ -647,7 +660,7 @@ pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 pub fn get_dead_count(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let b = a.form(0)?;
-    Ok(Value::Num(g.player.dead_count.get(&b).copied().unwrap_or(0) as f64))
+    Ok(Value::Num(g.dead_count(b) as f64))
 }
 
 /// The factions and ranks the records give an actor: its base's `SNAM` list, or its
@@ -807,13 +820,18 @@ flag!(set_unconscious_flag, get_unconscious, unconscious);
 /// `SetUnconscious flag`. On a dead actor it brings it back first, with no get-up
 /// animation [documented: GECK wiki SetUnconscious notes, "Using this on dead actors will
 /// cause them to be resurrected, but will not cause them to play a "get up" animation"];
-/// that it then lies unconscious under a flag of 1 is [hypothesis].
+/// that it then lies unconscious under a flag of 1 is [hypothesis]. Unconscious, it
+/// detects no one from this call on (`Game::forget_detected_by`).
 pub fn set_unconscious(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if g.is_dead(r) {
         g.resurrect(r, false);
     }
-    set_unconscious_flag(g, ctx, a)
+    let done = set_unconscious_flag(g, ctx, a)?;
+    if g.extra.get(&r).is_some_and(|e| e.unconscious) {
+        g.forget_detected_by(r);
+    }
+    Ok(done)
 }
 flag!(set_player_teammate, get_player_teammate, teammate);
 
@@ -910,17 +928,23 @@ pub fn set_actor_full_name(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
     let r = ctx.subject()?;
     let m = a.form(0)?;
     let b = base_of(g, r).unwrap_or(r);
+    g.forms.saved_names.remove(&b);
     g.forms.names.insert(b, m);
     none()
 }
 
 impl<'a> Game<'a> {
-    /// The name SetActorFullName gave a base form: the title (FULL), not the text, of the
-    /// message it named [documented: GECK wiki SetActorFullName summary]. `None` when no
-    /// script renamed the base, or the message has no title.
-    pub fn script_name(&self, base: FormId) -> Option<&'a str> {
+    /// The name `SetActorFullName` or a converted `.fos` save gave a base form
+    /// (`FormChanges::saved_names`, else the title (FULL) of the message in
+    /// `FormChanges::names`) [documented: GECK wiki SetActorFullName summary].
+    /// `None` when no saved rename exists.
+    pub fn script_name(&self, base: FormId) -> Option<&str> {
         let data: &'a crate::data::GameData = self.data;
-        self.forms.names.get(&base).and_then(|m| data.messages.get(m)).and_then(|d| d.title.as_deref())
+        self.forms
+            .saved_names
+            .get(&base)
+            .map(String::as_str)
+            .or_else(|| self.forms.names.get(&base).and_then(|m| data.messages.get(m)).and_then(|d| d.title.as_deref()))
     }
 }
 
@@ -1372,6 +1396,92 @@ pub fn get_health_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
     Ok(Value::Num(if base != 0.0 { (now / base).max(0.0) } else { 1.0 }))
 }
 
+/// `actor.GetFatiguePercentage`: the actor's current Fatigue divided by its base
+/// [documented: GECK wiki GetFatiguePercentage]; 1 when the base is 0, as
+/// [`get_health_percentage`]. Not held at 0: fatigue below 0 knocks an actor out
+/// (`crate::unconscious`), and the ratio then reads below 0 [hypothesis].
+pub fn get_fatigue_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let base = base(g, r, crate::actor_values::FATIGUE)?;
+    let now = actor_value(g, r, crate::actor_values::FATIGUE)?;
+    Ok(Value::Num(if base != 0.0 { now / base } else { 1.0 }))
+}
+
+/// `actor.GetTimeDead`: hours since the actor died; 0 when it is not dead, is disabled,
+/// or was disabled after dying [documented: GECK wiki GetTimeDead]. By GameDaysPassed
+/// at its death (`RefExtra::died_day`); 0 for a corpse laid out at the start of the game
+/// [hypothesis: nobody killed it, so no time was kept].
+pub fn get_time_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let Some(day) = g.extra.get(&r).filter(|e| e.dead).and_then(|e| e.died_day) else { return Ok(Value::Num(0.0)) };
+    if !g.world.get(r).is_ok_and(|s| s.enabled()) {
+        return Ok(Value::Num(0.0));
+    }
+    let now = g.game_days().unwrap_or(day);
+    Ok(Value::Num(((now - day) * 24.0).max(0.0)))
+}
+
+/// `GetLastHitCritical`: 1 when the last hit the actor took was a critical [documented:
+/// GECK wiki GetLastHitCritical, "The information is available in the ON HIT script
+/// block"]; the last hit is kept after the block too (`RefExtra::last_hit`) [hypothesis].
+pub fn get_last_hit_critical(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).and_then(|e| e.last_hit).is_some_and(|h| h.critical))
+}
+
+/// `actor.SameFaction other`: 1 when both are members of at least one faction in common
+/// [documented: GECK wiki SameFaction]; members as GetInFaction counts them (rank 0 or
+/// more, [`factions_of`]).
+pub fn same_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let Some(other) = a.opt_form(0) else { return yes(false) };
+    let mine = factions_of(g, r);
+    yes(factions_of(g, other).iter().any(|f| mine.contains(f)))
+}
+
+/// `actor.SameSex other`: 1 when the calling actor is the same sex as `other`
+/// [documented: GECK wiki SameSex]; each actor's sex now, SexChange's included.
+pub fn same_sex(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let Some(other) = a.opt_form(0) else { return yes(false) };
+    yes(is_female(g, r) == is_female(g, other))
+}
+
+/// `actor.SameSexAsPC`: 1 when the calling actor is the same sex as the player
+/// [documented: GECK wiki SameSexAsPC, "Returns 1 if the calling actor is the same sex as
+/// the player"]; as [`same_sex`] with the player as the other actor (#3787).
+pub fn same_sex_as_pc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(is_female(g, r) == is_female(g, FormId::PLAYER_REF))
+}
+
+/// The disposition HasFriendDisposition counts as a friend's. The GECK wiki names a
+/// "friend disposition game setting" without naming it, and no game setting in the
+/// shipped master is one (`fFightFriendDispBase`, -25, is a fight base) [observed:
+/// FalloutNV.esm GMSTs with "Friend" or "Disp" in their names]; 70 is NVForever's
+/// [hypothesis: observer check 292 measures it].
+pub const FRIEND_DISPOSITION: f64 = 70.0;
+
+/// `actor.HasFriendDisposition`: 1 when the actor's disposition towards the player is at
+/// or above the friend level [documented: GECK wiki HasFriendDisposition, "equal or
+/// greater to the friend disposition game setting"; hypothesis: towards the player, as
+/// FriendDispositionBoost's "friend level with the player"], [`FRIEND_DISPOSITION`].
+pub fn has_friend_disposition(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(disposition(g, r, FormId::PLAYER_REF) >= FRIEND_DISPOSITION)
+}
+
+/// `ref.GetIsObjectType type`: 1 when the calling object, a reference's base or the
+/// form itself, is of form type `type` [documented: GECK wiki GetIsObjectType, "Returns
+/// 1 if the object is the specified form type"], by the form type codes
+/// (`fnv_script::vm::form_type_code`).
+pub fn get_is_object_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let code = a.code(0)?;
+    let form = base_of(g, r).unwrap_or(r);
+    yes(g.world.forms.sig(form).and_then(|s| fnv_script::vm::form_type_code(&s)) == Some(code))
+}
+
 /// IsFacingUp (bipeds) and IsLeftUp (quadrupeds), the idle manager's checks of a knocked
 /// down actor's side [documented: GECK wiki]: 1 for a standing actor [observed, function
 /// probes `fp1_queries` 2026-10-17: both read 1 on Ringo standing in the gas station];
@@ -1410,13 +1520,18 @@ pub fn get_owner_last_target(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 pub fn get_disposition(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let target = a.form(0)?;
+    Ok(Value::Num(disposition(g, actor, target)))
+}
+
+/// `actor`'s disposition towards `target`, as GetDisposition reads it.
+fn disposition(g: &mut Game, actor: FormId, target: FormId) -> f64 {
     if let Some(v) = g.extra.get(&actor).and_then(|x| x.dispositions.get(&target)) {
-        return Ok(Value::Num(*v));
+        return *v;
     }
     let base = g.base_data_def(actor).map_or(0, |d| d.disposition_base) as f64;
     let cha = crate::actor_values::capped(crate::actor_values::CHARISMA, actor_value(g, target, crate::actor_values::CHARISMA).unwrap_or(5.0));
     let mult = crate::combat::setting(g, "fDispTargetCharMult", 10.0);
-    Ok(Value::Num((base + mult * (cha - 5.0)).clamp(0.0, 100.0).round()))
+    (base + mult * (cha - 5.0)).clamp(0.0, 100.0).round()
 }
 
 /// `actor.SetDisposition target value`: GetDisposition towards `target` reads `value`

@@ -1,0 +1,43 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless TTW The Dark Heart of Blackhall (DLC04FF02): from Obadiah's errand through the ritual site's lectern to the Krivbeknih handed to Obadiah (stage 140, quest completed)",
+  "plugins": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm", "The Mod Configuration Menu.esp"],
+  "given": [
+    {"kind": "quest", "quest": "MQ01", "running": true, "completed": false, "stage": 10, "done": [10]},
+    {"kind": "quest", "quest": "DLC04MQ01", "running": false, "completed": true, "stage": 200, "done": [10, 20, 30, 50, 100, 120, 130, 150, 160, 165, 170, 190, 200]},
+    {"kind": "place", "ref": "player", "cell": "DLC4Pointlookout", "pos": [-2853.26, -7405.28, -1603.47]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Given: the player out of Vault 101 (MQ01 10), across to Point Lookout with The Local Flavor done (DLC04MQ01 200: its chain), standing on Point Lookout's landing (where the voyage puts the player [observed]). The Dark Heart of Blackhall (DLC04FF02) runs from the start [observed]."},
+    {"op": "note", "text": "Path (Obadiah's errand): Obadiah Blackhall in his manor (his first greeting and DLC04ObaIntroA03, then his talk again: DLC04ObaIntroB02, DLC04ObaQuestAccept: stage 10, Marcella sent to wait outside), the Krivbeknih on the ritual site's lectern (DLC04FF02LecternSCRIPT, its message's first button: 30, the book), and the book handed to Obadiah (DLC04ObaKrivGiveBook: 140, 1000 caps, the quest done). The other ending: the book destroyed at the Dunwich obelisk for Marcella (255)."},
+    {"op": "get_quest", "quest": "DLC04FF02", "fields": ["running", "stage"], "label": "DLC04FF02 running"},
+    {"op": "note", "text": "Travel stand-in: across the swamp to Blackhall Manor and in to Obadiah."},
+    {"op": "move_player", "to": "DLC04ObadiahREF"},
+    {"op": "talk", "actor": "DLC04ObadiahREF", "label": "obadiah: what are you doing in my house?"},
+    {"op": "choose", "topic": "DLC04ObaIntroA03", "label": "tough, are you"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "talk", "actor": "DLC04ObadiahREF", "label": "obadiah: sit and have a conversation"},
+    {"op": "choose", "topic": "DLC04ObaIntroB02", "label": "spoken like a roughneck"},
+    {"op": "choose", "topic": "DLC04ObaQuestAccept", "label": "I'll get the book (stage 10)"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "DLC04FF02", "fields": ["stage", "objective.10.displayed"], "label": "milestone: DLC04FF02 10, to the ritual site"},
+    {"op": "note", "text": "Travel stand-in: to the ritual site and down to its lectern; the lectern (DLC04FF02LecternSCRIPT [observed]) offers the book, the first button takes it (30)."},
+    {"op": "move_player", "to": "scripted:DLC04FF02LecternSCRIPT"},
+    {"op": "player_activate", "target": "scripted:DLC04FF02LecternSCRIPT", "label": "the ritual site's lectern"},
+    {"op": "press_button", "button": 0},
+    {"op": "advance_seconds", "seconds": 3},
+    {"op": "get_quest", "quest": "DLC04FF02", "fields": ["stage"], "label": "milestone: DLC04FF02 30, the book taken"},
+    {"op": "get_item_count", "of": "player", "item": "DLC04FF02Book", "label": "the Krivbeknih (1)"},
+    {"op": "note", "text": "Travel stand-in: back to Blackhall Manor."},
+    {"op": "move_player", "to": "DLC04ObadiahREF"},
+    {"op": "talk", "actor": "DLC04ObadiahREF", "label": "obadiah: the book, you've found it"},
+    {"op": "choose", "topic": "DLC04ObaKrivGiveBook", "label": "here it is (stage 140)"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "advance_seconds", "seconds": 2},
+    {"op": "get_item_count", "of": "player", "item": "Caps001", "label": "caps after the fee"},
+    {"op": "get_quest", "quest": "DLC04FF02", "fields": ["completed", "stage"], "label": "final: DLC04FF02 completed"}
+  ]
+}

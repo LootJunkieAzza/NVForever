@@ -84,6 +84,7 @@ fn fixture() -> (ScriptState, SimState, Targeted) {
         source: crate::activate::pick::Source::Bounds,
         crime: false,
         empty: false,
+        through: None,
     };
     (scripts, sim, target)
 }
@@ -209,6 +210,7 @@ fn missing_setting_xato_and_non_talk_actions_keep_existing_prompt_rules() {
         source: crate::activate::pick::Source::Bounds,
         crime: false,
         empty: false,
+        through: None,
     };
     let empty = SimState::over_placed([]);
     shown(&target, &empty, "Talk");

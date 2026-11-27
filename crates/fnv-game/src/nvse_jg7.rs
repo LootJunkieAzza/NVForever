@@ -160,6 +160,12 @@ impl Game<'_> {
     pub fn top_ui_quest(&self) -> Option<FormId> {
         self.other.jg7.top_quest
     }
+
+    /// The custom map marker texture path set for `r` by `SetCustomMapMarkerIcon`,
+    /// if any (non-empty) [documented: SetCustomMapMarkerIcon].
+    pub fn custom_map_marker_icon(&self, r: FormId) -> Option<&str> {
+        self.other.jg7.marker_icons.get(&r).map(String::as_str).filter(|p| !p.trim().is_empty())
+    }
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -203,10 +209,13 @@ fn outputs(g: &mut Game, ret: f64, vals: &[f64]) -> XVal {
     XVal::Array(g.ext.new_array(ArrayKind::List, entries))
 }
 
-/// Hue (degrees), saturation and value (0-1) from 0-255 channels [documented: RGBtoHSV;
-/// the conversion is the standard hexcone one, hypothesis].
+/// Hue (degrees), saturation and value (0-1) from 0-255 channels without input clamping
+/// [documented: RGBtoHSV; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+/// JohnnyGuitarNVSE 528, 2026-11-24, `w6_t1_07_jg_hsv_rgb`
+/// (`tools/capture/nvse/catalogs/wave6_t1_jg_colors.json`, `ext-jg7.md`):
+/// `(300, -10, 128) -> (333.290, 1.033, 1.176)`].
 pub fn rgb_to_hsv(r: f64, g: f64, b: f64) -> [f64; 3] {
-    let (r, g, b) = (r.clamp(0.0, 255.0) / 255.0, g.clamp(0.0, 255.0) / 255.0, b.clamp(0.0, 255.0) / 255.0);
+    let (r, g, b) = (r / 255.0, g / 255.0, b / 255.0);
     let max = r.max(g).max(b);
     let d = max - r.min(g).min(b);
     let h = if d == 0.0 {
@@ -221,8 +230,8 @@ pub fn rgb_to_hsv(r: f64, g: f64, b: f64) -> [f64; 3] {
     [h, if max == 0.0 { 0.0 } else { d / max }, max]
 }
 
-/// 0-255 channels from hue, saturation and value, rounded [documented: HSVtoRGB; the
-/// hexcone conversion and the rounding, hypothesis].
+/// 0-255 channels from hue, saturation and value, rounded to whole channels [documented:
+/// HSVtoRGB; observed: same `w6_t1_07_jg_hsv_rgb` probe — `(30, 0.5, 0.5) -> (128, 96, 64)`].
 pub fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [f64; 3] {
     let (h, s, v) = (h.rem_euclid(360.0), s.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
     let c = v * s;
@@ -240,8 +249,13 @@ pub fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [f64; 3] {
 }
 
 /// A `key = value` of an INI file's section, case-insensitively.
-fn ini_value(path: &std::path::Path, section: &str, key: &str) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
+/// A Data text file through the merged Data: NVForever's layer, then the game's Data and
+/// the host's index (a Mod Organizer 2 merge's mod folders).
+fn data_text(rel: &str) -> Option<String> {
+    crate::mod_files::read_data_file(rel).map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+fn ini_text_value(text: &str, section: &str, key: &str) -> Option<String> {
     let mut here = false;
     for line in text.lines() {
         let l = line.trim();
@@ -289,9 +303,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         "getyieldtimer" => XVal::Num(g.other.jg7.yield_timer.map_or(0.0, |(v, at)| (v - (g.time - at)).max(0.0))),
-        // 0 is the default [documented: Get/SetViewmodelClipDistance].
+        // 0 is the default [documented: Get/SetViewmodelClipDistance]; stores raw finite
+        // values including negatives without clamping to 0 [observed: Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), 10 official base masters, `jg_25_yield_timer_and_viewmodel_clip_neg`
+        // (`-5.00`) and `w4c_b3_05_jg7_bounds_heap` (`vc(0=0.0,neg=-5.0)`)].
         "setviewmodelclipdistance" => {
-            g.other.jg7.viewmodel_clip = num(args, 0, 0.0).max(0.0);
+            let v = num(args, 0, 0.0);
+            if v.is_finite() {
+                g.other.jg7.viewmodel_clip = v;
+            }
             zero
         }
         "getviewmodelclipdistance" => XVal::Num(g.other.jg7.viewmodel_clip),
@@ -324,8 +345,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // `reputation tier path`: 1 when set [documented: SetCustomReputationChangeIcon];
-        // a tier outside 1-4 or a form that is no REPU gives 0 [hypothesis].
+        // `reputation tier path`: 1 when set for tiers 1 and 4 on a `REPU`, and 0 for tiers
+        // 0 and 5 or a non-`REPU` form [documented: SetCustomReputationChangeIcon; observed:
+        // `b3_jg7_01_ui_sound_and_rep_icon_bounds` (`wave4b_extenders.json`) and
+        // `w4c_b3_05_jg7_bounds_heap` (`wave4c_extenders.json`), see
+        // docs/spec-notes/ext-jg7.md §1]; tiers 2 and 3 (and other out-of-range tiers beyond
+        // 0 and 5) remain [hypothesis].
         "setcustomreputationchangeicon" => {
             let (r, t, p) = (form(args, 0).filter(|&f| g.data.sig(f) == Some(*b"REPU")), int(args, 1).filter(|t| (1..=4).contains(t)), text(args, 2));
             match (r, t, p) {
@@ -443,13 +468,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `marker|list path`: a map marker reference, or each one of a form list
-        // [documented: SetCustomMapMarkerIcon], for the session.
+        // [documented: SetCustomMapMarkerIcon], for the session. An empty path clears the
+        // override back to the marker's type icon [hypothesis].
         "setcustommapmarkericon" => {
             let (Some(f), Some(p)) = (form(args, 0), text(args, 1)) else { return Some(Ok(zero)) };
             let list = crate::functions::list_members(g, f);
             let markers = if list.is_empty() { vec![f] } else { list };
             for m in markers {
-                g.other.jg7.marker_icons.insert(m, p.clone());
+                if p.trim().is_empty() {
+                    g.other.jg7.marker_icons.remove(&m);
+                } else {
+                    g.other.jg7.marker_icons.insert(m, p.clone());
+                }
             }
             zero
         }
@@ -460,8 +490,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // reference that is no map marker [hypothesis].
         "getcustommapmarkericon" => {
             let Some(r) = subject else { return Some(Ok(XVal::Str(String::new()))) };
-            let p = g.other.jg7.marker_icons.get(&r).cloned().or_else(|| {
-                let kind = g.world.placed.get(r)?.map_marker.as_ref()?.kind;
+            let p = g.custom_map_marker_icon(r).map(str::to_string).or_else(|| {
+                let kind = g.marker_kind(r)?;
                 let name = MAP_MARKER_ICONS.get(kind as usize).copied().unwrap_or("settlement");
                 Some(format!("Interface\\Icons\\World Map\\icon_map_{name}.dds"))
             });
@@ -505,17 +535,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 Some(8) => "bJIPFixes",
                 _ => return Some(Ok(zero)),
             };
-            let path = crate::mod_files::data_dir().map(|d| d.join("NVSE").join("Plugins").join("JohnnyGuitar.ini"));
-            let on = path.and_then(|p| ini_value(&p, "MAIN", key)).and_then(|v| v.parse::<f64>().ok()).is_some_and(|v| v != 0.0);
+            // Through the merged Data (a Mod Organizer 2 mod folder holds it) [observed:
+            // Nuclear Sunset's JohnnyGuitar.ini, `bJIPFixes = 1`, sits only in its mod
+            // folders; read from the stock Data, MCM Extender showed "Please enable the
+            // following JohnnyGuitar patches: > JIP Fixes: 0 -> 1", log
+            // nvforever-20261125-154352-15152.log].
+            let text = data_text("NVSE\\Plugins\\JohnnyGuitar.ini");
+            let on = text.and_then(|t| ini_text_value(&t, "MAIN", key)).and_then(|v| v.parse::<f64>().ok()).is_some_and(|v| v != 0.0);
             yes(on)
         }
         // DefaultHeapInitialAllocMB of Data\NVSE\nvse_config.ini [documented:
-        // GetDefaultHeapSize], any section; 0 without it [hypothesis].
+        // GetDefaultHeapSize], any section; 200 (xNVSE default) when absent [observed:
+        // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24,
+        // `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+        // `w4c_b3_05_jg7_bounds_heap`: `heap=200`].
         "getdefaultheapsize" => {
-            let path = crate::mod_files::data_dir().map(|d| d.join("NVSE").join("nvse_config.ini"));
-            let text = path.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+            let text = data_text("NVSE\\nvse_config.ini").unwrap_or_default();
             let v = text.lines().filter_map(|l| l.split_once('=')).find(|(k, _)| k.trim().eq_ignore_ascii_case("DefaultHeapInitialAllocMB")).and_then(|(_, v)| v.trim().parse::<f64>().ok());
-            XVal::Num(v.unwrap_or(0.0))
+            XVal::Num(v.unwrap_or(200.0))
         }
         // ---- nothing values ----
         // A debugger breakpoint [documented: AsmBreak]: nothing [decision: NVForever

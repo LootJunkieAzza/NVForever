@@ -178,6 +178,28 @@ pub fn targets(ui: &Ui, t: TileId) -> bool {
     flag(ui, t, "target")
 }
 
+/// The tile a script click (`ClickMenuTile`) acts on: `t` itself when its own `target` is
+/// true, else the nearest `<hotrect>` above it whose `target` is true [documented:
+/// Hotrect, "Hotrect with Target set to 1 will enforce it to its childs even if child
+/// Target is set 0"; ClickMenuTile, "should work with any interactable UI tile"].
+pub fn clickable_target(ui: &Ui, t: TileId) -> Option<TileId> {
+    if !ui.is_live(t) {
+        return None;
+    }
+    if targets(ui, t) {
+        return Some(t);
+    }
+    let mut at = ui.tile(t).parent;
+    while let Some(id) = at {
+        let tile = ui.tile(id);
+        if tile.kind == "hotrect" && targets(ui, id) {
+            return Some(id);
+        }
+        at = tile.parent;
+    }
+    None
+}
+
 /// The tile itself, or the nearest above it, whose own `target` is true.
 fn event_tile(ui: &Ui, t: TileId) -> Option<TileId> {
     let mut at = Some(t);
@@ -642,9 +664,12 @@ impl Pointer {
                 report.clicks.push(c);
                 return;
             } else if trait_name.eq_ignore_ascii_case(MOUSEOVER) {
+                let before = self.over;
                 self.highlight(ui, Some(t), report);
                 self.keyed = true;
-                report.over_by_key = report.over.is_some();
+                if self.over != before {
+                    report.over_by_key = true;
+                }
                 return;
             }
             report.unfollowed.push(format!("{name}: ref to {trait_name} not followed"));
@@ -865,7 +890,7 @@ mod tests {
         let r = p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure);
         assert_eq!(r.over, Some((None, Some(ok))));
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/mouseover"), Some(1.0));
-        // The parent rect and the child label get none [hypothesis].
+        // The parent rect and the child label get none (see production `Pointer::step` above).
         assert_eq!(ui.get_float("TestMenu/Main/mouseover"), None);
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/label/mouseover"), None);
         // A still pointer: no change, nothing reported.
@@ -894,7 +919,7 @@ mod tests {
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/clicked"), Some(1.0));
         ui.update();
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/_times"), Some(1.0));
-        // The next frame, the button still held or not: back to 0 [hypothesis: the press].
+        // The next frame, the button still held or not: back to 0 (see production `Pointer::step` above).
         let r = p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure);
         assert!(r.clicks.is_empty());
         assert_eq!(ui.get_float("TestMenu/Main/OkButton/clicked"), Some(0.0));
@@ -1031,10 +1056,17 @@ mod tests {
         assert_eq!(p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure).over, None);
         assert_eq!(p.over, Some(cancel));
         // Cancel's xup goes back; then the pointer moving takes the highlight again.
-        p.step(&mut ui, &[menu], &Input { pads: vec!["xup".into()], ..at(120.0, 115.0) }, &no_measure);
+        let r = p.step(&mut ui, &[menu], &Input { pads: vec!["xup".into()], ..at(120.0, 115.0) }, &no_measure);
+        assert!(r.over_by_key);
         assert_eq!(p.over, Some(ok));
-        p.step(&mut ui, &[menu], &at(220.0, 140.0), &no_measure);
+        let r = p.step(&mut ui, &[menu], &at(220.0, 140.0), &no_measure);
+        assert!(!r.over_by_key, "pure pointer highlight move is not a key navigation");
         assert_eq!(p.over, Some(cancel));
+        // A same-frame pointer move from Cancel onto Ok paired with Ok's xdown
+        // navigates Ok -> Cancel by pad, so over_by_key is true.
+        let r = p.step(&mut ui, &[menu], &Input { pads: vec!["xdown".into()], ..at(120.0, 115.0) }, &no_measure);
+        assert_eq!(r.over, Some((Some(cancel), Some(cancel))));
+        assert!(r.over_by_key, "xdown moved Ok -> Cancel after pointer moved Cancel -> Ok");
     }
 
     #[test]

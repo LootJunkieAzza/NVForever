@@ -29,19 +29,51 @@ one).
 
 The Controls tab's own rows (Input Device, Automatic Input Switching, Rumble, Invert Y, the
 sensitivities, the controls) stand under the Controls headings the page shows them in. The
-Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
+Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md (including
+`tweak-keep-chosen-ammo` — Keep Chosen Ammo, under Tweaks › Combat › Weapons and Armour,
+off by default, saved in `NVForever.ini` `[Settings]` [design: #3305]).
+
+Android-specific rows and HUD compatibility are documented in [the Android settings supplement](settings-reference-android.md); they are not part of the desktop launcher's built-in table.
 
 ## Gameplay › Game
 
 ### `difficulty`: Difficulty
 
-- On the page: How hard the fights are: from Very Easy (your hits do double damage, you take
-  half) to Very Hard (half and double); Normal as they are.
+- On the page: You deal / take / kill XP: Very Easy 200/50/100%, Easy 150/75/100%, Normal
+  100/100/100%, Hard 75/150/100%, Very Hard 50/200/100%. (In a game the numbers are the load
+  order's own: a plugin's `fDiffMult*` shows.)
 - In full: How hard the fights are: from Very Easy (the player's hits do double damage and
-  the player takes half) to Very Hard (half and double); Normal as they are. (console:
-  SetGameDifficulty 0-4)
+  the player takes half) to Very Hard (half and double); Normal as they are. Custom lets
+  the three sliders under the list, Player Damage, NPC Damage and Kill XP, set each part
+  yourself; scripts' GetGameDifficulty sees Custom as Normal (2). (console:
+  SetGameDifficulty 0-4; a script's SetGameDifficulty is kept as the chosen level)
 - Shown as a list since the menu overhaul; an older slider number in the INI still loads as
-  the nearest choice.
+  the nearest of the five levels.
+- Registered in `engine/nvf-play/src/difficulty.rs`
+
+### `difficulty-player-damage`: Player damage
+
+- On the page: Custom difficulty: how much damage your hits do, from 50% to 300%.
+- In full: The damage the player's hits do to anyone, 50% to 300% in steps of 5% (100% until
+  moved). Greyed unless Difficulty is Custom; kept as the slider's part
+  (0.20 = 100%).
+- Registered in `engine/nvf-play/src/difficulty.rs`
+
+### `difficulty-npc-damage`: NPC damage
+
+- On the page: Custom difficulty: how much damage you take from NPCs and creatures (and falls
+  and blasts), from 50% to 300%.
+- In full: The damage the player takes from every source (as the five levels scale it), 50%
+  to 300% in steps of 5% (100% until moved). NPCs' hits on each other and on companions
+  are not scaled, as at every level. Greyed unless Difficulty is Custom.
+- Registered in `engine/nvf-play/src/difficulty.rs`
+
+### `difficulty-kill-xp`: Kill XP
+
+- On the page: Custom difficulty: how much XP a kill earns, from 50% to 300%.
+- In full: The XP the player earns for a kill, 50% to 300% in steps of 5% (100% until
+  moved); other XP (quests, locks, terminals) is not scaled. Greyed unless
+  Difficulty is Custom.
 - Registered in `engine/nvf-play/src/difficulty.rs`
 
 ### `hardcore`: Hardcore mode
@@ -79,6 +111,24 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
   counts against anyone who sees you. The sneak gauges' noise bar marks the cover with a
   bright square. Off: detection is the original's. Not in the original (#2688).
 - Registered in `engine/nvf-play/src/sound_cover.rs`
+
+### `npc-weapon-mods`: NPC weapon mods
+
+- On the page: On: NPCs have a level-scaled chance (10%-60%, +2%/level) for their main weapon to spawn with random weapon mods. Off: NPC weapons have no extra mods, as in the original.
+- In full: Off by default. When on, each non-player NPC (`NPC_`, including leveled `LVLN` picks) rolls once when its main weapon is outfitted for a `Min(60, Max(10, Level * 2))`% chance to attach 1-3 random weapon mods from the weapon's valid `WMI1`-`WMI3` slots, without overwriting already-modded weapons or re-rolling across ticks. Never reads `jip_nvse.ini` (`docs/design/extender-compat.md` §8.4). Follows JIP LN NVSE Plugin `57.30` (`https://www.nexusmods.com/newvegas/mods/58277`) `jip_nvse.ini` `[GamePatches]` `bNPCWeaponMods` (`uWMChancePerLevel=2`, `uWMChanceMin=10`, `uWMChanceMax=60`; no DLL or source consulted): "When enabled, all NPCs will have a chance for their main weapon to include weapon mods. The chance is based on each NPC's level - the higher the level, the greater the chance. The type of mod(s) is selected randomly from the ones available for the particular weapon. Weapons have a chance to include multiple mods, though 2 mods is rare, and a fully-modded weapon is uncommon." NVForever's deterministic per-NPC seed, multi-mod probability curve, and single-roll tracking are NVForever's own (`[design]`, `docs/spec-notes/npc-weapon-mods.md`, #3876).
+- Registered in `engine/nvf-play/src/tweaks.rs`
+
+### `sneak-bounding-box`: Crouch height collision
+
+- On the page: On: crouching shrinks collision height for you and crouching human companions
+  to fit under low spaces, holding sneak if headroom is blocked. Off: fixed standing height.
+- In full: Default Off (vanilla keeps the standing character collider height while sneaking).
+  When On, crouching scales the collision capsule height for the player and crouching human
+  companions so they can move under low clearances, and keeps sneak active if overhead
+  geometry blocks standing back up. Optional NVForever setting following the public
+  `bSneakBoundingBoxFix` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/sneak-bounding-box.md`, #3845).
+- Registered in `engine/nvf-play/src/player.rs`
 
 ## Gameplay › V.A.T.S.
 
@@ -269,6 +319,37 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
   SystemSave to the system slot, ForceSave as a new save.
 - Registered in `engine/nvf-play/src/save.rs`
 
+## Gameplay › Combat
+
+### `localized-dt-dr`: Localized armor DT/DR
+
+- On the page: On: head hits use only worn head armor DT/DR and body hits only worn body
+  armor; explosions use all worn armor and innate DT/DR still applies. Off: full worn armor
+  everywhere.
+- In full: Default Off (vanilla sums all worn armor DT/DR across head and body slots on
+  every hit). When On, head hits benefit only from worn head-slot armor DT/DR and body hits
+  benefit only from worn body-slot armor DT/DR, while explosions still apply full worn armor
+  and actor innate DT/DR (AV 76/18) still applies everywhere. Optional NVForever setting
+  following the public `bLocalizedDTDR` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/localized-dt-dr.md`, #3843).
+- Registered in `engine/nvf-play/src/combat.rs`
+
+## Gameplay › Menus
+
+### `quantity-select-short-keys`: Quantity select shortcuts
+
+- On the page: In inventory, container and barter menus, Shift transfers or drops the whole
+  stack, Ctrl acts on one item, and weightless container stacks open the quantity prompt.
+- In full: Off by default (unmodded menu behaviour unchanged). On: in Inventory, Container
+  and Barter menus, holding Shift transfers or drops the entire stack and holding Ctrl
+  transfers or drops a single item without opening the quantity prompt (Shift takes
+  precedence if both are held); picking up a stack of more than one weightless item (such
+  as ammo outside Hardcore mode) from a container opens the quantity prompt instead of
+  taking without asking. Optional NVForever setting following the public `bQttSelectShortKeys`
+  behaviour in JIP LN NVSE Plugin v57.30 (`docs/spec-notes/quantity-select-short-keys.md`,
+  #3799).
+- Registered in `engine/nvf-play/src/menu.rs`
+
 ## Gameplay › Bug Reports
 
 ### `send-reports`: Send reports to help fix NVForever
@@ -287,11 +368,21 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 - More: docs/design/player-reports.md
 - Registered in `engine/nvforever/src/reports/delete.rs`
 
+## Gameplay › Co-op
+
+### `coop`: Co-op
+
+- On the page: On: the main menu shows Join Lobby and the pause menu a Co-op screen to open
+  a lobby. It stays on while a lobby is open or joined.
+- Off by default; kept in `NVForever.ini` `[Settings]` [design].
+- Greyed while a lobby is open or this game is a guest in one.
+- Registered in `engine/nvf-play/src/lobby.rs`
+
 ## Display › Screen
 
 ### `monitor`: Monitor
 
-- On the page: The display the game opens on in full screen (the first display until you
+- On the page: The display the game opens on in full screen (the main display until you
   pick one).
 - Command-line switches: `--window`
 - Registered in `engine/nvforever/src/settings.rs`
@@ -302,6 +393,16 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
   borderless). A new one goes back after 20 seconds unless you keep it.
 - Command-line switches: `--size`
 - Registered in `engine/nvforever/src/settings.rs`
+
+### `hdr-output`: HDR output
+
+- On the page: On: the game is drawn for an HDR screen (Windows HDR on). Takes effect at once.
+  Calibrate... sets the screen's peak and the brightness.
+- In full: A choice list: Off, On, Calibrate.... On draws the game in HDR on a screen with Windows
+  HDR on; with no HDR screen or no fp16 surface it stays SDR. It switches live, with no restart.
+  Calibrate... opens the calibration pictures for the screen's peak and the brightness.
+- More: docs/design/hdr-output.md
+- Registered in `engine/nvforever/src/hdr.rs`
 
 ### `borderless`: Full screen
 
@@ -321,7 +422,10 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 - In full: Vertical sync: each frame waits for the display's refresh (no tearing). Variable
   refresh: for a G-Sync or FreeSync screen, vertical sync with the frame rate held a few
   frames under the screen's refresh rate, so frames are shown as soon as they are drawn
-  without tearing. Off: frames are shown as soon as they are drawn (may tear).
+  without tearing; with DLSS frame generation, vertical sync is off and the limit is kept
+  (NVIDIA's frame generation does not take the game's vsync on Vulkan; for no tearing set
+  Vertical sync On for the game in the NVIDIA Control Panel).
+  Off: frames are shown as soon as they are drawn (may tear).
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `frame-cap`: Frame rate limit
@@ -330,7 +434,9 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
   keeps the computer cooler and quieter.
 - In full: At most this many frames a second (Off: as many as the computer draws, or the
   display's refresh with vertical sync; with variable refresh the lower of this and its own
-  limit). A lower limit keeps the computer cooler and quieter.
+  limit). It counts the frames shown: with frame generation the real frames are this divided
+  by the frames shown for each. With vertical sync a limit at or above the display's refresh
+  is left to vsync. A lower limit keeps the computer cooler and quieter.
 - Shown as a list since the menu overhaul; an older slider number in the INI still loads as
   the nearest choice.
 - Registered in `engine/nvforever/src/settings.rs`
@@ -444,9 +550,9 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
   upscaling (any mode; not with DLSS) and vertical sync or variable refresh, and real frames
   are held to just under half the refresh rate. DLSS: NVIDIA DLSS Frame Generation, one to
   three frames for each real frame (Generated frames, below); needs an upscaler (FSR 3.1 or
-  DLSS), Display sync Off, an NVIDIA RTX 40 series or newer graphics card, Windows'
-  hardware-accelerated GPU scheduling and NVIDIA's frame generation files in the dlss folder
-  beside nvforever.exe; frames are generated only while the game's window is in front.
+  DLSS), Display sync Off or Variable refresh, an NVIDIA RTX 40 series or newer graphics
+  card, Windows' hardware-accelerated GPU scheduling and NVIDIA's frame generation files in
+  the dlss folder beside nvforever.exe; frames are generated only while the game's window is in front.
   Latency reduction turns on with either. The HUD and menus are not generated; menus and
   loading screens show real frames only. Best from 60 real frames a second. Not in the
   original.
@@ -515,6 +621,13 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
   make, as detection counts them. Not in the original.
 - Registered in `engine/nvf-play/src/sneak_gauges.rs`
 
+### `caravan-tips`: Caravan tips
+
+- On the page: On: the Caravan table says what the chosen card does and why a card can't be
+  played, and the menu has a Tips button. Off: only the game's short messages. Not in
+  the original.
+- Registered in `engine/nvf-play/src/caravan.rs`
+
 ### `dynamic-crosshair`: Dynamic crosshair
 
 - On the page: On: with a gun or thrown weapon drawn the crosshair opens with how wide your
@@ -532,6 +645,18 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 - In full: With Dynamic crosshair on and a gun or thrown weapon drawn. Cross: four bars that
   part with the spread. Arrows: the plain crosshair's two arrows part instead.
 - Registered in `engine/nvf-play/src/reticle.rs`
+
+### `location-load-screens`: Location-specific loading screens
+
+- On the page: On: prefer loading screens matching the destination cell or worldspace over
+  generic screens. Off: mix matching and generic loading screens as in the original.
+- In full: Default Off (vanilla mixes generic loading screens into the same pool as
+  location-specific `LSCR` records). When On, destination-matching location-specific `LSCR`
+  records are always preferred over generic loading screens, falling back to generic screens
+  only when no location-specific screen matches. Optional NVForever setting following the
+  public `bLoadScreenFix` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/location-load-screens.md`, #3844).
+- Registered in `engine/nvf-play/src/loading.rs`
 
 ### `ui-scale`: HUD scale
 
@@ -1020,6 +1145,36 @@ below cover them all.
   shadows off too.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
+### `light-shadows`: ALC shadows
+
+- On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the
+  shadow distance, so walls stop their light. Performance redraws less often. Costs frame
+  rate. Not in the original.
+- In full: ALC stands for All Lights Cast; the row was called Lamp shadows until 2026-11-19.
+  The INI key `light-shadows`, the switch `--light-shadows` and the log lines starting
+  `light shadows:` keep the old name, so saved settings, scripts and the smoke scenarios go
+  on working. Off (the default), Performance or Quality, as Sun shadows. Every drawn placed
+  light whose light reaches within the sun's shadow distance (the Shadow distance and
+  Longer sun shadows rows) casts, nearest first, up to 32 lights on Quality and 16 on
+  Performance; grass fires' lights and lights a script attached count among them. Muzzle
+  flashes and explosions cast too, apart from them: the nearest whose light reaches within
+  3,000 units (about 43 m) and into view, 2 at once on Quality and 1 on Performance, each
+  drawn in the frame it appears. A light's maps are drawn when it starts casting and then
+  kept; a part of them is drawn again only when something there moved more than about 6 cm,
+  appeared or vanished, all of them once the light itself moved about 11 cm. At most 3 lights redraw in a frame on Quality, 1 on Performance, nearer ones
+  every frame (every 2nd on Performance), farther ones every 2nd (every 4th), so a moving
+  thing's shadow from a lamp can lag a frame. The world and your body cast, the first-person arms
+  do not; what lies within 8 units of a light casts nothing from it, and lamp housings,
+  shades and bulbs cast none from their own light. Quality also gives the shadows soft edges (sharp
+  where a thing touches the surface, softer away from it) and, while TAA, FSR or DLSS is
+  on, small contact shadows where things touch. A point light's maps
+  are 512² with Shadow resolution 2048, 1024² with 4096. Under a loading screen every
+  casting light's maps are drawn before play, those in view first, within 3 seconds. The
+  flashlight casts as before.
+  The original's placed lights cast none [design].
+- A list kept in the INI by name (`Off`, `Performance`, `Quality`).
+- Command-line switches: `--light-shadows`
+- More: docs/design/graphics-enhanced.md §3.17
 - Registered in `engine/nvforever/src/settings.rs`
 
 ## Graphics › Lighting and Effects
@@ -1028,14 +1183,41 @@ below cover them all.
 
 - On the page: Creases, corners and the ground under things darken by how enclosed they are:
   Off, Performance (cheaper, a little grainier) or Quality. Not in the original.
-- In full: Screen-space ambient occlusion from the depth, on the ambient light and the lamps
-  that cast no shadow: Off; Performance (one slice direction a pixel instead of two: half the
-  horizon march, the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4
-  steps a side at half resolution, depth-aware denoise). Quality in the enhanced look.
+- In full: Screen-space ambient occlusion from the depth, on the ambient light, on the lamps
+  that cast no shadow and by half on those that do (the flashlight, the ALC shadows row's
+  lamps), and on the lamps' highlights (a shiny surface no longer glints in a crease as in the
+  open): Off; Performance (one slice direction a pixel instead of two: half the horizon march,
+  the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4 steps a side at
+  half resolution, depth-aware denoise). Under TAA, FSR or DLSS its sample pattern moves each
+  frame, so what the denoise leaves on leaves and outlines is averaged away. Quality in the
+  enhanced look.
 - Shown as a list since 2026-11-19; an INI written while it was an on/off switch (`1`/`0`,
   true/false, on/off, yes/no) still loads as Quality or Off.
 - Command-line switches: `--graphics`, `--ambient-occlusion`
 - More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-clouds`: Volumetric clouds (experimental)
+
+- On the page: The weather's clouds drawn with depth, lit by the sun: Off, or Performance,
+  Normal or High, each finer and dearer than the last. A prototype. Not in the original.
+- In full: The weather's own cloud layers, as Cloud shadows composes them, become a
+  layer of cloud with thickness above the world, worked out per pixel: lit by the weather's
+  sunlight (by night its night light, from the moon), bright toward the sun, darker
+  underneath, coloured by the weather's cloud colours, fading into the sky toward the
+  horizon. Thick cloud hides the sun and the moon. The clouds follow the weather's cover,
+  drift and transitions, and Cloud shadows on the ground, where that row is on, are theirs while they
+  are drawn. High draws them into a buffer of two
+  fifths of the render size, Normal a third, Performance a quarter; Normal and Performance
+  also look for cloud along each ray at twice the spacing. A prototype. The water's
+  reflection, the scope's lens and a mod's extra cameras keep the weather's flat clouds while
+  it is drawn. With Cloud shadows on, switching it rebuilds the world's material pipelines.
+  Off in every preset; not in the original. Outdoors only.
+- Shown as a list since 2026-11-23; an INI written while it was an on/off switch (`1`/`0`,
+  true/false, on/off, yes/no) still loads as Normal or Off.
+- Command-line switches: `--graphics-only` (`volumetric-clouds` is Normal;
+  `volumetric-clouds-performance`, `volumetric-clouds-high`)
+- More: docs/design/graphics-enhanced.md §3.23, docs/design/volumetric-medium.md
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `light-shafts`: Sun shafts
@@ -1069,6 +1251,55 @@ below cover them all.
   every preset; not in the original. Outdoors only.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.16
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `aerial-perspective`: Aerial perspective (experimental)
+
+- On the page: On: far land takes on the sky's colours with distance, bluer at noon, warmer
+  at dusk, brighter toward the sun, inside the weather's fog. Not in the original.
+- In full: On: the weather's own distance fog fades far land toward the sky colour behind it
+  (its horizon and lower-sky colours) instead of the one fog colour, each colour channel at
+  its own pace set by the sky's hue (a blue sky fogs blue in first, a dusk sky warm), and
+  toward the weather's sun colour looking into the sun by day. The amount of fog stays the
+  weather's; a short or dense fog (a hazy weather, a dust storm) is left as it is. Off in
+  every preset; not in the original. Outdoors only.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.18
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `night-sky-detail`: Night sky detail (experimental)
+
+- On the page: On: stars twinkle a little, more near the horizon; the moon gets a glow and
+  lights the clouds facing it, wider in hazy weather. Not in the original.
+- In full: On: each star's light rises and falls a little, smoothly, one to four times a
+  second, hardly at all overhead and most near the horizon, a little more in hazier air; a
+  soft glow surrounds the moon, in the weather's night light colour, wider and a little
+  stronger the hazier the weather's fog, and the clouds near the moon take some of its light.
+  The glow and the moonlit clouds follow the moon's phase (none at the new moon) and show only
+  while the moon does; nothing by day or indoors. Built from the climate's own stars and
+  moon and the weather's own colours and fog, so mods' skies work too. Off in every preset;
+  not in the original.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.19
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-light`: Volumetric light (experimental)
+
+- On the page: On: sunlight and moonlight show in the air as rays and a glow toward a low
+  sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An
+  addition of NVForever's.
+- While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
+  it draws). A prototype. Outdoors only, by the sun by day and by
+  the moon at night (nothing at night in a climate without one), in the main view only. Off in every preset; not in the original.
+- Command-line switches: `--graphics-only`
+- More: docs/design/volumetric-medium.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `volumetric-light-strength`: Volumetric light strength
+
+- On the page: How strongly the light in the air brightens lit air and darkens shaded air:
+  100% is the look as tuned, 0% none.
+- 0 % to 200 % in steps of 10 %, 100 % by default; greyed while Volumetric light is off.
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `bloom`: Bloom
@@ -1230,14 +1461,15 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `authored-reflections`: Reflections on authored materials
 
-- On the page: On: surfaces with a texture pack's material maps reflect the sky outdoors and
-  the cell's ambient colours indoors. Needs such a pack and Authored materials on. Takes
-  effect at the next start.
+- On the page: On: pack materials reflect the sky outdoors and an approximation of the
+  room and nearby lights indoors. Needs a material pack and Authored materials on.
+  Takes effect at the next start.
 - In full: [design, #2981] Surfaces shaded from an authored set reflect a small cube of the
   world camera's surroundings, blurred by their roughness, and the `_orm`'s metallic channel
-  takes effect: outdoors the sky as drawn, sunlit ground and a broad glow toward
-  the sun or the moon; indoors the cell's ambient colour with its fog colour at the
-  horizon. No clouds, sun disc, nearby objects or rooms are reflected. A metal's base colour
+  takes effect. Outdoors it reflects the sky, ground and a broad glow toward the sun or
+  moon. Nearby lamps can light the ground in the cube at night. Indoors it approximates
+  the room with a box lit by the cell's ambient light and nearby lamps. The cube omits
+  cloud shapes, the sun disc and nearby objects. A metal's base colour
   is lifted by its set's metal gain (12 by default) so it reflects
   as a metal. Only authored materials reflect: the game's own materials, terrain, trees, grass and water are
   unchanged. Nothing changes without a pack, or with Authored materials off. Off: metallic
@@ -1272,6 +1504,34 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - More: docs/design/graphics-enhanced.md §3.13
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `terrain-parallax`: Terrain parallax
+
+- On the page: On: ground textures a texture pack gives height maps for (textures\pbr\)
+  show depth near you, for some GPU time. Without such a pack nothing changes.
+- In full: [design, #3322] On: where a texture pack gives a landscape layer's texture a
+  height map (`_p` in its set under `textures\pbr\`, the format of
+  docs/spec-notes/pbr-materials.md), the ground near the camera shows that relief: one
+  march over the layers' heights, blended as the layers are, moves the texture coordinate
+  every ground texture is read at, fading out by 2048 units; each layer moves as far as its
+  own set's depth asks. The base texture of a quadrant and layers without a height map
+  count as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
+  collision, the mesh terrain blend and the distant landscape keep the plain surface, and
+  so do layers drawn on their own (GPUs without bindless textures; a texture repeat that
+  does not divide the cell). A layer whose texture has no set takes the height from its
+  diffuse's alpha where that is a varying DXT5 alpha, as the ground packs for the original's
+  terrain parallax shaders have it (depth 0.03; read only while the switch is on, over some
+  frames when it is switched on in a game). Needs
+  Authored materials: in the game, as this run has it
+  (greyed until a restart when it was off at the start; still available after turning it
+  off for the next start); in the launcher, as saved. The original draws no relief on its
+  landscape [observed: the maintainer's run of observer check 268, 2026-11-22, by eye], so this
+  is an enhancement that acts only with a ground pack. Off by
+  default and in both presets until its cost is measured (the maintainer's call); switches
+  at once, no restart.
+- Command-line switches: `--graphics-only` (`--graphics-only terrain-parallax`)
+- More: docs/spec-notes/pbr-materials.md "Terrain layers: parallax"
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `mesh-terrain-blend`: Blend meshes into ground
 
 - On the page: On: softens where outdoor roads, rocks and cliffs meet the landscape, giving
@@ -1284,6 +1544,21 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - Command-line switches: `--graphics-only` (`--graphics-only mesh-terrain-blend`)
 - More: docs/design/graphics-enhanced.md §3.14
 - Registered in `engine/nvforever/src/settings.rs`
+
+### `occlusion-culling`: Occlusion culling
+
+- On the page: On: hidden objects are skipped before drawing. Helps when the GPU limits
+  the frame rate (high resolutions, dense towns); costs some CPU. Takes effect at the next
+  start.
+- In full: [design] Bevy's two-phase GPU occlusion culling on the main camera: meshes
+  hidden behind nearer ones (by last frame's depth, then this frame's) are not drawn.
+  First-person shapes are never culled. [observed 2026-11-24, 4K DLSS Quality, maxed
+  settings, 9950X3D + RTX 5090] Novac's GPU time 4.96 → 4.31 ms, but its frame 6.96 → 7.18
+  ms, as the second culling phase costs render-thread time: it helps where the GPU holds
+  the frame rate and costs a little where the CPU does (docs/design/frame-rate-audit.md
+  §13). Off by default. Read once at the start, so a change applies at the next start. The
+  test aid `NVF_OCCLUSION_CULLING` (`1` on, `0` off) overrides the saved row for a run.
+- Registered in `engine/nvforever/src/gpu_occlusion.rs`
 
 ### `smooth-terrain`: Smooth terrain
 
@@ -1356,6 +1631,22 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 - Command line: `--tree-distance` sets where the slider starts (40,000 units by default, at
   most `--lod-distance`; 0 draws no distant trees whatever the slider); `--lod-distance` sets
   the slider's end
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `distant-lights`: Distant lights (experimental)
+
+- On the page: On: at night, lamps in the places beyond the loaded area show as small
+  glows, so towns can be seen from afar. They light nothing. Not in the original.
+- In full: On: the placed lights of the cells up to 12 cells away that are not loaded, and
+  the objects there that glow by themselves (lamps, glow cards, light beams, lit sign
+  panels, neon), are drawn as small soft glows in their own colour, at most 400 of them,
+  the nearest and brightest first, lights standing close together as one. They fade out
+  toward the edge of that reach and into the weather's fog, give way to the real lights as their cells load,
+  and fade away as the sun rises. A lamp that is switched off, or disabled by the game,
+  shows none. Sprites only: nothing is lit and no shadow is cast. Off in both presets; not
+  in the original. Outdoors only.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.22
 - Registered in `engine/nvforever/src/settings.rs`
 
 ## Graphics › World and Animation

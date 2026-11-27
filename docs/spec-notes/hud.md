@@ -206,7 +206,14 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   long and 20 high [documented: the size], the bar at brightness 175 over an opaque
   ground at 100 [observed: §14.7, the original's 175/255 and 100/255 of the HUD's colour;
   T12e]; until T12e the bar at 255 over the bar's colour at a quarter's alpha
-  [hypothesis: as `meter.xml`'s ground]. The bar ends 17 before the divider (x 130–190)
+  [hypothesis: as `meter.xml`'s ground]. A player report (#3309) says the original's
+  bar has transparent parts. The shots of §14.7 read it as above [observed]; the
+  ground's template `MeterBackground` has no `alpha` trait [documented:
+  hudtemplates.xml] and `vats_bar.dds`'s block is opaque [documented: the texture],
+  which is static evidence, not proof that the original never shows it translucent
+  (a translucent fill over an opaque ground would read the same on those shots)
+  [hypothesis]. It stays opaque until observer check 264 says otherwise [design].
+  The bar ends 17 before the divider (x 130–190)
   [observed: §14, read through xNVSE and on its screenshot; 10 before stood 7 too far
   right],
   "CND" ending 11 before it, and its bottom stands 2 above the line "CND" stands on
@@ -302,8 +309,10 @@ the compass the eight directions' letters in Bevy's font.
   up within 0.34 s, held about 1.3 s. [hypothesis] `xp_meter.rs` fits the notice at
   7.2 s, with a 1.2 s gap and symmetric 0.34 s fades (experience.md §6). History:
   0.25 s fade, 3 s hold, immediate eased 0.6 s slide and LEVEL UP replacing +n XP.
-  [design: owner 2026-10-24; maintainer's choice T12b B/M4; needs an issue] The filled-bar
-  sound and 5 s sound-to-menu wait stay; the original's sound moment is not captured.
+  [owner 2026-10-24; observed: private job hud_xp_limbs2, x9_level_up_long; design: #3438]
+  The filled-bar sound stays at 4.0 s and `LEVEL_UP_DELAY` is 5.35 s so the menu opens at
+  the observed 9.35 s after the `LEVEL UP` fade (9.18 s); the original's sound moment is
+  still uncaptured.
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
 - The breath meter is built: drowning.md §3 (`hud_breath.rs`); from its `nif` tile with
   `[UI] TileMenus=HUDMainMenu` (§14.12).
@@ -444,26 +453,27 @@ mouse button, and stayed 8 with nothing pressed).
 (`sneak_nif`); the template `sneak_bracket` (`glow_stealth_metre_seperator.dds`) is a
 bracket like the enemy's. [observed: the owner's four screenshots] The original shows
 neither: only a word in brackets, centred at the top of the view, its line at y 51 from
-the top, in font 7: `[HIDDEN]` and `[DETECTED]` in the HUD's colour, `[CAUTION]` and
-`[DANGER]` in its alternative red. The words are not in `FalloutNV.esm`'s settings
-(they would be the program's defaults); they are written here as the screenshots show
-them.
+the top, in font 7: one of four words, the two calm ones in the HUD's colour, the two
+warnings in its alternative red. The words are not in `FalloutNV.esm`'s settings
+(they would be the program's defaults), so NVForever writes its own [design, #2984]:
+`[UNSEEN]`, `[SPOTTED]`, `[ALERT]` and `[COMBAT]`.
 
 Shown while the player sneaks (`PlayerControl::sneak`), with the rest of the HUD. Which
-word [hypothesis: the meaning players give the words; not documented]: `[DANGER]` when
-an actor is in Combat with the player as its target; else `[CAUTION]` when an actor in
+word [hypothesis: the meaning players give the words; not documented]: `[COMBAT]` when
+an actor is in Combat with the player as its detected target (an enemy left in an unloaded
+cell, or out of reach, detects the player no more: alert.md §2, #3390); else `[ALERT]` when an actor in
 Alert or Lost has the player among its threats or an alarm the player caused
-(`fnv_game::awareness`); else `[DETECTED]` when some actor's latest detection of the
-player is in the detected band (`Game::detection`, value above 0); else `[HIDDEN]`.
+(`fnv_game::awareness`); else `[SPOTTED]` when some actor's latest detection of the
+player is in the detected band (`Game::detection`, value above 0); else `[UNSEEN]`.
 Teammates and actors whose current package is a Follow or Accompany package on the
-player (`Game::with_player`) count for neither `[CAUTION]` nor `[DETECTED]`; their
+player (`Game::with_player`) count for neither `[ALERT]` nor `[SPOTTED]`; their
 detection is still measured and kept for their own AI [observed: owner's playtest
-2026-10-31, #1159: a following companion alone set `[DETECTED]`, which the owner
+2026-10-31, #1159: a following companion alone set `[SPOTTED]`, which the owner
 reports the original does not; hypothesis: the original leaves companions out by the
 same rule, observer-checks.md P3 16]. Other actors, hostile or not, still count
 [hypothesis: a neutral seeing the player is what theft and pickpocketing care about;
 not checked in the original, observer-checks.md P3 16]. An actor with the player that
-is in Combat with the player still gives `[DANGER]` [design].
+is in Combat with the player still gives `[COMBAT]` [design].
 Logged as `hud: sneak [WORD]` on each change. (`fnv_game::detection::Band::meter`
 names the bands HIDDEN, CAUTION, DANGER for the detection log; that older mapping is not
 what the HUD shows.)
@@ -493,15 +503,60 @@ menu's (`dialogue_menu.rs`).
   `Map Markers`] An actor is a tick over the strip, red when hostile and amber (the HUD's
   colour) otherwise; a map marker is a small triangle under the letters, hollow before
   the player has been there (`glow_hud_compass_landmark.dds`) and filled after
-  (`…_landmark_discovered.dds`). The sizes and places NVForever uses are fitted to those
-  screenshots: the tick drawn 26 units high with its top 9 below the window's (its bar
-  from under the bracket's line to the strip's), the triangle drawn at 0.6 of its
-  texture with its middle 46.7 down the window.
+  (`…_landmark_discovered.dds`). The triangle's size and place are fitted to those
+  screenshots: drawn at 0.6 of its texture with its middle 46.7 down the window. So were
+  the tick's until #3310 (26 units high, its top 9 below the window's).
+- **The actor ticks' box** (#3310; the hand-built HUD, `compass::mark_box`; the tile HUD
+  draws the file's box).
+  - The template's actor group stands at y 5 [documented: `hudtemplates.xml`,
+    `template_compass_npc_icon_group`], but the copy the original's code makes reads y 10
+    at run time [observed: §14.4, read from the original], which NVForever writes
+    (`ui_hud::copies`). Each tick is at y -10 in the group, 32 x 32 [documented:
+    `hudtemplates.xml`, `compass_npc_icon`], so the box's top is the window's top.
+  - The picture's bar is whole in texel columns 6-11 and rows 4-26, its alpha and colour
+    rising downwards to full at rows 22-26; row 27 has alpha 184 of 255 and a colour of
+    129, row 28 125 and 68 [observed: `glow_hud_tick_mark.dds`, 32 x 32, from `Fallout -
+    Textures2.bsa`, decoded]. Drawn a texel a unit it is 6.2 units wide and ends 27 down
+    [both worked out from the texels, at half contrast over a mid-grey ground].
+  - [observed 2026-11-24: the original, base game + xNVSE 6.4.9 + JIP LN, save hudtest,
+    Goodsprings at night looking up 60 degrees into a black sky, 1920 x 1080 windowed,
+    1.125 pixels a unit, private job `compass_310`, grabbed at native size]
+    - The visible tick (`compass_window/*:0/*:8`) reads x 177.88, y -10, width and height
+      32, zoom -1, depth -10, alpha and brightness 255; its group y 10, depth 2; the window
+      y 65, height 64, depth 1.
+    - With the strip and the bracket set to alpha 0 the tick's column of pixels is the
+      picture's colour times its alpha, drawn 37 pixels high (36 rounded up) from 976.5
+      pixels down the screen, to 0.004 of full brightness (rms over 38 rows); the same
+      picture 26 units high does not fit. Its bar ends at about 1007.6, the strip's upper
+      line starts at 1009: the strip's line is at rows 29 and 30 of its 64, so the window's
+      top is at 976.4 and the two agree.
+    - The strip and the bracket are drawn over the tick (its depth is -10): their dark
+      halos (alpha over half within four rows of a line) dim the bar's top and its last
+      five or so pixels, which is why its end reads softer than the picture's.
+  - [design] The hand-built tick has that box: 32 x 32 at the window's top, its bar's
+    middle on the bearing, under the bracket and the strip (`hud::CompassTicks`, #3777). At
+    1920 x 1080 it is 36 pixels, so its bar ends a pixel above the original's [observed: a
+    run beside the frame above]; why the original's is 37 is not known. Before #3310 it was 26 units high with its top 9 down, the bar
+    ending 30.9 down, on the strip's line (a player: slightly low). #3310's first change
+    put its top at 4.125, taking the bar for the top 22 of 32 rows, which the decoded
+    picture does not bear out: it ended 26.1 down and was too thin (the same player: now
+    too high).
 - [hypothesis] Which actors: the living NPCs and creatures of the loaded cells within
-  Perception × 300 units of the player; which markers: those of the worldspace within
-  Perception × 2048, while outdoors. No game setting for these ranges is in the masters.
-  Hostile is the enemy bar's rule (§8). Each mark stands at its bearing from the
+  Perception × 300 units of the player; no game setting for this range is in the
+  masters. Hostile is the enemy bar's rule (§8). Each mark stands at its bearing from the
   player's heading at 1024 units for 360 degrees, the strip's scale.
+- Which markers: those of the worldspace within `iMapMarkerVisibleDistance` of the player
+  (measured across the ground), found and unfound alike and whatever the Perception,
+  while outdoors. The setting is not in the masters; its default in the executable is
+  10000, and `iMapMarkerRevealDistance`'s 1000 [documented: GECK wiki "Complete List of
+  GameSettings"; the wiki does not describe either]. NVForever reads the load order's
+  setting and falls back on 10000 (`engine/nvf-play/src/compass.rs`, `marker_range`).
+  That this setting is the compass's cut-off for markers is [hypothesis]: its name, and
+  Oblivion's setting of the same name; nothing on the wiki ties the marker range to
+  Perception (its SPECIAL page links Perception only to hostile marks on the compass).
+  Observer check 227 asks the original (#2348). Until #2348 the range was Perception ×
+  2048, built for the owner's playtest list 5 item 12 ("range by Perception"); the
+  change back to the original's fixed range is in docs/owner-review.md for the owner.
 - [observed: the owner, 2026-10-23] An actor that sneaks gets no tick. NVForever's
   "sneaks" is IsSneaking's (`fnv_game::Game::is_sneaking`: the engine's measure, else
   SetForceSneak, an Always Sneak package, a crouch to fire or reload, a teammate
@@ -1203,9 +1258,10 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   +5 example]; further gains update the endpoint. LEVEL UP alone appears around
   7.2 s, rises within 0.34 s, holds about 1.3 s, falls by 9.35 s. [design] Tile-only
   `ui_hud::Animation` clocks pause without the HUD and reset on tree rebuild or XP/
-  level reset. They do not schedule sounds/menus: the hand-built menu delay can
-  interrupt this longer visual sequence [documented: nvf-play/src/xp_meter.rs,
-  LEVEL_UP_DELAY]. Reconciling that owner's delay is outside part A.
+  level reset. They do not schedule sounds/menus: `xp_meter` keeps `UILevelUpText` at the
+  filled bar (4.0 s, owner 2026-10-24) and opens the menu `LEVEL_UP_DELAY` (5.35 s) later
+  at 9.35 s, matching the observed menu opening after the `LEVEL UP` fade finishes at
+  9.18 s [documented: nvf-play/src/xp_meter.rs, LEVEL_UP_DELAY; #3438].
 - [observed: private job hud_xp_limbs l1-l3] Limb pictures at zoom 75:
 
   | Picture | x,y | width,height |

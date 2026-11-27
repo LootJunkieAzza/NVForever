@@ -141,6 +141,19 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
     })
 }
 
+/// The winning definition of a placed reference, with any matching [`crate::bos::BosTable`]
+/// base-object swap applied to [`Placement::base`]. When `bos` is empty this behaves
+/// identically to [`placement`].
+pub fn placement_with_bos(lo: &LoadOrder, schema: &Schema, bos: &crate::bos::BosTable, fid: u32) -> Option<Placement> {
+    let mut p = placement(lo, schema, fid)?;
+    if !bos.is_empty() {
+        if let Some(base) = p.base {
+            p.base = Some(bos.resolve(fid, base));
+        }
+    }
+    Some(p)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BaseObject {
     pub form_id: u32,

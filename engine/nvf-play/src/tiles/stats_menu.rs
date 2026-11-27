@@ -23,9 +23,10 @@
 //! - **Status** ([`StatusPaths`], [`StatusShown`]): the sub-page by
 //!   `stats_status_container/user0`, code writing what the file leaves to it: the limbs' meters
 //!   and pictures, the hints' lines, the rads and the effects' rows. The bars and "crippled" words
-//!   are the Stimpak's targets on a limb [owner 2026-10-23], which the file does not make them,
-//!   as are the limb's picture, and over the head the face, which it does while hurt.
-//!   The hand-built page's box on a limb pointed at or chosen has no tile: lost behind the switch.
+//!   are limb healing targets on CND (Stimpak outside Hardcore [owner 2026-10-23], Doctor's Bag in
+//!   Hardcore [#3431]), which the file does not make them, as are the limb's picture, and over the
+//!   head the face, which it does while hurt. The aimed limb's bar or "Crippled" word is framed by
+//!   a selection box appended to `pieces` after `usable` [design: #3431].
 //!   H2O, FOD and SLP are written on RAD's shape [observed: run07b, the same places and scale].
 //! - **The tabs not listed** stay fully hand-built. The menu persists across tabs and reopenings, and
 //!   its rows while their list is the one shown ([`Written`]); going to another list unloads
@@ -222,7 +223,9 @@ pub struct StatusPaths {
     pub needs: [[TileId; 3]; 3],
     pub effects: TileId,
     pub no_effects: TileId,
-    /// The hidden hint's words, in a file that has them ([`write_status`]).
+    /// The limb-switch hint button (`stats_healing_mode`) and its words, in a file that has them
+    /// ([`write_status`]).
+    pub healing: Option<TileId>,
     pub healing_text: Option<TileId>,
 }
 
@@ -342,6 +345,31 @@ pub(super) fn find_named(ui: &Ui, root: TileId, name: &str) -> Option<TileId> {
     None
 }
 
+/// [design] Resolve a tile by its exact vanilla path first (leaving unmodded trees
+/// unchanged), falling back segment-by-segment to direct child or live descendant search
+/// under each enclosing container when a UI mod wraps a tile inside an extra `<rect>` or
+/// container. Each segment stays scoped beneath the previously resolved container so
+/// generic child names (such as `button_text` or `CI_TitleText`) never escape into a
+/// sibling subtree.
+pub(super) fn resolve_tile(ui: &Ui, path: &str) -> Option<TileId> {
+    if let Some(exact) = ui.find_tile(path) {
+        return Some(exact);
+    }
+    let mut parts = path.split('/').filter(|s| !s.is_empty());
+    let root = parts.next()?;
+    let mut cur = ui.menu(root)?;
+    for seg in parts {
+        cur = list::child(ui, cur, seg).or_else(|| {
+            ui.tile(cur)
+                .children
+                .iter()
+                .copied()
+                .find_map(|c| find_named(ui, c, seg))
+        })?;
+    }
+    Some(cur)
+}
+
 /// Whether the row's template can be found from `list` as the tree looks for it: on that tile
 /// or on one above it (`fnv_ui::Ui::add_code_tile_from_template`).
 fn has_template(ui: &Ui, list: TileId, template: &str) -> bool {
@@ -415,6 +443,7 @@ pub fn paths(ui: &Ui, page: usize, cut: Option<&str>) -> Result<Paths, String> {
             needs,
             effects: get(EFFECTS)?,
             no_effects: get(NO_EFFECTS)?,
+            healing: get(HEALING).ok(),
             healing_text: get(HEALING).ok().and_then(|b| find_named(ui, b, BUTTON_TEXT)),
         })
     } else if page == GENERAL_TAB {
@@ -586,6 +615,8 @@ pub struct At {
     pub highlight: bool,
     pub selected: usize,
     pub device: bool,
+    /// The limb hovered or chosen on Status > CND (`StatsView::aimed`).
+    pub aimed: Option<usize>,
 }
 
 /// What General shows beside its list, as written last. No word here comes from the hand-built
@@ -641,6 +672,7 @@ pub struct StatusShown {
     pub needs: [String; 3],
     pub hardcore: bool,
     pub no_effects: bool,
+    pub switch_limbs: String,
 }
 
 /// A hint's line.
@@ -688,6 +720,7 @@ impl StatusShown {
             needs: snap.needs.map(meter_figure),
             hardcore: snap.hardcore,
             no_effects: at.status == 2 && snap.effects.is_empty(),
+            switch_limbs: snap.switch_limbs.clone(),
         }
     }
 }
@@ -879,9 +912,14 @@ fn write_status(ui: &mut Ui, menu: TileId, st: &StatusPaths, s: &StatusShown, su
     ui.write_changed(st.no_effects, "visible", flag(s.no_effects));
     // The controller's hint between the Stimpak's and the bag's keeps its place while hidden
     // [observed: run07, the bag's y 114, two boxes of 52 down]: with no words it would measure
-    // nothing, and the bag would stand under the wrong point.
-    if let Some(words) = st.healing_text.filter(|&t| ui.tile(t).get("string").is_none_or(|v| v.text().is_empty())) {
-        ui.write_changed(words, "string", Value::Str(" ".to_string()));
+    // nothing, and the bag would stand under the wrong point. When `sSwitchLimbs` is present,
+    // writing it also gives the controller-visible tile its label (#3431).
+    if let Some(words) = st.healing_text {
+        if !s.switch_limbs.is_empty() {
+            ui.write_changed(words, "string", Value::Str(s.switch_limbs.clone()));
+        } else if ui.tile(words).get("string").is_none_or(|v| v.text().is_empty()) {
+            ui.write_changed(words, "string", Value::Str(" ".to_string()));
+        }
     }
 }
 
@@ -1373,7 +1411,8 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
     if tab == STATUS_TAB {
         view.set_status_pages(if snap.hardcore { SUB_BUTTONS.len() } else { 3 });
     }
-    let at = At { tab, reputation: view.reputation, status: view.status, highlight: view.highlight, selected: view.selected[tab], device };
+    let aimed = (tab == STATUS_TAB && view.status == 0).then(|| view.aimed()).flatten();
+    let at = At { tab, reputation: view.reputation, status: view.status, highlight: view.highlight, selected: view.selected[tab], device, aimed };
     let rows = rows_of(snap, tab, at.reputation, at.status);
     let wanted: Vec<(RowKey, &str)> = rows.iter().map(|r| (r.key, r.name.as_str())).collect();
     let row_parts = p.row_parts();
@@ -1470,9 +1509,12 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
     if late {
         ui.update();
         // Every final pass, so readiness is about the tree that is about to be painted.
-        let pieces = fonts.set_out(ui, p.menu);
+        let mut pieces = fonts.set_out(ui, p.menu);
         let in_sight = w.geometry.as_ref().map_or(0..w.rows.len(), |g| g.top..g.top + g.visible);
         tiles.desc_area = usable(ui, &p, &w.rows, in_sight, &pieces)?;
+        if let (TabPaths::Status(st), Some(limb)) = (&p.tab, aimed) {
+            append_limb_box(ui, &mut pieces, st.limbs[limb]);
+        }
         tiles.pieces = pieces;
         let w = &mut tiles.written;
         if std::mem::take(&mut w.tell) {
@@ -1501,6 +1543,43 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
         }
     }
     Ok(p.menu)
+}
+
+/// Frame the aimed limb's condition bar (or its "Crippled" word at 0) on tile-drawn
+/// Status > CND, matching the hand-built page's selection box (`stats::condition`)
+/// [design: #3431]. Appended after [`usable`] so hit-testing and tile counts stay untouched.
+fn append_limb_box(ui: &Ui, pieces: &mut Vec<Piece>, limb: LimbPaths) {
+    let target = pieces
+        .iter()
+        .find(|p| p.tile == limb.pct)
+        .or_else(|| pieces.iter().find(|p| inside(ui, p.tile, limb.pct)))
+        .or_else(|| pieces.iter().find(|p| p.tile == limb.crippled))
+        .or_else(|| pieces.iter().find(|p| p.tile == limb.picture))
+        .cloned();
+    let Some(base) = target else { return };
+    let pad = if base.tile == limb.crippled { 4.0 } else { 0.0 };
+    let r = layout::Rect {
+        left: base.rect.left - pad,
+        top: base.rect.top - pad,
+        width: base.rect.width + pad * 2.0,
+        height: base.rect.height + pad * 2.0,
+    };
+    let t = f64::from(crate::pipboy::frame::THICK);
+    if r.width <= 0.0 || r.height <= 0.0 {
+        return;
+    }
+    let scale = crate::pipboy::frame::LINE / 255.0;
+    let colour = [base.colour[0] * scale, base.colour[1] * scale, base.colour[2] * scale, base.colour[3]];
+    let depth = base.depth + 1.0;
+    let edges = [
+        layout::Rect { left: r.left, top: r.top, width: r.width, height: t },
+        layout::Rect { left: r.left, top: (r.top + r.height - t).max(r.top), width: r.width, height: t },
+        layout::Rect { left: r.left, top: r.top, width: t, height: r.height },
+        layout::Rect { left: (r.left + r.width - t).max(r.left), top: r.top, width: t, height: r.height },
+    ];
+    for rect in edges {
+        pieces.push(Piece { tile: base.tile, look: Look::Box, rect, clip: base.clip, colour, depth, tex: None, turn: None, crop: None });
+    }
 }
 
 /// A line for the log when what the page shows changes (smoke reads these).
@@ -1675,7 +1754,10 @@ pub enum StatsTile {
     Sub(usize),
     /// A hint on Status.
     Hint(usize),
-    /// A limb's bar, its word or its picture on CND: the Stimpak's target [owner 2026-10-23].
+    /// The limb-switch hint on Status > CND (`stats_healing_mode`, shown with a controller).
+    SwitchLimbs,
+    /// A limb's bar, its word or its picture on CND: Stimpak outside Hardcore [owner 2026-10-23],
+    /// Doctor's Bag in Hardcore (#3431).
     Limb(usize),
 }
 
@@ -1704,6 +1786,9 @@ pub fn stats_tile(ui: &Ui, p: &Paths, rows: &[MadeRow], tile: TileId) -> Option<
             }
             if let Some(i) = st.hints.iter().position(|h| h.button == t) {
                 return Some(StatsTile::Hint(i));
+            }
+            if st.healing == Some(t) {
+                return Some(StatsTile::SwitchLimbs);
             }
             if let Some(i) = st.limbs.iter().position(|l| l.pct == t || l.crippled == t || l.picture == t) {
                 return Some(StatsTile::Limb(i));
@@ -1791,6 +1876,7 @@ pub(crate) struct Feed {
     /// The row the pointer last selected, while it stays on it.
     acted: Option<usize>,
     drag: Option<MarkerDrag>,
+    touch_drag: bool,
     /// Where the pointer was last frame, and the tile under it then.
     last_at: Option<(f64, f64)>,
     under: Option<TileId>,
@@ -1844,8 +1930,33 @@ pub(crate) struct FeedPip<'w> {
     screen: Option<Res<'w, PipBoyScreen>>,
     aid: Res<'w, PipBoyAid>,
     paused: Option<Res<'w, crate::pause::Paused>>,
+    touch:Option<Res<'w,crate::pipboy::touch_items::TouchItems>>,
+    admission: crate::pipboy::touch_items::Admission<'w>,
+
 }
 
+pub(crate) fn touch_target(tiles:&StatsTiles,ui:&Ui,menu:TileId,point:Vec2,view:&StatsView)->Option<crate::pipboy::touch_scroll::NativeTarget>{
+    use crate::pipboy::touch_scroll::{NativeRow,NativeTarget};
+    NativeTarget::at(ui,menu,point,|tile| {
+        let paths=tiles.written.paths?;
+        match stats_tile(ui,&paths,&tiles.written.rows,tile) {
+            Some(StatsTile::Row(index))=>tiles.written.rows.get(index).map(|r|NativeRow::Stats(r.key)),
+            Some(StatsTile::Hint(hint))=>Some(NativeRow::StatsHint{hint,status:view.status,limb:if hint==stats::model::STIMPAK {view.limb}else{None}}),
+            _=>None,
+        }
+    },|_|None,|_|true)
+        .map(|target| target.with_control(|tile| tiles.written.paths.is_some_and(|p|matches!(stats_tile(ui,&p,&tiles.written.rows,tile),Some(StatsTile::Marker|StatsTile::ListBar(BarPiece::Marker))))))
+}
+pub(crate) fn touch_navigation(tiles:&StatsTiles,ui:&Ui)->Vec<crate::pipboy::tab_swipe::Region> {
+    use crate::pipboy::tab_swipe::{native_region,Kind};
+    let Some(paths)=tiles.written.paths else {return Vec::new()};
+    tiles.pieces.iter().filter_map(|p| {
+        let kind=if p.tile==paths.title {Kind::Sections}
+            else if matches!(stats_tile(ui,&paths,&tiles.written.rows,p.tile),Some(StatsTile::Tab(_))) {Kind::Subtabs}
+            else {return None};
+        native_region(p,kind)
+    }).collect()
+}
 /// The page's tile input, on a frame it takes it ([`takes`]): see the module notes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn feed(
@@ -1858,7 +1969,7 @@ pub(crate) fn feed(
     (mut tabs, mut hovered, mut asks): (MessageWriter<PipBoyInput>, MessageWriter<TabHovered>, MessageWriter<stats::UseHint>),
     mut state: Local<Feed>,
 ) {
-    let FeedPip { pip, screen, aid, paused } = from;
+    let FeedPip { pip, screen, aid, paused, touch, admission } = from;
     let Some(rt) = script.rt.as_mut() else { return };
     let game = &mut rt.game;
     let modal = eligible(*switch, &pip) && pip.open() && modal_over(game.menu);
@@ -1870,10 +1981,23 @@ pub(crate) fn feed(
     let menu = takes(&tiles, *switch, &pip, game, is_paused).filter(|_| !tiles.others);
     // The tiles found for this tab: a tab changed before this step was not painted yet.
     let (Some(menu), Some(p), Some(mut view)) = (menu, tiles.written.paths.filter(|p| Some(p.menu) == tiles.shown && p.page == tab), view) else {
+        if menu.is_some() {
+            fnv_game::ui_input::idle(game);
+        }
         *state = Feed::default();
         return;
     };
-    let pointer = screen.as_ref().and_then(|s| s.pointer);
+    let mut mobile=crate::pipboy::touch_scroll::native_frame(touch.as_deref(),&devices.mouse);
+    if !admission.allows_contact(touch.as_ref().and_then(|t|t.contact_id())) { mobile=Default::default(); }
+    if mobile.tap {
+        let target=mobile.at.and_then(|at|touch_target(&tiles,&game.ui_tree,menu,at,&view));
+        mobile.tap=touch.as_ref().is_some_and(|t|t.native_release_valid(target));
+    }
+    if mobile.control && mobile.started {
+        let target=mobile.at.and_then(|at|touch_target(&tiles,&game.ui_tree,menu,at,&view));
+        mobile.started=target.is_some_and(|t|t.control()) && touch.as_ref().is_some_and(|t|t.native_release_valid(target));
+    }
+    let pointer = mobile.at.or_else(||screen.as_ref().and_then(|s| s.pointer));
     let taking = (pip.frame, tab, view.reputation);
     if state.taking != Some(taking) {
         *state = Feed { taking: Some(taking), drawn_at: pointer, ..Default::default() };
@@ -1884,36 +2008,40 @@ pub(crate) fn feed(
     let settled = state.drawn_at.is_none() || pointer.is_none();
     // The test aid's click (`crate::pipboy::drive_pointer`): 1 is its press's frame.
     let aid_press = aid.click == 1 && !aid.right;
-    let held = aid_press || devices.mouse.pressed(MouseButton::Left);
+    let held = mobile.held || aid_press || devices.mouse.pressed(MouseButton::Left);
     let at = pointer.map(|p| (f64::from(p.x), f64::from(p.y)));
     let mut input = fnv_ui::input::Input {
         at,
-        press: aid_press || devices.mouse.just_pressed(MouseButton::Left),
+        press: mobile.press() || aid_press || devices.mouse.just_pressed(MouseButton::Left),
         shift: devices.keys.pressed(KeyCode::ShiftLeft) || devices.keys.pressed(KeyCode::ShiftRight),
         ..Default::default()
     };
     let pad_tab = if tab == STATUS_TAB && view.status == 1 { crate::pad::STATS_RAD } else { tab };
     let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: pad_tab };
     let physical = frame_keys(&mut input, &devices, game, pad_menu);
+    let hardcore = game.hardcore();
     let report = fnv_game::ui_input::step(game, &[menu], &input, &fnv_ui::input::no_measure);
     let ui = &game.ui_tree;
     // What is under the pointer itself, whatever a key moved the highlight to; looked for again
     // only when the pointer moved or the step's own look changed something.
-    if report.over.is_some() || at != state.last_at {
+    let pointer_moved = at != state.last_at;
+    if report.over.is_some() || pointer_moved {
         state.under = at.and_then(|at| fnv_ui::input::hit(ui, &[menu], at, &fnv_ui::input::no_measure)).map(|h| h.tile);
         state.last_at = at;
     }
     log_report(ui, &report);
     let rows = &tiles.written.rows;
     let what = |t: TileId| stats_tile(ui, &p, rows, t);
-    if let Some((_, Some(to))) = report.over {
+    if let Some((_, Some(to))) = report.over.filter(|_| !mobile.control) {
         if let Some(StatsTile::Tab(i)) = what(to) {
             hovered.write(TabHovered(i));
         }
     }
     let under = state.under;
-    // What is under the pointer of what the hand-built page calls so (`Spot`): the limb a Stimpak
-    // goes on while there (`StatsView::aimed`); the file's own `mouseover` boxes draw the look.
+    // What is under the pointer of what the hand-built page calls so (`Spot`): the limb a
+    // Stimpak (or in Hardcore, a Doctor's Bag) goes on while there (`StatsView::aimed`); the
+    // file's own `mouseover` boxes draw the buttons' look. An unmoved pointer on a limb does
+    // not reclaim a limb chosen by keyboard or controller (`cycle_limb` / `choose_limb`, #1898).
     let spot = under.and_then(what).and_then(|w| match w {
         StatsTile::Switch => Some(stats::Spot::Switch),
         StatsTile::Sub(i) => Some(stats::Spot::Sub(i)),
@@ -1921,14 +2049,16 @@ pub(crate) fn feed(
         StatsTile::Limb(i) => Some(stats::Spot::Limb(i)),
         _ => None,
     });
-    if view.hover != spot {
+    if matches!(spot, Some(stats::Spot::Limb(_))) && !pointer_moved && view.hover != spot {
+        // Keep the keyboard/controller limb choice until the pointer moves.
+    } else if view.hover != spot {
         view.hover = spot;
     }
     let under_row = under.and_then(what).and_then(|w| if let StatsTile::Row(i) = w { Some(i) } else { None });
     let in_sight = tiles.written.geometry.as_ref().map_or(0..usize::MAX, |g| g.top..g.top + g.visible);
     let under_row = row_to_hover(under_row, &in_sight);
     // Only a real change touches the view, which the page's other readers watch.
-    match follow_hover(&mut state.acted, under_row, settled) {
+    match if mobile.control { None } else { follow_hover(&mut state.acted, under_row, settled) } {
         Some(HoverAct::Select(i)) => {
             view.select(tab, i);
             view.highlight = true;
@@ -1940,8 +2070,9 @@ pub(crate) fn feed(
         view.select(tab, i);
         view.highlight = true;
     }
-    if !held {
+    if !held || (state.touch_drag && !mobile.control) {
         state.drag = None;
+        state.touch_drag = false;
     }
     let mut pressed_marker = false;
     for c in report.clicks.iter().filter(|c| ui.is_live(c.tile)) {
@@ -1964,16 +2095,18 @@ pub(crate) fn feed(
             StatsTile::Marker => {
                 pressed_marker = true;
                 state.drag = at.filter(|_| held && matches!(c.by, fnv_ui::input::By::Pointer)).and_then(|(_, y)| marker_grab(ui, &p, BarOf::Description, y));
+                state.touch_drag = mobile.control && state.drag.is_some();
             }
             StatsTile::Switch => view.switch(),
             StatsTile::Sub(i) => view.status = i,
             StatsTile::Hint(i) => {
-                if let Some(ask) = stats::hint_pressed(&view, i) {
+                if let Some(ask) = stats::hint_pressed(&view, i, hardcore) {
                     asks.write(ask);
                 }
             }
+            StatsTile::SwitchLimbs => view.cycle_limb(),
             StatsTile::Limb(i) => {
-                asks.write(stats::UseHint { hint: crate::pipboy::stats::model::STIMPAK, limb: Some(i) });
+                asks.write(stats::UseHint { hint: stats::limb_click_hint(hardcore), limb: Some(i) });
             }
             StatsTile::ListBar(BarPiece::Up) => view.scroll(tab, -1),
             StatsTile::ListBar(BarPiece::Down) => view.scroll(tab, 1),
@@ -1987,6 +2120,7 @@ pub(crate) fn feed(
             StatsTile::ListBar(BarPiece::Marker) => {
                 pressed_marker = true;
                 state.drag = at.filter(|_| held && matches!(c.by, fnv_ui::input::By::Pointer)).and_then(|(_, y)| marker_grab(ui, &p, BarOf::List, y));
+                state.touch_drag = mobile.control && state.drag.is_some();
             }
         }
     }
@@ -2027,6 +2161,7 @@ pub(super) fn parse_cut(v: &str) -> (String, Option<f32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("stats_menu/tab_swipe_tests.rs");
     use fnv_ui::input::{no_measure, By, Input, Pointer};
     use fnv_ui::MemSource;
 
@@ -2916,7 +3051,7 @@ mod tests {
     }
 
     /// In Hardcore code shows the three buttons and each need's page reads its figure, on RAD's
-    /// shape [hypothesis]; out of it a page of theirs goes back among those shown.
+    /// shape (see production Hardcore status panel above); out of it a page of theirs goes back among those shown.
     #[test]
     fn hardcore_shows_its_buttons_and_pages() {
         let (mut ui, mut v, mut t) = (tree(), view(), status_tiles());
@@ -3549,7 +3684,7 @@ mod tests {
     #[test]
     fn what_is_shown_is_compared_without_a_copy_of_the_rows() {
         let s = snap();
-        let at = At { tab: PAGE, reputation: false, status: 0, highlight: false, selected: 1, device: true };
+        let at = At { tab: PAGE, reputation: false, status: 0, highlight: false, selected: 1, device: true, aimed: None };
         let none = PageWords::default();
         let shown = Shown::of(&s, at, &none);
         assert!(shown.same(&s, at, &none));
@@ -3563,7 +3698,7 @@ mod tests {
         other.special[6].name = "Other".into();
         assert!(!shown.same(&other, at, &none));
         // General's side and its key are what it shows too.
-        let at = At { tab: GENERAL_TAB, reputation: false, status: 0, highlight: false, selected: 0, device: true };
+        let at = At { tab: GENERAL_TAB, reputation: false, status: 0, highlight: false, selected: 0, device: true, aimed: None };
         let s = general_snap();
         let key = PageWords { switch_hint: "<key>".into(), ..PageWords::default() };
         let shown = Shown::of(&s, at, &key);
@@ -3572,5 +3707,206 @@ mod tests {
         let mut word = s.clone();
         word.karma = Some((5.0, "Another", "a_picture"));
         assert!(!shown.same(&word, at, &key));
+    }
+
+    #[test]
+    fn projected_touch_release_uses_native_tab_route_once_and_swipe_or_overlay_cannot_click_it() {
+        use bevy::{prelude::*,input::{InputPlugin,touch::{TouchInput,TouchPhase}},picking::pointer::{PointerInput,PointerAction}};
+        use crate::pipboy::{self,touch_items::TouchItems};
+        #[derive(Resource,Default)] struct Seen {tabs:usize,bevy_presses:usize,bevy_releases:usize}
+        fn project(mut touch:ResMut<TouchItems>){touch.project(Some);}
+        fn read(mut tabs:MessageReader<PipBoyInput>,mut pointers:MessageReader<PointerInput>,mut seen:ResMut<Seen>){
+            seen.tabs+=tabs.read().count();
+            for p in pointers.read().filter(|p|p.pointer_id==pipboy::touch_items::POINTER){match p.action{PointerAction::Press(_)=>seen.bevy_presses+=1,PointerAction::Release(_)=>seen.bevy_releases+=1,_=>{}}}
+        }
+        for mode in 0..4 {
+            let (mut ui,mut view,mut tiles)=(tree(),view(),StatsTiles::default());
+            let menu=run(&mut ui,&snap(),&mut view,true,&mut tiles).unwrap();tiles.shown=Some(menu);
+            let mut script=ScriptState::over_no_plugins();{
+                let game=&mut script.rt.as_mut().unwrap().game;game.ui_files=Some(Box::new(MemSource::default()));game.ui_tree=ui;game.menu=Some(fnv_game::game::menus::STATS);
+            }
+            let mut pip=stats_page_up(PAGE);pip.phase=pipboy::Phase::Up;
+            let mut app=App::new();app.add_plugins((MinimalPlugins,InputPlugin))
+                .init_resource::<bevy::picking::pointer::PointerMap>().init_resource::<TouchItems>()
+                .init_resource::<pipboy::touch_scroll::WheelFrame>().init_resource::<pipboy::PipBoyAid>()
+                .init_resource::<pipboy::PointerMoved>().init_resource::<Seen>()
+                .add_message::<PointerInput>().add_message::<bevy::window::WindowEvent>()
+                .add_message::<PipBoyInput>().add_message::<TabHovered>().add_message::<stats::UseHint>()
+                .insert_resource(script).insert_resource(view).insert_resource(tiles).insert_resource(pip)
+                .insert_resource(TileMenus{stats:true,..Default::default()});
+            let camera=app.world_mut().spawn_empty().id();
+            app.insert_resource(PipBoyScreen{image:Handle::default(),camera,on_model:false,pointer:None,scale:1.0})
+                .add_systems(PreUpdate,pipboy::drive_pointer)
+                .add_systems(Update,(feed,pipboy::apply_input,read).chain()).add_systems(Last,project);
+            app.update();
+            let point=Vec2::new(200.0,505.0);let mut event=TouchInput{window:Entity::PLACEHOLDER,id:92,phase:TouchPhase::Started,position:point,force:None};
+            app.world_mut().resource_mut::<TouchItems>().event(&event,0);
+            if mode==1 {event.phase=TouchPhase::Moved;event.position.y-=40.;app.world_mut().resource_mut::<TouchItems>().event(&event,20);}
+            event.phase=TouchPhase::Ended;event.position=point;app.world_mut().resource_mut::<TouchItems>().event(&event,80);
+            if mode==2 {app.insert_resource(pipboy::touch_items::OverlayCapture(true));}
+            if mode==3 {app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);}
+            for _ in 0..5 {app.update();}
+            assert_eq!(app.world().resource::<PipBoy>().tab(),if mode==0 {3}else{PAGE});
+            let seen=app.world().resource::<Seen>();assert_eq!(seen.tabs,usize::from(mode==0));
+            assert_eq!((seen.bevy_presses,seen.bevy_releases),(0,0),"native target has exactly one action owner");
+            if mode==3 {assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));}
+        }
+    }
+
+    #[test]
+    fn native_hint_release_cannot_retarget_a_limb_changed_during_a_real_repaint() {
+        use bevy::{prelude::*, input::{InputPlugin, touch::{TouchInput, TouchPhase}}};
+        use crate::pipboy::{self, touch_items::TouchItems};
+        #[derive(Resource, Default)] struct Seen(Vec<stats::UseHint>);
+        #[derive(Resource)] struct Repaint(bool);
+        fn project(mut touch: ResMut<TouchItems>) { touch.project(Some); }
+        fn change(mut change: ResMut<Repaint>, touch: Res<TouchItems>, mut view: ResMut<StatsView>, mut script: ResMut<ScriptState>, mut tiles: ResMut<StatsTiles>) {
+            if change.0 && touch.pointer_frame().tap {
+                change.0 = false; view.limb = Some(2);
+                let menu = run_tab(&mut script.rt.as_mut().unwrap().game.ui_tree, &status_snap(), &mut view, STATUS_TAB, &mut tiles).unwrap();
+                tiles.shown = Some(menu);
+            }
+        }
+        fn read(mut asks: MessageReader<stats::UseHint>, mut seen: ResMut<Seen>) { seen.0.extend(asks.read().copied()); }
+        let (mut ui, mut view, mut tiles) = (tree(), view(), status_tiles()); view.limb = Some(1);
+        let menu = run_tab(&mut ui, &status_snap(), &mut view, STATUS_TAB, &mut tiles).unwrap(); tiles.shown = Some(menu);
+        let point = Vec2::new(705., 205.);
+        assert!(matches!(stats_tile(&ui, &paths(&ui, STATUS_TAB, None).unwrap(), &[], fnv_ui::input::hit(&ui, &[menu], (705.,205.), &no_measure).unwrap().tile), Some(StatsTile::Hint(0))));
+        let mut script = ScriptState::over_no_plugins(); { let game = &mut script.rt.as_mut().unwrap().game; game.ui_files = Some(Box::new(MemSource::default())); game.ui_tree = ui; game.menu = Some(fnv_game::game::menus::STATS); }
+        let mut pip = stats_page_up(STATUS_TAB); pip.phase = pipboy::Phase::Up;
+        let mut app = App::new(); app.add_plugins((MinimalPlugins, InputPlugin))
+            .init_resource::<TouchItems>().init_resource::<pipboy::PipBoyAid>().init_resource::<pipboy::PointerMoved>()
+            .init_resource::<Seen>().insert_resource(Repaint(true))
+            .add_message::<PipBoyInput>().add_message::<TabHovered>().add_message::<stats::UseHint>()
+            .insert_resource(script).insert_resource(view).insert_resource(tiles).insert_resource(pip)
+            .insert_resource(TileMenus { stats: true, ..Default::default() });
+        let camera = app.world_mut().spawn_empty().id();
+        app.insert_resource(PipBoyScreen { image: Handle::default(), camera, on_model: false, pointer: None, scale: 1. })
+            .add_plugins(pipboy::touch_scroll::TouchPointerPlugin)
+            .add_systems(Update, (change, feed, read).chain()).add_systems(Last, project);
+        app.update();
+        let send = |app: &mut App, id, phase| { assert!(app.world_mut().resource_mut::<TouchItems>().event(&TouchInput { window: Entity::PLACEHOLDER, id, phase, position: point, force: None }, 100)); };
+        send(&mut app, 201, TouchPhase::Started); app.update(); app.update();
+        send(&mut app, 201, TouchPhase::Ended); for _ in 0..4 { app.update(); }
+        assert!(!app.world().resource::<Repaint>().0); assert!(app.world().resource::<Seen>().0.is_empty());
+        send(&mut app, 202, TouchPhase::Started); send(&mut app, 202, TouchPhase::Ended); for _ in 0..4 { app.update(); }
+        assert_eq!(app.world().resource::<Seen>().0, vec![stats::UseHint { hint: stats::model::STIMPAK, limb: Some(2) }]);
+    }
+
+    #[test]
+    fn cnd_aimed_limb_draws_selection_box_on_bar_or_crippled_word() {
+        let (mut ui, mut v, mut t) = (tree(), view(), status_tiles());
+        let s = status_snap();
+        let st = status_paths(&ui);
+        // Vanilla stats_menu.xml draws each pct bracket from a DDS file.
+        ui.set_trait(st.limbs[1].pct, "filename", Value::Str("pics\\a.dds".into()));
+        // No limb aimed: no Look::Box edges added for limb bars.
+        run_tab(&mut ui, &s, &mut v, STATUS_TAB, &mut t).unwrap();
+        let box_count = |pieces: &[Piece], tile: TileId| pieces.iter().filter(|p| p.tile == tile && p.look == Look::Box).count();
+        assert_eq!(box_count(&t.pieces, st.limbs[1].pct), 0);
+        assert_eq!(box_count(&t.pieces, st.limbs[2].crippled), 0);
+        // Aim a hurt limb with a visible bar (torso = 1, condition 0.4): 4 box edges around pct.
+        v.choose_limb(1);
+        run_tab(&mut ui, &s, &mut v, STATUS_TAB, &mut t).unwrap();
+        assert_eq!(box_count(&t.pieces, st.limbs[1].pct), 4);
+        assert_eq!(box_count(&t.pieces, st.limbs[2].crippled), 0);
+        // Hide limb 2's pct bar (simulating crippled condition == 0) and aim limb 2: 4 box edges around crippled word.
+        ui.set_trait(st.limbs[2].pct, "visible", flag(false));
+        v.hover = Some(stats::Spot::Limb(2));
+        run_tab(&mut ui, &s, &mut v, STATUS_TAB, &mut t).unwrap();
+        assert_eq!(box_count(&t.pieces, st.limbs[1].pct), 0);
+        assert_eq!(box_count(&t.pieces, st.limbs[2].crippled), 4);
+    }
+
+    #[test]
+    fn feed_routes_hardcore_limb_clicks_and_drbag_hint_to_selected_limb() {
+        let run_case = |hardcore: bool, chosen: Option<usize>, click_at: Vec2| -> Vec<stats::UseHint> {
+            let mut app = App::new();
+            let mut state = ScriptState::over_no_plugins();
+            let game = &mut state.rt.as_mut().unwrap().game;
+            game.set_hardcore(hardcore);
+            game.ui_files = Some(Box::new(MemSource::default()));
+            game.ui_tree = tree();
+            let mut s = status_snap();
+            s.hardcore = hardcore;
+            s.hints.lit = [true, true, false, false];
+            let mut v = view();
+            v.limb = chosen;
+            let mut t = status_tiles();
+            let menu = run_tab(&mut game.ui_tree, &s, &mut v, STATUS_TAB, &mut t).unwrap();
+            t.ready = Some(menu);
+            t.shown = Some(menu);
+            let mut mouse = ButtonInput::<MouseButton>::default();
+            mouse.press(MouseButton::Left);
+            app.insert_resource(state)
+                .insert_resource(TileMenus { stats: true, ..Default::default() })
+                .insert_resource(stats_page_up(STATUS_TAB))
+                .insert_resource(PipBoyScreen { image: Handle::default(), camera: Entity::PLACEHOLDER, on_model: true, pointer: Some(click_at), scale: 1.0 })
+                .insert_resource(PipBoyAid::default())
+                .insert_resource(t)
+                .insert_resource(v)
+                .insert_resource(mouse)
+                .init_resource::<ButtonInput<KeyCode>>()
+                .add_message::<PipBoyInput>()
+                .add_message::<TabHovered>()
+                .add_message::<stats::UseHint>()
+                .add_systems(Update, feed);
+            app.update();
+            app.world_mut().resource_mut::<Messages<stats::UseHint>>().drain().collect()
+        };
+        // Fixture places limb 2's bar at x = 700 + 40 = 740..758, y = 350..368; drbag button at x = 810..828, y = 200..218.
+        let limb2_bar = Vec2::new(745.0, 355.0);
+        let drbag_btn = Vec2::new(815.0, 205.0);
+        // Outside Hardcore: clicking limb 2 uses Stimpak on limb 2; clicking drbag uses bag on body even with limb chosen.
+        assert_eq!(run_case(false, None, limb2_bar), vec![stats::UseHint { hint: stats::model::STIMPAK, limb: Some(2) }]);
+        assert_eq!(run_case(false, Some(2), drbag_btn), vec![stats::UseHint { hint: stats::model::DOCTORS_BAG, limb: None }]);
+        // In Hardcore: clicking limb 2 uses Doctor's Bag on limb 2; clicking drbag uses bag on chosen limb (or body if none).
+        assert_eq!(run_case(true, None, limb2_bar), vec![stats::UseHint { hint: stats::model::DOCTORS_BAG, limb: Some(2) }]);
+        assert_eq!(run_case(true, Some(2), drbag_btn), vec![stats::UseHint { hint: stats::model::DOCTORS_BAG, limb: Some(2) }]);
+        assert_eq!(run_case(true, None, drbag_btn), vec![stats::UseHint { hint: stats::model::DOCTORS_BAG, limb: None }]);
+    }
+
+    #[test]
+    fn stationary_pointer_on_limb_does_not_override_cycled_limb_in_feed() {
+        let mut app = App::new();
+        let mut state = ScriptState::over_no_plugins();
+        let game = &mut state.rt.as_mut().unwrap().game;
+        game.set_hardcore(true);
+        game.ui_files = Some(Box::new(MemSource::default()));
+        game.ui_tree = tree();
+        let mut s = status_snap();
+        s.hardcore = true;
+        let mut v = view();
+        let mut t = status_tiles();
+        let menu = run_tab(&mut game.ui_tree, &s, &mut v, STATUS_TAB, &mut t).unwrap();
+        t.ready = Some(menu);
+        t.shown = Some(menu);
+        let limb2_bar = Vec2::new(745.0, 355.0);
+        app.insert_resource(state)
+            .insert_resource(TileMenus { stats: true, ..Default::default() })
+            .insert_resource(stats_page_up(STATUS_TAB))
+            .insert_resource(PipBoyScreen { image: Handle::default(), camera: Entity::PLACEHOLDER, on_model: true, pointer: Some(limb2_bar), scale: 1.0 })
+            .insert_resource(PipBoyAid::default())
+            .insert_resource(t)
+            .insert_resource(v)
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_message::<PipBoyInput>()
+            .add_message::<TabHovered>()
+            .add_message::<stats::UseHint>()
+            .add_systems(Update, feed);
+        // Frame 1: pointer moves onto limb 2 -> hover = Limb(2).
+        app.update();
+        assert_eq!(app.world().resource::<StatsView>().aimed(), Some(2));
+        // Player cycles limb with X (advances to 3 and clears hover).
+        app.world_mut().resource_mut::<StatsView>().cycle_limb();
+        assert_eq!(app.world().resource::<StatsView>().aimed(), Some(3));
+        // Frame 2: pointer has not moved -> feed must NOT reclaim hover back to limb 2.
+        app.update();
+        assert_eq!(app.world().resource::<StatsView>().aimed(), Some(3));
+        // Frame 3: pointer moves slightly on limb 2 -> hover follows pointer again.
+        app.world_mut().resource_mut::<PipBoyScreen>().pointer = Some(Vec2::new(746.0, 355.0));
+        app.update();
+        assert_eq!(app.world().resource::<StatsView>().aimed(), Some(2));
     }
 }

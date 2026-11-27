@@ -58,10 +58,16 @@ struct NifSurface {
     // metal gain (NifSurface::metal_gain, #2981; 0 on every other material), read by
     // nif_material.wesl's lift only; z, w unused.
     terrain: vec4<f32>,
-    // Window environment map (nif_material.rs NifSurface::env): x the scale (0: none), y 1
-    // with a mask; z, w unused. After `terrain`, as in NifSurfaceUniform; the blend type
-    // has none (nif_surface_blend.rs: its uniform goes on with its own rows here).
+    // Environment map (nif_material.rs NifSurface::env): x the scale (0: none), y the mask
+    // (0 none, 1 the mask's red, 2 the mask's alpha: the game's normal map bound as the
+    // mask, a debug switch's variant), z and w the fade distances
+    // (both 0: no fade). After `terrain`, as in NifSurfaceUniform; the blend type has none
+    // (nif_surface_blend.rs: its uniform goes on with its own rows here).
     @if(!NIF_SURFACE_BLEND) env: vec4<f32>,
+    // Environment map (NifSurface::env_how): x the cube orientation (0 #2669's lookup),
+    // y 1 scales by received light, 2 by the scene light, z 1 for a window shape, w 1 on
+    // every shape with an environment map. The blend type has none either.
+    @if(!NIF_SURFACE_BLEND) env_how: vec4<f32>,
     // [design] The enabled blend type (nif_surface_blend.rs): band, view, contact shape,
     // shading; the cache's southwest cell in origin.xy; hybrid v2's flat and steep band
     // widths in widths.xy (z, w unused).
@@ -353,8 +359,8 @@ struct NifSurface {
 // [design] Round 10a: the near landscape's surface inputs at the fragment's game xy,
 // composed as its draw composes them (terrain.wesl; terrain.rs `quadrant_mesh`, `folded_mesh`):
 // the base diffuse x interpolated linear vertex colour x base material colour, then each
-// overlay in drawing order mixed in by saturate(opacity) x its diffuse alpha (ordered
-// opacities, not normalized weights), its colour the texel x vertex colour x the base
+// overlay in drawing order mixed in by saturate(opacity) (its diffuse's alpha has no part,
+// #3789; ordered opacities, not normalized weights), its colour the texel x vertex colour x the base
 // material colour for folded overlays (terrain.wesl) and x white for the separately drawn
 // overflow ones (terrain.rs `layer_material`: a layer drawn has a texture, so white). The
 // normal (full shading only) starts as the base's mapped normal (or the plain interpolated
@@ -448,14 +454,13 @@ struct NifSurface {
                     continue;
                 }
                 raw[k + 1u] = detail_sample_taps(instance_index, terrain_detail_word(instance_index, q + 15u + k), diffuse_sampler, taps, fp);
-                let s = saturate(o * raw[k + 1u].a);
-                w[k + 1u] = s * remaining;
-                remaining *= 1.0 - s;
+                w[k + 1u] = o * remaining;
+                remaining *= 1.0 - o;
             }
             w[0] = remaining;
         } else {
             // [design] #2661 review: an overlay at opacity exactly 0 is not read. Its paint
-            // stays 0, as 0 x its alpha was, so terrain_ordered_shares gives it the share 0
+            // stays 0, so terrain_ordered_shares gives it the share 0
             // and leaves every other share as it was; a height is taken only where the share
             // is not 0, terrain_height_weights keeps a zero share zero, and colour and
             // normal read a raw texel only where its weight is not 0, so the unread texel is
@@ -467,7 +472,7 @@ struct NifSurface {
                     continue;
                 }
                 raw[k + 1u] = detail_sample(instance_index, terrain_detail_word(instance_index, q + 15u + k), diffuse_sampler, uv, ddx, ddy);
-                paint[k] = o * raw[k + 1u].a;
+                paint[k] = o;
             }
             w = terrain_ordered_shares(paint, n);
         }
@@ -535,7 +540,7 @@ struct NifSurface {
     }
     // The overlays not composed above, in drawing order: every overlay without either switch
     // on the base draw, else the overflow ones. #2661 review: the opacity is known before the
-    // diffuse read and the share after it; an overlay whose opacity or share is exactly 0 is
+    // diffuse read and is the share; an overlay whose opacity is exactly 0 is
     // skipped (no diffuse read, no normal-map read): mixing by 0 leaves colour and normal
     // exactly as they were.
     for (var k = select(0u, folded, weighted); k < total; k++) {
@@ -551,10 +556,7 @@ struct NifSurface {
         } else {
             texel = detail_sample(instance_index, pair, diffuse_sampler, uv, ddx, ddy);
         }
-        let share = o * texel.a;
-        if share == 0.0 {
-            continue;
-        }
+        let share = o;
         colour = mix(colour, texel.rgb * a.tint * select(vec3(1.0), base_rgb, k < folded), share);
         if full {
             var layer_n = plain;
@@ -1021,6 +1023,16 @@ fn holes_alpha(instance_index: u32, uv: vec2<f32>) -> f32 {
     @if(BINDLESS) let i = nif_indices[material_slot(instance_index)];
     @if(BINDLESS) return textureSampleLevel(bindless_textures_2d[i.env_mask], bindless_samplers_filtering[i.env_sampler], uv, 0.0).r;
     @if(!BINDLESS) return textureSampleLevel(env_mask, env_sampler, uv, 0.0).r;
+}
+
+// The environment mask's alpha at `uv`, at its top level: in a debug switch's variant
+// (env_map.rs NVF_PLAY_DEBUG_ENV_NO_MASK=normal-alpha) the mask slot holds the game's own
+// normal map (nif_spawn.rs `shape_material_inner`), so an authored set that replaces the
+// drawn normal map does not change what is read here.
+@if(!NIF_SURFACE_BLEND) fn env_mask_alpha(instance_index: u32, uv: vec2<f32>) -> f32 {
+    @if(BINDLESS) let i = nif_indices[material_slot(instance_index)];
+    @if(BINDLESS) return textureSampleLevel(bindless_textures_2d[i.env_mask], bindless_samplers_filtering[i.env_sampler], uv, 0.0).a;
+    @if(!BINDLESS) return textureSampleLevel(env_mask, env_sampler, uv, 0.0).a;
 }
 
 // The size of the FaceGen offset image.

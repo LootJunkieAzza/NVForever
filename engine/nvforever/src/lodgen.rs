@@ -25,7 +25,7 @@ const CHUNK_SIZE: f32 = CHUNK_CELLS as f32 * CELL_SIZE;
 /// Depth of the skirts hung from open mesh edges (game units).
 const SKIRT: f32 = 256.0;
 /// Colour where a base texture cannot be loaded (as terrain.rs draws it, sRGB).
-const NO_BASE_SRGB: [f32; 3] = [0.45, 0.42, 0.38];
+pub(crate) const NO_BASE_SRGB: [f32; 3] = [0.45, 0.42, 0.38];
 
 /// Generation parameters (also part of the cache key).
 #[derive(Clone, Debug)]

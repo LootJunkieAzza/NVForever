@@ -1010,10 +1010,11 @@ pub struct GameData {
     /// The top-level topics of type Topic, in the order they are offered: priority,
     /// highest first, then record order ([`TopicDef::order`]).
     pub top_level: Vec<FormId>,
-    /// The special topics GREETING and GOODBYE, by Editor ID [documented: GECK wiki
-    /// Topics Tab and Conversation Tab, owner export].
+    /// The special topics GREETING, GOODBYE and SpeechChallengeFailure, by Editor ID
+    /// [documented: GECK wiki Topics Tab and Conversation Tab, owner export].
     pub greeting: Option<FormId>,
     pub goodbye: Option<FormId>,
+    pub speech_challenge_failure: Option<FormId>,
     /// PACK begin / end / change result scripts.
     pub packages: HashMap<FormId, [Option<UnitId>; 3]>,
     /// Patrol points' result scripts (REFR, after XPPA), run when a patrolling actor
@@ -1067,6 +1068,11 @@ pub struct GameData {
     pub ini_texts: Vec<String>,
     /// Placed references whose base runs a script, by cell, in FormID order.
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
+    /// Placed actors whose base has no script of its own but may run one through its
+    /// template chain (template flag "Script", any leveled pick), by cell, in FormID
+    /// order ([`GameData::script_through_template`]). The lifecycle scheduler reads this
+    /// index for OnLoad and OnReset (docs/spec-notes/scripts.md §7.1).
+    pub template_scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
     /// REPU DATA: the reputation's scale (maximum fame or infamy).
     pub reputations: HashMap<FormId, f32>,
     /// REPU FULL: the reputation's name as the player sees it.
@@ -1122,6 +1128,20 @@ pub struct GameData {
     /// Cells with an owner, the Public place flag or the Off Limits form flag
     /// (`crate::crime::CellDef`).
     pub cells: HashMap<FormId, crate::crime::CellDef>,
+    /// Whether `Data\NVSE\Plugins\hNVSE.ini` enabled `[Main] bMergeRegionLists=1` at
+    /// load time. Read once at load (never re-read after script writes) so script queries
+    /// and world consumers always agree [documented: hNVSE 1.2 (Nexus Mods ID 85748,
+    /// `https://www.nexusmods.com/newvegas/mods/85748`) public changelog and shipped
+    /// `Data\NVSE\Plugins\hNVSE.ini` comments ("Force-merges cell region lists (XCLR
+    /// subrecord in xEdit) during loading"); DLL/PDB/source not consulted].
+    pub hnvse_merge_region_lists: bool,
+    /// Union of `CELL` `XCLR` region FormIDs across load-order overrides for overridden
+    /// exterior cells (overriding plugin first, duplicates removed), populated lazily via
+    /// [`GameData::enable_hnvse_region_merge`] ONLY when `hNVSE.ini` enables
+    /// `[Main] bMergeRegionLists=1` at load time so startup cost is zero when absent or
+    /// disabled [observed: hNVSE 120 on 188TradingPost (`0x000DDF1C`) with a test
+    /// override ESP; design: skipping interior cells and deleted overrides].
+    pub merged_cell_regions: HashMap<FormId, Vec<FormId>>,
     /// XRNK of placed references: the faction rank that owns them (with an XOWN faction).
     pub owner_ranks: HashMap<FormId, i32>,
     pub destructibles: HashMap<FormId, DestructionDef>,
@@ -1887,6 +1907,42 @@ impl GameData {
         Self::build_with(lo, schema, table, functions, refs, false)
     }
 
+    /// Enable `hNVSE.ini` `[Main] bMergeRegionLists=1` merging and compute
+    /// [`GameData::merged_cell_regions`] for overridden exterior `CELL`s.
+    ///
+    /// Called only at load time when `hNVSE.ini` enables merging, so unmodded vanilla
+    /// and disabled loads pay zero startup cost [design].
+    pub fn enable_hnvse_region_merge(&mut self, lo: &LoadOrder, schema: &Schema) {
+        self.hnvse_merge_region_lists = true;
+        self.merged_cell_regions = lo
+            .index
+            .iter()
+            .filter_map(|(&g, defs)| {
+                if defs.len() <= 1 {
+                    return None;
+                }
+                let last = defs.last()?;
+                let win = lo.records[last.plugin as usize][last.ordinal as usize];
+                if &win.header.sig != b"CELL" {
+                    return None;
+                }
+                let regions = fnv_world::audio::cell_regions_merged(lo, schema, g, true);
+                Some((FormId(g), regions.into_iter().map(FormId).collect()))
+            })
+            .collect();
+    }
+
+    /// Read `Data\NVSE\Plugins\hNVSE.ini` bytes once at load time and, only if
+    /// `[Main] bMergeRegionLists=1` is enabled, populate [`GameData::merged_cell_regions`].
+    pub fn load_hnvse_region_merge(&mut self, lo: &LoadOrder, schema: &Schema, ini_bytes: Option<&[u8]>) -> bool {
+        let enabled = ini_bytes
+            .is_some_and(|bytes| fnv_world::audio::parse_hnvse_merge_region_lists(&String::from_utf8_lossy(bytes)));
+        if enabled {
+            self.enable_hnvse_region_merge(lo, schema);
+        }
+        enabled
+    }
+
     /// [`GameData::build`] without its shortcuts, for a test to compare with it
     /// (tests/build_shortcuts.rs, #1732): every record is read and its subrecords copied, the
     /// source compile runs and is put in before the records are read, and units found by
@@ -1990,6 +2046,7 @@ impl GameData {
             top_level: Vec::new(),
             greeting: None,
             goodbye: None,
+            speech_challenge_failure: None,
             packages: HashMap::new(),
             patrol_scripts: HashMap::new(),
             package_defs: HashMap::new(),
@@ -2014,6 +2071,7 @@ impl GameData {
             ini_texts: Vec::new(),
             record_fields,
             scripted_by_cell: BTreeMap::new(),
+            template_scripted_by_cell: BTreeMap::new(),
             reputations: HashMap::new(),
             reputation_names: HashMap::new(),
             challenges: HashMap::new(),
@@ -2037,6 +2095,8 @@ impl GameData {
             faction_flags: HashMap::new(),
             faction_reputations: HashMap::new(),
             cells: HashMap::new(),
+            hnvse_merge_region_lists: false,
+            merged_cell_regions: HashMap::new(),
             owner_ranks: HashMap::new(),
             destructibles: HashMap::new(),
             weapon_skills: HashMap::new(),
@@ -2441,10 +2501,22 @@ impl GameData {
         d.top_level = top.into_iter().map(|t| t.form).collect();
         d.greeting = d.by_edid("GREETING").filter(|t| d.topic_defs.contains_key(t));
         d.goodbye = d.by_edid("GOODBYE").filter(|t| d.topic_defs.contains_key(t));
+        d.speech_challenge_failure = d.by_edid(crate::dialogue::SPEECH_CHALLENGE_FAILURE).filter(|t| d.topic_defs.contains_key(t));
         clock.lap("topics ordered and linked");
+        // An actor whose base takes its script from a template (template flag "Script")
+        // runs the template's script, its leveled pick's through a list [documented: GECK
+        // wiki Template Data, "Use Script: Uses the Script of the ActorBase";
+        // `Game::ref_script`]. Those whose base has no script of its own are kept apart:
+        // they get OnLoad and OnReset, so the leveled spawns' placeholder
+        // `VCrILikeOblivionChancedSpawns` kills itself as its cell loads
+        // (docs/spec-notes/dead-on-spawn.md §4.1, #3228).
+        let mut through_template: HashMap<FormId, bool> = HashMap::new();
         for (id, p) in &refs.refs {
-            if let (Some(cell), Some(_)) = (p.cell, d.script_of_base(p.base)) {
+            let Some(cell) = p.cell else { continue };
+            if d.script_of_base(p.base).is_some() {
                 d.scripted_by_cell.entry(cell).or_default().push(*id);
+            } else if *through_template.entry(p.base).or_insert_with(|| d.script_through_template(p.base)) {
+                d.template_scripted_by_cell.entry(cell).or_default().push(*id);
             }
         }
         clock.lap("scripted references by cell");
@@ -2460,6 +2532,20 @@ impl GameData {
     pub fn script_of_base(&self, base: FormId) -> Option<FormId> {
         let s = *self.form_script.get(&base)?;
         self.scripts.contains_key(&s).then_some(s)
+    }
+
+    /// Whether a reference placed with `base`, which has no script of its own, may run
+    /// one through its template chain: `base` is a leveled actor list placed directly, or
+    /// an actor with the template flag "Script", and an actor its chain can reach with
+    /// that flag through any leveled pick has a script (an end of the chain, or one on
+    /// the way that is kept when its list yields no entry;
+    /// [`GameData::template_chain_any_pick`]). `Game::ref_script` reads the actual pick.
+    pub fn script_through_template(&self, base: FormId) -> bool {
+        let templated = self.actors.get(&base).is_some_and(|a| a.template_script && a.template.is_some());
+        if !templated && !self.leveled_actors.contains_key(&base) {
+            return false;
+        }
+        self.template_chain_any_pick(base, |a| a.template_script).into_iter().any(|s| s != base && self.script_of_base(s).is_some())
     }
 
     pub fn script(&self, script: FormId) -> Option<&Compiled> {
@@ -2478,9 +2564,27 @@ impl GameData {
     }
 
     /// Whether `form` is overridden by at least one plugin after its defining plugin in
-    /// the load order (`IsFormOverridden`).
+    /// the load order.
     pub fn is_form_overridden(&self, form: FormId) -> bool {
         self.form_overrides.get(&form).is_some_and(|v| v.len() > 1)
+    }
+
+    /// Whether `form` is overridden by a plugin loaded after `caller_plugin`
+    /// (`IsFormOverridden` [documented: GECK wiki `IsFormOverridden`, "overridden by a
+    /// plugin lower in the load order than the calling script"]).
+    ///
+    /// Returns `false` when `caller_plugin` is empty or not in `load_order` (runtime
+    /// scripts such as console, `CompileScript`, or Script Runner have no later plugin in
+    /// the load order [observed: `jg_01_form_override_index_edge`, `GetFormOverrideIndex`
+    /// `5` with `IsFormOverridden` `0`]).
+    pub fn is_form_overridden_after(&self, form: FormId, caller_plugin: &str) -> bool {
+        if caller_plugin.is_empty() {
+            return false;
+        }
+        let Some(caller_idx) = self.load_order.iter().position(|l| l.eq_ignore_ascii_case(caller_plugin)) else {
+            return false;
+        };
+        self.form_overrides.get(&form).is_some_and(|v| v.len() > 1 && v.last().copied().is_some_and(|win| usize::from(win) > caller_idx))
     }
 
     /// The load-order index of the winning (last) plugin that defines or overrides

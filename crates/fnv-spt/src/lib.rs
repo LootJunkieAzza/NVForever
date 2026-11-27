@@ -7,6 +7,7 @@
 
 pub mod curve;
 pub mod generate;
+pub mod probe;
 
 pub use curve::Curve;
 pub use generate::{generate, Geometry, Leaf};

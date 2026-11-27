@@ -110,7 +110,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getammoname" | "setammoname" => {
             let set = name == "setammoname";
             let at = usize::from(set);
-            let Some(a) = form(args, at + 1).or(subject).map(|f| base(g, f)).filter(|&a| g.data.sig(a) == Some(*b"AMMO")) else { return Some(Ok(if set { zero } else { XVal::Str(String::new()) })) };
+            let Some(a) = form(args, at + 1).or(subject).map(|f| base(g, f)).filter(|&a| g.data.sig(g.unclone(a)) == Some(*b"AMMO")) else {
+                return Some(Ok(if set { zero } else { XVal::Str(String::new()) }));
+            };
             let sub = match num(args, at, 0.0) as i64 {
                 1 => "ONAM",
                 2 => "QNAM",
@@ -125,11 +127,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 zero
             } else {
                 // A name the record lacks reads "<no name>" [observed: showoff2, 10mm ammo's
-                // abbreviation].
-                match crate::nvse::record_value(g, a, sub, "") {
-                    Some(XVal::Str(s)) => XVal::Str(s),
-                    _ if sub == "FULL" => XVal::Str(g.data.full_names.get(&a).cloned().unwrap_or_else(|| "<no name>".into())),
-                    _ => XVal::Str("<no name>".into()),
+                // abbreviation]. Check `a`'s own session override before falling back to the
+                // authored record of `unclone(a)` so post-clone edits on the original stay
+                // isolated from existing clones.
+                if let Some(XVal::Str(s)) = g.field_overrides.get(&(a, format!("{sub}/"))) {
+                    return Some(Ok(XVal::Str(s.clone())));
+                }
+                let orig = g.unclone(a);
+                if let Some(s) = g.data.record_field(orig, sub, "").and_then(serde_json::Value::as_str) {
+                    XVal::Str(s.to_string())
+                } else if sub == "FULL" {
+                    XVal::Str(g.name_overrides.get(&a).or_else(|| g.forms.saved_names.get(&a)).or_else(|| g.data.full_names.get(&orig)).cloned().unwrap_or_else(|| "<no name>".into()))
+                } else {
+                    XVal::Str("<no name>".into())
                 }
             }
         }
@@ -137,11 +147,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // set]: ENIT's consume sound.
         "getingestibleconsumesound" => {
             let i = form(args, 0).or(subject).map(|f| base(g, f));
-            XVal::Ref(i.and_then(|i| crate::nvse::record_value(g, i, "ENIT", "sound_consume")).and_then(|v| if let XVal::Ref(r) = v { Some(r) } else { None }).unwrap_or(0))
+            XVal::Ref(i.and_then(|i| g.ingestible_def(i)).and_then(|d| d.consume_sound).map_or(0, |r| r.0))
         }
         "setingestibleconsumesound" => {
             let (Some(s), Some(i)) = (form(args, 0), form(args, 1).or(subject).map(|f| base(g, f))) else { return Some(Ok(zero)) };
-            if g.data.sig(i) != Some(*b"ALCH") {
+            if g.data.sig(g.unclone(i)) != Some(*b"ALCH") {
                 return Some(Ok(zero));
             }
             g.field_overrides.insert((i, "ENIT/sound_consume".into()), XVal::Ref(s.0));
@@ -183,9 +193,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: IsBaseForm, a valid base form; IsReferenceCloned, a reference made
         // in play, mod index 0xFF; IsActorAlt, an actor reference or an NPC or creature
         // base].
-        // A base form: a record that is no placed reference [hypothesis: the page does not
-        // say how cells and worldspaces count].
-        "isbaseform" => yes(form(args, 0).is_some_and(|f| f.0 >> 24 != 0xFF && g.world.placed.get(f).is_none() && g.data.sig(f).is_some_and(|s| !matches!(&s, b"REFR" | b"ACHR" | b"ACRE" | b"PGRE" | b"PMIS")))),
+        // A base form: returns 1 for authored base forms (WEAP, NPC_, CELL, WRLD, QUST,
+        // FACT, FLST) and TempCloneForm 0xFF base forms, and 0 for Player, DocMitchellRef,
+        // and doors [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9,
+        // ShowOffNVSE 184, GSDocMitchellHouse (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_is_base_form_tempclone.json` probe
+        // `w6d1_35_showoff_is_base_form_and_fade_state`:
+        // `base(w=1,cl=1,n=1,ce=1,wr=1,qu=1,fa=1,fl=1,doc=0,pc=0,dr=0)`;
+        // no DLL, PDB, or third-party source consulted]. Rejecting 0xFF PlaceAtMe placed
+        // refs and temporary inventory refs via `world.placed`, `temp_item`, and `clones`
+        // follows [documented: IsBaseForm, a valid base form; design].
+        "isbaseform" => yes(form(args, 0).is_some_and(|f| {
+            g.world.placed.get(f).is_none()
+                && g.temp_item(f).is_none()
+                && (f.0 >> 24 != 0xFF || g.clones.contains_key(&f))
+                && g.data.sig(g.unclone(f)).is_some_and(|s| !matches!(&s, b"REFR" | b"ACHR" | b"ACRE" | b"PGRE" | b"PMIS"))
+        })),
         "isreferencecloned" => yes(subject.is_some_and(|r| r.0 >> 24 == 0xFF)),
         "isactoralt" => {
             let f = form(args, 0).or(subject).map(|f| base(g, f));

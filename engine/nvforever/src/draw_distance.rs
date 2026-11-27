@@ -39,7 +39,7 @@ use crate::world::{CellEntity, WorldData};
 use crate::Args;
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
-use fnv_world::placed::{base_object, placement};
+use fnv_world::placed::base_object;
 use fnv_world::CELL_SIZE;
 use nvf_assets::NifMaterial;
 use nvf_play::dropped::DroppedRoot;
@@ -192,7 +192,7 @@ fn classify(e: Entity, r: u32, parents: &Query<&ChildOf>, marks: &Query<Marks>, 
     }
     *known.entry(r).or_insert_with(|| {
         let Some(w) = world else { return DrawClass::Object };
-        let Some(p) = placement(w.lo, w.schema, r) else { return DrawClass::Object };
+        let Some(p) = w.index.placement(w.lo, w.schema, r) else { return DrawClass::Object };
         if matches!(&p.sig, b"ACHR" | b"ACRE") {
             return DrawClass::Actor;
         }

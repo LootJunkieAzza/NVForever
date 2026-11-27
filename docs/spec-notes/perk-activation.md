@@ -11,16 +11,17 @@ Code: `fnv_game::activate_choices` (the choices, the acts), `fnv_game::data::Ent
 (EPF2, EPF3, the entry's script unit), `fnv_game::crime::player_cannibalized`; the engine's
 `script.rs` (`Runtime::by_hand` opens the list, `Runtime::pick_activate_choice`),
 `script_hud.rs` (`activate_panel`), `activate.rs` (the default action activated again).
-Tests: `crates/fnv-game/tests/perk_talk.rs`. Smoke: `perk-cannibal-devour`,
-`perk-sandman-refused-awake`. Capture jobs: `tools/capture/probes/actor_changes.toml` ac4, ac5 (run
+Tests: `crates/fnv-game/tests/perk_talk.rs`, nvf-play `activate/tests/perk_choice_tests.rs`.
+Smoke: `perk-cannibal-devour`, `perk-robot-deactivate`, `perk-sandman-refused-awake`. Capture jobs: `tools/capture/probes/actor_changes.toml` ac4, ac5 (run
 2026-10-18; ac5 and ac5b crashed the game on an awake and an unconscious victim; ac5c, on
 a sleeping one, did not).
 
 ## 1. The records [observed]
 
-Five PERK entries in the ten masters carry a button label (EPF2): Cannibal "Devour",
-Ghastly Scavenger "Devour", Dine and Dash "Dine and Dash" (FalloutNV.esm), Mister Sandman
-"Murder", and Honest Hearts' Devour. All five:
+Seven PERK entries in the ten masters carry a button label (EPF2): Cannibal "Devour",
+Ghastly Scavenger "Devour", Dine and Dash "Dine and Dash", Mister Sandman "Murder",
+Robotics Expert "Deactivate" (FalloutNV.esm), Honest Hearts' Devour and Old World Blues'
+Robot Compliance "Deactivate" (0x0100C88F, the same entry as Robotics Expert's). All seven:
 
 - PRKE type Entry Point, DATA `1B 09 02`: entry point code 27, function 9, and a third
   byte 2 [observed]. The wiki's entry point list starts with "Activate: run when the
@@ -34,12 +35,17 @@ Ghastly Scavenger "Devour", Dine and Dash "Dine and Dash" (FalloutNV.esm), Miste
   only IsSneaking), PRKC 1 on the activated thing (Cannibal: HasBeenEaten 0, GetDead 1,
   GetIsCreature 0 or GetIsID of one creature; Ghastly Scavenger: creature types 4 or 5;
   Mister Sandman: not a child, not essential, alive, conscious, not in
-  MisterSandmanFaction, not a creature, GetSleeping not 0) [observed].
+  MisterSandmanFaction, not a creature, GetSleeping not 0; Robotics Expert and Robot
+  Compliance: tab 0 only IsSneaking, tab 1 alive, not essential, GetUnconscious 0,
+  GetIsCreatureType 6 (Robot), GetDetected PlayerRef 0, and GetIsID not one of twelve
+  robots) [observed].
 - Scripts [observed]: Cannibal `StartCannibal Player`, `Player.RestoreAV Health 25`,
   `Hunger 25`, `DamageAV RadiationRads 2`, `RewardKarma -1`, `ModPCMiscStat "Corpses
   Eaten" 1`, and Meat of Champions' effect when the player has that perk; Ghastly
   Scavenger 50/50/5; Dine and Dash gives `NVCannibalFood` (Human Remains); Mister Sandman
-  `StartMisterSandman Player`, `RewardXP 50`, `ModPCMiscStat "Sandman Kills" 1`.
+  `StartMisterSandman Player`, `RewardXP 50`, `ModPCMiscStat "Sandman Kills" 1`; Robotics
+  Expert and Robot Compliance `SetUnconscious 1`, `player.RewardXP 10`, `ModPCMiscStat
+  "Robots Disabled" 1`.
 - Idles [observed]: `StartCannibal` (`3rdP_Cannibal.kf`, condition GetCannibal 1);
   `SandMan` and `SandManFloor`, folders conditioned on GetSandman 1, with children
   SandManBedLeft / BedRight / FlrLeft / FlrRight conditioned on GetFurnitureMarkerID
@@ -60,6 +66,28 @@ Ghastly Scavenger "Devour", Dine and Dash "Dine and Dash" (FalloutNV.esm), Miste
   StartCannibal / StartMisterSandman, so the act starts on the target]. The default
   action activates the target again as E does, without the list.
 - Run Immediately is read but changes nothing: every shipped entry has it off.
+- **On an actor E otherwise does nothing to** (hostile to the player, or a creature with
+  nothing to say: combat-ai.md §13.3) E opens the list too when the perks offer a choice on
+  it at that moment, and does nothing when they offer none [documented: Robotics Expert's
+  DESC, "sneaking up on a hostile robot undetected and activating it will put that robot
+  into a permanent shutdown state"; #3479]. There is no default action then: the last
+  button, Cancel, closes the list, so E never talks to a hostile actor or picks its pocket
+  [design]. The conditions are run on the key press only and the crosshair is as without
+  the perk (nothing over a hostile actor, #2536; the name over the other) [hypothesis: what
+  the original's crosshair and list show is
+  observer check 3479-robotics-expert-deactivate].
+- Known limit: a list opened on an actor that was talkable keeps its default action (Talk)
+  though the actor turns hostile while the list is open; picking it activates the actor as
+  when the list opened.
+- **The X-13 robot test** (OldWorldBlues.esm, SCPT 0x01006DA6) watches `GetDetected Player`
+  on its three robots until all three read GetUnconscious 1 or one detects the player, the
+  ones already shut down included [observed: SCTX of OldWorldBlues.esm SCPT
+  0x01006DA6]. An unconscious actor
+  (SetUnconscious) therefore detects no one, its pairs held in the Hidden band from the
+  call on (`Game::forget_detected_by`, `Game::detect`) and measured as usual once it is
+  awake [documented: GECK wiki SetUnconscious, unconscious actors "will not use
+  AI behavior"; hypothesis: detecting is part of it,
+  observer check 3479-robotics-expert-deactivate].
 
 ## 3. The acts
 

@@ -1424,6 +1424,26 @@ where
         }
     }
 
+    /// NVForever kept shadow phases (engine/vendor/README.md): whether the entity is binned.
+    pub fn nvf_is_binned(&self, main_entity: MainEntity) -> bool {
+        self.cached_entity_bin_keys.contains_key(&main_entity)
+    }
+
+    /// NVForever kept shadow phases: removes every binned entity `keep` refuses, as
+    /// [`Self::remove`] does, and returns how many went.
+    pub fn nvf_retain_binned(&mut self, mut keep: impl FnMut(MainEntity) -> bool) -> usize {
+        let gone: Vec<MainEntity> = self
+            .cached_entity_bin_keys
+            .keys()
+            .copied()
+            .filter(|main_entity| !keep(*main_entity))
+            .collect();
+        for main_entity in &gone {
+            self.remove(*main_entity);
+        }
+        gone.len()
+    }
+
     /// Removes a single entity from its bin.
     ///
     /// If doing so makes the bin empty, this method removes the bin as well.

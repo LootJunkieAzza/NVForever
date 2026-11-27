@@ -198,19 +198,28 @@ pub struct ModelEmitter {
     /// one. A system not named does not emit.
     pub driven: Option<HashMap<String, Option<f32>>>,
     /// A factor on the size of the particles it gives birth to from now on (1: as the
-    /// file says). The reference's scale leaves the size alone (particles.md §7.7); a grass
-    /// fire's flames grow and die down with this (`crate::grass_fire_fx`) [design].
+    /// file says). Placed reference scale leaves the size alone (particles.md §7.7).
     pub size: f32,
+    /// Grass-fire flame holders contribute their scale to the radius factor [design].
+    pub(crate) scale_radius_with_holder: bool,
+    /// Owned by a script-attached model (`AttachModel` / camera overlay): kept isolated
+    /// from the host reference's placed particle systems (`instance_refs`) [design].
+    attached: bool,
+    /// Optional render layer for spawned particle meshes (e.g. camera overlay layers).
+    layer: Option<RenderLayers>,
+    /// Optional game-space root entity (e.g. a camera overlay holder) instead of
+    /// `WorldRoot`: particles simulate and draw in this root's local game space [design].
+    space_root: Option<Entity>,
 }
 
 impl ModelEmitter {
     pub fn new(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: None, size: 1.0 }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: None, size: 1.0, scale_radius_with_holder: false, attached: false, layer: None, space_root: None }
     }
 
     /// The model of placed reference `r` (a dust cloud, a sconce's flame, a smoke column).
     pub fn placed(path: impl Into<String>, r: u32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None, driven: None, size: 1.0 }
+        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None, driven: None, size: 1.0, scale_radius_with_holder: false, attached: false, layer: None, space_root: None }
     }
 
     /// The model of placed reference `r` whose drawn rig starts its Idle `start` seconds
@@ -219,14 +228,22 @@ impl ModelEmitter {
     /// the rest, and the mover of those that are not driven (particles.md §6.8), in step
     /// with the rig and its sounds.
     pub fn placed_from(path: impl Into<String>, r: u32, start: f32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None, driven: None, size: 1.0 }
+        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None, driven: None, size: 1.0, scale_radius_with_holder: false, attached: false, layer: None, space_root: None }
     }
 
     /// The model of a weapon in an actor's hand: its systems stay off until the actor's
     /// clips switch them on (the dynamite's fuse sparks while the throw clip lights it,
     /// particles.md §7.6); `driven` is set each frame by whoever plays the clips.
     pub fn held(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: Some(HashMap::new()), size: 1.0 }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: Some(HashMap::new()), size: 1.0, scale_radius_with_holder: false, attached: false, layer: None, space_root: None }
+    }
+
+    /// An attached NIF model's own particle emitter (`AttachModel` or a camera overlay):
+    /// isolated by its emitter entity instance so it never collides with the host
+    /// reference's placed particle systems, optionally drawn on `layer` and simulated
+    /// under `space_root` instead of `WorldRoot` [design].
+    pub fn attached(path: impl Into<String>, r: u32, layer: Option<RenderLayers>, space_root: Option<Entity>) -> ModelEmitter {
+        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None, driven: None, size: 1.0, scale_radius_with_holder: false, attached: true, layer, space_root }
     }
 }
 
@@ -327,6 +344,9 @@ struct Live {
     /// about one particle, and a count kept by each flash would round most of them away
     /// [design].
     owed: f32,
+    /// Simulated under a camera-overlay holder (`space_root`): billboards face the local
+    /// camera basis (`[Vec3::X, Vec3::Z, -Vec3::Y]`) instead of the world camera's [design].
+    camera_local: bool,
 }
 
 /// CPU-side particle geometry exchanged with a live mesh after each draw.
@@ -495,6 +515,9 @@ pub struct Particles {
     placed_emitted: HashSet<u32>,
     /// The placed reference of each placed model's emitter, for the log.
     instance_refs: HashMap<Entity, u32>,
+    /// The host reference of each attached/overlay model's emitter (kept separate from
+    /// `instance_refs` so attached emitters stay isolated from host placed systems).
+    attached_refs: HashMap<Entity, u32>,
     /// Most placed model instances live at once.
     most_instances: usize,
     rng: SplitMix,
@@ -539,6 +562,7 @@ impl Default for Particles {
             placed_seen: HashSet::new(),
             placed_emitted: HashSet::new(),
             instance_refs: HashMap::new(),
+            attached_refs: HashMap::new(),
             most_instances: 0,
             rng: SplitMix(0x2545_f491),
             born: 0,
@@ -558,6 +582,53 @@ pub(crate) fn placed_systems(p: &mut Particles, r: u32) -> Vec<&mut ParticleSyst
         .filter_map(|(_, v)| v.as_mut())
         .flat_map(|v| v.iter_mut().map(|l| &mut l.def))
         .collect()
+}
+
+/// The live systems owned by one concrete emitter entity `owner` (an attached or camera
+/// overlay NIF model), isolated from any other emitter on the same reference [design].
+pub(crate) fn instance_systems(p: &mut Particles, owner: Entity) -> Vec<&mut ParticleSystemDef> {
+    p.systems
+        .iter_mut()
+        .filter(|(k, _)| k.instance == Some(owner))
+        .filter_map(|(_, v)| v.as_mut())
+        .flat_map(|v| v.iter_mut().map(|l| &mut l.def))
+        .collect()
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn seed_test_system(
+    p: &mut Particles,
+    owner: Entity,
+    reference: u32,
+    attached: bool,
+    path: &str,
+    def: ParticleSystemDef,
+    mesh: Handle<Mesh>,
+    entity: Entity,
+) {
+    if attached {
+        p.attached_refs.insert(owner, reference);
+    } else {
+        p.instance_refs.insert(owner, reference);
+    }
+    let key = Key {
+        source: Source::Model(path.to_string()),
+        instance: Some(owner),
+    };
+    p.systems.insert(
+        key,
+        Some(vec![Live {
+            def,
+            particles: Vec::new(),
+            geometry: ParticleGeometry::default(),
+            mesh,
+            entity,
+            served: 0,
+            owed: 0.0,
+            camera_local: false,
+        }]),
+    );
 }
 
 /// A system's values by GetNiPSysModifierValue's IDs [documented: the page's table]: 0
@@ -702,6 +773,7 @@ pub fn game_affine(e: Entity, transforms: &Query<&Transform>, parents: &Query<&C
     m
 }
 
+#[allow(clippy::too_many_arguments)]
 fn systems_of<'a>(
     p: &'a mut Particles,
     key: &Key,
@@ -710,6 +782,8 @@ fn systems_of<'a>(
     commands: &mut Commands,
     root: Entity,
     idle: Option<&IdleParticleRig>,
+    layer: Option<&RenderLayers>,
+    camera_local: bool,
 ) -> Option<&'a mut Vec<Live>> {
     let source = &key.source;
     if !p.systems.contains_key(key) {
@@ -748,6 +822,9 @@ fn systems_of<'a>(
                     let entity = commands
                         .spawn((Mesh3d(mesh.clone()), MeshMaterial3d(def.material.clone()), Transform::IDENTITY, Visibility::Hidden, NotShadowCaster, NoFrustumCulling, ChildOf(root)))
                         .id();
+                    if let Some(layer) = layer {
+                        commands.entity(entity).insert(layer.clone());
+                    }
                     if let (Some(idle), Some(owner)) = (idle, key.instance) {
                         if let Some(materials) = def.idle_materials(entity, &idle.clip) {
                             let mut player = Playing::new(&idle.clip.name, &idle.clip, |_| None);
@@ -759,7 +836,7 @@ fn systems_of<'a>(
                     if let Some(idle) = idle {
                         def.bind_idle(&idle.clip);
                     }
-                    Live { def, particles: Vec::new(), geometry: ParticleGeometry::default(), mesh, entity, served: 0, owed: 0.0 }
+                    Live { def, particles: Vec::new(), geometry: ParticleGeometry::default(), mesh, entity, served: 0, owed: 0.0, camera_local }
                 })
                 .collect()
         });
@@ -806,8 +883,9 @@ type ModelEmitterItem = (
 /// An emitter, its systems' key, age, placed reference, the sequence driving its drawn
 /// model, and the clips' word on a held model's systems ([`ModelEmitter::driven`]).
 /// The emitter, its systems' key, its age, its placed reference, its drive, its held
-/// clips' word and the factor on its particles' size ([`ModelEmitter::size`]).
-type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>, Option<HashMap<String, Option<f32>>>, f32);
+/// clips' word, the factor on its particles' size ([`ModelEmitter::size`]), optional
+/// render layer, and optional local space root (e.g. a camera overlay holder).
+type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>, Option<HashMap<String, Option<f32>>>, (f32, bool), Option<RenderLayers>, Option<Entity>);
 
 /// Births: each add-on node in the world emits into the systems of its ADDN, each
 /// model emitter into its file's own.
@@ -828,9 +906,11 @@ fn emit(
     parents: Query<&ChildOf>,
     body: Option<Res<crate::player_body::PlayerBody>>,
 ) {
-    let Ok((root, root_t)) = root.single() else { return };
+    let world_root = root.single().ok();
     // The camera in game space: emitters nearest it are served first.
-    let eye = camera.single().ok().map(|c| Vec3A::from(root_t.compute_affine().inverse().transform_point3(c.translation)));
+    let eye = world_root.and_then(|(_, root_t)| {
+        camera.single().ok().map(|c| Vec3A::from(root_t.compute_affine().inverse().transform_point3(c.translation)))
+    });
     let dt = time.delta_secs();
     let p = &mut *p;
     for live in p.systems.values_mut().flatten().flatten() {
@@ -848,22 +928,31 @@ fn emit(
     // [design: effect_shaders::player_addon] A player's hidden part suppresses births
     // immediately, including an emitter's first frame before visibility propagates.
     let part_seen = |part: Option<&crate::effect_shaders::PlayerEffectEmitter>| part.is_none_or(|part| body.as_deref().is_some_and(|b| b.sees_effect(part.0)));
-    for (e, mut em, v, part) in &mut emitters {
-        if let Some(r) = em.placed {
-            p.placed_seen.insert(r);
+    if world_root.is_some() {
+        for (e, mut em, v, part) in &mut emitters {
+            if let Some(r) = em.placed {
+                p.placed_seen.insert(r);
+            }
+            if part_seen(part) && !hidden(em.age, v) {
+                sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None, None, (1.0, false), None, None));
+            }
+            em.age += dt;
         }
-        if part_seen(part) && !hidden(em.age, v) {
-            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None, None, 1.0));
-        }
-        em.age += dt;
     }
     for (e, mut em, v, rig, idle_rig, playing, part) in &mut model_emitters {
+        if em.space_root.is_none() && world_root.is_none() {
+            continue;
+        }
         // A placed model's systems are its own (particles.md §7.1).
         let instance = em.placed.map(|_| e);
         if let Some(r) = em.placed {
             p.placed_seen.insert(r);
             present.insert(e);
-            p.instance_refs.insert(e, r);
+            if em.attached {
+                p.attached_refs.insert(e, r);
+            } else {
+                p.instance_refs.insert(e, r);
+            }
         }
         // Drawn with its own nodes: the sequence playing on it and the span of its time
         // since last frame; a sequence just begun counts from its start, unless it was
@@ -891,26 +980,30 @@ fn emit(
         // A held model whose clips switch nothing on costs nothing.
         let idle = em.driven.as_ref().is_some_and(HashMap::is_empty);
         if part_seen(part) && !hidden(em.age, v) && !idle {
-            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive, em.driven.clone(), em.size.max(0.0)));
+            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive, em.driven.clone(), (em.size.max(0.0), em.scale_radius_with_holder), em.layer.clone(), em.space_root));
         }
         em.age += dt;
     }
     // A master system serves at most `max_emitters` emitters a frame: the ones nearest the
     // camera [hypothesis, particles.md §7.2], so the fires in view burn when more barrels
     // than that are loaded.
-    let places: Vec<Affine3A> = sources.iter().map(|(e, ..)| game_affine(*e, &transforms, &parents, root)).collect();
+    let places: Vec<Affine3A> = sources.iter().map(|(e, .., space_root)| {
+        let sr = space_root.or_else(|| world_root.map(|(r, _)| r)).expect("source root");
+        game_affine(*e, &transforms, &parents, sr)
+    }).collect();
     let mut order: Vec<usize> = (0..sources.len()).collect();
     if let Some(eye) = eye {
         order.sort_by(|&a, &b| places[a].translation.distance_squared(eye).total_cmp(&places[b].translation.distance_squared(eye)));
     }
     for i in order {
-        let (_, key, age, placed, drive, driven, size) = &sources[i];
-        let size = *size;
+        let (_, key, age, placed, drive, driven, (size, scale_radius_with_holder), layer, space_root) = &sources[i];
         let (age, placed) = (*age, *placed);
+        let sr = space_root.or_else(|| world_root.map(|(r, _)| r)).expect("source root");
         let rig = drive.as_ref().and_then(|d| rigs.get(d.rig).ok());
         let mut rng = SplitMix(p.rng.0);
-        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root, key.instance.and_then(|e| idle_rigs.get(e).ok())) else { continue };
+        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, sr, key.instance.and_then(|e| idle_rigs.get(e).ok()), layer.as_ref(), space_root.is_some()) else { continue };
         let node = places[i];
+        let size = *size * if *scale_radius_with_holder { frame_scale(&node) } else { 1.0 };
         let mut counts = vec![0u64; systems.len()];
         let mut born = 0;
         if let Some((name, ..)) = drive.as_ref().filter(|d| d.began).and_then(|d| d.playing.as_ref()) {
@@ -951,7 +1044,7 @@ fn emit(
             // From its emitter object's node as the drawn model's sequence moves it.
             let moved = d.emitter.object.as_deref().filter(|_| d.emitter.mesh.is_none()).and_then(|name| {
                 rig.and_then(|r| r.node(name)).or_else(|| drive.as_ref().and_then(|dr| idle_rigs.get(dr.rig).ok()).and_then(|r| r.nodes.get(name).copied()))
-            }).map(|e| game_affine(e, &transforms, &parents, root));
+            }).map(|e| game_affine(e, &transforms, &parents, sr));
             let frame = moved.unwrap_or(node * d.emitter.frame);
             let (_, turn, origin) = frame.to_scale_rotation_translation();
             // The reference's scale and the system node's set the spray's speed and its
@@ -1019,8 +1112,8 @@ fn emit(
                     sequence: sequence.map(|s| s.index),
                     age: 0.0,
                     life: (vals.life + vals.life_variation * spread(&mut rng) * 0.5).max(0.02),
-                    // Sized by the system node's scale; the reference's scale moves and speeds
-                    // the spray but leaves the drops' size (particles.md §3, §7.7).
+                    // The system node sizes the drops. Placed reference scale affects
+                    // the spray but leaves that radius alone (particles.md §3, §7.7).
                     radius: (vals.radius + vals.radius_variation * spread(&mut rng)).max(0.0) * d.system_scale * size,
                     angle: rot.angle + rot.angle_variation * spread(&mut rng),
                     spin,
@@ -1054,7 +1147,7 @@ fn emit(
         let Some(e) = k.instance.filter(|e| hidden_now.contains(e) || !present.contains(e)) else { continue };
         let n: usize = live.iter().flatten().map(|s| s.particles.len()).sum();
         if n > 0 {
-            info!("particles: {:08X} is not drawn any more: its {n} live particles go", p.instance_refs.get(&e).copied().unwrap_or(0));
+            info!("particles: {:08X} is not drawn any more: its {n} live particles go", p.instance_refs.get(&e).or_else(|| p.attached_refs.get(&e)).copied().unwrap_or(0));
             for s in live.iter_mut().flatten() {
                 s.particles.clear();
             }
@@ -1062,6 +1155,7 @@ fn emit(
     }
     let gone: Vec<Key> = p.systems.keys().filter(|k| k.instance.is_some_and(|e| !present.contains(&e))).cloned().collect();
     p.instance_refs.retain(|e, _| present.contains(e));
+    p.attached_refs.retain(|e, _| present.contains(e));
     for k in gone {
         for live in p.systems.remove(&k).flatten().unwrap_or_default() {
             commands.entity(live.entity).try_despawn();
@@ -1179,10 +1273,12 @@ fn draw(
     views: ParticleViews,
     mut counts: Option<ResMut<crate::profile::ParticleCull>>,
 ) {
-    // Taken: a frame whose `take_basis` did not run draws nothing, as before.
-    let Some([right, up, back]) = p.basis.take() else { return };
+    // Taken: a frame whose `take_basis` did not run draws no world systems, as before;
+    // camera-local overlay systems use the camera's local game-space basis directly.
+    let world_basis = p.basis.take();
     let frame = views.frame();
     for live in p.systems.values_mut().flatten().flatten() {
+        let Some([right, up, back]) = (if live.camera_local { Some([Vec3::X, Vec3::Z, -Vec3::Y]) } else { world_basis }) else { continue };
         let alive = !live.particles.is_empty();
         let seen = alive && frame.may_see(particle_bounds(&live.def, &live.particles), live.entity, &views);
         if let Ok(mut v) = visibility.get_mut(live.entity) {
@@ -1431,6 +1527,50 @@ mod tests {
         assert!((frame_scale(&half) - 0.5).abs() < 1e-5);
         // A frame squashed to nothing sizes nothing down to zero: 1.
         assert_eq!(frame_scale(&Affine3A::from_scale(Vec3::ZERO)), 1.0);
+    }
+
+    #[test]
+    fn placed_scale_leaves_radius_alone_and_grass_fire_radius_stays_linear() {
+        let emit_radius = |holder_scale: f32, emitter_size: f32, grass_fire: bool| {
+            let mut s = Scene::emitting(None, Quat::IDENTITY);
+            let emitter = s.world.query_filtered::<Entity, With<ModelEmitter>>().single(&s.world).unwrap();
+            *s.world.get_mut::<Transform>(emitter).unwrap() = Transform::from_translation(AHEAD).with_scale(Vec3::splat(holder_scale));
+            {
+                let mut em = s.world.get_mut::<ModelEmitter>(emitter).unwrap();
+                em.size = emitter_size;
+                em.scale_radius_with_holder = grass_fire;
+                if grass_fire {
+                    em.placed = None;
+                }
+            }
+            {
+                let mut p = s.world.resource_mut::<Particles>();
+                let (mut key, mut systems) = p.systems.drain().next().unwrap();
+                let live = systems.iter_mut().flatten().next().unwrap();
+                live.def.emitter.radius = 12.0;
+                live.def.emitter.radius_variation = 0.0;
+                live.def.system_scale = 0.5;
+                if grass_fire {
+                    key.instance = None;
+                }
+                p.systems.insert(key, systems);
+            }
+            s.frame(0.05);
+            s.live().particles[0].radius
+        };
+
+        // System node scale and the explicit emitter size still apply to placed references.
+        let unscaled = emit_radius(1.0, 0.5, false);
+        assert_eq!(unscaled, 3.0);
+        assert_eq!(emit_radius(0.1, 0.5, false), unscaled);
+
+        let flame_size = 1.2;
+        let start = crate::grass_fire_fx::START_SIZE;
+        assert!((emit_radius(start, flame_size, true) - 6.0 * flame_size * start).abs() < 1e-5);
+        for share in [start, 0.5, 1.0] {
+            let (holder, em_size) = crate::grass_fire_fx::flame_scales(flame_size, 1.0, share);
+            assert!((emit_radius(holder, em_size, true) - 6.0 * flame_size * share).abs() < 1e-5);
+        }
     }
 
     fn test_particle(pos: Vec3, trail: Vec<Vec3>) -> Particle {
@@ -1835,7 +1975,7 @@ mod tests {
             let mesh = world.resource_mut::<Assets<Mesh>>().add(particle_mesh());
             let system = world.spawn((Visibility::Hidden, Transform::IDENTITY, GlobalTransform::from(root_t))).id();
             let mut p = Particles::default();
-            let live = Live { def: test_def(strip), particles, geometry: ParticleGeometry::default(), mesh: mesh.clone(), entity: system, served: 0, owed: 0.0 };
+            let live = Live { def: test_def(strip), particles, geometry: ParticleGeometry::default(), mesh: mesh.clone(), entity: system, served: 0, owed: 0.0, camera_local: false };
             p.systems.insert(Key { source: Source::Model("test.nif".into()), instance: None }, Some(vec![live]));
             world.insert_resource(p);
             Scene { world, system, mesh, main, emits: false }
@@ -2162,7 +2302,7 @@ mod tests {
             let mesh = world.resource_mut::<Assets<Mesh>>().add(particle_mesh());
             let system = world.spawn((Mesh3d(mesh.clone()), Transform::IDENTITY, Visibility::Hidden, NotShadowCaster, NoFrustumCulling, ChildOf(root))).id();
             let mut p = Particles::default();
-            let live = Live { def: test_def(None), particles: moving_particles(), geometry: ParticleGeometry::default(), mesh: mesh.clone(), entity: system, served: 0, owed: 0.0 };
+            let live = Live { def: test_def(None), particles: moving_particles(), geometry: ParticleGeometry::default(), mesh: mesh.clone(), entity: system, served: 0, owed: 0.0, camera_local: false };
             p.systems.insert(Key { source: Source::Model("test.nif".into()), instance: None }, Some(vec![live]));
             world.insert_resource(p);
             let mut s = Sched { app, system, mesh, main, reflection };

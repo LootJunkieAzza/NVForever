@@ -274,8 +274,12 @@ them.
 - **Stimpak and Doctor's Bag** (aid-items.md §3): the normal Stimpak gives each limb a
   sixth of the amount it heals (a design number); Doctor's Bag and Hydra restore every
   limb.
-- **A Stimpak on one limb from the Pip-Boy** (built 2026-10-23, pipboy.md §5.1): that
-  limb gets the whole amount; the Doctor's Bag is used from the same page.
+- **A Stimpak or Doctor's Bag on one limb from the Pip-Boy** (built 2026-10-23, updated
+  for Hardcore Doctor's Bag limb targeting #3431, pipboy.md §5.1): outside Hardcore, a
+  Stimpak aimed at one limb gives that limb the whole amount and a Doctor's Bag restores
+  every limb; in Hardcore, selecting or clicking a limb applies a Doctor's Bag to that
+  limb alone (restoring it to full, aid-items.md §3), while using a Doctor's Bag with no
+  limb aimed restores all limbs part-way.
 - **Hardcore: Stimpaks do not heal limbs** (checked 2026-10-23): the Hardcore Stimpak's
   effect is a Value Modifier on Health alone, 5 a second for 6 s, no limbs [observed:
   `fnvtool actor aid --use Stimpak --hardcore`], as the help text says; the Pip-Boy's

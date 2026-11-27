@@ -746,8 +746,91 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     the floor [hypothesis]): any other box the ray enters before the first collision hit
     wins over it, nearer or not, so an item beside a body is taken rather than the body
     searched; with no such box the body is picked by its box as before (#3125) [design].
+    **A bed yields to what lies in it**: when a box of a bed (furniture whose FURN marker
+    flags include Sleep, bit 31; furniture.md §1) holds, along the ray, the whole stretch
+    through another reference's precise box (not an actor's rough one) that the player
+    can activate and that the ray enters before the first collision hit as it met it, or
+    within the 2 units behind it that pick.rs's `SURFACE_SLACK` allows (#3333; not a door
+    found behind that hit), every box of that bed is set aside, and the rest is
+    picked by the nearest rule above. Full containment decides only this setting aside;
+    nothing else changes. A bed's box runs from the floor to the top of its headboard and
+    encloses what lies on the mattress, so the ray entered it before a suitcase lying
+    there and the bed won (#3323: the Suitcase 0x000AFA24 on BedQueenRight 0x000D72C7 in
+    BisonSteve02 [documented: FalloutNV.esm]) [design; reported: the player's issue says
+    the suitcase can be looted in the original, not captured; observer check
+    3323-suitcase-on-a-bed]. The render boxes are each
+    drawn mesh's bounds, not the base's OBND (SuitCase02's OBND is all zeros
+    [documented: FalloutNV.esm]). When no bed box wholly holds the suitcase's stretch
+    (the suitcase hanging over the bed's edge), nothing is set aside and the nearest rule
+    decides, whichever box that is; the bed's collision hit before the suitcase's box, and
+    the bare mattress, pick the bed. Another bed's box sets nothing aside either. Chairs, benches and activators do not yield: a chair's back keeps
+    its prompt over a switch behind it. A wall before the suitcase still hides it, two
+    boxes over the same stretch both stay, and an actor's rough box sets nothing aside
+    (a sleeper's bed still yields to the sleeper, below). Beds are known from the script
+    runtime's records; without it nothing is set aside.
     The console's click keeps the plain nearest rule. Collision on the trigger layer (12)
-    does not block the ray [hypothesis].
+    does not block the ray [hypothesis]. Nor does the Invisible Wall layer (27): "the
+    player can activate / loot objects through this layer" [documented: GECK wiki
+    "Collision layer", INVISIBLE WALL; #1602, docs/spec-notes/cells-refs.md].
+  - **Inside the target** (#3351; `activate/pick.rs` `choose_inside`): when the target
+    chosen so has a render box, an activatable reference the ray reaches within that box
+    takes its place: its collision hit lying between the box's entry and exit, or its own
+    box (not a rough one) lying wholly between them, the nearest first, and so on inwards
+    [design]. What a collision hit hides stays hidden, so a closed door or lid covers
+    what is behind it. The case: the open locker in the Sloan barracks (QJLocker01
+    0x000E7610, `clutter\lockercabinet02.nif`, a CONT at 2736.6, -735.1, 16282.8) with a
+    first aid kit (0x000E7612, a CONT with collision of its own, at 2774.2, -736.6,
+    16359.6) on its upper shelf and Duck and Cover! (0x000E7613, at 2771.6, -731.4,
+    16324.6) with burned books on the lower one [observed: `fnvtool world refs --cell
+    0x000E5CCE`, FalloutNV.esm]. The locker's collision is hollow: rays from 135 units
+    in front, straight in, hit the kit at 132.5 units, a burned book (0x000E7615) at
+    125.3, the back wall at 149.2 where a shelf is empty, and the closed half's door at
+    114.6 [observed: `fnvtool phys cell --cell 0x000E5CCE --ray 2774,-600,16362,0,-1,0,400`
+    and the same at x 2756 and 2771 with z 16327, and x 2700]. The ray enters the
+    locker's own render box at its front, before anything on the shelves, so by the
+    nearest rule alone the locker was always the target [observed: player reports
+    R-BHSP2X8C and R-C6VJTJFT]. What the original picks there is not captured
+    [hypothesis: the things on an open shelf, as the reports expect]. Only a container
+    gives way to anything inside it; an activator gives way only to an item (a reference
+    whose prompt is Take) lying in its box, never to another activator (#3323) [design,
+    #3937]. The case: a note on top of a table radio (0x0301057F) in an Old World Blues
+    interior (0x030086CB); the radio's box reaches over the note, so the radio was the
+    target wherever the crosshair was on the note [observed: player report R-FQ39PUHZ,
+    every pick `target 0x0301057F Radio (Activate) by Bounds at 55-87`].
+  - **Talking through bars** (#3233; `engine/nvf-play/src/activate/see_through.rs`): when
+    the ray's first hit is a reference's collision on a see-through layer, Transparent (3),
+    Transparent Small (26) or Transparent Small Anim (28), and nothing is offered (no
+    activatable collision hit, no render box entered before it), every hit along the ray
+    within reach is read in order, past the colliders on those layers; if the first other
+    thing is a living actor whose prompt is Talk, that actor is the target (by collision,
+    at its own distance; the log line says "through" and the bars' reference) [design].
+    A closed door hides what is behind it on any layer, a see-through one included; an
+    open one on those layers is passed [design]. E on such a target only opens the
+    conversation (`script::talk_by_hand`, `fnv_game::Game::start_dialogue`): it is not an
+    activation, so no OnActivate block, perks' choices (Cannibal, Mister Sandman),
+    companion wheel or default action runs, and an actor asleep is not woken through the
+    bars [design]. The Vault 3 captives stand behind JailCellDoorway01 (0x000EF3FA, a STAT
+    with one collision object on layer 3): three rays from the player's eye at the
+    report's spot toward Rick Lancer (V3Prisoner01Ref 0x000F47B0, placed at -2773, 4664,
+    5888) hit it 25.2 to 27.5 units out [observed: `fnvtool phys cell --cell Vault3b
+    --ray -2723,4553,6005,-50,110.7,-25,200` and the same with the direction's z -60 and
+    -10, FalloutNV.esm, 2026-11-21]; started again along the first ray at 26 and 30 units
+    it hit the same bars 6.4 and 2.4 units on, and at 35, 45 and 60 units it hit nothing
+    within its 200 units [observed: the same command with those five origins]. The
+    layers are the ones actors see through ("Actors can see through this layer type"
+    [documented: GECK wiki "Collision layer", TRANSPARENT, TRANSPARENT SMALL];
+    Transparent Small Anim by its name [hypothesis]); for the activation pick the wiki
+    says only that nothing but projectiles passes Transparent, so the original's
+    crosshair on these layers is an observer question (observer-checks.md #251). The
+    rule is kept narrow on purpose [design]: only Talk passes, so items, containers,
+    doors, a body to search and a pocket to pick behind bars, a fence or a window stay
+    out of reach (render-bounds picks still count only before the first collision hit,
+    and the activation ray itself still stops on the bars); anything else between the
+    bars and the actor (a wall, a closed door) hides the actor; GetCrosshairRef and
+    PlaceAtReticle's far ray keep the first collision hit. Shots (`layers::shot_ignores`)
+    and movement are not changed. Starting the conversation checks no line of sight or
+    distance (`fnv_game::Game::start_dialogue`; the walk-up distance is for force greets
+    only), so the bars do not refuse it.
   - **A bed someone lies on yields to the sleeper**: when the target chosen above is a bed
     an actor other than the player is on (a bed marker, IDs 1 to 9, at any stage of
     getting on, sleeping or getting off; furniture.md §2) and that actor's body is within

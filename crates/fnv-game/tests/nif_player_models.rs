@@ -80,13 +80,28 @@ fn explicit_player_models_read_separate_names_and_transforms() {
 }
 
 #[test]
-fn omitted_selection_keeps_the_old_third_person_default_and_explicit_edits_keep_their_model() {
+fn omitted_selection_follows_active_camera_and_explicit_edits_keep_their_model() {
     let f = fixture(); let mut g = game(&f);
+    // Default camera is first person (`IsPC1stPerson == 1`), matching w4d_43:
+    // omitted/0 `pcModel` selects FirstPerson (`ThirdRoot` is absent -> ar_Null,
+    // `FirstRoot` -> `["SharedBone"]`, scale -> 10.0).
+    assert_eq!(call(&mut g, P, "getnifblockscale", &[text("SharedBone")]), num(10.0));
+    assert_eq!(scale(&mut g, P, 0.0), num(10.0));
+    assert_eq!(call(&mut g, P, "getchildblocks", &[text("ThirdRoot")]), XVal::Array(0), "omitted pcModel in 1st person must not read 3rd-person-only node");
+    assert_eq!(array(&mut g, P, "getchildblocks", &[text("ThirdRoot"), num(1.0)]), [text("SharedBone")]);
+    assert_eq!(array(&mut g, P, "getchildblocks", &[text("FirstRoot")]), [text("SharedBone")]);
+    call(&mut g, P, "setnifblockscale", &[text("SharedBone"), num(11.0)]);
+    assert_eq!(scale(&mut g, P, 2.0), num(11.0));
+    assert_eq!(scale(&mut g, P, 1.0), num(30.0));
+
+    // Switching to third person redirects omitted/0 `pcModel` to ThirdPerson while
+    // already-queued edits retain their concrete model identity.
+    g.set_first_person(false);
     assert_eq!(call(&mut g, P, "getnifblockscale", &[text("SharedBone")]), num(30.0));
     assert_eq!(scale(&mut g, P, 0.0), num(30.0));
-    call(&mut g, P, "setnifblockscale", &[text("SharedBone"), num(11.0), num(2.0)]);
-    assert_eq!(scale(&mut g, P, 2.0), num(11.0));
+    assert_eq!(array(&mut g, P, "getchildblocks", &[text("ThirdRoot")]), [text("SharedBone")]);
     call(&mut g, P, "setnifblockscale", &[text("SharedBone"), num(33.0), num(0.0)]);
+    g.set_first_person(true);
     let edits: Vec<_> = g.scene.take_edits().into_iter().map(SceneEdit::into_model).collect();
     assert_eq!(edits, [
         (ModelView::FirstPerson, SceneEdit::Scale { r: P, node: "SharedBone".into(), v: 11.0 }),
@@ -122,8 +137,9 @@ fn a_missing_selected_rig_never_falls_back_and_ordinary_actors_ignore_player_sel
     let f = fixture(); let mut g = game(&f);
     g.scene.forget_model(P, ModelView::FirstPerson);
     assert_eq!(scale(&mut g, P, 2.0), num(0.0));
-    assert_eq!(scale(&mut g, P, 0.0), num(30.0));
+    assert_eq!(scale(&mut g, P, 0.0), num(0.0), "in 1st person, missing 1st-person rig never falls back to 3rd person");
     assert_eq!(scale(&mut g, P, 1.0), num(30.0));
+    g.set_first_person(false);
     assert_eq!(scale(&mut g, P, 0.0), num(30.0));
     for selector in [0.0, 1.0, 2.0] { assert_eq!(scale(&mut g, NPC, selector), num(70.0)); }
     call(&mut g, NPC, "setnifblockscale", &[text("SharedBone"), num(71.0), num(2.0)]);
@@ -166,23 +182,31 @@ fn public_catalogue_layout_does_not_confuse_rotation_method_with_model_selection
     }
     cases.push(("SetNifBlockRotation", None, None));
     for (name, method, selector) in cases {
-        let mut g = game(&f);
-        let args = documented_setter_args(name, method, selector);
-        call(&mut g, P, &name.to_ascii_lowercase(), &args);
-        let view = if selector == Some(2.0) { ModelView::FirstPerson } else { ModelView::ThirdPerson };
-        let selected = if view == ModelView::FirstPerson { 2.0 } else { 1.0 };
-        let other = if selected == 2.0 { 1.0 } else { 2.0 };
-        let getter = if name == "SetNifBlockTranslation" { "getnifblocktranslation" } else { "getnifblockrotation" };
-        let baseline = if other == 1.0 { 30.0 } else { 10.0 };
-        assert_eq!(array(&mut g, P, getter, &[text("SharedBone"), num(0.0), num(other)]),
-            [num(baseline), num(0.0), num(0.0)], "{name} method={method:?} selector={selector:?}: other model changed");
-        let changed = array(&mut g, P, getter, &[text("SharedBone"), num(0.0), num(selected)]);
-        let before = if selected == 1.0 { 30.0 } else { 10.0 };
-        assert_ne!(changed, [num(before), num(0.0), num(0.0)], "{name} method={method:?} selector={selector:?}: selected model unchanged");
-        let edits = g.scene.take_edits();
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits.into_iter().next().unwrap().into_model().0, view,
-            "{name} method={method:?} selector={selector:?}: queue lost model identity");
+        for first_person in [true, false] {
+            let mut g = game(&f);
+            g.set_first_person(first_person);
+            let args = documented_setter_args(name, method, selector);
+            call(&mut g, P, &name.to_ascii_lowercase(), &args);
+            let view = match selector {
+                Some(1.0) => ModelView::ThirdPerson,
+                Some(2.0) => ModelView::FirstPerson,
+                _ if first_person => ModelView::FirstPerson,
+                _ => ModelView::ThirdPerson,
+            };
+            let selected = if view == ModelView::FirstPerson { 2.0 } else { 1.0 };
+            let other = if selected == 2.0 { 1.0 } else { 2.0 };
+            let getter = if name == "SetNifBlockTranslation" { "getnifblocktranslation" } else { "getnifblockrotation" };
+            let baseline = if other == 1.0 { 30.0 } else { 10.0 };
+            assert_eq!(array(&mut g, P, getter, &[text("SharedBone"), num(0.0), num(other)]),
+                [num(baseline), num(0.0), num(0.0)], "{name} fp={first_person} method={method:?} selector={selector:?}: other model changed");
+            let changed = array(&mut g, P, getter, &[text("SharedBone"), num(0.0), num(selected)]);
+            let before = if selected == 1.0 { 30.0 } else { 10.0 };
+            assert_ne!(changed, [num(before), num(0.0), num(0.0)], "{name} fp={first_person} method={method:?} selector={selector:?}: selected model unchanged");
+            let edits = g.scene.take_edits();
+            assert_eq!(edits.len(), 1);
+            assert_eq!(edits.into_iter().next().unwrap().into_model().0, view,
+                "{name} fp={first_person} method={method:?} selector={selector:?}: queue lost model identity");
+        }
     }
 }
 
@@ -191,21 +215,29 @@ fn source_vm_rotation_setter_and_alt_output_variables_keep_method_and_selector_s
     let f = fixture();
     for method in [0, 1, 2] {
         for selector in [None, Some(1), Some(2)] {
-            let mut g = game(&f);
-            let suffix = selector.map_or(String::new(), |s| format!(" {s}"));
-            let source = format!("float fX\nfloat fY\nfloat fZ\nfloat fOn\nBegin Function {{ }}\nPlayerREF.SetNifBlockRotation \"SharedBone\" 7 8 9 {method}{suffix}\nlet fOn := PlayerREF.GetNifBlockRotationAlt \"SharedBone\" fX fY fZ 0{suffix}\nSetFunctionValue (fOn * 1000 + fX + 10 * fY + 100 * fZ)\nEnd\n");
-            let result = g.run_query(&source, RunCtx::default()).unwrap_or_else(|e| panic!("{source}: {e}"));
-            let XVal::Num(result) = result else { panic!("expected output-variable checksum") };
-            // This checks the existing local-set/read arithmetic and all three VM
-            // outputs. It is not a claim about native method 1/2 rotation arithmetic.
-            assert!((result - 1987.0).abs() < 0.01, "method={method} selector={selector:?}: {result}");
-            let selected = if selector == Some(2) { ModelView::FirstPerson } else { ModelView::ThirdPerson };
-            let other = if selected == ModelView::FirstPerson { 1.0 } else { 2.0 };
-            let baseline = if other == 1.0 { 30.0 } else { 10.0 };
-            assert_eq!(array(&mut g, P, "getnifblockrotation", &[text("SharedBone"), num(0.0), num(other)]), [num(baseline), num(0.0), num(0.0)]);
-            let edits = g.scene.take_edits();
-            assert_eq!(edits.len(), 1);
-            assert_eq!(edits.into_iter().next().unwrap().into_model().0, selected);
+            for first_person in [true, false] {
+                let mut g = game(&f);
+                g.set_first_person(first_person);
+                let suffix = selector.map_or(String::new(), |s| format!(" {s}"));
+                let source = format!("float fX\nfloat fY\nfloat fZ\nfloat fOn\nBegin Function {{ }}\nPlayerREF.SetNifBlockRotation \"SharedBone\" 7 8 9 {method}{suffix}\nlet fOn := PlayerREF.GetNifBlockRotationAlt \"SharedBone\" fX fY fZ 0{suffix}\nSetFunctionValue (fOn * 1000 + fX + 10 * fY + 100 * fZ)\nEnd\n");
+                let result = g.run_query(&source, RunCtx::default()).unwrap_or_else(|e| panic!("{source}: {e}"));
+                let XVal::Num(result) = result else { panic!("expected output-variable checksum") };
+                // This checks the existing local-set/read arithmetic and all three VM
+                // outputs. It is not a claim about native method 1/2 rotation arithmetic.
+                assert!((result - 1987.0).abs() < 0.01, "fp={first_person} method={method} selector={selector:?}: {result}");
+                let selected = match selector {
+                    Some(1) => ModelView::ThirdPerson,
+                    Some(2) => ModelView::FirstPerson,
+                    _ if first_person => ModelView::FirstPerson,
+                    _ => ModelView::ThirdPerson,
+                };
+                let other = if selected == ModelView::FirstPerson { 1.0 } else { 2.0 };
+                let baseline = if other == 1.0 { 30.0 } else { 10.0 };
+                assert_eq!(array(&mut g, P, "getnifblockrotation", &[text("SharedBone"), num(0.0), num(other)]), [num(baseline), num(0.0), num(0.0)]);
+                let edits = g.scene.take_edits();
+                assert_eq!(edits.len(), 1);
+                assert_eq!(edits.into_iter().next().unwrap().into_model().0, selected);
+            }
         }
     }
 }

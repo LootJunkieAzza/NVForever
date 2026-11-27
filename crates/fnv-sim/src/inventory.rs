@@ -45,6 +45,12 @@ pub struct Extra {
     /// [design, #1640]. Absent from saves when false, so older saves read as before.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub live: bool,
+    /// Saved loaded-magazine round count for an unequipped weapon item (restored once on
+    /// equip by `nvf-play` combat `equip_sync_step` when no active `load_magazine` takes
+    /// precedence, then cleared so vanilla unequip/re-equip behavior is unchanged) [design].
+    /// Absent from saves when `None`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub magazine: Option<u32>,
 }
 
 fn is_zero(m: &u8) -> bool {
@@ -559,6 +565,11 @@ impl Inventory {
         self.items.get(&item).and_then(|s| s.groups.iter().find(|g| g.0.equipped)).map_or(0, |g| g.0.mods)
     }
 
+    /// The saved loaded-magazine round count on the equipped unit of `item`, if any.
+    pub fn equipped_magazine(&self, item: FormId) -> Option<u32> {
+        self.items.get(&item).and_then(|s| s.groups.iter().find(|g| g.0.equipped)).and_then(|g| g.0.magazine)
+    }
+
     /// Unequip every equipped unit of `item`. Returns false when none was equipped.
     pub fn clear_equipped(&mut self, item: FormId) -> bool {
         let Some(s) = self.items.get_mut(&item) else { return false };
@@ -596,13 +607,23 @@ impl Inventory {
 
     /// [`Inventory::totals`] with a carrier's [`WeightRules`].
     pub fn totals_with(&self, forms: &FormStore, hardcore: bool, rules: &WeightRules) -> Totals {
+        self.totals_with_overrides(forms, hardcore, rules, |id| forms.item(id).map(|i| (i, None, i.power_armor)))
+    }
+
+    /// [`Inventory::totals_with`] using a caller-supplied item resolver for runtime
+    /// `TempCloneForm` items and live `weight`/`power_armor` overrides.
+    pub fn totals_with_overrides<'a, F>(&self, _forms: &'a FormStore, hardcore: bool, rules: &WeightRules, lookup: F) -> Totals
+    where
+        F: Fn(FormId) -> Option<(&'a crate::forms::Item, Option<f32>, bool)>,
+    {
         let hardcore = rules.ammo_weight.unwrap_or(hardcore);
         let mut t = Totals::default();
         for (id, s) in &self.items {
             let (id, n) = (*id, s.total());
-            match forms.item(id) {
-                Some(i) => {
-                    match i.weight {
+            match lookup(id) {
+                Some((i, weight_ov, power_armor)) => {
+                    let eff_weight = weight_ov.or(i.weight);
+                    match eff_weight {
                         _ if i.kind == ItemKind::Ammo && !hardcore => {}
                         // The records have no weight field; in game they weigh nothing,
                         // like caps [observed by the owner, inventory screen, 2026-10-08].
@@ -610,9 +631,14 @@ impl Inventory {
                             i.kind,
                             ItemKind::Note | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard
                         ) => {}
-                        Some(_) => {
+                        Some(base_w) => {
+                            let mod_delta = |mods: u8| {
+                                let orig = i.weight.unwrap_or(base_w);
+                                orig - i.weight_with_mods(mods).unwrap_or(orig)
+                            };
                             for &(e, c) in &s.groups {
-                                t.weight += rules.effective_unit(i.weight_with_mods(e.mods).unwrap_or(0.0), i.kind, e.equipped, i.power_armor) as f64 * c as f64;
+                                let unit = (base_w - mod_delta(e.mods)).max(0.0);
+                                t.weight += rules.effective_unit(unit, i.kind, e.equipped, power_armor) as f64 * c as f64;
                             }
                         }
                         None => t.unknown_weight.push(id),
@@ -740,6 +766,18 @@ mod tests {
         let back: Inventory = serde_json::from_str(&json).unwrap();
         assert_eq!(back, inv);
         assert!(!serde_json::to_string(&Extra::default()).unwrap().contains("mods"));
+        assert!(!serde_json::to_string(&Extra::default()).unwrap().contains("magazine"));
+
+        // Per-item saved magazine round count round-trips and is read via equipped_magazine.
+        let mut minv = Inventory::new();
+        minv.add_extra(id, 1, Extra { magazine: Some(7), ..Extra::default() });
+        assert_eq!(minv.equipped_magazine(id), None);
+        assert!(minv.set_equipped(id));
+        assert_eq!(minv.equipped_magazine(id), Some(7));
+        let mjson = serde_json::to_string(&minv).unwrap();
+        assert!(mjson.contains("\"magazine\":7"), "{mjson}");
+        let mback: Inventory = serde_json::from_str(&mjson).unwrap();
+        assert_eq!(mback, minv);
     }
 
     #[test]

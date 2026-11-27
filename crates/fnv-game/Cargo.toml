@@ -49,6 +49,10 @@ name = "anim_folders"
 path = "tests/anim_folders.rs"
 
 [[test]]
+name = "mo2_mod_files"
+path = "tests/mo2_mod_files.rs"
+
+[[test]]
 name = "build_shortcuts"
 path = "tests/build_shortcuts.rs"
 
@@ -132,3 +136,8 @@ path = "tests/crosshair_water.rs"
 [[test]]
 name = "crosshair_prompt_events"
 path = "tests/crosshair_prompt_events.rs"
+
+# Stewie modular INI fixtures own and restore process-wide Data read roots.
+[[test]]
+name = "stewie_modular_inis"
+path = "tests/stewie_modular_inis.rs"

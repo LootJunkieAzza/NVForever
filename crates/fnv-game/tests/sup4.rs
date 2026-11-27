@@ -52,7 +52,7 @@ fn game(f: &Fixture) -> Game<'_> {
     g
 }
 
-const VARS: &str = "float fA\nfloat fB\nfloat fC\nref rNone\narray_var aR\narray_var aIn\nstring_var sOut\n";
+const VARS: &str = "float fA\nfloat fB\nfloat fC\nfloat fD\nref rNone\narray_var aR\narray_var aIn\nstring_var sOut\n";
 
 fn q(g: &mut Game, body: &str) -> XVal {
     g.run_query(&format!("{VARS}Begin Function {{ }}\n{body}\nEnd\n"), RunCtx::default()).unwrap_or_else(|e| panic!("{body}: {e}"))
@@ -84,8 +84,15 @@ fn arrays() {
         let m = s(&mut g, "Ar_GetRandomKeyMap (Ar_Map \"LALALA\"::1, \"TROLOLO\"::2)");
         assert!(m == "LALALA" || m == "TROLOLO", "{m}");
     }
-    // An empty array 0 [observed: sup4 randomkey].
+    // An empty array 0 [observed: sup4 randomkey; 2026-11-23, GSDocMitchellHouse
+    // (0x00103DF9), `sup_08_ar_getrandomkey_empty`].
     assert_eq!(n(&mut g, "let aR := Ar_List\nSetFunctionValue (Ar_GetRandomKey aR)"), 0.0);
+    // Numeric map keys (including negative floats) and list indices format as 6-decimal
+    // float strings [observed: 2026-11-23 & 2026-11-24, GSDocMitchellHouse (0x00103DF9),
+    // `sup_26_ar_getrandomkey_num_map` and `w4d_36_sup_random_keymap_and_dialog`].
+    assert_eq!(s(&mut g, "Ar_GetRandomKeyMap (Ar_Map 7::100)"), "7.000000");
+    assert_eq!(s(&mut g, "Ar_GetRandomKeyMap (Ar_Map -3.5::99)"), "-3.500000");
+    assert_eq!(s(&mut g, "Ar_GetRandomKeyMap (Ar_List 42)"), "0.000000");
     // An empty reference is an invalid one; a dimension searches the inner array.
     assert_eq!(n(&mut g, "let aR := Ar_List PlayerREF, TestMarkRef\nSetFunctionValue (Ar_HasInvalidRefs aR)"), 0.0);
     assert_eq!(n(&mut g, "let aR := Ar_List PlayerREF, rNone\nSetFunctionValue (Ar_HasInvalidRefs aR)"), 1.0);
@@ -93,6 +100,15 @@ fn arrays() {
     assert_eq!(n(&mut g, "let aIn := Ar_List rNone\nlet aR := Ar_List PlayerREF, aIn\nSetFunctionValue (Ar_HasInvalidRefs aR 1)"), 1.0);
     // The floats from the array [documented: the page's example].
     assert_eq!(n(&mut g, "let aR := Ar_List 3, 8, 5, 1\nAr_SetFloatsFrom aR fA fB fC\nSetFunctionValue fA * 100 + fB * 10 + fC"), 385.0);
+    // Non-numeric elements and trailing variables beyond the array length stay unchanged
+    // [observed: 2026-11-24, `w6_t1_13_sup_ar_setfloats`].
+    assert_eq!(
+        q(
+            &mut g,
+            "let aR := Ar_List 3.5, \"abc\", 8.25\nlet fA := 11\nlet fB := 22\nlet fC := 33\nlet fD := 44\nAr_SetFloatsFrom aR fA fB fC fD\nlet sOut := sv_Construct \"%.2f,%.2f,%.2f,%.2f\" fA fB fC fD\nSetFunctionValue sOut"
+        ),
+        XVal::Str("3.50,22.00,8.25,44.00".to_string())
+    );
 }
 
 #[test]

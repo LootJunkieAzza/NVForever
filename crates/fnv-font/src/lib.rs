@@ -179,6 +179,79 @@ pub fn code_in(c: char, page: fnv_util::text::CodePage) -> u8 {
     page.code_of(c).unwrap_or(b'?')
 }
 
+/// CJK scripts and their punctuation, symbols and width variants (Unicode 17.0).
+pub fn is_cjk(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x1100..=0x11ff
+            | 0x2e80..=0x2fdf
+            | 0x3000..=0x9fff
+            | 0xa960..=0xa97f
+            | 0xac00..=0xd7ff
+            | 0xf900..=0xfaff
+            | 0xfe10..=0xfe1f
+            | 0xfe30..=0xfe4f
+            | 0xff00..=0xffef
+            | 0x1aff0..=0x1b16f
+            | 0x20000..=0x2ee5f
+            | 0x2f800..=0x2fa1f
+            | 0x30000..=0x3347f
+    )
+}
+
+/// Break at a CJK boundary, keeping opening marks with the next character and closing
+/// marks with the previous one (fonts.md §3).
+fn cjk_break(left: char, right: char) -> bool {
+    const OPENING: &str = "([{‘“〈《「『【〔〖〘〚（［｛｟｢";
+    const CLOSING: &str = ")]},.!?;:’”、。〉》」』】〕〗〙〛）］｝｠｣，．！？；：％…";
+    (is_cjk(left) || is_cjk(right)) && !OPENING.contains(left) && !CLOSING.contains(right)
+}
+
+/// Runs that can move to the next line as a unit. There is no extra scanning for ASCII
+/// words, or when setting a line without a wrap width.
+fn word_runs(word: &str, wrap: bool) -> impl Iterator<Item = &str> {
+    let split = wrap && !word.is_ascii();
+    let mut chars = word.char_indices().peekable();
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        if start == word.len() {
+            return None;
+        }
+        let end = if split {
+            let mut end = word.len();
+            while let Some((_, left)) = chars.next() {
+                if let Some(&(i, _)) = chars.peek().filter(|&&(_, right)| cjk_break(left, right)) {
+                    end = i;
+                    break;
+                }
+            }
+            end
+        } else {
+            word.len()
+        };
+        let run = &word[start..end];
+        start = end;
+        Some(run)
+    })
+}
+
+/// The engine provides the live CJK gate and the runtime metrics. Standalone layout
+/// keeps legacy wrapping and measures unsupported characters as a question mark.
+struct CjkProvider {
+    enabled: fn() -> bool,
+    metrics: fn(char, f32) -> Option<Glyph>,
+}
+
+static CJK_PROVIDER: std::sync::OnceLock<CjkProvider> = std::sync::OnceLock::new();
+
+pub fn set_cjk_provider(enabled: fn() -> bool, metrics: fn(char, f32) -> Option<Glyph>) {
+    let _ = CJK_PROVIDER.set(CjkProvider { enabled, metrics });
+}
+
+pub fn cjk_enabled() -> bool {
+    CJK_PROVIDER.get().is_some_and(|provider| (provider.enabled)())
+}
+
 impl Font {
     pub fn parse(bytes: &[u8]) -> Result<Font, FontError> {
         if bytes.len() != FILE_SIZE {
@@ -220,13 +293,41 @@ impl Font {
         &self.glyphs[code as usize]
     }
 
-    /// The glyph a character is measured with: its code's in this run's code page, else its
-    /// own in [`Font::extra`], else `?`'s (what the game's fonts draw for it).
-    pub fn glyph_of(&self, c: char) -> &Glyph {
+    fn native_glyph(&self, c: char) -> Option<&Glyph> {
         match fnv_util::text::code_page().code_of(c) {
-            Some(code) => self.glyph(code),
-            None => self.extra.get(&c).unwrap_or_else(|| self.glyph(b'?')),
+            Some(code) => Some(self.glyph(code)),
+            None => self.extra.get(&c),
         }
+    }
+
+    /// Whether the face needs a fallback for this CJK character.
+    pub fn needs_cjk_fallback(&self, c: char) -> bool {
+        // Chinese text also uses shared typography outside the CJK blocks.
+        // The legacy code pages already carry these marks in their own slots.
+        (is_cjk(c) || matches!(c, '‘' | '’' | '“' | '”' | '…' | '—' | '–' | '·'))
+            && self.native_glyph(c).is_none()
+    }
+
+    pub fn cjk_glyph(&self, c: char) -> Option<Glyph> {
+        let provider = CJK_PROVIDER.get()?;
+        if !self.needs_cjk_fallback(c) || !(provider.enabled)() {
+            return None;
+        }
+        (provider.metrics)(c, self.size)
+    }
+
+    /// The primary glyph, a runtime CJK glyph, or `?`.
+    pub fn glyph_of(&self, c: char) -> Glyph {
+        self.native_glyph(c)
+            .copied()
+            .or_else(|| self.cjk_glyph(c))
+            .unwrap_or(*self.glyph(b'?'))
+    }
+
+    /// The bitmap slot drawn for a placed character, or its runtime CJK glyph.
+    pub fn bitmap_glyph(&self, placed: &Placed) -> Glyph {
+        self.cjk_glyph(placed.ch)
+            .unwrap_or(*self.glyph(placed.code))
     }
 
     /// The width of a text set in one line.
@@ -234,10 +335,14 @@ impl Font {
         text.chars().map(|c| self.glyph_of(c).advance()).sum()
     }
 
-    /// Set a text in lines (§3): a line ends at a line break, and before the word that
-    /// would reach past `wrap`. The spaces a line is broken at are not set. A word wider
-    /// than `wrap` gets a line of its own and is not cut.
+    /// Set a text in lines (§3): a line ends at a line break, or before a word or CJK
+    /// character that would reach past `wrap` (with CJK enabled). The spaces a line is
+    /// broken at are not set. A run with no break wider than `wrap` gets a line of its own.
     pub fn lines(&self, text: &str, wrap: Option<f32>) -> Vec<Line> {
+        self.lines_with_cjk_wrap(text, wrap, wrap.is_some() && cjk_enabled())
+    }
+
+    fn lines_with_cjk_wrap(&self, text: &str, wrap: Option<f32>, cjk_wrap: bool) -> Vec<Line> {
         let mut out = Vec::new();
         for para in text.replace("\r\n", "\n").split('\n') {
             let mut line = Line::default();
@@ -247,21 +352,22 @@ impl Font {
                 if i > 0 {
                     gap += self.glyph(b' ').advance();
                 }
-                if word.is_empty() {
-                    continue;
-                }
-                let w = self.width(word);
-                if wrap.is_some_and(|max| !line.glyphs.is_empty() && line.width + gap + w > max) {
-                    out.push(std::mem::take(&mut line));
+                for run in word_runs(word, cjk_wrap) {
+                    if wrap.is_some_and(|max| {
+                        !line.glyphs.is_empty() && line.width + gap + self.width(run) > max
+                    }) {
+                        out.push(std::mem::take(&mut line));
+                        gap = 0.0;
+                    }
+                    let mut x = line.width + gap;
+                    for c in run.chars() {
+                        let code = code_of(c);
+                        line.glyphs.push(Placed { code, ch: c, x });
+                        x += self.glyph_of(c).advance();
+                    }
+                    line.width = x;
                     gap = 0.0;
                 }
-                let mut x = line.width + gap;
-                for c in word.chars() {
-                    line.glyphs.push(Placed { code: code_of(c), ch: c, x });
-                    x += self.glyph_of(c).advance();
-                }
-                line.width = x;
-                gap = 0.0;
             }
             out.push(line);
         }
@@ -322,6 +428,7 @@ mod tests {
         assert_eq!(f.width("Жa"), 31.0);
         let line = &f.lines("Ж a", None)[0];
         assert_eq!((line.glyphs[1].x, line.text_spaced(&f)), (25.0, "Ж a".to_string()));
+        assert_eq!(f.bitmap_glyph(&line.glyphs[0]), *f.glyph(b'?'));
     }
 
     #[test]
@@ -336,6 +443,30 @@ mod tests {
         assert_eq!(lead[0].text_spaced(&f), " seconds");
         let wrapped = f.lines("ab cd", Some(25.0));
         assert_eq!(wrapped.iter().map(|l| l.text_spaced(&f)).collect::<Vec<_>>(), ["ab", "cd"]);
+    }
+
+    #[test]
+    fn cjk_fallback_keeps_the_primary_glyphs() {
+        let mut f = Font::parse(&file()).unwrap();
+        for c in ['中', '。', '！'] {
+            assert!(f.needs_cjk_fallback(c));
+            assert_eq!(&f.glyph_of(c), f.glyph(b'?'));
+        }
+        for c in ['a', 'é', 'Ж', '“', '”', '…', '—', '·'] {
+            assert!(!f.needs_cjk_fallback(c));
+        }
+        f.extra.insert(
+            '中',
+            Glyph {
+                width: 14.0,
+                ..Glyph::default()
+            },
+        );
+        assert!(!f.needs_cjk_fallback('中'));
+        assert_eq!(f.width("a中"), 25.0);
+        let line = &f.lines("a\u{30000}a", Some(12.0))[0];
+        assert_eq!((line.text().as_str(), line.width, line.glyphs[2].x), ("a\u{30000}a", 33.0, 22.0));
+        assert_eq!(f.bitmap_glyph(&line.glyphs[1]), *f.glyph(b'?'));
     }
 
     #[test]
@@ -384,6 +515,64 @@ mod tests {
     }
 
     #[test]
+    fn cjk_wrap_uses_glyph_advances_and_keeps_punctuation_attached() {
+        let mut f = Font::parse(&file()).unwrap();
+        let glyph = Glyph {
+            width: 15.0,
+            after: 1.0,
+            ..Glyph::default()
+        };
+        for c in "甲乙丙丁（），。𠀀".chars() {
+            f.extra.insert(c, glyph);
+        }
+        let lines = f.lines_with_cjk_wrap("甲乙，丙（丁）𠀀。", Some(48.0), true);
+        assert_eq!(
+            lines.iter().map(Line::text).collect::<Vec<_>>(),
+            ["甲乙，", "丙", "（丁）", "𠀀。"]
+        );
+        assert!(lines
+            .iter()
+            .all(|l| l.width == f.width(&l.text()) && l.width <= 48.0));
+        assert_eq!(
+            lines[0].glyphs.iter().map(|g| g.x).collect::<Vec<_>>(),
+            [0.0, 16.0, 32.0]
+        );
+    }
+
+    #[test]
+    fn mixed_scripts_keep_words_spaces_and_explicit_newlines() {
+        let mut f = Font::parse(&file()).unwrap();
+        let glyph = Glyph {
+            width: 16.0,
+            ..Glyph::default()
+        };
+        for c in "甲乙丙丁".chars() {
+            f.extra.insert(c, glyph);
+        }
+        let spaced = |text, wrap| {
+            f.lines_with_cjk_wrap(text, wrap, wrap.is_some())
+                .iter()
+                .map(|l| l.text_spaced(&f))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            spaced("甲 abcdef乙\r\n\n丙 丁", Some(38.0)),
+            ["甲", "abcdef", "乙", "", "丙 丁"]
+        );
+        assert_eq!(spaced("甲abc乙", Some(33.0)), ["甲", "abc", "乙"]);
+        assert_eq!(spaced("甲abc乙", None), ["甲abc乙"]);
+        let legacy = *f.glyph(b'A');
+        f.glyphs[0xe9] = legacy;
+        f.extra.insert('Ж', legacy);
+        let lines = f.lines("éé ЖЖ ЖЖЖЖ", Some(49.0));
+        assert_eq!(
+            lines.iter().map(|l| l.text_spaced(&f)).collect::<Vec<_>>(),
+            ["éé ЖЖ", "ЖЖЖЖ"]
+        );
+        assert_eq!((lines[0].width, lines[1].width), (49.0, 44.0));
+    }
+
+    #[test]
     fn characters_have_codes() {
         assert_eq!(code_of('A'), 0x41);
         assert_eq!(code_of('é'), 0xE9);
@@ -404,6 +593,8 @@ mod tests {
         assert_eq!(code_in('ż', Windows1250), 0xBF);
         assert_eq!(code_in('é', Windows1252), 0xE9);
         assert_eq!(code_in('\u{2019}', Windows1251), 0x92);
+        assert_eq!(code_in('A', Windows936), b'A');
+        assert_eq!(code_in('中', Windows936), b'?');
     }
 
     #[test]

@@ -27,6 +27,8 @@ pub struct Jip11State {
     pub set_breath: Option<f32>,
     /// ResetFallTime's actors, for the engine to take.
     pub fall_resets: BTreeSet<FormId>,
+    /// Engine-reported remaining fall time in seconds, by actor (GetFallTimeRemaining).
+    pub fall_time_remaining: BTreeMap<FormId, f32>,
     /// SetActorUnarmedEffect's effects, by the actor base that supplies its effects.
     pub unarmed: BTreeMap<FormId, FormId>,
     /// RemoveNthEffect's removed entries, by magic item: record indices.
@@ -152,6 +154,65 @@ impl Game<'_> {
         std::mem::take(&mut self.other.jip11.fall_resets).into_iter().collect()
     }
 
+    /// Record or clear an actor's remaining fall time in seconds (GetFallTimeRemaining).
+    pub fn set_fall_time_remaining(&mut self, actor: FormId, seconds: Option<f32>) {
+        match seconds.filter(|s| s.is_finite() && *s > 0.0) {
+            Some(s) => {
+                self.other.jip11.fall_time_remaining.insert(actor, s);
+            }
+            None => {
+                self.other.jip11.fall_time_remaining.remove(&actor);
+            }
+        }
+    }
+
+    /// Estimated seconds remaining before `actor` lands (GetFallTimeRemaining)
+    /// [documented: GECK wiki GetFallTimeRemaining; hypothesis: kinematic time to ground
+    /// from ray cast, tracked velocity, and gravity when no direct engine value is set].
+    pub fn fall_time_remaining(&self, actor: FormId) -> f64 {
+        if let Some(&sec) = self.other.jip11.fall_time_remaining.get(&actor) {
+            return f64::from(sec.max(0.0));
+        }
+        let air_time = self.gaps.air_times.get(&actor).copied().unwrap_or(0.0);
+        if air_time <= 0.0 {
+            return 0.0;
+        }
+        let Some(pos) = self.world.peek(actor).map(|s| s.pos).or_else(|| self.world.placed.get(actor).map(|p| p.pos)) else {
+            return 0.0;
+        };
+        let Some(dist) = crate::ray::cast(
+            [pos[0], pos[1], pos[2] + 1.0],
+            [pos[0], pos[1], pos[2] - 100_000.0],
+            crate::ray::CastKind::World,
+        ) else {
+            return 0.0;
+        };
+        let height = f64::from((dist - 1.0).max(0.0));
+        if height <= 0.0 {
+            return 0.0;
+        }
+        // Standard world gravity: 9.81 m/s^2 * 70 game units/m = 686.7 units/s^2
+        // (matching `fnv_combat::projectile` / `fnv-phys`), overridden by SetLocalGravityVector
+        // and scaled by SetActorGravityMult.
+        const WORLD_GRAVITY: f64 = 686.7;
+        let g_base = match self.other.jip13.gravity {
+            Some((gv, cell_opt)) if cell_opt.is_none() || cell_opt == self.cell_of(actor) => f64::from(-gv[2]),
+            _ => WORLD_GRAVITY,
+        };
+        let mult = self.gaps.gravity.get(&actor).copied().unwrap_or(1.0);
+        let g_eff = g_base * mult;
+        let vz = match self.jip2.velocity.get(&actor) {
+            Some(&(_, v)) => f64::from(v[2]),
+            None if g_eff > 0.0 => -g_eff * f64::from(air_time),
+            None => 0.0,
+        };
+        if g_eff <= 0.0 {
+            return if vz < 0.0 { height / (-vz) } else { 0.0 };
+        }
+        let disc = (vz * vz + 2.0 * g_eff * height).max(0.0);
+        ((vz + disc.sqrt()) / g_eff).max(0.0)
+    }
+
     /// The detection value of `target` as ForceActorDetectionValue leaves it: the forced
     /// value, or the value plus the modifier [documented].
     pub fn forced_detection(&self, target: FormId, value: f64) -> f64 {
@@ -169,7 +230,7 @@ impl Game<'_> {
 
     /// The record indices of a magic item's effects RemoveNthEffect left, in order.
     pub fn effect_indices(&self, item: FormId) -> Vec<usize> {
-        let n = self.data.effect_items.get(&item).map_or(0, Vec::len);
+        let n = self.data.effect_items.get(&self.unclone(item)).map_or(0, Vec::len);
         let gone = self.other.jip11.removed_effects.get(&item);
         (0..n).filter(|i| !gone.is_some_and(|g| g.contains(i))).collect()
     }
@@ -201,11 +262,9 @@ impl Game<'_> {
         let place = self.world.peek(r).map(|s| (s.cell, s.pos)).or_else(|| self.world.placed.get(r).map(|p| (p.cell, p.pos)));
         let Some((Some(cell), pos)) = place else { return 0.0 };
         let space = self.world.placed.world_of(cell).unwrap_or(cell);
-        let list = self.data.radiation_markers.get(&space).map(Vec::as_slice).unwrap_or_default();
-        let edited = self.edited_markers(list, space);
-        let list = if self.showoff.radiation.is_empty() { list } else { edited.as_slice() };
+        let list = self.radiation_markers_in(space);
         let world = &self.world;
-        let (m, _) = crate::radiation::marker_level(list, pos, |id| world.is_enabled(id).unwrap_or(true));
+        let (m, _) = crate::radiation::marker_level(&list, pos, |id| world.is_enabled(id).unwrap_or(true));
         let (z, _) = crate::radiation::zone_level(&self.senses.rad_zones, space, pos);
         m.max(z)
     }
@@ -277,8 +336,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // ---- packages ----
         // Stuck: a package the actor could not reach is set aside now
-        // (`Game::block_package`) [hypothesis: NVForever's form of "unable to find a
-        // path"].
+        // (`Game::block_package`; see docs/spec-notes/jip-actors-11.md §1).
         "gettargetunreachable" => {
             let now = g.world.calendar().map(|c| c.days_passed).unwrap_or(0.0);
             yes(subject.and_then(|r| g.extra.get(&r)).is_some_and(|e| e.package_blocked.values().any(|&u| u > now)))
@@ -327,7 +385,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             reff(b.filter(|&b| matches!(g.data.sig(b).as_ref(), Some(b"LVLN" | b"LVLC"))))
         }
         // The light at the actor as the last detection round measured it, 0-100
-        // [documented: the range]; 0 for an actor not measured [hypothesis].
+        // [documented: the range]; 0 for an actor not measured (see docs/spec-notes/jip-actors-11.md §2).
         "getactorlightamount" => XVal::Num(subject.and_then(|r| g.other.jip11.light.get(&r).copied()).unwrap_or(0.0)),
         // The movement flags [documented: the bit table]. Jumping, flying, falling and
         // sliding are not known game-side: 0 [decision: spec note §6].
@@ -369,8 +427,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             };
             reff(e)
         }
-        // `effect [baseForm]`: an object effect or actor effect [hypothesis: anything
-        // else refused]; 1 when set [documented].
+        // `effect [baseForm]`: an object effect or actor effect (anything else refused;
+        // see docs/spec-notes/jip-actors-11.md §2); 1 when set [documented].
         "setactorunarmedeffect" => {
             let Some(e) = form(args, 0).filter(|&e| matches!(g.data.sig(e).as_ref(), Some(b"ENCH" | b"SPEL"))) else { return Some(Ok(zero)) };
             let Some(b) = form(args, 1).or_else(|| subject.and_then(|r| crate::functions::base_of(g, r))) else { return Some(Ok(zero)) };
@@ -382,13 +440,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             XVal::Num(1.0)
         }
         // `x y z [local]`: the velocity on the world axes, or the actor's own (x right,
-        // y forward) [documented]; the actor is followed from now on, as GetActorVelocity
-        // follows it, so the first call reads 0 [hypothesis].
+        // y forward) [documented; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // JIP LN 57.30, 2026-11-24, `w6_t1_05_velocities_jip`
+        // (`tools/capture/nvse/catalogs/wave6_t1_jip_velocities.json`, `jip-actors-11.md`
+        // §2): `act0=1(0.0,0.0,0.0)|act1=1(0.0,0.0,0.0)`]; the actor is followed from now
+        // on, as GetActorVelocity follows it, so the first call reads 0 (see docs/spec-notes/jip-actors-11.md §2).
+        // Note: `Vm::out_call` strips output params `[0, 1, 2]` before dispatch, so
+        // optional `getLocal` arrives at `args[0]`.
         "getactorvelocityalt" => {
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let Some((here, rot)) = g.ref_pos_rot(a) else { return Some(Ok(XVal::Num(0.0))) };
             let v = g.jip2.velocity.entry(a).or_insert((here, [0.0; 3])).1;
-            let local = num(args, 3).is_some_and(|x| x != 0.0);
+            let local = num(args, 0).is_some_and(|x| x != 0.0);
             let out = if local {
                 let (s, c) = (f64::from(rot[2]).sin(), f64::from(rot[2]).cos());
                 let (x, y) = (f64::from(v[0]), f64::from(v[1]));
@@ -427,9 +490,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
         }
         // ---- falls ----
-        // [decision: the time to the ground needs the ground below a falling actor, which
-        // only the engine's physics knows; 0 until it is passed over, spec note §6.]
-        "getfalltimeremaining" => zero,
+        // Estimated seconds until the falling actor hits the ground, 0 when grounded
+        // [documented: GECK wiki GetFallTimeRemaining; docs/spec-notes/nvse-stubs-persistent-fall-spread-unique.md].
+        "getfalltimeremaining" => XVal::Num(subject.map_or(0.0, |r| g.fall_time_remaining(r))),
         // The fall is measured again from where the actor is now [documented]; the
         // engine takes the request (`nvf_play::falls`).
         "resetfalltime" => {
@@ -520,7 +583,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let slots = |g: &Game, f: FormId| field_num(g, f, "BMDT", "biped_flags").map_or(0, |x| x as u64);
             let want = slots(g, a);
             let on = g.world.equipment(r).unwrap_or_default();
-            yes(want != 0 && on.into_iter().filter(|&i| i != a && g.data.sig(i) == Some(*b"ARMO")).any(|i| slots(g, i) & want != 0))
+            yes(want != 0 && on.into_iter().filter(|&i| g.is_armo(i)).any(|i| slots(g, i) & want != 0))
         }
         // On the inventory reference of an equipped item: the item stays on until a
         // script takes it off (the world's NoUnequip lock, saved) [documented].
@@ -545,7 +608,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "getarmoreffectivedr" | "getarmoreffectivedt" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let (Some(item), cond) = item_condition(g, r) else { return Some(Ok(zero)) };
-            if g.data.sig(item) != Some(*b"ARMO") {
+            if !g.is_armo(item) {
                 return Some(Ok(zero));
             }
             let value = field_num(g, item, "DNAM", if name == "getarmoreffectivedr" { "dr" } else { "dt" }).unwrap_or(0.0);
@@ -554,9 +617,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // Whether the actor's last hit got past its DT [documented: in its OnHit].
         "getarmourpenetrated" => yes(subject.and_then(|r| g.other.jip11.penetrated.get(&r).copied()).unwrap_or(false)),
         // ---- factions ----
-        // `faction rank [baseActor]`: the base's rank, for the session [documented;
-        // hypothesis: not saved]; a rank below 0 takes the base out [hypothesis: as
-        // SetFactionRank].
+        // `faction rank [baseActor]`: the base's rank, for the session [documented];
+        // a rank below 0 takes the base out (see docs/spec-notes/jip-actors-11.md §5).
         "setbasefactionrank" => {
             let (Some(f), Some(rank)) = (form(args, 0), num(args, 1)) else { return Some(Ok(zero)) };
             let Some(b) = form(args, 2).or_else(|| subject.and_then(|r| crate::functions::base_of(g, r))) else { return Some(Ok(zero)) };
@@ -596,12 +658,21 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let record = g.data.need_stages.values().flatten().find(|s| s.stage == st).map(|s| s.spell);
             reff(record.and_then(|sp| g.stage_spell(st, sp)))
         }
-        // `stage [effect]`: no effect leaves the stage without one [hypothesis]; the
-        // player gets the new one at the next change of stage [hypothesis].
+        // `stage [effect]`: omitted arg clears the stage's effect to None; explicit null 0
+        // and non-SPEL forms are no-ops [observed: `w6d2_30_actor_unarmed_and_hardcore_stage_effect`];
+        // the player gets the new one at the next change of stage (see docs/spec-notes/jip-actors-11.md §5).
         "sethardcorestageeffect" => {
             let Some(st) = form(args, 0).filter(|&st| g.data.need_stages.values().flatten().any(|s| s.stage == st)) else { return Some(Ok(zero)) };
-            let e = form(args, 1).filter(|&e| g.data.sig(e) == Some(*b"SPEL"));
-            g.other.jip11.stage_effects.insert(st, e);
+            match args.get(1) {
+                None => {
+                    g.other.jip11.stage_effects.insert(st, None);
+                }
+                Some(_) => {
+                    if let Some(e) = form(args, 1).filter(|&e| g.data.sig(g.unclone(e)) == Some(*b"SPEL")) {
+                        g.other.jip11.stage_effects.insert(st, Some(e));
+                    }
+                }
+            }
             zero
         }
         // The multiplier of the weapon damage penalty below 75 % condition [documented];

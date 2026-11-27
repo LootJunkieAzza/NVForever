@@ -1,5 +1,24 @@
 //! Production PBR source preparation shared by LightsPlugin and CPU shader checks.
 
+/// Diffuse and specular scales applied to shadow-casting spot lights (the player's
+/// flashlight, `flashlight.rs`) on first-person shapes (`FIRST_PERSON_DEPTH`: arms, held
+/// weapon, Pip-Boy) [design, #3121]. World geometry, third-person body/weapon (`BODY_LAYER`),
+/// and non-shadow-casting world spot lamps (`LIGH` `SPOT`) keep 1.0.
+pub const FIRST_PERSON_FLASHLIGHT_DIFFUSE: f32 = 0.15;
+pub const FIRST_PERSON_FLASHLIGHT_SPECULAR: f32 = 0.10;
+
+/// CPU mirror of the diffuse scale `nvf_spot_display` applies to a spot light.
+#[cfg_attr(not(test), allow(dead_code))]
+pub const fn spot_display_scale(first_person: bool, casts_shadows: bool) -> f32 {
+    if first_person && casts_shadows { FIRST_PERSON_FLASHLIGHT_DIFFUSE } else { 1.0 }
+}
+
+/// CPU mirror of the specular scale `nvf_apply_pbr_lighting` applies to a spot light.
+#[cfg_attr(not(test), allow(dead_code))]
+pub const fn spot_specular_scale(first_person: bool, casts_shadows: bool) -> f32 {
+    if first_person && casts_shadows { FIRST_PERSON_FLASHLIGHT_SPECULAR } else { 1.0 }
+}
+
 /// The display-value lighting sum (docs/spec-notes/world.md §8 "Light on surfaces in
 /// display values") [hypothesis, fitted to the original's frames]: the game adds its
 /// lights as display values (colour bytes / 255) — ambient + Σ sun and lights × fade ×
@@ -8,7 +27,12 @@
 /// patched `apply_pbr_lighting` leaves Bevy's diffuse terms out (diffuse colour 0 for the
 /// lights and the ambient light, so only their specular parts stay), forms the sum from
 /// the same lights' colours, which hold display values there (`lights::display_color`), and
-/// adds diffuse colour × sum^2.2 (the display gamma) as light. Views without the mark
+/// adds, as light, the linear colour of the diffuse colour's display value × the sum, held
+/// to 1: both ways by the sRGB curve, the one the texture was read through and the frame is
+/// shown through, so the shown value is that product. (Until 2026-11-25 it added diffuse
+/// colour × sum^2.2. A 2.2 power and the sRGB curve part ways in the dark: a floor of display
+/// value 0.4 under an interior's ambient of 40 / 255 was shown as 8 / 255 where the product is
+/// 16 / 255, world.md §8 "Dark values of the sum".) Views without the mark
 /// (the minigame views) keep Bevy's sum. `nvf_apply_pbr_lighting` takes weights for the
 /// ambient and the direct part of the sum (grass.wesl); `apply_pbr_lighting` is it with
 /// weights 1. Each helper carries the condition Bevy puts on `apply_pbr_lighting`
@@ -17,6 +41,20 @@ const DISPLAY_HELPERS: &str = "// NVForever (nvforever lights.rs DISPLAY_HELPERS
 @if(!PREPASS_FRAGMENT)
 fn nvf_display_lighting() -> bool {
     return view_bindings::lights.ambient_color.a < 0.0;
+}
+
+// The sRGB transfer, both ways (the texture's and the frame's own curve, IEC 61966-2-1):
+// the display value of a linear colour, and back.
+@if(!PREPASS_FRAGMENT)
+fn nvf_linear_to_display(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
+}
+
+@if(!PREPASS_FRAGMENT)
+fn nvf_display_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
 }
 
 // A clustered point or spot light's diffuse light on a surface at P facing N, as display
@@ -33,6 +71,9 @@ fn nvf_point_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
 }
 
 // The same for a spot light, with Bevy's cone falloff (bevy_pbr::lighting::spot_light).
+// First-person shapes (`FIRST_PERSON_DEPTH`: arms, weapon, Pip-Boy) sit inside the
+// flashlight's inner core when aimed in; shadow-casting spot lights (flashlight.rs) are
+// scaled down there so bright weapons and hands do not wash out to white (#3121).
 @if(!PREPASS_FRAGMENT)
 fn nvf_spot_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
     let light = &view_bindings::clustered_lights.data[light_id];
@@ -43,7 +84,11 @@ fn nvf_spot_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
     }
     let cd = dot(-spot_dir, normalize((*light).position_radius.xyz - P));
     let cone = saturate(cd * (*light).light_custom_data.z + (*light).light_custom_data.w);
-    return nvf_point_display(light_id, P, N) * (cone * cone);
+    @if(!FIRST_PERSON_DEPTH)
+    let nvf_fp_scale = 1.0;
+    @if(FIRST_PERSON_DEPTH)
+    let nvf_fp_scale = select(1.0, 0.15, ((*light).flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u);
+    return nvf_point_display(light_id, P, N) * (cone * cone * nvf_fp_scale);
 }
 
 // What is left of Bevy's ambient light in a world view, its highlight, takes the ambient
@@ -90,7 +135,10 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     ),
     (
         "        direct_light += light_contrib * shadow;",
-        "        direct_light += light_contrib * shadow;
+        "        @if(!FIRST_PERSON_DEPTH)
+        direct_light += light_contrib * shadow;
+        @if(FIRST_PERSON_DEPTH)
+        direct_light += light_contrib * (shadow * select(1.0, 0.10, (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));
         if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow; }",
     ),
     (
@@ -108,7 +156,7 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
         let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion;
         let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
         // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
-        direct_light += min(diffuse_color * pow(nvf_sum, vec3(2.2)), vec3(1.0)) / view_bindings::view.exposure;
+        direct_light += nvf_display_to_linear(min(nvf_linear_to_display(diffuse_color) * nvf_sum, vec3(1.0))) / view_bindings::view.exposure;
     }
 
     // Total light\n",

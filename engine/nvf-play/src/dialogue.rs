@@ -258,6 +258,15 @@ pub fn challenge_tag(name: &str, needed: Option<f64>, have: Option<f64>) -> Stri
     }
 }
 
+/// The tag of a Fallout 3 style percentage speech challenge: "[Speech 75%]"
+/// [documented: GECK wiki Category:Dialogue "Speech Challenge" (percentage chance of
+/// success) and Fallout Wiki "Speech (Fallout 3)" (`[Speech 25%]`); hypothesis: rounding
+/// to the nearest whole percent and exact FNV/TTW label format not yet captured in-game].
+pub fn speech_challenge_tag(name: &str, chance: f64) -> String {
+    let pct = (chance.clamp(0.0, 1.0) * 100.0).round() as i64;
+    format!("[{name} {pct}%]")
+}
+
 // ---- reading the conversation -----------------------------------------------------------
 
 /// A dialogue text as it is shown (the dialogue menu's line and choices, subtitles):
@@ -305,6 +314,10 @@ fn response_text(g: &Game) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+pub(crate) fn observe_classic(state: &mut crate::dialogue_touch::classic_state::State, game: &Game) {
+    state.observe(game, response_text);
+}
+
 /// The subtitle of the response being said in the conversation: "Speaker: text".
 pub fn subtitle(g: &Game, sim: &SimState) -> Option<String> {
     let c = g.dialogue.as_ref()?;
@@ -330,7 +343,21 @@ fn row_label(text: &str, fallback: &str, tag: Option<String>) -> String {
 }
 
 fn tag_of(g: &Game, c: &Challenge) -> String {
-    challenge_tag(&challenge_name(g.data, c.form), c.needed, c.have)
+    tag_of_data(g.data, c)
+}
+
+fn tag_of_data(data: &GameData, c: &Challenge) -> String {
+    if let Some(chance) = c.chance {
+        let name = if data.actor_value_infos.contains_key(&c.form) || data.perks.contains_key(&c.form) {
+            challenge_name(data, c.form)
+        } else {
+            // Synthetic load orders without an AVSpeech AVIF record fall back to "Speech"
+            // instead of displaying a raw FormID [design].
+            "Speech".to_string()
+        };
+        return speech_challenge_tag(&name, chance);
+    }
+    challenge_tag(&challenge_name(data, c.form), c.needed, c.have)
 }
 
 /// The name a check's tag shows: an actor value's AVIF FULL ("Speech"), a perk's FULL;
@@ -404,7 +431,7 @@ pub(crate) fn log_event(data: &GameData, e: &Event) {
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    let check = c.challenge.as_ref().map_or_else(String::new, |t| format!(" (check {})", challenge_tag(&challenge_name(data, t.form), t.needed, t.have)));
+                    let check = c.challenge.as_ref().map_or_else(String::new, |t| format!(" (check {})", tag_of_data(data, t)));
                     let marks = format!("{}{}{check}", if c.goodbye { " (goodbye)" } else { "" }, if c.darkened { " (dimmed)" } else { "" });
                     format!("{i}) {:?} [{}]{marks}", data.choice_text(c.topic, c.info), n(c.topic))
                 })
@@ -501,6 +528,20 @@ impl TalkAid {
         }
         named
     }
+}
+
+/// Something else chooses for the player in this run (nvforever's quest pilot): an
+/// unattended run then neither leaves a conversation nobody scripted nor breaks a long
+/// one off; whoever chooses does both.
+static PILOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// See [`PILOTED`].
+pub fn set_piloted(on: bool) {
+    PILOTED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn piloted() -> bool {
+    PILOTED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The dialogue screen: the selection, the test aid and what is drawn.
@@ -668,12 +709,15 @@ pub struct ViewInput {
     pub pick: Option<usize>,
     /// A click meant to skip the line being said.
     pub skip: bool,
+    /// A quick-exit action (such as tapping the Pip-Boy power button) that leaves
+    /// dialogue only when a normal exit/goodbye option is available.
+    pub leave: bool,
 }
 
 impl ViewInput {
     /// This input if it was for the list `now`, else nothing: the list on screen was replaced
     /// after the view read it.
-    fn for_list(self, now: Option<&ListId>) -> ViewInput {
+    pub(crate) fn for_list(self, now: Option<&ListId>) -> ViewInput {
         if self.list.as_ref() == now {
             self
         } else {
@@ -767,11 +811,20 @@ pub(crate) fn input(
     mut script: ResMut<ScriptState>,
     mut sim: ResMut<SimState>,
     mut view_input: ResMut<ViewInput>,
+    touch: Option<ResMut<crate::dialogue_touch::TouchFrame>>,
+    classic: Option<ResMut<crate::dialogue_touch::classic_state::State>>,
+    classic_menus: crate::dialogue_touch::classic_state::Menus,
 ) {
     let keys = keys.snapshot();
     use KeyCode::*;
     // Taken whatever happens below: what a view asked is for this frame only.
-    let asked = std::mem::take(&mut *view_input);
+    let mut asked = std::mem::take(&mut *view_input);
+    let touch_active = touch.as_ref().is_some_and(|t| t.active);
+    let mut barter = false;
+    if let Some(mut touch) = touch.filter(|t| t.active) {
+        barter = std::mem::take(&mut touch.barter);
+        asked = std::mem::take(&mut touch.asked);
+    }
     // Like the scripts: not under the pause menu, not before the player stands in the
     // world.
     if paused.0 || phys.player.is_none() {
@@ -781,7 +834,19 @@ pub(crate) fn input(
     let st = &mut *script;
     // The aids' clock: it goes on while the picture stands still (`crate::pause`).
     let now = time.0.elapsed_secs();
+    if barter && st.held {
+        return;
+    }
     let Some(rt) = st.rt.as_mut() else { return };
+    if let Some(mut classic) = classic {
+        observe_classic(&mut classic, &rt.game);
+    }
+    if barter {
+        if *state.get() == PlayState::Dialogue && !classic_menus.blocked() {
+            with_world(rt, &mut sim, |rt| crate::dialogue_touch::classic_state::request(&mut rt.game, asked.list.as_ref()));
+        }
+        return;
+    }
     let mut notes: Vec<serde_json::Value> = Vec::new();
 
     // The aid's conversations whose time has come, on the world aids' clock
@@ -855,7 +920,7 @@ pub(crate) fn input(
     let list_now = list_id(&rt.game);
     let mut asked = asked.for_list(list_now.as_ref());
     // What the view asked is held to its list; the hand-built buttons carry theirs below.
-    let by_tiles = asked.list.is_some();
+    let by_tiles = asked.list.is_some() && !touch_active;
     let offered = offers(&rt.game, &conv.choices);
     let chosen_for = |since: Option<f32>, limit: f32| since.is_some_and(|t| now - t >= limit);
 
@@ -908,11 +973,11 @@ pub(crate) fn input(
             }
             _ => {}
         }
-    } else if sc.unattended && choosing && chosen_for(sc.choosing_since, UNATTENDED_CHOOSE_SECONDS) {
+    } else if sc.unattended && !piloted() && choosing && chosen_for(sc.choosing_since, UNATTENDED_CHOOSE_SECONDS) {
         info!("dialogue: unattended run and no NVF_PLAY_TEST_TALK script for this conversation: leaving it");
         act = Some((Act::Leave { force: true }, "unattended run"));
     }
-    if sc.unattended && chosen_for(sc.talk_since, UNATTENDED_TALK_LIMIT) {
+    if sc.unattended && !piloted() && chosen_for(sc.talk_since, UNATTENDED_TALK_LIMIT) {
         warn!("dialogue: unattended run: the conversation has run for {UNATTENDED_TALK_LIMIT} s: breaking it off");
         act = Some((Act::BreakOff, "unattended run"));
     }
@@ -939,7 +1004,7 @@ pub(crate) fn input(
             let wheel = scroll.delta.y;
             // The hand-built buttons ask as the tiles do, for the list they were spawned or last
             // brought up to date for.
-            for (i, b) in clicks.iter().filter(|(_, b)| b.1 == list_now) {
+            for (i, b) in clicks.iter().filter(|(_, b)| !touch_active && b.1 == list_now) {
                 match i {
                     PointerState::Pressed => asked.pick = Some(b.0),
                     PointerState::Hovered => asked.hover = Some(b.0),
@@ -963,8 +1028,8 @@ pub(crate) fn input(
                 act = Some((Act::Choose(i), if by_tiles { "tile click" } else { "click" }));
             } else if confirm {
                 act = Some((Act::Choose(selected), "Enter"));
-            } else if keys.just_pressed(Tab) {
-                act = Some((Act::Leave { force: false }, "Tab"));
+            } else if asked.leave || keys.just_pressed(Tab) {
+                act = Some((Act::Leave { force: false }, if asked.leave { "power button" } else { "Tab" }));
             }
         }
     }
@@ -1061,6 +1126,16 @@ fn draw(script: Option<Res<ScriptState>>, sim: Res<SimState>, screen: Res<Dialog
     if menu.list != list {
         menu.list = list;
     }
+}
+
+#[cfg(test)]
+pub(crate) fn install_classic_input_fixture(app: &mut App) {
+    app.init_resource::<DialogueScreen>()
+        .init_resource::<ViewInput>()
+        .init_resource::<Paused>()
+        .init_resource::<crate::pause::PlayClock>()
+        .add_systems(Update, input.in_set(PlaySet::Scripts))
+        .add_systems(Update, draw.in_set(PlaySet::Ui).before(crate::dialogue_menu::DrawMenu));
 }
 
 #[cfg(test)]
@@ -1211,9 +1286,67 @@ mod tests {
         assert_eq!(challenge_tag("Speech", Some(40.0), Some(37.0)), "[Speech 37/40]");
         assert_eq!(challenge_tag("Speech", Some(40.0), None), "[Speech 40]");
         assert_eq!(challenge_tag("Terrifying Presence", None, None), "[Terrifying Presence]");
+        assert_eq!(speech_challenge_tag("Speech", 0.0), "[Speech 0%]");
+        assert_eq!(speech_challenge_tag("Speech", 0.424), "[Speech 42%]");
+        assert_eq!(speech_challenge_tag("Speech", 0.426), "[Speech 43%]");
+        assert_eq!(speech_challenge_tag("Speech", 1.0), "[Speech 100%]");
+        assert_eq!(speech_challenge_tag("Speech", 1.5), "[Speech 100%]");
+        assert_eq!(speech_challenge_tag("Speech", -0.2), "[Speech 0%]");
         assert_eq!(row_label(" Goodbye. ", "GOODBYE", None), "Goodbye.");
         assert_eq!(row_label("Trust me", "TopicSkill", Some("[Speech 40]".into())), "[Speech 40]  Trust me");
+        assert_eq!(row_label("Tell me where he is.", "MegMoriarty", Some("[Speech 35%]".into())), "[Speech 35%]  Tell me where he is.");
         // A topic without a name still shows something to pick.
         assert_eq!(row_label("", "TopicNameless", None), "(TopicNameless)");
+    }
+
+    #[test]
+    fn speech_challenge_choice_tag_uses_percentage_and_respects_no_skill_tags() {
+        let lo = fnv_esm::LoadOrder::new(&[]).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let schema = fnv_esm::Schema::load_dir(root.join("fnv")).unwrap();
+        let functions = root.join("script/functions.json");
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
+        let forms = fnv_sim::FormStore::build(&lo, &schema);
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let mut data = GameData::build(&lo, &schema, fnv_script::FunctionTable::load(&functions).unwrap(), &json, &refs);
+        data.actor_value_infos.insert(
+            FormId(0x0000_04BB),
+            fnv_game::data::ActorValueInfo { name: "Speech".into(), short_name: "Speech".into(), ..Default::default() },
+        );
+        let fo3_with_avif = Challenge { form: FormId(0x0000_04BB), difficulty: Some(3), chance: Some(0.45), needed: None, have: None, skill: Some(43) };
+        let fo3_missing_avif = Challenge { form: FormId(0), difficulty: Some(4), chance: Some(0.14175), needed: None, have: None, skill: Some(43) };
+        let nv_check = Challenge { form: FormId(0x0000_04BB), difficulty: None, chance: None, needed: Some(50.0), have: Some(35.0), skill: Some(43) };
+        assert_eq!(tag_of_data(&data, &fo3_with_avif), "[Speech 45%]");
+        assert_eq!(tag_of_data(&data, &fo3_missing_avif), "[Speech 14%]");
+        assert_eq!(tag_of_data(&data, &nv_check), "[Speech 35/50]");
+
+        // Full view_named path: percentage tag shown with short = false, hidden under no_skill_tags,
+        // while a New Vegas check under threshold stays short = true.
+        let world = fnv_sim::World::new(&forms, &refs, fnv_sim::SimConfig::default());
+        let mut g = Game::new(&data, world, fnv_game::game::GameConfig::default());
+        g.dialogue = Some(fnv_game::dialogue::Conversation {
+            actor: FormId(0x10),
+            through: None,
+            line: None,
+            choices: vec![
+                Choice { topic: FormId(0x20), info: FormId(0x21), chars: 7, prompt: false, goodbye: false, darkened: false, challenge: Some(fo3_with_avif), dumb: false },
+                Choice { topic: FormId(0x22), info: FormId(0x23), chars: 7, prompt: false, goodbye: false, darkened: false, challenge: Some(nv_check), dumb: false },
+            ],
+            topic_list: true,
+            lines: 1,
+            then: None,
+            ending: false,
+        });
+        let shown = view_named(&g, "Moriarty".into()).unwrap();
+        assert_eq!(shown.choices.len(), 2);
+        assert!(shown.choices[0].label.starts_with("[Speech 45%]  "), "{}", shown.choices[0].label);
+        assert!(!shown.choices[0].short);
+        assert!(shown.choices[1].label.starts_with("[Speech 35/50]  "), "{}", shown.choices[1].label);
+        assert!(shown.choices[1].short);
+
+        g.tweaks.no_skill_tags = true;
+        let hidden = view_named(&g, "Moriarty".into()).unwrap();
+        assert!(!hidden.choices[0].label.contains("[Speech"));
+        assert!(!hidden.choices[1].label.contains("[Speech"));
     }
 }

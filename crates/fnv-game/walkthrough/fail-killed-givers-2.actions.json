@@ -418,11 +418,11 @@
   },
   {
    "op": "note",
-   "text": "Stand-in for the run through the Boomers' artillery to the front gate: the gate's trigger brings out the gate guard, whose greeting enables Raquel; he sends for her."
+   "text": "Stand-in for the run through the Boomers' artillery to the front gate: the gate's trigger brings out the gate guard, whose greeting enables Raquel; he sends for her. The player is put at the gate's trigger (NellisEntranceActivatorREF), on the outside of the locked gate where the run ends; move_player to the guard put the player behind the locked gate (level 255, no key), where no player is before the Boomers let them in."
   },
   {
    "op": "move_player",
-   "to": "BoomerFrontGateGuard1REF"
+   "to": "NellisEntranceActivatorREF"
   },
   {
    "op": "trigger_enter",

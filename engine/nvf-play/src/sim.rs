@@ -17,7 +17,24 @@ pub struct SimState {
 impl SimState {
     /// Build the simulation's tables from the plugins (they live for the whole run).
     pub fn new(lo: &LoadOrder, schema: &Schema, index: &WorldIndex) -> SimState {
-        let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(lo, schema)));
+        let mut forms = FormStore::build(lo, schema);
+        let (files, applied) = fnv_game::stewie_inis::apply_modular_game_settings_to_forms(&mut forms);
+        if files > 0 {
+            info!("stewie: applied {applied} GMST override(s) from {files} modular GameSettings INI file(s)");
+        }
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
+        crate::pipboy::labels::set(&forms.settings);
+        let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
+        SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
+    }
+
+    /// Build the simulation's tables applying Stewie modular `GameSettings\*.ini`
+    /// overrides from explicit `roots` (without touching process-global `mod_files`
+    /// roots).
+    pub fn new_with_mod_roots(lo: &LoadOrder, schema: &Schema, index: &WorldIndex, roots: &[std::path::PathBuf]) -> SimState {
+        let mut forms = FormStore::build(lo, schema);
+        let _ = fnv_game::stewie_inis::apply_modular_game_settings_to_forms_from_roots(&mut forms, roots);
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
         crate::pipboy::labels::set(&forms.settings);
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
         SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
@@ -29,7 +46,7 @@ impl SimState {
     /// `game.leveled_at` there would miss every fixed level.
     pub fn leveled_at(&self, game: &fnv_game::Game<'_>, r: FormId) -> fnv_sim::zones::LevelAt {
         let player = game.player.level.map_or(self.world.config().player_level, |l| l.clamp(1, i32::from(u16::MAX)) as u16);
-        self.world.level_at(r, player)
+        self.world.level_at_with_zone_lock(r, player, !game.tweaks.no_lock_encounter_zone_levels)
     }
 
     /// The seed and level `r`'s leveled picks are made with, as the game makes them in a
@@ -95,10 +112,37 @@ impl SimState {
     /// (SetActorFullName, [`fnv_game::Game::script_name`]) comes first: it renames every
     /// reference of the base [documented: GECK wiki SetActorFullName].
     pub fn ref_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
+        // Another player of a co-op game goes by its player's name (none outside co-op).
+        if let Some(n) = game.and_then(|g| g.coop_actors.get(&FormId(form_id))) {
+            return Some(n);
+        }
         let base = self.base_of(form_id)?;
-        let shown = game.map_or(base, |g| g.display_base(base, FormId(form_id)));
+        let shown = self.shown_base(game, base, form_id);
         let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
         renamed.or_else(|| self.name(shown)).or_else(|| self.name(base))
+    }
+
+    /// [`SimState::ref_name`] for the screen: the name the data (or a script) gives, never
+    /// an Editor ID. `None` for a reference with no name anywhere in its chain, which is
+    /// then shown without one (#3445: a Lonesome Road deathclaw placed from the nameless
+    /// `NVDLC04DeathclawAmbusherLVL` was named by that Editor ID in VATS).
+    pub fn ref_shown_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
+        let base = self.base_of(form_id)?;
+        let shown = self.shown_base(game, base, form_id);
+        let full = |id: FormId| self.forms.get(id).and_then(|b| b.name.as_deref()).filter(|n| !n.is_empty());
+        let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
+        renamed.or_else(|| full(shown)).or_else(|| full(base))
+    }
+
+    /// The actor base whose name the reference `form_id` (placed with `base`) is shown
+    /// by: the "Base Data" source of its template chain, its leveled lists read with the
+    /// seed and at the level the drawn actor's are ([`SimState::pick`]). `base` itself
+    /// without the game data or a chain to follow.
+    fn shown_base(&self, game: Option<&fnv_game::Game<'_>>, base: FormId, form_id: u32) -> FormId {
+        game.map_or(base, |g| {
+            let (seed, at) = self.pick(g, FormId(form_id));
+            g.runtime_template_source(base, seed, at, |d| d.template_base).map_or(base, |(id, _)| id)
+        })
     }
 
     /// A placed reference's pose in the simulation (position, Euler angles in radians)
@@ -262,6 +306,29 @@ mod tests {
         assert!(!sim.is_creature(npc) && sim.is_actor(npc));
     }
 
+    /// #3445: the screen never shows an Editor ID as a reference's name.
+    #[test]
+    fn a_nameless_base_is_shown_without_a_name() {
+        use fnv_sim::forms::{ActorBase, BaseData, BaseForm};
+        let actor = |id: u32, name: Option<&str>| BaseForm {
+            id: FormId(id),
+            sig: *b"CREA",
+            edid: Some(format!("Edid{id:X}")),
+            name: name.map(str::to_string),
+            script: None,
+            prompt: None,
+            voice_filter: false,
+            data: BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None }),
+        };
+        let sim = test_world::sim(vec![actor(0x10, None), actor(0x11, Some("Deathclaw")), actor(0x12, Some(""))], vec![test_world::placed(0x20, 0x10), test_world::placed(0x21, 0x11), test_world::placed(0x22, 0x12)]);
+        // The log's name falls back on the Editor ID; the screen's does not.
+        assert_eq!(sim.ref_name(None, 0x20), Some("Edid10"));
+        assert_eq!(sim.ref_shown_name(None, 0x20), None);
+        assert_eq!(sim.ref_shown_name(None, 0x21), Some("Deathclaw"));
+        assert_eq!(sim.ref_shown_name(None, 0x22), None);
+        assert_eq!(sim.ref_shown_name(None, 0x99), None);
+    }
+
     #[test]
     fn created_actors_are_actors_as_placed_ones_are() {
         assert!(actor_ref(Some(*b"ACHR"), None) && actor_ref(Some(*b"ACRE"), None));
@@ -272,6 +339,74 @@ mod tests {
         }
         // A created item or container is not.
         assert!(!actor_ref(None, Some(*b"MISC")) && !actor_ref(None, Some(*b"CONT")) && !actor_ref(None, None));
+    }
+
+    #[test]
+    fn new_with_mod_roots_applies_modular_game_settings_without_touching_vanilla_when_absent() {
+        fn sub(sig: &[u8; 4], data: &[u8]) -> Vec<u8> {
+            let mut out = sig.to_vec();
+            out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            out.extend_from_slice(data);
+            out
+        }
+        fn rec(sig: &[u8; 4], id: u32, subs: &[Vec<u8>]) -> Vec<u8> {
+            let body: Vec<u8> = subs.iter().flatten().copied().collect();
+            let mut out = sig.to_vec();
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&id.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&body);
+            out
+        }
+        fn top(sig: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = b"GRUP".to_vec();
+            out.extend_from_slice(&((body.len() + 24) as u32).to_le_bytes());
+            out.extend_from_slice(sig);
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(body);
+            out
+        }
+
+        let tes4 = rec(b"TES4", 0, &[sub(b"HEDR", &[0u8; 12])]);
+        let gmsts = [
+            rec(b"GMST", 0x201, &[sub(b"EDID", b"fSimModularFloat\0"), sub(b"DATA", &4.5f32.to_le_bytes())]),
+            rec(b"GMST", 0x202, &[sub(b"EDID", b"iSimModularInt\0"), sub(b"DATA", &3i32.to_le_bytes())]),
+            rec(b"GMST", 0x203, &[sub(b"EDID", b"sSimModularLabel\0"), sub(b"DATA", b"Vanilla\0")]),
+        ]
+        .concat();
+        let bytes = [tes4, top(b"GMST", &gmsts)].concat();
+        let plugins = [fnv_esm::Plugin::parse(&bytes, "SimModularGmst.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let schema = Schema::load_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/fnv")).unwrap();
+        let index = WorldIndex::default();
+
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("nvf-sim-gmst-{}-{stamp}", std::process::id()));
+        let empty = root.join("EmptyData");
+        let modded = root.join("ModData");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::create_dir_all(modded.join("NVSE/Plugins/Tweaks/GameSettings")).unwrap();
+        std::fs::write(
+            modded.join("NVSE/Plugins/Tweaks/GameSettings/10_override.ini"),
+            "[GameSettings]\nfSimModularFloat = 18.25\niSimModularInt = 11\nsSimModularLabel = \"Modded\"\n",
+        )
+        .unwrap();
+
+        let vanilla = SimState::new_with_mod_roots(&lo, &schema, &index, &[empty]);
+        assert_eq!(vanilla.world.setting_f32("fSimModularFloat"), Some(4.5));
+        assert_eq!(vanilla.world.setting_f32("iSimModularInt"), Some(3.0));
+        assert_eq!(vanilla.world.setting_value("sSimModularLabel"), Some(&fnv_sim::settings::Setting::Str("Vanilla".into())));
+
+        let overridden = SimState::new_with_mod_roots(&lo, &schema, &index, &[modded]);
+        assert_eq!(overridden.world.setting_f32("fSimModularFloat"), Some(18.25));
+        assert_eq!(overridden.world.setting_f32("iSimModularInt"), Some(11.0));
+        assert_eq!(overridden.world.setting_value("sSimModularLabel"), Some(&fnv_sim::settings::Setting::Str("Modded".into())));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

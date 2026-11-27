@@ -318,6 +318,8 @@ impl Game<'_> {
     /// reaction, the player's teammates being allies of the player [hypothesis], and
     /// actors sharing a faction or a base form allies [engineering choice].
     pub fn reaction_to(&self, actor: FormId, other: FormId) -> i64 {
+        // Another co-op player's actor stands where the player does (`Game::as_player`).
+        let (actor, other) = (self.as_player(actor), self.as_player(other));
         if other == FormId::PLAYER_REF && self.extra.get(&actor).is_some_and(|e| e.teammate) {
             return ALLY;
         }
@@ -424,7 +426,7 @@ impl Game<'_> {
     /// (the victim is such a member and was not fighting someone else).
     pub fn evil_area_alert(&mut self, victim: FormId) -> bool {
         use crate::crime::faction_flags::{EVIL, TRACK_CRIME};
-        let flags = |g: &Game, f: FormId| g.data.faction_flags.get(&f).copied().unwrap_or(0);
+        let flags = |g: &Game, f: FormId| g.faction_flags(f);
         let evil: Vec<FormId> = factions_of(self, victim).into_iter().filter(|&f| flags(self, f) & EVIL != 0).collect();
         if evil.is_empty() || self.is_teammate(victim) {
             return false;
@@ -594,6 +596,13 @@ impl Game<'_> {
                     if attacker == helper || self.provocations.holds(helper, attacker) {
                         continue;
                     }
+                    // Narrowed to the #3459 HELIOS One cross-faction creature bridge:
+                    // a creature fighting only under an assist grudge for another creature
+                    // does not pull a third-party watcher that is not a comrade of the
+                    // original creature into the fight [design, #3459].
+                    if victim != FormId::PLAYER_REF && self.cross_faction_creature_assist_relay(victim, attacker, helper) {
+                        continue;
+                    }
                     let would = match attacks.get(&(helper, attacker)) {
                         Some(&w) => w,
                         None => {
@@ -706,6 +715,33 @@ impl Game<'_> {
 }
 
 impl Game<'_> {
+    /// Whether `receiver` should stay out of a second-hop assist relay from `sender`
+    /// fighting `foe` [design, #3459]: narrowed to the HELIOS One cross-faction creature
+    /// bridge (`CrDogNCRAggressive` -> `CrDogNCRFollow` -> `HeliosExtLvlNCRTrooperGun`).
+    ///
+    /// Returns true only when `sender` fights `foe` (or the player, when `foe` is the
+    /// player's teammate) solely under `Why::Assist { victim: orig }` (`orig != PLAYER_REF`,
+    /// not `Assault` or `StartCombat`), both `sender` and `orig` are creatures (`CREA`),
+    /// and `receiver` is not a comrade of `orig`. Normal NPC assist relays, same-pack
+    /// creature relays, one-hop direct assists, and direct assaults on `sender` are
+    /// unaffected.
+    pub(crate) fn cross_faction_creature_assist_relay(&self, sender: FormId, foe: FormId, receiver: FormId) -> bool {
+        let key = if self.is_teammate(foe) && !self.provocations.holds(sender, foe) { FormId::PLAYER_REF } else { foe };
+        if self.awareness.forced.contains(&(sender, key)) {
+            return false;
+        }
+        let Some(Why::Assist { victim: orig }) = self.provocations.grudges.get(&(sender, key)).map(|g| g.why) else {
+            return false;
+        };
+        if orig == FormId::PLAYER_REF {
+            return false;
+        }
+        if crate::nvse_nx::is_creature(self, sender) != Some(true) || crate::nvse_nx::is_creature(self, orig) != Some(true) {
+            return false;
+        }
+        !self.comrades(receiver, orig)
+    }
+
     /// Actors that detect an attacker which would attack them too join the fight against
     /// it (module notes, "A danger to itself"). Returns how many joined.
     fn join_against_dangers(&mut self) -> usize {
@@ -739,6 +775,11 @@ impl Game<'_> {
                     continue;
                 }
                 if self.provocations.holds(helper, attacker) || self.would_attack(helper, attacker) || !self.would_attack(attacker, helper) {
+                    continue;
+                }
+                // A Very Aggressive attacker whose aggro radius leaves `helper` (a Neutral
+                // bystander) out of reach is not attacking `helper` [design, #3459].
+                if crate::awareness::position(self, helper).is_some_and(|helper_at| self.neutral_out_of_reach(attacker, helper, helper_at)) {
                     continue;
                 }
                 if matches!(self.reaction_to(helper, attacker), ALLY | FRIEND) || self.stays_out(helper, attacker) || self.package_has(helper, crate::package::flags::DEFENSIVE_COMBAT) {

@@ -59,8 +59,10 @@
 //!   when it stops (it listens), and whenever the gesture it plays ends while it is
 //!   still in the same part; the tree chooses talking or listening, the mood, sitting
 //!   or standing. A response's own idle (INFO `SNAM`/`LNAM`) or any other idle asked
-//!   for comes first: no gesture is picked while one plays. A gesture ends when the
-//!   conversation does, or when the actor walks.
+//!   for comes first: no gesture is picked while one plays. A gesture waits while the
+//!   actor walks, turns on the spot, or gets on or off furniture, and ends when the
+//!   conversation does, when the actor walks, or when its furniture posture changes
+//!   (getting off a seat or sitting down).
 //!
 //! - **Cowering** (idles.md §13). An NPC fleeing from a fight that stands still (as
 //!   when its flight begins, or at its flee spot) is checked every
@@ -132,11 +134,12 @@ use fnv_actor::idle::meshes_path;
 use fnv_actor::idle_play::{IdleKeys, IdlePlay};
 use fnv_actor::weapon::Stage;
 use fnv_game::game::Game;
-use fnv_game::idles::{FidgetKind, IdlePicker, IdleRequest, IdleSource, Loops};
+use fnv_game::idles::{FidgetKind, IdlePicker, IdlePov, IdleRequest, IdleSource, Loops};
+use fnv_game::nvse_knvse::SequenceInfo;
 use fnv_game::package::{flags, PackageType};
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
-use nvf_assets::anim_play::{BlendPlayer, BoundClip, Clip, Layer};
+use nvf_assets::anim_play::{BlendPlayer, BoundClip, Clip, Layer, ScriptLayer};
 use nvf_assets::model::ModelCtx;
 use nvf_play::control::PlayerControl;
 use nvf_play::player::Player;
@@ -216,6 +219,10 @@ pub struct Playing<C> {
     fresh: bool,
     /// Holds its actor in place until it ends ([`holds_in_place`]).
     pub holds: bool,
+    /// Whether the actor was seated on furniture (`on_furniture`, state 3) when this
+    /// idle started, so seated gestures and dialogue idles fade out if it starts getting
+    /// off furniture (#3407).
+    pub seated: bool,
     /// The normalized source file, when this is an IDLE loaded from a file.
     file: Option<String>,
 }
@@ -234,6 +241,13 @@ impl<C> Default for IdleSlot<C> {
 }
 
 impl<C> IdleSlot<C> {
+    /// Play a clip that is no IDLE record (a slot machine's seat) as an idle `source`
+    /// asked for; returns its serial.
+    pub fn start_clip(&mut self, source: IdleSource, clip: C, play: IdlePlay) -> u32 {
+        self.start(0, source, None, clip, play);
+        self.serial
+    }
+
     /// Play an idle from its start. What played until now is held under it while it
     /// fades in; an idle started in the same step is replaced outright (a package's
     /// change idle followed by the next package's begin idle).
@@ -266,7 +280,7 @@ impl<C> IdleSlot<C> {
             self.prev = Some(old);
         }
         self.serial = self.serial.wrapping_add(1);
-        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true, holds: false, file });
+        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true, holds: false, seated: false, file });
         true
     }
 
@@ -438,6 +452,11 @@ pub struct PlayerIdles {
     pub third: IdleSlot<Arc<Clip>>,
     /// The player when an idle began to turn the view ([`Held`]).
     pub held: Option<Held>,
+    /// A menu that is played at a place in the world is open (the slot machine's,
+    /// `slots_seat.rs`): the third-person body's idles go on under it, where a menu
+    /// otherwise holds them [design: the body is seen at the machine; slots-170-B
+    /// camera-win-warm, the cheer held on its first frame].
+    pub under_menu: bool,
 }
 
 /// Movement camera overlays animate the view without owning position; other
@@ -636,27 +655,64 @@ pub struct NpcSequence {
     serial: u32,
 }
 
-/// kNVSE's PlayAnimationPath on the drawn NPCs (docs/design/knvse-anim.md §5): the
-/// sequence starts as a script's idle does on the actor's idle slot, bound to its
-/// skeleton; once if the clip says so (cycle type Clamp), else looping until DeactivateAnim
-/// takes it back or another idle replaces it. An actor not drawn waits; one that goes out
-/// of view starts it again when drawn. ActivateAnim's layered sequences are not played on
-/// NPCs yet.
-pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState>>, mut parts: ResMut<ActorParts>, mut models: ModelCtx, mut actors: Query<Drawn>, mut started: Local<Vec<NpcSequence>>) {
-    let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+/// What [`play_npc_sequences`] reads and writes of a drawn NPC.
+type NpcSeqActor = (Entity, &'static RefVisual, &'static ActorRig, Option<&'static mut ActorIdle>, Option<&'static mut BlendPlayer>);
+
+fn sequence_info(clip: &Clip) -> SequenceInfo {
+    SequenceInfo {
+        name: clip.name.clone(),
+        accum_root: clip.accum_root.clone().unwrap_or_default(),
+        frequency: f64::from(clip.frequency),
+        begin: f64::from(clip.start),
+        end: f64::from(clip.stop),
+        cycle: clip.cycle_type,
+        text_keys: clip.text_keys.iter().map(|(t, s)| (f64::from(*t), s.clone())).collect(),
+    }
+}
+
+/// kNVSE's `PlayAnimationPath` and `ActivateAnim` on the drawn NPCs
+/// (docs/design/knvse-anim.md §5):
+/// - `PlayAnimationPath` starts on the actor's idle slot, bound to its skeleton; once if
+///   the clip says so (cycle type Clamp), else looping until `DeactivateAnim` takes it
+///   back or another idle replaces it.
+/// - `ActivateAnim` (and the blend helpers `CrossFadeAnims`, `BlendToAnim`,
+///   `BlendToAnimFromPose`) layers onto `BlendPlayer::script_layers` with explicit
+///   sequence priority, weight (`SetAnimWeight`), ease-in/ease-out, clock/seek
+///   (`SetAnimCurrentTime`), and additive reference poses (`SetAnimAdditive`) [design].
+#[allow(clippy::too_many_arguments)]
+pub fn play_npc_sequences(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut parts: ResMut<ActorParts>,
+    mut models: ModelCtx,
+    mut actors: Query<NpcSeqActor>,
+    mut started: Local<Vec<NpcSequence>>,
+    mut layer_eases: Local<HashMap<(u32, u32), f32>>,
+) {
+    let Some(game) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) else { return };
+    let dt = if game.menu.is_some() { 0.0 } else { time.delta_secs().min(0.1) };
     let me = FormId::PLAYER_REF;
     let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
-    let wanted: Vec<(u32, &String)> = game
+    let wanted: Vec<(u32, String)> = game
         .anim_paths
         .played
         .iter()
         .filter(|(a, _)| **a != me)
-        .flat_map(|(a, ps)| ps.iter().map(move |p| (a.0, p)))
+        .flat_map(|(a, ps)| ps.iter().map(move |p| (a.0, p.clone())))
         // ActivateAnim's requests (they stay until taken back, `auto_finish` false) are
-        // layered sequences, not idles.
+        // layered sequences driven on `BlendPlayer::script_layers` below, not idles.
         .filter(|(a, p)| !game.anim_paths.sequences.get(&(FormId(*a), false, p.replace('/', "\\").to_ascii_lowercase())).is_some_and(|s| !s.auto_finish))
         .collect();
-    if wanted.is_empty() && started.is_empty() {
+    let mut layered: Vec<(FormId, fnv_game::nvse_anim::ScriptSequence)> = game
+        .anim_paths
+        .sequences
+        .iter()
+        .filter(|((a, _, _), s)| *a != me && !s.auto_finish)
+        .map(|((a, _, _), s)| (*a, s.clone()))
+        .collect();
+    layered.sort_by_key(|(_, s)| s.serial);
+    if wanted.is_empty() && started.is_empty() && layered.is_empty() && layer_eases.is_empty() {
         return;
     }
     let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
@@ -667,7 +723,7 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
         if kept {
             return true;
         }
-        if let Ok((_, _, _, Some(mut slot), ..)) = actors.get_mut(e) {
+        if let Ok((_, _, _, Some(mut slot), _)) = actors.get_mut(e) {
             if let Some(c) = slot.0.cur.as_mut().filter(|c| c.serial == s.serial && s.serial != 0) {
                 c.play.stop();
             }
@@ -676,22 +732,23 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
         false
     });
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-    for (actor, p) in wanted {
-        if started.iter().any(|s| s.actor == actor && same(&s.path, p)) {
+    for (actor, p) in &wanted {
+        if started.iter().any(|s| s.actor == *actor && same(&s.path, p)) {
             continue;
         }
-        let Some(&e) = drawn.get(&actor) else { continue };
+        let Some(&e) = drawn.get(actor) else { continue };
         let path = meshes_path(p);
         if !ctx.clip_ready(&path) {
             continue;
         }
-        let Ok((e, _, rig, slot, ..)) = actors.get_mut(e) else { continue };
+        let Ok((e, _, rig, slot, _)) = actors.get_mut(e) else { continue };
         let bound = ctx.clip(&path).map(|clip| (bind_clip(&rig.skel, clip.clone()), clip));
         let Some((bound, clip)) = bound.filter(|(b, _)| !b.tracks.is_empty()) else {
             warn!("anim sequence: {actor:08X}'s {p} does not load or drives no node of its skeleton");
-            started.push(NpcSequence { actor, path: p.clone(), serial: 0 });
+            started.push(NpcSequence { actor: *actor, path: p.clone(), serial: 0 });
             continue;
         };
+        game.set_sequence_info(p, sequence_info(&clip));
         let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
         let once = clip.cycle_type == 2;
         let play = IdlePlay::new(keys, once.then_some(1));
@@ -710,15 +767,91 @@ pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState
             }
         };
         info!("anim sequence: {actor:08X} plays {p} ({})", if once { "once" } else { "looping" });
-        started.push(NpcSequence { actor, path: p.clone(), serial });
+        started.push(NpcSequence { actor: *actor, path: p.clone(), serial });
     }
+    // Clear previous frame's layered NPC script sequences before rebuilding active ones.
+    for (_, _, _, _, player) in &mut actors {
+        if let Some(mut p) = player {
+            if !p.script_layers.is_empty() {
+                p.script_layers.clear();
+            }
+        }
+    }
+    let active_keys: HashSet<(u32, u32)> = layered.iter().map(|(a, s)| (a.0, s.serial)).collect();
+    for (actor, request) in layered {
+        let Some(&e) = drawn.get(&actor.0) else { continue };
+        let path = meshes_path(&request.path);
+        if !ctx.clip_ready(&path) {
+            continue;
+        }
+        let Some(clip) = ctx.clip(&path) else {
+            warn!("anim sequence: {:08X}'s {:?} could not load; not rendered", actor.0, request.path);
+            let norm = request.path.replace('/', "\\").to_ascii_lowercase();
+            game.anim_paths.sequences.remove(&(actor, false, norm));
+            if let Some(paths) = game.anim_paths.played.get_mut(&actor) {
+                paths.retain(|p| !same(p, &request.path));
+            }
+            continue;
+        };
+        game.set_sequence_info(&request.path, sequence_info(&clip));
+        let norm_key = request.path.replace('/', "\\").to_ascii_lowercase();
+        let additive_spec = game
+            .knvse
+            .additive
+            .get(&(actor, norm_key))
+            .filter(|(first, _, _)| !*first)
+            .map(|(_, p, t)| (p.clone(), *t as f32));
+        let ref_clip = match &additive_spec {
+            Some((ref_pose, _)) if !ref_pose.is_empty() => {
+                let ref_path = meshes_path(ref_pose);
+                if !ctx.clip_ready(&ref_path) {
+                    continue;
+                }
+                ctx.clip(&ref_path)
+            }
+            _ => None,
+        };
+        let Ok((_, _, rig, _, Some(mut player))) = actors.get_mut(e) else { continue };
+        let bound = bind_clip(&rig.skel, clip.clone());
+        if bound.tracks.is_empty() {
+            continue;
+        }
+        let clock = game.script_sequence_time_for(actor, &request.path, false);
+        let phase = (clock * f64::from(clip.frequency)) as f32;
+        if !phase.is_finite() || !request.weight.is_finite() {
+            continue;
+        }
+        let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+        let fade_in = request.ease_in.unwrap_or(keys.blend_in);
+        let ease = layer_eases.entry((actor.0, request.serial)).or_insert_with(|| if fade_in <= 0.0 { 1.0 } else { 0.0 });
+        if request.stopped.is_some() {
+            let down = if request.ease_out <= 0.0 { 1.0 } else { dt / request.ease_out };
+            *ease = (*ease - down).max(0.0);
+        } else {
+            let up = if fade_in <= 0.0 { 1.0 } else { dt / fade_in };
+            *ease = (*ease + up).min(1.0);
+        }
+        let eff = (request.weight.clamp(0.0, 1.0) * *ease).clamp(0.0, 1.0);
+        if eff <= 0.0 {
+            continue;
+        }
+        let additive = additive_spec.map(|(_, ref_time)| (ref_clip.map(|rc| Arc::new(bind_clip(&rig.skel, rc))), ref_time));
+        player.script_layers.push(ScriptLayer {
+            clip: Arc::new(bound),
+            time: phase,
+            weight: eff,
+            priority: request.priority,
+            additive,
+        });
+    }
+    layer_eases.retain(|k, _| active_keys.contains(k));
 }
 
-/// The clip of an idle and its playback, as its record and text keys say; a creature's
-/// standing look loops until replaced (`IdleSource::Standing`).
-fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: bool) -> Result<(Arc<Clip>, IdlePlay), String> {
+/// The clip of an idle and its playback, as its record, active kNVSE overrides, and text
+/// keys say; a creature's standing look loops until replaced (`IdleSource::Standing`).
+fn load(ctx: &mut ActorCtx, game: &Game, actor: FormId, pov: Option<IdlePov>, idle: FormId, rng: &mut Rng, endless: bool) -> Result<(Arc<Clip>, IdlePlay, String), String> {
     let def = game.idle_def(idle).ok_or("not an idle animation")?;
-    let path = clip_path(game, idle).ok_or("it names no file")?;
+    let path = clip_path_for(game, actor, pov, idle).ok_or("it names no file")?;
     let clip = ctx.clip(&path).ok_or_else(|| format!("{path} does not load"))?;
     let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
     let passes = match def.loops(|n| rng.below(n)) {
@@ -727,7 +860,7 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: b
         Loops::Times(n) => Some(n),
     };
     let play = effect_play(&clip, keys, passes);
-    Ok((clip, play))
+    Ok((clip, play, path))
 }
 
 /// [design, #2685] CLAMP effect tracks keep their final values until replacement.
@@ -749,11 +882,49 @@ fn clip_path(game: &Game, idle: FormId) -> Option<String> {
     (!model.trim().is_empty()).then(||meshes_path(model))
 }
 
+/// The KF file `actor` plays for `idle`, applying any active kNVSE replacement whose
+/// file name matches the idle's file name (stack top wins, case-insensitive) [hypothesis:
+/// as `Rig::clip`, a kNVSE idle replacement shares the overridden file's name]. Vanilla
+/// actors with no active overrides keep the exact record path.
+fn clip_path_for(game: &Game, actor: FormId, pov: Option<IdlePov>, idle: FormId) -> Option<String> {
+    let vanilla = clip_path(game, idle)?;
+    if game.anim_paths.actor.is_empty() && game.anim_paths.weapon.is_empty() && game.anim_folders.active.is_empty() {
+        return Some(vanilla);
+    }
+    let first = actor == FormId::PLAYER_REF
+        && match pov {
+            Some(IdlePov::First) => true,
+            Some(IdlePov::Third) => false,
+            None => game.senses.first_person,
+        };
+    let overrides = game.anim_overrides(actor, first);
+    if overrides.is_empty() {
+        return Some(vanilla);
+    }
+    let file_name = vanilla.replace('/', "\\");
+    let file_name = file_name.rsplit('\\').next().unwrap_or(&file_name);
+    overrides
+        .iter()
+        .rev()
+        .find(|p| p.replace('/', "\\").rsplit('\\').next().is_some_and(|n| n.eq_ignore_ascii_case(file_name)))
+        .map(|p| meshes_path(p))
+        .or(Some(vanilla))
+}
+
+/// Strip a leading `meshes\` or `meshes/` prefix and normalize slashes for `set_sequence_info`.
+fn strip_meshes_prefix(path: &str) -> String {
+    let norm = path.replace('/', "\\");
+    match norm.get(..7) {
+        Some(head) if head.eq_ignore_ascii_case("meshes\\") => norm[7..].to_string(),
+        _ => norm,
+    }
+}
+
 /// Whether the clip of `idle` is loaded (or known not to load), so starting it reads no
 /// file; when not, its read is started on a worker thread. An idle naming no file is
 /// ready ([`load`] says why it does not play).
-fn clip_ready(ctx: &mut ActorCtx, game: &Game, idle: FormId) -> bool {
-    clip_path(game, idle).is_none_or(|p| ctx.clip_ready(&p))
+fn clip_ready(ctx: &mut ActorCtx, game: &Game, actor: FormId, pov: Option<IdlePov>, idle: FormId) -> bool {
+    clip_path_for(game, actor, pov, idle).is_none_or(|p| ctx.clip_ready(&p))
 }
 
 /// Whether an idle asked for waits for its clip: not ready, and asked for less than
@@ -805,6 +976,8 @@ pub fn drive(
     // closes, so a scene goes on where it was [observed: owner's TTW run 2026-11-02, the
     // stage that opens the trait menu starts the birth scene's last section, which
     // played out behind the menu; hypothesis: the original's menu mode stops it].
+    // ... except the player's body at a menu played in the world (`PlayerIdles::under_menu`).
+    let body_dt = if pi.under_menu { dt } else if game.menu.is_some() { 0.0 } else { dt };
     let dt = if game.menu.is_some() { 0.0 } else { dt };
     // Between frames the game being played keeps its world in the simulation
     // (`nvf_play::script::with_world`); conditions are evaluated with it put back.
@@ -856,6 +1029,7 @@ pub fn drive(
     let talk_parts = game.talk_parts();
     // Scripts' StopIdle and ForceStopIdle (`fnv_game::nvse_plugins`).
     let stops = std::mem::take(&mut game.gaps.idle_stops);
+    let pov_stops = std::mem::take(&mut game.gaps.idle_stop_pov);
     // The actors whose fidgets with the weapon away end now (`away_fidget_ends`): the
     // one playing, and one still waiting for its clip.
     let away_off: HashSet<u32> = actors
@@ -868,10 +1042,22 @@ pub fn drive(
         .map(|(_, v, ..)| v.0)
         .collect();
     drop_holstered_waits(&mut st.waiting, &away_off);
+    // Drop queued talking gestures whose actor started moving, left the conversation,
+    // or entered a furniture transition while the clip was loading (#3407).
+    let stale_gestures: HashSet<u32> = actors
+        .iter()
+        .filter(|(_, v, _, _, lo, _)| {
+            let moving = lo.is_some_and(|l| l.velocity != [0.0; 2]);
+            let talking = talk_parts.iter().any(|p| p.actor.0 == v.0);
+            moving || !talking || in_furniture_transition(game, v.0)
+        })
+        .map(|(_, v, ..)| v.0)
+        .collect();
+    drop_stale_gesture_waits(&mut st.waiting, &stale_gestures);
     for (_, v, _, idle, lo, _) in &mut actors {
         let Some(mut idle) = idle else { continue };
         idle.0.check_owner(|s| owner_now(game, v.0, s));
-        if stops.contains(&FormId(v.0)) {
+        if stops.contains(&FormId(v.0)) || pov_stops.iter().any(|(a, _)| a.0 == v.0) {
             if let Some(c) = idle.0.cur.as_mut() {
                 c.play.stop();
             }
@@ -920,8 +1106,17 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Standing && (moving || game.draws_weapon(FormId(v.0)) || game.is_dead(FormId(v.0)))) {
             c.play.stop();
         }
-        // A gesture ends when its actor walks or is no longer in a conversation [design].
-        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Gesture && (moving || !talk_parts.iter().any(|p| p.actor.0 == v.0))) {
+        // A gesture ends when its actor walks, is no longer in a conversation, or
+        // changes furniture posture (e.g., starts getting off a chair while a seated
+        // talk clip plays, or sits down during a standing gesture) [design, #3407].
+        // A seated response idle (Speaker/Listener) likewise fades out when its actor
+        // starts getting off furniture so its seated pose does not persist once the
+        // exit clip ends [design, #3407].
+        let seated_now = on_furniture(game, v.0);
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| {
+            (c.source == IdleSource::Gesture && gesture_ends(moving, talking, c.seated, seated_now))
+                || seated_dialogue_idle_ends(c.source, c.seated, seated_now)
+        }) {
             c.play.stop();
         }
         // An idle that poses its actor's legs ends when the actor has somewhere to go
@@ -966,6 +1161,17 @@ pub fn drive(
     if stops.contains(&FormId(player_ref)) {
         for slot in [&mut pi.first.cur, &mut pi.third.cur].into_iter().flatten() {
             slot.play.stop();
+        }
+    }
+    for (actor, pov) in &pov_stops {
+        if actor.0 == player_ref {
+            let slot = match pov {
+                IdlePov::First => &mut pi.first.cur,
+                IdlePov::Third => &mut pi.third.cur,
+            };
+            if let Some(c) = slot {
+                c.play.stop();
+            }
         }
     }
     busy.insert(player_ref, pi.first.playing().is_some() || pi.third.playing().is_some());
@@ -1022,7 +1228,7 @@ pub fn drive(
                 None => c.retry = RETRY_SECONDS.max(collection.timer),
                 // Its clip is read while the actor waits to play it.
                 Some((idle, _)) => {
-                    clip_ready(&mut ActorCtx { cache: &mut parts, models: &mut models }, game, idle);
+                    clip_ready(&mut ActorCtx { cache: &mut parts, models: &mut models }, game, FormId(actor), None, idle);
                 }
             }
         }
@@ -1253,12 +1459,22 @@ pub fn drive(
         // A standing look gives way to the gestures (House's talking face).
         let other = playing.is_some_and(|p| !matches!(p.source, IdleSource::Gesture | IdleSource::Standing)) || asked_now.contains(&actor);
         let gesture_on = playing.is_some_and(|p| p.source == IdleSource::Gesture);
-        // Walking, or turning on the spot to face the other fast enough for the turn
-        // clips (they step the feet; the walker's heading noise is far below it).
-        let busy_body = lo.is_some_and(|l| l.velocity != [0.0; 2] || l.turn.abs() > fnv_actor::locomotion::TURN_RATE);
+        // Walking, turning on the spot to face the other fast enough for the turn
+        // clips (they step the feet; the walker's heading noise is far below it), or
+        // getting onto/off furniture (idles.md §12.2) [design, #3407].
+        let furniture_transition = in_furniture_transition(game, actor);
+        let busy_body = lo.is_some_and(|l| l.velocity != [0.0; 2] || l.turn.abs() > fnv_actor::locomotion::TURN_RATE) || furniture_transition;
         if other || busy_body || (gesture_on && !changed) || (g.retry > 0.0 && !changed) {
             if (changed || fresh) && (other || busy_body) {
-                let why = if other { "another idle plays" } else if lo.is_some_and(|l| l.velocity != [0.0; 2]) { "it walks" } else { "it turns on the spot" };
+                let why = if other {
+                    "another idle plays"
+                } else if furniture_transition {
+                    "it uses furniture"
+                } else if lo.is_some_and(|l| l.velocity != [0.0; 2]) {
+                    "it walks"
+                } else {
+                    "it turns on the spot"
+                };
                 info!("talk gesture: {} waits: {why}", game.data.name(part.actor));
             }
             continue;
@@ -1369,7 +1585,7 @@ pub fn drive(
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
         let mut held_up: HashSet<u32> = HashSet::new();
         for (request, since) in requests {
-            let IdleRequest { actor, idle, source } = request;
+            let IdleRequest { actor, idle, source, pov } = request;
             // Counted once, when asked for (not again after waiting for its clip).
             if since.is_none() {
                 if !matches!(source, IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
@@ -1396,7 +1612,7 @@ pub fn drive(
                 continue;
             }
             // Its clip read on a worker thread rather than in this frame (#1429).
-            let ready = clip_ready(&mut ctx, game, idle);
+            let ready = clip_ready(&mut ctx, game, actor, pov, idle);
             let waited = since.map_or(std::time::Duration::ZERO, |t| t.elapsed());
             if held_up.contains(&actor.0) || waits_for_clip(ready, waited) {
                 if since.is_none() && !ready {
@@ -1413,7 +1629,7 @@ pub fn drive(
                 st.stats.clip_read_late += 1;
                 debug!("idle: {name}: the clip of {} was not read in {} ms: read now", game.data.name(idle), CLIP_WAIT.as_millis());
             }
-            let (clip, play) = match load(&mut ctx, game, idle, &mut st.rng, source == IdleSource::Standing) {
+            let (clip, play, resolved_path) = match load(&mut ctx, game, actor, pov, idle, &mut st.rng, source == IdleSource::Standing) {
                 Ok(l) => l,
                 Err(why) => {
                     st.stats.no_clip += 1;
@@ -1422,17 +1638,34 @@ pub fn drive(
                     continue;
                 }
             };
+            let rel_path = strip_meshes_prefix(&resolved_path);
+            game.set_sequence_info(&rel_path, SequenceInfo {
+                name: clip.name.clone(),
+                accum_root: clip.accum_root.clone().unwrap_or_default(),
+                frequency: f64::from(clip.frequency),
+                begin: f64::from(clip.start),
+                end: f64::from(clip.stop),
+                cycle: clip.cycle_type,
+                text_keys: clip.text_keys.iter().map(|(t, s)| (f64::from(*t), s.clone())).collect(),
+            });
             let owner = owner_now(game, actor.0, source).filter(|_| source.of_package());
-            let file = clip_path(game, idle);
+            let file = Some(resolved_path);
             let what = describe(game, idle, &play);
             if actor.0 == player_ref {
-                let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
+                let drives_camera = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
+                let first = match pov {
+                    Some(IdlePov::First) => true,
+                    Some(IdlePov::Third) => false,
+                    None => drives_camera,
+                };
                 // An activation's idle (the drink) holds nothing: mouse look, movement
                 // and the HUD stay with the player while the camera node moves the view
                 // (`Camera1st` hangs under `Bip01 Looking`, so the player's pitch still
                 // applies) [design, #2349: whether the original holds the player is
-                // observer check 131; documented: `_1stperson\skeleton.nif`].
-                let holds = first && source != IdleSource::Activate && camera_idle_holds(game.idle_def(idle).map_or(0, |d| d.section));
+                // observer check 131; documented: `_1stperson\skeleton.nif`]. A first-person
+                // arm-only idle (`ForcePlayIdle idle 2`) without `Camera1st` likewise keeps
+                // look and movement free [design].
+                let holds = first && drives_camera && source != IdleSource::Activate && camera_idle_holds(game.idle_def(idle).map_or(0, |d| d.section));
                 if holds && pi.held.is_none() {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
@@ -1476,11 +1709,15 @@ pub fn drive(
                 continue;
             }
             let bound = Arc::new(bound);
+            let seated = on_furniture(game, actor.0);
             let started = match slot {
                 Some(mut s) => {
                     let started = s.0.start_file(idle.0, source, owner, bound, play, file);
                     if let Some(c) = s.0.cur.as_mut() {
                         c.holds = holds;
+                        if started {
+                            c.seated = seated;
+                        }
                     }
                     started
                 }
@@ -1489,6 +1726,7 @@ pub fn drive(
                     s.0.start_file(idle.0, source, owner, bound, play, file);
                     if let Some(c) = s.0.cur.as_mut() {
                         c.holds = holds;
+                        c.seated = seated;
                     }
                     commands.entity(e).insert(s);
                     true
@@ -1542,9 +1780,8 @@ pub fn drive(
             None => {}
         }
     }
-    for slot in [&mut pi.first, &mut pi.third] {
-        slot.advance(dt);
-    }
+    pi.first.advance(dt);
+    pi.third.advance(body_dt);
     if let Some(p) = pi.first.playing().or(pi.third.playing()) {
         now.insert(player_ref, p.idle);
     }
@@ -1577,6 +1814,34 @@ fn fleeing(game: &Game, actor: u32) -> bool {
 /// `GetSleeping` 3).
 fn on_furniture(game: &Game, actor: u32) -> bool {
     game.furniture_use(FormId(actor)).is_some_and(|u| u.state == 3)
+}
+
+/// Whether `actor` is getting onto or off furniture (`GetSitting` / `GetSleeping`
+/// state other than 3, such as 2 GettingOn or 4 GettingOff) [design, #3407].
+fn in_furniture_transition(game: &Game, actor: u32) -> bool {
+    game.furniture_use(FormId(actor)).is_some_and(|u| u.state != 3)
+}
+
+/// Whether a talking gesture ends: its actor walks, is no longer in a conversation, or
+/// changed furniture posture relative to when the gesture started (e.g., started getting
+/// off a chair while a seated talk clip plays, or sat down during a standing gesture)
+/// [design, #3407].
+fn gesture_ends(moving: bool, talking: bool, gesture_seated: bool, now_seated: bool) -> bool {
+    moving || !talking || gesture_seated != now_seated
+}
+
+/// Whether a dialogue response's own Speaker/Listener idle ends because it started while
+/// seated on furniture (`state == 3`) and the actor has started getting off or stood up
+/// [design, #3407].
+fn seated_dialogue_idle_ends(source: IdleSource, idle_seated: bool, now_seated: bool) -> bool {
+    idle_seated && !now_seated && matches!(source, IdleSource::Speaker | IdleSource::Listener)
+}
+
+/// Talking gestures still waiting for their clip, of actors in `stale` (moving, no
+/// longer talking, or getting on/off furniture), are dropped so they do not start during
+/// or after a furniture transition [design, #3407].
+fn drop_stale_gesture_waits(waiting: &mut Vec<(IdleRequest, std::time::Instant)>, stale: &HashSet<u32>) {
+    waiting.retain(|(r, _)| !(r.source == IdleSource::Gesture && stale.contains(&r.actor.0)));
 }
 
 /// Whether a fidget with the weapon away ends: its actor moves, its weapon is no longer
@@ -1880,7 +2145,7 @@ mod tests {
         // Waiting for their clips: the taken-over actor's fidget goes, its script idle and
         // another actor's fidget stay.
         let now = std::time::Instant::now();
-        let req = |actor: u32, idle: u32, source: IdleSource| (IdleRequest { actor: FormId(actor), idle: FormId(idle), source }, now);
+        let req = |actor: u32, idle: u32, source: IdleSource| (IdleRequest { actor: FormId(actor), idle: FormId(idle), source, pov: None }, now);
         let mut waiting = vec![req(7, 5, IdleSource::HolsteredFidget), req(7, 6, IdleSource::Script), req(8, 5, IdleSource::HolsteredFidget)];
         drop_holstered_waits(&mut waiting, &HashSet::from([7]));
         let left: Vec<(u32, IdleSource)> = waiting.iter().map(|(r, _)| (r.actor.0, r.source)).collect();
@@ -1994,7 +2259,7 @@ mod tests {
         fn step(g: &Game) -> (bool, bool) {
             let mut slot: IdleSlot<u8> = IdleSlot::default();
             slot.start(5, IdleSource::HolsteredFidget, None, 5, play(8.4, 0.3, Some(4)));
-            let mut waiting = vec![(IdleRequest { actor: FormId(ACTOR), idle: FormId(6), source: IdleSource::HolsteredFidget }, std::time::Instant::now())];
+            let mut waiting = vec![(IdleRequest { actor: FormId(ACTOR), idle: FormId(6), source: IdleSource::HolsteredFidget, pov: None }, std::time::Instant::now())];
             let off: HashSet<u32> = holstered_off(g, ACTOR, false, false, None, None).then_some(ACTOR).into_iter().collect();
             drop_holstered_waits(&mut waiting, &off);
             end_holstered(&mut slot, off.contains(&ACTOR));
@@ -2253,5 +2518,132 @@ mod tests {
         p.third.cur.as_mut().unwrap().holds = true;
         assert!(p.third.playing().is_some());
         assert!(!p.holds_camera());
+    }
+
+    #[test]
+    fn clip_path_for_applies_knvse_override_by_filename_and_normalizes_forward_slashes() {
+        let empty = crate::outfits::tests::empty_world_data();
+        let forms = crate::outfits::tests::actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let functions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = fnv_script::FunctionTable::load(&functions).unwrap();
+        let json = serde_json::from_str(&std::fs::read_to_string(functions).unwrap()).unwrap();
+        let mut data = fnv_game::GameData::build(empty.lo, empty.schema, table, &json, &refs);
+        let idle = FormId(0x9001);
+        data.idles.insert(
+            idle,
+            fnv_game::data::IdleDef {
+                model: Some("Characters\\_Male\\IdleAnims\\SpecialIdle_Test.kf".into()),
+                ..Default::default()
+            },
+        );
+        let mut game = fnv_game::Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let npc = FormId(0x2000);
+
+        // Vanilla (no active overrides): exact record path.
+        assert_eq!(clip_path_for(&game, npc, None, idle).as_deref(), Some("meshes\\characters\\_male\\idleanims\\specialidle_test.kf"));
+
+        // Active AnimGroupOverride matching the idle's filename: replacement wins.
+        game.anim_folders.active.insert((npc, false), vec!["AnimGroupOverride\\ModA\\_male\\SpecialIdle_Test.kf".into()]);
+        assert_eq!(clip_path_for(&game, npc, None, idle).as_deref(), Some("meshes\\animgroupoverride\\moda\\_male\\specialidle_test.kf"));
+
+        // Player first-person POV override stays isolated from third-person POV, and forward-slash
+        // "meshes/..." paths normalize without double-prefixing.
+        game.anim_folders.active.insert((FormId::PLAYER_REF, true), vec!["meshes/AnimGroupOverride/ModA/_1stPerson/SpecialIdle_Test.kf".into()]);
+        assert_eq!(clip_path_for(&game, FormId::PLAYER_REF, Some(IdlePov::First), idle).as_deref(), Some("meshes\\animgroupoverride\\moda\\_1stperson\\specialidle_test.kf"));
+        assert_eq!(clip_path_for(&game, FormId::PLAYER_REF, Some(IdlePov::Third), idle).as_deref(), Some("meshes\\characters\\_male\\idleanims\\specialidle_test.kf"));
+        assert_eq!(strip_meshes_prefix("meshes/AnimGroupOverride/ModA/SpecialIdle_Test.kf"), "AnimGroupOverride\\ModA\\SpecialIdle_Test.kf");
+        assert_eq!(strip_meshes_prefix("Meshes\\AnimGroupOverride\\ModA\\SpecialIdle_Test.kf"), "AnimGroupOverride\\ModA\\SpecialIdle_Test.kf");
+    }
+
+    #[test]
+    fn talking_gesture_ends_on_furniture_posture_change_and_clears_before_chair_exit_finishes() {
+        // Seated gesture keeps playing while still seated, stationary, and talking.
+        assert!(!gesture_ends(false, true, true, true));
+        // Standing gesture keeps playing while standing still and talking.
+        assert!(!gesture_ends(false, true, false, false));
+        // Seated gesture ends as soon as the actor starts getting off (now_seated == false),
+        // even while velocity == 0 and the dialogue line is still playing (#3407).
+        assert!(gesture_ends(false, true, true, false), "seated gesture must stop on chair exit");
+        // Standing gesture ends if the actor sits down.
+        assert!(gesture_ends(false, true, false, true), "standing gesture must stop on sitting");
+        // Existing stop triggers remain unchanged: moving or leaving conversation.
+        assert!(gesture_ends(true, true, false, false), "moving ends gesture");
+        assert!(gesture_ends(false, false, true, true), "leaving conversation ends gesture");
+
+        // Slot lifecycle: a 6.97 s seated talk gesture stopped when a 1.53 s chair exit starts
+        // fades out over its 0.25 s blend-out and is completely gone before the actor stands up.
+        let mut slot: IdleSlot<u8> = IdleSlot::default();
+        assert!(slot.start(42, IdleSource::Gesture, None, 42, play(6.97, 0.25, Some(1))));
+        slot.cur.as_mut().unwrap().seated = true;
+        slot.advance(1.2);
+        assert!(slot.playing().is_some());
+        if let Some(c) = slot.cur.as_mut().filter(|c| c.source == IdleSource::Gesture && gesture_ends(false, true, c.seated, false)) {
+            c.play.stop();
+        }
+        assert!(slot.playing().is_none(), "stopped gesture immediately yields busy status");
+        slot.advance(0.30);
+        assert!(slot.is_empty(), "seated gesture fades out well before a 1.53 s exit clip ends");
+    }
+
+    #[test]
+    fn seated_dialogue_response_idles_stop_on_furniture_exit_while_other_idles_stay() {
+        // Seated Speaker and Listener idles stop when the actor starts getting off furniture.
+        assert!(seated_dialogue_idle_ends(IdleSource::Speaker, true, false));
+        assert!(seated_dialogue_idle_ends(IdleSource::Listener, true, false));
+        // While still seated, they continue normally.
+        assert!(!seated_dialogue_idle_ends(IdleSource::Speaker, true, true));
+        assert!(!seated_dialogue_idle_ends(IdleSource::Listener, true, true));
+        // Standing dialogue response idles are unaffected.
+        assert!(!seated_dialogue_idle_ends(IdleSource::Speaker, false, false));
+        assert!(!seated_dialogue_idle_ends(IdleSource::Listener, false, true));
+        // Scripted / package idles are not forcibly ended by this rule.
+        assert!(!seated_dialogue_idle_ends(IdleSource::Script, true, false));
+        assert!(!seated_dialogue_idle_ends(IdleSource::PackageBegin, true, false));
+    }
+
+    #[test]
+    fn furniture_transition_holds_gestures_and_drops_stale_waiting_gestures() {
+        use fnv_game::game::FurnitureUse;
+        let empty = crate::outfits::tests::empty_world_data();
+        let forms = crate::outfits::tests::actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let functions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = fnv_script::FunctionTable::load(&functions).unwrap();
+        let json = serde_json::from_str(&std::fs::read_to_string(functions).unwrap()).unwrap();
+        let data = fnv_game::GameData::build(empty.lo, empty.schema, table, &json, &refs);
+        let mut game = Game::new(&data, fnv_sim::World::new(&forms, &refs, Default::default()), Default::default());
+        let actor = 0x2001u32;
+
+        // Standing (no furniture): neither on furniture nor transitioning.
+        assert!(!on_furniture(&game, actor));
+        assert!(!in_furniture_transition(&game, actor));
+
+        // Getting on furniture (state 2): transitioning -> gestures wait.
+        game.set_furniture_use(FormId(actor), Some(FurnitureUse { reference: FormId(0x3001), marker_id: 14, state: 2 }));
+        assert!(!on_furniture(&game, actor));
+        assert!(in_furniture_transition(&game, actor));
+
+        // Seated on furniture (state 3): seated and not transitioning -> chair gestures allowed.
+        game.set_furniture_use(FormId(actor), Some(FurnitureUse { reference: FormId(0x3001), marker_id: 14, state: 3 }));
+        assert!(on_furniture(&game, actor));
+        assert!(!in_furniture_transition(&game, actor));
+
+        // Getting off furniture (state 4): transitioning -> seated gestures end and no new gesture starts.
+        game.set_furniture_use(FormId(actor), Some(FurnitureUse { reference: FormId(0x3001), marker_id: 14, state: 4 }));
+        assert!(!on_furniture(&game, actor));
+        assert!(in_furniture_transition(&game, actor));
+
+        // Queued gesture requests for stale actors are dropped while Script requests and other actors stay.
+        let now = std::time::Instant::now();
+        let req = |a: u32, idle: u32, source: IdleSource| (IdleRequest { actor: FormId(a), idle: FormId(idle), source, pov: None }, now);
+        let mut waiting = vec![
+            req(actor, 10, IdleSource::Gesture),
+            req(actor, 11, IdleSource::Script),
+            req(actor + 1, 12, IdleSource::Gesture),
+        ];
+        drop_stale_gesture_waits(&mut waiting, &HashSet::from([actor]));
+        let left: Vec<(u32, IdleSource)> = waiting.iter().map(|(r, _)| (r.actor.0, r.source)).collect();
+        assert_eq!(left, [(actor, IdleSource::Script), (actor + 1, IdleSource::Gesture)]);
     }
 }

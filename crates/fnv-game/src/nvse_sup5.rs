@@ -82,12 +82,12 @@ fn cell_at(args: &[XVal], k: usize) -> Option<(u32, u32)> {
 /// A form's shown name (its base's FULL), as GetName.
 fn name_of(g: &Game, f: FormId) -> String {
     let b = crate::functions::base_of(g, f).filter(|&b| b != f).unwrap_or(f);
-    g.name_overrides.get(&b).or_else(|| g.data.full_names.get(&g.unclone(b))).cloned().unwrap_or_default()
+    g.name_overrides.get(&b).or_else(|| g.forms.saved_names.get(&b)).or_else(|| g.data.full_names.get(&g.unclone(b))).cloned().unwrap_or_default()
 }
 
 /// A cell's text as ExcelArrayFromFile gives it: `*Plugin.esm:hex` is that plugin's form
 /// [documented: ExcelArrayFromFile, "All to-build references must be prefixed with '*'"];
-/// anything else stays text [hypothesis: an unknown plugin or form too].
+/// anything else stays text (see docs/spec-notes/ext-sup5.md §1).
 fn form_text(g: &Game, s: &str) -> XVal {
     let parsed = s.strip_prefix('*').and_then(|r| r.rsplit_once(':')).and_then(|(plugin, hex)| {
         let i = g.data.load_order.iter().position(|p| p.eq_ignore_ascii_case(plugin.trim()))?;
@@ -101,25 +101,27 @@ fn form_text(g: &Game, s: &str) -> XVal {
     }
 }
 
-/// A JSON value as a script value: numbers, text, true/false as 1/0, null as 0, arrays as
-/// lists and objects as string maps [hypothesis: the article the page points to is not in
-/// the export].
-fn json_value(g: &mut Game, v: &serde_json::Value) -> XVal {
+/// Tagged list returned by `JSONGetValue`: element 0 is the type/status code (`-2`
+/// missing, `0` null, `1` object, `2` array, `3` string, `4` bool, `5` number), and
+/// ONLY scalar types (`3`/`4`/`5`) include element 1 with the value [observed: Fallout:
+/// New Vegas 1.4.0.525 + xNVSE 6.4.9 + SUP NVSE 855, 2026-11-24, `GSDocMitchellHouse`
+/// (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only
+/// `PrintToConsole` probe; zero writes to game install or Saves),
+/// `w4d_37_sup_json_and_excel_edges` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
+/// #3802): `PROBE|w4d_37_sup_json_and_excel_edges|o=1(1),a=1(2),s=2(3,[hi]),b=2(4,1),f=2(4,0),n=2(5,42.0),z=1(0),m=1(-2)|xlsx=-1`;
+/// zero DLL, PDB, or third-party source consulted].
+fn json_tagged_value(g: &mut Game, v: Option<&serde_json::Value>) -> XVal {
     use serde_json::Value as J;
-    match v {
-        J::Null => XVal::Num(0.0),
-        J::Bool(b) => XVal::Num(f64::from(u8::from(*b))),
-        J::Number(n) => XVal::Num(n.as_f64().unwrap_or(0.0)),
-        J::String(s) => XVal::Str(s.clone()),
-        J::Array(a) => {
-            let items = a.iter().map(|x| json_value(g, x)).collect();
-            list(g, items)
-        }
-        J::Object(o) => {
-            let entries = o.iter().map(|(k, x)| (XKey::Str(k.clone()), json_value(g, x))).collect();
-            XVal::Array(g.ext.new_array(ArrayKind::StringMap, entries))
-        }
-    }
+    let items = match v {
+        None => vec![XVal::Num(-2.0)],
+        Some(J::Null) => vec![XVal::Num(0.0)],
+        Some(J::Object(_)) => vec![XVal::Num(1.0)],
+        Some(J::Array(_)) => vec![XVal::Num(2.0)],
+        Some(J::String(s)) => vec![XVal::Num(3.0), XVal::Str(s.clone())],
+        Some(J::Bool(b)) => vec![XVal::Num(4.0), XVal::Num(f64::from(u8::from(*b)))],
+        Some(J::Number(n)) => vec![XVal::Num(5.0), XVal::Num(n.as_f64().unwrap_or(0.0))],
+    };
+    list(g, items)
 }
 
 /// The value under `key`: the key whole, else a path of keys and list indexes split at
@@ -168,7 +170,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- Excel workbooks under the game's folder ----
         // `file sheet row col value`: 1 written, -1 when the file is no workbook; the
         // file and the sheet are made when missing [documented: ExcelWriteFloat,
-        // ExcelWriteString]. A number is written as a float (type 2) [hypothesis].
+        // ExcelWriteString]. A number is written as a float (type 2; see docs/spec-notes/ext-sup5.md §1).
         "excelwritefloat" | "excelwritestring" => {
             let (Some(path), Some(sheet), Some(at)) = (xls_path(args), index(args, 1), cell_at(args, 2)) else { return Some(Ok(minus)) };
             let Ok(mut b) = book_for_write(g, &path) else { return Some(Ok(minus)) };
@@ -179,7 +181,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `file sheet row col`: the number in the cell, the text [documented:
         // ExcelReadFloat, ExcelReadString]; -1 for a missing file [documented], the
         // number -1 from ReadString too [observed: sup5 xl.missing.string, a runtime
-        // error where `%z` was given it]; an empty cell 0 and "" [hypothesis], a text
+        // error where `%z` was given it]; an empty cell 0 and "" (see docs/spec-notes/ext-sup5.md §1), a text
         // cell's number 0 and a number cell's text "" [observed: sup5 xl.cross].
         "excelreadfloat" | "excelreadstring" | "excelgetcellvaluetype" => {
             let book = xls_path(args).ok_or(()).and_then(|p| load_book(g, &p));
@@ -193,7 +195,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
         }
         // `file`: the sheets [documented: ExcelGetWorkSheetCount]; `file sheet`: the rows
-        // and columns in use, -1 for a missing file [documented] or sheet [hypothesis].
+        // and columns in use, -1 for a missing file [documented] or sheet (see docs/spec-notes/ext-sup5.md §1).
         "excelgetworksheetcount" => match xls_path(args).ok_or(()).and_then(|p| load_book(g, &p)) {
             Ok(b) => XVal::Num(b.sheets.len() as f64),
             Err(()) => minus,
@@ -208,7 +210,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `file sheet row col` / `file sheet`: the cell emptied, the sheet's cells all
         // emptied (the sheet kept) [documented: ExcelEraseCell; ExcelEraseSheet, "Will
         // erase all cells in Sheet"]; 1 done, -1 for a missing file [documented] or sheet
-        // [hypothesis].
+        // (see docs/spec-notes/ext-sup5.md §1).
         "excelerasecell" | "excelerasesheet" => {
             let Some(path) = xls_path(args) else { return Some(Ok(minus)) };
             let Ok(mut b) = load_book(g, &path) else { return Some(Ok(minus)) };
@@ -223,8 +225,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `file sheet [name]`: renames the sheet, cut to 31 characters, and returns the
         // name; without a name returns it [documented: ExcelSetSheetName]. A missing file
         // gives the number -1 [documented]; a missing sheet too, and a rename returns a
-        // number, 1 [hypothesis: sup5 xl.missing.sheet and xl.rename stopped at a runtime
-        // error in the original where `%z` was given the return, as xl.missing.string].
+        // number, 1 (see docs/spec-notes/ext-sup5.md §1).
         "excelsetsheetname" => {
             let Some(path) = xls_path(args) else { return Some(Ok(minus)) };
             let Ok(mut b) = load_book(g, &path) else { return Some(Ok(minus)) };
@@ -238,7 +239,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `file sheet startRow startCol array [horizontal]`: the array's values down a
         // column, or along a row; a form is written as its name [documented:
         // ExcelArrayToFile, PlayerRef as "Courier"]; nested arrays are passed over
-        // [hypothesis]. 1 written, -1 not.
+        // (see docs/spec-notes/ext-sup5.md §1). 1 written, -1 not.
         "excelarraytofile" => {
             let (Some(path), Some(sheet), Some((r0, c0))) = (xls_path(args), index(args, 1), cell_at(args, 2)) else { return Some(Ok(minus)) };
             let Some(XVal::Array(id)) = args.get(4) else { return Some(Ok(minus)) };
@@ -264,9 +265,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(if save_book(g, &path, &b) { 1.0 } else { -1.0 })
         }
         // `file sheet n readRow`: column n's values (row n's with readRow 1), `*Plugin:hex`
-        // as forms [documented: ExcelArrayFromFile]; empty cells passed over
-        // [hypothesis]. A missing file gives no array [hypothesis: the page's -1 cannot be
-        // an array].
+        // as forms [documented: ExcelArrayFromFile]; empty cells passed over; a missing
+        // file gives no array (see docs/spec-notes/ext-sup5.md §1).
         "excelarrayfromfile" => {
             let book = xls_path(args).ok_or(()).and_then(|p| load_book(g, &p));
             let (Ok(b), Some(sheet), Some(n)) = (book, index(args, 1), index(args, 2)) else { return Some(Ok(zero)) };
@@ -290,57 +290,77 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- JSON files under the game's folder ----
         // [documented: JSONIsFileValid's table] 1 valid, -3 … -6.
         "jsonisfilevalid" => XVal::Num(f64::from(json_file(g, &text(args, 0).unwrap_or_default()).map_or_else(|e| e, |_| 1))),
-        // `file key cached`: the key's value as an array [documented: JSONGetValue
-        // "JSONValue:array_var"]: an object or list as itself, any other value in a
-        // one-element list [hypothesis]. cached: the file read once and kept for later
-        // cached calls [hypothesis: the parameter's name]. A missing file gives a
-        // one-element list whatever the key [observed: sup5 json.name … json.missing,
-        // size 1, its element read as empty text by `%z`: ""]; a missing key in a file
-        // no array [hypothesis].
+        // `file key cached`: always returns a tagged List `[type_code]` or
+        // `[type_code, scalar_value]` (`-2` missing key, `0` null, `1` object, `2`
+        // array, `3` string, `4` bool `1.0`/`0.0`, `5` number) [documented: JSONGetValue
+        // "JSONValue:array_var"; observed: `w4d_37_sup_json_and_excel_edges`]; missing
+        // or invalid files return a 1-element list with the negative file error code
+        // (`-3..-6`) [observed: sup5 json.name … json.missing & `sup_32_json_get_value_missing_file`
+        // saw a 1-element list whose element 0 is non-string; hypothesis: negative
+        // `json_file` error code]. `cached` shares `Game::other.json.cache` [design].
         "jsongetvalue" => {
             let path = text(args, 0).unwrap_or_default();
             let key = text(args, 1).unwrap_or_default();
             let cached = num(args, 2, 0.0) != 0.0;
-            let ck = path.trim().replace('/', "\\").to_ascii_lowercase();
-            let root = match g.mod_files.json.get(&ck).filter(|_| cached) {
-                Some(v) => Some(v.clone()),
-                None => json_file(g, &path).ok(),
+            let ck = crate::nvse_json::key_of(&path);
+            let root = match g.other.json.cache.get(&ck).filter(|_| cached) {
+                Some(v) => Ok(v.clone()),
+                None => json_file(g, &path),
             };
-            let Some(root) = root else { return Some(Ok(list(g, vec![XVal::Str(String::new())]))) };
+            let root = match root {
+                Ok(r) => r,
+                Err(code) => return Some(Ok(list(g, vec![XVal::Num(f64::from(code))]))),
+            };
             if cached {
-                g.mod_files.json.insert(ck, root.clone());
+                g.other.json.cache.entry(ck).or_insert_with(|| crate::nvse_json::sorted(root.clone()));
             }
-            match json_lookup(&root, &key).cloned() {
-                Some(v @ (serde_json::Value::Array(_) | serde_json::Value::Object(_))) => json_value(g, &v),
-                Some(v) => {
-                    let x = json_value(g, &v);
-                    list(g, vec![x])
-                }
-                None => zero,
-            }
+            let found = json_lookup(&root, &key).cloned();
+            json_tagged_value(g, found.as_ref())
         }
         // ---- file sizes and times, under the game's folder ----
         // [documented: GetFileSize, "relative to Fallout root folder", in bytes]; a
-        // missing file -1 [hypothesis].
+        // missing file -1 (see docs/spec-notes/ext-sup5.md §3).
         "getfilesize" => XVal::Num(safe_path(&text(args, 0).unwrap_or_default()).and_then(|p| g.mod_files.root_file(&p)).map_or(-1.0, |(n, _)| n as f64)),
-        // `file request`: [year, month, day, hour, minute, second] in local time
-        // [documented: GetFileTime, an array; hypothesis: its fields]; a missing file, a
-        // session-only write or a request outside 0-2 gives an empty array [hypothesis].
+        // `file request`: 5-element StringMap in local time on existing files (game-root-
+        // relative) with keys `"Day"`, `"Hour"`, `"Minute"`, `"Month"`, `"Year"` and
+        // zero-padded String values (e.g. `"28"`, `"21"`, `"12"`, `"09"`, `"2026"`), and
+        // an empty StringMap (`ar_Size == 0`) on missing files [documented: GetFileTime;
+        // observed: 2026-11-23, GSDocMitchellHouse (0x00103DF9), Fallout: New Vegas
+        // 1.4.0.525, xNVSE 6.4.9, SUP NVSE 855 with the 10 official base masters,
+        // read-only clean-room script probe `sup_19_getfiletime_keys` against
+        // `Fallout_default.ini`, `Data\FalloutNV.esm`, and a missing path; no DLL or
+        // source consulted]; requests outside 0-2 return an empty StringMap [design:
+        // `sup_19_getfiletime_keys` observed request 99 falling back to a 5-entry map].
         "getfiletime" => {
             let t = file_time(g, &text(args, 0).unwrap_or_default(), num(args, 1, 0.0));
-            let items = t.map(|t| [f64::from(t.year()), f64::from(t.month()), f64::from(t.day()), f64::from(t.hour()), f64::from(t.minute()), f64::from(t.second())].map(XVal::Num).to_vec()).unwrap_or_default();
-            list(g, items)
+            let entries = t
+                .map(|t| {
+                    vec![
+                        (XKey::Str("Day".into()), XVal::Str(format!("{:02}", t.day()))),
+                        (XKey::Str("Hour".into()), XVal::Str(format!("{:02}", t.hour()))),
+                        (XKey::Str("Minute".into()), XVal::Str(format!("{:02}", t.minute()))),
+                        (XKey::Str("Month".into()), XVal::Str(format!("{:02}", t.month()))),
+                        (XKey::Str("Year".into()), XVal::Str(format!("{:04}", t.year()))),
+                    ]
+                })
+                .unwrap_or_default();
+            XVal::Array(g.ext.new_array(ArrayKind::StringMap, entries))
         }
-        // `file request type`: "DD/MM/YY HH:MM", or "MM/DD/YY HH:MM" with type 1
-        // [documented: GetFileTimeSTR]; "" when there is no time [hypothesis].
+        // `file request type`: "DD/MM/YYYY  HH:MM", or "MM/DD/YYYY  HH:MM" with type 1
+        // [documented: GetFileTimeSTR; observed: 2026-11-23, GSDocMitchellHouse
+        // (0x00103DF9), Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, SUP NVSE 855 with the
+        // 10 official base masters, read-only clean-room script probes
+        // `sup_33_file_time_str_formats` and `sup_19_getfiletime_keys`:
+        // `28/09/2026  21:12` / `09/28/2026  21:12`; no DLL or source consulted]; "" when
+        // there is no time [observed: `sup_19_getfiletime_keys`].
         "getfiletimestr" => {
             let t = file_time(g, &text(args, 0).unwrap_or_default(), num(args, 1, 0.0));
-            let fmt = if num(args, 2, 0.0) as i32 == 1 { "%m/%d/%y %H:%M" } else { "%d/%m/%y %H:%M" };
+            let fmt = if num(args, 2, 0.0) as i32 == 1 { "%m/%d/%Y  %H:%M" } else { "%d/%m/%Y  %H:%M" };
             XVal::Str(t.map(|t| t.strftime(fmt).to_string()).unwrap_or_default())
         }
         // The load order into SUPNVSE.log in the game's folder [documented: DumpLoadOrder]
         // (NVForever's copy of it, appended to this session's lines): one line a plugin,
-        // its index in hex and its name [hypothesis: the page shows no line].
+        // its index in hex and its name (see docs/spec-notes/ext-sup5.md §3).
         "dumploadorder" => {
             let old = g.mod_files.read_root_text("SUPNVSE.log").unwrap_or_default();
             let mut out = old;
@@ -416,7 +436,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `folder file`: a screenshot of CaptureScreenshotAlt removed, the extension
         // given [documented: DeleteScreenshot]: -1 no such file, -2 a folder that leaves
-        // SUPScreenshots [documented], 1 removed [hypothesis]. Only NVForever's layer
+        // SUPScreenshots [documented], 1 removed (see docs/spec-notes/ext-sup5.md §4). Only NVForever's layer
         // holds them.
         "deletescreenshot" => {
             let (Some(folder), Some(file)) = (text(args, 0).and_then(|f| safe_path(&f)), text(args, 1)) else { return Some(Ok(XVal::Num(-2.0))) };

@@ -1,7 +1,7 @@
 {
  "format": "fnv.script.actions/1",
  "title": "Headless Sunshine Boogie (NellisSunshineBoogie): after Ant Misbehavin', Loyal's five broken solar arrays repaired by hand (stage 100)",
- "given": [],
+ "given": [{"kind": "ref", "ref": "NellisMainGateREF", "locked": false}, {"kind": "quest", "quest": "VFreeformNellis", "vars": {"iNellisFrontGateStart": 2}}],
  "actions": [
   {"op": "note", "text": "Path (repaired by hand, Repair 65 and Science 50, both given): the chain first walks Ant Misbehavin' (as ant-misbehavin.actions.json: the front gate, Pearl, Raquel, Loyal's sonic emitter, the generators back on), whose power the arrays' terminal needs; Loyal asks for the solar arrays to be repaired (NellisSunshineBoogie objectives 25 and 50); the five broken arrays on the roof are fixed by hand (each box's button 1; with Science 50 each adds 2 to iHandyman, 10 completes objective 75); the quest script sees all five fixed (objective 50, 100); Loyal hears it (stage 100). Stage 0 (Loyal dead) is the fail."},
   {"op": "note", "text": "Stand-in for the run through the Boomers' artillery to the front gate: the gate's trigger brings out the gate guard, whose greeting enables Raquel; he sends for her."},

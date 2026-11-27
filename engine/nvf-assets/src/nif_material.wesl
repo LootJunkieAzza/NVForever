@@ -8,8 +8,9 @@
 //   colour), as NIF emissive is;
 // - ambient light is diffuse only: the specular part Bevy adds for its ambient light is
 //   taken out again, since the game's ambient term is a flat colour and highlights come
-//   from lights (and, on authored materials with reflections on, from the view's reflection
-//   cube: NVF_PBR_REFLECT below; the game's own environment maps are not drawn yet);
+//   from lights (and environment maps, added after the lighting: NifSurface::env; and, on
+//   authored materials with reflections on, from the view's reflection cube: NVF_PBR_REFLECT
+//   below);
 // - a multiply-blended shape's colour is a factor on what lies behind it: summed in
 //   display values, held to 0..1, and neither fogged nor tonemapped;
 // - an additive shape adds what it would add to the display values of the opaque frame
@@ -57,6 +58,10 @@
 // pbr_input_from_standard_material; the rest of the fragment is as for any opaque or
 // blended lit shape.
 //
+// TERRAIN_LAYER (the landscape's own materials, main pass; nif_material.rs "Landscape
+// layers"): the alpha is the layer's painted opacity (vertex alpha x material alpha); the
+// diffuse texture's alpha is left out, as the original leaves it (#3789).
+//
 // PIPBOY_SCREEN (the Pip-Boy's screen with the menus on it, main pass; NifSurface::
 // pipboy_screen): the texel is the menus' picture as `pipboy_picture` makes it (rolled,
 // softened, washed, with noise; NifSurface::pipboy_a, pipboy_b), red stops at a ceiling and
@@ -83,6 +88,7 @@ import bevy_pbr::{
     render::view_transformations::{position_ndc_to_world, depth_ndc_to_view_z},
 };
 @if(!PREPASS_PIPELINE && DEPTH_PREPASS) import bevy_pbr::prepass::utils as prepass_utils;
+@if(!PREPASS_PIPELINE) import bevy_pbr::render::mesh_functions::get_world_from_local;
 @if(!PREPASS_PIPELINE) import nvf_assets::first_person_depth;
 @if(!PREPASS_PIPELINE && SHADE_LIGHT) import bevy_pbr::{
     render::pbr_types::PbrInput,
@@ -95,6 +101,9 @@ import bevy_pbr::{
 // while the view has the plumbing (the shader def then exists: bevy_pbr mesh.rs).
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
 @if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
+// The probe volume's bounce light (nvforever rtgi_volume.rs), only in the pipelines that read
+// it (nif_material.rs `reads_rtgi_volume`).
+@if(!PREPASS_PIPELINE && NVF_RTGI_VOLUME) import nvforever::rtgi_volume::nvf_rtgi_face;
 
 import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
 @if(NVF_PBR_VIEW_OCCLUSION && !PREPASS_PIPELINE) import nvf_assets::nif_surface_bindings::occlusion_texel;
@@ -104,7 +113,7 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
 @if(NVF_PBR_PARALLAX_MASK && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types as parallax_mask_types;
 @if(MESH_TERRAIN_BLEND) import nvf_assets::nif_surface_bindings::{mesh_terrain_lookup, mesh_terrain_view, mesh_terrain_shading, mesh_terrain_unlit_view, mesh_terrain_diagnostic, mesh_terrain_blend_normal, mesh_terrain_target_colour, mesh_terrain_target_normal, mesh_terrain_face_up, MeshTerrainInputs, LOOKUP_SUCCESS, LAND_ROUGHNESS, LAND_REFLECTANCE};
 @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
-@if(!NIF_SURFACE_BLEND) import nvf_assets::nif_surface_bindings::{env_cube_texel, env_mask_texel};
+@if(!NIF_SURFACE_BLEND) import nvf_assets::nif_surface_bindings::{env_cube_texel, env_mask_texel, env_mask_alpha};
 // NVF_PBR_VIEW=reflection (nvf-assets authored.rs `PbrView::Reflection`): the view's cube,
 // read here only by this opted-in fragment (NVF_PBR_REFLECT) in a view that has one.
 @if(NVF_PBR_REFLECT && ENVIRONMENT_MAP && !PREPASS_PIPELINE) import bevy_pbr::render::mesh_view_bindings::light_probes;
@@ -145,6 +154,25 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
     @if(!MULTIPLE_LIGHT_PROBES_IN_ARRAY) if light_probes.view_cubemap_index >= 0 { texel = textureSampleLevel(specular_environment_map, environment_map_sampler, dir, 0.0).rgb; }
     @if(MULTIPLE_LIGHT_PROBES_IN_ARRAY) if light_probes.view_cubemap_index >= 0 { texel = textureSampleLevel(specular_environment_maps[light_probes.view_cubemap_index], environment_map_sampler, dir, 0.0).rgb; }
     return texel * light_probes.intensity_for_view * view.exposure;
+}
+
+// The scene light that scales an environment map by default (env_map.rs `scene_light`,
+// its CPU mirror; NifSurface::env_how y = 2): the view's ambient colour plus every
+// directional light's (the sun or moon, or an interior's directional light), without
+// any N.L, as display values held to 0..1 per channel. In a world view (negative ambient
+// alpha, nvforever lights.rs DISPLAY_HELPERS) the uniforms hold display values x the
+// light unit (x pi for a directional light), which view.exposure and 1/pi undo, as the
+// display-value sum does. Point lights are left out. Other views: 1 [hypothesis, from the
+// captures of the original; nif.md section 6 "Environment maps on other shapes"].
+@if(!PREPASS_PIPELINE && !NIF_SURFACE_BLEND) fn env_scene_light() -> vec3<f32> {
+    if lights.ambient_color.a >= 0.0 {
+        return vec3(1.0);
+    }
+    var sum = lights.ambient_color.rgb * view.exposure;
+    for (var i = 0u; i < lights.n_directional_lights; i += 1u) {
+        sum += lights.directional_lights[i].color.rgb * (view.exposure / 3.14159265);
+    }
+    return clamp(sum, vec3(0.0), vec3(1.0));
 }
 
 // Main-pass geometry uses the render viewport, which can be smaller than the
@@ -307,9 +335,22 @@ fn tony_inverse(y: f32) -> f32 {
 // (window light rays, white × 1 under a warm emittance colour) and the dark parts of a
 // glow map keep the tonemapper; the lantern glass (× 10) and neon (× 25) burn.
 fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
-    let d = min(lit + e, vec3(HOT_MAX));
-    let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
-    return mix(lit + e, hot, smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b))));
+    let hot_share = smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b)));
+    // No hot share (the brightest emitted channel at 0.8 or less, nearly every lit pixel):
+    // the mix below gives `lit + e`, so the three walks of the inverse table are skipped
+    // (#2868). No derivatives here, so the branch may differ between fragments.
+    var out = lit + e;
+    if hot_share > 0.0 {
+        let d = min(lit + e, vec3(HOT_MAX));
+        let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
+        out = mix(lit + e, hot, hot_share);
+    }
+    // HDR output (nvforever hdr.rs): the SDR picture up to white, and above white the light
+    // the shape really emits (its emissive multiplier: lantern glass x 10, neon x 25), so
+    // the HDR pass shows a neon tube brighter than a lantern. Clipped at 1 per channel, as
+    // the SDR picture is, both give the same.
+    @if(NVF_HDR) out = min(out, vec3(1.0)) + max(lit + e - vec3(1.0), vec3(0.0));
+    return out;
 }
 
 // The linear light an additive shape (blend factors SRC_ALPHA or ONE, and ONE) of linear
@@ -365,20 +406,24 @@ fn blend_colour_scale(a: f32) -> f32 {
 // fragment, falling from 1 at `distance` in front of the opaque surface behind it (the
 // depth prepass) to 0 on it. Not faded where the shape lies along that surface (the two
 // facings, from screen derivatives, within about 25 degrees), nor in front of the sky,
-// nor without a prepass. Called in uniform control flow (screen derivatives).
+// nor without a prepass. Called in uniform control flow (screen derivatives). Compiled only
+// into the main pass of shapes with a soft distance (NVF_SOFT_FADE); 1 for every other shape,
+// as the select below gives for a distance of 0, without the prepass read (#2868).
 @if(!PREPASS_PIPELINE) fn soft_fade(frag_coord: vec4<f32>, world_pos: vec3<f32>, distance: f32) -> f32 {
     // A first-person shape's depth as it was before it was squeezed, so the fade is
     // measured against where it is (nif_material.rs "First-person depth").
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let depth = first_person_depth::unsqueeze(prepass_utils::prepass_depth(frag_coord, 0u));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let scene = position_ndc_to_world(frag_coord_to_ndc(vec4(frag_coord.xy, max(depth, 1e-7), 1.0)));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let scene_n = cross(dpdx(scene), dpdy(scene));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let own_n = cross(dpdx(world_pos), dpdy(world_pos));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let lengths = length(scene_n) * length(own_n);
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let along = select(0.0, abs(dot(scene_n, own_n)) / lengths, lengths > 1e-12);
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let gap = depth_ndc_to_view_z(frag_coord.z) - depth_ndc_to_view_z(max(depth, 1e-7));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) let fade = mix(saturate(gap / max(distance, 1e-3)), 1.0, smoothstep(0.85, 0.95, along));
-    @if(!PREPASS_PIPELINE && DEPTH_PREPASS) return select(fade, 1.0, distance <= 0.0 || depth <= 0.0);
-    @if(!PREPASS_PIPELINE && !DEPTH_PREPASS) return 1.0;
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let depth = first_person_depth::unsqueeze(prepass_utils::prepass_depth(frag_coord, 0u));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let scene = position_ndc_to_world(frag_coord_to_ndc(vec4(frag_coord.xy, max(depth, 1e-7), 1.0)));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let scene_n = cross(dpdx(scene), dpdy(scene));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let own_n = cross(dpdx(world_pos), dpdy(world_pos));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let lengths = length(scene_n) * length(own_n);
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let along = select(0.0, abs(dot(scene_n, own_n)) / lengths, lengths > 1e-12);
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let gap = depth_ndc_to_view_z(frag_coord.z) - depth_ndc_to_view_z(max(depth, 1e-7));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) let fade = mix(saturate(gap / max(distance, 1e-3)), 1.0, smoothstep(0.85, 0.95, along));
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && DEPTH_PREPASS) return select(fade, 1.0, distance <= 0.0 || depth <= 0.0);
+    @if(!PREPASS_PIPELINE && NVF_SOFT_FADE && !DEPTH_PREPASS) return 1.0;
+    // A shape without a soft distance (NifSurfaceKey::soft, #2868): the fade above is 1.
+    @if(!PREPASS_PIPELINE && !NVF_SOFT_FADE) return 1.0;
 }
 
 // How far past the plane through the eye, square to the sun, a past-body shadow lookup
@@ -459,6 +504,18 @@ const BODY_CLEARANCE: f32 = 24.0;
     return cascade;
 }
 
+// The sRGB transfer both ways, held at 0 below, as the display-value sum uses it
+// (nvforever lights/display_shader.rs `nvf_linear_to_display`, `nvf_display_to_linear`).
+@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn shade_display(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
+}
+
+@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn shade_linear(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
+}
+
 @if(!PREPASS_PIPELINE && SHADE_LIGHT) fn with_shade_light(in: PbrInput, shadowed: vec4<f32>) -> vec4<f32> {
     if (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) == 0u {
         return shadowed;
@@ -518,11 +575,12 @@ const BODY_CLEARANCE: f32 = 24.0;
     let k = (v_lit + share - sun_shadow_value(sun, in, wanted, view_z)) / missing;
     if lights.ambient_color.a < 0.0 {
         // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
-        // texture × sum^2.2, so its display value (^(1/2.2)) is linear in the shadow
-        // values; the same algebra there (the specular part is taken along).
-        let lit_d = pow(max(lit.rgb, vec3(0.0)), vec3(1.0 / 2.2));
-        let shadowed_d = pow(max(shadowed.rgb, vec3(0.0)), vec3(1.0 / 2.2));
-        return vec4(pow(max(lit_d - (lit_d - shadowed_d) * k, vec3(0.0)), vec3(2.2)), shadowed.a);
+        // the linear colour of the texture's display value × the sum (sRGB curve), so its
+        // display value is linear in the shadow values; the same algebra there (the
+        // specular part is taken along).
+        let lit_d = shade_display(lit.rgb);
+        let shadowed_d = shade_display(shadowed.rgb);
+        return vec4(shade_linear(lit_d - (lit_d - shadowed_d) * k), shadowed.a);
     }
     return lit - (lit - shadowed) * k;
 }
@@ -566,6 +624,9 @@ fn nif_fragment(
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_wdy = dpdy(in.world_position.xyz);
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dx = vec2(terrain_wdx.x, -terrain_wdx.z);
     @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dy = vec2(terrain_wdy.x, -terrain_wdy.z);
+    // The probe volume's reads are moved off the surface along its geometric normal, taken
+    // here for the same reason.
+    @if(NVF_RTGI_VOLUME && !PREPASS_PIPELINE) nvf_rtgi_face(in.world_position.xyz);
     // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
     @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
@@ -596,6 +657,9 @@ fn nif_fragment(
     }
     @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(vin, is_front);
     @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_standard(vin, is_front, terrain_fp);
+    // A landscape layer's alpha without its texture's (terrain_pbr_standard's is already so).
+    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING) pbr_input.material.base_color.a = standard_material(in.instance_index).base_color.a;
+    @if(TERRAIN_LAYER && !TERRAIN_ANTI_TILING && VERTEX_COLORS) pbr_input.material.base_color.a *= vin.color.a;
     // An authored set's roughness is its scale (0 to 2, fnv-pbr `ROUGHNESS_SCALE_RANGE`) times
     // the ORM's green, so it can pass 1, which Bevy's sampling does not clamp: F_AB's
     // polynomial then leaves its range and the highlight terms blow up to white patches
@@ -840,26 +904,79 @@ fn nif_fragment(
         // materials remove it all.
         @if(NVF_PBR_METALLIC) let removed = select(1.0, 1.0 - saturate(m.metallic), surface.emissive_rule.w > 0.5);
         @if(NVF_PBR_METALLIC) out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec * removed, vec3(0.0)), out.color.a);
+        // The lit colour without the hot light, for the environment map's received-light
+        // debug switch below.
+        @if(!NIF_SURFACE_BLEND) let lit_rgb = out.color.rgb;
         @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY) out.color = vec4(hot_light(out.color.rgb, hot_e), out.color.a);
-        // Window environment map (nif_material.rs NifSurface::env; docs/spec-notes/nif.md
-        // §6 "Window glass and environment maps"): the cube read in the view direction
-        // reflected about the normal, × the scale × the mask, added to the lit colour. The
-        // game is Z-up and the cube's faces are laid out Y-up: the game-space direction
-        // (x, y, z) is looked up as (x, z, y), which from Bevy's Y-up world space
-        // (x, z, -y of the game) is (x, y, -z) [hypothesis]. A premultiplied shape (a
-        // blended one that reflects) has its colour multiplied by its alpha first, so the
-        // reflection lies over the blend whatever the alpha [hypothesis]. Not in the blend
+        // Environment map (nif_material.rs NifSurface::env, env_how; docs/spec-notes/nif.md
+        // §6 "Window glass and environment maps", "Environment maps on other shapes"): the
+        // cube read in the view direction reflected about the normal, × the scale × the
+        // mask × the distance fade, added to the lit colour. The game is Z-up and the
+        // cube's faces are laid out Y-up: the game-space direction (x, y, z) is looked up
+        // as (x, z, y), which from Bevy's Y-up world space (x, z, -y of the game) is
+        // (x, y, -z) [hypothesis]; env_how.x picks another orientation for a debug switch
+        // (env_map.rs Axes: 1 flip x, 2 flip y, 3 flip z, 4 swap y and z). A premultiplied
+        // shape (a blended window shape that reflects) has its colour multiplied by its
+        // alpha first, so the reflection lies over the blend whatever the alpha; a blended
+        // shape is weighted by its alpha, reflection included [hypothesis]. Not in the blend
         // type (nif_surface_blend.rs): it has no environment bindings, and a shape that
         // reflects is never given it (nvforever mesh_terrain_blend.rs `material_reasons`).
-        @if(!NIF_SURFACE_BLEND) if surface.env.x > 0.0 {
+        // Distance fade, under the debug switch NVF_PLAY_DEBUG_ENV_DISTANCE_FADE=1 only (off
+        // by default: env z = w = 0; env_map.rs ENV_MAP_LOD1, ENV_MAP_LOD2: fEnvMapLOD1/2), linear
+        // between the two by the distance from the camera to the shape node's origin (the
+        // mesh instance's translation, usually the reference's; a model whose parts sit
+        // under nodes of their own fades part by part) [hypothesis], in game units (the
+        // world's units); worked out first, so a faded-out shape reads neither its cube
+        // nor its mask.
+        @if(!NIF_SURFACE_BLEND) var env_fade = 1.0;
+        @if(!NIF_SURFACE_BLEND) if surface.env.x > 0.0 && surface.env.w > surface.env.z {
+            let d = distance(view.world_position, get_world_from_local(in.instance_index)[3].xyz);
+            env_fade = 1.0 - saturate((d - surface.env.z) / (surface.env.w - surface.env.z));
+        }
+        // A premultiplied environment-mapped shape (a blended window shape, or another under
+        // NVF_PLAY_DEBUG_ENV_BLEND=premultiplied; env_how.w marks every env shape) has its
+        // colour multiplied by its alpha whether or not it still reflects: Bevy leaves a
+        // Premultiplied material's colour as it is and blends it ONE / 1 - alpha, so a
+        // faded-out or zero-strength pane would otherwise draw at its full texture colour.
+        @if(!NIF_SURFACE_BLEND) if surface.env_how.w > 0.5 {
+            let premultiplied = (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED;
+            out.color = vec4(select(out.color.rgb, out.color.rgb * out.color.a, premultiplied), out.color.a);
+        }
+        @if(!NIF_SURFACE_BLEND) if surface.env.x > 0.0 && env_fade > 0.0 {
             let r = reflect(-pbr_input.V, pbr_input.N);
+            var dir = vec3(r.x, r.y, -r.z);
+            let axes = surface.env_how.x;
+            if axes > 3.5 {
+                dir = vec3(dir.x, dir.z, dir.y);
+            } else if axes > 2.5 {
+                dir = vec3(dir.x, dir.y, -dir.z);
+            } else if axes > 1.5 {
+                dir = vec3(dir.x, -dir.y, dir.z);
+            } else if axes > 0.5 {
+                dir = vec3(-dir.x, dir.y, dir.z);
+            }
             var mask = 1.0;
-            @if(VERTEX_UVS_A) if surface.env.y > 0.5 {
+            @if(VERTEX_UVS_A) if surface.env.y > 0.5 && surface.env.y < 1.5 {
                 mask = env_mask_texel(in.instance_index, (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy);
             }
-            let reflection = env_cube_texel(in.instance_index, vec3(r.x, r.y, -r.z)) * surface.env.x * mask;
-            let premultiplied = (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED;
-            out.color = vec4(select(out.color.rgb, out.color.rgb * out.color.a, premultiplied) + reflection, out.color.a);
+            @if(VERTEX_UVS_A) if surface.env.y > 1.5 {
+                mask = env_mask_alpha(in.instance_index, (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy);
+            }
+            var reflection = env_cube_texel(in.instance_index, dir) * surface.env.x * mask * env_fade;
+            // × the scene light (env_how.y 2, the default for shapes without the window
+            // flag; env_scene_light above).
+            if surface.env_how.y > 1.5 {
+                reflection *= env_scene_light();
+            }
+            // Debug switch NVF_PLAY_DEBUG_ENV_LIGHT=all|fade-flag (env_map.rs; env_how.y 1):
+            // × the light the fragment receives, its lit colour's luminance over its base
+            // colour's, at most 1. A rough stand-in for comparing frames, not a model of
+            // the original.
+            if surface.env_how.y > 0.5 && surface.env_how.y < 1.5 {
+                let luma_weights = vec3(0.2126, 0.7152, 0.0722);
+                reflection *= saturate(dot(lit_rgb, luma_weights) / max(dot(pbr_input.material.base_color.rgb, luma_weights), 0.02));
+            }
+            out.color = vec4(out.color.rgb + reflection, out.color.a);
         }
     } else {
         out.color = pbr_input.material.base_color;

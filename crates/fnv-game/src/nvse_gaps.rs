@@ -25,6 +25,18 @@ pub struct WeaponSoundChange {
     pub slots: [Option<Option<FormId>>; WEAPON_SOUND_SLOTS],
 }
 
+/// Biped equipment slot index for the equipped weapon (`ReloadEquippedModels 5`)
+/// [documented: ReloadEquippedModels, biped slot table].
+pub const EQUIP_SLOT_WEAPON: u8 = 5;
+/// Bit mask for the weapon equipment slot (`1 << 5`).
+pub const EQUIP_SLOT_WEAPON_BIT: u32 = 1 << EQUIP_SLOT_WEAPON;
+/// Bit mask covering all 20 biped equipment slots (`0..=19`) when `ReloadEquippedModels`
+/// is called without a slot argument [documented: ReloadEquippedModels].
+pub const ALL_EQUIP_SLOTS: u32 = (1 << 20) - 1;
+/// Bound on queued non-player `ReloadEquippedModels` requests when no renderer drains them
+/// [design].
+const EQUIP_RELOAD_QUEUE_LIMIT: usize = 1024;
+
 /// A placed radio station, as the engine reads it.
 #[derive(Debug, Clone)]
 pub struct RadioSite {
@@ -51,8 +63,6 @@ pub struct GapsState {
     pub gravity: HashMap<FormId, f64>,
     /// ToggleBipedSlotVisibility's hidden slots.
     pub hidden_slots: HashSet<u32>,
-    /// SetDestructionDataHealth's values.
-    pub destruction_health: HashMap<FormId, i32>,
     /// References whose activation SetInteractionDisabled turned off.
     pub interaction_disabled: HashSet<FormId>,
     /// SetNthEffectBase's bases: (item, effect index).
@@ -60,6 +70,9 @@ pub struct GapsState {
     /// Actors whose special idle scripts stopped (StopIdle, ForceStopIdle), for the
     /// engine to take.
     pub idle_stops: Vec<FormId>,
+    /// POV-scoped `ForceStopIdle` requests (`1` third-person, `2` first-person), for the
+    /// engine to take without stopping the other player rig [documented: ForceStopIdle].
+    pub idle_stop_pov: Vec<(FormId, crate::idles::IdlePov)>,
     /// The placed radio stations, from the engine; `None` until the engine sets them.
     pub radio_sites: Option<Vec<RadioSite>>,
     /// The armed mines of the loaded cells that someone other than the player put down,
@@ -109,10 +122,73 @@ pub struct GapsState {
     pub always_run_request: Option<bool>,
     /// RunScriptSnippet's snippets waiting: (frames left, source, reference).
     pub snippets: Vec<(u32, String, FormId)>,
+    /// ToggleItemUnique's unique weapon/armor base forms (excluded as repair-part sources).
+    pub unique_items: HashSet<FormId>,
     /// Session weapon-sound overrides (`SetWeaponSound`, `SetPickupSound`/`SetPutdownSound`
     /// on `WEAP`, plus `TempCloneForm` snapshots): `(weapon, slot 0..14) -> Some(SOUN)` or
     /// `None` when cleared.
     pub weapon_sounds: HashMap<(FormId, u8), Option<FormId>>,
+    /// Transient one-shot `ReloadEquippedModels` slot masks by actor (not saved) [design].
+    pub equipped_model_reloads: BTreeMap<FormId, u32>,
+}
+
+impl GapsState {
+    pub(crate) fn queue_equipped_model_reload(&mut self, actor: FormId, mask: u32) {
+        if mask == 0 {
+            return;
+        }
+        let map = &mut self.equipped_model_reloads;
+        if actor != FormId::PLAYER_REF && !map.contains_key(&actor) {
+            let non_player = map.len().saturating_sub(usize::from(map.contains_key(&FormId::PLAYER_REF)));
+            if non_player >= EQUIP_RELOAD_QUEUE_LIMIT {
+                if let Some(evict) = map.keys().copied().find(|&id| id != FormId::PLAYER_REF) {
+                    map.remove(&evict);
+                }
+            }
+        }
+        *map.entry(actor).or_insert(0) |= mask;
+    }
+
+    pub(crate) fn take_player_equipped_model_reload(&mut self) -> u32 {
+        self.equipped_model_reloads.remove(&FormId::PLAYER_REF).unwrap_or(0)
+    }
+
+    pub(crate) fn take_npc_equipped_model_reloads(&mut self) -> BTreeMap<FormId, u32> {
+        let player = self.equipped_model_reloads.remove(&FormId::PLAYER_REF);
+        let npcs = std::mem::take(&mut self.equipped_model_reloads);
+        if let Some(mask) = player {
+            self.equipped_model_reloads.insert(FormId::PLAYER_REF, mask);
+        }
+        npcs
+    }
+}
+
+impl Game<'_> {
+    /// Queue a one-shot `ReloadEquippedModels` slot bitmask for `actor` (OR-coalescing
+    /// repeated calls in the same frame; `PLAYER_REF` is never evicted) [design].
+    pub(crate) fn queue_equipped_model_reload(&mut self, actor: FormId, mask: u32) {
+        self.gaps.queue_equipped_model_reload(actor, mask);
+    }
+
+    /// Pending `ReloadEquippedModels` slot bitmask for `actor` (`0` when none).
+    pub fn equipped_model_reload_mask(&self, actor: FormId) -> u32 {
+        self.gaps.equipped_model_reloads.get(&actor).copied().unwrap_or(0)
+    }
+
+    /// Consume the pending `ReloadEquippedModels` slot bitmask for the player (`0` if none).
+    pub fn take_player_equipped_model_reload(&mut self) -> u32 {
+        self.gaps.take_player_equipped_model_reload()
+    }
+
+    /// Consume all pending non-player `ReloadEquippedModels` requests for NPC/creature systems.
+    pub fn take_npc_equipped_model_reloads(&mut self) -> BTreeMap<FormId, u32> {
+        self.gaps.take_npc_equipped_model_reloads()
+    }
+
+    /// Consume all pending `ReloadEquippedModels` requests (player and NPCs).
+    pub fn take_equipped_model_reloads(&mut self) -> BTreeMap<FormId, u32> {
+        std::mem::take(&mut self.gaps.equipped_model_reloads)
+    }
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
@@ -146,10 +222,6 @@ fn parse_json_form(v: Option<&Json>) -> Option<FormId> {
     let s = v?.as_str()?.strip_prefix("0x")?;
     let id = u32::from_str_radix(s, 16).ok()?;
     (id != 0).then_some(FormId(id))
-}
-
-fn json_form(v: Option<&Json>) -> XVal {
-    XVal::Ref(parse_json_form(v).map_or(0, |f| f.0))
 }
 
 fn parse_weapon_sound_slot(args: &[XVal], k: usize) -> Option<u8> {
@@ -194,7 +266,13 @@ impl Game<'_> {
     /// before, rank after) on a gain, (perk) on a loss [observed: plugins3, Toughness
     /// gave (Toughness, 0, 1) and then Toughness].
     pub(crate) fn perk_event(&mut self, perk: FormId, gained: bool, before: u8, after: u8) {
-        let hs: Vec<XVal> = self.gaps.perk_handlers.iter().filter(|(add, _, p)| *add == gained && p.is_none_or(|p| p == perk)).map(|(_, f, _)| f.clone()).collect();
+        let hs: Vec<XVal> = self
+            .gaps
+            .perk_handlers
+            .iter()
+            .filter(|(add, _, p)| *add == gained && p.is_none_or(|p| p == perk || crate::functions::list_members(self, p).contains(&perk)))
+            .map(|(_, f, _)| f.clone())
+            .collect();
         for f in hs {
             let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
@@ -204,15 +282,19 @@ impl Game<'_> {
     }
 
     /// JohnnyGuitar's actor value change handlers on a change of one of the player's
-    /// values: (code, old value, new value), rounded to whole numbers unless the handler
-    /// was set with flag bit 0 [documented: SetOnActorValueChangeEventHandler]
-    /// (`functions::actor` tells them).
+    /// values: (code, old value, new value), truncated to whole numbers unless the
+    /// handler was set with flag bit 0 [documented: SetOnActorValueChangeEventHandler;
+    /// observed 2026-11-24: `200.0 -> 199.4` fires `200.0 -> 199.0` and `199.4 -> 198.8`
+    /// fires `199.0 -> 198.0`] (`functions::actor` tells them).
     pub(crate) fn av_event(&mut self, _actor: FormId, code: u16, old: f64, new: f64) {
         let hs: Vec<(XVal, bool)> = self.gaps.av_handlers.iter().filter(|(_, c, _)| c.is_none_or(|c| c == code)).map(|(f, _, exact)| (f.clone(), *exact)).collect();
         let was = std::mem::replace(&mut self.gaps.av_telling, true);
         for (f, exact) in hs {
-            let v = |x: f64| XVal::Num(if exact { x } else { x.round() });
-            let args = vec![XVal::Num(f64::from(code)), v(old), v(new)];
+            let (o, n) = if exact { (old, new) } else { (old.trunc(), new.trunc()) };
+            if !exact && o == n {
+                continue;
+            }
+            let args = vec![XVal::Num(f64::from(code)), XVal::Num(o), XVal::Num(n)];
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
                 self.handler_failed("JohnnyGuitar actor value handler".into(), error);
             }
@@ -223,7 +305,13 @@ impl Game<'_> {
     /// JohnnyGuitar's quest handlers on a quest starting or stopping: (quest)
     /// [documented: SetJohnnyOnStartQuestEventHandler; hypothesis: the arguments].
     pub(crate) fn quest_event(&mut self, quest: FormId, started: bool) {
-        let hs: Vec<XVal> = self.gaps.quest_handlers.iter().filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest)).map(|(_, f, _)| f.clone()).collect();
+        let hs: Vec<XVal> = self
+            .gaps
+            .quest_handlers
+            .iter()
+            .filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest || crate::functions::list_members(self, q).contains(&quest)))
+            .map(|(_, f, _)| f.clone())
+            .collect();
         for f in hs {
             if let Err(error) = self.run_function(&f, None, vec![XVal::Ref(quest.0)], None, RunCtx::default()) {
                 self.handler_failed("JohnnyGuitar quest handler".into(), error);
@@ -568,7 +656,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Ref(match slot {
                 Some(EffectSlot::Added { back, at }) => g.added_effect(f, back, at).map_or(0, |e| e.effect.0),
                 Some(EffectSlot::Own(r)) => {
-                    let e = g.data.effect_items.get(&f).and_then(|l| l.get(r));
+                    let e = g.data.effect_items.get(&g.unclone(f)).and_then(|l| l.get(r));
                     e.map_or(0, |e| g.gaps.effect_bases.get(&(f, r)).copied().unwrap_or(e.effect).0)
                 }
                 None => 0,
@@ -579,6 +667,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "setntheffectbase" => {
             use crate::nvse_jip14::EffectSlot;
             let (Some(f), Some(b)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
+            if g.data.sig(g.unclone(b)) != Some(*b"MGEF") {
+                return Some(Ok(XVal::Ref(0)));
+            }
             match usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| g.effect_slot(f, i)) {
                 Some(EffectSlot::Own(r)) => {
                     g.gaps.effect_bases.insert((f, r), b);
@@ -596,15 +687,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // An actor effect's SPIT, an object effect's or ingestible's ENIT; SetEffectFlag's
         // change first (`crate::nvse_jip8`).
         "geteffectflag" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            let sub = if g.data.sig(f) == Some(*b"SPEL") { "SPIT" } else { "ENIT" };
-            let flags = crate::nvse::record_value(g, f, sub, "flags").and_then(|v| v.num().ok()).unwrap_or(0.0);
-            bit(flags, num(args, 1, -1.0))
+            let flags = form(args, 0).map_or(0, |f| g.effect_flags(f));
+            bit(f64::from(flags), num(args, 1, -1.0))
         }
         // MGEF DATA [observed: gaps3, RestoreHealth archetype 0, actor value 16, flags
         // 112 so bits 0–3 read 0].
-        "getbaseeffectarchetype" => XVal::Num(form(args, 0).and_then(|f| g.data.magic_effects.get(&f)).map_or(0, |m| m.archetype) as f64),
-        "getbaseeffectav" => XVal::Num(form(args, 0).and_then(|f| g.data.magic_effects.get(&f)).and_then(|m| m.actor_value).map_or(-1.0, f64::from)),
+        "getbaseeffectarchetype" => XVal::Num(form(args, 0).and_then(|f| g.magic_effect_def(f)).map_or(0, |m| m.archetype) as f64),
+        "getbaseeffectav" => XVal::Num(form(args, 0).and_then(|f| g.magic_effect_def(f)).and_then(|m| m.actor_value).map_or(-1.0, f64::from)),
         "getbaseeffectflag" => {
             // SetBaseEffectFlag's change first (`crate::nvse_jip8`).
             let flags = form(args, 0).map_or(0, |f| g.base_effect_flags(f));
@@ -623,17 +712,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // AMEF DATA: 0 the type, 1 the operation, 2 the value [observed: gaps2, the DT
         // reduction (DT Mod, Subtract, 2) reads 2 2 2, trait 3 reads 0].
         "getammoeffecttraitnumeric" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            let key = match num(args, 1, -1.0) as i64 {
-                0 => "type",
-                1 => "operation",
-                2 => "value",
-                _ => return Some(Ok(zero)),
+            let Some(eff) = form(args, 0).and_then(|f| g.ammo_effect_traits(f)) else {
+                return Some(Ok(zero));
             };
-            // SetAmmoEffectTraitNumericAlt's change first (`crate::nvse_one111`).
-            match crate::nvse::record_value(g, f, "DATA", key) {
-                Some(XVal::Num(x)) => XVal::Num(x),
-                _ => XVal::Num(json_num(g.data.record_field(f, "DATA", key))),
+            match num(args, 1, -1.0) as i64 {
+                0 => XVal::Num(f64::from(eff.effect_type)),
+                1 => XVal::Num(f64::from(eff.operation)),
+                2 => XVal::Num(crate::nvse::record_float(f64::from(eff.value))),
+                _ => zero,
             }
         }
         // ---- globals ----
@@ -655,7 +741,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "setjohnnyonaddperkeventhandler" | "setjohnnyonremoveperkeventhandler" => {
             let add = name == "setjohnnyonaddperkeventhandler";
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let perk = form(args, 3);
+            let perk = form(args, 3).filter(|&id| id != FormId(0x0000_003B));
             g.gaps.perk_handlers.retain(|(a, h, p)| !(*a == add && *h == f && *p == perk));
             if num(args, 0, 1.0) != 0.0 {
                 g.gaps.perk_handlers.push((add, f, perk));
@@ -780,8 +866,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             },
             None => XVal::Ref(0),
         },
-        // DEST stages [observed: gaps3, the 10mm pistol 0].
-        "getdestructiondatanumstages" => XVal::Num(form(args, 0).and_then(|f| g.destruction(f)).map_or(0, |d| d.stages.len()) as f64),
+        // DEST stages [documented: GetDestructionDataNumStages; observed: gaps3, the 10mm
+        // pistol 0]. A reference reads its base's, as `nvse_jip6`.
+        "getdestructiondatanumstages" => {
+            XVal::Num(form(args, 0).map(|f| base(g, f)).and_then(|b| g.destruction(b)).map_or(0, |d| d.stages.len()) as f64)
+        }
         // ---- weapons ----
         // ShowOff's index into DNAM flags1 [observed: gaps4, the 10mm pistol reads 0 on
         // 0–5 and SetWeaponFlag 5 1 reads back 1; documented: WeaponHasFlag /
@@ -870,21 +959,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // EITM; SetObjectEffect takes only an enchantment of the item's kind, a weapon's
-        // on a weapon [observed: gaps6, an apparel enchantment on the pistol is refused;
-        // hypothesis: the kinds].
-        "getobjecteffect" => {
-            let f = form(args, 0).or_else(|| subject.map(|r| base(g, r))).unwrap_or(FormId(0));
-            match g.field_overrides.get(&(f, "EITM/".to_string())) {
-                Some(v) => v.clone(),
-                None => json_form(g.data.record_field(f, "EITM", "")),
-            }
-        }
+        // EITM; SetObjectEffect takes only an enchantment of the item's kind: Apparel (3) on
+        // ARMO, Weapon (2) on WEAP or EXPL [documented: GECK wiki SetObjectEffect; observed:
+        // gaps6, an apparel enchantment on the pistol is refused].
         "setobjecteffect" => {
-            let (Some(f), e) = (form(args, 0), form(args, 1)) else { return Some(Ok(zero)) };
-            let want = if g.data.sig(f) == Some(*b"WEAP") { 2 } else { 3 };
-            if e.is_none_or(|e| g.data.enchantment_types.get(&e) == Some(&want)) {
-                g.field_overrides.insert((f, "EITM/".into()), XVal::Ref(e.map_or(0, |e| e.0)));
+            if let Some(f) = form(args, 0) {
+                let effect = match args.get(1) {
+                    None | Some(XVal::Ref(0)) => Some(None),
+                    Some(XVal::Num(x)) if *x == 0.0 => Some(None),
+                    Some(_) => form(args, 1).map(Some),
+                };
+                if let Some(effect) = effect {
+                    g.set_object_effect(f, effect);
+                }
             }
             zero
         }
@@ -909,13 +996,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.field_overrides.insert((f, "DATA/flags".into()), XVal::Num(new as f64));
             zero
         }
-        "getprojectileexplosion" => match form(args, 0).and_then(|f| crate::nvse::record_value(g, f, "DATA", "explosion")) {
-            Some(XVal::Ref(r)) => XVal::Ref(r),
-            _ => XVal::Ref(0),
-        },
+        "getprojectileexplosion" => XVal::Ref(form(args, 0).and_then(|f| g.projectile_traits(f)).and_then(|t| t.explosion).map_or(0, |e| e.0)),
         "setprojectileexplosion" => {
             if let (Some(f), Some(e)) = (form(args, 0), form(args, 1)) {
-                g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(e.0));
+                if g.data.sig(g.unclone(f)) == Some(*b"PROJ") && g.data.sig(g.unclone(e)) == Some(*b"EXPL") {
+                    g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(e.0));
+                }
             }
             zero
         }
@@ -925,8 +1011,29 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let a = subject.unwrap_or(FormId(0));
             XVal::Num(if a == FormId::PLAYER_REF || g.package_actors().contains(&a) { 0.0 } else { 3.0 })
         }
-        // Returns 0 [observed: gaps6]; NVForever keeps every reference it changes.
-        "setpersistent" => zero,
+        // `persistent:0/1`: sets or clears the persistent record flag (0x400) on the
+        // calling reference (including `FormId::PLAYER_REF`) for the session
+        // [documented: GECK wiki SetPersistent; observed: gaps6 returns 0; Fallout: New
+        // Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse`
+        // (`0x00103DF9`), 10 official base masters, `w4d_06_player_setpersistent_0`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+        // `PROBE|w4d_06_player_setpersistent_0|p0=1,after0=0,after1=1`; no DLL or source
+        // consulted; hypothesis: session-only lifetime across save/load].
+        "setpersistent" => {
+            if let Some(r) = subject {
+                let on = num(args, 0, 0.0) != 0.0;
+                let cur = crate::nvse_other::record_flags_of(g, r)
+                    | if g.persistent(r) { fnv_sim::refs::FLAG_PERSISTENT } else { 0 };
+                let next = if on {
+                    cur | fnv_sim::refs::FLAG_PERSISTENT
+                } else {
+                    cur & !fnv_sim::refs::FLAG_PERSISTENT
+                };
+                g.other.flags.insert(r, next);
+                g.other.persistent_overrides.insert(r, on);
+            }
+            zero
+        }
         // `limb`: the limb's condition to 0 [observed: gaps6, 2 (the left arm) leaves Left
         // Attack Condition 0]; 0 head, 1 torso, 3 right arm, 4–5 legs [hypothesis: the
         // order of the condition values].
@@ -1026,14 +1133,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // enter combat (though others may still attack them, and UseWeapon / Use Weapon
         // packages still work); reset on every save load [documented: GECK wiki
         // SetCombatDisabled]. Returns 0 either way [observed: gaps2]; GetCombatDisabled
-        // reads it [observed: gaps3].
+        // reads it [observed: gaps3]. Enabling SetCombatDisabled 1 on an actor already
+        // in combat leaves IsInCombat == 1 in the same frame and ends active combat on
+        // subsequent AI ticks (`Game::settle_awareness` in `awareness.rs`) [observed:
+        // Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+        // `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+        // clean-room staging copy (read-only `PrintToConsole` probe; zero writes to game
+        // install or Saves), `core_20_set_combat_disabled_stops_combat`
+        // (`wave4a_extenders.json`, #3679): `1,1,1` and
+        // `w4h_05_set_combat_disabled_multitick` (`wave4h_reconcile.json`, PR #3803 /
+        // #3802): `PROBE|w4h_05_set_combat_disabled_multitick|pre=1|t0(cd=1,inCmb=1)|t2(cd=1,inCmb=0)|t5(cd=1,inCmb=0)`;
+        // zero DLL, PDB, or third-party source consulted].
         "setcombatdisabled" => {
             if let Some(r) = subject {
                 if num(args, 0, 0.0) != 0.0 {
                     g.gaps.combat_disabled.insert(r);
-                    if r != FormId::PLAYER_REF {
-                        g.stop_combat(r);
-                    }
                 } else {
                     g.gaps.combat_disabled.remove(&r);
                 }
@@ -1073,11 +1187,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // #2040: 16 in the start cell 0xDEB16, where the loaded actors are 20 with 4
         // disabled Golden Geckos; hypothesis: the same at level 3].
         "getactorsbyprocessinglevel" => {
-            let high = g.package_actors();
+            let level = num(args, 0, -1.0) as i64;
             let on = |r: &FormId| g.world.is_enabled(*r).unwrap_or(false);
-            let actors: Vec<XVal> = match num(args, 0, -1.0) as i64 {
-                0 => high.iter().filter(|r| on(r)).map(|r| XVal::Ref(r.0)).collect(),
-                3 => g.world.placed.refs.iter().filter(|(r, p)| matches!(&p.sig, b"ACHR" | b"ACRE") && !high.contains(r) && on(r)).map(|(r, _)| XVal::Ref(r.0)).collect(),
+            let actors: Vec<XVal> = match level {
+                0 => loaded_processing_actors(g).into_iter().filter(|r| on(r)).map(|r| XVal::Ref(r.0)).collect(),
+                3 => {
+                    let high = loaded_processing_actors(g);
+                    g.world.placed.refs.iter().filter(|(r, p)| matches!(&p.sig, b"ACHR" | b"ACRE") && !high.contains(r) && on(r)).map(|(r, _)| XVal::Ref(r.0)).collect()
+                }
                 _ => Vec::new(),
             };
             if actors.is_empty() { zero } else { list(g, actors) }
@@ -1089,7 +1206,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let Some(b) = form(args, 0) else { return Some(Ok(zero)) };
             let loaded: Vec<FormId> = g.loaded_cells.iter().copied().collect();
             let mut refs: Vec<FormId> = loaded.iter().flat_map(|&c| g.refs_in_cell(c, false)).filter(|&r| base(g, r) == b).collect();
-            refs.extend(g.world.placed.refs.iter().filter(|(_, p)| p.base == b && (p.in_persistent_group || p.flags & fnv_sim::refs::FLAG_PERSISTENT != 0)).map(|(&r, _)| r));
+            refs.extend(g.world.placed.refs.iter().filter(|&(&r, p)| p.base == b && g.persistent(r)).map(|(&r, _)| r));
+            refs.extend(g.other.persistent_overrides.keys().copied().filter(|&r| {
+                g.world.placed.get(r).is_none()
+                    && g.world.peek(r).is_some_and(|s| s.base == b && !s.deleted())
+                    && g.persistent(r)
+            }));
             refs.sort();
             refs.dedup();
             let refs = refs.into_iter().map(|r| XVal::Ref(r.0)).collect();
@@ -1165,8 +1287,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // GetIsPoison; observed: gaps7, Silver Sting 1, the stimpak 0].
         "getispoison" => {
             let f = form(args, 0).unwrap_or(FormId(0));
-            let effects = g.data.effect_items.get(&f).map(Vec::as_slice).unwrap_or_default();
-            yes(!effects.is_empty() && effects.iter().all(|e| g.data.magic_effects.get(&e.effect).is_some_and(|m| m.flags & 0x5 == 0x5)))
+            let effects = g.data.effect_items.get(&g.unclone(f)).map(Vec::as_slice).unwrap_or_default();
+            yes(!effects.is_empty() && effects.iter().all(|e| g.magic_effect_def(e.effect).is_some_and(|m| m.flags & 0x5 == 0x5)))
         }
         "isarmoraddon" => yes(form(args, 0).is_some_and(|f| g.data.sig(f) == Some(*b"ARMA"))),
         // A form type an inventory holds [documented: GetIsItem].
@@ -1174,14 +1296,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let f = form(args, 0).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
             yes(g.data.sig(f).is_some_and(|s| crate::functions::items::form_type_code(&s).is_some() || matches!(&s, b"CCRD" | b"CHIP" | b"CMNY" | b"IMOD")))
         }
+        // DEST health; `object` is a base form (a reference reads its base) [documented:
+        // GECK wiki GetDestructionDataHealth / SetDestructionDataHealth; observed: gaps8,
+        // SetDestructionDataHealth returns 0 and 75 reads back]. Stored on
+        // `Game::destruction` (`other.jip6.destruction`, carried across same-run loads via
+        // `Game::Session`) so `damage_object` and `GetDestructionStage` read the change.
         "getdestructiondatahealth" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            XVal::Num(g.gaps.destruction_health.get(&f).copied().or_else(|| g.destruction(f).map(|d| d.health)).unwrap_or(0) as f64)
+            let b = form(args, 0).map(|f| base(g, f)).unwrap_or(FormId(0));
+            XVal::Num(g.destruction(b).map_or(0, |d| d.health) as f64)
         }
-        // Returns 0, for the session [observed: gaps8, 75 reads back].
         "setdestructiondatahealth" => {
-            if let Some(f) = form(args, 0) {
-                g.gaps.destruction_health.insert(f, num(args, 1, 0.0) as i32);
+            let hp = num(args, 1, 0.0);
+            if hp.is_finite() {
+                if let Some(d) = form(args, 0).map(|f| base(g, f)).and_then(|b| g.destruction_mut(b)) {
+                    d.health = hp as i32;
+                }
             }
             zero
         }
@@ -1214,13 +1343,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- worldspaces and climates ----
         // WRLD CNAM; the setter for the session [observed: gaps8, WastelandNV 0008809B,
         // set to the Strip's and back].
-        "getworldspaceclimate" => match form(args, 0).and_then(|w| crate::nvse::record_value(g, w, "CNAM", "")) {
-            Some(XVal::Ref(c)) => XVal::Ref(c),
-            _ => XVal::Ref(0),
-        },
+        "getworldspaceclimate" => XVal::Ref(form(args, 0).and_then(|w| g.worldspace_climate(w)).map_or(0, |c| c.0)),
         "setworldspaceclimate" => {
             if let (Some(w), Some(c)) = (form(args, 0), form(args, 1)) {
-                g.field_overrides.insert((w, "CNAM/".into()), XVal::Ref(c.0));
+                if g.data.sig(g.unclone(w)) == Some(*b"WRLD") && g.data.sig(g.unclone(c)) == Some(*b"CLMT") {
+                    g.field_overrides.insert((w, "CNAM/".into()), XVal::Ref(c.0));
+                }
             }
             zero
         }
@@ -1302,7 +1430,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Characters\_Male\Skeleton.NIF]; a leveled or templated actor's as NX reads it
         // (`crate::nvse_nx::skeleton_model`).
         "getskeletonmodel" => XVal::Str(form(args, 0).or(subject).map(|f| crate::nvse_nx::skeleton_model(g, f)).unwrap_or_default()),
-        "getownerofcell" => XVal::Ref(form(args, 0).and_then(|c| g.data.cells.get(&c)).and_then(|c| c.owner).map_or(0, |o| o.0)),
+        "getownerofcell" => XVal::Ref(form(args, 0).and_then(|c| g.cell_ownership(c)).map_or(0, |o| o.owner.0)),
         // PKDT general flags bit by bit [observed: gaps7, Doc's sandbox 9 and 21 set];
         // SetPackageFlag returns 0, for the session [observed: gaps8], through
         // `Game::change_package` so every reader of `Game::package_def` sees it.
@@ -1336,32 +1464,65 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // The explosion's form traits, 0 light … 6 placed impact object as GetExplosion-
-        // TraitForm reads them; no form clears it [observed: gaps7].
+        // The explosion's form traits, 0 light … 6 image-space modifier as GetExplosion-
+        // TraitForm reads them [observed: gaps7]. Only EXPL forms (and their TempCloneForm
+        // clones) are accepted [design]. Omitting the 3rd argument clears any slot 0..=6
+        // to 0, whereas passing an explicit null ref (`0`) is a no-op across all slots
+        // [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24,
+        // GSDocMitchellHouse (0x00103DF9), 10 official base masters,
+        // `w4h_02_explosion_slot4_reconcile` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
+        // #3803): `PROBE|w4h_02_explosion_slot4_reconcile|esmPop4=0/223|s4(0=00000000,set=0000003B,null=0000003B,lit0(0)=0000003B,omit(1)=00000000)|s0(0=00014BFF,null=00014BFF,omit=00000000)|s5(0=001758E2,null=001758E2,omit=00000000)|s6(0=00019CED,null=00019CED,omit=00000000)`;
+        // hypothesis: slots 1, 2, 3 follow the same null-no-op / omitted-clears rule].
+        // For non-null replacement forms, typed slots clear to 0 on a wrong-type form
+        // [observed: `jip_24_expl_trait_form_type_check`
+        // (`tools/capture/nvse/catalogs/wave4a_extenders.json`):
+        // `PROBE|jip_24_expl_trait_form_type_check|s0:00014BFF->00000000(eq0=1,eqSt=0)|s4:00000000->00015169(eqSt=1)`;
+        // hypothesis: slots 1, 2, 3, 5, 6 follow the same clear-on-mismatch rule], while
+        // slot 4 (INAM) accepts any non-null form without type checking [observed:
+        // `w4d_27_expl_inam_placeable` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+        // `PROBE|w4d_27_expl_inam_placeable|f0=00000000|stat=0000003B|misc=0000000F|alch=00015169|fac=0001B2A4|clr=0001B2A4`;
+        // no DLL or source consulted].
         "setexplosiontraitform" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            let key = match num(args, 1, -1.0) as i64 {
-                0 => "DATA/light",
-                1 => "DATA/sound_1",
-                2 => "DATA/sound_2",
-                3 => "DATA/impact_dataset",
-                4 => "INAM/",
-                5 => "EITM/",
-                6 => "MNAM/",
+            let Some(f) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"EXPL")) else {
+                return Some(Ok(zero));
+            };
+            let (key, want): (&str, Option<&[u8; 4]>) = match num(args, 1, -1.0) as i64 {
+                0 => ("DATA/light", Some(b"LIGH")),
+                1 => ("DATA/sound_1", Some(b"SOUN")),
+                2 => ("DATA/sound_2", Some(b"SOUN")),
+                3 => ("DATA/impact_dataset", Some(b"IPDS")),
+                4 => ("INAM/", None),
+                5 => ("EITM/", Some(b"ENCH")),
+                6 => ("MNAM/", Some(b"IMAD")),
                 _ => return Some(Ok(zero)),
             };
-            g.field_overrides.insert((f, key.into()), XVal::Ref(form(args, 2).map_or(0, |e| e.0)));
+            let next = if args.len() < 3 {
+                0
+            } else if let Some(e) = form(args, 2) {
+                if want.is_none_or(|sig| g.data.sig(g.unclone(e)) == Some(*sig)) {
+                    e.0
+                } else {
+                    0
+                }
+            } else {
+                return Some(Ok(zero));
+            };
+            g.field_overrides.insert((f, key.into()), XVal::Ref(next));
             zero
         }
-        // EXPL DATA flags; returns 0 [observed: gaps7, 0 both ways].
+        // EXPL DATA flags; returns 0 [observed: gaps7, 0 both ways]. Only EXPL forms (and
+        // their TempCloneForm clones) and flag IDs 1..32 (matching GetExplosionFlag) are
+        // accepted [design].
         "setexplosionflag" => {
-            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
+            let Some(f) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"EXPL")) else {
+                return Some(Ok(zero));
+            };
             let flags = match crate::nvse::record_value(g, f, "DATA", "flags") {
                 Some(XVal::Num(x)) => x as u64,
                 _ => 0,
             };
             let k = num(args, 1, -1.0);
-            if !(0.0..32.0).contains(&k) {
+            if !(1.0..32.0).contains(&k) {
                 return Some(Ok(zero));
             }
             let new = if num(args, 2, 0.0) != 0.0 { flags | 1 << (k as u64) } else { flags & !(1 << (k as u64)) };
@@ -1447,13 +1608,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // WRLD INAM [observed: gaps10, WastelandNV 0008809D].
-        "getworldspaceimagespace" => match form(args, 0).and_then(|w| crate::nvse::record_value(g, w, "INAM", "")) {
-            Some(XVal::Ref(r)) => XVal::Ref(r),
-            _ => XVal::Ref(0),
-        },
+        "getworldspaceimagespace" => XVal::Ref(form(args, 0).and_then(|w| g.worldspace_image_space(w)).map_or(0, |i| i.0)),
         "setworldspaceimagespace" => {
             if let (Some(w), Some(i)) = (form(args, 0), form(args, 1)) {
-                g.field_overrides.insert((w, "INAM/".into()), XVal::Ref(i.0));
+                if g.data.sig(g.unclone(w)) == Some(*b"WRLD") && g.data.sig(g.unclone(i)) == Some(*b"IMGS") {
+                    let next = XVal::Ref(i.0);
+                    let prev = g.field_overrides.insert((w, "INAM/".into()), next.clone());
+                    if prev != Some(next) {
+                        g.traits.note_image_space_change();
+                    }
+                }
             }
             zero
         }
@@ -1523,17 +1687,25 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // CELL DATA flags bit by bit [observed: gaps3, Doc's house (Interior, Public)
         // reads 1 0 0 0].
         // 0-7 DATA, 8-16 the lighting template inherit flags (LNAM bits 0-8)
-        // [documented: the page's table; hypothesis: LNAM's order]; SetCellFlag's change
-        // first (`crate::nvse_jip8`).
+        // [documented: GECK wiki GetCellFlag; hypothesis: LNAM's order]; SetCellFlag's change
+        // first (`crate::nvse_jip8`). Require a CELL form so non-CELL records with a DATA or
+        // LNAM subrecord (such as WRLD, #3757) return 0 rather than leaking their own flags
+        // [documented: GECK wiki GetCellFlag takes `cell:ref`; hypothesis: original JIP LN
+        // return on a WRLD with bit 0 set pending runtime probe].
         "getcellflag" => {
-            let c = form(args, 0).unwrap_or(FormId(0));
+            let Some(c) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"CELL")) else {
+                return Some(Ok(zero));
+            };
             let k = num(args, 1, -1.0);
+            if !(0.0..=16.0).contains(&k) || k.fract() != 0.0 {
+                return Some(Ok(zero));
+            }
             let (sub, k) = if k >= 8.0 { ("LNAM", k - 8.0) } else { ("DATA", k) };
             let flags = crate::nvse::record_value(g, c, sub, "").and_then(|v| v.num().ok()).unwrap_or(0.0);
             bit(flags, k)
         }
-        // XCIM [observed: gaps4, Doc's house 0001507A].
-        "getcellimagespace" => json_form(form(args, 0).and_then(|c| g.data.record_field(c, "XCIM", ""))),
+        // XCIM, with SetCellImageSpace first [observed: gaps4, Doc's house 0001507A].
+        "getcellimagespace" => XVal::Ref(form(args, 0).and_then(|c| g.cell_image_space(c)).map_or(0, |i| i.0)),
         // CLMT WLST [observed: gaps4, the Strip's climate 1 weather, 00161241, global
         // none, past the end 0].
         // ClimateAddWeatherType's and ClimateRemoveWeatherType's changes first
@@ -1550,9 +1722,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
         }
         // Night outside the climate's sunrise begin to sunset end (TNAM, ten-minute steps)
-        // [observed: gaps4, the Strip's climate at 10 reads 0; hypothesis: the edges].
+        // [observed: gaps4, the Strip's climate at 10 reads 0; hypothesis: the edges, and
+        // an omitted climate falls back to the current climate].
         "isnight" => {
-            let c = form(args, 0).unwrap_or(FormId(0));
+            let c = form(args, 0).or_else(|| crate::nvse_jip12::current_climate(g)).unwrap_or(FormId(0));
+            let c = g.unclone(c);
             let hour = g.world.global(FormId(0x38)).map_or(12.0, f64::from);
             let t = |k: &str| json_num(g.data.record_field(c, "TNAM", k)) / 6.0;
             let (rise, set) = (t("sunrise_begin"), t("sunset_end"));
@@ -1572,6 +1746,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (text, icon, sound) = split_styled(&text(args, 1));
             if let Some(s) = sound.and_then(|s| g.data.by_edid(&s)) {
                 g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true, id: 0, point: None });
+            }
+            if !text.trim().is_empty() {
+                g.count_corner_message();
             }
             g.emit(crate::trace::EventKind::NoteShown { text, icon, seconds });
             zero
@@ -1734,8 +1911,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // [documented: IsPCInCombat] the player is hunted (`awareness`).
         "ispcincombat" => yes(g.awareness.hunted(FormId::PLAYER_REF)),
-        // Nothing to reload: the engine draws the equipped models as they are.
-        "reloadequippedmodels" => zero,
+        // `[equipSlot]`: reloads the calling actor's equipped weapon/armour 3D models on
+        // the next engine frame (all slots `0..=19` when omitted; single biped slot bit
+        // when `0..=19` is given; alias `ReloadModels`) [documented: ReloadEquippedModels].
+        "reloadequippedmodels" | "reloadmodels" => {
+            if let Some(r) = subject.or(ctx.self_ref) {
+                let mask = match args.first() {
+                    None => ALL_EQUIP_SLOTS,
+                    Some(XVal::Num(n)) if n.is_finite() => {
+                        let slot = *n as i64;
+                        if (0..20).contains(&slot) { 1u32 << (slot as u32) } else { 0 }
+                    }
+                    _ => 0,
+                };
+                g.queue_equipped_model_reload(r, mask);
+            }
+            zero
+        }
         // Whether the program may use more than 2 GB (the 4 GB patch). The original
         // without the patch answers 0 [observed: gaps4]; NVForever is a 64-bit program with
         // no such limit, so it answers 1 [design, owner 2026-11-08: TTW's start-up check
@@ -1757,13 +1949,54 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
         }
         // Return 0 [observed: gaps4].
-        "setsoundflag" | "stopsoundalt" => zero,
+        "stopsoundalt" => zero,
         // An unknown patch [observed: gaps2 and gaps4, 0 for both].
         "getoptionalpatch" | "setoptionalpatch" => zero,
         _ => return None,
     };
     Some(Ok(v))
 }
+
+/// Actors currently in the loaded cells (`GetActorsByProcessingLevel 0`): placed `ACHR`/`ACRE`
+/// whose current cell is in `loaded_cells` (including actors moved or walked into a loaded cell)
+/// and live created actors in `loaded_cells`, in FormID order. Unlike `Game::package_actors`,
+/// this excludes actors in unloaded cells that previously chose a package.
+fn loaded_processing_actors(g: &Game) -> std::collections::BTreeSet<FormId> {
+    let mut out = std::collections::BTreeSet::new();
+    if g.loaded_cells.is_empty() {
+        return out;
+    }
+    let placed = g.world.placed;
+    let forms = g.world.forms;
+    let is_placed_actor = |r: FormId| placed.get(r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
+    for c in &g.loaded_cells {
+        if let Some(refs) = placed.by_cell.get(c) {
+            for &r in refs {
+                if is_placed_actor(r) {
+                    out.insert(r);
+                }
+            }
+        }
+    }
+    for (r, s) in g.world.changed() {
+        if !s.cell.is_some_and(|c| g.loaded_cells.contains(&c)) {
+            continue;
+        }
+        if r >= FormId::FIRST_DYNAMIC {
+            if !s.deleted() && crate::ai::is_actor_base(forms, s.base) {
+                out.insert(r);
+            }
+        } else if is_placed_actor(r) {
+            out.insert(r);
+        }
+    }
+    out.retain(|&r| g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)));
+    out
+}
+
+#[cfg(test)]
+#[path = "nvse_gaps_proc_level_tests.rs"]
+mod proc_level_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1798,5 +2031,58 @@ mod tests {
         assert_eq!(bit(5.0, 1.0), XVal::Num(0.0));
         assert_eq!(bit(5.0, 2.0), XVal::Num(1.0));
         assert_eq!(bit(5.0, -1.0), XVal::Num(0.0));
+    }
+
+    #[test]
+    fn equip_reload_queue_caps_non_player_entries_and_preserves_player() {
+        let mut gaps = GapsState::default();
+        // Enqueue player first, then non-player actors spanning both below and above
+        // PLAYER_REF (0x14) so PLAYER_REF becomes the smallest remaining key during eviction.
+        gaps.queue_equipped_model_reload(FormId::PLAYER_REF, 1 << 2);
+        let mut inserted = Vec::new();
+        let mut raw = 0x10u32;
+        while inserted.len() < EQUIP_RELOAD_QUEUE_LIMIT + 32 {
+            let id = FormId(raw);
+            raw += 1;
+            if id == FormId::PLAYER_REF {
+                continue;
+            }
+            gaps.queue_equipped_model_reload(id, EQUIP_SLOT_WEAPON_BIT);
+            inserted.push(id);
+        }
+
+        assert_eq!(gaps.equipped_model_reloads.get(&FormId::PLAYER_REF), Some(&(1 << 2)), "PLAYER_REF must never be evicted");
+        assert_eq!(gaps.equipped_model_reloads.len(), EQUIP_RELOAD_QUEUE_LIMIT + 1);
+        for &evicted in &inserted[..32] {
+            assert!(!gaps.equipped_model_reloads.contains_key(&evicted), "earliest non-player entry {evicted:?} evicted");
+        }
+        for &kept in &inserted[32..] {
+            assert_eq!(gaps.equipped_model_reloads.get(&kept), Some(&EQUIP_SLOT_WEAPON_BIT));
+        }
+
+        // Re-queueing an existing non-player entry at capacity coalesces without evicting;
+        // zero mask is ignored without evicting.
+        let sample = inserted[32];
+        gaps.queue_equipped_model_reload(sample, 1 << 3);
+        gaps.queue_equipped_model_reload(FormId(0x9000), 0);
+        assert_eq!(gaps.equipped_model_reloads.len(), EQUIP_RELOAD_QUEUE_LIMIT + 1);
+        assert_eq!(gaps.equipped_model_reloads.get(&sample), Some(&(EQUIP_SLOT_WEAPON_BIT | (1 << 3))));
+        assert!(!gaps.equipped_model_reloads.contains_key(&FormId(0x9000)));
+
+        // Draining NPCs yields exactly EQUIP_RELOAD_QUEUE_LIMIT entries and leaves PLAYER_REF intact.
+        let npcs = gaps.take_npc_equipped_model_reloads();
+        assert_eq!(npcs.len(), EQUIP_RELOAD_QUEUE_LIMIT);
+        assert!(!npcs.contains_key(&FormId::PLAYER_REF));
+        assert_eq!(gaps.take_player_equipped_model_reload(), 1 << 2);
+        assert_eq!(gaps.take_player_equipped_model_reload(), 0);
+
+        // Filling 1024 non-player entries first and then queueing PLAYER_REF must not evict any NPC.
+        for &id in &inserted[..EQUIP_RELOAD_QUEUE_LIMIT] {
+            gaps.queue_equipped_model_reload(id, ALL_EQUIP_SLOTS);
+        }
+        gaps.queue_equipped_model_reload(FormId::PLAYER_REF, EQUIP_SLOT_WEAPON_BIT);
+        assert_eq!(gaps.equipped_model_reloads.len(), EQUIP_RELOAD_QUEUE_LIMIT + 1);
+        assert_eq!(gaps.take_npc_equipped_model_reloads().len(), EQUIP_RELOAD_QUEUE_LIMIT);
+        assert_eq!(gaps.take_player_equipped_model_reload(), EQUIP_SLOT_WEAPON_BIT);
     }
 }

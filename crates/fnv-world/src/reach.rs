@@ -23,7 +23,6 @@
 //! the square they stand in, as before, and actors have their own bodies.
 
 use crate::fields::{num, winner, Fields};
-use crate::placed::placement;
 use crate::transform::ref_rotation;
 use crate::{cell_of, WorldIndex};
 use fnv_esm::{LoadOrder, Schema};
@@ -148,7 +147,7 @@ impl ReachIndex {
                     if !ix.refs.get(&r).is_some_and(|e| &e.sig == b"REFR" && !e.persistent) {
                         continue;
                     }
-                    let Some(pl) = placement(lo, schema, r).filter(|p| !p.deleted()) else { continue };
+                    let Some(pl) = ix.placement(lo, schema, r).filter(|p| !p.deleted()) else { continue };
                     let Some(base) = pl.base else { continue };
                     out.push(Placed { form_id: r, own, base, position: pl.position, rotation: pl.rotation, scale: pl.scale });
                 }

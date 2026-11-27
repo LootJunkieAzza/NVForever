@@ -82,14 +82,63 @@ pub fn open_plugins(data_dir: &Path, mods: &[PathBuf], names: &[String]) -> Open
     OpenedPlugins { plugins, dropped }
 }
 
+/// Per-session random seed for Base Object Swapper `chanceR(...)` rolls [design].
+/// Combines OS-seeded `RandomState` entropy with wall-clock nanoseconds and process ID so
+/// each run starts with an independent `chanceR` seed while `build_bos_table` /
+/// `BosTable::with_random_seed` preserve deterministic control in tests.
+fn bos_session_seed() -> u64 {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = RandomState::new().build_hasher();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0u128, |d| d.as_nanos());
+    h.write_u128(nanos);
+    h.write_u32(std::process::id());
+    h.finish()
+}
+
+fn build_bos_table(lo: &LoadOrder, bos_sources: &[(String, String)], random_seed: u64) -> fnv_world::BosTable {
+    fnv_world::BosTable::load_from_sources(
+        lo,
+        bos_sources.iter().map(|(name, text)| (name.as_str(), text.as_str())),
+    )
+    .with_random_seed(random_seed)
+}
+
 impl WorldData {
-    pub fn open(schema_dir: &Path, opened: OpenedPlugins, world: &str) -> Result<WorldData, String> {
+    pub fn open(
+        schema_dir: &Path,
+        opened: OpenedPlugins,
+        world: &str,
+        bos_sources: Vec<(String, String)>,
+        merge_region_lists: bool,
+    ) -> Result<WorldData, String> {
         let schema: &'static EsmSchema =
             Box::leak(Box::new(EsmSchema::load_dir(schema_dir).map_err(|e| format!("{}: {e}", schema_dir.display()))?));
         let OpenedPlugins { plugins, dropped: dropped_plugins } = opened;
         let plugins: &'static [EsmPlugin] = Box::leak(plugins.into_boxed_slice());
         let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).map_err(|e| e.to_string())?));
-        let index: &'static WorldIndex = Box::leak(Box::new(WorldIndex::build(lo, schema)));
+        let mut built = WorldIndex::build(lo, schema);
+        if merge_region_lists {
+            built.set_merge_region_lists(true);
+            info!("hNVSE: bMergeRegionLists=1 enabled (merging exterior CELL XCLR region lists across overrides)");
+        }
+        if !bos_sources.is_empty() {
+            let bos = build_bos_table(lo, &bos_sources, bos_session_seed());
+            let rep = bos.report();
+            if rep.files_loaded > 0 {
+                info!(
+                    "base object swapper: {} file(s), {} form rule(s), {} reference rule(s), {} skipped",
+                    rep.files_loaded,
+                    rep.form_rules,
+                    rep.reference_rules,
+                    rep.total_skipped(),
+                );
+            }
+            built.apply_bos(bos);
+        }
+        let index: &'static WorldIndex = Box::leak(Box::new(built));
         let w = index.world_by_name(world).ok_or_else(|| format!("no worldspace {world}"))?;
         let imposters: &'static ImposterRegions = Box::leak(Box::new(ImposterRegions::build(lo, schema)));
         let weather_regions: &'static [fnv_world::sky::RegionWeather] = Box::leak(fnv_world::sky::region_weathers(lo, schema).into_boxed_slice());
@@ -216,6 +265,10 @@ pub struct Streamer {
     /// Destroyed references drawn with their destruction stage's replacement model
     /// (`destroyed.rs`): kept here so a cell drawn again draws them so.
     pub model_overrides: HashMap<u32, String>,
+    /// Co-op replication, the host's: its guests' surroundings, away from the host's own
+    /// (`coop::replication`). Not drawn here; their residents run in the high process as
+    /// those drawn do (`residents::simulated`).
+    pub coop_areas: Vec<fnv_ai::LoadedArea>,
     /// Door travels so far ([`travel`]): what drew the place left must go (the full-detail
     /// ring, full_detail.rs, clears itself when it changes).
     pub travels: u64,
@@ -908,10 +961,10 @@ pub(crate) fn read_ahead_cells(world: &WorldData, ahead: &mut ReadAhead, area: A
             let land = cell.land;
             let around = world.land_ids(c);
             let (spec, draw) = (nvf_play::smooth_terrain::spec(), crate::terrain_lod::first_draw());
-            let (lo, schema, hide) = (world.lo, world.schema, hide.to_vec());
+            let (lo, schema, index, hide) = (world.lo, world.schema, world.index, hide.to_vec());
             let task = nvf_assets::read_pool::read_pool().spawn(async move {
                 CellAhead {
-                    models: cell_models(lo, schema, &refs, &hide, filter),
+                    models: cell_models(lo, schema, index, &refs, &hide, filter),
                     terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile, around, spec, draw)),
                     ready: false,
                 }
@@ -952,12 +1005,12 @@ pub(crate) fn cell_ready(world: &WorldData, ahead: &mut ReadAhead, c: (i32, i32)
 /// The distinct models (path, alternate textures) the references `refs` draw as static
 /// models (`spawn_model`) as `filter` chooses them: what a cell's read-ahead prepares.
 /// Runs on a worker thread.
-fn cell_models(lo: &LoadOrder, schema: &EsmSchema, refs: &[u32], hide: &[String], filter: ModelFilter) -> Vec<(String, Vec<AltTexture>)> {
+fn cell_models(lo: &LoadOrder, schema: &EsmSchema, index: &WorldIndex, refs: &[u32], hide: &[String], filter: ModelFilter) -> Vec<(String, Vec<AltTexture>)> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for &r in refs {
-        let Some(p) = placement(lo, schema, r) else { continue };
-        if p.imposter || !p.draws_base_model() || !enabled(lo, schema, &p, 0) {
+        let Some(p) = index.placement(lo, schema, r) else { continue };
+        if !drawn_with_cell(&p) || !enabled(lo, schema, &p, 0) {
             continue;
         }
         let Some(base) = p.base.and_then(|b| base_object(lo, schema, b)) else { continue };
@@ -965,7 +1018,7 @@ fn cell_models(lo: &LoadOrder, schema: &EsmSchema, refs: &[u32], hide: &[String]
             continue;
         }
         let Some(path) = base.world_model_path() else { continue };
-        if script_marker(base.form_id).unwrap_or_else(|| is_marker(&path)) || hide.iter().any(|h| path.contains(h.as_str())) {
+        if is_drawn_marker(base.form_id, &path) || hide.iter().any(|h| path.contains(h.as_str())) {
             continue;
         }
         if seen.insert((path.clone(), base.world_alt_textures.clone())) {
@@ -1087,6 +1140,10 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
         s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight(), late.marked
     );
     info!("{}", nvf_assets::tangents::summary());
+    // Shapes that asked to be blended and are drawn opaque (#3230).
+    info!("{}", nvf_assets::nif_spawn::blend_opaque_summary());
+    // Unlit shapes without a NiAlphaProperty that are blended all the same (#3443).
+    info!("{}", nvf_assets::nif_spawn::vertex_alpha_blended_summary());
     // What the two readers of each model file cost (#3149).
     info!("{}", nvf_assets::load_times::summary());
     // The smoke scenario `terrain-smoothing` reads it (#2149).
@@ -1367,31 +1424,107 @@ pub(crate) fn effective_cell_lighting(world: &WorldData, game: Option<&fnv_game:
     }
 }
 
-/// Reapply lighting when the cell is applied by travel, or when its runtime
-/// becomes available/unavailable. Live setter-driven refresh is deliberately a
-/// separate timing policy; unchanged frames neither resolve fields nor allocate.
+type CellLightingKey = (Option<u32>, Option<(u64, u64)>);
+
+/// Reapply interior cell lighting on travel, runtime availability/replacement changes,
+/// or live session lighting edits (`Game::lighting_token` bumped by
+/// `SetCellLightingTemplate`, `SetCellFlag` 8..=16, `SetLightingTemplateTraitNumeric`,
+/// and `SetInteriorLightingTraitNumeric`). Unchanged frames neither resolve fields nor
+/// allocate; edits to unrelated cells/templates leave `SkyState` untouched.
 pub fn cell_lighting(
     mut travels: MessageReader<nvf_play::Travel>,
-    streamer: Res<Streamer>, world: Res<WorldData>,
+    streamer: Res<Streamer>,
+    world: Res<WorldData>,
     script: Option<Res<nvf_play::script::ScriptState>>,
     mut sky: ResMut<crate::sky::SkyState>,
-    mut seen: Local<Option<(Option<u32>, bool)>>,
+    mut seen: Local<Option<CellLightingKey>>,
 ) {
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
-    let key = (streamer.interior, game.is_some());
+    let key = (streamer.interior, game.map(fnv_game::Game::lighting_token));
     let travelled = travels.read().count() > 0;
-    if *seen == Some(key) && !travelled { return; }
+    if *seen == Some(key) && !travelled {
+        return;
+    }
     *seen = Some(key);
     let light = streamer.interior.and_then(|cell| effective_cell_lighting(&world, game, cell));
-    if sky.interior != light { sky.set_interior(light); }
+    if sky.interior != light {
+        sky.set_interior(light);
+    }
 }
 
-/// SetCellImageSpace (`fnv_game::game::FormChanges::cell_image_spaces`): an interior
-/// whose image space a script changed is graded with the new one, from when the cell
-/// loads after the call (entered again, or a save made in it loaded): the original
-/// shows a change to the cell the player is in only then [documented: GECK wiki
-/// SetCellImageSpace, notes]. Looked at on every travel (which graded the cell with
-/// its XCIM) and when the script runtime (with a loaded save's changes) becomes ready.
+/// Resolve the active exterior worldspace's base image-space FormID (`WRLD INAM`):
+/// live session `SetWorldspaceImagespace` override (following `WNAM` + `PNAM` Use Image
+/// Space Data inheritance in `fnv_game`) first, else authored `WRLD INAM` / parent's.
+pub(crate) fn effective_worldspace_image_space_id(
+    world: &WorldData,
+    game: Option<&fnv_game::Game<'_>>,
+) -> Option<u32> {
+    game.and_then(|g| g.worldspace_image_space_override(fnv_sim::FormId(world.world)))
+        .map(|f| f.0)
+        .or_else(|| crate::sky::worldspace_image_space_id(world))
+}
+
+/// Resolve an IMGS record with any live `SetImageSpaceTrait` session overrides from `game`.
+pub(crate) fn effective_image_space(
+    world: &WorldData,
+    game: Option<&fnv_game::Game<'_>>,
+    space: u32,
+) -> Option<fnv_world::imagespace::Cinematic> {
+    match game {
+        Some(g) => fnv_world::imagespace::image_space_with_traits(
+            world.lo,
+            world.schema,
+            space,
+            g.image_space_trait_overrides(fnv_sim::FormId(space)),
+        ),
+        None => fnv_world::imagespace::image_space(world.lo, world.schema, space),
+    }
+}
+
+/// Cell-load identity for [`CellImageSpaceState`]: `(interior_cell, exterior_cell,
+/// worldspace, game_instance_id)`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct CellImageSpaceLoadKey {
+    interior: Option<u32>,
+    exterior: Option<u32>,
+    world: u32,
+    instance_id: Option<u64>,
+}
+
+/// Cached cell-load and live trait-revision state for [`cell_image_space`] so unchanged
+/// frames do zero work and a pending `SetCellImageSpace` waits until the next cell load.
+#[derive(Default)]
+pub struct CellImageSpaceState {
+    /// Last cell/worldspace/game-instance identity at which the active cell's image space
+    /// FormID was bound.
+    load_key: Option<CellImageSpaceLoadKey>,
+    /// The `IMGS` FormID bound when the current interior cell loaded (from
+    /// `SetCellImageSpace` at load time, else authored `CELL XCIM`). Held fixed until the
+    /// cell next loads so a `SetCellImageSpace` call on the active cell does not switch
+    /// early when `SetImageSpaceTrait` refreshes traits.
+    active_interior_space: Option<u32>,
+    /// Explicit `SetCellImageSpace` FormID bound when the current exterior cell loaded
+    /// (`None` when no script set one, leaving vanilla exterior cells on worldspace `INAM`).
+    active_exterior_cell_space: Option<u32>,
+    /// Last `SetImageSpaceTrait` / `SetWorldspaceImagespace` revision applied to the active
+    /// image space.
+    trait_rev: Option<u64>,
+}
+
+/// SetCellImageSpace (`fnv_game::game::FormChanges::cell_image_spaces`), live
+/// `SetWorldspaceImagespace` (`WRLD INAM/`), and live `SetImageSpaceTrait`
+/// (`fnv_game::nvse_traits::TraitState`):
+/// - A cell's `SetCellImageSpace` assignment is bound when the cell loads (on travel,
+///   cell entry, or when the script runtime with a loaded save's changes becomes ready):
+///   the original shows a `SetCellImageSpace` change to the cell the player is already
+///   in only when the cell next loads [documented: GECK wiki SetCellImageSpace, notes].
+///   Outdoors, only explicit `SetCellImageSpace` assignments override the worldspace
+///   image space, leaving unmodded exterior cells unchanged.
+/// - Session `SetWorldspaceImagespace` edits (with `WNAM` + `PNAM` inheritance) and
+///   `SetImageSpaceTrait` edits (`0..=32`) on the active image space refresh immediately
+///   when `Game::image_space_sync_token()` advances [hypothesis: docs/spec-notes/world.md §6].
+/// - Does zero work on unchanged frames and resets cleanly on game-instance switches.
+///
 /// Runs after [`travel`].
 pub fn cell_image_space(
     mut travels: MessageReader<nvf_play::Travel>,
@@ -1399,23 +1532,83 @@ pub fn cell_image_space(
     world: Res<WorldData>,
     script: Option<Res<nvf_play::script::ScriptState>>,
     mut sky: ResMut<crate::sky::SkyState>,
-    mut seen: Local<Option<(Option<u32>, bool)>>,
+    mut state: Local<CellImageSpaceState>,
 ) {
-    let rt = script.as_deref().and_then(|s| s.rt.as_ref());
-    let key = (streamer.interior, rt.is_some());
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    let token = game.map(|g| g.image_space_sync_token());
+    let instance_id = token.map(|(id, _)| id);
+    let trait_rev = token.map(|(_, rev)| rev);
+    let ext_cell = if streamer.interior.is_none() {
+        streamer
+            .centre
+            .and_then(|g| world.grid_cell(g))
+            .map(|c| c.form_id)
+            .or_else(|| {
+                game.and_then(|g| {
+                    g.cell_of(fnv_sim::FormId::PLAYER_REF)
+                        .filter(|&c| g.world.placed.world_of(c) == Some(fnv_sim::FormId(world.world)))
+                        .map(|c| c.0)
+                })
+            })
+    } else {
+        None
+    };
+    let load_key = CellImageSpaceLoadKey {
+        interior: streamer.interior,
+        exterior: ext_cell,
+        world: world.world,
+        instance_id,
+    };
     let travelled = travels.read().count() > 0;
-    if *seen == Some(key) && !travelled {
+    let rebind = state.load_key != Some(load_key) || travelled;
+    if !rebind && state.trait_rev == trait_rev {
         return;
     }
-    *seen = Some(key);
-    let (Some(cell), Some(rt)) = (streamer.interior, rt) else { return };
-    let Some(&space) = rt.game.forms.cell_image_spaces.get(&fnv_sim::FormId(cell)) else { return };
-    match fnv_world::imagespace::image_space(world.lo, world.schema, space.0) {
-        Some(grade) => {
-            info!("cell image space: {cell:#010x} graded with {:#010x} (SetCellImageSpace)", space.0);
-            sky.interior_grade = Some(grade);
+    state.load_key = Some(load_key);
+    state.trait_rev = trait_rev;
+    if let Some(cell) = streamer.interior {
+        state.active_exterior_cell_space = None;
+        let mut scripted = false;
+        let space = if rebind {
+            let assigned = game.and_then(|g| g.forms.cell_image_spaces.get(&fnv_sim::FormId(cell)).map(|f| f.0));
+            scripted = assigned.is_some();
+            let bound = assigned.or_else(|| fnv_world::lighting::cell_image_space(world.lo, world.schema, cell));
+            state.active_interior_space = bound;
+            bound
+        } else {
+            state.active_interior_space
+        };
+        match space {
+            Some(id) => match effective_image_space(&world, game, id) {
+                Some(grade) => {
+                    if sky.interior_grade != Some(grade) {
+                        if scripted {
+                            info!("cell image space: {cell:#010x} graded with {id:#010x} (SetCellImageSpace)");
+                        }
+                        sky.interior_grade = Some(grade);
+                    }
+                }
+                None => warn!("cell image space: {id:#010x} for {cell:#010x} is not an image space the grade reads"),
+            },
+            None => sky.interior_grade = None,
         }
-        None => warn!("cell image space: {:#010x} for {cell:#010x} is not an image space the grade reads", space.0),
+        return;
+    }
+    state.active_interior_space = None;
+    if rebind {
+        state.active_exterior_cell_space = ext_cell.and_then(|cell| {
+            game.and_then(|g| g.forms.cell_image_spaces.get(&fnv_sim::FormId(cell)).map(|f| f.0))
+        });
+    }
+    let world_space = state
+        .active_exterior_cell_space
+        .or_else(|| effective_worldspace_image_space_id(&world, game));
+    let id_changed = sky.world_image_space_id != world_space;
+    sky.world_image_space_id = world_space;
+    let next = world_space.and_then(|id| effective_image_space(&world, game, id));
+    if id_changed || sky.image_space != next {
+        sky.image_space = next;
+        sky.refresh();
     }
 }
 
@@ -1566,13 +1759,13 @@ pub(crate) enum DrawnAs {
 }
 
 /// The record-type decision of [`spawn_ref`] for placement `p` with its base `base`;
-/// `enabled` is asked only for references past the imposter and primitive tests.
+/// `enabled` is asked only for references past the imposter and primitive tests. Whether
+/// the reference is drawn with its cell at all is [`drawn_with_cell`]'s rule, the one
+/// every drawing path shares; when it is not, the kind says why (an imposter before a
+/// primitive).
 pub(crate) fn classify_ref(p: &Placement, base: Option<&BaseObject>, enabled: impl FnOnce() -> bool) -> RefKind {
-    if p.imposter {
-        return RefKind::Imposter;
-    }
-    if !p.draws_base_model() {
-        return RefKind::Primitive;
+    if !drawn_with_cell(p) {
+        return if p.imposter { RefKind::Imposter } else { RefKind::Primitive };
     }
     if !enabled() {
         return RefKind::Disabled;
@@ -1625,7 +1818,7 @@ fn spawn_ref(
     if managed.contains(&r) {
         return;
     }
-    let Some(p) = placement(world.lo, world.schema, r) else { return };
+    let Some(p) = world.index.placement(world.lo, world.schema, r) else { return };
     let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
     let skip_type = |stats: &mut StreamStats| {
         stats.refs_skipped_type += 1;
@@ -1815,7 +2008,7 @@ pub fn spawn_model(
     if hide.iter().any(|h| path.contains(h.as_str())) {
         return false;
     }
-    if script_marker(base.form_id).unwrap_or_else(|| is_marker(&path)) {
+    if is_drawn_marker(base.form_id, &path) {
         stats.refs_skipped_type += 1;
         *stats.skipped_types.entry("marker".into()).or_default() += 1;
         return false;
@@ -1859,6 +2052,9 @@ pub fn spawn_model(
     // passes this test too; wrecks.rs lets the parts fall only when the game has the
     // reference destroyed to that model and physics built its collision from it.
     let wreck = model.loose && p.base.and_then(|b| base_object(world.lo, world.schema, b)).and_then(|b| b.world_model_path()).is_some_and(|m| m != path);
+    // A lamp's housing, shade or bulb (or a light's own model): casts no lamp shadows
+    // (light_shadows.rs `LightFixture`).
+    let fixture = &base.sig == b"LIGH" || crate::light_shadows::is_fixture_model(&path);
     // Drawn only (the full-detail ring): a moveable static's idle alone, nothing else rigged.
     let rigged = |rig: &&nvf_assets::model::Rig| match scenery {
         true => &base.sig == b"MSTT" && rig.idle.is_some() && idle.is_some() && !rig.shapes.is_empty(),
@@ -1874,6 +2070,9 @@ pub fn spawn_model(
         commands.entity(root).insert(RefVisual(r));
         for e in &drawn {
             commands.entity(*e).insert(RefVisual(r));
+            if fixture {
+                commands.entity(*e).insert(crate::light_shadows::LightFixture);
+            }
         }
         // Drawn only: its idle plays, and that is all (no door, group, emitter, light or
         // node map; `object_anims::publish_poses` leaves it out).
@@ -2009,6 +2208,9 @@ pub fn spawn_model(
         if let Some(l) = nvf_play::mines::MineLight::of(s.name.as_deref(), &s.ancestors).filter(|_| !scenery) {
             commands.entity(e).insert(l);
         }
+        if fixture {
+            commands.entity(e).insert(crate::light_shadows::LightFixture);
+        }
         stats.shapes += 1;
     }
     stats.billboards += boards.len();
@@ -2102,7 +2304,7 @@ pub(crate) fn blend_backfill(
     }
     let (mut tracked, mut convertible) = (0, 0);
     for (r, drawn) in by_ref {
-        let Some(p) = placement(world.lo, world.schema, r) else { continue };
+        let Some(p) = world.index.placement(world.lo, world.schema, r) else { continue };
         let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
         if crate::mesh_terrain_blend::BaseType::of(&base.sig).is_none() {
             continue;
@@ -2365,9 +2567,18 @@ fn base_type_name(b: Option<&BaseObject>) -> String {
 /// [`script_markers`], because every drawing path reads [`spawn_model`]'s marker test.
 static SCRIPT_MARKERS: std::sync::RwLock<std::collections::BTreeMap<u32, bool>> = std::sync::RwLock::new(std::collections::BTreeMap::new());
 
+/// Moved on each time [`SCRIPT_MARKERS`] changes, for what keeps lists classified by
+/// [`is_drawn_marker`] (distant_lights.rs) to list them again.
+static SCRIPT_MARKERS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many times the scripts' marker changes changed (0 at the start).
+pub fn script_markers_generation() -> u64 {
+    SCRIPT_MARKERS_GENERATION.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Whether the base `base` with model `path` is an editor marker, not drawn (a script's
 /// SetInternalMarker first): [`spawn_model`]'s test, for callers that decide before it.
-pub(crate) fn is_drawn_marker(base: u32, path: &str) -> bool {
+pub fn is_drawn_marker(base: u32, path: &str) -> bool {
     script_marker(base).unwrap_or_else(|| is_marker(path))
 }
 
@@ -2383,9 +2594,20 @@ pub fn script_markers(script: Option<Res<nvf_play::script::ScriptState>>) {
     if !same {
         if let Ok(mut m) = SCRIPT_MARKERS.write() {
             *m = changes.iter().map(|(k, v)| (k.0, *v)).collect();
+            // Moved on while the write lock is held: a reader that sees the new generation
+            // reads the new markers.
+            SCRIPT_MARKERS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             info!("render: {} base form(s) made markers or drawn by a script (SetInternalMarker)", m.len());
         }
     }
+}
+
+/// Whether a placed reference is drawn with its cell: not an imposter (drawn by the regions
+/// the camera is in, imposters.rs) and not a primitive (a trigger volume, room bounds, a
+/// portal: seen only in the editor, even where its activator was copied from one with a
+/// model, level-design.md §4.1). Every drawing path asks this.
+pub fn drawn_with_cell(p: &Placement) -> bool {
+    !p.imposter && p.draws_base_model()
 }
 
 /// Editor-only marker meshes [hypothesis: the game hides them; models named marker*].
@@ -2395,8 +2617,43 @@ fn is_marker(path: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// A synthetic placed reference with the two drawing flags; no game data.
+    pub(crate) fn flagged_placement(imposter: bool, primitive: bool) -> Placement {
+        Placement {
+            form_id: 0x100, sig: *b"REFR", flags: 0, base: Some(0x200), position: [0.0; 3], rotation: [0.0; 3], scale: 1.0,
+            enable_parent: None, open_by_default: false, teleport: false, emittance: None, imposter, primitive,
+        }
+    }
+
+    /// The ring's `classify_ref` takes "drawn with its cell" from `drawn_with_cell`, the
+    /// rule every drawing path shares: a reference that rule turns away is an imposter or
+    /// a primitive (an imposter first, `enabled` never asked), one it keeps goes on to the
+    /// enabled and record-type tests.
+    #[test]
+    fn classify_ref_shares_drawn_with_cell() {
+        let stat = BaseObject {
+            form_id: 0x200, sig: *b"STAT", edid: None, model: Some("synthetic.nif".into()), world_model: None, world_alt_textures: vec![], worn_only: false, flags: 0, bounds: None,
+        };
+        for (imposter, primitive, want) in [
+            (true, false, RefKind::Imposter),
+            (true, true, RefKind::Imposter),
+            (false, true, RefKind::Primitive),
+            (false, false, RefKind::Drawn { light: false, how: DrawnAs::Model }),
+        ] {
+            let p = flagged_placement(imposter, primitive);
+            let mut asked = false;
+            let kind = classify_ref(&p, Some(&stat), || {
+                asked = true;
+                true
+            });
+            assert_eq!(kind, want, "imposter {imposter}, primitive {primitive}");
+            assert_eq!(asked, drawn_with_cell(&p), "enabled is asked exactly for the references drawn with their cell");
+            assert_eq!(drawn_with_cell(&p), !matches!(kind, RefKind::Imposter | RefKind::Primitive));
+        }
+    }
 
     #[test]
     fn spaces() {
@@ -2595,6 +2852,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn bos_engine_session_seed_varies_chance_r_while_keeping_chance_s_identical() {
+        use fnv_esm::raw::{write_subrecords, Subrecord};
+        let sub = |sig: &[u8; 4], data: Vec<u8>| Subrecord { sig: *sig, data, extended: false };
+        let z = |s: &str| {
+            let mut v = s.as_bytes().to_vec();
+            v.push(0);
+            v
+        };
+        let record = |sig: &[u8; 4], flags: u32, fid: u32, subs: &[Subrecord]| {
+            let payload = write_subrecords(subs);
+            [&sig[..], &(payload.len() as u32).to_le_bytes(), &flags.to_le_bytes(), &fid.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+        };
+        let group = |label: [u8; 4], kind: i32, body: &[u8]| [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &label, &kind.to_le_bytes(), &[0; 8], body].concat();
+        let hedr = [&1.34f32.to_le_bytes()[..], &0i32.to_le_bytes(), &0x800u32.to_le_bytes()].concat();
+        let stat_body = [
+            record(b"STAT", 0, 0x1001, &[sub(b"EDID", z("SynOrigA"))]),
+            record(b"STAT", 0, 0x1002, &[sub(b"EDID", z("SynSwapA"))]),
+            record(b"STAT", 0, 0x1003, &[sub(b"EDID", z("SynOrigB"))]),
+            record(b"STAT", 0, 0x1004, &[sub(b"EDID", z("SynSwapB"))]),
+        ]
+        .concat();
+        let bytes = [record(b"TES4", 1, 0, &[sub(b"HEDR", hedr)]), group(*b"STAT", 0, &stat_body)].concat();
+        let plugins = vec![EsmPlugin::parse(&bytes, "TestBos.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let sources = vec![(
+            "baseobjectswapper\\session_test.ini".to_string(),
+            "[Forms]\nSynOrigA|SynSwapA|NONE|chanceS(50)\nSynOrigB|SynSwapB|NONE|chanceR(50)\n".to_string(),
+        )];
+
+        // Two engine sessions with distinct seeds vary chanceR while keeping chanceS identical.
+        let s1 = build_bos_table(&lo, &sources, 0xA1B2_C3D4_E5F6_0708);
+        let s2 = build_bos_table(&lo, &sources, 0x0102_0304_0506_0708);
+        for rid in 0x0001_0000u32..0x0001_0100 {
+            assert_eq!(s1.resolve(rid, 0x1001), s2.resolve(rid, 0x1001), "chanceS must stay identical");
+        }
+        let diffs = (0x0001_0000u32..0x0001_0100)
+            .filter(|&rid| s1.resolve(rid, 0x1003) != s2.resolve(rid, 0x1003))
+            .count();
+        assert!(diffs > 20, "chanceR should vary across session seeds, got {diffs} diffs");
+
+        // Fresh OS-backed session seeds should not collapse to a fixed constant.
+        let seeds: HashSet<u64> = (0..4).map(|_| bos_session_seed()).collect();
+        assert!(seeds.len() > 1, "expected varying session seeds, got {seeds:?}");
+    }
+
     /// Issue #2549: a placed torch's glow card (`oasistorch01.nif`'s `GlowMesh`, a
     /// mode-4 `NiBillboardNode` whose one quad lies in its XY plane, +z its face) faces a
     /// camera at its side after one update, whether its shapes are baked (the static
@@ -2619,6 +2922,7 @@ mod tests {
             segments: Vec::new(),
             external_emittance: false,
             look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+            missing_diffuse: None,
         };
         let glow = shape(Some(1), Affine3A::from_translation(glow_at) * own);
         let stick = shape(Some(0), Affine3A::IDENTITY);

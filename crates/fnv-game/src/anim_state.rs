@@ -66,6 +66,16 @@ pub enum AnimAction {
     /// 9: reloading [documented; observed: about two seconds after a magazine's last
     /// shot, every gun of the gunfight].
     Reload,
+    /// 9: weapon jam (`GetAnimAction == 9`, `IsAnimPlayingEx 4 == 0`, fires JIP's
+    /// `SetOnReloadWeaponEventHandler`, and `GetSequenceAnimGroup 4 == 200` `JamA` for
+    /// 10mm Pistol) [observed: Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30,
+    /// JohnnyGuitarNVSE 528, ShowOffNVSE Plugin 184, 2026-11-23/24, GSDocMitchellHouse
+    /// (0x00103DF9), 10 official base masters, probes `w1_3632_onfireweapon_and_forcejam`
+    /// (#3679) and `w6t2_14_jip_on_reload_and_seq_anim_group`
+    /// (`tools/capture/nvse/catalogs/wave6c_jip_on_reload_and_seq_group.json`:
+    /// `fj=1,relHit=1,s0=0,s4(pre=24,t0=200,t1=200,cb=200)`); hypothesis: natural vanilla
+    /// weapon-condition jams (`Phase::Jammed`) likewise report `9` instead of `13`].
+    Jam,
     /// 12: ANIM_ACTION_WAIT_FOR_SPECIAL_IDLE [documented: the name]. No NPC of the
     /// campaign `anim_actions` read 10–12 [observed]. The player read 12
     /// for about 49 frames, starting about 50 frames after a jump [observed: capture
@@ -99,7 +109,7 @@ impl AnimAction {
             AnimAction::Thrown => 6,
             AnimAction::Block => 7,
             AnimAction::Stagger => 8,
-            AnimAction::Reload => 9,
+            AnimAction::Reload | AnimAction::Jam => 9,
             AnimAction::WaitForSpecialIdle => 12,
             AnimAction::ForceScriptAnim => 13,
             AnimAction::ReloadOpen => 17,
@@ -255,16 +265,51 @@ impl Game<'_> {
     /// non-reload action fires JIP's `SetOnReloadWeaponEventHandler` event once per
     /// reload with the actor's equipped or held weapon [documented:
     /// SetOnReloadWeaponEventHandler; hypothesis: `ReloadOpen` -> `Reload` is one reload].
+    /// Also fires JIP's `SetOnAnimActionEventHandler` (`animaction`) on entry into a new
+    /// action and `SetOnPlayGroupEventHandler` (`playgroup`) on entry into a new named
+    /// locomotion group, after recording the snapshot so handlers querying `GetAnimAction`
+    /// or `IsAnimPlaying` see the live state.
     pub fn set_anim_state(&mut self, actor: FormId, mut s: AnimState) {
-        let was_reloading = self.senses.anim.get(&actor).is_some_and(|a| is_reload_action(a.action));
-        let now_reloading = is_reload_action(s.action);
+        let prev = self.senses.anim.get(&actor);
+        let prev_action = prev.and_then(|p| p.action);
+        let prev_group = prev.and_then(|p| p.group);
+        let was_reloading = is_reload_action(prev_action);
+        let next_action = s.action;
+        let next_group = s.group;
+        let now_reloading = is_reload_action(next_action);
+        let enter_jam = prev_action != Some(AnimAction::Jam) && next_action == Some(AnimAction::Jam);
         s.at = self.time;
         self.senses.anim.insert(actor, s);
-        if !was_reloading && now_reloading {
+        if (!was_reloading && now_reloading) || enter_jam {
             let weapon = crate::functions::items::equipped_weapon(self, actor)
                 .or_else(|| self.extra.get(&actor).and_then(|e| e.held_weapon));
             if let Some(weapon) = weapon {
                 self.weapon_reloaded(actor, weapon);
+            }
+        }
+        if next_action != prev_action {
+            if prev_action == Some(AnimAction::Equip)
+                && !self.extra.get(&actor).is_some_and(|e| e.weapon_out)
+                && !self.hud.weapon_due.get(&actor).is_some_and(|(o, _, _)| *o)
+            {
+                if next_action == Some(AnimAction::Unequip) {
+                    self.showoff.unholster_pending.remove(&actor);
+                } else if let Some(slot) = self.showoff.unholster_pending.get_mut(&actor) {
+                    *slot = Some(self.frame);
+                }
+            }
+            if let Some(action) = next_action {
+                if action == AnimAction::Equip {
+                    self.showoff_begin_unholster(actor);
+                } else if action == AnimAction::Unequip {
+                    self.showoff.unholster_pending.remove(&actor);
+                }
+                self.fire_anim_action(actor, action.code());
+            }
+        }
+        if next_group != prev_group {
+            if let Some(code) = next_group.and_then(|name| self.anim_group_code(name)) {
+                self.fire_play_group(actor, code);
             }
         }
     }
@@ -272,6 +317,7 @@ impl Game<'_> {
     /// The actor left the engine's view: forget its body's state.
     pub fn forget_anim_state(&mut self, actor: FormId) {
         self.senses.anim.remove(&actor);
+        self.showoff.unholster_pending.remove(&actor);
     }
 
     /// The actor's body as last told, until the engine forgets it.
@@ -416,6 +462,7 @@ mod tests {
             (AnimAction::Block, 7),
             (AnimAction::Stagger, 8),
             (AnimAction::Reload, 9),
+            (AnimAction::Jam, 9),
             (AnimAction::WaitForSpecialIdle, 12),
             (AnimAction::ForceScriptAnim, 13),
             (AnimAction::ReloadOpen, 17),

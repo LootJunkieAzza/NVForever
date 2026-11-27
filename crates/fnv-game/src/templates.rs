@@ -261,6 +261,33 @@ impl GameData {
         out
     }
 
+    /// Every actor base `id` can reach along its template chain while the group's flag
+    /// (`from_template`) is set, through every entry of every list on the way, whatever
+    /// the picks: the ends ([`GameData::template_sources_any_pick`]) and also the actors
+    /// on the way, each of which is kept when its template's list yields no entry at the
+    /// reference's level ([`GameData::template_source_at_with`]). For indexes that must
+    /// not miss a group the runtime can resolve to (scripts, `GameData::build`).
+    pub fn template_chain_any_pick(&self, id: FormId, from_template: fn(&ActorDef) -> bool) -> Vec<FormId> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut todo = vec![(id, 0usize)];
+        while let Some((id, depth)) = todo.pop() {
+            if depth > 2 * MAX_DEPTH || !seen.insert(id) {
+                continue;
+            }
+            if let Some(def) = self.actors.get(&id) {
+                out.push(id);
+                if let Some(t) = def.template.filter(|_| from_template(def)) {
+                    todo.push((t, depth + 1));
+                }
+            } else if let Some(list) = self.leveled_actors.get(&id) {
+                todo.extend(list.entries.iter().map(|&(_, e)| (e, depth + 1)));
+            }
+        }
+        out.sort();
+        out
+    }
+
     /// Each id is followed once (`seen`): a list naming itself, or lists naming each
     /// other many times over (a broken mod), would otherwise be walked exponentially.
     fn sources_into(&self, id: FormId, from_template: fn(&ActorDef) -> bool, depth: usize, seen: &mut std::collections::HashSet<FormId>, out: &mut Vec<FormId>) {

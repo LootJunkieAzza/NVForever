@@ -345,7 +345,7 @@ words, with where ours stands:
 - **Nothing in the idle clip names the object** [observed]: `sweeping.kf`
   (`SpecialIdle_Sweeping`) drives only `Bip01` nodes and has the text keys start,
   StartLoop, five `Sound: NPCHumanSweep`, `Blend:10`, EndLoop, end. The link is the
-  ANIO's DATA: `aoSweepingBroom` (0x0008945D, `AnimObjectsoBroom.NIF`) names
+  ANIO's DATA: `aoSweepingBroom` (0x0008945D, `AnimObjects\aoBroom.NIF`) names
   `LooseSweeping` (0x0008945C, `sweeping.kf`); `aoSmokingStanding` (0x00083519) names
   `NPCSmokingIdle` (0x00071EE3) and `aoLooseSmokingStanding` (0x00071F91) names
   `LooseSmokingStanding` (0x00083518), two IDLEs that play the same
@@ -383,6 +383,25 @@ words, with where ours stands:
   track every frame, under the `Prn` bone with the transforms above it in the model
   (`anim_objects.rs`; log `anim object: … node ##Dummy01_Reflectron01 follows the
   idle's track`).
+- **Objects hung from the accumulation root** (#3610) [observed: `fnvtool nif decode`;
+  hypothesis for the rule]. Four of the 60 models in `meshes\animobjects` have `Prn`
+  `Bip01`:
+  - `aogenericmeal.nif` (`aoTableChairEatingGenericMeal…`, the table eating idles) and
+    `aostudenttestpaper.nif` share one root rotation (about 90° about z and 50° about
+    x). Their one node is stored at (-1.2, 41.6, 55.6) and (2.5, 50.9, 55.6).
+  - `hchamberfx.nif` and `hchamberfxlso.nif` have an identity root (§10.1).
+
+  The animator holds a clip's accumulation root (`Bip01`) at the identity (actors.md
+  §7.2). The eating clip `SitTableChairEatA.kf` has `Bip01` as that root and no track
+  for it. Under the identity, the meal lay 69 units to the side of the seated actor and
+  3 units above the floor: Lt. Hayes at Primm ate from no plate (player report). Under
+  `Bip01`'s bind in `characters\_male\skeleton.nif` (turned 90° about z, 67.8 units
+  up), the same numbers put the plate 70 units in front of him and 71 up, at the
+  table. Ours: an object whose `Prn` is the playing clip's accumulation root gets that
+  node's bind put back between the node and the object (`held_root_bind`). Mr House's
+  skeleton has an identity `Bip01`, so the chamber effects do not move. An object whose
+  `Prn` names a node the skeleton lacks logs `anim object: <model>: its parent node
+  <name> is not in the skeleton; hung from the root` (warning). Observer check 290.
 - Not done: the player's idles (`VAOPlayerTakeReflectron`, 0x0010BAF1, gives the same
   model to `LooseVCG01PlayerTakeReflectron`, which no script or dialogue line of
   FalloutNV.esm names [observed]), the objects' own controllers, and checking against
@@ -726,10 +745,16 @@ menu (`MenuMode 1009 == 1`). Below it, in order (conditions abridged):
   (INFO `SNAM`, `LNAM`), or any other idle asked for (a script's `PlayIdle`), replaces
   the gesture as idles replace each other (cross-faded), and no gesture is picked while
   it plays; when it ends the next gesture is picked. The gestures wait while the actor
-  walks or turns on the spot to face the other faster than 15°/s, the rate at which
-  the locomotion plays its turn clips (they step the feet), and end when it walks or
-  the conversation ends. (The AI's walker reports a turn rate from frame to frame;
-  a test against exactly 0 kept Chet waiting a whole conversation.)
+  walks, turns on the spot to face the other faster than 15°/s, the rate at which
+  the locomotion plays its turn clips (they step the feet), or gets onto or off
+  furniture (`GetSitting` / `GetSleeping` state other than 3), and end when it walks,
+  the conversation ends, or its furniture posture changes (getting off a seat or
+  sitting down) [design, #3407]. A seated response idle (`Speaker` / `Listener`)
+  likewise fades out when its actor starts getting off furniture so its full-body seated
+  clip (e.g. `SitChairTalkPlayerA`, priority 50 on pelvis and legs) does not outlive the
+  getting-off clip and snap the standing actor back into a seated pose [design, #3407].
+  (The AI's walker reports a turn rate from frame to frame; a test against exactly 0
+  kept Chet waiting a whole conversation.)
 - **Furniture** [from the data]: a seated actor goes into `FurnitureIdles` first, so it
   gets the chair's talk and listen clips, laid over its sitting clip as the speaker
   idles already are (§7). An actor whose furniture branch gives a leaf outside the
@@ -742,7 +767,7 @@ menu (`MenuMode 1009 == 1`). Below it, in order (conditions abridged):
 - Log: one line per gesture picked, `talk gesture: <actor> talks|listens (<the other>,
   line <INFO> response <n>): <idle> by <root> > … > <idle>`; the idle itself is logged at
   debug level (`idle: … plays …`). When a new part starts and the gesture must wait:
-  `talk gesture: <actor> waits: another idle plays | it walks | it turns on the spot`.
+  `talk gesture: <actor> waits: another idle plays | it uses furniture | it walks | it turns on the spot`.
   At exit: `talk gesture summary: N gestures picked
   while talking, M while listening; K walks of the tree gave none`. Gestures are not
   counted in the `idle summary` line.

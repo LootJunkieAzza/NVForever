@@ -79,9 +79,11 @@ fn fields(lo: &'static LoadOrder<'static>, schema: &'static Schema, id: u32) -> 
     Some((pi, Fields::new(rec, pi, schema).ok()?))
 }
 
-/// A zero-ended text of single-byte characters.
-fn zstring(b: &[u8]) -> String {
-    b.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect()
+/// A zero-ended text in `page`, the load order's code page as `FULL` is read in: an
+/// AVIF's short name (ANAM) on a Russian install is Windows-1251, and read byte for byte
+/// as Latin-1 its letters had no glyphs and showed as `?` (#3400).
+fn zstring(b: &[u8], page: fnv_util::text::CodePage) -> String {
+    page.decode_z(b)
 }
 
 impl Forms {
@@ -98,7 +100,7 @@ impl Forms {
                 name: f.string(b"FULL").unwrap_or_default(),
                 description: f.string(b"DESC").unwrap_or_default().trim().to_string(),
                 icon: f.string(b"ICON").filter(|s| !s.trim().is_empty()),
-                short: f.raw(b"ANAM").map(|s| zstring(&s.data)).filter(|s| !s.is_empty()),
+                short: f.raw(b"ANAM").map(|s| zstring(&s.data, fnv_util::text::code_page())).filter(|s| !s.is_empty()),
             }
         })
     }
@@ -357,8 +359,9 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
             s.karma = Some((karma, word, picture));
             let setting = |n: &str| karma_titles.get(&n.to_ascii_lowercase()).cloned();
-            s.karma_title = Some(model::karma_title(level as i64, word, setting));
-            s.karma_setting_title = model::karma_title_setting(level as i64, word, setting);
+            let ttw = g.ttw_karma_titles();
+            s.karma_title = Some(model::karma_title_with_ttw(level as i64, word, ttw, setting));
+            s.karma_setting_title = model::karma_title_setting_with_ttw(level as i64, word, ttw, setting);
         }
         // Worn apparel's enchantments taking effect now, as the game holds them: one
         // line per worn item, its Value Modifier effects (`Forms::effect`) at the amounts

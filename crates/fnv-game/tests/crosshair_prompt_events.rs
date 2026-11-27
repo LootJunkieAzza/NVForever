@@ -349,3 +349,161 @@ End) 0");
         XVal::Num(1.0)
     );
 }
+
+#[test]
+fn on_crosshair_off_fires_on_leave_and_target_switch_before_on_crosshair_on() {
+    let chest = record(
+        b"CONT",
+        0,
+        0xE10,
+        &[sub(b"EDID", z("OwnedChest")), sub(b"FULL", z("Supply cache"))],
+    );
+    let door = record(
+        b"DOOR",
+        0,
+        0xE11,
+        &[sub(b"EDID", z("OwnedDoor")), sub(b"FULL", z("Workshop door"))],
+    );
+    let placed = |id, base: u32, editor_id: &str| {
+        record(
+            b"REFR",
+            0,
+            id,
+            &[
+                sub(b"EDID", z(editor_id)),
+                sub(b"NAME", base.to_le_bytes().to_vec()),
+                sub(b"DATA", vec![0; 24]),
+            ],
+        )
+    };
+    let cell = [
+        record(b"CELL", 0, 0xE00, &[sub(b"DATA", vec![1])]),
+        group(
+            0xE00u32.to_le_bytes(),
+            6,
+            &group(
+                0xE00u32.to_le_bytes(),
+                9,
+                &[placed(0xE20, 0xE10, "OwnedChestRef"), placed(0xE21, 0xE11, "OwnedDoorRef")].concat(),
+            ),
+        ),
+    ]
+    .concat();
+    let list = record(
+        b"FLST",
+        0,
+        0xE30,
+        &[sub(b"EDID", z("OwnedDoorList")), sub(b"LNAM", 0xE11u32.to_le_bytes().to_vec())],
+    );
+    let bytes = [
+        tes4(),
+        top(b"CONT", &chest),
+        top(b"DOOR", &door),
+        top(b"FLST", &list),
+        top(
+            b"CELL",
+            &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell)),
+        ),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "OwnedCrosshairOff.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+    let schema = Schema::load_dir(root.join("fnv")).unwrap();
+    let table_path = root.join("script/functions.json");
+    let json = serde_json::from_str(&std::fs::read_to_string(&table_path).unwrap()).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(
+        &lo,
+        &schema,
+        FunctionTable::load(&table_path).unwrap(),
+        &json,
+        &refs,
+    );
+    let mut g = Game::new(
+        &data,
+        World::new(&forms, &refs, SimConfig::default()),
+        GameConfig {
+            strict: true,
+            ..Default::default()
+        },
+    );
+    let source = MemSource::default().with(
+        "menus/off.xml",
+        r#"<menu name="HUDMainMenu"><_seq>0</_seq><_offCalls>0</_offCalls><_offOrder>0</_offOrder><_onOrder>0</_onOrder><_offCur>0</_offCur><_offArg>0</_offArg><_offCont>0</_offCont><_offDoor>0</_offDoor><_offWrong>0</_offWrong><_offForm>0</_offForm><_offList>0</_offList></menu>"#,
+    );
+    g.ui_tree.load_menu(&source, "menus/off.xml").unwrap();
+    query(
+        &mut g,
+        r#"SetEventHandler "OnCrosshairOff" (Begin Function {ref left}
+ModUIFloat "HUDMainMenu/_seq" 1
+ModUIFloat "HUDMainMenu/_offCalls" 1
+SetUIFloat "HUDMainMenu/_offOrder" (GetUIFloat "HUDMainMenu/_seq")
+SetUIFloat "HUDMainMenu/_offCur" (GetCrosshairRef == 0)
+SetModLocalData "off.last" left
+SetModLocalData "off.current" GetCrosshairRef
+End)
+SetEventHandler "OnCrosshairOff:27" ({ref left} => ModUIFloat "HUDMainMenu/_offCont" 1)
+SetEventHandler "OnCrosshairOff:28" ({ref left} => ModUIFloat "HUDMainMenu/_offDoor" 1)
+SetEventHandler "OnCrosshairOff:24" ({ref left} => ModUIFloat "HUDMainMenu/_offWrong" 1)
+SetEventHandler "OnCrosshairOff" ({ref left} => ModUIFloat "HUDMainMenu/_offForm" 1) "first"::OwnedChestRef
+SetEventHandler "OnCrosshairOff" ({ref left} => ModUIFloat "HUDMainMenu/_offList" 1) "first"::OwnedDoorList
+SetEventHandler "OnCrosshairOn" (Begin Function {ref entered}
+ModUIFloat "HUDMainMenu/_seq" 1
+SetUIFloat "HUDMainMenu/_onOrder" (GetUIFloat "HUDMainMenu/_seq")
+End)"#,
+    );
+
+    // None -> None is a no-op.
+    g.set_crosshair_ref(None);
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offCalls"), Some(0.0));
+
+    // None -> Some(chest): fires OnCrosshairOn only, not OnCrosshairOff.
+    g.set_crosshair_ref(Some(FormId(0xE20)));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offCalls"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_onOrder"), Some(1.0));
+
+    // Repeating same target fires neither event.
+    g.set_crosshair_ref(Some(FormId(0xE20)));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offCalls"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_onOrder"), Some(1.0));
+
+    // Some(chest) -> Some(door): OnCrosshairOff(chest) runs BEFORE OnCrosshairOn(door),
+    // with GetCrosshairRef already pointing to door.
+    g.set_crosshair_ref(Some(FormId(0xE21)));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offCalls"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offOrder"), Some(2.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_onOrder"), Some(3.0));
+    assert_eq!(
+        query(&mut g, "SetFunctionValue (GetModLocalData \"off.last\")"),
+        XVal::Ref(0xE20)
+    );
+    assert_eq!(
+        query(&mut g, "SetFunctionValue (GetModLocalData \"off.current\")"),
+        XVal::Ref(0xE21)
+    );
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offCont"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offDoor"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offWrong"), Some(0.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offForm"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offList"), Some(0.0));
+
+    // Some(door) -> None: OnCrosshairOff(door) runs with GetCrosshairRef == 0; OnCrosshairOn does not.
+    g.set_crosshair_ref(None);
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offCalls"), Some(2.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offOrder"), Some(4.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_onOrder"), Some(3.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offCur"), Some(1.0));
+    assert_eq!(
+        query(&mut g, "SetFunctionValue (GetModLocalData \"off.last\")"),
+        XVal::Ref(0xE21)
+    );
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offDoor"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offList"), Some(1.0));
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offWrong"), Some(0.0));
+
+    // None -> None again is a no-op.
+    g.set_crosshair_ref(None);
+    assert_eq!(g.ui_tree.get_float("HUDMainMenu/_offCalls"), Some(2.0));
+}
