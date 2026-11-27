@@ -734,9 +734,9 @@ const EYE_CORNER_DARKEN: f32 = 0.30;
     let m = get_world_from_local(ii);
     let gaze = normalize((m * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
     let up = normalize((m * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
-    let r = reflect(-v, n);
+    let mirrored = reflect(-v, n);
     let facing = smoothstep(0.15, 0.72, max(dot(n, v), 0.0));
-    let open = smoothstep(0.25, 0.70, dot(r, gaze)) * (1.0 - smoothstep(0.10, 0.30, dot(r, up))) * facing;
+    let open = smoothstep(0.25, 0.70, dot(mirrored, gaze)) * (1.0 - smoothstep(0.10, 0.30, dot(mirrored, up))) * facing;
     return mix(EYE_SKY_CLOSED, EYE_SKY_OPEN, open);
 }
 
