@@ -136,14 +136,15 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 
 | Tab | Heading | Rows (keys), in order |
 |---|---|---|
-| Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy` |
+| Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy`, `npc-weapon-mods` (#3876), `sneak-bounding-box` (#3845) |
 | Gameplay | Saving | `autosave-travel`, `autosave-fast-travel`, `autosave-wait`, `autosave-sleep`, `autosave-scripts` |
 | Gameplay | Combat | `localized-dt-dr` (#3843) |
+| Gameplay | Menus | `quantity-select-short-keys` (#3799) |
 | Gameplay | Dialogue | `menu-pause`, `dialogue-goodbye-hint`, `dialogue-look`, `dialogue-recentre`, `dialogue-zoom`, `lip-sync` |
 | Gameplay | Camera | `detached-camera`, `true-iron-sights`, `first-person-body`, `weapon-lower`, `field-of-view`, `viewmodel-field-of-view` |
 | Gameplay | World | `grass-fire` (#2662), `sound-cover` (#2688) |
 | Display | Screen | `resolution`, `borderless`, `monitor`, `display-sync`, `frame-cap`, `physics-rate`, `ui-scale`, `menu-scale` |
-| Display | Interface | `hud-colour`, `hud-red`, `hud-green`, `hud-blue`, `pipboy-colour`, `pipboy-red`, `pipboy-green`, `pipboy-blue`, `language`, `dynamic-crosshair`, `crosshair-style`, `sneak-gauges` |
+| Display | Interface | `hud-colour`, `hud-red`, `hud-green`, `hud-blue`, `pipboy-colour`, `pipboy-red`, `pipboy-green`, `pipboy-blue`, `language`, `dynamic-crosshair`, `crosshair-style`, `sneak-gauges`, `location-load-screens` (#3844) |
 | Display | Performance | `fps-counter`, `fps-counter-fps`, `fps-counter-low`, `fps-counter-graph`, `fps-counter-split`, `fps-counter-cpu`, `fps-counter-gpu`, `fps-counter-vram`, `fps-counter-ram`, `fps-counter-loaded`, `fps-counter-upscaling` |
 | Audio | (none) | `volume-master`, `volume-music`, `volume-footstep`, `volume-voice`, `volume-effects`, `volume-radio`, `music`, `voice`, `reverb`, `voice-reverb` |
 | Controls | (none) | the Controls tab's own rows (§4), then `button-style`, `aim-assist`, `aim-slowdown`, `aim-lock` |
@@ -172,7 +173,7 @@ matching `KNOWN` in `engine/nvf-play/src/settings_layout.rs` and the per-row ent
 `settings_layout.rs::the_table_names_each_key_once_in_one_of_the_tabs`). Beyond the #1953
 table above, added rows include #1966's `quality`, the overhaul's `menu-font` (#1966's `enhanced` is gone),
 #2014's nine `fps-counter-*` rows, #2242's `fps-counter-upscaling`, #2317's
-`frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling`, #3322's `terrain-parallax`, #2688's `sound-cover`, #2670's `cloud-shadows`, #2671's `terrain-shadows`, `light-shadows` (ALC shadows, once Lamp shadows, Graphics › Shadows after `terrain-shadows`; light_shadows.rs), #2910's `gore-shake`, #2149's `smooth-terrain` and `terrain-wireframe`, the Advanced Movement rows, #2843's `shadow-resolution` (under Graphics › Shadows after `shadow-filter`), #2661's `mesh-terrain-blend` (Graphics › Detail and Distance, after the terrain rows), the six `quick-loot` rows (#2933, NVF Features › Quick Loot), the heat haze prototype's `heat-haze` (Graphics › Lighting and Effects, after `light-shafts`), #2675's `desert-haze` (after `heat-haze`), #3000's `sprint` (NVF Features › Gameplay), #2993's `aerial-perspective` (after `desert-haze`), #2995's `night-sky-detail` (after `aerial-perspective`), #3032's `volumetric-clouds`, `volumetric-light` and `volumetric-light-strength` (Graphics › Lighting and Effects), #3016's `tree-distance`, #2981's
+`frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling`, #3322's `terrain-parallax`, #2688's `sound-cover`, the casino screens' `caravan-tips` (Display › Interface, after `sneak-gauges`), #2670's `cloud-shadows`, #2671's `terrain-shadows`, `light-shadows` (ALC shadows, once Lamp shadows, Graphics › Shadows after `terrain-shadows`; light_shadows.rs), #2910's `gore-shake`, #2149's `smooth-terrain` and `terrain-wireframe`, the Advanced Movement rows, #2843's `shadow-resolution` (under Graphics › Shadows after `shadow-filter`), #2661's `mesh-terrain-blend` (Graphics › Detail and Distance, after the terrain rows), the six `quick-loot` rows (#2933, NVF Features › Quick Loot), the heat haze prototype's `heat-haze` (Graphics › Lighting and Effects, after `light-shafts`), #2675's `desert-haze` (after `heat-haze`), #3000's `sprint` (NVF Features › Gameplay), #2993's `aerial-perspective` (after `desert-haze`), #2995's `night-sky-detail` (after `aerial-perspective`), #3032's `volumetric-clouds`, `volumetric-light` and `volumetric-light-strength` (Graphics › Lighting and Effects), #3016's `tree-distance`, #2981's
 `authored-materials` and `authored-reflections` (Graphics › Detail and Distance, the second
 right after the first), #2701's `full-detail` and #3014's `distant-objects` (Graphics › Detail
 and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distance, the last
@@ -180,8 +181,10 @@ row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficult
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3280's ten `flashlight-*`
 rows (Tweaks › Quality of Life › Flashlight), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
-(Detail and Distance, after `mesh-terrain-blend`; read at the next start), and #3843's
-`localized-dt-dr` (Gameplay › Combat). The
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start), #3843's
+`localized-dt-dr` (Gameplay › Combat), `physical-pbr` (Lighting and Effects, after
+`night-sky-detail`; read at the next start), and #4690's `tonemap-preset` (after
+`physical-pbr`, a list of the presets found at the start). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
 [observed: #1953], hence Interface there.
 

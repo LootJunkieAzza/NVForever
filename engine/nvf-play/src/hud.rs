@@ -278,6 +278,25 @@ pub struct HudView {
     pub hidden: Option<&'static str>,
 }
 
+/// A slideshow's room, by its cell's Editor ID: the ending's slide room `Endgame` and the
+/// add-ons' intro rooms `NVDLC01Slideshow`, `NVDLC02SlideShow`, `NVDLC03Slideshow` and
+/// `NVDLC04SlideShow` [observed: the base game's and the four add-ons' interior cells'
+/// Editor IDs; no other interior's has "slideshow" in it]. The rooms hold only the slide,
+/// its light and the narrator: a player is there only for the slides, and the slideshow is
+/// over once a script moves the player out (or the ending's credits end the game). Co-op
+/// reads it (`nvforever`'s `coop/scene.rs`): a guest stands in the host's slide room too.
+pub fn slideshow_room(edid: &str) -> bool {
+    edid.eq_ignore_ascii_case("Endgame") || edid.to_ascii_lowercase().contains("slideshow")
+}
+
+/// Whether the interior cell `interior` is a slideshow's room ([`slideshow_room`]), its
+/// Editor ID looked up in the load order's cells (`RefTable::cell_edids`, lower case). A
+/// co-op guest stands in the host's slide room too (the host's MoveTo takes it along,
+/// `nvforever`'s `coop/scene.rs`), so its own cell says it.
+pub fn in_slideshow(interior: Option<u32>, cell_edids: &std::collections::HashMap<String, FormId>) -> bool {
+    interior.is_some_and(|c| cell_edids.iter().any(|(e, id)| id.0 == c && slideshow_room(e)))
+}
+
 impl Default for HudView {
     fn default() -> Self {
         HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false, hidden: None }

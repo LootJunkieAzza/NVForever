@@ -1244,6 +1244,21 @@ impl Ai {
         game.unblock_packages_of(actor);
         let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
         self.script_moved.insert(actor, game.time);
+        // Keep a low-process actor from firing a far update in the brief window while a
+        // multi-frame script batch is still moving actors and updating quest flags (issue
+        // #3041: VERStalkersSouth01 moves 18 stalkers at 0.1 s intervals before clearing
+        // StalkersOn 1.8 s later) [design: matches `SCRIPT_MOVE_HOLD`].
+        if !self.coming.contains(&actor) {
+            let every = if self.far.contains(&actor) {
+                crate::process::FAR_PROCESS_SECONDS
+            } else {
+                crate::process::LOW_PROCESS_SECONDS
+            };
+            let cap = (every - crate::arrive::SCRIPT_MOVE_HOLD as f32).max(0.0);
+            if let Some(Some(owed)) = self.low.get_mut(&actor) {
+                *owed = owed.min(cap);
+            }
+        }
         self.set_using(game, actor, None);
         let Some(a) = self.agents.get_mut(&actor) else { return };
         let w = &mut a.walker;
@@ -2710,10 +2725,14 @@ impl Ai {
         }
         let params = self.path_params(game, actor);
         let to = choice.target.expect("checked");
-        let speed = self.calm_speeds(actor).walk;
+        // A sandbox with Always Run runs between its spots, as the package's other walks
+        // do (`Ai::plan`): Freeside's chased rat (VFSChasedRatEscapingPackage, Sandbox,
+        // Always Run) walked at 56 units/s with the child running after it (#4487).
+        let running = self.agents[&actor].package.and_then(|p| game.package_def(&p)).is_some_and(|d| d.has(flags::ALWAYS_RUN));
+        let speed = if running { self.pace(game, actor, true) } else { self.calm_speeds(actor).walk };
         let a = self.agents.get_mut(&actor).expect("listed");
-        // A package's walk: [`Ai::repace_walk`] gives it the drawn walk.
-        (a.walker.speed, a.walk_pace) = (speed, Some((1.0, speed)));
+        // A package's walk: [`Ai::repace_walk`] gives it the drawn walk; a run is not one.
+        (a.walker.speed, a.walk_pace) = (speed, (!running).then_some((1.0, speed)));
         match a.walker.go_to(nav, to, &params) {
             Ok(path) => {
                 let walk = path.length;

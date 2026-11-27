@@ -217,9 +217,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let x = num(args, 0, 0.0);
             let pos = form(args, 0);
             g.set_radio(r, |d| match name {
-                "setradiobroadcasttype" => d.range = x.clamp(0.0, 4.0) as u32,
+                "setradiobroadcasttype" => {
+                    let v = x.trunc();
+                    if v.is_finite() && (0.0..=4.0).contains(&v) {
+                        d.range = v as u32;
+                    }
+                }
                 "setradioradius" => d.radius = x.max(0.0) as f32,
-                "setradiostatic" => d.static_percent = x.clamp(0.0, 100.0) as f32,
+                "setradiostatic" => {
+                    if x.is_finite() && (0.0..=100.0).contains(&x) {
+                        d.static_percent = x as f32;
+                    }
+                }
                 _ => d.position_ref = pos,
             });
             zero

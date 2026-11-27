@@ -98,6 +98,8 @@ pub enum Control {
     /// Run faster for AP while held (NVForever's own; acts only with NVF Features ›
     /// Advanced Movement › Sprint on, `crate::stance`).
     Sprint,
+    /// Open or close photo mode (NVForever's own; not in the game's INI, `crate::photo_mode`).
+    PhotoMode,
     // The Tweaks tab's keys (`crate::tweaks`, docs/design/tweaks.md): none bound unless
     // the player binds them.
     /// Holster the weapon at once (Stewie's Tweaks iHolsterWeaponKey).
@@ -160,8 +162,10 @@ pub enum Control {
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap]; Sprint unbound,
 /// with no controller button either, until the player binds it [design, #3000: the
-/// maintainer's decision on #3002].
-pub const GAME_CONTROLS: [(Control, &str, u32); 58] = [
+/// maintainer's decision on #3002]; Photo Mode unbound, no key and no controller button,
+/// until the player binds it under Controls, Actions (the pause menu's Photo Mode entry
+/// opens it meanwhile) [design, #3634: the maintainer's decision].
+pub const GAME_CONTROLS: [(Control, &str, u32); 59] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -192,6 +196,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 58] = [
     (Control::Grab, "Grab", 0x002CFF09),
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
     (Control::Sprint, "Sprint", 0xFFFFFFFF),
+    (Control::PhotoMode, "Photo Mode", 0xFFFFFFFF),
     (Control::HolsterWeapon, "Holster Weapon", 0xFFFFFFFF),
     (Control::ToggleLight, "Toggle Light", 0xFFFFFFFF),
     (Control::ToggleCrosshair, "Toggle Crosshair", 0xFFFFFFFF),
@@ -226,7 +231,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 58] = [
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
 /// player binds it (`crate::tweaks`), but the console's and the screenshot's at the end
 /// ([`BOUND_EXTRA_CONTROLS`]), bound by default.
-pub const TWEAK_CONTROLS: usize = 30;
+pub const TWEAK_CONTROLS: usize = 31;
 
 /// The controls after the Tweaks tab's that are bound by default: the console and the
 /// screenshot ([`Control::Console`], [`Control::Screenshot`]).
@@ -636,6 +641,7 @@ pub fn label(c: Control) -> &'static str {
         Grab => "Grab",
         LowerWeapon => "Lower Weapon",
         Sprint => "Sprint",
+        PhotoMode => "Photo Mode",
         HolsterWeapon => "Holster Weapon",
         ToggleLight => "Pip-Boy Light",
         ToggleCrosshair => "Show/Hide Crosshair",
@@ -1344,6 +1350,8 @@ pub struct ControlInput<'w, 's> {
     pub platform_capture: Option<Res<'w, crate::pad::PlatformInputGate>>,
     pub touch_movement: Option<Res<'w, crate::touch_movement::TouchMovementInput>>,
     pub touch_switch: Option<Res<'w, crate::pad::TouchDeviceSwitch>>,
+    /// Photo mode has the keys (`crate::photo_mode`).
+    pub photo: Option<Res<'w, crate::photo_mode::PhotoMode>>,
 }
 
 /// The player's Keyboard and Mouse With a Controller tweak: with the controller as the
@@ -1380,7 +1388,7 @@ pub(crate) fn pad_binding_held(binding: Option<PadInput>, pads: &crate::pad::Act
 impl ControlInput<'_, '_> {
     /// The free camera or a text field has the keys.
     pub fn suppressed(&self) -> bool {
-        self.free_cam.as_ref().is_some_and(|f| f.active) || self.captured()
+        self.free_cam.as_ref().is_some_and(|f| f.active) || self.photo.as_ref().is_some_and(|p| p.on) || self.captured()
     }
 
     /// A text field has the keyboard ([`KeyboardCapture`]).
@@ -1780,8 +1788,10 @@ mod tests {
         assert_eq!(Bindings::name(Control::Rest), "Rest");
         // Every control has a key or a button, but the Tweaks tab's, which start unbound;
         // the console and the screenshot at the end on their old keys.
-        // (Sprint, NVForever's own, has none until the player binds it: #3000.)
-        for (c, _, _) in GAME_CONTROLS[..TWEAK_CONTROLS].iter().filter(|(c, _, _)| *c != Control::Sprint) {
+        // (Sprint and Photo Mode, NVForever's own, have none until the player binds them:
+        // #3000, #3634.)
+        let unbound = [Control::Sprint, Control::PhotoMode];
+        for (c, _, _) in GAME_CONTROLS[..TWEAK_CONTROLS].iter().filter(|(c, _, _)| !unbound.contains(c)) {
             let x = b.get(*c);
             assert!(x.key.is_some() || x.mouse.is_some(), "{c:?}");
         }
@@ -1792,6 +1802,17 @@ mod tests {
         }
         assert_eq!(b.get(Control::Console), Binding { key: Some(KeyCode::Backquote), mouse: None });
         assert_eq!(b.get(Control::Screenshot), Binding { key: Some(KeyCode::F12), mouse: None });
+    }
+
+    /// Photo Mode's one binding, its opener (#3634, the maintainer's decision): no key and no
+    /// controller button until the player binds them; kept in the INI as the others are.
+    #[test]
+    fn photo_mode_is_unbound_by_default() {
+        let b = Bindings::game_defaults();
+        assert_eq!(b.get(Control::PhotoMode), Binding::default());
+        assert_eq!(b.pad(Control::PhotoMode), None);
+        assert_eq!(Bindings::by_name("Photo Mode"), Some(Control::PhotoMode));
+        assert!(with_controls("", &b).contains("Photo Mode="));
     }
 
     /// Sprint (#3000, the maintainer's decision on #3002): no key and no button by default, and
