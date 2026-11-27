@@ -3068,7 +3068,7 @@ mod tests {
         let (m, _) = shape_material_inner(&props, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
         assert!(m.extension.env_cube.is_some() && m.extension.env_mask.is_some(), "cube and mask bound");
         assert_eq!((m.extension.env.x, m.extension.env.y), (1.5, 1.0), "the scale and the slot-5 mask");
-        assert_eq!((m.extension.env_how.z, m.extension.env_how.w), (0.0, 1.0), "a reflecting shape, not a window");
+        assert_eq!((m.extension.env_how.z, m.extension.env_how.w), (0.0, 2.0), "a reflecting shape, not a window: the vertex normal");
         let window = env_model_props((1 << 7) | (1 << 21));
         let (w, _) = shape_material_inner(&window, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
         assert_eq!(w.extension.env_how.z, 1.0, "both flags: a window shape");

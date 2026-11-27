@@ -3039,7 +3039,7 @@ mod session_lighting_tests;
 
 #[cfg(test)]
 #[path = "cartographer_live_tests.rs"]
-mod cartographer_live_tests;
+pub(crate) mod cartographer_live_tests;
 
 #[cfg(test)]
 pub(crate) fn authored_session_sky() -> SkyState {

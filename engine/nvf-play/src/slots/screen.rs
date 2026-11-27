@@ -5,9 +5,10 @@
 //! (`crate::lockpick::screen`).
 //!
 //! - The information box: 400 × 175, 10 in from the main rectangle's left and bottom, the
-//!   bracket of lines, three rows in font 7 at 20 in, at 35, 80 and 125 down: "Current
-//!   Bet:", "Chips:", "<casino> Earnings:", each value right-aligned 80 short of the box's
-//!   width [documented: `SMM_InfoRect`; hypothesis: the titles, set in code].
+//!   bracket of lines, three rows in font 7 at 20 in, at 35, 80 and 125 down: "Your
+//!   bet:", "Your chips:", "Won at <casino>:", each value right-aligned 80 short of the
+//!   box's width [documented: `SMM_InfoRect`; design, #4495: the titles, set in code, are
+//!   NVForever's own words].
 //! - Six buttons right-aligned 50 from the main rectangle's right, under each other: Spin,
 //!   Increase Bet, Decrease Bet, Payout List, Bet Max, Exit, each with its key
 //!   [documented: the order, `_PCButton_W/E/Q/F/S/R`; hypothesis: the words]; placed as
@@ -141,7 +142,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
         }
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
-            let rows = [(tr("Current Bet:").to_string(), s.bet.to_string()), (tr("Chips:").into(), s.chips.to_string()), (trf("{casino} Earnings:", &[("casino", &s.casino_name)]), s.earnings.to_string())];
+            let rows = [(tr("Your bet:").to_string(), s.bet.to_string()), (tr("Your chips:").into(), s.chips.to_string()), (trf("Won at {casino}:", &[("casino", &s.casino_name)]), s.earnings.to_string())];
             let widths: Vec<(f32, f32)> = rows.iter().map(|(t, v)| (c.text_width(FontKind::Menu, t), c.text_width(FontKind::Menu, v))).collect();
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, 16.0, &widths);
             let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };

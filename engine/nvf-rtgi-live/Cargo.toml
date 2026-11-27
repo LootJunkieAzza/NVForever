@@ -1,12 +1,19 @@
 [package]
 name = "nvf-rtgi-live"
-description = "A cell's bounce-light inputs packed on the CPU for a future GPU solve that matches nvf-rtgi"
+description = "A cell's bounce light solved on the GPU with ray queries, held against nvf-rtgi's CPU solve"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
-# Plain data for now: the scene, the light and the points as the words a kernel reads. The kernel and the device
-# side come next, with wgpu.
+# Bevy-independent: the device and the queue come from outside. wgpu and bytemuck are in the lock already.
 [dependencies]
 nvf-rtgi.workspace = true
+wgpu = { version = "30", default-features = false, features = ["std", "vulkan", "wgsl"] }
+bytemuck = "1"
+
+# The kernel's parse and validation; the version engine/vendor/naga patches.
+[dev-dependencies]
+naga = { version = "=30.0.1", features = ["wgsl-in", "spv-out"] }
+# The check's logger (examples/rtgi-live-check).
+log = "0.4"

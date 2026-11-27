@@ -792,13 +792,47 @@ fn water_content_varies_inside_fair_cloud_bases_and_wraps_with_wind() {
     assert!(range.0 < 0.95 && range.1 > 1.05, "water concentration range {range:?}");
 }
 
+/// Read the column material's base texture at the requested frequency and its own mip.
+fn lean_base_reader(xz: Vec2, above: f32, u: &CloudVolumeUniform) -> impl Fn(f32, f32, Vec3) -> f32 + '_ {
+    use crate::cloud_noise::{level_for, production, BASE_SIZE};
+    let uv = Vec3::new(xz.x, above, xz.y) * u.nscale.x + Vec3::new(u.nphase.x, 0.0, u.nphase.y);
+    let texture = &production().base;
+    move |width: f32, frequency: f32, offset: Vec3| {
+        let mip = level_for(width, BASE_SIZE, (u.nscale.x * frequency).recip(), 8);
+        texture.sample((uv * frequency + offset).to_array(), mip)[0]
+    }
+}
+
+#[test]
+fn the_deck_detail_samples_its_own_mip_and_wraps_with_the_wind() {
+    use crate::cloud_noise::{production, BASE_REPEAT, BASE_SIZE};
+    let mut u = lean_ground_with_puff(0.73, None, 1.0);
+    u.nphase.x = 0.25;
+    u.nphase.y = 0.375;
+    let mut wrapped = u;
+    wrapped.nphase.x -= 1.0;
+    wrapped.nphase.y += 1.0;
+    let xz = Vec2::new(26_000.0, -17_000.0);
+    let above = 385.0;
+    let offset = Vec3::new(0.44, 0.37, 0.192);
+    let read = lean_base_reader(xz, above, &u);
+    let wrapped_read = lean_base_reader(xz, above, &wrapped);
+    let uv = Vec3::new(xz.x, above, xz.y) / BASE_REPEAT + Vec3::new(u.nphase.x, 0.0, u.nphase.y);
+    for lod in [1.5_f32, 3.5] {
+        let width = BASE_REPEAT / (3.0 * BASE_SIZE as f32) * lod.exp2();
+        let expected = production().base.sample((3.0 * uv + offset).to_array(), lod)[0];
+        assert!((read(width, 3.0, offset) - expected).abs() < 1e-5);
+        assert!((wrapped_read(width, 3.0, offset) - expected).abs() < 1e-5);
+    }
+}
+
 /// The lean field at world (x, z) `xz`, bent height `yb`, cast width `width`, placement footprint `pw` and
 /// the view's step filter `fw` (march `vc_m2_support` and `vc_shape`, no drift): (the
 /// support, (the optical density per unit, the shape)); `eroded` false is the light's read (no wisps,
 /// its own filter). The view's erosion read is displaced and stretched by the wisps as the march does.
 #[allow(clippy::too_many_arguments)]
 fn lean_at(xz: Vec2, yb: f32, (width, pw, fw): (f32, f32, f32), a: f32, forced: Option<CloudType>, u: &CloudVolumeUniform, eroded: bool) -> (bool, (f32, f32)) {
-    use crate::cloud_noise::{level_for, BASE_REPEAT, BASE_SIZE, EROSION_REPEAT, EROSION_SIZE};
+    use crate::cloud_noise::{level_for, EROSION_REPEAT, EROSION_SIZE};
     use crate::volumetric_clouds_model2 as m2;
     if yb <= u.slab.x || yb >= u.slab.x + u.slab.y {
         return (false, (0.0, 0.0));
@@ -823,7 +857,7 @@ fn lean_at(xz: Vec2, yb: f32, (width, pw, fw): (f32, f32, f32), a: f32, forced: 
             epos = pos + Vec3::new(wp.d.x, 0.0, wp.d.y);
             wisp_g = wp.g;
         }
-        let mut base = |w: f32| noise.base.sample([pos.x * u.nscale.x + u.nphase.x, above * u.nscale.x, pos.z * u.nscale.x + u.nphase.y], level_for(w, BASE_SIZE, BASE_REPEAT, 8))[0];
+        let mut base = lean_base_reader(xz, above, u);
         let mut erode = |w: f32| {
             let c = m2::erode_coord(epos, yb, u);
             let e = noise.erosion.sample([c.x, c.y, c.z], level_for(w, EROSION_SIZE, EROSION_REPEAT / m2::ERODE_FREQ, 6));
@@ -1372,10 +1406,7 @@ fn lean_density_report() {
                     for s in 0..64 {
                         let above = (s as f32 + 0.5) * dy;
                         let pos = Vec3::new(xz.x, u.slab.x + above, xz.y);
-                        let mut base = |width: f32| {
-                            let mip = crate::cloud_noise::level_for(width, crate::cloud_noise::BASE_SIZE, crate::cloud_noise::BASE_REPEAT, 8);
-                            noise.base.sample([pos.x * u.nscale.x, above * u.nscale.x, pos.z * u.nscale.x], mip)[0]
-                        };
+                        let mut base = lean_base_reader(xz, above, &u);
                         let mut erode = |_w: f32| {
                             let c = m2::erode_coord(pos, pos.y, &u);
                             let e = noise.erosion.sample([c.x, c.y, c.z], 0.0);
