@@ -7,6 +7,17 @@
 //!   16:10], on a render layer of its own, into a picture shown full-screen under the HUD
 //!   [design]. Black bars stand beyond the mask's sides on wider screens [design]. The
 //!   materials are the model's own.
+//! - **The picture's memory** (#4781): the picture does not change while the scope is up
+//!   (the sway turns the main view), so its camera renders it once and is then despawned
+//!   with the shapes it drew: it stays on until the render world has drawn every shape of
+//!   it ([`PictureCheck`]: mesh, material and pipeline ready for its view) on
+//!   [`PICTURE_READY_FRAMES`] frames in a row.
+//!   A camera that is on gets its own window-sized view targets; at 4x MSAA, 3440x1440,
+//!   they were about 217 MB beside the picture's 20 MB [observed: `NVF_PLAY_TEST_SAMPLE`
+//!   allocator labels, upstream main 6c393607a, #4781]. It renders without MSAA or
+//!   transmission. The picture is kept, hidden, when the scope goes down and shown again
+//!   at the next scope-up with the same model and window size; another model, the 3D
+//!   lens or another window size makes it anew.
 //! - **Night vision** (§4): a night-vision scope holds `NightScopeISFX` on the screen at its
 //!   first keys in an interior or at night [documented: GECK wiki "Weapons"; hypothesis:
 //!   the record, and night as sunset's end to sunrise's start].
@@ -42,7 +53,16 @@ use nvf_play::combat::Combat;
 use nvf_play::player::{Player, MAX_PITCH};
 use nvf_play::PlayerCamera;
 use crate::scope_lens::LensMount;
-use bevy::pbr::DistanceFog;
+use bevy::asset::UntypedAssetId;
+use bevy::pbr::{DistanceFog, PreparedMaterial, RenderMaterialInstances, ScreenSpaceTransmission, SpecializedMaterialPipelineCache};
+use bevy::render::erased_render_asset::ErasedRenderAssets;
+use bevy::render::material_bind_groups::MaterialBindGroupAllocators;
+use bevy::render::mesh::RenderMesh;
+use bevy::render::render_asset::RenderAssets;
+use bevy::render::render_resource::PipelineCache;
+use bevy::render::sync_world::MainEntity;
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::sync::Arc;
 
 /// The render layer of the scope's picture and its camera.
@@ -90,12 +110,117 @@ impl Plugin for ScopeViewPlugin {
                 // After the desert haze and the aerial perspective (fog.rs FogWriters): the
                 // lens copies the main camera's fog.
                 lens_camera.after(show).after(crate::fog::FogWriters),
+                settle_picture.after(show),
             ),
         )
+        .init_resource::<PictureCheck>()
         // After underwater_fog in PostUpdate so the 3D scope lens receives the current
         // frame's underwater fog or freshly restored weather/interior fog.
         .add_systems(PostUpdate, sync_lens_fog.after(crate::underwater::underwater_fog));
     }
+
+    fn finish(&self, app: &mut App) {
+        let Some(check) = app.world().get_resource::<PictureCheck>().cloned() else { return };
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render
+                .insert_resource(check)
+                .add_systems(ExtractSchedule, extract_picture_check)
+                .add_systems(Render, observe_picture.in_set(RenderSystems::Cleanup));
+        }
+    }
+}
+
+/// Render frames in a row with the whole picture drawn before its camera is turned off
+/// [engineering choice: the first frame drawn plus one, for a pipeline compiled during it].
+pub const PICTURE_READY_FRAMES: u32 = 2;
+
+/// The 2D picture's camera and shapes as the render world checks them (#4781): set by
+/// [`show`] while a picture's camera renders, empty otherwise. `ready` counts the render
+/// frames in a row on which every shape was drawable for the camera's view; shared by
+/// both worlds.
+#[derive(Resource, Clone, Default)]
+struct PictureCheck {
+    camera: Option<MainEntity>,
+    /// The camera renders this frame (it is on).
+    active: bool,
+    shapes: Vec<(MainEntity, AssetId<Mesh>, UntypedAssetId)>,
+    ready: Arc<AtomicU32>,
+}
+
+fn extract_picture_check(main: Extract<Res<PictureCheck>>, mut render: ResMut<PictureCheck>) {
+    if main.is_changed() {
+        render.camera = main.camera;
+        render.active = main.active;
+        render.shapes.clone_from(&main.shapes);
+    }
+}
+
+/// Count the frame as drawn when every shape's mesh and material are on the GPU (the
+/// material only prepares once its textures are) and its pipeline for the picture
+/// camera's view is compiled [design: as android_render_admission.rs `Observe::flags`].
+#[allow(clippy::too_many_arguments)]
+fn observe_picture(
+    check: Res<PictureCheck>,
+    instances: Res<RenderMaterialInstances>,
+    materials: Res<ErasedRenderAssets<PreparedMaterial>>,
+    allocators: Res<MaterialBindGroupAllocators>,
+    specialized: Res<SpecializedMaterialPipelineCache>,
+    pipelines: Res<PipelineCache>,
+    meshes: Res<RenderAssets<RenderMesh>>,
+) {
+    let Some(camera) = check.camera.filter(|_| check.active) else {
+        check.ready.store(0, Relaxed);
+        return;
+    };
+    let entries: Vec<_> = specialized.iter().filter(|(view, _)| view.main_entity == camera).map(|(_, e)| e).collect();
+    let drawable = |(entity, mesh, material): &(MainEntity, AssetId<Mesh>, UntypedAssetId)| {
+        let bound = materials.get(*material).is_some_and(|m| allocators.get(&material.type_id()).and_then(|a| a.get(m.binding.group)).is_some_and(|g| g.bind_group().is_some()));
+        let pipeline = entries.iter().filter_map(|e| e.get(entity)).any(|id| pipelines.get_render_pipeline(*id).is_some());
+        meshes.get(*mesh).is_some() && instances.instances.get(entity).is_some_and(|i| i.asset_id == *material) && bound && pipeline
+    };
+    if !check.shapes.is_empty() && check.shapes.iter().all(drawable) {
+        check.ready.fetch_add(1, Relaxed);
+    } else {
+        check.ready.store(0, Relaxed);
+    }
+}
+
+/// The picture camera on while the scope is up and the picture is not yet drawn (off while
+/// it is down). Once drawn, the camera and the shapes it drew are despawned and only the
+/// picture's image is kept: a camera turned off keeps its view targets on its render-world
+/// entity [observed: 60 MB still allocated at 3440x1440 with the camera off; vendored
+/// bevy_render `extract_cameras` takes away only the extracted components].
+fn settle_picture(mut commands: Commands, scope: Res<Scope>, mut check: ResMut<PictureCheck>, mut cameras: Query<(Entity, &mut Camera, &mut PictureCamera)>) {
+    for (entity, mut camera, mut pic) in &mut cameras {
+        let checked = check.camera == Some(MainEntity::from(entity));
+        if checked && check.ready.load(Relaxed) >= PICTURE_READY_FRAMES {
+            info!("scope view: picture drawn in {} frames; its camera and shapes are gone, the picture kept", pic.frames);
+            commands.entity(entity).despawn();
+            for (shape, _, _) in check.shapes.drain(..) {
+                commands.entity(shape.id()).try_despawn();
+            }
+            check.camera = None;
+            check.active = false;
+            check.ready.store(0, Relaxed);
+            continue;
+        }
+        let on = scope.on && !scope.lens_3d;
+        if on {
+            pic.frames += 1;
+        }
+        if camera.is_active != on {
+            camera.is_active = on;
+        }
+        if checked && check.active != on {
+            check.active = on;
+        }
+    }
+}
+
+/// The 2D picture's camera, while it has not drawn the picture yet.
+#[derive(Component, Default)]
+struct PictureCamera {
+    frames: u32,
 }
 
 /// The game path of a MOD3 model (stored without `meshes\`).
@@ -115,14 +240,42 @@ pub fn is_night(hour: f32, sunrise_begin: f32, sunset_end: f32) -> bool {
     h >= sunset_end || h < sunrise_begin
 }
 
-/// The picture as drawn: its entities, the model and the window size it was built for.
+/// The picture as drawn: its entities, the model and the window size it was built for,
+/// and (the 2D picture) its full-screen node, kept hidden while the scope is down.
 #[derive(Default)]
 struct Drawn {
     entities: Vec<Entity>,
     model: Option<String>,
     lens: bool,
     size: UVec2,
+    picture: Option<Entity>,
+    hidden: bool,
     warned: Option<String>,
+}
+
+/// What [`show`] does with what is drawn, for the scope wanted (`want`: its picture's
+/// model path while up) [design, #4781].
+#[derive(Debug, PartialEq, Eq)]
+enum Keep {
+    /// Leave it as it is.
+    Leave,
+    /// The 2D picture hidden (the scope went down) or shown again (back up, the same).
+    Hide,
+    Show,
+    /// Despawn it (and build what is wanted, if anything).
+    Remake,
+}
+
+fn keep(drawn_model: Option<&str>, drawn_lens: bool, drawn_size: UVec2, hidden: bool, want: Option<&str>, lens: bool, size: UVec2) -> Keep {
+    let Some(model) = drawn_model else { return Keep::Leave };
+    match want {
+        // The 3D lens goes with its scope; the 2D picture is kept for the next scope-up.
+        None if drawn_lens => Keep::Remake,
+        None => if hidden { Keep::Leave } else { Keep::Hide },
+        Some(w) if w != model || lens != drawn_lens || (!lens && drawn_size != size) => Keep::Remake,
+        Some(_) if hidden => Keep::Show,
+        Some(_) => Keep::Leave,
+    }
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -133,16 +286,34 @@ fn show(
     mut plain: ResMut<Assets<StandardMaterial>>,
     window: Query<&Window, With<PrimaryWindow>>,
     (mounts, main_cam): (Query<(Entity, &LensMount)>, Query<Entity, With<PlayerCamera>>),
+    (mut check, mut visibility): (ResMut<PictureCheck>, Query<&mut Visibility>),
     mut drawn: Local<Drawn>,
 ) {
     let size = window.single().map(|w| UVec2::new(w.physical_width().max(1), w.physical_height().max(1))).unwrap_or(UVec2::new(1280, 720));
     let want = scope.model.as_deref().filter(|_| scope.on).map(model_path);
     let lens = scope.lens_3d;
-    if drawn.model.is_some() && (drawn.model != want || drawn.lens != lens || (!lens && drawn.size != size)) {
-        for e in drawn.entities.drain(..) {
-            commands.entity(e).despawn();
+    match keep(drawn.model.as_deref(), drawn.lens, drawn.size, drawn.hidden, want.as_deref(), lens, size) {
+        Keep::Leave => {}
+        k @ (Keep::Hide | Keep::Show) => {
+            drawn.hidden = k == Keep::Hide;
+            if let Some(mut v) = drawn.picture.and_then(|p| visibility.get_mut(p).ok()) {
+                *v = if drawn.hidden { Visibility::Hidden } else { Visibility::Inherited };
+            }
+            if !drawn.hidden {
+                info!("scope view: {} shown again (kept)", drawn.model.as_deref().unwrap_or(""));
+            }
         }
-        drawn.model = None;
+        Keep::Remake => {
+            // The 2D picture's camera and shapes may be gone already (`settle_picture`).
+            for e in drawn.entities.drain(..) {
+                commands.entity(e).try_despawn();
+            }
+            drawn.model = None;
+            drawn.picture = None;
+            drawn.hidden = false;
+            *check = PictureCheck { ready: check.ready.clone(), ..default() };
+            check.ready.store(0, Relaxed);
+        }
     }
     let Some(path) = want else { return };
     if drawn.model.is_some() {
@@ -171,49 +342,61 @@ fn show(
     let place = Affine3A::from_translation(PLACE) * Affine3A::from_rotation_x(-std::f32::consts::FRAC_PI_2);
     let to = |p: Vec3| place.transform_point3(p);
     let mut entities = Vec::new();
+    // Each shape the render world must have drawn before the camera is turned off.
+    let mut shapes = Vec::new();
     for s in &model.shapes {
         let world = place * model.root * s.transform;
         let name = s.name.as_deref().unwrap_or("");
-        entities.push(commands.spawn((Name::new(format!("Scope {name}")), Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(world)), layer.clone())).id());
+        let e = commands.spawn((Name::new(format!("Scope {name}")), Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(world)), layer.clone())).id();
+        shapes.push((MainEntity::from(e), s.mesh.id(), s.material.id().untyped()));
+        entities.push(e);
     }
     // Black beyond the mask's sides, for screens wider than 16:10.
     let bar = models.meshes.add(Rectangle::new(4.0 * VIEW_HEIGHT, 2.0 * VIEW_HEIGHT));
     let black = plain.add(StandardMaterial { base_color: Color::BLACK, unlit: true, ..default() });
     for side in [-1.0f32, 1.0] {
         let at = to(Vec3::new(side * (MASK_HALF_WIDTH + 2.0 * VIEW_HEIGHT - 1.0), 0.0, 0.0));
-        entities.push(commands.spawn((Name::new("Scope side bar"), Mesh3d(bar.clone()), MeshMaterial3d(black.clone()), Transform::from_translation(at), layer.clone())).id());
+        let e = commands.spawn((Name::new("Scope side bar"), Mesh3d(bar.clone()), MeshMaterial3d(black.clone()), Transform::from_translation(at), layer.clone())).id();
+        shapes.push((MainEntity::from(e), bar.id(), black.id().untyped()));
+        entities.push(e);
     }
     let eye = Vec3::new(0.0, -1000.0, 0.0);
-    entities.push(
-        commands
-            .spawn((
-                Name::new("Scope camera"),
-                Camera3d::default(),
-                Camera { order: -5, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
-                RenderTarget::Image(ImageRenderTarget::from(image.clone())),
-                Projection::Orthographic(OrthographicProjection { scaling_mode: ScalingMode::FixedVertical { viewport_height: VIEW_HEIGHT }, near: 0.0, far: 3000.0, ..OrthographicProjection::default_3d() }),
-                Tonemapping::Linear,
-                Msaa::Sample4,
-                AmbientLight { color: Color::WHITE, brightness: 500.0, ..default() },
-                Transform::from_translation(to(eye)).looking_at(to(Vec3::ZERO), Vec3::Y),
-                layer.clone(),
-            ))
-            .id(),
-    );
+    // No MSAA and no transmission: each would add window-sized targets while the camera
+    // is on (module notes, #4781).
+    let camera = commands
+        .spawn((
+            Name::new("Scope camera"),
+            PictureCamera::default(),
+            Camera3d::default(),
+            Camera { order: -5, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
+            RenderTarget::Image(ImageRenderTarget::from(image.clone())),
+            Projection::Orthographic(OrthographicProjection { scaling_mode: ScalingMode::FixedVertical { viewport_height: VIEW_HEIGHT }, near: 0.0, far: 3000.0, ..OrthographicProjection::default_3d() }),
+            Tonemapping::Linear,
+            Msaa::Off,
+            ScreenSpaceTransmission { steps: 0, ..default() },
+            AmbientLight { color: Color::WHITE, brightness: 500.0, ..default() },
+            Transform::from_translation(to(eye)).looking_at(to(Vec3::ZERO), Vec3::Y),
+            layer.clone(),
+        ))
+        .id();
+    entities.push(camera);
+    check.camera = Some(MainEntity::from(camera));
+    check.shapes = shapes;
+    check.ready.store(0, Relaxed);
     // Under the HUD (whose nodes sit at the default z index), over the world.
-    entities.push(
-        commands
-            .spawn((
-                Name::new("Scope picture"),
-                Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-                ImageNode::new(image),
-                GlobalZIndex(-1),
-                Pickable::IGNORE,
-            ))
-            .id(),
-    );
+    let picture = commands
+        .spawn((
+            Name::new("Scope picture"),
+            Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+            ImageNode::new(image),
+            GlobalZIndex(-1),
+            Pickable::IGNORE,
+        ))
+        .id();
+    entities.push(picture);
     info!("scope view: {path} drawn ({} shapes), {VIEW_HEIGHT} units high", model.shapes.len());
     drawn.entities = entities;
+    drawn.picture = Some(picture);
     drawn.model = Some(path);
     drawn.lens = false;
     drawn.size = size;
@@ -531,5 +714,24 @@ mod tests {
     fn mod3_paths_gain_the_meshes_folder_once() {
         assert_eq!(model_path("interface\\HUD\\mildotscope.NIF"), "meshes\\interface\\HUD\\mildotscope.NIF");
         assert_eq!(model_path("Meshes\\interface\\hud\\x.nif"), "Meshes\\interface\\hud\\x.nif");
+    }
+
+    /// #4781: the 2D picture is kept hidden across a scope-down and shown again for the
+    /// same model and window size; anything else makes it anew; the 3D lens goes with it.
+    #[test]
+    fn the_2d_picture_is_kept_between_scope_ups() {
+        let (a, b, s, t) = (Some("meshes\\a.nif"), Some("meshes\\b.nif"), UVec2::new(3440, 1440), UVec2::new(1280, 720));
+        assert_eq!(keep(None, false, s, false, a, false, s), Keep::Leave, "nothing drawn: build");
+        assert_eq!(keep(a, false, s, false, a, false, s), Keep::Leave, "up and drawn");
+        assert_eq!(keep(a, false, s, false, None, false, s), Keep::Hide, "down: hidden, kept");
+        assert_eq!(keep(a, false, s, true, None, false, s), Keep::Leave, "down and hidden");
+        assert_eq!(keep(a, false, s, true, a, false, s), Keep::Show, "up again, the same");
+        assert_eq!(keep(a, false, s, true, None, false, t), Keep::Leave, "a resize while down waits for the next scope-up");
+        assert_eq!(keep(a, false, s, true, a, false, t), Keep::Remake, "up again at another window size");
+        assert_eq!(keep(a, false, s, false, a, false, t), Keep::Remake, "a resize while up");
+        assert_eq!(keep(a, false, s, true, b, false, s), Keep::Remake, "another scope");
+        assert_eq!(keep(a, false, s, true, a, true, s), Keep::Remake, "the 3D lens instead");
+        assert_eq!(keep(a, true, s, false, None, true, s), Keep::Remake, "the 3D lens goes down with its scope");
+        assert_eq!(keep(a, true, s, false, a, true, t), Keep::Leave, "the 3D lens does not follow the window size");
     }
 }
