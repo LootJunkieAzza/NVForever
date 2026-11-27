@@ -31,7 +31,7 @@
 //! The output's picture and its effects (2026-10-19) [documented: `RM_ItemIcon` at the
 //! list box's left plus 22, 472 down, 256 square; the item stats display's EffectsInfo
 //! card in `RM_ItemData`; hypothesis: the effects text as the Pip-Boy's ITEMS page writes
-//! it, under the WG and VAL cards]: the first output's ICON, and an aid item's own effects
+//! it, under the weight and value cards]: the first output's ICON, and an aid item's own effects
 //! or an apparel's or a weapon's enchantment's ("HP +40, RAD -10").
 //!
 //! The look [documented: the original's `menus\recipe_menu.xml`, layout in its units:
@@ -328,7 +328,7 @@ fn lacks(rt: &mut crate::script::Runtime, r: &RecipeDef) -> Vec<fnv_game::crafti
     missing(r, 1, |_| skill, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
 }
 
-/// An output's weight as the WG card says it.
+/// An output's weight as the weight card says it.
 pub(crate) fn weight_text(w: f32) -> String {
     format!("{w:.1}").trim_end_matches(".0").to_string()
 }
@@ -418,7 +418,7 @@ pub(crate) fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &O
         let selected = open.selected.min(rows.len().saturating_sub(1));
         let subcategory = filter.map(|_| subs[open.filter - 1].0.clone());
         let title = match filter {
-            None => "RECIPES".to_string(),
+            None => crate::pipboy::labels::built_in_label("sRecipes").to_uppercase(),
             Some(_) => subs[open.filter - 1].0.to_uppercase(),
         };
         let chosen = shown.get(selected).copied();
@@ -947,7 +947,7 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, presentation:(&View,crate::
                     m.spawn((at(ICON_AT.x, ICON_AT.y, ICON_SIZE, ICON_SIZE), ImageNode { color: amber(255.0), ..ImageNode::new(img) }));
                 }
             }
-            // Its effects, under the WG and VAL cards.
+            // Its effects, under the weight and value cards.
             if let Some(e) = v.effects.as_deref() {
                 m.spawn(at(340.0, 690.0, 290.0, 100.0)).with_children(|t| {
                     text(t, &look.row, "EFFECTS", 6.0, 0.0, bright);
@@ -957,7 +957,11 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, presentation:(&View,crate::
             // The output's weight and value.
             let wg = v.weight.map_or("--".to_string(), weight_text);
             let val = v.value.map_or("--".to_string(), |x| x.to_string());
-            for (k, (name, s)) in [("WG", wg), ("VAL", val)].into_iter().enumerate() {
+            // The cards' words: the item stats display's settings, as the Pip-Boy's cards
+            // read them [design, #4495: in place of the abbreviations read from the
+            // original's screen].
+            let words = ["sInventoryWeightUpper", "sInventoryValue"].map(crate::pipboy::labels::built_in_label);
+            for (k, (name, s)) in [(words[0], wg), (words[1], val)].into_iter().enumerate() {
                 let x = 340.0 + k as f32 * 150.0;
                 rule(m, x, 640.0, 140.0, LINE);
                 rule(m, x + 140.0 - LINE, 640.0, LINE, 30.0);
@@ -969,17 +973,23 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, presentation:(&View,crate::
             }
             // The recipe's box.
             let rx = RIGHT_AT.x;
-            let mw = look.title.width("Made at ...");
+            // The titles are the settings recipe_menu.xml names (`sMadeAt`,
+            // `sSkillRequirement`, `sIngredients`; the list's `sRecipes`): the load order's
+            // text, else NVForever's own label [design, #4495: in place of the words read
+            // from the original's screen].
+            let [made_at, skill_needed, ingredients] =
+                ["sMadeAt", "sSkillRequirement", "sIngredients"].map(crate::pipboy::labels::built_in_label);
+            let mw = look.title.width(made_at);
             brackets(m, rx, RIGHT_AT.y, BOX_WIDTH, RIGHT_AT.y + 515.0, (25.0, 50.0 + mw + 20.0));
             m.spawn(at(rx, RIGHT_AT.y - 28.0, BOX_WIDTH, 600.0)).with_children(|b| {
-                text(b, &look.title, "Made at ...", 50.0, 0.0, bright);
+                text(b, &look.title, made_at, 50.0, 0.0, bright);
                 text(b, &look.value, &v.made_at, 60.0, 78.0, bright);
                 if let Some((name, have, need)) = &v.skill {
-                    text(b, &look.title, "Skill Requirement", 50.0, 128.0, bright);
+                    text(b, &look.title, skill_needed, 50.0, 128.0, bright);
                     let ok = have >= need;
                     text(b, &look.value, &format!("{name} ({have}/{need})"), 60.0, 188.0, if ok { bright } else { amber(NOT_READY) });
                 }
-                text(b, &look.title, "Ingredients", 50.0, 238.0, bright);
+                text(b, &look.title, ingredients, 50.0, 238.0, bright);
                 let mut y = 298.0;
                 for (idx, (_, name, have, need)) in v.ingredients.iter().enumerate() {
                     let ok = have >= need;

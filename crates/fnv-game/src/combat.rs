@@ -805,11 +805,23 @@ impl Game<'_> {
     /// parameter. Hypothesis: OnHit's subject is the attacking actor here too — that page
     /// gives a projectile reference for a ranged hit on a non-actor, and we have no
     /// projectile references.]
+    ///
+    /// A co-op guest's shot (its actor the attacker) is the player's, as a companion's
+    /// kill is: the blocks see the player as the attacker, and the player's weapon
+    /// questions answer for the guest's shot ([`Game::shot_for_player`]), so a placed
+    /// object a script counts the player's hits on counts a guest's too [design].
     pub fn hit_object(&mut self, target: FormId, info: HitInfo) -> bool {
-        let mut ran = self.ref_event(target, event::ON_HIT, info.attacker.map(|a| Value::Ref(a.0)), info.attacker);
-        if let Some(w) = info.weapon {
-            ran |= self.ref_event(target, event::ON_HIT_WITH, Some(Value::Ref(w.0)), info.attacker);
+        let guest = info.attacker.filter(|&a| self.is_coop_actor(a));
+        let attacker = info.attacker.map(|a| self.as_player(a));
+        let was = self.shot_for_player;
+        if guest.is_some() {
+            self.shot_for_player = info.weapon.or(Some(FormId(0)));
         }
+        let mut ran = self.ref_event(target, event::ON_HIT, attacker.map(|a| Value::Ref(a.0)), attacker);
+        if let Some(w) = info.weapon {
+            ran |= self.ref_event(target, event::ON_HIT_WITH, Some(Value::Ref(w.0)), attacker);
+        }
+        self.shot_for_player = was;
         ran
     }
 

@@ -402,6 +402,33 @@ fn hop_or_obstacle(phys: &mut PhysState, id: u32, f: &fnv_nav::Follower, walker:
 /// The walker takes the last stretch of a walk, game units [our choice].
 const LAST_STRETCH: f32 = 64.0;
 
+/// A co-op guest's drawn copy of the host's actor a frame's move longer than its run
+/// would cover, up to this far (units), is caught up over a few frames rather than put
+/// on at once [design; observed: buckallobill, in game, FNV 1.4.0.525: a runner at
+/// about 516 units/s was put 49-57 units on in one frame on a guest; a script's move
+/// goes further].
+const CATCH_UP_MAX: f32 = 128.0;
+/// The run speed (units/s) taken for an actor with none known.
+const CATCH_UP_SPEED: f32 = 500.0;
+/// How much faster than its run a guest's copy catches up [design: a 50-unit lag at a
+/// 516 units/s run is gone in three frames at 60 fps].
+const CATCH_UP_RATE: f32 = 2.0;
+
+/// Where a guest draws the host's actor this frame: from where it was drawn (`from`)
+/// towards where the host has it (`to`), at most [`CATCH_UP_RATE`] times its run speed
+/// (`run`, units/s) in `dt` seconds; at `to` at once when that is further than
+/// [`CATCH_UP_MAX`] (a placement) or within a frame's catch-up.
+fn catch_up(from: [f32; 3], to: [f32; 3], run: f32, dt: f32) -> [f32; 3] {
+    let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    let far = (d[0] * d[0] + d[1] * d[1]).sqrt();
+    let reach = CATCH_UP_RATE * run.max(1.0) * dt.max(0.0);
+    if far > CATCH_UP_MAX || far <= reach {
+        return to;
+    }
+    let k = reach / far;
+    [from[0] + d[0] * k, from[1] + d[1] * k, from[2] + d[2] * k]
+}
+
 /// The length of one update of the walks of an hour passed in the Wait menu, seconds
 /// [our choice].
 const WAITED_STEP: f32 = 0.25;
@@ -1172,6 +1199,12 @@ struct Core {
     /// Cells whose actors were handed over (`all`), and the worldspace whose grid squares
     /// the exterior ones are: a grid square names another cell in another worldspace.
     cells_seen: HashSet<CellKey>,
+    /// A co-op host: the exterior cells of other worldspaces (or of this one while the
+    /// host is indoors) around guests away from it whose actors were handed over, by
+    /// worldspace and grid square ([`ResidentsCore::take_cells`]).
+    far_seen: HashSet<(u32, (i32, i32))>,
+    /// Those worldspaces' persistent references by grid square, indexed once each.
+    far_persistent: HashMap<u32, HashMap<(i32, i32), Vec<u32>>>,
     cells_seen_world: u32,
     /// The game's loaded cells when actors placed elsewhere were last looked for there.
     loaded_seen: BTreeSet<FormId>,
@@ -1390,6 +1423,10 @@ pub struct Residents {
     /// The game state of the package choice without `--play`.
     own: Option<Box<Game<'static>>>,
     core: Core,
+    /// A co-op guest's (`crate::coop`): the host runs the world, so no actor here thinks
+    /// (no package, walk or fight); each is drawn where the host draws it, by reference.
+    /// An actor the host has not drawn stays where it is. `None` in any other game.
+    pub remote: Option<HashMap<u32, RemotePose>>,
     /// Every actor of the loaded cells.
     pub all: bool,
     started: bool,
@@ -1401,6 +1438,104 @@ pub struct Residents {
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
 /// [design: `drive`]. Shared by drawing and prefetch so neither selects a stale world.
+impl Residents {
+    /// The fastest an actor runs here (its alert or calm run speed, units/s), for a
+    /// guest to tell a host NPC's script move from its run (`coop::NpcTrack::pose`).
+    pub fn top_speed(&self, id: u32) -> Option<f32> {
+        let id = FormId(id);
+        self.core.ai.agents.contains_key(&id).then(|| self.core.ai.alert_speeds(id).run.max(self.core.ai.calm_speeds(id).run))
+    }
+
+    /// Where actor `id`'s AI has it now (space, feet, heading), when it is a resident
+    /// this game runs (`coop::share_npcs`: an NPC the host stopped drawing).
+    pub fn walker_of(&self, id: u32) -> Option<(Space, [f32; 3], f32)> {
+        let a = self.core.ai.agents.get(&FormId(id))?;
+        Some((a.walker.space, a.walker.feet, a.walker.heading))
+    }
+
+    /// The furniture actor `id` is being put on at once (wanted so and not on it yet):
+    /// drawn but without `OnFurniture` for a frame or two, a co-op host sends it as on
+    /// it, not as off (`coop::sent_furniture`) [design].
+    pub fn being_put_on(&self, id: u32) -> Option<u32> {
+        let r = self.core.list.iter().find(|r| r.actor.0 == id)?;
+        match r.seat {
+            Seat::Wanted(f, true) => Some(f),
+            _ => None,
+        }
+    }
+
+    /// The furniture actor `id`'s AI has it on where it stands (a seat, a bed, a cross),
+    /// when it is a resident this game runs and is there, not on its way: the host sends
+    /// it for one it does not draw (`coop::share_npcs`), so a guest seats it there.
+    pub fn furniture_of(&self, id: u32) -> Option<u32> {
+        let a = self.core.ai.agents.get(&FormId(id))?;
+        seated_by_ai(a.activity, a.using.map(|f| f.0))
+    }
+
+    /// Co-op replication, the host's: the residents it simulates in its guests'
+    /// surroundings (`Streamer::coop_areas`) and does not draw itself, each as
+    /// (reference, base, space, feet, heading, walking). A guest draws them by these.
+    pub fn simulated_undrawn(&self, world: &WorldData, streamer: &Streamer) -> Vec<(u32, u32, Space, [f32; 3], f32, bool)> {
+        if streamer.coop_areas.is_empty() {
+            return Vec::new();
+        }
+        self.core
+            .list
+            .iter()
+            .filter(|r| r.joined && !r.failed && r.present)
+            .filter_map(|r| {
+                let a = self.core.ai.agents.get(&r.actor)?;
+                let w = &a.walker;
+                (!drawn(world, streamer, w.space, w.feet) && streamer.coop_areas.iter().any(|c| c.holds(w.space, w.feet))).then(|| {
+                    // Not under the land (`actor_feet::on_the_land`).
+                    let land = match w.space {
+                        Space::World(ws) => crate::actor_feet::land_height_in(world, ws, w.feet[0], w.feet[1]),
+                        Space::Interior(_) => None,
+                    };
+                    (r.actor.0, r.base, w.space, crate::actor_feet::on_the_land(w.feet, land), w.heading, a.activity == Activity::Travelling && w.moving)
+                })
+            })
+            .collect()
+    }
+}
+
+/// Where the host of a co-op game draws one of its actors ([`Residents::remote`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RemotePose {
+    pub feet: [f32; 3],
+    pub heading: f32,
+    pub moving: bool,
+    /// The furniture the host has it use (a chair, a bed, a cross), and whether it is on
+    /// it already (not walking up to it): a guest sits it there too.
+    pub furniture: Option<(u32, bool)>,
+    /// Where the host has it: its interior cell or the worldspace it stands in
+    /// (`nvf_coop::net::NpcState::space`; 0: not told, where it was here). It is drawn
+    /// only where that is loaded here [observed: buckallobill, in game, FNV 1.4.0.525:
+    /// MPs fighting inside on the host were drawn outside on a guest].
+    pub space: u32,
+}
+
+impl RemotePose {
+    /// What a guest takes the actor to be doing: there (its furniture wanted, so kept on
+    /// it) when standing, or whenever the host has it on furniture (going to it, getting
+    /// on, seated) even as its feet move: getting on moves the body, and taken as a walk
+    /// the guest's own getting on was told to get up [observed: buckallobill, in game,
+    /// FNV 1.4.0.525; the rule: design].
+    pub fn activity(&self) -> Activity {
+        if self.moving && self.furniture.is_none() {
+            Activity::Travelling
+        } else {
+            Activity::There
+        }
+    }
+}
+
+/// The furniture an actor's AI has it on ([`Residents::furniture_of`]): the one it
+/// uses, once it is there; none while it travels (on its way to it, or away).
+fn seated_by_ai(activity: Activity, using: Option<u32>) -> Option<u32> {
+    using.filter(|_| activity == Activity::There)
+}
+
 pub(crate) fn equipment_world<'a, 'w>(private: Option<&'a World<'w>>, shared: Option<&'a World<'w>>) -> Option<&'a World<'w>> {
     private.or(shared)
 }
@@ -1499,6 +1634,8 @@ impl Residents {
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
+            far_seen: HashSet::new(),
+            far_persistent: HashMap::new(),
             cells_seen_world: 0,
             loaded_seen: BTreeSet::new(),
             clock,
@@ -1607,7 +1744,7 @@ impl Residents {
             startup.push((true, format!("test aid {START_PLACE_AID}=0: the start's residents are drawn after its loading screen, {SPAWNS_PER_FRAME} a frame")));
         }
         let start = StartPlacing { on: under_screen, game_frames: 0, placed: 0, told: false };
-        Ok(Residents { own, core, all, started: false, warned: false, startup, start })
+        Ok(Residents { own, core, remote: None, all, started: false, warned: false, startup, start })
     }
 
     /// The named references the cell streamer must leave to this module (with `all` it
@@ -1805,12 +1942,63 @@ impl Core {
         });
     }
 
+    /// The actors of exterior cells, given by worldspace and grid square, that are not the
+    /// cells the host draws (`take_cells`): the cell's own references and the worldspace's
+    /// persistent ones standing in that square, as for the host's own cells.
+    fn take_far_cells(&mut self, world: &WorldData, refs: &RefTable, now: Vec<(u32, (i32, i32))>) {
+        let now: HashSet<(u32, (i32, i32))> = now.into_iter().collect();
+        let new: Vec<(u32, (i32, i32))> = now.difference(&self.far_seen).copied().collect();
+        self.far_seen = now;
+        let had = self.list.len();
+        for (w, g) in new {
+            let Some(ws) = world.index.worldspaces.get(&w) else { continue };
+            let persistent = self.far_persistent.entry(w).or_insert_with(|| {
+                let mut by_grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
+                let pc = ws.persistent_cell.and_then(|c| world.index.cells.get(&c));
+                for &r in pc.map_or(&[][..], |c| &c.refs) {
+                    if let Some(p) = refs.get(FormId(r)) {
+                        by_grid.entry(fnv_world::cell_of(p.pos[0], p.pos[1])).or_default().push(r);
+                    }
+                }
+                by_grid
+            });
+            let mine: Vec<u32> = persistent.get(&g).cloned().unwrap_or_default();
+            let cell = ws.grid.get(&g).and_then(|c| world.index.cells.get(c));
+            for r in cell.into_iter().flat_map(|c| c.refs.iter().copied()).chain(mine) {
+                if is_actor(refs, FormId(r)) {
+                    self.add(refs, FormId(r), None);
+                }
+            }
+        }
+        if self.list.len() > had {
+            info!("ai: {} actors of the cells around co-op guests away from the host join ({} in all)", self.list.len() - had, self.list.len());
+        }
+    }
+
     /// With `all`: hand over the actors of the cells that have loaded since last time.
     fn take_cells(&mut self, world: &WorldData, streamer: &Streamer, refs: &RefTable) {
-        let now: HashSet<CellKey> = match streamer.interior {
+        let mut now: HashSet<CellKey> = match streamer.interior {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
+        // A co-op host: the cells around each guest away from it are simulated too
+        // (`crate::coop::areas`), so their actors join as the host's own cells' do. With only
+        // the host's cells and the interiors behind their doors taken, a guest away at Primm
+        // found it empty [observed: buckallobill, in game, FNV 1.4.0.525]. Exterior cells of the worldspace the
+        // host draws go by its grid (`WorldData::grid_cell`); those of any other worldspace
+        // (Freeside, the Strip, a DLC's), or of this one while the host is indoors, by
+        // [`Self::take_far_cells`].
+        let mut far = Vec::new();
+        for area in &streamer.coop_areas {
+            match area.space {
+                Space::Interior(c) => {
+                    now.insert(CellKey::Interior(c));
+                }
+                Space::World(w) if w == world.world && streamer.interior.is_none() => now.extend(area.cells.iter().map(|g| CellKey::Exterior(*g))),
+                Space::World(w) => far.extend(area.cells.iter().map(|g| (w, *g))),
+            }
+        }
+        self.take_far_cells(world, refs, far);
         let new = newly_loaded(&mut self.cells_seen, &mut self.cells_seen_world, world.world, now);
         let before = self.list.len();
         for key in new {
@@ -1949,7 +2137,7 @@ impl Core {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             classified += 1;
             let (space, feet) = (a.walker.space, a.walker.feet);
-            let high = drawn(world, streamer, space, feet);
+            let high = simulated(world, streamer, space, feet);
             r.been_loaded |= high;
             if high {
                 self.loaded_at.insert(r.actor, self.clock_hours);
@@ -1981,7 +2169,7 @@ impl Core {
                     f.path.legs.iter().skip(f.leg).any(|l| {
                         l.points.iter().any(|p| {
                             points += 1;
-                            drawn(world, streamer, l.space, *p)
+                            simulated(world, streamer, l.space, *p)
                         })
                     })
                 });
@@ -2905,6 +3093,50 @@ impl Core {
         self.ai.events.clear();
     }
 
+    /// A co-op guest's frame in place of [`Core::think`] (`Residents::remote`): nobody
+    /// thinks; each actor the host draws is put where the host has it, with no physics
+    /// body of its own here to walk it anywhere else. The game is told that place too:
+    /// what is measured from the actor (where its lines are heard, a script's
+    /// GetDistance) is measured from where it is drawn [observed: buckallobill, in game,
+    /// FNV 1.4.0.525: with only the body moved, a guest heard the host's NPCs from where
+    /// its own game last had them].
+    fn follow(&mut self, game: &mut Game, remote: &HashMap<u32, RemotePose>, mut phys: Option<&mut PhysState>, blocks: Option<&mut ActorBlocks>, now: f32) {
+        self.join(game);
+        for (&id, pose) in remote {
+            let Some(a) = self.ai.agents.get_mut(&FormId(id)) else { continue };
+            if pose.space != 0 {
+                let space = if game.world.placed.world_grid.contains_key(&FormId(pose.space)) { Space::World(pose.space) } else { Space::Interior(pose.space) };
+                if a.walker.space != space {
+                    info!("ai [{}] {id:#010X}: in {:#010X} in the host's world: drawn there only", clock_text(game), pose.space);
+                    a.walker.space = space;
+                }
+            }
+            a.walker.feet = pose.feet;
+            a.walker.heading = pose.heading;
+            a.walker.moving = pose.moving;
+            a.walker.turning = false;
+            a.walker.air = None;
+            a.walker.tri = fnv_nav::graph::NONE;
+            a.activity = pose.activity();
+            let place = fnv_nav::path::Place { space: a.walker.space, pos: pose.feet };
+            // Its cell as the walker's space gives it, or the one it has (no cell found).
+            let cell = fnv_ai::goal::cell_of_place(game.world.placed, &place).or_else(|| game.world.peek(FormId(id)).and_then(|s| s.cell));
+            let _ = game.set_actor_place(FormId(id), cell, pose.feet, pose.heading);
+            // On the furniture the host has it on: the drawing sits it there
+            // ([`Core::note`] makes it the one it wants), at once when it is on already.
+            a.using = pose.furniture.map(|(f, _)| FormId(f));
+            if let (Some((f, on)), Some(r)) = (pose.furniture, self.list.iter_mut().find(|r| r.actor.0 == id)) {
+                if r.seat == Seat::None {
+                    r.seat = Seat::Wanted(f, on);
+                }
+            }
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(id);
+            }
+        }
+        self.note(game, blocks, &HashSet::new(), now);
+    }
+
     /// Whether each resident is in the world and enabled, as the game has it now. Also
     /// while a menu or a conversation holds the game ([`Core::think`]): a script run there
     /// (a terminal's result script, a dialogue result) that enables an actor disabled
@@ -3275,6 +3507,12 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
     }
 }
 
+/// Whether a place is drawn here or in a co-op guest's surroundings the host simulates
+/// (`Streamer::coop_areas`, empty outside co-op): its residents are in the high process.
+fn simulated(world: &WorldData, streamer: &Streamer, space: Space, feet: [f32; 3]) -> bool {
+    drawn(world, streamer, space, feet) || streamer.coop_areas.iter().any(|a| a.holds(space, feet))
+}
+
 /// Whether a place is in the cells drawn now.
 fn drawn(world: &WorldData, streamer: &Streamer, space: Space, feet: [f32; 3]) -> bool {
     match (space, streamer.interior) {
@@ -3448,6 +3686,7 @@ pub fn drive(
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
             res.core.check_rooted(&world, &models.data, actor_world.as_deref());
+            let remote = res.remote.as_ref();
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             let (world_ref, streamer_ref) = (&*world, &*streamer);
@@ -3475,7 +3714,12 @@ pub fn drive(
                 drop(span);
                 let span = info_span!("ai::think").entered();
                 let restored = rt.restored_from_save;
-                core.think(&mut rt.game, false, restored, &nav, &world, &mut doors, phys, blocks, dt, now, waited);
+                // A co-op guest: the host thinks for every actor (`Residents::remote`, None
+                // outside co-op).
+                match remote {
+                    Some(remote) => core.follow(&mut rt.game, remote, phys, blocks, now),
+                    None => core.think(&mut rt.game, false, restored, &nav, &world, &mut doors, phys, blocks, dt, now, waited),
+                }
                 drop(span);
                 starting.then(|| core.start_bodies(&rt.game))
             })
@@ -3484,6 +3728,7 @@ pub fn drive(
     };
     let equipment_world = equipment_world(res.own.as_deref().map(|g| &g.world), sim.as_deref().map(|s| &s.world));
     let mut spawn_stats = crate::actors::ActorStats::default();
+    let remote = res.remote.as_ref();
     let core = &mut res.core;
     // Load doors used: the doors' sounds where the listener is, the body left at the door
     // fades out, the one drawn at the other side fades in (`door_fade.rs`).
@@ -3609,7 +3854,18 @@ pub fn drive(
         // furniture has it (walking up to it, on it or getting off: `on`). One waiting for
         // a seat or refused one stands free and follows the landscape.
         let on_landscape = !on;
-        let feet = phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet, on_landscape)));
+        // A co-op guest's actor the host draws: where the host draws it, a short jump
+        // caught up at a run's pace ([`catch_up`]), a long one (a script's move) at once.
+        let feet = if remote.is_some_and(|m| m.contains_key(&r.actor.0)) {
+            let top = if core.ai.agents.contains_key(&r.actor) { core.ai.alert_speeds(r.actor).run.max(core.ai.calm_speeds(r.actor).run) } else { CATCH_UP_SPEED };
+            if r.spawned && visible && !on {
+                catch_up(r.drawn_feet, w.feet, top, dt)
+            } else {
+                w.feet
+            }
+        } else {
+            phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet, on_landscape)))
+        };
         let step = [feet[0] - r.drawn_feet[0], feet[1] - r.drawn_feet[1]];
         let moving = agent.activity == Activity::Travelling && step[0].hypot(step[1]) > 1e-4;
         if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {

@@ -749,7 +749,7 @@ fn terrain_parallax_composes_with_every_folded_variant_and_is_absent_without_its
     // shader reads no height map and holds no march: the pipeline there always was.
     let modules = terrain_modules();
     let entry = "embedded://nvforever/terrain.wesl";
-    let heights: std::collections::BTreeSet<(u32, u32)> = (64..70).map(|b| (3, b)).collect();
+    let heights: std::collections::BTreeSet<(u32, u32)> = (64..71).map(|b| (3, b)).collect();
     for bindless in [false, true] { for (height, anti) in [(false, false), (true, false), (false, true), (true, true)] {
         let off = compose(&modules, entry, &terrain_defs(bindless, false, height, anti, false));
         let on = compose(&modules, entry, &terrain_defs(bindless, false, height, anti, true));
@@ -762,7 +762,12 @@ fn terrain_parallax_composes_with_every_folded_variant_and_is_absent_without_its
             // the reads, terrain.rs `TerrainMaterials::folds`).
             let (t_off, t_on) = (texture_bindings(&off), texture_bindings(&on));
             assert!(t_off.is_disjoint(&heights), "{t_off:?}: no height map without the def");
-            assert!(heights.is_subset(&t_on), "{t_on:?}: every layer's height map with it");
+            assert!(heights.is_subset(&t_on), "{t_on:?}: every layer's height map, and the base's, with it");
+        }
+        // A quadrant of its base alone (#3846): the base mesh has no second coordinate.
+        for (bake, parallax) in [(false, false), (false, true), (true, false)] {
+            let defs: Vec<ShaderDefVal> = terrain_defs(bindless, bake, height, anti, parallax).into_iter().filter(|d| *d != ShaderDefVal::from("VERTEX_UVS_B")).collect();
+            compose(&modules, entry, &defs);
         }
     }}
     // A bake copy never takes the def (terrain.rs `parallax_def`), but the variant composes.

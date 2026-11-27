@@ -893,17 +893,32 @@ and is off by default and in both presets [design].
   `TX04` (six `SuburbanRubble01_p` for NIF shapes, five impact decals) [documented:
   FalloutNV.esm, counted with `fnvtool esm decode` on the test install, 2026-11-21]. An
   authored set's `_p` is therefore the landscape's only height source.
-- [design] **The base is flat.** A quadrant's base texture takes no height map in this stage:
-  a quadrant without painted layers is drawn by the separate landscape material, which
-  stays unshifted, and a moving base would break at that quadrant's edge.
+- [design] **The base marches too** (#3846; flat in the first stage). Much of the ground is
+  base: in WastelandNV's 17,510 quadrants with painted layers it makes up 59% of the blend on
+  average and more than half of it at 59% of the vertices; the other 48,042 have no painted
+  layer, most of them cells without a base record either, outside the map (world.md §3)
+  [observed: the LAND records of FalloutNV.esm and its DLC masters, `ATXT` and `VTXT` as
+  stored, read with `fnv_world::land` as `crates/fnv-world/examples/land_layers.rs` reads
+  them]. Its height comes from where a layer's does and adds its share x its own depth x (1 -
+  height) to the one march. A quadrant without painted layers is drawn by the folded material
+  with no layers when its base has an authored height map, or no active set and a BC3 diffuse
+  (whose alpha may be one, whatever the switch, so the draws do not change with it), and marches
+  with its neighbours; every other one keeps the separate landscape material. The game's own
+  ground always does: of the 78 distinct diffuses the base game's and the DLCs' LTEX records
+  name, 75 are in the archives, all DXT1 [observed: their DDS headers]. The folded draw also
+  darkens burnt ground (docs/design/grass-fire.md), which the separate one does not.
+  Authored base height maps are loaded with the material, as the layers' are, whatever the
+  switch. No quadrant has more than six painted layers in those records,
+  so the layers drawn on their own (flat) are the edge stitching's (world.md §3), each painted
+  on an edge row.
 - [design] **One march.** Six layers in one draw rule out a march per layer. The folded
   draw marches once, steep parallax with the relief refinement, as NIF shapes march (the
   vendored `parallaxed_uv`'s relief method: its steps, view vector, tangent frame, signs and
   grazing clamp; "The march" below), over one blended depth: the sum over the layers of share x the layer's own depth x (1 - height),
   the share the layer's ordered share (painted opacity, laid
   over the earlier layers as the ordinary blend lays them; the diffuse's alpha has no part in
-  it, world.md §3 "Landscape layers: the diffuse's alpha"); the base and a layer without a
-  height map add no depth (flat at the surface). Then every texture of the quadrant, the
+  it, world.md §3 "Landscape layers: the diffuse's alpha"), and the base's likewise; one without
+  a height map adds no depth (flat at the surface). Then every texture of the quadrant, the
   base's and the layers', diffuse and normal map, is read at the one moved coordinate.
   Flat at the surface rather than mid-height so that the shift falls to nothing as a
   height-mapped layer's share does.
@@ -1042,7 +1057,7 @@ and is off by default and in both presets [design].
     "Texture Block Compression in Direct3D 11"]), mips included, and goes into the layer's
     height slot. The shader, the march, the weights and the edges are those above; only the
     depth differs: 0.03 for every pack (`ALPHA_HEIGHT_DEPTH`; no scalar file sets it).
-  - *Which textures.* A folded layer's diffuse that is DXT5 with sides in multiples of 4 and
+  - *Which textures.* A folded layer's or base's diffuse that is DXT5 with sides in multiples of 4 and
     whose alpha varies by at least 16 of 255 on its largest level of at most 256 texels a side.
     The diffuses FalloutNV.esm's LTEX records name are opaque DXT1 in the base game's archives
     [observed: jojokengly, #3486; world.md §3], so nothing is read from them. Other layouts with alpha
@@ -1113,9 +1128,9 @@ and is off by default and in both presets [design].
   itself is chosen at vertices, where no interpolation enters.
 - **Not done in stage 1** (owed): a passing run of the two ground-pack scenarios; the
   frame-time cost with and without the switch at a ground-heavy and a layer-heavy place;
-  before/after pictures with a ground pack (the readback aid saves its shots); the base's own
-  `_p`; height maps for the separate landscape materials and for the layers past the first
-  six of a quadrant (drawn on their own over the folded draw, unshifted).
+  before/after pictures with a ground pack (the readback aid saves its shots). Still without
+  height maps: the separate landscape materials (GPUs without bindless textures) and the layers
+  drawn on their own over the folded draw. (The base's own: #3846, above.)
 
 ## Load order: per file, so ship complete sets
 

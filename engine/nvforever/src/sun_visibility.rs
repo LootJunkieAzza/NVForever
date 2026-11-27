@@ -59,7 +59,7 @@ use bevy::pbr::{MeshPipelineKey, MeshPipelineViewLayoutKey, MeshPipelineViewLayo
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::{
-    AsBindGroup, BindGroupLayoutEntry, BindingType, ShaderStages,
+    AsBindGroup, BindGroupLayoutEntry, BindingType, BufferBindingType, ShaderStages,
     AddressMode, Extent3d, FilterMode, Sampler, SamplerDescriptor, ShaderType, TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
     TextureViewDescriptor, TextureViewDimension, UniformBuffer,
 };
@@ -606,7 +606,7 @@ impl Plugin for SunVisibilityPlugin {
             .add_systems(Startup, debug_aids)
             .add_systems(PostUpdate, (log_mask.run_if(resource_changed::<SunVisibility>), mark_targets.run_if(marking_needed)).chain());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
-        render_app.init_resource::<SunVisibilityGpu>().init_resource::<CloudVolumeFrame>().add_systems(ExtractSchedule, extract_sun_visibility).add_systems(
+        render_app.init_resource::<SunVisibilityGpu>().init_resource::<CloudVolumeFrame>().add_systems(ExtractSchedule, extract_sun_visibility.in_set(SunVisibilityExtracted)).add_systems(
             Render,
             prepare_sun_visibility.in_set(CloudShadowsDecided).in_set(RenderSystems::PrepareResourcesFlush).after(crate::volumetric_clouds_lightvol::gpu::publish_light_volume_reader),
         );
@@ -790,12 +790,46 @@ pub fn counts_as_sampled(e: &BindGroupLayoutEntry) -> bool {
     e.count.is_none() && e.visibility.contains(ShaderStages::FRAGMENT) && matches!(e.ty, BindingType::Texture { .. })
 }
 
-/// A material's sampled fragment textures outside binding arrays on this device, and whether it is
-/// bindless here.
-fn material_textures<M: AsBindGroup>(device: &RenderDevice) -> (u32, bool) {
+/// What the fragment stage sees of the bindings that wgpu limits by number, binding arrays left out
+/// (they count against other limits).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StageCounts {
+    /// Sampled ([`counts_as_sampled`]).
+    pub textures: u32,
+    pub samplers: u32,
+    pub uniforms: u32,
+}
+
+impl StageCounts {
+    pub fn of<'a>(entries: impl IntoIterator<Item = &'a BindGroupLayoutEntry>) -> Self {
+        let mut out = StageCounts::default();
+        for e in entries.into_iter().filter(|e| e.count.is_none() && e.visibility.contains(ShaderStages::FRAGMENT)) {
+            match e.ty {
+                _ if counts_as_sampled(e) => out.textures += 1,
+                BindingType::Sampler(_) => out.samplers += 1,
+                BindingType::Buffer { ty: BufferBindingType::Uniform, .. } => out.uniforms += 1,
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// With another group's.
+    pub fn plus(self, other: StageCounts) -> Self {
+        StageCounts { textures: self.textures.saturating_add(other.textures), samplers: self.samplers.saturating_add(other.samplers), uniforms: self.uniforms.saturating_add(other.uniforms) }
+    }
+}
+
+/// The mesh view layout's bindings under `key`, from bevy_pbr's own layouts.
+pub(crate) fn view_counts(layouts: &MeshPipelineViewLayouts, key: MeshPipelineViewLayoutKey) -> StageCounts {
+    let layout = layouts.get_view_layout(key);
+    StageCounts::of(layout.main_layout.entries.iter().chain(layout.binding_array_layout.entries.iter()))
+}
+
+/// A material's bindings outside binding arrays on this device, and whether it is bindless here.
+fn material_counts<M: AsBindGroup>(device: &RenderDevice) -> (StageCounts, bool) {
     let bindless = bevy::render::material_bind_groups::material_uses_bindless_resources::<M>(device);
-    let n = M::bind_group_layout_entries(device, !bindless).iter().filter(|e| counts_as_sampled(e)).count();
-    (n as u32, bindless)
+    (StageCounts::of(&M::bind_group_layout_entries(device, !bindless)), bindless)
 }
 
 /// The most textures of the materials drawn on a device: `others` always, the folded terrain
@@ -806,36 +840,42 @@ pub fn most_textures(terrain: (u32, bool), others: &[u32]) -> u32 {
     others.iter().copied().chain(terrain.1.then_some(terrain.0)).max().unwrap_or(0)
 }
 
+/// The most bindings of each kind that a material drawn in the world's view has on this device
+/// ([`most_textures`], whose rule is every kind's), and whether the world's NIF and terrain
+/// materials are bindless.
+pub(crate) fn world_material_counts(device: &RenderDevice) -> (StageCounts, bool) {
+    let terrain = material_counts::<crate::terrain::TerrainMaterial>(device);
+    let (nif, nif_bindless) = material_counts::<nvf_assets::nif_material::NifMaterial>(device);
+    let others = [
+        nif,
+        material_counts::<nvf_assets::nif_surface_blend::NifBlendMaterial>(device).0,
+        material_counts::<StandardMaterial>(device).0,
+        material_counts::<crate::sky::SkyMaterial>(device).0,
+        material_counts::<crate::grass::GrassMaterial>(device).0,
+        material_counts::<crate::tree::LeafMaterial>(device).0,
+        material_counts::<crate::tree::BarkMaterial>(device).0,
+        material_counts::<crate::tree::BillboardMaterial>(device).0,
+        material_counts::<crate::water::WaterMaterial>(device).0,
+        material_counts::<crate::volumetric_clouds::CloudVolumeMaterial>(device).0,
+        material_counts::<crate::distant_lights::GlowMaterial>(device).0,
+    ];
+    let most = |of: fn(StageCounts) -> u32| most_textures((of(terrain.0), terrain.1), &others.map(of));
+    (StageCounts { textures: most(|c| c.textures), samplers: most(|c| c.samplers), uniforms: most(|c| c.uniforms) }, terrain.1 && nif_bindless)
+}
+
 /// [`CloudVolumeRoom`] on this device: the fullest view layout counted from bevy_pbr's own
 /// layouts ([`FULLEST_VIEW_TEXTURES`] without them), the world's materials counted from their
 /// derived layouts as this device makes them.
 fn measure_room(device: &RenderDevice, layouts: Option<&MeshPipelineViewLayouts>) -> CloudVolumeRoom {
-    let view = layouts.map_or(FULLEST_VIEW_TEXTURES, |l| {
-        let layout = l.get_view_layout(fullest_view_key());
-        layout.main_layout.entries.iter().chain(layout.binding_array_layout.entries.iter()).filter(|e| counts_as_sampled(e)).count() as u32
-    });
-    let terrain = material_textures::<crate::terrain::TerrainMaterial>(device);
-    let (nif, nif_bindless) = material_textures::<nvf_assets::nif_material::NifMaterial>(device);
-    let others = [
-        nif,
-        material_textures::<nvf_assets::nif_surface_blend::NifBlendMaterial>(device).0,
-        material_textures::<StandardMaterial>(device).0,
-        material_textures::<crate::sky::SkyMaterial>(device).0,
-        material_textures::<crate::grass::GrassMaterial>(device).0,
-        material_textures::<crate::tree::LeafMaterial>(device).0,
-        material_textures::<crate::tree::BarkMaterial>(device).0,
-        material_textures::<crate::tree::BillboardMaterial>(device).0,
-        material_textures::<crate::water::WaterMaterial>(device).0,
-        material_textures::<crate::volumetric_clouds::CloudVolumeMaterial>(device).0,
-        material_textures::<crate::distant_lights::GlowMaterial>(device).0,
-    ];
-    CloudVolumeRoom::new(device.limits().max_sampled_textures_per_shader_stage, view, most_textures(terrain, &others), terrain.1 && nif_bindless)
+    let view = layouts.map_or(FULLEST_VIEW_TEXTURES, |l| view_counts(l, fullest_view_key()).textures);
+    let (material, bindless) = world_material_counts(device);
+    CloudVolumeRoom::new(device.limits().max_sampled_textures_per_shader_stage, view, material.textures, bindless)
 }
 
 /// Render world: the shared uniform buffer and sampler (made the first time the plumbing
 /// is on, then kept), and what this frame's extraction asked for.
 #[derive(Resource, Default)]
-struct SunVisibilityGpu {
+pub(crate) struct SunVisibilityGpu {
     parts: Option<GpuParts>,
     uniform: SunVisibilityUniform,
     cloud: Option<AssetId<Image>>,
@@ -852,6 +892,18 @@ struct SunVisibilityGpu {
     /// What is held for the layout with the light volume's arrays.
     volume: VolumeLayout,
 }
+
+impl SunVisibilityGpu {
+    /// Whether the views' layout has the light volume's arrays (bindings 45-46) in this frame, for
+    /// an extraction after [`SunVisibilityExtracted`].
+    pub(crate) fn light_volume_bound(&self) -> bool {
+        self.volume.on
+    }
+}
+
+/// [`extract_sun_visibility`]'s set in the extraction.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct SunVisibilityExtracted;
 
 /// What the plumbing holds for the views' layout with the light volume's arrays, all of it gone with
 /// the layout or the last view (`V` the stand-in's view, another type in the tests).
@@ -1716,7 +1768,7 @@ pub(crate) mod tests {
     /// view layout 10 with the arrays (shadow maps 2, depth and motion prepasses 2,
     /// transmission 1, sun visibility 2 + 2, ambient occlusion 1), two more with a reflection cube
     /// on a device without binding arrays; StandardMaterial's 8 with `pbr_specular_textures`, the
-    /// NIF material's 12, the folded terrain's 27 with #3322's height maps, drawn where it is bindless
+    /// NIF material's 12, the folded terrain's 28 with #3322's and #3846's height maps, drawn where it is bindless
     /// only (its textures are in binding arrays then), and 10
     /// for the largest material that stays non-bindless when the rest are (the sky's 8 + 2).
     #[test]
@@ -1731,7 +1783,7 @@ pub(crate) mod tests {
         let nif = standard + textures(&unix_lines(include_str!("../../nvf-assets/src/nif_material.rs")), "pub struct NifSurface {", "\n}\n");
         let folded = standard + textures(&unix_lines(include_str!("terrain.rs")), "pub struct TerrainLayers {", "\n}\n");
         let sky = standard + textures(&unix_lines(include_str!("sky.rs")), "pub struct SkyDisplay {", "\n}\n");
-        assert_eq!((standard, nif, folded, sky), (8, 12, 27, 10));
+        assert_eq!((standard, nif, folded, sky), (8, 12, 28, 10));
         // Not bindless: the folded terrain is not drawn; with a reflection cube (no binding arrays)
         // 24 with the arrays, 28 with the margin.
         let others = [nif, standard + 2, standard, sky];
@@ -1743,10 +1795,10 @@ pub(crate) mod tests {
         assert!(CloudVolumeRoom::new(26, FULLEST_VIEW_TEXTURES - REFLECTION_CUBE_TEXTURES, material, false).fits, "the cube takes two of them");
         // Bindless, the cubes in binding arrays: 20 with the arrays, 24 with the margin. A bindless
         // terrain counts with what it keeps outside them.
-        assert_eq!((most_textures((0, true), &[0, 0, 0, sky]), most_textures((folded, true), &others)), (10, 27));
+        assert_eq!((most_textures((0, true), &[0, 0, 0, sky]), most_textures((folded, true), &others)), (10, 28));
         let view = FULLEST_VIEW_TEXTURES - REFLECTION_CUBE_TEXTURES;
         assert!(!CloudVolumeRoom::new(23, view, sky, true).fits && CloudVolumeRoom::new(24, view, sky, true).fits);
-        assert!(CloudVolumeRoom::new(1 << 20, FULLEST_VIEW_TEXTURES, 27, false).fits, "a desktop adapter's limit");
+        assert!(CloudVolumeRoom::new(1 << 20, FULLEST_VIEW_TEXTURES, 28, false).fits, "a desktop adapter's limit");
         // The views that take the arrays are HDR, so none tonemaps in the shader; the cube is
         // counted with the others.
         assert!(fullest_view_key().contains(MeshPipelineViewLayoutKey::ENVIRONMENT_MAP) && !fullest_view_key().contains(MeshPipelineViewLayoutKey::TONEMAP_IN_SHADER));

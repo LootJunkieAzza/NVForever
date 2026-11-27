@@ -2181,9 +2181,270 @@ longer exists (the settings menu overhaul); the haze is a row of its own, "Deser
   (1920x1080): from the air over Goodsprings at 12:00 looking north-east, at 18:30 west,
   at 06:30 east, under the overcast and the hazy weather, and the street, in the PR. The
   cost is not measured on a slower GPU or at 1920x1080.
-### 3.17 ALC shadows (`light-shadows`; off by default, not part of `enhanced`)
+### 3.17 ALCS (experimental) (`light-shadows`; off by default, not part of `enhanced`)
 
-**Name.** ALC stands for All Lights Cast. The row was called Lamp shadows until
+**Name.** ALCS stands for All Lights Cast Shadows; the row is ALCS (experimental) since
+2026-11-24 (ALC shadows before; "ALC shadows" below is the same row).
+
+**Rewrite of 2026-11-24** (a play test, two videos and two pictures of Doc Mitchell's
+house: stripes over lit walls and faces, an actor going dark and back every few seconds, a
+carried gourd's shadow left on the wall; "the shadows do not update real time"). Causes
+found and what replaced them (light_shadows.rs, light_shadow_detail.rs, the patched
+bevy_pbr):
+
+| Fault | Cause | Now |
+|---|---|---|
+| Stripes on lit surfaces | Bevy's point-light soft shadows scale the blocker search and the filter by the light's size as a plain number (a fraction of a metre in mind); with a lamp size of 24 game units the search swept most of the cube and the filter grew to many texels, each tap compared against the fragment's one depth. The depth bias (0.08, a length in world units) was a millimetre. | The renderer's own soft shadows in world units, each tap compared against the fragment's surface along it (`nvf_sample_shadow_cubemap_soft`); biases of 1 unit and 1 texel (`DEPTH_BIAS`, `NORMAL_BIAS`). Spot lamps keep the camera's filter. |
+| An actor goes dark, then pops back | A skeleton marked the lamps only when the box round all its joints changed by 4 units; a leaning or gesturing actor stood in the shadow of its old pose until then, or until the periodic refresh (600 frames, 4 s at 150 fps). | Any joint moving 0.5 units marks (`MOVE_EPS`, under the bias); shapes by centre and corner. |
+| Shadows lag or stay behind | Lights took turns (every frame, or every 2nd or 4th), 3 a frame at most and the nearest always first, so with more marked lights than draws the rest never drew; any mesh despawned anywhere redrew every lamp near the camera in full; a shape with no record was baked into the static cache at its first move. | Every marked face in view draws in its frame, 8 lights a frame on Quality and 3 on Performance, the longest wait first (`draw_priority`); every caster's place is kept from the switch-on (`ShapeAt`), so one that goes or first moves marks exactly the faces it was in. |
+| Shadows blink at a cache redraw | A face drawn into the static cache was copied out without its moving casters, which came back a frame or more later. | Such a face is drawn quietly (`HoldLightShadowMaps::static_quiet`) and composited next frame; a due composite goes before another cache redraw. |
+| Static shadows missing after a turn of the view | A light told to draw on last frame's visibility and lost from view this frame counted as drawn. | `skip_fixtures` marks it again (`Pass::lost`). |
+
+**Second round, same day** (the player's hand test of the first build: "the shadows on
+Performance are very blocky and update slow", "on Quality also not 100% real-time"; the
+session's own log showed no light waiting for a draw). The maps were current; their texels
+showed. With a lamp close over a caster a 512 map's texel is several units wide on the
+floor, Performance's filter (the camera's, a fraction of a texel wide on these maps) drew
+each as a block, and a moving edge jumped block by block. Now: every lamp with a slot takes
+the game's own filter, with a fixed width of 1.75 texels and 8 taps where it has no soft
+size (Performance), and never narrower than that on Quality; Quality's cubes are 1024
+(`cube_side`; 25 MB a cube and as much again for the static cache: 1.4 GB for 28 lamps,
+logged). The soft size goes to the renderer in `HoldLightShadowMaps::soft_size` and no
+longer through the light's `radius`, which the lighting reads too (a lamp's highlight grew,
+dimmed and popped). The ambient occlusion's lamp factor (§3.1) now follows a lamp's shadow
+fade (`ssao_lighting/hook.rs`): a lamp fading its shadow in or out had neither shadow nor
+occlusion for the fade's length. Open from the occlusion's audit, for the player: with ALCS
+on, the casting lamps' light takes no occlusion (it is their shadow's job), so indoors the
+occlusion is left on the ambient term alone; its radius is capped at 80 render pixels, about
+5% of the distance at 4K; a casting placed spot lamp would dim first-person arms as the
+flashlight does (none seen cast in the scenes run).
+
+**Casters not ready** (same day; the player: the shadows "load very slow, sometimes taking
+up to 30 secs" after entering an interior, a load or a new game, and switching the row
+"sometimes causes them to not load correctly"). A light's maps are drawn once and held; a
+caster whose mesh or material was still loading, or whose shadow pipeline was still being
+built, was not in them, and nothing drew the light again until the periodic refresh (3,600
+frames: 24 s at 150 frames a second; 600 before the rewrite, which hid it). Loading the
+player's save, the room's furniture cast no lamp shadow in pictures at 0.5 to 16 s and did at
+24 s. Now the renderer tells the game which lights' views were drawn without all their
+casters (`bevy::pbr::nvf_take_unready_shadow_lights`), and the game draws those lights
+again in full, a little later each time (`SETTLE_FRAMES`) and every 48 frames while
+pipelines are being built (`BUILD_WAIT`, a first run with a new picture mode); the loading
+screen's pre-draw waits for it within its cap. The same save: the shadows are in the picture
+at 0.5 s, the screen no longer up (1.8 s); a first run with SMAA or 8x multisampling, never
+run before, has them at 1 s. Checked with and without upscaling on that save, the
+occlusion and ALCS on Quality: no anti-aliasing, 4x multisampling, TAA, SMAA, FSR 3.1 and
+DLSS, each without an error and with the shadows and the occlusion in the picture; the row
+switched Off, Quality, Performance and Quality again mid-game, and the occlusion Off and
+on, each back within a second. The occlusion alone does not change between 0.5 and 26 s
+after a load: it was the lamps' shadows that came late.
+
+**Two sizes of maps** (same day). An Ultra choice for both rows was built with them ("an
+Ultra Quality for AO and ALCS that will run at full resolution": the near maps at the
+Shadow resolution row's full side and the far at 1024, 1.8 GB for nine lamps; the occlusion
+at full resolution, 0.41 ms against 0.13) and dropped after the player's play test:
+"basically not noticeable even at 4k native". What follows is what stayed. The point lights' cubes are in two textures:
+the `Tuning::near` lights nearest the camera (8, one already there keeping its place against
+one 1.25 times nearer, `near_set`) in the near one, the rest in the far one, each with a
+static cache of its own (the patched bevy_pbr's `HoldLightShadowMaps::far_slots`, a third
+cube binding, 50, in the mesh views (45 at first; 45 and 46 went to the volumetric light, 47 to 49 are for the bounce light of #4442); a light's slot there is 128 + its slot, read in
+`shadow_sampling.wesl` `nvf_point_far`). Sides (`cube_sides`): Performance 512 for all
+(1024 with Shadow resolution 4096), no far texture; Quality 1024 and 512. A light that has to change texture does so in sight of
+the camera, two a frame at most, and draws all its faces with every caster in that frame
+(`LampState::reslot`), so its shadow does not leave the picture; its caches follow. Memory
+(logged): the player's living room, 9 lights, 453 MB on Quality (604 MB with all at 1024). Checked: a teleport every 2 s round the Prospector Saloon (24 lights)
+moved 41 lights between the textures without an error, a cache miss or a missing shadow in
+the pictures; the row switched through Performance, Quality and Off; the Vulkan validation
+layer reports nothing of the new binding or the copies. Cost against
+the build before, the saloon walked: the same (GPU 4.4-4.9 ms, the main pass 0.7-0.9 ms).
+A first try sized the near texture by every shadowed light drawing, the far ones too, and
+made it anew whenever they drew; the `light-shadows*` scenarios' cache-miss checks caught
+it.
+
+**Light sizes** (same day, after the play test that dropped Ultra; the player: "Implement:
+AO on highlights and soft-shadow width per lamp type/size"; the occlusion's part is in a
+pull request of its own). A lamp's light size, which sets how soft its
+shadow's edge is, is its fixture's (`light_shadow_detail.rs` `lamp_soft_size`: 0.8 of the
+mean of the two larger half extents of the nearest fixture shape within 160 units, held to
+4..40 units); a light with no fixture in reach, a fill or ambient light, takes a tenth of
+its range (24..48); a muzzle flash 8, a grass fire 30, an explosion 48. Every lamp had 24.
+The player's living room: its nine lamps come to 7..40 units, all by a fixture (a shape has
+its bounds only a frame or more after it is spawned: the lamps look again when bounds
+appear). In that room's picture 0.7% of pixels change by 4 levels or more with the sizes.
+
+**Third round** (2026-11-25, after the play test of those: "character shadows look better on
+Performance sometimes as the Quality shadows have some visual problems", "character shadows
+seem to be very heavy", and a frame rate that fell over a session of switching the rows and
+entering interiors until the game was restarted).
+
+*The soft edges.* Compared in Doc Mitchell's opening (the doctor seated under a lamp by his
+head, his shadow on the floor two metres below): Performance drew it whole; Quality left a
+smudge, at the fixtures' sizes, at 24, at 12 and at 6 units alike. Two causes. The sizes were
+a ball of light half a metre and more across, and the game hangs its lamps close over what
+they light, so the penumbra on the floor came to tens of centimetres: they are a bulb's and
+a shade's now (`FIXTURE_SHARE` 0.2 of the fixture, 2..6 units; 4 without a fixture; a muzzle
+flash 2, a grass fire 6, an explosion 8). And the filter could be wider than the blocker
+search (0.07 against `light_size / distance`): the shadow was blurred by the whole penumbra
+but shown only where the search had found a blocker, a faint blob with a hard outline. The
+search covers twice the light's width now, the filter is held to it, and both to
+`NVF_SOFT_FILTER_MAX` 0.015 (about 0.9 degrees; at 0.03 the doctor's shadow was still a
+smudge next to Performance's).
+
+*What a drawn face cost.* The player's save in Primm's casino hall (25 lamps casting, a dozen
+residents moving: 5 to 8 faces drawn a frame): the GPU took 3.9 ms a frame, the frame 7.2 to
+8.1 ms against 6.3 ms with the row Off: the processor's, not the GPU's. A build with spans
+(`--features profile`, `NVF_PLAY_TEST_PROFILE`) put it in the render thread, 8.6 ms a frame
+against 4.6 ms: every face drawn ran Bevy's whole camera schedule for its view and recorded
+five command buffers. The lamps' shadow views are drawn inside the camera's own passes now,
+as the sun's cascades are (engine/vendor/README.md "hosted shadow views"): the render thread
+6.0 ms in that build; in the release build that hall runs at 6.4 to 6.5 ms a frame on
+Quality (Performance 6.4, Off 6.3; the display's 160 Hz is 6.25).
+
+*The session that slowed.* The player's logs showed it: the same save, the same room, 75 to
+125 frames a second at the end of an 82-minute session and 130 to 150 after the restart,
+with the row's counters alike in both. Reproduced with the console (`coc` between the
+Prospector Saloon, Doc Mitchell's house and Goodsprings, the rows switched off and on, 30 s a
+round): the new log line `gpu resources:` (with `--log-frame-times`) counted 5,200 bind
+groups at the start and 33,600 after eight rounds, 1,800 more for every cell entered, and the
+submission of a frame's command buffers went from 0.58 ms to 1.27 ms. Switching the rows
+alone left the count where it was; travelling with the row Off held 250 to 330. Upstream's
+renderer never drops the bin-unpacking and uniform-allocation bind groups of a view that is
+gone, and every lamp of every cell entered had six such views (engine/vendor/README.md
+"stale unpacking bind groups"). They are dropped now: 250 to 390 bind groups in the saloon
+after twelve cells, the submission 0.5 to 0.6 ms throughout.
+
+**Fourth round** (2026-11-25, the play test of that build in Primm's casino: "shadows are
+extremely dark, they basically become just pure black blobs"; a video of the dark patch
+under a card table going from half gone to black as the camera moved; "create a slider for
+ALCS and vanilla shadow intensity so I can experiment").
+
+*Black shadows.* Not a fault of the maps: the hall is lit by one strong lamp at a time and
+its cell's ambient light is near black, so what the lamp does not reach has nothing (a
+character seen against the lamp is a black figure for the same reason). Two rows were
+tried for a day, **ALCS shadow strength** and **Baked shadow strength** (0..100%, 75% by
+default), and taken out again in the sixth round below: most of the black was the display
+sum's crushed dark values (fixed in a pull request of its own), not the shadows. What
+stayed of this round: the contact shadows weigh with their lamp's map shadow (bevy_pbr
+pbr_functions.wesl; they were whole whatever the fade).
+
+*The patch under the table* is the game's own (a model's baked shadow patch, drawn
+opaque); its fix is in a pull request of its own.
+
+*A slow shadow under the casino's protectron*: his hands' (the player's clip). The marking
+kept each skeleton by its list's first joint and went over one skinned shape for each. A
+body cut into parts has lists that start with the same joint and differ after it: the
+protectron's one mesh is four parts, two lists under each of two first joints, and only one
+list of each pair was watched; the other's joints (his hands, his fingers) marked nothing
+by themselves, so their shadow moved only when the watched part moved. The key is the
+whole list now (`skeleton_key`). It was not the protectron's alone
+(`NVF_LIGHT_SHADOW_TRACE=1` counts them): in that hall 37 of 111 lists were unwatched, in
+Goodsprings 23 of 98 (bighorners, Victor, crows, people), in the Prospector Saloon 11 of
+27. After: his four parts mark by themselves (19 to 229 times in 300 frames standing).
+The measuring before the clip found nothing because it looked at the draws: no lamp waited
+for one, and the player's own shadow stays at the feet with DLSS and without.
+
+*The floor round the player going dark* in that hall (the player's second clip) is not the
+row's: the same views give the same pixels with the row Off, with the occlusion and the eye
+adaptation off, and in a build without this branch (upstream main of 2026-11-23). The
+floor there is bright where the eye looks along it towards a lamp, in the lamp's colour,
+and dark red-brown underfoot. Left for work of its own.
+
+**Fifth round** (2026-11-25, the play test of a build with the display-sum fix: "shadows
+sometimes bug out", "standing in specific spots makes them bug out"; three clips of the
+player's own shadow in the casino turning into a floor-wide slab with straight edges, into
+shards, or losing all but the head).
+
+*Slabs and shards of shadow.* Reproduced with the player's save by running their first four
+seconds (up the stairs to the slot machines) and standing: the shadow is right for a quarter
+second, then a slab covers the floor for seconds [observed, 7 runs of 7]. In third person
+the body itself is right and the slab is a square patch of floor round it. Off with
+`NVF_LIGHT_SHADOW_KEEP_PHASES=0`, so the kept shadow phases (above, 2026-11-19): a lamp's
+draw list is kept while the lamp is switched off, and a caster only that lamp's views see
+is dropped from the renderer's mesh instances while it is (the renderer keeps only meshes
+some view sees). Seen again it has another place in the instance buffer, while the kept
+list still names the old place, which by then holds another mesh's transform: the caster
+is drawn into the map somewhere else, often right in front of the lamp. In the casino about
+100 casters a lamp come and go like this with each of its draws (the player looking at the
+floor sees none of them); most get their old place back, which is why it showed only in
+some spots, and for good once other meshes (the player's body parts, a drawn weapon) had
+taken a freed place. The resync of a kept list now drops and queues again every entry whose
+place is no longer the mesh's own (engine/vendor/README.md, "Kept shadow phases"; event
+`stale entries requeued`, 9,295 in ten seconds of that hall; unit test
+`a_kept_shadow_phase_back_in_view_is_resynced_and_never_bins_twice`). With the check
+eight runs of eight draw the player's shadow alone; with `NVF_LIGHT_SHADOW_STALE_CHECK=0`
+the slab is back [observed].
+
+*A check of the whole of it* the same day (three readings of the code by fresh eyes, a run
+under the Vulkan validation layer, a minute of the casino with the view, the weapon, the
+mode and the cell switched). The layer reports nothing of the shadows' (two threading
+notices are Reflex's latency marker against the present). Found by reading, and changed:
+- A kept list kept the entry of a mesh removed while its lamp was off, when that mesh got
+  another model or material in a later frame (the change went unseen: the mesh was no
+  longer among the lamp's pipelines). A removed mesh now leaves the kept list too.
+- The lamps of the far texture had neither kept lists nor the caster grid (both went by
+  the near texture's slots alone): each of their draws queued every caster anew and
+  searched every caster in the world. In the casino a minute's run made 264 lists anew in
+  its first ten seconds, was 636, and the grid served 1.7 lamps a frame, was 0.65.
+- The contact shadow was faded apart from the map's shadow, so the two multiplied: at 75%
+  a place both shade kept 6% of the lamp's light, the rest of the shadow 25% (a darker
+  core where things touch). They now share one fade. And only the lamps that cast take
+  contact shadows: on a lamp past the cap they stayed at full strength whatever the row.
+- A lamp shown though no camera ever saw it (pre-drawn behind the player) had no frusta
+  yet, and the default ones cull every caster [from the code; four views of the casino
+  right after a load and 40 s later were the same, so not seen in that run].
+- The redraws for casters not ready: a lamp's reports (one a face) are summed, a higher
+  count than any before starts the steps over (any other count did, on every report), and
+  a lamp quiet for 2,048 frames starts over (the steps were never given back).
+- The near texture keeps the muzzle flashes' room from the first lamp on: grown for a
+  flash's slot it was a new texture, and every lamp in it faded in again at the first shot.
+Found and left then: see the sixth round.
+
+**Sixth round** (2026-11-25, the same day: with the display sum's dark values shown as
+they are, "the shadows and AO are not dark enough"; the two strength rows go; what the
+fifth round left).
+
+*Strengths.* The two rows are gone. The lamps' shadows weigh 1.1 (`light_shadows::SHADOW_STRENGTH`): the renderer takes
+`1 - weight x (1 - shadow)` of a lamp's light, and `HoldLightShadowMaps::fade` carries
+fade x weight in the light's flags (now `255 - weight x 200`, up to 1.27; bevy_pbr
+`nvf_fade_bits`, shadows.wesl `nvf_shadow_weight`). Where a lamp's map shades in full, the
+display sum gets that lamp's light times -0.1: the place loses a tenth of what the lamp
+would have given, off the cell's ambient light and the other lamps there, and the sum is
+held to 0. Nothing changes where the lamp does not reach (its part of the sum is 0 there).
+Bevy's own sum, the highlights in a world view, takes `max(shadow, 0)`. The weight was
+set by eye with the display sum's dark values shown by the sRGB curve (a pull request of
+its own, with the occlusion's strength); on the 2.2 power the shadows read darker still.
+
+*What the fifth round left.*
+- The near texture's places: a lamp that has to change cube texture now does so out of
+  sight too, shown to Bevy's culling for that frame so its new cubes are drawn at once
+  (`reslot_unseen`). Before, it kept its place until it came into sight, the near texture
+  stayed full of lamps behind the camera and those ahead stayed at 512.
+- A texture that grows: its lamps in sight draw every face again in that frame, whatever
+  the frame's draws, and keep their shadows (`regrown`, `keeps_shadow`); before, every lamp
+  of the texture lost its shadow and faded in again. Lamps out of sight start over as in
+  any new texture (they are drawn and fade in when seen, as a lamp never drawn). The cost
+  is one frame with up to all the texture's lamps drawn in full.
+- The pre-draw under a loading screen showed the lamps out of view only while no lamp in
+  view had anything to draw; one whose faces are marked every frame (a fan or a flag in
+  its light) kept them waiting for the whole pre-draw. Only a lamp in view never drawn
+  keeps them waiting now.
+- The cube numbers: a test holds the caps (lights and transients) under bevy_pbr's
+  `NVF_FAR_CUBE`.
+- The translated notes of the row are within 200 characters.
+Left as they are: about 100 casters a lamp lose and regain their place in the instance
+buffer with each of its draws (10 to 30 entries queued again a frame in the casino). They
+draw right since the fifth round; sparing the work means keeping meshes no camera sees in
+the renderer's instance table, a change to Bevy's extraction not made here.
+
+Measured 2026-11-24 (RTX 5090, 4K DLSS Quality, frame generation 2x, the player's INI): Doc
+Mitchell's opening, 25 lights casting, 1.7 lights switched on and 3.4 faces composited a
+frame, `prepare_lights` 0.04 ms, the game's systems 0.04 ms, shadow views 0.1-0.2 ms of GPU
+time, no light waited a frame; Novac at night walking, 14 lights, 1-2 lights and 1.5-6.2
+faces a frame, none waited. The eight `light-shadows*` smoke scenarios pass. Not done: the
+cube texture can still be made anew unseen by another shadowed point light taking a slot
+past the lamps' room (a menu scene's), which costs the lamps their maps until they redraw.
+
+**Before.** The row was called Lamp shadows until
 2026-11-19 (renamed, [design, #3074]); the INI key `light-shadows`, the switch
 `--light-shadows`, the log lines starting `light shadows:` and the smoke scenarios'
 `light-shadows-*` names keep the old name, so saved settings and the scenarios still match.
@@ -2297,10 +2558,10 @@ culls, extracts and queues every face view every frame.
     meanwhile, it fades back in from where it was and is redrawn in full on its turn.
   - A light despawned is dropped at once. Transient lights do not fade: a muzzle flash
     lasts about a tenth of a second and shows its shadow in full at once.
-  - The renderer gets each fade below 1 (`HoldLightShadowMaps::fade`) in bits 24..31 of
-    the light's flags (`255 - round(fade × 255)`, so 0 is full strength for every other
-    light) and takes `mix(1, shadow, fade)` in shadows.wesl's `fetch_point_shadow` and
-    `fetch_spot_shadow`.
+  - The renderer gets each lamp's fade times the lamps' weight (`HoldLightShadowMaps::fade`,
+    `SHADOW_STRENGTH`; "Sixth round" above) in bits 24..31 of the light's flags
+    (`255 - round(weight × 200)`, so 0 is a weight of 1 for every other light) and takes
+    `1 - weight × (1 - shadow)` in shadows.wesl's `nvf_weigh_shadow`.
 - **Other lights** ([design, #3074]: all light sources cast, muzzle flashes and
   explosions first; `ShadowSource` on the light, `SourceKind`).
   - Grass fires: the light over about one burning patch in six (grass_fire_fx.rs). Still
@@ -3833,6 +4094,11 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
     and the height (wavelengths 6,000 / 3,700 / 5,300 / 3,300 units). Each component is at most `A`, the
     gradient's norm at most `A x 2.035e-3` (tested), and the read's width is stretched by it. After Bauer
     2019, slides 17-18 (the detail's lookup displaced) [documented]; the field is ours.
+  - *Overcast undersides* [design]: near the base of a mixed deck, a second read of the base texture
+    at three times its frequency breaks the broad scallops into smaller folds. The existing front and
+    base noise bend those folds. Dry pockets rise farther into the bank, while nearby wetter patches
+    reach the lower base. This relief drifts with the bank and fades upward. The view and sunlight
+    sample the same density field and filter these folds at their respective footprints.
   - *Extinction and water*: the types' extinction per unit times `DENSITY`: 400 units of whole cumulus are
     one optical depth at `DENSITY` 1. Water varies inside a fair bank at the scale of a group of lobes and
     mottles its lower face (one base read of the column, two more there); a storm's columns carry between
@@ -4213,10 +4479,11 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
   - Once it has been on in the run: the noise's finished bytes (2.43 MiB), the pipelines asked for (kept,
     and used again by the next activation: the pipeline cache tells no second request from a new one) and
     what is known of the cloud textures read then. Textures, buffers and bind groups go.
-- **The flat layers** move to a render layer of their own while the volume draws, which the water's
-  mirror, the scope's lens and the extra cameras (extra_camera.rs) see and the main camera does not, so
-  those keep the weather's clouds (the minimap's camera looks straight down, under the clouds' dome); they
-  give way only once the proxy's own pipeline is ready (no moment without clouds).
+- **Reflected clouds** [design]. An active water mirror traces the same cloud field from its reflected
+  eye into a small image. The sky dome composites it behind the reflected landscape and the water
+  material samples that image of the scene through its usual ripples. Looking down can reflect clouds
+  above the main camera's field of view. The mirror keeps the weather's flat layers until its own
+  trace and dome material are ready. The scope and extra cameras still see the flat layers.
 - **Switching**: the row, `--graphics-only volumetric-clouds`, `NVF_PLAY_TEST_SETTINGS=<t>:
   volumetric-clouds=<choice>`. Log lines (`volumetric clouds: ...`):
   - `noise generated: base 128x128x128 R8 with 8 levels, erosion 32x32x32 RGBA8 with 6 levels, ...` once a
@@ -4311,6 +4578,118 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
   the shares assume (a wrong tint and drift share where two opaque layers overlap). The absolute
   composition samples every layer once and runs the transmission product twice, up to about 10 MiB of
   working memory at eight layers on the compute pool; folding both into one pass is not done.
+
+### 3.25 Physical lighting (`physical-pbr`; off in every preset, #3827)
+
+**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion inside the physical light loop (part 2, #4287; until then the occlusion stays on the picture under this row, logged once), the canopy shading (part 3b, #4266), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
+
+**With the volumetric rows** [design: agreed with the volumetric work, 2026-11-26]: Volumetric
+clouds and Volumetric light run under Physical lighting. The clouds are lit as the physical
+dome they lie on is drawn, by the surfaces' sun colour and the physical sky's colours, in
+linear light, and go to the tonemapper without its inverse (sky.rs `physical_cloud_light`,
+volumetric_clouds.rs `compose_uniform`). Their sun has the ground's gain (`PHYSICAL_SUN_GAIN`,
+by night `PHYSICAL_MOON_GAIN`): without it they were lit by about a seventh of the ground's
+sun and came out grey against the sky [observed: Goodsprings at 17:30, 2026-11-26]. Their
+direct light takes the physical sun's own colour whole (`PHYSICAL_SUN_COLOUR_SHARE` 1, the
+`SUNCOLOUR` aid's value under this row), not the weather's cloud colours at its luminance,
+and their light from below is the dome's mean of overhead and horizon, not the weather's
+Ambient [design]. Volumetric light's air composite still reads the
+picture as display values (medium_air_compose.wesl); how it meets linear light is open with
+its author.
+
+**With authored reflections** (#2981; a material pack and its Reflections row on) [design:
+spooknik's review of #3828, which switched them off]: Bevy gives a view one environment map,
+and both want it. In such a run the reflection cube keeps it: authored materials keep their
+cube, `metal_gain` and room fill through the reflection gate, which goes in after the
+physical light loop (lights/reflection_gate.rs `PHYSICAL_GATE_EDITS`), and every other
+surface takes the light loop's flat physical ambient in place of the sky's image-based light
+(physical_ibl.rs makes none in such a run). Without a pack the sky's light reaches every
+surface. Two cubes at once (the sky's for all, the room's for authored materials) are a
+follow-up.
+
+[design, #3827] An addition of NVForever's own for the enhanced look: not a fact about the
+original game, never a parity item, and never to be used to explain a difference from the
+original's frames. Off in both presets; with every row below off, the picture is the
+display-value lighting of world.md §8 unchanged. Every value in the table below is an
+engineering choice tuned by eye on this machine (`[design]`) unless the row says otherwise.
+
+**Physical PBR lighting** (`physical-pbr`, Graphics > Lighting and Effects; read once at
+the start, so a change applies at the next start; in a build with the developer aids,
+`NVF_PHYSICAL_PBR=1` / `0` overrides the row, settings.rs `physical_pbr_after_ini`).
+The display-value lighting sum (world.md §8) is replaced by linear lighting:
+
+- *Diffuse*: the energy-preserving Oren-Nayar model (EON) [documented: Portsmouth, Kutz
+  and Hill, "EON: A practical energy-preserving rough diffuse BRDF", JCGT 2025; the
+  OpenPBR surface specification's diffuse]. *Specular*: Cook-Torrance with the GGX
+  distribution [documented: Walter et al. 2007, "Microfacet Models for Refraction through
+  Rough Surfaces"] and Bevy's Schlick Fresnel; the perceptual roughness floor is 0.045,
+  Filament's desktop figure, in place of Bevy's mobile 0.089 [documented: Filament's
+  material documentation]. In the display-value mode the highlight keeps F = F0 in world
+  views (#2266, `lights.rs` `FRESNEL_EDIT`); physical PBR takes Bevy's Fresnel on
+  purpose. Code: `lights/display_shader.rs` (`lighting_patched`, `oren_nayar_patched`).
+- *Lamps*: inverse-square falloff with a finite bulb core and a smooth window at the
+  light's radius, `w² · 0.22 / (u + 0.09)` with `u = (d / R)²` and
+  `w = 1 − u²` [design: the inverse-square law with a core and window after Karis 2013,
+  "Real Shading in Unreal Engine 4"; the 0.22 and 0.09 put a lamp's light at about 0.35 R
+  where the display-value falloff had it in the rooms checked]. Light colours are decoded
+  from sRGB to linear light (`PHYSICAL_SPECULAR_EDITS`).
+- *Sky and ambient*: Bevy's flat ambient is replaced in world views by an image-based
+  light from cube maps built each time the sky changes (`physical_ibl.rs`): outdoors the
+  sky dome's zenith, middle and horizon colours, a sunlit ground below and the sun's disc
+  and aureole for the specular; indoors the cell's ambient as ceiling and floor and its
+  directional colour as a lobe.
+- *Sky*: a single-scattering atmosphere (Rayleigh, Mie and ozone) for the sky's colour and
+  the sun's light (`sky.rs`, `sky.wesl`) [documented: Bruneton and Neyret 2008, "Precomputed
+  Atmospheric Scattering"; Hillaire 2020, "A Scalable and Production Ready Sky and
+  Atmosphere Rendering Technique", for the model and the Earth and atmosphere radii].
+- *Fog*: the game's fog (fog.rs), with the Desert haze and Aerial perspective rows over it
+  as in the display-value look, and with Volumetric light its air [design: agreed with the
+  volumetric work, 2026-11-26]; outdoors its colour is the physical dome's horizon
+  (sky.rs `physical_horizon_color`), so far land fades into the sky behind it.
+- *Exposure and tone*: the world view keeps Bevy's Tony McMapface curve in place of the
+  display-value clip (lights.rs `physical_tony`), the curve the volumetric clouds and the
+  air are matched to [design: agreed with the volumetric work, 2026-11-26; a choice of
+  tonemapper and editable presets for every view is #4690]; outdoors the weather's own grade
+  (tint, contrast, brightness) is set aside so it is not laid over linear light twice, while
+  the game's image-space modifiers still apply (imagespace.rs `effective_grade_base`). The
+  eye adaptation meters both ways (lifting dark scenes and darkening bright ones) with its
+  own limits (`eye_adapt.rs`), and runs with the row even when Glow is off. The view is HDR under the row.
+- *Bloom*: with Glow on, the bloom takes the HDR picture's linear light (post.rs
+  `new_with_hdr_glow`).
+- *Materials* (nif_material.wesl and .rs `NVF_PHYSICAL_PBR`, terrain.wesl): the shade light
+  is mixed in linear light and returned as such; a shape's hot (emissive) light is added
+  on top; the environment map is weighted by its Fresnel term; blended unlit colours are
+  scaled before the fog and multiply decals fade with it. A normal-mapped shape without the
+  specular flag takes a faint reflectance (0.32, F0 about 0.016) and a roughness of at
+  least 0.86, so it never reads as polished (nif_spawn.rs `specular`); an authored set's
+  metallic channel counts. #3828's branch changed the shade light's return, the unlit
+  colours' place before the fog and the decals' fade for every view; here they are under
+  this row only, so the default look is unchanged.
+- The weather sources' daylight brightness (the window light rays' weather regions) is kept
+  for the indoor image-based light's day lift (`emittance.rs` `weather_daylight_luma`); the
+  rays themselves are drawn as in the display-value look.
+
+| Constant | Value | Tag and basis |
+|---|---|---|
+| `PHYSICAL_ATTENUATION` (display_shader.rs) | `w² · 0.22 / (u + 0.09)` | [design] core of 0.30 R, matched at 0.35 R |
+| roughness floor (`ROUGHNESS_FLOOR_EDIT`) | 0.045 | [documented: Filament] |
+| unflagged shapes' reflectance and roughness (nif_spawn.rs) | 0.32, at least 0.86 | [design] |
+| `PHYSICAL_SUN_GAIN`, `PHYSICAL_MOON_GAIN`, `PHYSICAL_INTERIOR_DIR_GAIN` (sky.rs) | 6.8, 1.2, 0.85 | [design] the display-value shares (world.md §8) carried into linear light |
+| `ATMO_RE`, `ATMO_RA` (sky.rs, sky.wesl) | 6360, 6460 km | [documented: Bruneton and Neyret 2008; Hillaire 2020] |
+| `ATMO_H0` | 1.1 km | [hypothesis] the Mojave floor's height above the sea |
+| `ATMO_HR`, `ATMO_HM` | 8.0, 1.0 km | [design] Rayleigh's usual 8 km scale height [documented: Bruneton and Neyret 2008]; Mie lowered from their 1.2 km for desert air |
+| `BETA_R`, `BETA_O` | (4.60, 13.00, 35.50)·10⁻³, (1.10, 2.35, 0.06)·10⁻³ per km | [design] tuned from the published sea-level coefficients for the desert's colour |
+| `ATMO_SUN_IRRADIANCE` | 8.2 | [design] |
+| `OUTDOOR_IBL_SCALE`, `INDOOR_IBL_SCALE` (physical_ibl.rs) | 0.62, 0.45 | [design] |
+| cube map sizes (physical_ibl.rs) | 16 (diffuse), 32 with 5 mips (specular), 16-step sky table | [design] cost |
+| `PHYSICAL_LOW_REF`, `PHYSICAL_HIGH_REF` (eye_adapt.rs) | −6.0, −1.2 EV | [design] |
+| `PHYSICAL_LIFT_SLOPE`, `PHYSICAL_MAX_LIFT`, `PHYSICAL_DARKEN_SLOPE`, `PHYSICAL_MAX_DARKEN` | 0.68, 2.6, 0.45, 1.4 | [design] |
+| `PHYSICAL_METER_FILTER` | 10-98 % | [design] the display-value meter's 10-100 % (eye_adapt.rs `METER_FILTER`) less the brightest 2 % |
+
+- **Cost**: not measured yet (to be measured as in §5, the Goodsprings and Prospector
+  Saloon frames, with the row on and off).
+- **Screenshots**: before and after, for the owner, still to be taken.
+
 
 ## 4. Tried and dropped
 
