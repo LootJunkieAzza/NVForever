@@ -4,13 +4,15 @@
 
 use crate::bvh::{self, Corners, Ray};
 use crate::failed::{guarded, unavailable, Cancel, Failed, Reason};
-use crate::gather::counted;
+use crate::gather::{counted, probe};
 use crate::grid::{point, Place};
+use crate::light::{LightState, Lights};
 use crate::parallel::cancellable;
+use crate::reach::EMISSIONS;
 use crate::scene::Material;
 use crate::solve::SolvedVolume;
 use crate::texture::{Sampler, Texels};
-use crate::trace::{Face, PreparedScene, MOST_THREADS};
+use crate::trace::{lift, Face, PreparedScene, MOST_THREADS};
 use crate::vec3::V3;
 use crate::volume::{Reader, Refused};
 
@@ -87,6 +89,46 @@ pub fn classified(scene: &PreparedScene, at: &[V3], directions: &[V3], threads: 
             return unavailable(Reason::Input("threads"));
         }
         cancellable(at.len(), threads, cancel, |i| counted(scene, at[i], directions))
+    })
+}
+
+/// What one ray meets and brings, as a point's [`crate::Probe`] counts it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bounce {
+    pub tri: u32,
+    /// Of the corners.
+    pub weights: [f32; 3],
+    pub p: V3,
+    pub front: bool,
+    /// A side that is not drawn: it brings nothing.
+    pub hidden: bool,
+    /// Where its shadow rays start.
+    pub start: V3,
+    pub light: V3,
+    /// The lamps of its cell of the lamps' table, and those of them that had a shadow ray.
+    pub lamps: u32,
+    pub shadow_rays: u32,
+}
+
+/// What each ray (from, along) meets and brings, for another tracer's single rays: of a point's rays the lights are
+/// what its [`crate::Probe`] sums, and the counts add up to its counts. `emission` as [`crate::GatherConfig`]'s, and
+/// refused as there.
+pub fn bounces(scene: &PreparedScene, light: &LightState, rays: &[(V3, V3)], emission: f32, threads: usize, cancel: Cancel) -> Result<Vec<Option<Bounce>>, Failed> {
+    guarded(|| {
+        if !(1..=MOST_THREADS).contains(&threads) {
+            return unavailable(Reason::Input("threads"));
+        }
+        if !EMISSIONS.contains(&emission) {
+            return unavailable(Reason::Input("emission"));
+        }
+        let lights = Lights::new(light, cancel)?;
+        cancellable(rays.len(), threads, cancel, |i| {
+            let (at, d) = rays[i];
+            let h = scene.transport(&Ray::new(at, d), f32::INFINITY)?;
+            let one = probe(scene, &lights, at, &[d], emission);
+            let start = h.p + h.facing() * lift(h.p);
+            Some(Bounce { tri: h.tri(), weights: h.weights(), p: h.p, front: h.front, hidden: h.hidden, start, light: one.moments.c[0], lamps: one.lamps, shadow_rays: one.shadow_rays })
+        })
     })
 }
 
@@ -193,5 +235,26 @@ mod tests {
         assert!(counts.iter().all(|[hits, backs]| *hits == 64 && *backs <= hits / 4));
         assert_eq!(classified(&world, &at, &[], 0, NEVER), Err(Failed::Unavailable(Reason::Input("threads"))));
         assert_eq!(classified(&world, &at, &directions(8), 1, &|| true), Err(Failed::Cancelled));
+    }
+
+    /// A point's rays one by one are its probe: the same lights, summed in the same order, and the same counts.
+    #[test]
+    fn rays_one_by_one() {
+        let world = prepared(scene(walled(), Vec::new()), 1);
+        let config = GatherConfig { rays: 64, threads: 2, ..GatherConfig::default() };
+        let reached = crate::reach(&world, &light(), &[left()], &config, NEVER).unwrap();
+        let (place, probe) = reached.points.iter().find(|(_, p)| p.shadow_rays > 0).unwrap();
+        let from = reached.position(*place);
+        let rays: Vec<(V3, V3)> = directions(64).into_iter().map(|d| (from, d)).collect();
+        let b = bounces(&world, &light(), &rays, config.emission, 2, NEVER).unwrap();
+        let met = b.iter().flatten();
+        let sum = met.clone().fold(V3::ZERO, |s, b| if b.hidden { s } else { s + b.light });
+        let counts = met.fold([0; 4], |c, b| [c[0] + 1, c[1] + u32::from(b.hidden), c[2] + b.lamps, c[3] + b.shadow_rays]);
+        assert_eq!((sum * (1.0 / 64.0), counts), (probe.moments.c[0], [probe.hits, probe.backs, probe.lamps, probe.shadow_rays]));
+        assert!(b.iter().flatten().all(|b| (b.start - b.p).length() > 0.0099 && b.weights.iter().all(|w| (0.0..=1.0).contains(w))));
+        assert_eq!(bounces(&world, &light(), &rays, 0.25, 0, NEVER), Err(Failed::Unavailable(Reason::Input("threads"))));
+        for emission in [-0.1, 1.001, f32::NAN] {
+            assert_eq!(bounces(&world, &light(), &rays, emission, 1, NEVER), Err(Failed::Unavailable(Reason::Input("emission"))));
+        }
     }
 }

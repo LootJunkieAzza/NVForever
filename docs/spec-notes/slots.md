@@ -131,8 +131,8 @@ observed: the five casinos]:
 - The information box: 400 × 175, 10 in from the main rectangle's left and bottom, the
   bracket of lines, three rows in font 7 at 20 in, at 35, 80 and 125 down: the current
   bet, the chips, the casino's earnings [documented: `SMM_InfoRect`, its three
-  displays]. The titles are set in code: "Current Bet:", "Chips:", "<casino> Earnings:"
-  [hypothesis: as roulette's, seen on the owner's screenshots of roulette].
+  displays]. The titles are set in code: NVForever's own words, "Your bet:", "Your
+  chips:", "Won at <casino>:", as roulette's [design, #4495].
 - Six buttons right-aligned 50 in from the right, under each other: Spin (W), Increase
   Bet (E), Decrease Bet (Q), Payout List (F), Bet Max (S), Exit (R) [documented: the
   order, `_PCButton_*`; the names from the hotrects; hypothesis: the words, set in code].

@@ -94,6 +94,11 @@ without the launcher is the same as before.
   `~/Library/Application Support/NVForever` on macOS and `~/.local/share/nvforever` (or
   `$XDG_DATA_HOME/nvforever`) on Linux; `NVFOREVER_HOME` overrides all three
   (`fnv_install::EngineHome::default_root`).
+- **Co-op**: what co-op is and how the game turns it on (the Co-op row of Settings, under Gameplay, off by default;
+  `nvf_play::lobby`), and **Play Co-Op**, also on the bottom bar (every page). Play Co-Op starts the
+  same program as Play, at its main menu (`--play --menu`), in the game's own home with its
+  saves, settings and mods: co-op is part of the game, so there is no co-op program and
+  nothing co-op on the command line [design; review of #3723].
 - **Website / GitHub**: open nv-forever.com and the repository in the browser.
 
 ## Top and bottom bars
@@ -105,7 +110,7 @@ without the launcher is the same as before.
   drafts left out; `releases/latest` skips pre-releases) is later than the launcher's version,
   a button that opens the update dialog (see Updater).
 - Continue (the newest save, with its picture, name, level and place: `--play --load`),
-  Main menu (`--play --menu`), and More: New game (`--play --new-game`), the explorer
+  Main menu (`--play --menu`), Play Co-Op (`--play --menu`, shown whenever the game exe is found), and More: New game (`--play --new-game`), the explorer
   (`--explore`) and "Close the launcher when the game starts" (`[Launcher] CloseOnPlay`).
   No `--data` is passed: the game reads its folder from the INI, so a launcher start is a
   player's start in every way (reports included, by the player's own choice).
@@ -143,7 +148,7 @@ line-height setting for Markdown text, so the room comes from the font and its s
   them out of egui's output (eframe is built without its own link opener). Its own
   folders open through `launch::open_folder`.
 - Test aid: `NVF_LAUNCHER_SHOT=<file.png>` saves the window once the news has arrived and
-  closes; `NVF_LAUNCHER_PAGE=home|settings|mods|game` opens that page first (`settings:<tab>`: that tab; `delete-reports`: the reports question, open; `dlss-licence`: NVIDIA's licence before Download DLSS, open; `update`: the
+  closes; `NVF_LAUNCHER_PAGE=home|settings|mods|game|coop` opens that page first (`settings:<tab>`: that tab; `delete-reports`: the reports question, open; `dlss-licence`: NVIDIA's licence before Download DLSS, open; `update`: the
   update dialog over Home, once a newer release is known); `NVF_LAUNCHER_ZOOM=0.6` draws everything smaller (a whole page in one shot).
   Only in debug builds and tests (`update::test_aids`, never in a release's launcher):
   `NVF_LAUNCHER_RELEASES=<url>` reads the release list from that address instead of GitHub (a

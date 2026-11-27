@@ -2725,10 +2725,14 @@ impl Ai {
         }
         let params = self.path_params(game, actor);
         let to = choice.target.expect("checked");
-        let speed = self.calm_speeds(actor).walk;
+        // A sandbox with Always Run runs between its spots, as the package's other walks
+        // do (`Ai::plan`): Freeside's chased rat (VFSChasedRatEscapingPackage, Sandbox,
+        // Always Run) walked at 56 units/s with the child running after it (#4487).
+        let running = self.agents[&actor].package.and_then(|p| game.package_def(&p)).is_some_and(|d| d.has(flags::ALWAYS_RUN));
+        let speed = if running { self.pace(game, actor, true) } else { self.calm_speeds(actor).walk };
         let a = self.agents.get_mut(&actor).expect("listed");
-        // A package's walk: [`Ai::repace_walk`] gives it the drawn walk.
-        (a.walker.speed, a.walk_pace) = (speed, Some((1.0, speed)));
+        // A package's walk: [`Ai::repace_walk`] gives it the drawn walk; a run is not one.
+        (a.walker.speed, a.walk_pace) = (speed, (!running).then_some((1.0, speed)));
         match a.walker.go_to(nav, to, &params) {
             Ok(path) => {
                 let walk = path.length;

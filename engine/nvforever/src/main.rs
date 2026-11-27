@@ -2043,7 +2043,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
-    // The bounce light volume's shader for the lighting (imported only under its def, which no view gives yet).
+    // The bounce light volume: its shader for the lighting (imported only under its def), its bindings (only on request).
     .add_plugins(rtgi_volume::RtgiVolumePlugin)
     // Shadows of placed lights, the ALC shadows row (off by default).
     .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))
@@ -2135,6 +2135,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         centre: None,
         waiting: Vec::new(),
         model_overrides: Default::default(),
+        coop_areas: Vec::new(),
         travels: 0,
     })
     .insert_resource(world)

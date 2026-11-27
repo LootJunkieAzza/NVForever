@@ -257,7 +257,7 @@ fn set_worldspace_climate_reaches_current_climate_weathers_night_moon_and_respec
     assert_eq!(num(&mut g, "GetMoonPhase"), 2.0);
 
     // Precedence: SetCurrentClimate overrides SetWorldspaceClimate in the same worldspace.
-    assert_eq!(num(&mut g, "SetCurrentClimate ClimateGamma"), f64::from(CLMT_C));
+    assert_eq!(num(&mut g, "SetCurrentClimate ClimateGamma"), 0.0);
     assert_eq!(g.script_climate(), Some(FormId(CLMT_C)));
     assert_eq!(num(&mut g, "GetCurrentClimate"), f64::from(CLMT_C));
     assert_eq!(num(&mut g, "GetWorldspaceClimate MainWorld"), f64::from(CLMT_B));

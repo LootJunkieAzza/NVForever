@@ -589,12 +589,14 @@ mod kill_cam_state_tests {
         phys.npcs.insert(
             npc_id,
             crate::phys::NpcBody {
+                standing_height: npc_ch.params.height,
                 ch: npc_ch,
                 prev_feet: [64.0, 0.0, 0.0],
                 velocity: [0.0, 0.0],
                 jump: false,
                 sink: 0.0,
                 lift: crate::phys::step_lift::StepLift::default(),
+                sneak_crouch: false,
             },
         );
         app.insert_resource(phys);

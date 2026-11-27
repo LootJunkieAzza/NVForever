@@ -65,8 +65,8 @@ struct NifSurface {
     // (nif_surface_blend.rs: its uniform goes on with its own rows here).
     @if(!NIF_SURFACE_BLEND) env: vec4<f32>,
     // Environment map (NifSurface::env_how): x the cube orientation (0 #2669's lookup),
-    // y 1 scales by received light, 2 by the scene light, z 1 for a window shape, w 1 on
-    // every shape with an environment map. The blend type has none either.
+    // y 1 scales by received light, 2 by the scene light, z 1 for a window shape, w 0 without an
+    // environment map, 1 read at the shading normal, 2 at the interpolated one. The blend type has none either.
     @if(!NIF_SURFACE_BLEND) env_how: vec4<f32>,
     // [design] The enabled blend type (nif_surface_blend.rs): band, view, contact shape,
     // shading; the cache's southwest cell in origin.xy; hybrid v2's flat and steep band

@@ -6,8 +6,26 @@
 //! [`SEND_HZ`] times a second, and the host passes every guest's state on to the other
 //! guests along with its own (peer 0); so it does each player's look, and every player's
 //! name ([`Msg::Names`]). A reliable, ordered stream runs between the host and each guest
-//! ([`crate::rel`], [`Session::send_reliable`]) for the layer above. Nothing of the world
-//! is shared here, and nothing here knows about Bevy.
+//! ([`crate::rel`], [`Session::send_reliable`]) for the layer above. Nothing here knows
+//! about Bevy.
+//!
+//! **The host runs the world.** The host's NPCs are the only ones that think: it sends
+//! each one it draws ([`NpcState`]) [`NPC_HZ`] times a second, and the guests draw
+//! theirs there; the moving ones also go to each guest as compact poses
+//! ([`Session::send_actors`], [`ActorPose`]). A guest's hits on NPCs go to the host
+//! ([`Session::send_hit`], [`HitView`]), which applies them in its world; what they do
+//! comes back in the states. The NPCs' hits on a guest go the other way
+//! ([`Session::send_hit_to`]). The host's game clock goes to the guests ([`ClockView`],
+//! [`CLOCK_EVERY`]), so do the lines its NPCs are saying ([`LineView`], every
+//! [`LINES_EVERY`] and at once when they change), what its scripts do to its player
+//! ([`SceneView`]), its world's presence and its doors' open flags, page by page
+//! ([`Msg::Presence`]), and what its NPCs wear ([`Msg::Wear`]). A door, container or
+//! terminal a player unlocks goes to everyone through the host ([`Session::send_unlock`]),
+//! and so does a door one opens or closes ([`Session::send_door`]); a player another
+//! revives is told so through the host ([`Session::send_revive`]). The host's session
+//! passes none of a guest's on by itself: its game checks them against its world and
+//! then passes on what passes ([`Session::relay_unlock`], [`Session::relay_door`],
+//! [`Session::relay_revive`]; [`Session::note_bad`] counts what does not) [design].
 //!
 //! **Who may join.** A guest's Hello carries the lobby's proof ([`Admission`]; the
 //! lobby's secret, [`crate::seam::SharedSecret`]); the host drops a Hello without it
@@ -38,7 +56,7 @@
 //! the kind's fields. A packet that does not parse is dropped.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasher, Hasher};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,11 +68,16 @@ use crate::guard::{FormCheck, Guard, Kind, Rate, Reason, Rule, Stats, Verdict};
 use crate::rel::{Frame, Reliable, ITEM_MAX, PACKET_BUDGET};
 use crate::seam::{Admission, Transport};
 
+pub use crate::repl::ActorPose;
+use crate::repl::{ACTORS_PER_PACKET, ACTOR_BYTES};
+
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The protocol's version: a packet of another is dropped. 138 is the core protocol on
 /// its own (players and the reliable stream; the Hello and the host's answers carry the
-/// lobby's proof), so no game of an earlier protocol joins it, nor it them.
-pub const VERSION: u8 = 138;
+/// lobby's proof), so no game of an earlier protocol joins it, nor it them. 139 adds the
+/// world's messages (kinds 9, 10, 12-14, 17, 19, 20, 23, 24, 31), with a hit carried as
+/// its fields ([`HitView`]) rather than the game's own bytes.
+pub const VERSION: u8 = 139;
 pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -78,9 +101,11 @@ pub const REL_ITEMS_MAX: usize = PACKET_BUDGET / 2;
 /// How often the host sends every player's name ([`Msg::Names`]), and at once after a
 /// guest joins.
 pub const NAMES_EVERY: Duration = Duration::from_secs(2);
-/// A goodbye is sent this many times ([`Session::bye`]) [design: one burst of loss does
-/// not take them all].
-pub const BYE_COPIES: usize = 3;
+/// A message the other side must not miss and takes once (a hit, an unlock, a door, a
+/// revive) is sent this many times [design: one burst of loss does not take them all].
+pub const COPIES: usize = 3;
+/// A goodbye is sent this many times ([`Session::bye`]) [design: as [`COPIES`]].
+pub const BYE_COPIES: usize = COPIES;
 /// Between the copies of a goodbye [design: apart enough that one burst of loss does not
 /// take them all, short enough that quitting does not wait].
 const BYE_GAP: Duration = Duration::from_millis(15);
@@ -113,6 +138,262 @@ const RESTARTED: u32 = 200;
 const EPOCHS_LATE: u16 = 8;
 /// Worn items sent with a state, at most.
 pub const MAX_WORN: usize = 10;
+
+/// An NPC of the host's world as the host draws it (module notes).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NpcState {
+    /// The placed reference: the same in every game, as they run the same load order.
+    pub reference: u32,
+    /// Feet position, game units, Z up.
+    pub feet: [f32; 3],
+    /// Facing, radians (compass: 0 north, π/2 east).
+    pub heading: f32,
+    /// Its aim up or down while it fights, radians.
+    pub pitch: f32,
+    /// [`npc_flag`] bits.
+    pub flags: u8,
+    /// The weapon it aims (WEAP FormID), 0 for none.
+    pub weapon: u32,
+    /// Attacks begun (wrapping), counted as [`PlayerState::attacks`] are.
+    pub attacks: u8,
+    /// The furniture reference it is using or walking up to (a chair, a bed), 0 for
+    /// none; [`npc_flag::SEATED`] once it is on it.
+    pub furniture: u32,
+    /// Its base form as the host's world has it (an NPC, a creature or a leveled list of
+    /// them): what a guest makes it of when the host's game created it (a dynamic
+    /// reference the guest's world does not have).
+    pub base: u32,
+    /// The level its leveled lists are read at in the host's game, and whether every
+    /// entry at or under it is eligible; level 0: none told. Under 32768.
+    pub level: u16,
+    pub all_levels: bool,
+    /// How many times its leveled picks were rolled again (a resurrection), up to 127.
+    /// With [`Self::level`], so a guest draws the leveled pick the host draws.
+    pub rolls: u8,
+    /// Hostile to the players in the host's game: fighting one or ready to attack one,
+    /// for a guest's compass. Sent in the top bit of [`Self::level`].
+    pub hostile: bool,
+    /// Where it is in the host's world: its interior cell, or the worldspace of the
+    /// exterior it stands in (0: not told). A guest draws it only there [observed:
+    /// buckallobill, in game, FNV 1.4.0.525: drawn wherever the guest was, an interior's
+    /// NPCs hung in the air outside at the interior's coordinates].
+    pub space: u32,
+}
+
+impl NpcState {
+    pub fn has(&self, f: u8) -> bool {
+        self.flags & f != 0
+    }
+}
+
+/// [`NpcState::flags`] bits.
+pub mod npc_flag {
+    pub const MOVING: u8 = 1;
+    /// The weapon is out.
+    pub const DRAWN: u8 = 2;
+    pub const SNEAKING: u8 = 4;
+    pub const DEAD: u8 = 8;
+    /// Fighting: aiming at someone.
+    pub const AIMING: u8 = 16;
+    pub const SIGHTS: u8 = 32;
+    /// On its furniture ([`super::NpcState::furniture`]), not walking up to it.
+    pub const SEATED: u8 = 64;
+    /// Knocked down or out and lying: the others' copies lie until it clears, then get up.
+    pub const KNOCKED: u8 = 128;
+}
+
+/// NPC states in one packet (45 bytes each: under 1200 bytes in all).
+pub const NPCS_PER_PACKET: usize = 26;
+/// How often the host sends its NPCs.
+pub const NPC_HZ: u32 = 10;
+/// How often the host sends the lines its NPCs are saying (and at once when they change).
+pub const LINES_EVERY: Duration = Duration::from_millis(250);
+/// Lines sent at most.
+pub const LINES_MAX: usize = 24;
+/// How often the host sends a page of its world's presence ([`Msg::Presence`]).
+pub const PRESENCE_EVERY: Duration = Duration::from_millis(200);
+/// References one presence page carries at most (5 bytes each: 1000 bytes).
+pub const PRESENCE_PAGE: usize = 200;
+/// The host's lists ([`Msg::Presence`]): each placed reference whose own enabled flag
+/// differs from its plugin's ...
+pub const LIST_ENABLED: u8 = 0;
+/// ... and each whose open flag (a door) differs from its plugin's.
+pub const LIST_OPEN: u8 = 1;
+/// How many lists there are.
+pub const LISTS: usize = 2;
+/// How often the host sends a page of what its NPCs wear ([`Msg::Wear`]).
+pub const WEAR_EVERY: Duration = Duration::from_millis(250);
+/// NPCs one wear page carries at most [design: an entry is at most 69 bytes with
+/// [`WEAR_ITEMS`], so a full page stays within one packet].
+pub const WEAR_PAGE: usize = 16;
+/// Items one NPC's entry carries at most (its worn armour and its weapon).
+pub const WEAR_ITEMS: usize = 16;
+/// How often the host sends its game clock.
+pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
+/// How often the host sends its [`SceneView`] when it has not changed.
+pub const SCENE_EVERY: Duration = Duration::from_millis(500);
+/// Image space modifiers (and worn items) a [`SceneView`] carries at most.
+pub const SCENE_MODS_MAX: usize = 16;
+/// Texture swaps a [`SceneView`] carries at most, and the longest shape name or texture
+/// path one may have (bytes); a longer one is not sent.
+pub const SCENE_SWAPS_MAX: usize = 8;
+pub const SWAP_TEXT_MAX: usize = 200;
+/// The most a [`SceneView`] takes on the wire: past it, its last swaps are not sent
+/// [design: within one packet; a slideshow's swaps are far shorter].
+pub const SCENE_BYTES_MAX: usize = 1200;
+/// Hit ids remembered per sender, to take each hit once ([`COPIES`]).
+pub const HITS_KEPT: usize = 64;
+/// The copies of one unlock, door or revive ([`COPIES`]) go in one burst: another the
+/// same within this long is one of them [design].
+pub const COPY_WINDOW: Duration = Duration::from_secs(1);
+
+/// What one sender's unlocks, doors and revives said lately ([`COPY_WINDOW`]), to take
+/// each once: they carry no id as a hit does, and the host checked and passed on each of
+/// the three copies otherwise, each guest hearing it nine times [design].
+#[derive(Default)]
+struct Copies {
+    seen: VecDeque<(Instant, (u8, u32, u8))>,
+}
+
+impl Copies {
+    /// Whether `key` (the message's kind, reference and flag) is new here (and note it).
+    fn first(&mut self, key: (u8, u32, u8), now: Instant) -> bool {
+        while self.seen.front().is_some_and(|(at, _)| now.saturating_duration_since(*at) >= COPY_WINDOW) {
+            self.seen.pop_front();
+        }
+        // Only the newest entry for this kind and reference counts: a door that goes open,
+        // close, open inside the window is three events, not two and a copy [design].
+        if self.seen.iter().rev().find(|(_, k)| k.0 == key.0 && k.1 == key.1).is_some_and(|(_, k)| *k == key) {
+            return false;
+        }
+        self.seen.retain(|(_, k)| !(k.0 == key.0 && k.1 == key.1));
+        if self.seen.len() >= HITS_KEPT {
+            self.seen.pop_front();
+        }
+        self.seen.push_back((now, key));
+        true
+    }
+}
+
+/// [`Copies`]' keys.
+fn unlock_key(reference: u32, terminal: bool) -> (u8, u32, u8) {
+    (0, reference, u8::from(terminal))
+}
+
+fn door_key(reference: u32, open: bool) -> (u8, u32, u8) {
+    (1, reference, u8::from(open))
+}
+
+fn revive_key(target: u8, by: u8, perks: u8) -> (u8, u32, u8) {
+    (2, u32::from(target) | u32::from(by) << 8, perks)
+}
+
+/// [`Msg::Revive`]'s `perks` bits: the reviver's co-op perks that act on the revived.
+pub mod revive_perk {
+    /// Healing Hands: the revived is cured of all radiation.
+    pub const CURE_RADS: u8 = 1;
+    /// Every bit this build knows; the host clears the others (`crate::guard`).
+    pub const KNOWN: u8 = CURE_RADS;
+}
+
+/// A hit as it goes between games: a guest's on the host's world (to the host), or the
+/// host's NPCs' on a guest's player (to that guest). `target` is the reference hit (in
+/// the load order every game runs), `dealt` the damage the hitter's game rolled,
+/// `weapon` the WEAP FormID (0: none, unarmed), `location` the body part hit (-1: none;
+/// [`HitView::OBJECT`]: a placed object that is not an actor), and `limb` what the hit
+/// did to the part's condition.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HitView {
+    pub target: u32,
+    pub dealt: f32,
+    pub weapon: u32,
+    pub location: i32,
+    pub critical: bool,
+    pub limb: Option<LimbView>,
+}
+
+impl HitView {
+    /// [`HitView::location`] of a shot on a placed object that is not an actor: its hit
+    /// blocks run on the host.
+    pub const OBJECT: i32 = -1000;
+    /// [`HitView::location`] of a hit on no body part.
+    pub const NO_PART: i32 = -1;
+}
+
+/// A hit's effect on one limb: the condition's actor value, its health left (percent),
+/// the damage to it, and whether it counts toward the limb's points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LimbView {
+    pub condition: u16,
+    pub health_percent: f64,
+    pub damage: f64,
+    pub points: bool,
+}
+
+/// The host's game clock, as its time globals hold it (GameYear, GameMonth, GameDay,
+/// GameHour, GameDaysPassed): the guests set theirs to it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ClockView {
+    pub year: f32,
+    pub month: f32,
+    pub day: f32,
+    pub hour: f32,
+    pub days_passed: f32,
+}
+
+/// What the host's scripts do to the host's player now, for the guests to share: the
+/// control groups held (`locks`, bit `i` for group `i`: movement, Pip-Boy, fighting,
+/// POV, looking, rollover, sneaking) and the image space modifiers on the screen (IMAD
+/// FormID, seconds since applied), at most [`SCENE_MODS_MAX`]; what the host's scripts
+/// put on the host's player and it still wears (`worn`: item FormID, locked on), at most
+/// [`SCENE_MODS_MAX`]; and, while a group is held, the textures its scripts swapped on
+/// references' shapes (`swaps`: reference FormID, shape name, texture path; a
+/// slideshow's slides), at most [`SCENE_SWAPS_MAX`], each string at most
+/// [`SWAP_TEXT_MAX`] bytes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SceneView {
+    pub locks: u8,
+    pub mods: Vec<(u32, f32)>,
+    pub worn: Vec<(u32, bool)>,
+    pub swaps: Vec<(u32, String, String)>,
+}
+
+/// A line one of the host's NPCs is saying, as the host's game has it: the guests say it
+/// too. References are the load order's, which every game runs; the host's player is
+/// [`LineView::HOST`], a guest's actor in the host's world is [`LineView::guest`] of its id.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LineView {
+    pub speaker: u32,
+    /// The listener, 0 for none.
+    pub target: u32,
+    pub topic: u32,
+    pub info: u32,
+    /// Seconds (game time) left until it ends, as the host sent it.
+    pub remaining: f32,
+    /// [`LineView::SAY_TO`] and the others.
+    pub flags: u8,
+    /// A line of a conversation between two actors: its number in it, 0 for none.
+    pub conversation: u16,
+}
+
+impl LineView {
+    pub const SAY_TO: u8 = 1;
+    pub const GREETING: u8 = 2;
+    pub const HELLO: u8 = 4;
+    pub const FORCE_SUBTITLES: u8 = 8;
+    pub const TWO_D: u8 = 16;
+    /// The host's player as a speaker or listener.
+    pub const HOST: u32 = 0xFE00_C000;
+
+    /// Player `id` as a speaker or listener (the host is id 0: [`LineView::HOST`]).
+    pub fn guest(id: u8) -> u32 {
+        Self::HOST + id as u32
+    }
+
+    pub fn has(&self, f: u8) -> bool {
+        self.flags & f != 0
+    }
+}
 
 /// [`PlayerState::flags`] bits.
 pub mod flag {
@@ -256,6 +537,40 @@ pub enum Msg {
     /// The reliable stream between the host and one guest ([`crate::rel`]), both ways;
     /// `epoch` is the host's number for the stream, new each time the guest says Hello.
     Rel { epoch: u16, frame: Frame },
+    /// Some of the host's NPCs (all of one round share its `seq`).
+    Npcs { seq: u32, npcs: Vec<NpcState> },
+    /// A hit ([`HitView`]): a guest's on the host's world, or the host's NPCs' on a guest
+    /// (`by`: the reference that dealt it, 0 for none; a guest's goes with 0, and the host
+    /// does not read it). `id` numbers the sender's hits: each is sent [`COPIES`] times
+    /// and taken once.
+    Hit { id: u16, by: u32, hit: HitView },
+    /// A door, container or terminal (`terminal`) was unlocked.
+    Unlock { reference: u32, terminal: bool },
+    /// The host's game clock.
+    Clock(ClockView),
+    /// What the host's scripts do to the host's player now ([`SceneView`]).
+    Scene(SceneView),
+    /// The lines the host's NPCs are saying now (the newest `seq` wins).
+    Lines { seq: u32, lines: Vec<LineView> },
+    /// Page `page` of `pages` of one of the host's lists (`list`: [`LIST_ENABLED`], each
+    /// placed reference whose own enabled flag differs from the one its plugin gives it,
+    /// with the flag; [`LIST_OPEN`], the same for the open flag). `serial` changes when
+    /// the list does; the pages go round, one at a time.
+    Presence { list: u8, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// What some of the host's NPCs wear and hold, as its game draws them: each NPC's
+    /// reference and its worn armour and weapon (the whole set, so each entry stands
+    /// alone). The host sends a page every [`WEAR_EVERY`], round and round.
+    Wear { npcs: Vec<(u32, Vec<u32>)> },
+    /// A door was opened (`open`) or closed by a player (to the host, and from it to
+    /// everyone) or in the host's world.
+    Door { reference: u32, open: bool },
+    /// Player `by` revived player `target` (who is down); `perks`: the reviver's co-op
+    /// perks that act on the revived ([`revive_perk`]). The host takes the sender as `by`.
+    Revive { target: u8, by: u8, perks: u8 },
+    /// The host's moving actors, for one guest (the compact stream, [`ActorPose`]); all
+    /// packets of one round share `seq`. `ms`: the host's clock when the round went (its
+    /// session's milliseconds), so a guest can tell how late each round is.
+    Actors { seq: u32, ms: u32, poses: Vec<ActorPose> },
 }
 
 impl Msg {
@@ -272,6 +587,17 @@ impl Msg {
             Msg::Names { .. } => Kind::Names,
             Msg::Look { .. } => Kind::Look,
             Msg::Rel { .. } => Kind::Rel,
+            Msg::Npcs { .. } => Kind::Npcs,
+            Msg::Hit { .. } => Kind::Hit,
+            Msg::Unlock { .. } => Kind::Unlock,
+            Msg::Clock(_) => Kind::Clock,
+            Msg::Scene(_) => Kind::Scene,
+            Msg::Lines { .. } => Kind::Lines,
+            Msg::Presence { .. } => Kind::Presence,
+            Msg::Wear { .. } => Kind::Wear,
+            Msg::Door { .. } => Kind::Door,
+            Msg::Revive { .. } => Kind::Revive,
+            Msg::Actors { .. } => Kind::Actors,
         }
     }
 }
@@ -308,16 +634,57 @@ pub enum Event {
     /// a new stream from the host on a guest, id 0): what was sent on it before may be
     /// lost, so the layer above sends its whole state again.
     RelReset { id: u8 },
+    /// Some of the host's NPCs, as it draws them (guests only).
+    Npcs(Vec<NpcState>),
+    /// Player `id` hit something: on the host, guest `id`'s hit on its world (`by` 0);
+    /// on a guest, the host's (id 0) NPC `by`'s hit on this player. Each hit once.
+    Hit { id: u8, by: u32, hit: HitView },
+    /// Player `id` (0 on a guest: whoever it was) unlocked a door, container or terminal
+    /// (`terminal`). Each comes once ([`COPY_WINDOW`]). On the host, a guest's reaches the other
+    /// guests only through [`Session::relay_unlock`], once the game's checks pass.
+    Unlocked { id: u8, reference: u32, terminal: bool },
+    /// The host's game clock, each time it comes (guests only).
+    Clock(ClockView),
+    /// The host's [`SceneView`], each time it comes (guests only).
+    Scene(SceneView),
+    /// The lines the host's NPCs are saying now, each time they come (guests only).
+    Lines(Vec<LineView>),
+    /// A page of one of the host's lists, each time it comes (guests only;
+    /// [`Msg::Presence`]).
+    Presence { list: u8, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// What some of the host's NPCs wear and hold ([`Msg::Wear`]; guests only).
+    Wear(Vec<(u32, Vec<u32>)>),
+    /// Player `id` (0 on a guest: the host's world, or whoever it was) opened (`open`) or
+    /// closed a door. Each comes once ([`COPY_WINDOW`]). On the host, a guest's reaches the other
+    /// guests only through [`Session::relay_door`], once the game's checks pass.
+    Door { id: u8, reference: u32, open: bool },
+    /// Player `by` revived this player (the host's, or a guest's), with its co-op perks
+    /// ([`revive_perk`]). Each comes once ([`COPY_WINDOW`]).
+    Revived { by: u8, perks: u8 },
+    /// Guest `by` asks to revive guest `target`, with its co-op perks (host only). Nothing
+    /// reaches the target until the game's own checks pass and it calls
+    /// [`Session::relay_revive`]. Each comes once ([`COPY_WINDOW`]).
+    ReviveAsked { by: u8, target: u8, perks: u8 },
+    /// Some of the host's moving actors (guests only), with the host's clock when they
+    /// went (milliseconds) and this game's when they came.
+    Actors { ms: u32, here_ms: u32, poses: Vec<ActorPose> },
 }
 
 impl Event {
-    /// The player an event is about, if one.
+    /// The player an event is about, if one (the world's are about none: a player's
+    /// waiting state is replaced past them, [`Session::push_event`]).
     fn about(&self) -> Option<u8> {
         match self {
             Event::Welcomed(id) | Event::Lost(id) | Event::Back(id) | Event::Left(id) => Some(*id),
             Event::Joined { id, .. } | Event::State { id, .. } | Event::Look { id, .. } | Event::Named { id, .. } | Event::Reliable { id, .. } | Event::RelReset { id } => Some(*id),
             Event::Refused | Event::HostLost | Event::HostBack | Event::HostGone => Some(0),
+            Event::Npcs(_) | Event::Hit { .. } | Event::Unlocked { .. } | Event::Clock(_) | Event::Scene(_) | Event::Lines(_) | Event::Presence { .. } | Event::Wear(_) | Event::Door { .. } | Event::Revived { .. } | Event::ReviveAsked { .. } | Event::Actors { .. } => None,
         }
+    }
+
+    /// One the game needs only the newest of: a newer replaces the one still waiting.
+    fn newest_only(&self) -> bool {
+        matches!(self, Event::Clock(_) | Event::Scene(_) | Event::Lines(_))
     }
 }
 
@@ -347,11 +714,15 @@ struct Peer {
     /// The host's reliable stream with this guest, and its number (host only).
     rel: Reliable,
     epoch: u16,
+    /// The ids of a guest's newest hits, at most [`HITS_KEPT`] (host only).
+    hits: VecDeque<u16>,
+    /// A guest's unlocks, doors and revives lately (host only).
+    copies: Copies,
 }
 
 impl Peer {
     fn new(id: u8, now: Instant) -> Self {
-        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None, name: String::new(), rel: Reliable::new(), epoch: 0 }
+        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None, name: String::new(), rel: Reliable::new(), epoch: 0, hits: VecDeque::new(), copies: Copies::default() }
     }
 
     /// Keep `look`; whether it is new.
@@ -385,6 +756,54 @@ enum Role {
     },
 }
 
+/// One of the host's paged lists ([`Msg::Presence`]): the list, its serial and the next
+/// page to send.
+#[derive(Default)]
+struct Paged {
+    refs: Vec<(u32, bool)>,
+    serial: u32,
+    page: usize,
+}
+
+/// What the host sends of its world, and what a guest heard of it (module notes).
+#[derive(Default)]
+struct WorldWire {
+    /// The host's NPCs to send, the last time they went and the round's number; a
+    /// guest's newest round heard.
+    npcs: Vec<NpcState>,
+    last_npcs: Option<Instant>,
+    npc_seq: u32,
+    heard_npcs: Option<u32>,
+    /// This game's last hit's id (from a random start: a game started again does not reuse
+    /// the ids its last one sent), and the ids of the host's newest hits heard (guest only).
+    hit_seq: u16,
+    heard_hits: VecDeque<u16>,
+    /// The host's unlocks, doors and revives lately (guest only).
+    heard_copies: Copies,
+    /// The host's game clock now, and when it was last sent.
+    clock: Option<ClockView>,
+    last_clock: Option<Instant>,
+    /// The host's scene now, and when and what it last sent.
+    scene: SceneView,
+    last_scene: Option<(Instant, SceneView)>,
+    /// The host's NPCs' lines, and the last sent (when, which); a guest's newest heard.
+    lines: Vec<LineView>,
+    last_lines: Option<(Instant, Vec<(u32, u32)>)>,
+    lines_seq: u32,
+    heard_lines: Option<u32>,
+    /// The host's lists ([`Msg::Presence`]), and when the last pages went.
+    lists: [Paged; LISTS],
+    last_presence: Option<Instant>,
+    /// What the host's NPCs wear ([`Msg::Wear`]), the next page to send and when the
+    /// last went.
+    wear: Vec<(u32, Vec<u32>)>,
+    wear_page: usize,
+    last_wear: Option<Instant>,
+    /// The host's actor rounds sent, a guest's newest heard.
+    actor_seq: u32,
+    heard_actors: Option<u32>,
+}
+
 /// One side of the link, ticked by [`Link`]'s thread (or by hand in tests).
 pub struct Session {
     transport: Box<dyn Transport>,
@@ -414,6 +833,10 @@ pub struct Session {
     heard: HashMap<SocketAddr, u64>,
     /// The host's checks on its guests' messages.
     guard: Guard,
+    /// The world's messages, both ways.
+    world: WorldWire,
+    /// When this session began (the clock of [`Msg::Actors`]).
+    started: Instant,
 }
 
 impl Session {
@@ -464,6 +887,8 @@ impl Session {
             sent: RefCell::new(HashMap::new()),
             heard: HashMap::new(),
             guard: Guard::default(),
+            world: WorldWire { hit_seq: new_token() as u16, ..WorldWire::default() },
+            started: Instant::now(),
         }
     }
 
@@ -587,6 +1012,157 @@ impl Session {
         }
     }
 
+    /// The host's NPCs as it draws them now; [`Session::tick`] sends them at [`NPC_HZ`]
+    /// (host only).
+    pub fn set_npcs(&mut self, npcs: Vec<NpcState>) {
+        self.world.npcs = npcs;
+    }
+
+    /// A guest's hit on the host's world, for the host to apply ([`COPIES`] times, at
+    /// once; nothing before the host answered, nor from the host).
+    pub fn send_hit(&mut self, hit: HitView) {
+        let Role::Guest { host: Some(host), id: Some(_), .. } = &self.role else { return };
+        let host = *host;
+        self.world.hit_seq = self.world.hit_seq.wrapping_add(1);
+        let msg = Msg::Hit { id: self.world.hit_seq, by: 0, hit };
+        for _ in 0..COPIES {
+            self.sock_send(&msg, host);
+        }
+    }
+
+    /// The host's NPC `by`'s hit on guest `id`'s player (0: none dealt it), for that
+    /// guest to take (as [`Session::send_hit`]; host only).
+    pub fn send_hit_to(&mut self, id: u8, by: u32, hit: HitView) {
+        if !self.is_host() {
+            return;
+        }
+        let Some(addr) = self.peers.iter().find(|p| p.id == id).and_then(|p| p.addr) else { return };
+        self.world.hit_seq = self.world.hit_seq.wrapping_add(1);
+        let msg = Msg::Hit { id: self.world.hit_seq, by, hit };
+        for _ in 0..COPIES {
+            self.sock_send(&msg, addr);
+        }
+    }
+
+    /// The host's game clock now; [`Session::tick`] sends it every [`CLOCK_EVERY`].
+    pub fn set_clock(&mut self, clock: ClockView) {
+        self.world.clock = Some(clock);
+    }
+
+    /// The host's scene now; [`Session::tick`] sends it when it changes and every
+    /// [`SCENE_EVERY`]. Past its bounds it is cut ([`SceneView`]).
+    pub fn set_scene(&mut self, mut scene: SceneView) {
+        scene.mods.truncate(SCENE_MODS_MAX);
+        scene.worn.truncate(SCENE_MODS_MAX);
+        scene.swaps.retain(|(_, s, t)| s.len() <= SWAP_TEXT_MAX && t.len() <= SWAP_TEXT_MAX);
+        scene.swaps.truncate(SCENE_SWAPS_MAX);
+        while encode(&Msg::Scene(scene.clone())).len() > SCENE_BYTES_MAX && scene.swaps.pop().is_some() {}
+        self.world.scene = scene;
+    }
+
+    /// The lines the host's NPCs are saying now; [`Session::tick`] sends them every
+    /// [`LINES_EVERY`], and at once when a line starts or ends. At most [`LINES_MAX`].
+    pub fn set_lines(&mut self, mut lines: Vec<LineView>) {
+        lines.truncate(LINES_MAX);
+        self.world.lines = lines;
+    }
+
+    /// One of the host's lists now (`list`, [`Msg::Presence`]); [`Session::tick`] sends a
+    /// page of each every [`PRESENCE_EVERY`], from the first page again when it changed.
+    pub fn set_presence(&mut self, list: u8, refs: Vec<(u32, bool)>) {
+        let Some(l) = self.world.lists.get_mut(list as usize) else { return };
+        if refs != l.refs {
+            l.refs = refs;
+            l.serial = l.serial.wrapping_add(1);
+            l.page = 0;
+        }
+    }
+
+    /// What the host's NPCs wear and hold now ([`Msg::Wear`]): each one's reference and
+    /// its worn armour and weapon. [`Session::tick`] sends a page every [`WEAR_EVERY`],
+    /// round and round (a lost page comes again); an entry has at most [`WEAR_ITEMS`].
+    pub fn set_wear(&mut self, mut npcs: Vec<(u32, Vec<u32>)>) {
+        for (_, items) in &mut npcs {
+            items.truncate(WEAR_ITEMS);
+        }
+        self.world.wear = npcs;
+    }
+
+    /// This player opened (`open`) or closed door `reference` (the host: or its world
+    /// did): to the host, or from the host to every guest ([`COPIES`] times).
+    pub fn send_door(&mut self, reference: u32, open: bool) {
+        self.to_all_copies(&Msg::Door { reference, open });
+    }
+
+    /// This player unlocked `reference` (a terminal: hacked): to the host, or from the
+    /// host to every guest ([`COPIES`] times).
+    pub fn send_unlock(&mut self, reference: u32, terminal: bool) {
+        self.to_all_copies(&Msg::Unlock { reference, terminal });
+    }
+
+    /// This player revives player `target` (down): to the host (its game passes another
+    /// guest's on, [`Session::relay_revive`]), or from the host to that guest ([`COPIES`]
+    /// times).
+    pub fn send_revive(&mut self, target: u8, perks: u8) {
+        let Some(by) = self.id() else { return };
+        let msg = Msg::Revive { target, by, perks };
+        let to = match &self.role {
+            Role::Host => self.peers.iter().find(|p| p.id == target).and_then(|p| p.addr),
+            Role::Guest { host, .. } => *host,
+        };
+        if let Some(addr) = to {
+            for _ in 0..COPIES {
+                self.sock_send(&msg, addr);
+            }
+        }
+    }
+
+    /// Guest `except`'s door [`Event::Door`], once the game's own checks passed: to every
+    /// other guest ([`COPIES`] times; host only).
+    pub fn relay_door(&mut self, except: u8, reference: u32, open: bool) {
+        self.relay_from(except, &Msg::Door { reference, open });
+    }
+
+    /// Guest `except`'s unlock [`Event::Unlocked`], once the game's own checks passed: to
+    /// every other guest ([`COPIES`] times; host only).
+    pub fn relay_unlock(&mut self, except: u8, reference: u32, terminal: bool) {
+        self.relay_from(except, &Msg::Unlock { reference, terminal });
+    }
+
+    /// Guest `by`'s revive of guest `target` [`Event::ReviveAsked`], once the game's own
+    /// checks passed: to that guest only, `by` kept ([`COPIES`] times; host only).
+    pub fn relay_revive(&mut self, target: u8, by: u8, perks: u8) {
+        if !self.is_host() || target == 0 || target == by {
+            return;
+        }
+        let Some(addr) = self.peers.iter().find(|p| p.id == target).and_then(|p| p.addr) else { return };
+        let msg = Msg::Revive { target, by, perks: perks & revive_perk::KNOWN };
+        for _ in 0..COPIES {
+            self.sock_send(&msg, addr);
+        }
+    }
+
+    /// Count a bad message against guest `id`: one the game's own checks refused, as the
+    /// guard's refusals count ([`Session::bad_messages`]; host only).
+    pub fn note_bad(&mut self, id: u8) {
+        if self.is_host() {
+            self.guard.note_bad(id);
+        }
+    }
+
+    /// The host's moving actors for guest `to`, sent now (host only).
+    pub fn send_actors(&mut self, to: u8, poses: &[ActorPose]) {
+        if !self.is_host() {
+            return;
+        }
+        let Some(addr) = self.peers.iter().find(|p| p.id == to).and_then(|p| p.addr) else { return };
+        self.world.actor_seq = self.world.actor_seq.wrapping_add(1);
+        let ms = self.started.elapsed().as_millis() as u32;
+        for chunk in poses.chunks(ACTORS_PER_PACKET) {
+            self.sock_send(&Msg::Actors { seq: self.world.actor_seq, ms, poses: chunk.to_vec() }, addr);
+        }
+    }
+
     /// Bytes sent to and heard from each player (the host: 0) so far, with the items
     /// waiting on its reliable stream and those sent again.
     pub fn traffic(&self) -> Vec<Traffic> {
@@ -660,6 +1236,9 @@ impl Session {
             self.to_all(&Msg::Names { names });
             self.last_names = Some(now);
         }
+        if self.is_host() && !self.peers.is_empty() {
+            self.send_world(now);
+        }
         // The reliable streams: what is due, and acknowledgements.
         if self.is_host() {
             let mut out = Vec::new();
@@ -683,6 +1262,75 @@ impl Session {
         if let (true, Some(look), Some(id)) = (look_due, self.look.clone(), self.id()) {
             self.to_all(&Msg::Look { id, look });
             self.last_look = Some(now);
+        }
+    }
+
+    /// The host's world, as each part is due (module notes).
+    fn send_world(&mut self, now: Instant) {
+        let since = |t: Instant| now.saturating_duration_since(t);
+        let w = &mut self.world;
+        let mut out = Vec::new();
+        if !w.npcs.is_empty() && w.last_npcs.is_none_or(|t| since(t) >= Duration::from_secs(1) / NPC_HZ) {
+            w.npc_seq = w.npc_seq.wrapping_add(1);
+            out.extend(w.npcs.chunks(NPCS_PER_PACKET).map(|c| Msg::Npcs { seq: w.npc_seq, npcs: c.to_vec() }));
+            w.last_npcs = Some(now);
+        }
+        if let Some(c) = w.clock.filter(|_| w.last_clock.is_none_or(|t| since(t) >= CLOCK_EVERY)) {
+            out.push(Msg::Clock(c));
+            w.last_clock = Some(now);
+        }
+        if w.last_scene.as_ref().is_none_or(|(t, sent)| *sent != w.scene || since(*t) >= SCENE_EVERY) {
+            out.push(Msg::Scene(w.scene.clone()));
+            w.last_scene = Some((now, w.scene.clone()));
+        }
+        if w.last_presence.is_none_or(|t| since(t) >= PRESENCE_EVERY) {
+            for (list, l) in w.lists.iter_mut().enumerate() {
+                let pages = l.refs.len().div_ceil(PRESENCE_PAGE).max(1);
+                let page = l.page % pages;
+                let refs = l.refs.iter().skip(page * PRESENCE_PAGE).take(PRESENCE_PAGE).copied().collect();
+                out.push(Msg::Presence { list: list as u8, serial: l.serial, page: page as u16, pages: pages.min(u16::MAX as usize) as u16, refs });
+                l.page = (page + 1) % pages;
+            }
+            w.last_presence = Some(now);
+        }
+        if !w.wear.is_empty() && w.last_wear.is_none_or(|t| since(t) >= WEAR_EVERY) {
+            let pages = w.wear.len().div_ceil(WEAR_PAGE);
+            let page = w.wear_page % pages;
+            out.push(Msg::Wear { npcs: w.wear.iter().skip(page * WEAR_PAGE).take(WEAR_PAGE).cloned().collect() });
+            w.wear_page = (page + 1) % pages;
+            w.last_wear = Some(now);
+        }
+        let said: Vec<(u32, u32)> = w.lines.iter().map(|l| (l.speaker, l.info)).collect();
+        let lines_due = match &w.last_lines {
+            None => !said.is_empty(),
+            Some((t, sent)) => *sent != said || (!said.is_empty() && since(*t) >= LINES_EVERY),
+        };
+        if lines_due {
+            w.lines_seq = w.lines_seq.wrapping_add(1);
+            out.push(Msg::Lines { seq: w.lines_seq, lines: w.lines.clone() });
+            w.last_lines = Some((now, said));
+        }
+        for msg in out {
+            self.to_all(&msg);
+        }
+    }
+
+    /// To every guest (the host), or to the host (a guest), [`COPIES`] times.
+    fn to_all_copies(&self, msg: &Msg) {
+        for _ in 0..COPIES {
+            self.to_all(msg);
+        }
+    }
+
+    /// From the host to every guest but `id`, [`COPIES`] times.
+    fn relay_from(&self, id: u8, msg: &Msg) {
+        if !self.is_host() {
+            return;
+        }
+        for addr in self.peers.iter().filter(|o| o.id != id).filter_map(|o| o.addr) {
+            for _ in 0..COPIES {
+                self.sock_send(msg, addr);
+            }
         }
     }
 
@@ -756,6 +1404,13 @@ impl Session {
                 }
             }
         }
+        if e.newest_only() {
+            let kind = std::mem::discriminant(&e);
+            if let Some(old) = self.events.iter_mut().find(|o| std::mem::discriminant(&**o) == kind) {
+                *old = e;
+                return;
+            }
+        }
         // A reliable item is never dropped: frames are not taken while the events are full.
         if self.events.len() >= EVENTS_MAX && !matches!(e, Event::Reliable { .. }) {
             self.events_dropped += 1;
@@ -801,6 +1456,9 @@ impl Session {
                     // again, or lost what was on the way).
                     p.epoch = p.epoch.wrapping_add(1);
                     p.rel = Reliable::new();
+                    // Its newest hits' ids are kept, so a late copy is not taken twice: a
+                    // game started again numbers from a new random start, not likely
+                    // among them [design].
                     let back = std::mem::take(&mut p.lost);
                     self.last_names = None;
                     self.guard.forget(id);
@@ -898,8 +1556,56 @@ impl Session {
                     }
                 }
             }
+            Msg::Hit { id: hit_id, hit, .. } => {
+                let Some(p) = self.peers.iter_mut().find(|p| Some(p.id) == peer) else { return };
+                if p.hits.contains(&hit_id) {
+                    return;
+                }
+                if p.hits.len() >= HITS_KEPT {
+                    p.hits.pop_front();
+                }
+                p.hits.push_back(hit_id);
+                let id = p.id;
+                self.push_event(Event::Hit { id, by: 0, hit });
+            }
+            // For the host's game only: the checks that need its world (loaded, in reach,
+            // locked) run there, and it passes on what passes ([`Session::relay_unlock`],
+            // [`Session::relay_door`]) [design].
+            Msg::Unlock { reference, terminal } => {
+                let Some(p) = self.peers.iter_mut().find(|p| Some(p.id) == peer) else { return };
+                if !p.copies.first(unlock_key(reference, terminal), now) {
+                    return;
+                }
+                let id = p.id;
+                self.push_event(Event::Unlocked { id, reference, terminal });
+            }
+            Msg::Door { reference, open } => {
+                let Some(p) = self.peers.iter_mut().find(|p| Some(p.id) == peer) else { return };
+                if !p.copies.first(door_key(reference, open), now) {
+                    return;
+                }
+                let id = p.id;
+                self.push_event(Event::Door { id, reference, open });
+            }
+            Msg::Revive { target, perks, .. } => {
+                // The reviver is the sender, whatever `by` says (`crate::world` drops one
+                // that names another).
+                let Some(p) = self.peers.iter_mut().find(|p| Some(p.id) == peer) else { return };
+                if !p.copies.first(revive_key(target, p.id, perks), now) {
+                    return;
+                }
+                let by = p.id;
+                // Another guest's revive waits for the game's checks (is the target down,
+                // in reach), [`Session::relay_revive`] [design].
+                if target == 0 {
+                    self.push_event(Event::Revived { by, perks });
+                } else if target != by && self.peers.iter().any(|p| p.id == target) {
+                    self.push_event(Event::ReviveAsked { by, target, perks });
+                }
+            }
             // Dropped by the guard: only the host sends these.
             Msg::Welcome { .. } | Msg::Full { .. } | Msg::Who | Msg::Names { .. } => {}
+            Msg::Npcs { .. } | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Wear { .. } | Msg::Clock(_) | Msg::Scene(_) | Msg::Actors { .. } => {}
         }
     }
 
@@ -920,6 +1626,11 @@ impl Session {
         if self.host_epoch.take().is_some() {
             self.rel = Reliable::new();
         }
+        // A host started again numbers its rounds from 1; its hits from a new random
+        // start, so the newest hits heard are kept (a late copy is not taken twice) [design].
+        self.world.heard_npcs = None;
+        self.world.heard_lines = None;
+        self.world.heard_actors = None;
     }
 
     fn guest_handle(&mut self, msg: Msg, from: SocketAddr, now: Instant) {
@@ -1063,6 +1774,62 @@ impl Session {
                 }
                 for item in self.rel.receive(frame) {
                     self.push_event(Event::Reliable { id: 0, item });
+                }
+            }
+            Msg::Npcs { seq, npcs } => {
+                // A round's packets share its number; an older round is dropped.
+                if self.world.heard_npcs.is_some_and(|l| seq != l && !fresh(seq, l)) {
+                    return;
+                }
+                self.world.heard_npcs = Some(seq);
+                self.push_event(Event::Npcs(npcs));
+            }
+            // A hit on this guest's player, from the host (player 0), once.
+            Msg::Hit { id: hit_id, by, hit } => {
+                let heard = &mut self.world.heard_hits;
+                if heard.contains(&hit_id) {
+                    return;
+                }
+                if heard.len() >= HITS_KEPT {
+                    heard.pop_front();
+                }
+                heard.push_back(hit_id);
+                self.push_event(Event::Hit { id: 0, by, hit });
+            }
+            Msg::Actors { seq, ms, poses } => {
+                // An older round is dropped; one far behind the last is a host started
+                // again (as the NPC rounds and states take it, `fresh`).
+                if self.world.heard_actors.is_some_and(|h| seq != h && !fresh(seq, h)) {
+                    return;
+                }
+                self.world.heard_actors = Some(seq);
+                let here_ms = self.started.elapsed().as_millis() as u32;
+                self.push_event(Event::Actors { ms, here_ms, poses });
+            }
+            Msg::Lines { seq, lines } => {
+                if self.world.heard_lines.is_some_and(|l| !fresh(seq, l)) {
+                    return;
+                }
+                self.world.heard_lines = Some(seq);
+                self.push_event(Event::Lines(lines));
+            }
+            Msg::Unlock { reference, terminal } => {
+                if self.world.heard_copies.first(unlock_key(reference, terminal), now) {
+                    self.push_event(Event::Unlocked { id: 0, reference, terminal });
+                }
+            }
+            Msg::Door { reference, open } => {
+                if self.world.heard_copies.first(door_key(reference, open), now) {
+                    self.push_event(Event::Door { id: 0, reference, open });
+                }
+            }
+            Msg::Clock(c) => self.push_event(Event::Clock(c)),
+            Msg::Scene(v) => self.push_event(Event::Scene(v)),
+            Msg::Presence { list, serial, page, pages, refs } => self.push_event(Event::Presence { list, serial, page, pages, refs }),
+            Msg::Wear { npcs } => self.push_event(Event::Wear(npcs)),
+            Msg::Revive { target, by, perks } => {
+                if Some(target) == me && self.world.heard_copies.first(revive_key(target, by, perks), now) {
+                    self.push_event(Event::Revived { by, perks });
                 }
             }
             // A guest's messages, for the host only.
@@ -1263,6 +2030,86 @@ impl Link {
         self.with(|s| s.host_addr())
     }
 
+    /// [`Session::set_npcs`].
+    pub fn set_npcs(&self, npcs: Vec<NpcState>) {
+        self.with(|s| s.set_npcs(npcs));
+    }
+
+    /// [`Session::send_hit`].
+    pub fn send_hit(&self, hit: HitView) {
+        self.with(|s| s.send_hit(hit));
+    }
+
+    /// [`Session::send_hit_to`].
+    pub fn send_hit_to(&self, id: u8, by: u32, hit: HitView) {
+        self.with(|s| s.send_hit_to(id, by, hit));
+    }
+
+    /// [`Session::set_clock`].
+    pub fn set_clock(&self, clock: ClockView) {
+        self.with(|s| s.set_clock(clock));
+    }
+
+    /// [`Session::set_scene`].
+    pub fn set_scene(&self, scene: SceneView) {
+        self.with(|s| s.set_scene(scene));
+    }
+
+    /// [`Session::set_lines`].
+    pub fn set_lines(&self, lines: Vec<LineView>) {
+        self.with(|s| s.set_lines(lines));
+    }
+
+    /// [`Session::set_presence`].
+    pub fn set_presence(&self, list: u8, refs: Vec<(u32, bool)>) {
+        self.with(|s| s.set_presence(list, refs));
+    }
+
+    /// [`Session::set_wear`].
+    pub fn set_wear(&self, npcs: Vec<(u32, Vec<u32>)>) {
+        self.with(|s| s.set_wear(npcs));
+    }
+
+    /// [`Session::send_door`].
+    pub fn send_door(&self, reference: u32, open: bool) {
+        self.with(|s| s.send_door(reference, open));
+    }
+
+    /// [`Session::send_unlock`].
+    pub fn send_unlock(&self, reference: u32, terminal: bool) {
+        self.with(|s| s.send_unlock(reference, terminal));
+    }
+
+    /// [`Session::send_revive`].
+    pub fn send_revive(&self, target: u8, perks: u8) {
+        self.with(|s| s.send_revive(target, perks));
+    }
+
+    /// [`Session::relay_door`].
+    pub fn relay_door(&self, except: u8, reference: u32, open: bool) {
+        self.with(|s| s.relay_door(except, reference, open));
+    }
+
+    /// [`Session::relay_unlock`].
+    pub fn relay_unlock(&self, except: u8, reference: u32, terminal: bool) {
+        self.with(|s| s.relay_unlock(except, reference, terminal));
+    }
+
+    /// [`Session::relay_revive`].
+    pub fn relay_revive(&self, target: u8, by: u8, perks: u8) {
+        self.with(|s| s.relay_revive(target, by, perks));
+    }
+
+    /// [`Session::note_bad`].
+    pub fn note_bad(&self, id: u8) {
+        self.with(|s| s.note_bad(id));
+    }
+
+    /// [`Session::send_actors`].
+    pub fn send_actors(&self, to: u8, poses: &[ActorPose]) {
+        self.with(|s| s.send_actors(to, poses));
+    }
+
     /// Stop without saying Bye: the game starts again (to load a save) and comes back
     /// with the same token before the host even marks it lost.
     pub fn abandon(mut self) {
@@ -1388,6 +2235,135 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(item);
             }
         }
+        Msg::Npcs { seq, npcs } => {
+            b.push(9);
+            b.extend_from_slice(&seq.to_le_bytes());
+            let npcs = &npcs[..npcs.len().min(NPCS_PER_PACKET)];
+            b.push(npcs.len() as u8);
+            for n in npcs {
+                b.extend_from_slice(&n.reference.to_le_bytes());
+                for v in n.feet.iter().chain([&n.heading, &n.pitch]) {
+                    b.extend_from_slice(&v.to_le_bytes());
+                }
+                b.push(n.flags);
+                b.extend_from_slice(&n.weapon.to_le_bytes());
+                b.push(n.attacks);
+                b.extend_from_slice(&n.furniture.to_le_bytes());
+                b.extend_from_slice(&n.base.to_le_bytes());
+                b.extend_from_slice(&((n.level & 0x7FFF) | if n.hostile { 0x8000 } else { 0 }).to_le_bytes());
+                b.push(n.rolls.min(127) | if n.all_levels { 128 } else { 0 });
+                b.extend_from_slice(&n.space.to_le_bytes());
+            }
+        }
+        Msg::Hit { id, by, hit } => {
+            b.push(10);
+            b.extend_from_slice(&id.to_le_bytes());
+            b.extend_from_slice(&by.to_le_bytes());
+            b.extend_from_slice(&hit.target.to_le_bytes());
+            b.extend_from_slice(&hit.dealt.to_le_bytes());
+            b.extend_from_slice(&hit.weapon.to_le_bytes());
+            b.extend_from_slice(&hit.location.to_le_bytes());
+            b.push(u8::from(hit.critical));
+            match hit.limb {
+                Some(l) => {
+                    b.push(1);
+                    b.extend_from_slice(&l.condition.to_le_bytes());
+                    b.extend_from_slice(&l.health_percent.to_le_bytes());
+                    b.extend_from_slice(&l.damage.to_le_bytes());
+                    b.push(u8::from(l.points));
+                }
+                None => b.push(0),
+            }
+        }
+        Msg::Unlock { reference, terminal } => {
+            b.push(12);
+            b.extend_from_slice(&reference.to_le_bytes());
+            b.push(u8::from(*terminal));
+        }
+        Msg::Clock(c) => {
+            b.push(13);
+            for v in [c.year, c.month, c.day, c.hour, c.days_passed] {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        Msg::Revive { target, by, perks } => b.extend_from_slice(&[14, *target, *by, *perks]),
+        Msg::Lines { seq, lines } => {
+            b.push(17);
+            b.extend_from_slice(&seq.to_le_bytes());
+            let lines = &lines[..lines.len().min(LINES_MAX)];
+            b.push(lines.len() as u8);
+            for l in lines {
+                for v in [l.speaker, l.target, l.topic, l.info] {
+                    b.extend_from_slice(&v.to_le_bytes());
+                }
+                b.extend_from_slice(&l.remaining.to_le_bytes());
+                b.push(l.flags);
+                b.extend_from_slice(&l.conversation.to_le_bytes());
+            }
+        }
+        Msg::Presence { list, serial, page, pages, refs } => {
+            b.extend_from_slice(&[19, *list]);
+            b.extend_from_slice(&serial.to_le_bytes());
+            b.extend_from_slice(&page.to_le_bytes());
+            b.extend_from_slice(&pages.to_le_bytes());
+            let refs = &refs[..refs.len().min(PRESENCE_PAGE)];
+            b.extend_from_slice(&(refs.len() as u16).to_le_bytes());
+            for (r, on) in refs {
+                b.extend_from_slice(&r.to_le_bytes());
+                b.push(u8::from(*on));
+            }
+        }
+        Msg::Door { reference, open } => {
+            b.push(20);
+            b.extend_from_slice(&reference.to_le_bytes());
+            b.push(u8::from(*open));
+        }
+        Msg::Wear { npcs } => {
+            b.push(23);
+            let npcs = &npcs[..npcs.len().min(WEAR_PAGE)];
+            b.push(npcs.len() as u8);
+            for (r, items) in npcs {
+                b.extend_from_slice(&r.to_le_bytes());
+                let items = &items[..items.len().min(WEAR_ITEMS)];
+                b.push(items.len() as u8);
+                for i in items {
+                    b.extend_from_slice(&i.to_le_bytes());
+                }
+            }
+        }
+        Msg::Scene(v) => {
+            let mods = &v.mods[..v.mods.len().min(SCENE_MODS_MAX)];
+            b.extend_from_slice(&[24, v.locks, mods.len() as u8]);
+            for (m, at) in mods {
+                b.extend_from_slice(&m.to_le_bytes());
+                b.extend_from_slice(&at.to_le_bytes());
+            }
+            let worn = &v.worn[..v.worn.len().min(SCENE_MODS_MAX)];
+            b.push(worn.len() as u8);
+            for (item, locked) in worn {
+                b.extend_from_slice(&item.to_le_bytes());
+                b.push(u8::from(*locked));
+            }
+            let swaps: Vec<_> = v.swaps.iter().filter(|(_, s, t)| s.len() <= SWAP_TEXT_MAX && t.len() <= SWAP_TEXT_MAX).take(SCENE_SWAPS_MAX).collect();
+            b.push(swaps.len() as u8);
+            for (on, shape, texture) in swaps {
+                b.extend_from_slice(&on.to_le_bytes());
+                for s in [shape, texture] {
+                    b.push(s.len() as u8);
+                    b.extend_from_slice(s.as_bytes());
+                }
+            }
+        }
+        Msg::Actors { seq, ms, poses } => {
+            b.push(31);
+            b.extend_from_slice(&seq.to_le_bytes());
+            b.extend_from_slice(&ms.to_le_bytes());
+            let poses = &poses[..poses.len().min(ACTORS_PER_PACKET)];
+            b.push(poses.len() as u8);
+            for p in poses {
+                p.write(&mut b);
+            }
+        }
     }
     b
 }
@@ -1481,6 +2457,117 @@ fn decode(b: &[u8]) -> Option<Msg> {
             }
             Msg::Rel { epoch, frame: Frame { ack, first, items } }
         }
+        9 => {
+            let seq = r.u32()?;
+            let n = r.u8()? as usize;
+            if n > NPCS_PER_PACKET {
+                return None;
+            }
+            let mut npcs = Vec::with_capacity(n);
+            for _ in 0..n {
+                let reference = r.u32()?;
+                let feet = [r.finite()?, r.finite()?, r.finite()?];
+                let (heading, pitch) = (r.finite()?, r.finite()?);
+                let (flags, weapon, attacks, furniture, base, level, look, space) = (r.u8()?, r.u32()?, r.u8()?, r.u32()?, r.u32()?, r.u16()?, r.u8()?, r.u32()?);
+                npcs.push(NpcState { reference, feet, heading, pitch, flags, weapon, attacks, furniture, base, level: level & 0x7FFF, all_levels: look & 128 != 0, rolls: look & 127, hostile: level & 0x8000 != 0, space });
+            }
+            Msg::Npcs { seq, npcs }
+        }
+        10 => {
+            let (id, by) = (r.u16()?, r.u32()?);
+            let (target, dealt, weapon, location, critical) = (r.u32()?, r.finite()?, r.u32()?, r.i32()?, r.u8()? != 0);
+            let limb = match r.u8()? {
+                0 => None,
+                1 => Some(LimbView { condition: r.u16()?, health_percent: r.finite64()?, damage: r.finite64()?, points: r.u8()? != 0 }),
+                _ => return None,
+            };
+            Msg::Hit { id, by, hit: HitView { target, dealt, weapon, location, critical, limb } }
+        }
+        12 => Msg::Unlock { reference: r.u32()?, terminal: r.u8()? != 0 },
+        13 => Msg::Clock(ClockView { year: r.finite()?, month: r.finite()?, day: r.finite()?, hour: r.finite()?, days_passed: r.finite()? }),
+        14 => Msg::Revive { target: r.u8()?, by: r.u8()?, perks: r.u8()? },
+        17 => {
+            let seq = r.u32()?;
+            let n = r.u8()? as usize;
+            if n > LINES_MAX {
+                return None;
+            }
+            let mut lines = Vec::with_capacity(n);
+            for _ in 0..n {
+                let (speaker, target, topic, info) = (r.u32()?, r.u32()?, r.u32()?, r.u32()?);
+                let remaining = r.finite()?;
+                lines.push(LineView { speaker, target, topic, info, remaining, flags: r.u8()?, conversation: r.u16()? });
+            }
+            Msg::Lines { seq, lines }
+        }
+        19 => {
+            let (list, serial, page, pages, n) = (r.u8()?, r.u32()?, r.u16()?, r.u16()?, r.u16()? as usize);
+            if n > PRESENCE_PAGE || page >= pages || list as usize >= LISTS {
+                return None;
+            }
+            let mut refs = Vec::with_capacity(n);
+            for _ in 0..n {
+                refs.push((r.u32()?, r.u8()? != 0));
+            }
+            Msg::Presence { list, serial, page, pages, refs }
+        }
+        20 => Msg::Door { reference: r.u32()?, open: r.u8()? != 0 },
+        23 => {
+            let n = r.u8()? as usize;
+            if n > WEAR_PAGE {
+                return None;
+            }
+            let mut npcs = Vec::with_capacity(n);
+            for _ in 0..n {
+                let reference = r.u32()?;
+                let k = r.u8()? as usize;
+                if k > WEAR_ITEMS {
+                    return None;
+                }
+                npcs.push((reference, (0..k).map(|_| r.u32()).collect::<Option<Vec<_>>>()?));
+            }
+            Msg::Wear { npcs }
+        }
+        24 => {
+            let locks = r.u8()?;
+            let n = r.u8()? as usize;
+            if n > SCENE_MODS_MAX {
+                return None;
+            }
+            let mut mods = Vec::with_capacity(n);
+            for _ in 0..n {
+                mods.push((r.u32()?, r.finite()?));
+            }
+            let n = r.u8()? as usize;
+            if n > SCENE_MODS_MAX {
+                return None;
+            }
+            let mut worn = Vec::with_capacity(n);
+            for _ in 0..n {
+                worn.push((r.u32()?, r.u8()? != 0));
+            }
+            let n = r.u8()? as usize;
+            if n > SCENE_SWAPS_MAX {
+                return None;
+            }
+            let mut swaps = Vec::with_capacity(n);
+            for _ in 0..n {
+                let on = r.u32()?;
+                let (shape, texture) = (r.text(SWAP_TEXT_MAX)?, r.text(SWAP_TEXT_MAX)?);
+                swaps.push((on, shape, texture));
+            }
+            Msg::Scene(SceneView { locks, mods, worn, swaps })
+        }
+        31 => {
+            let (seq, ms) = (r.u32()?, r.u32()?);
+            let n = r.u8()? as usize;
+            if n > ACTORS_PER_PACKET {
+                return None;
+            }
+            let mut pr = crate::repl::Reader(r.take(n * ACTOR_BYTES)?);
+            let poses = (0..n).map(|_| ActorPose::read(&mut pr)).collect::<Option<Vec<_>>>()?;
+            Msg::Actors { seq, ms, poses }
+        }
         _ => return None,
     };
     r.0.is_empty().then_some(msg)
@@ -1509,9 +2596,24 @@ impl<'a> Reader<'a> {
     fn u64(&mut self) -> Option<u64> {
         self.take(8).map(|b| u64::from_le_bytes(b.try_into().unwrap()))
     }
+    fn i32(&mut self) -> Option<i32> {
+        self.take(4).map(|b| i32::from_le_bytes(b.try_into().unwrap()))
+    }
     /// A float, None unless finite.
     fn finite(&mut self) -> Option<f32> {
         self.take(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).filter(|v| v.is_finite())
+    }
+    /// A double, None unless finite.
+    fn finite64(&mut self) -> Option<f64> {
+        self.take(8).map(|b| f64::from_le_bytes(b.try_into().unwrap())).filter(|v| v.is_finite())
+    }
+    /// A text: its length byte (at most `max`), then its bytes.
+    fn text(&mut self, max: usize) -> Option<String> {
+        let len = self.u8()? as usize;
+        if len > max {
+            return None;
+        }
+        Some(String::from_utf8_lossy(self.take(len)?).into_owned())
     }
     /// A name: its length byte (at most [`NAME_MAX`]), then its bytes.
     fn name(&mut self) -> Option<String> {
@@ -1541,6 +2643,36 @@ mod tests {
     use super::*;
     use crate::seam::memory::{pair, Hub};
     use crate::seam::SharedSecret;
+
+    /// The three copies of one door, unlock or revive are taken once; the other way, or
+    /// the same again after the window, is new.
+    #[test]
+    fn the_copies_of_a_door_are_taken_once() {
+        let mut c = Copies::default();
+        let t = Instant::now();
+        assert!(c.first(door_key(0x00AB_C001, true), t));
+        assert!(!c.first(door_key(0x00AB_C001, true), t));
+        assert!(!c.first(door_key(0x00AB_C001, true), t + Duration::from_millis(5)));
+        assert!(c.first(door_key(0x00AB_C001, false), t + Duration::from_millis(400)), "closed again");
+        assert!(c.first(unlock_key(0x00AB_C001, true), t), "an unlock of the same reference");
+        assert!(c.first(revive_key(2, 3, 0), t));
+        assert!(!c.first(revive_key(2, 3, 0), t));
+        assert!(c.first(revive_key(2, 4, 0), t), "another reviver");
+        assert!(c.first(door_key(0x00AB_C001, true), t + COPY_WINDOW), "after the window");
+    }
+
+    /// A door that goes open, close, open inside the window is three events: the second
+    /// open is not a copy of the first.
+    #[test]
+    fn a_door_opened_closed_opened_inside_the_window_is_three_events() {
+        let mut c = Copies::default();
+        let t = Instant::now();
+        assert!(c.first(door_key(0x00AB_C002, true), t));
+        assert!(c.first(door_key(0x00AB_C002, false), t + Duration::from_millis(200)));
+        assert!(c.first(door_key(0x00AB_C002, true), t + Duration::from_millis(400)), "opened again");
+        assert!(!c.first(door_key(0x00AB_C002, true), t + Duration::from_millis(405)), "its copy");
+        assert!(!c.first(door_key(0x00AB_C002, true), t + Duration::from_millis(410)), "and its second copy");
+    }
 
     fn state(x: f32) -> PlayerState {
         PlayerState::at(Place::Exterior(0xA001), [x, 2.0, 3.0], 0.5)
@@ -1588,6 +2720,383 @@ mod tests {
         }
     }
 
+    fn npc(reference: u32) -> NpcState {
+        NpcState { reference, feet: [1.5, -2.0, 300.25], heading: 1.0, pitch: -0.25, flags: npc_flag::MOVING | npc_flag::DRAWN, weapon: 0x0E37, attacks: 200, furniture: 0, base: 0x00AB_C104, level: 20, all_levels: true, rolls: 3, hostile: true, space: 0xDA726 }
+    }
+
+    fn hit(target: u32) -> HitView {
+        HitView { target, dealt: 12.5, weapon: 0x0E37, location: 1, critical: true, limb: Some(LimbView { condition: 25, health_percent: 37.5, damage: 6.25, points: true }) }
+    }
+
+    fn line() -> LineView {
+        LineView { speaker: 0x00AB_C106, target: LineView::HOST, topic: 0x0011_2233, info: 0x0011_2244, remaining: 3.25, flags: LineView::SAY_TO | LineView::TWO_D, conversation: 2 }
+    }
+
+    fn scene() -> SceneView {
+        SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x00AB_C101, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)], swaps: vec![(0x0101_38B2, "screen01:0".into(), "textures/slide03.dds".into())] }
+    }
+
+    fn pose(reference: u32) -> ActorPose {
+        ActorPose { reference, feet: [100.0, -200.0, 50.0], heading: 1.0, pitch: 0.0, flags: npc_flag::MOVING, attacks: 3 }.quantised()
+    }
+
+    #[test]
+    fn world_messages_round_trip() {
+        for msg in [
+            Msg::Npcs { seq: 7, npcs: Vec::new() },
+            Msg::Npcs { seq: u32::MAX, npcs: (0..NPCS_PER_PACKET as u32).map(npc).collect() },
+            Msg::Hit { id: 65_000, by: 0, hit: hit(0x00AB_C104) },
+            Msg::Hit { id: 1, by: 0x00AB_C105, hit: HitView { target: 7, dealt: 0.0, weapon: 0, location: HitView::OBJECT, critical: false, limb: None } },
+            Msg::Unlock { reference: 0x0001_2345, terminal: true },
+            Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
+            Msg::Scene(SceneView::default()),
+            Msg::Scene(scene()),
+            Msg::Lines { seq: 3, lines: Vec::new() },
+            Msg::Lines { seq: u32::MAX, lines: vec![line(); LINES_MAX] },
+            Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
+            Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x00AB_C107, true); PRESENCE_PAGE] },
+            Msg::Wear { npcs: vec![(0x0010_C0DE, vec![0x00AB_C102, 0x00AB_C103]), (0xFF00_0643, Vec::new())] },
+            Msg::Wear { npcs: vec![(1, vec![2; WEAR_ITEMS]); WEAR_PAGE] },
+            Msg::Door { reference: 0x0010_C0DE, open: true },
+            Msg::Revive { target: 2, by: 0, perks: revive_perk::CURE_RADS },
+            Msg::Actors { seq: 4, ms: 123_456, poses: Vec::new() },
+            Msg::Actors { seq: 5, ms: 0, poses: (0..ACTORS_PER_PACKET as u32).map(pose).collect() },
+        ] {
+            let bytes = encode(&msg);
+            assert!(bytes.len() <= 1500, "{} bytes: {msg:?}", bytes.len());
+            assert_eq!(decode(&bytes), Some(msg));
+        }
+    }
+
+    /// The world's floats must be finite: a message with one that is not does not parse.
+    #[test]
+    fn world_messages_not_finite_do_not_parse() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let npcs = |n: NpcState| encode(&Msg::Npcs { seq: 1, npcs: vec![n] });
+            assert!(decode(&npcs(NpcState { feet: [0.0, bad, 0.0], ..npc(1) })).is_none());
+            assert!(decode(&npcs(NpcState { heading: bad, ..npc(1) })).is_none());
+            assert!(decode(&npcs(NpcState { pitch: bad, ..npc(1) })).is_none());
+            assert!(decode(&encode(&Msg::Hit { id: 1, by: 0, hit: HitView { dealt: bad, ..hit(1) } })).is_none());
+            let limb = |health_percent: f64, damage: f64| HitView { limb: Some(LimbView { condition: 1, health_percent, damage, points: false }), ..hit(1) };
+            assert!(decode(&encode(&Msg::Hit { id: 1, by: 0, hit: limb(f64::from(bad), 1.0) })).is_none());
+            assert!(decode(&encode(&Msg::Hit { id: 1, by: 0, hit: limb(1.0, f64::from(bad)) })).is_none());
+            assert!(decode(&encode(&Msg::Clock(ClockView { hour: bad, ..ClockView::default() }))).is_none());
+            assert!(decode(&encode(&Msg::Lines { seq: 1, lines: vec![LineView { remaining: bad, ..line() }] })).is_none());
+            assert!(decode(&encode(&Msg::Scene(SceneView { mods: vec![(1, bad)], ..SceneView::default() }))).is_none());
+        }
+    }
+
+    /// Every world list on the wire has its bound: one past it does not parse.
+    #[test]
+    fn world_lists_past_their_bounds_do_not_parse() {
+        let header = |kind: u8| [&MAGIC[..], &[VERSION, kind]].concat();
+        // One NPC too many.
+        let mut b = encode(&Msg::Npcs { seq: 1, npcs: (0..NPCS_PER_PACKET as u32).map(npc).collect() });
+        b[10] = NPCS_PER_PACKET as u8 + 1;
+        let extra = b[11..11 + 45].to_vec();
+        b.extend_from_slice(&extra);
+        assert!(decode(&b).is_none());
+        // One line too many.
+        let mut b = encode(&Msg::Lines { seq: 1, lines: vec![line(); LINES_MAX] });
+        b[10] = LINES_MAX as u8 + 1;
+        let extra = b[11..11 + 23].to_vec();
+        b.extend_from_slice(&extra);
+        assert!(decode(&b).is_none());
+        // A presence page too long, a page past its count, a list this build does not have.
+        let presence = |list: u8, page: u16, pages: u16, n: u16| {
+            let mut b = header(19);
+            b.push(list);
+            b.extend_from_slice(&1u32.to_le_bytes());
+            b.extend_from_slice(&page.to_le_bytes());
+            b.extend_from_slice(&pages.to_le_bytes());
+            b.extend_from_slice(&n.to_le_bytes());
+            b.extend(std::iter::repeat_n([1, 0, 0, 0, 1], n as usize).flatten());
+            b
+        };
+        assert!(decode(&presence(LIST_OPEN, 0, 1, PRESENCE_PAGE as u16)).is_some());
+        assert!(decode(&presence(LIST_OPEN, 0, 1, PRESENCE_PAGE as u16 + 1)).is_none());
+        assert!(decode(&presence(LIST_OPEN, 1, 1, 0)).is_none());
+        assert!(decode(&presence(LISTS as u8, 0, 1, 0)).is_none());
+        // A wear page of too many NPCs, an NPC of too many items.
+        let wear = |n: usize, k: usize| {
+            let mut b = header(23);
+            b.push(n as u8);
+            for _ in 0..n {
+                b.extend_from_slice(&1u32.to_le_bytes());
+                b.push(k as u8);
+                b.extend(std::iter::repeat_n(2u32.to_le_bytes(), k).flatten());
+            }
+            b
+        };
+        assert!(decode(&wear(WEAR_PAGE, WEAR_ITEMS)).is_some());
+        assert!(decode(&wear(WEAR_PAGE + 1, 0)).is_none());
+        assert!(decode(&wear(1, WEAR_ITEMS + 1)).is_none());
+        // A scene of too many modifiers, worn items or swaps, or a swap's text too long.
+        let mut b = header(24);
+        b.extend_from_slice(&[0, SCENE_MODS_MAX as u8 + 1]);
+        b.extend(std::iter::repeat_n([0u8; 8], SCENE_MODS_MAX + 1).flatten());
+        b.extend_from_slice(&[0, 0]);
+        assert!(decode(&b).is_none());
+        let mut b = header(24);
+        b.extend_from_slice(&[0, 0, SCENE_MODS_MAX as u8 + 1]);
+        b.extend(std::iter::repeat_n([0u8; 5], SCENE_MODS_MAX + 1).flatten());
+        b.push(0);
+        assert!(decode(&b).is_none());
+        let mut b = header(24);
+        b.extend_from_slice(&[0, 0, 0, SCENE_SWAPS_MAX as u8 + 1]);
+        b.extend(std::iter::repeat_n([0u8; 6], SCENE_SWAPS_MAX + 1).flatten());
+        assert!(decode(&b).is_none());
+        let mut b = header(24);
+        b.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 0, SWAP_TEXT_MAX as u8 + 1]);
+        b.extend_from_slice(&[b'a'; SWAP_TEXT_MAX + 1]);
+        b.push(0);
+        assert!(decode(&b).is_none());
+        // Too many actor poses.
+        let mut b = encode(&Msg::Actors { seq: 1, ms: 0, poses: (0..ACTORS_PER_PACKET as u32).map(pose).collect() });
+        b[14] = ACTORS_PER_PACKET as u8 + 1;
+        b.extend_from_slice(&[0; ACTOR_BYTES]);
+        assert!(decode(&b).is_none());
+        // A hit's limb tag other than 0 or 1.
+        let mut b = encode(&Msg::Hit { id: 1, by: 0, hit: HitView { limb: None, ..hit(1) } });
+        *b.last_mut().unwrap() = 2;
+        assert!(decode(&b).is_none());
+        // The parts of the old protocol this one left out (another piece's) do not parse.
+        for kind in [11, 15, 16, 18, 25, 26, 27] {
+            let mut other = encode(&Msg::Ping);
+            other[5] = kind;
+            other.extend_from_slice(&[0; 16]);
+            assert!(decode(&other).is_none(), "kind {kind}");
+        }
+    }
+
+    /// Guest 1's address as a raw endpoint, after it was welcomed and its state seen.
+    fn host_with_raw_guest() -> (Hub, Session, Session, Instant) {
+        let hub = Hub::new();
+        let mut host = Session::host_on(Box::new(hub.endpoint(addr(1))), Box::new(secret()));
+        let mut a = Session::join_on(Box::new(hub.endpoint(addr(2))), Box::new(secret()), &[addr(1)], 0, "A", 1);
+        let mut clock = Instant::now();
+        a.set_state(state(1.0));
+        run(&mut [&mut host, &mut a], &mut clock, Duration::from_millis(10), |seen| welcomed(&seen[1]) && seen[0].iter().any(|e| matches!(e, Event::State { id: 1, .. })));
+        (hub, host, a, clock)
+    }
+
+    /// The world's messages only the host sends are dropped from a guest, and counted
+    /// against it.
+    #[test]
+    fn a_guests_world_messages_for_guests_are_dropped() {
+        let (hub, mut host, _a, mut clock) = host_with_raw_guest();
+        let raw = hub.endpoint(addr(2));
+        let msgs = [
+            Msg::Npcs { seq: 1, npcs: vec![npc(1)] },
+            Msg::Lines { seq: 1, lines: vec![line()] },
+            Msg::Presence { list: LIST_ENABLED, serial: 1, page: 0, pages: 1, refs: vec![(1, true)] },
+            Msg::Wear { npcs: vec![(1, vec![2])] },
+            Msg::Clock(ClockView::default()),
+            Msg::Scene(scene()),
+            Msg::Actors { seq: 1, ms: 0, poses: vec![pose(1)] },
+        ];
+        for msg in &msgs {
+            raw.send_to(&encode(msg), addr(1)).unwrap();
+        }
+        clock += Duration::from_millis(10);
+        host.tick(clock);
+        let events = host.take_events();
+        assert!(!events.iter().any(|e| matches!(e, Event::Npcs(_) | Event::Lines(_) | Event::Presence { .. } | Event::Wear(_) | Event::Clock(_) | Event::Scene(_) | Event::Actors { .. })), "{events:?}");
+        let stats = host.guard_stats();
+        for kind in [Kind::Npcs, Kind::Lines, Kind::Presence, Kind::Wear, Kind::Clock, Kind::Scene, Kind::Actors] {
+            assert!(stats.dropped.contains(&(kind, Reason::HostOnly, 1)), "{kind:?}: {stats:?}");
+        }
+        assert_eq!(host.bad_messages(1), msgs.len() as u64);
+    }
+
+    /// A guest's unlock and door reach the host's game only once the host's checks accept
+    /// them, and the other guests only once the game passes them on (never the sender).
+    #[test]
+    fn an_unlock_is_passed_on_only_after_it_is_accepted() {
+        /// Drops anything about reference 0xBAD.
+        struct NotBad;
+        impl Rule for NotBad {
+            fn check(&self, _: &crate::guard::Ctx, subject: &crate::guard::Subject) -> Verdict {
+                match subject {
+                    crate::guard::Subject::Msg(Msg::Unlock { reference: 0xBAD, .. } | Msg::Door { reference: 0xBAD, .. }) => Verdict::Drop(Reason::Rule("bad")),
+                    _ => Verdict::Accept,
+                }
+            }
+        }
+        let hub = Hub::new();
+        let mut host = Session::host_on(Box::new(hub.endpoint(addr(1))), Box::new(secret()));
+        host.add_rule(Kind::Unlock, Box::new(NotBad));
+        host.add_rule(Kind::Door, Box::new(NotBad));
+        let mut a = Session::join_on(Box::new(hub.endpoint(addr(2))), Box::new(secret()), &[addr(1)], 0, "A", 1);
+        let mut b = Session::join_on(Box::new(hub.endpoint(addr(3))), Box::new(secret()), &[addr(1)], 0, "B", 2);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| welcomed(&seen[1]) && welcomed(&seen[2]));
+        a.send_unlock(0xBAD, false);
+        a.send_door(0xBAD, true);
+        a.send_unlock(0x600D, true);
+        a.send_door(0x600D, false);
+        let ida = a.id().unwrap();
+        let mut seen = settle(&mut [&mut host, &mut a, &mut b], &mut clock, step);
+        assert!(seen[0].contains(&Event::Unlocked { id: ida, reference: 0x600D, terminal: true }));
+        assert!(seen[0].contains(&Event::Door { id: ida, reference: 0x600D, open: false }));
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Unlocked { reference: 0xBAD, .. } | Event::Door { reference: 0xBAD, .. })), "{:?}", seen[0]);
+        // Nothing reaches the other guest before the game passes it on.
+        assert!(!seen[2].iter().any(|e| matches!(e, Event::Unlocked { .. } | Event::Door { .. })), "{:?}", seen[2]);
+        assert!(host.guard_stats().dropped.contains(&(Kind::Unlock, Reason::Rule("bad"), COPIES as u64)));
+        // The game's checks passed: the others have it, the sender does not hear its own.
+        host.relay_unlock(ida, 0x600D, true);
+        host.relay_door(ida, 0x600D, false);
+        seen = settle(&mut [&mut host, &mut a, &mut b], &mut clock, step);
+        assert!(seen[2].contains(&Event::Unlocked { id: 0, reference: 0x600D, terminal: true }), "{:?}", seen[2]);
+        assert!(seen[2].contains(&Event::Door { id: 0, reference: 0x600D, open: false }), "{:?}", seen[2]);
+        assert!(!seen[1].iter().any(|e| matches!(e, Event::Unlocked { .. } | Event::Door { .. })), "{:?}", seen[1]);
+        // A guest cannot pass anything on.
+        b.relay_unlock(0, 0x0BAD, true);
+        b.relay_door(0, 0x0BAD, true);
+        seen = settle(&mut [&mut host, &mut a, &mut b], &mut clock, step);
+        assert!(!seen[1].iter().any(|e| matches!(e, Event::Unlocked { .. } | Event::Door { .. })), "{:?}", seen[1]);
+    }
+
+    /// A guest's revive of another guest reaches the host's game, and its target only once
+    /// the game passes it on, from its reviver.
+    #[test]
+    fn a_guests_revive_of_another_waits_for_the_host() {
+        let hub = Hub::new();
+        let mut host = Session::host_on(Box::new(hub.endpoint(addr(1))), Box::new(secret()));
+        let mut a = Session::join_on(Box::new(hub.endpoint(addr(2))), Box::new(secret()), &[addr(1)], 0, "A", 1);
+        let mut b = Session::join_on(Box::new(hub.endpoint(addr(3))), Box::new(secret()), &[addr(1)], 0, "B", 2);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| welcomed(&seen[1]) && welcomed(&seen[2]));
+        let (ida, idb) = (a.id().unwrap(), b.id().unwrap());
+        a.send_revive(idb, 0xFF);
+        let mut seen = settle(&mut [&mut host, &mut a, &mut b], &mut clock, step);
+        assert!(seen[0].contains(&Event::ReviveAsked { by: ida, target: idb, perks: revive_perk::KNOWN }), "{:?}", seen[0]);
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Revived { .. })), "{:?}", seen[0]);
+        assert!(!seen[2].iter().any(|e| matches!(e, Event::Revived { .. })), "{:?}", seen[2]);
+        host.relay_revive(idb, ida, revive_perk::KNOWN);
+        seen = settle(&mut [&mut host, &mut a, &mut b], &mut clock, step);
+        assert!(seen[2].contains(&Event::Revived { by: ida, perks: revive_perk::KNOWN }), "{:?}", seen[2]);
+        assert!(!seen[1].iter().any(|e| matches!(e, Event::Revived { .. })), "{:?}", seen[1]);
+    }
+
+    /// What the host's game refuses counts against the guest as the guard's refusals do.
+    #[test]
+    fn the_games_refusals_count_against_the_guest() {
+        let (_hub, mut host, mut a, _clock) = host_with_raw_guest();
+        let before = host.bad_messages(1);
+        host.note_bad(1);
+        host.note_bad(1);
+        assert_eq!(host.bad_messages(1), before + 2);
+        // A guest counts nothing.
+        a.note_bad(1);
+        assert_eq!(a.bad_messages(1), 0);
+    }
+
+    /// A guest's hits heard before its Hello again are not taken again after it.
+    #[test]
+    fn a_hits_late_copy_after_a_hello_is_not_taken_twice() {
+        let (hub, mut host, a, mut clock) = host_with_raw_guest();
+        let raw = hub.endpoint(addr(2));
+        let shot = encode(&Msg::Hit { id: 5, by: 0, hit: hit(0x00AB_C104) });
+        raw.send_to(&shot, addr(1)).unwrap();
+        clock += Duration::from_millis(10);
+        host.tick(clock);
+        assert_eq!(host.take_events().iter().filter(|e| matches!(e, Event::Hit { .. })).count(), 1);
+        let Role::Guest { token, .. } = &a.role else { panic!("a guest") };
+        raw.send_to(&encode(&Msg::Hello { token: *token, lobby: 0, proof: a.admission.hello(), name: "A".into() }), addr(1)).unwrap();
+        clock += Duration::from_millis(10);
+        host.tick(clock);
+        assert!(host.take_events().contains(&Event::RelReset { id: 1 }));
+        raw.send_to(&shot, addr(1)).unwrap();
+        clock += Duration::from_millis(10);
+        host.tick(clock);
+        assert!(!host.take_events().iter().any(|e| matches!(e, Event::Hit { .. })));
+    }
+
+    /// Ten steps of every session, with what each heard.
+    fn settle(sessions: &mut [&mut Session], clock: &mut Instant, step: Duration) -> Vec<Vec<Event>> {
+        let mut seen = vec![Vec::new(); sessions.len()];
+        for _ in 0..10 {
+            *clock += step;
+            for (s, seen) in sessions.iter_mut().zip(seen.iter_mut()) {
+                s.tick(*clock);
+                seen.extend(s.take_events());
+            }
+        }
+        seen
+    }
+
+    /// A guest's hit reaches the host once for its copies; the host's NPC's hit reaches
+    /// its guest once, with who dealt it.
+    #[test]
+    fn hits_are_taken_once_each_way() {
+        let (h, g) = pair(addr(1), addr(2));
+        let mut host = Session::host_on(Box::new(h), Box::new(secret()));
+        let mut a = Session::join_on(Box::new(g), Box::new(secret()), &[addr(1)], 0, "A", 1);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| welcomed(&seen[1]));
+        a.send_hit(hit(0x00AB_C104));
+        a.send_hit(hit(0x00AB_C105));
+        host.send_hit_to(1, 0x0010_AAAA, hit(0x7));
+        let mut seen = [Vec::new(), Vec::new()];
+        for _ in 0..10 {
+            clock += step;
+            for (s, seen) in [&mut host, &mut a].into_iter().zip(seen.iter_mut()) {
+                s.tick(clock);
+                seen.extend(s.take_events());
+            }
+        }
+        let hits: Vec<&Event> = seen[0].iter().filter(|e| matches!(e, Event::Hit { .. })).collect();
+        assert_eq!(hits, vec![&Event::Hit { id: 1, by: 0, hit: hit(0x00AB_C104) }, &Event::Hit { id: 1, by: 0, hit: hit(0x00AB_C105) }]);
+        let hurt: Vec<&Event> = seen[1].iter().filter(|e| matches!(e, Event::Hit { .. })).collect();
+        assert_eq!(hurt, vec![&Event::Hit { id: 0, by: 0x0010_AAAA, hit: hit(0x7) }]);
+    }
+
+    /// A revive's reviver is its sender, whatever the message names, and its perks keep
+    /// the bits this build knows.
+    #[test]
+    fn a_revive_is_from_its_sender() {
+        let (hub, mut host, _a, mut clock) = host_with_raw_guest();
+        let raw = hub.endpoint(addr(2));
+        raw.send_to(&encode(&Msg::Revive { target: 0, by: 4, perks: 0xFF }), addr(1)).unwrap();
+        clock += Duration::from_millis(10);
+        host.tick(clock);
+        assert!(host.take_events().contains(&Event::Revived { by: 1, perks: revive_perk::KNOWN }));
+    }
+
+    /// The host's world reaches its guest: the NPCs, the clock, the scene, the lines, the
+    /// presence pages and what its NPCs wear; and the actor poses sent to it.
+    #[test]
+    fn the_hosts_world_reaches_its_guest() {
+        let (h, g) = pair(addr(1), addr(2));
+        let mut host = Session::host_on(Box::new(h), Box::new(secret()));
+        let mut a = Session::join_on(Box::new(g), Box::new(secret()), &[addr(1)], 0, "A", 1);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| welcomed(&seen[1]));
+        host.set_npcs((0..30).map(npc).collect());
+        host.set_clock(ClockView { hour: 13.5, ..ClockView::default() });
+        host.set_scene(scene());
+        host.set_lines(vec![line()]);
+        host.set_presence(LIST_OPEN, vec![(0x10, true)]);
+        host.set_wear(vec![(0x10, vec![1, 2])]);
+        host.send_actors(1, &[pose(5)]);
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| {
+            let s = &seen[1];
+            s.iter().filter_map(|e| if let Event::Npcs(n) = e { Some(n.len()) } else { None }).sum::<usize>() >= 30
+                && s.contains(&Event::Clock(ClockView { hour: 13.5, ..ClockView::default() }))
+                && s.contains(&Event::Scene(scene()))
+                && s.contains(&Event::Lines(vec![line()]))
+                && s.iter().any(|e| matches!(e, Event::Presence { list: LIST_OPEN, refs, .. } if refs == &vec![(0x10, true)]))
+                && s.contains(&Event::Wear(vec![(0x10, vec![1, 2])]))
+                && s.iter().any(|e| matches!(e, Event::Actors { poses, .. } if poses == &vec![pose(5)]))
+        });
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Npcs(_) | Event::Clock(_))));
+    }
+
     #[test]
     fn bad_packets_are_dropped() {
         let good = encode(&Msg::State { id: 1, seq: 1, state: state(1.0) });
@@ -1603,9 +3112,9 @@ mod tests {
             assert!(decode(&encode(&Msg::State { id: 1, seq: 1, state: PlayerState { yaw: bad, ..state(0.0) } })).is_none(), "yaw not finite");
             assert!(decode(&encode(&Msg::State { id: 1, seq: 1, state: PlayerState { pitch: bad, ..state(0.0) } })).is_none(), "pitch not finite");
         }
-        // The kinds this protocol dropped (the world's) do not parse.
+        // A kind this protocol does not have does not parse.
         let mut other = encode(&Msg::Ping);
-        other[5] = 9;
+        other[5] = 99;
         assert!(decode(&other).is_none(), "an unknown kind");
     }
 

@@ -289,17 +289,39 @@ pub struct RigMaterialDrawing<'w, 's> {
     materials: ResMut<'w, Assets<NifMaterial>>,
 }
 
-/// Give each newly drawn rig's driven shapes their own copy of their material.
+/// On a mesh wearing a see-through copy of its material that is given back when it ends
+/// (a reference's fade, `nvf_play::fade`): the material given back, and the copy worn. A
+/// rig that binds its shape's material meanwhile copies `source`, not the copy, and puts
+/// its own copy here, so the fade goes on from it and gives it back (#3919: the Hidden
+/// Valley storm, enabled with a fade, copied the fade's copy and was given back the model's
+/// material, its scroll going on in a material nothing drew).
+#[derive(Component, Debug, Clone)]
+pub struct HeldCopy {
+    pub source: Handle<NifMaterial>,
+    pub copy: Handle<NifMaterial>,
+}
+
+/// Give each newly drawn rig's driven shapes their own copy of their material. A shape
+/// wearing a [`HeldCopy`] keeps it: the rig's own copy is made from its source and becomes
+/// that source.
 pub fn bind_rig_materials(
     mut rigs: Query<&mut RigMaterials, Added<RigMaterials>>,
+    mut held: Query<&mut HeldCopy>,
     mut drawing: RigMaterialDrawing,
 ) {
     for mut rig in &mut rigs {
         for slot in &mut rig.slots {
             let Ok((current, override_)) = drawing.shapes.get(slot.entity) else { continue };
-            let Some(copy) = drawing.materials.get(plain_material(&current.0, override_)).cloned() else { continue };
+            let mut held = held.get_mut(slot.entity).ok().filter(|h| h.copy == current.0);
+            let from = held.as_ref().map_or_else(|| plain_material(&current.0, override_).clone(), |h| h.source.clone());
+            let Some(copy) = drawing.materials.get(&from).cloned() else { continue };
             let own = drawing.materials.add(copy);
-            drawing.commands.entity(slot.entity).insert(MeshMaterial3d(own.clone()));
+            match held.as_mut() {
+                Some(h) => h.source = own.clone(),
+                None => {
+                    drawing.commands.entity(slot.entity).insert(MeshMaterial3d(own.clone()));
+                }
+            }
             slot.handle = own;
             slot.own = true;
         }
