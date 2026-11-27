@@ -275,6 +275,13 @@ pub struct Animator {
     pub locals: Vec<Transform>,
     /// Nodes outside the skeleton ([`Self::set_extra`]).
     extra: Vec<ExtraNode>,
+    /// Runtime nodes outside the skeleton and weapon model (`InsertNode` / `AttachModel`,
+    /// [`Self::set_runtime_extra`]): only written when a playing clip drives them (plus
+    /// one reset to `bind` when a clip stops driving them), so script-driven nodes such
+    /// as B42 True Leaning's `^LeanCam` are never overwritten by bind poses [design].
+    runtime_extra: Vec<ExtraNode>,
+    runtime_prev_driven: Vec<bool>,
+    runtime_write: Vec<bool>,
     /// Nodes held at the identity (the accumulation root).
     held: Vec<usize>,
     /// Nodes with a rest pose of their own in place of the bind pose ([`Self::set_rest`]).
@@ -450,7 +457,7 @@ impl Animator {
     pub fn new(skel: Arc<PreparedSkeleton>, nodes: Vec<Entity>, accum_root: Option<&str>) -> Animator {
         let held = accum_root.and_then(|r| clip_target(&skel, r)).into_iter().collect();
         let locals = skel.locals.clone();
-        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), held, rest: Vec::new(), extra_rest: None, scratch: Vec::new(), seams: None, wrapped: false, jumped: false, jump_seam: false, last_dt: 0.0, seamed: false, last_rotations: Vec::new() }
+        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), runtime_extra: Vec::new(), runtime_prev_driven: Vec::new(), runtime_write: Vec::new(), held, rest: Vec::new(), extra_rest: None, scratch: Vec::new(), seams: None, wrapped: false, jumped: false, jump_seam: false, last_dt: 0.0, seamed: false, last_rotations: Vec::new() }
     }
 
     /// Smooth the seams of looping clips: at a wrap the pose carries on and eases onto the
@@ -488,6 +495,38 @@ impl Animator {
         }
     }
 
+    /// Replace runtime-inserted and script-attached nodes (`InsertNode` / `AttachModel`,
+    /// e.g. B42 Inject's `B42AttachPointL`, `##Needle_B42`, `##Stim_B42`) that clips may
+    /// drive by name without disturbing weapon `extra` nodes or script-posed nodes that
+    /// no clip drives. No-op when the entity/name list is unchanged [design].
+    pub fn set_runtime_extra(&mut self, runtime: Vec<ExtraNode>) {
+        if self.runtime_extra.len() == runtime.len()
+            && self.runtime_extra.iter().zip(&runtime).all(|(a, b)| a.entity == b.entity && a.name == b.name)
+        {
+            return;
+        }
+        let mut prev_driven = vec![false; runtime.len()];
+        for (k, node) in runtime.iter().enumerate() {
+            if let Some(old) = self.runtime_extra.iter().position(|o| o.entity == node.entity) {
+                prev_driven[k] = self.runtime_prev_driven.get(old).copied().unwrap_or(false);
+            }
+        }
+        self.runtime_extra = runtime;
+        self.runtime_prev_driven = prev_driven;
+        self.runtime_write = vec![false; self.runtime_extra.len()];
+        let keep = self.skel.locals.len() + self.extra.len();
+        self.locals.truncate(keep);
+        for i in 0..self.layers.len() {
+            let bound = self.bind(&self.layers[i].clip);
+            self.layers[i].bound = bound;
+        }
+    }
+
+    /// The current runtime extra nodes bound to this animator.
+    pub fn runtime_extra(&self) -> &[ExtraNode] {
+        &self.runtime_extra
+    }
+
     /// Go on from where `old` is, for a model rebuilt in its place (another outfit, a new
     /// look): its clips with their times, weights and fades, its phase, and its last pose
     /// on the nodes of the same name. Without this the new model's clips fade in from
@@ -511,13 +550,29 @@ impl Animator {
     }
 
     /// The nodes a track named `name` drives: its skeleton node (not the root), else
-    /// every extra node of that name.
+    /// every weapon extra node or runtime-attached/inserted node of that name.
     fn targets(&self, name: &str) -> Vec<usize> {
         if self.skel.by_name.contains_key(name) {
             return clip_target(&self.skel, name).into_iter().collect();
         }
         let n = self.skel.locals.len();
-        self.extra.iter().enumerate().filter(|(_, x)| x.name == name).map(|(k, _)| n + k).collect()
+        let mut out: Vec<usize> = self.extra.iter().enumerate().filter(|(_, x)| x.name == name).map(|(k, _)| n + k).collect();
+        let r_base = n + self.extra.len();
+        let mut exact = false;
+        for (k, x) in self.runtime_extra.iter().enumerate() {
+            if x.name == name {
+                out.push(r_base + k);
+                exact = true;
+            }
+        }
+        if !exact {
+            for (k, x) in self.runtime_extra.iter().enumerate() {
+                if x.name.eq_ignore_ascii_case(name) {
+                    out.push(r_base + k);
+                }
+            }
+        }
+        out
     }
 
     /// `clip`'s tracks bound to nodes: (node, track index, priority).
@@ -534,10 +589,20 @@ impl Animator {
     /// each node of it (for reports).
     pub fn extra_driven<'a>(&'a self, clip: &Clip) -> Vec<&'a str> {
         let n = self.skel.locals.len();
+        let e_len = self.extra.len();
         let mut nodes: Vec<usize> = clip.tracks.iter().flat_map(|(name, _)| self.targets(name)).filter_map(|i| i.checked_sub(n)).collect();
         nodes.sort_unstable();
         nodes.dedup();
-        let mut out: Vec<&str> = nodes.into_iter().map(|k| self.extra[k].name.as_str()).collect();
+        let mut out: Vec<&str> = nodes
+            .into_iter()
+            .filter_map(|k| {
+                if k < e_len {
+                    self.extra.get(k).map(|x| x.name.as_str())
+                } else {
+                    self.runtime_extra.get(k - e_len).map(|x| x.name.as_str())
+                }
+            })
+            .collect();
         out.sort_unstable();
         out
     }
@@ -785,8 +850,12 @@ impl Animator {
     /// live animator's smoothing history [design: pipboy.md §2].
     pub fn pose_unsmoothed(&mut self) {
         let saved_rotations = self.last_rotations.clone();
+        let saved_prev = self.runtime_prev_driven.clone();
+        let saved_write = self.runtime_write.clone();
         self.blend_layers();
         self.last_rotations = saved_rotations;
+        self.runtime_prev_driven = saved_prev;
+        self.runtime_write = saved_write;
     }
 
     fn blend_layers(&mut self) {
@@ -832,6 +901,10 @@ impl Animator {
         // identity; extra nodes: their place in their model.
         self.locals.clone_from(&skel.locals);
         self.locals.extend(self.extra.iter().map(|x| x.bind));
+        let runtime_base = self.locals.len();
+        self.locals.extend(self.runtime_extra.iter().map(|x| x.bind));
+        self.runtime_write.resize(self.runtime_extra.len(), false);
+        self.runtime_write.fill(false);
         for &h in &self.held {
             self.locals[h] = Transform::IDENTITY;
         }
@@ -842,6 +915,9 @@ impl Animator {
         let mut i = 0;
         while i < self.scratch.len() {
             let bone = self.scratch[i].bone as usize;
+            if bone >= runtime_base {
+                self.runtime_write[bone - runtime_base] = true;
+            }
             // The bone's rest pose (set above).
             let bind = self.locals[bone];
             let (mut t, mut q, mut s) = (Vec3::ZERO, Vec4::ZERO, 0.0f32);
@@ -925,10 +1001,15 @@ impl Animator {
                             Transform::IDENTITY
                         } else if bone < n_skel {
                             self.skel.locals[bone]
-                        } else {
+                        } else if bone < runtime_base {
                             self.extra.get(bone - n_skel).map_or(Transform::IDENTITY, |x| x.bind)
+                        } else {
+                            self.runtime_extra.get(bone - runtime_base).map_or(Transform::IDENTITY, |x| x.bind)
                         }
                     });
+                if bone >= runtime_base {
+                    self.runtime_write[bone - runtime_base] = true;
+                }
                 let (track_name, track) = &l.clip.tracks[track_idx as usize];
                 let (ref_t, ref_r, ref_s) = match (&add.reference, ref_time) {
                     (Some(rc), Some(rt)) => match rc.tracks.iter().find(|(n, _)| n == track_name) {
@@ -962,6 +1043,13 @@ impl Animator {
                 }
             }
         }
+        self.runtime_prev_driven.resize(self.runtime_extra.len(), false);
+        for k in 0..self.runtime_extra.len() {
+            let active = self.runtime_write[k];
+            let prev = self.runtime_prev_driven[k];
+            self.runtime_write[k] = active || prev;
+            self.runtime_prev_driven[k] = active;
+        }
     }
 
     /// Node `i`'s local transform from the layers `pick` accepts alone, at their times,
@@ -989,14 +1077,26 @@ impl Animator {
         (sum > 0.0 && q.length_squared() > 1e-12).then(|| Transform { translation: t / sum, rotation: Quat::from_vec4(q).normalize(), scale: Vec3::splat(s / sum) })
     }
 
-    /// Write the pose to the skeleton's node entities (the root excluded) and to the
-    /// extra nodes.
+    /// Write the pose to the skeleton's node entities (the root excluded), the weapon
+    /// extra nodes, and any runtime extra nodes driven by a clip (plus one reset to bind
+    /// when a clip stops driving them).
     pub fn apply(&self, transforms: &mut Query<&mut Transform>) {
-        let extra = self.extra.iter().map(|x| &x.entity).zip(self.locals.iter().skip(self.skel.locals.len()));
+        let n = self.skel.locals.len();
+        let e_len = self.extra.len();
+        let extra = self.extra.iter().map(|x| &x.entity).zip(self.locals.iter().skip(n).take(e_len));
         for (e, local) in self.nodes.iter().zip(&self.locals).skip(1).chain(extra) {
             if let Ok(mut tr) = transforms.get_mut(*e) {
                 if *tr != *local {
                     *tr = *local;
+                }
+            }
+        }
+        for (k, (x, local)) in self.runtime_extra.iter().zip(self.locals.iter().skip(n + e_len)).enumerate() {
+            if self.runtime_write.get(k).copied().unwrap_or(false) {
+                if let Ok(mut tr) = transforms.get_mut(x.entity) {
+                    if *tr != *local {
+                        *tr = *local;
+                    }
                 }
             }
         }
@@ -1885,5 +1985,60 @@ mod tests {
         a.pose();
         let expected = Quat::from_rotation_z(45.0f32.to_radians());
         assert!(a.locals[2].rotation.angle_between(expected).to_degrees() < 0.1, "expected 45 deg, diff {} deg", a.locals[2].rotation.angle_between(expected).to_degrees());
+    }
+
+    #[test]
+    fn runtime_extra_drives_b42_nodes_without_clobbering_script_posed_nodes() {
+        let mut world = World::new();
+        let skel = skeleton();
+        let skel_nodes: Vec<_> = (0..4).map(|_| world.spawn(Transform::IDENTITY).id()).collect();
+        let weapon_slide = world.spawn(Transform::from_xyz(1.0, 0.0, 0.0)).id();
+        let attach_point = world.spawn(Transform::IDENTITY).id();
+        let needle = world.spawn(Transform::from_xyz(0.0, 2.0, 0.0)).id();
+        let lean_cam = world.spawn(Transform::from_xyz(9.0, 8.0, 7.0)).id();
+
+        let mut a = Animator::new(skel, skel_nodes, Some("Bip01"));
+        a.set_extra(vec![ExtraNode { name: "##Slide".into(), entity: weapon_slide, bind: Transform::from_xyz(1.0, 0.0, 0.0) }]);
+        a.set_runtime_extra(vec![
+            ExtraNode { name: "B42AttachPointL".into(), entity: attach_point, bind: Transform::IDENTITY },
+            ExtraNode { name: "##Needle_B42".into(), entity: needle, bind: Transform::from_xyz(0.0, 2.0, 0.0) },
+            ExtraNode { name: "LeanCam".into(), entity: lean_cam, bind: Transform::IDENTITY },
+        ]);
+
+        // Frame 1: B42 clip drives B42AttachPointL and ##needle_b42 (case-insensitive),
+        // while LeanCam is untouched by any clip.
+        let inject = clip(&[("B42AttachPointL", [3.0, 4.0, 5.0], 50), ("##needle_b42", [0.0, 6.0, 0.0], 50)], 1.0);
+        a.begin();
+        a.want(&inject, 1000, 1.0, Mode::Once, 0.0);
+        a.end();
+        a.pose();
+        {
+            let mut q = world.query::<&mut Transform>();
+            a.apply(&mut q.query_mut(&mut world));
+        }
+        assert_eq!(world.get::<Transform>(attach_point).unwrap().translation, Vec3::new(3.0, 4.0, 5.0));
+        assert_eq!(world.get::<Transform>(needle).unwrap().translation, Vec3::new(0.0, 6.0, 0.0));
+        assert_eq!(world.get::<Transform>(lean_cam).unwrap().translation, Vec3::new(9.0, 8.0, 7.0), "undriven runtime node must not be overwritten");
+        assert_eq!(world.get::<Transform>(weapon_slide).unwrap().translation, Vec3::new(1.0, 0.0, 0.0), "weapon extra stays at its bind");
+
+        // Frame 2: clip stops -> previously driven runtime nodes reset once to bind.
+        a.cut(1000);
+        a.pose();
+        {
+            let mut q = world.query::<&mut Transform>();
+            a.apply(&mut q.query_mut(&mut world));
+        }
+        assert_eq!(world.get::<Transform>(attach_point).unwrap().translation, Vec3::ZERO);
+        assert_eq!(world.get::<Transform>(needle).unwrap().translation, Vec3::new(0.0, 2.0, 0.0));
+        assert_eq!(world.get::<Transform>(lean_cam).unwrap().translation, Vec3::new(9.0, 8.0, 7.0));
+
+        // Frame 3: script moves attach_point after clip ended -> Animator leaves it untouched.
+        world.get_mut::<Transform>(attach_point).unwrap().translation = Vec3::new(11.0, 12.0, 13.0);
+        a.pose();
+        {
+            let mut q = world.query::<&mut Transform>();
+            a.apply(&mut q.query_mut(&mut world));
+        }
+        assert_eq!(world.get::<Transform>(attach_point).unwrap().translation, Vec3::new(11.0, 12.0, 13.0));
     }
 }

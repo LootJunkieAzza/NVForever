@@ -376,6 +376,12 @@ pub(crate) type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Opt
 #[derive(Component)]
 pub(crate) struct RenamedNifNode;
 
+/// Marks a node entity created by `InsertNode` so `PlayerBody`'s `Animator` can bind
+/// KF tracks targeting inserted attachment points (e.g. B42 Inject's `B42AttachPointL`)
+/// without clobbering script-posed nodes that no clip drives [design].
+#[derive(Component)]
+pub(crate) struct InsertedNode;
+
 pub(crate) type NodeQuery<'w, 's> = Query<'w, 's, (Option<&'static Name>, &'static mut Transform, Option<&'static Children>, Has<NifHidden>, Has<RenamedNifNode>, Option<&'static crate::nif_attachments::AttachedNode>)>;
 
 /// The actors' rigs and both built player models.
@@ -879,7 +885,7 @@ fn mirror_game(
             }
             SceneEdit::Insert { name, as_parent, .. } => {
                 let Some(t) = entity else { continue };
-                let new = commands.spawn((Name::new(name), Transform::IDENTITY, Visibility::Inherited)).id();
+                let new = commands.spawn((Name::new(name), Transform::IDENTITY, Visibility::Inherited, InsertedNode)).id();
                 if as_parent {
                     let above = parents.get(t).map(|p| p.parent()).unwrap_or(root);
                     commands.entity(above).add_child(new);

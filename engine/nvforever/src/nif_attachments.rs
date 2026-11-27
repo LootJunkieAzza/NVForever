@@ -550,18 +550,49 @@ pub(crate) fn produce_game(
             let Ok(up) = parents.get(at) else { break };
             at = up.parent();
         }
+        let mut player_third_layer = false;
+        let mut first_person_arms = false;
         if key.reference == fnv_sim::FormId::PLAYER_REF.0 {
-            layer = RenderLayers::layer(if key.view == ModelView::FirstPerson {
-                crate::sky::ARMS_LAYER
+            if key.view == ModelView::FirstPerson {
+                layer = RenderLayers::layer(crate::sky::ARMS_LAYER);
+                first_person_arms = true;
             } else {
-                crate::sky::BODY_LAYER
-            });
+                layer = rigs
+                    .1
+                    .as_deref()
+                    .map_or_else(|| RenderLayers::layer(crate::sky::BODY_LAYER), |p| p.third_person_layer());
+                player_third_layer = true;
+            }
         }
         let Some(id) = state.next.checked_add(1) else {
             continue;
         };
         state.next = id;
         let entities = spawn_model(&mut commands, &model, parent, &path, &suffix, layer.clone(), id);
+        if first_person_arms {
+            // First-person viewmodel attachments squeeze depth in front of world geometry
+            // and receive shadows from the arms shade light, matching the arms and weapon
+            // (`player_body::arms_material`) [design].
+            if let Some(rig) = &model.rig {
+                for s in &rig.shapes {
+                    if let Some((idx, _)) = model.objects.iter().enumerate().find(|(_, o)| o.rig_node == Some(s.node)) {
+                        let mat = crate::player_body::arms_material(&mut models.materials, &s.material);
+                        commands.entity(entities[idx]).insert(MeshMaterial3d(mat));
+                    }
+                }
+            } else {
+                for (object, &entity) in model.objects.iter().zip(&entities) {
+                    if let Some(s) = object.shape.map(|s| &model.shapes[s]) {
+                        let mat = crate::player_body::arms_material(&mut models.materials, &s.material);
+                        commands.entity(entity).insert(MeshMaterial3d(mat));
+                    }
+                }
+            }
+        } else if player_third_layer {
+            for &entity in &entities {
+                commands.entity(entity).insert(crate::player_body::PlayerThirdLayer);
+            }
+        }
         let is_overlay = fnv_game::nvse_jg_nif::is_camera_overlay_ref(fnv_sim::FormId(key.reference));
         if is_overlay {
             for (object, &entity) in model.objects.iter().zip(&entities) {

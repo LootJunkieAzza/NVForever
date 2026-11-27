@@ -15,8 +15,11 @@ the next model if one has already been published. Mode 0 stops future creation
 but retains an already drawn instance. Mode 2 also removes that exact instance. The existing
 script return values and runtime-list API remain unchanged. Legacy/headless edit
 drains also retire unconsumed structural side requests; the drawing producer takes
-them before its mirror drains ordinary edits. The omitted player
-view retains the public mirror's third-person default; this adds no selector.
+them before its mirror drains ordinary edits. On the player with separate
+first-person and third-person models, `AttachModel` (which takes no `pcModel`
+selector) registers and detaches on both models (matching `InsertNode`), drawing
+first-person attachments on `ARMS_LAYER` with `arms_material` depth/shadow flags
+and keeping third-person attachments on `SHADOW_LAYER` while in first person.
 
 [hypothesis: engineering policy] A first available model pins a cold request.
 An observed or synchronous removal of its Transform, or of a captured parent,
