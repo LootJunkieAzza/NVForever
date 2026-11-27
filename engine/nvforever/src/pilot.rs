@@ -802,6 +802,8 @@ struct Pilot {
     /// Where the player last stood when a path was found from there: put back there when
     /// it ends up on a scrap of navmesh that leads nowhere (`Walk::stranded`).
     walked_from: Option<Place>,
+    /// What steps left to the AI still owe ([`AiDue`]): checked every frame.
+    ai_due: Vec<AiDue>,
     /// For a `package` step gone along with: the space the player stood in on the last
     /// frame, and the actors' space a script moved the player out of while it stood
     /// beside them (MQ08's capture fades out and wakes the player in Raven Rock).
@@ -904,6 +906,7 @@ impl Pilot {
             mark: 0,
             step_lines: 0,
             walked_from: None,
+            ai_due: Vec::new(),
             pkg_was_in: None,
             scene_left: None,
             still: (0.0, [0.0; 3]),
@@ -1243,6 +1246,57 @@ const STEP_RISE: f32 = 48.0;
 const STEP_ACROSS_SECS: f64 = 6.0;
 /// Steps across on one walk, at most: a third would be the same gap again.
 const STEPS_ACROSS: u8 = 2;
+
+/// A step the headless run carries out and the pilot leaves to the AI, checked afterwards
+/// (#2365: `patrol_point` and an actor entering a trigger succeeded at once and nothing
+/// looked whether the actor did it; #2445 Chauncey, #2451 Veronica and #2433 Orris broke
+/// there). Kept until the actor is there, or a `ai_not_done` finding after [`AI_DUE_SECS`]
+/// or at the chain's end.
+struct AiDue {
+    /// The step that left it to the AI.
+    step: usize,
+    actor: FormId,
+    /// The reference the actor has to reach (a patrol point, a trigger).
+    at: FormId,
+    /// How near counts, game units.
+    within: f32,
+    what: String,
+    since: f64,
+}
+
+/// How long the AI has to do what a step left to it, seconds of the pilot's clock.
+const AI_DUE_SECS: f64 = 180.0;
+/// How near a patrol point an actor counts as having reached it, and a trigger's
+/// reference as having entered it [hypothesis: a trigger's box is not read here; most of
+/// the chains' triggers are smaller than this].
+const AI_DUE_NEAR: f32 = 256.0;
+
+/// Check what the AI still owes: say each that is done, and give up on each overdue one.
+fn check_ai_due(p: &mut Pilot, h: &mut Hands, chain_over: bool) {
+    if p.ai_due.is_empty() {
+        return;
+    }
+    let world = h.world;
+    let due = std::mem::take(&mut p.ai_due);
+    for d in due {
+        let near = h
+            .game(|g| {
+                let (ca, a) = where_is(g, d.actor)?;
+                let (cb, b) = where_is(g, d.at)?;
+                Some(same_space(world, ca, cb) && hdist(a, b) <= d.within && (a[2] - b[2]).abs() < 256.0)
+            })
+            .flatten()
+            .unwrap_or(false);
+        if near {
+            info!("pilot: step {}: the AI did what step {} left to it: {} ({:.0} s later)", p.i, d.step, d.what, p.now - d.since);
+        } else if chain_over || p.now - d.since > AI_DUE_SECS {
+            let why = if chain_over { "the chain ended first".to_string() } else { format!("not within {AI_DUE_SECS:.0} s") };
+            p.finding("ai_not_done", format!("step {} left to the AI: {}, {why}", d.step, d.what));
+        } else {
+            p.ai_due.push(d);
+        }
+    }
+}
 
 enum Walked {
     Going,
@@ -3307,6 +3361,11 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
         }
         Action::TriggerEnter { trigger, actor: Some(actor), .. } if actor != "player" => {
             info!("pilot: step {}: left to the AI: {actor} entering {trigger}", p.i);
+            if let Some((a, at)) = h.game(|g| runner::resolve(g, actor).ok().zip(runner::resolve(g, trigger).ok())).flatten() {
+                if !p.ai_due.iter().any(|d| d.actor == a && d.at == at) {
+                    p.ai_due.push(AiDue { step: p.i, actor: a, at, within: AI_DUE_NEAR, what: format!("{actor} entering {trigger}"), since: p.now });
+                }
+            }
             Some(None)
         }
         Action::TriggerEnter { trigger, face, .. } => {
@@ -4104,6 +4163,9 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
         }
         Action::PatrolPoint { actor, point } => {
             info!("pilot: step {}: left to the AI: {actor} reaching {point}", p.i);
+            if let Some((a, at)) = h.game(|g| runner::resolve(g, actor).ok().zip(runner::resolve(g, point).ok())).flatten() {
+                p.ai_due.push(AiDue { step: p.i, actor: a, at, within: AI_DUE_NEAR, what: format!("{actor} reaching {point}"), since: p.now });
+            }
             Some(None)
         }
         Action::DialoguePackage { actor, .. } => {
@@ -5279,6 +5341,7 @@ fn drive(
         }
         return;
     }
+    check_ai_due(p, &mut h, false);
     // Steps that take no time follow one another within the frame.
     for _ in 0..64 {
         if p.i >= p.actions.len() {
@@ -5315,6 +5378,7 @@ fn drive(
         return;
     }
     p.saved = false;
+    check_ai_due(p, &mut h, true);
     p.chains_done += 1;
     info!("pilot: chain {} over at {:.0} s: {} divergences and {} findings so far", p.chain, p.now, p.divergences.len(), p.findings.len());
     if p.next_chain() {
