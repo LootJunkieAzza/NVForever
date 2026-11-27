@@ -150,6 +150,7 @@ mod unconscious;
 mod unlisted;
 mod vendor_services;
 mod voice_gate;
+mod w6d_jip_lutana_parity;
 mod weapon_sound_overrides;
 mod zones;
 

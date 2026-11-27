@@ -25,6 +25,7 @@ const MESSAGES: u32 = 0x908;
 const PLAIN: u32 = 0x909;
 const ROOM: u32 = 0x910;
 const ACTI_REF: u32 = 0x911;
+const DEBR: u32 = 0x912;
 
 fn edid(sig: &[u8; 4], fid: u32, name: &str, rest: &[fnv_esm::raw::Subrecord]) -> Vec<u8> {
     record(sig, 0, fid, &[vec![sub(b"EDID", z(name))], rest.to_vec()].concat())
@@ -85,7 +86,7 @@ fn plugin_bytes() -> Vec<u8> {
     let refr = edid(b"REFR", ACTI_REF, "TestBoxRef", &[sub(b"NAME", ACTI.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
     let cell = [edid(b"CELL", ROOM, "TestRoom", &[sub(b"DATA", vec![1])]), group(ROOM.to_le_bytes(), 6, &group(ROOM.to_le_bytes(), 9, &refr))].concat();
     let cells = top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell)));
-    [tes4(), top(b"NPC_", &npc), top(b"ACTI", &acti), top(b"EXPL", &expl), top(b"CREA", &crea), top(b"FLST", &flst), top(b"MESG", &mesg), cells].concat()
+    [tes4(), top(b"NPC_", &npc), top(b"ACTI", &acti), top(b"EXPL", &expl), top(b"DEBR", &edid(b"DEBR", DEBR, "TestDebris", &[])), top(b"CREA", &crea), top(b"FLST", &flst), top(b"MESG", &mesg), cells].concat()
 }
 
 struct Fixture {
@@ -151,8 +152,10 @@ fn destruction_stages_read_and_change() {
     q(&mut g, "SetNthDestructionStageExplosion TestBox 1 TestExplosion2");
     q(&mut g, "SetNthDestructionStageExplosion TestBox 0");
     assert_eq!((n(&mut g, "GetNthDestructionStageExplosion TestBox 0"), n(&mut g, "GetNthDestructionStageExplosion TestBox 1")), (0.0, f64::from(EXPL2)));
+    q(&mut g, "SetNthDestructionStageDebris TestBox 0 TestDebris");
+    assert_eq!(n(&mut g, "GetNthDestructionStageDebris TestBox 0"), f64::from(DEBR));
     q(&mut g, "SetNthDestructionStageDebris TestBox 0 TestExplosion");
-    assert_eq!(n(&mut g, "GetNthDestructionStageDebris TestBox 0"), f64::from(EXPL));
+    assert_eq!(n(&mut g, "GetNthDestructionStageDebris TestBox 0"), 0.0);
     q(&mut g, "SetNthDestructionStageTrait TestBox 1 3 5");
     assert_eq!(n(&mut g, "GetNthDestructionStageTrait TestBox 1 3"), 5.0);
     // Infinity and NaN are not set (#1354 review); a health percentage past 100 is kept

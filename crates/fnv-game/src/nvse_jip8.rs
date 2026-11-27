@@ -139,6 +139,10 @@ const WATER_TRAITS: [&str; 49] = [
 /// documented: SetEmbeddedWeaponAV's example, BrainCondition].
 const PERCEPTION_CONDITION: u16 = 25;
 
+#[cfg(test)]
+#[path = "w6d12_addiction_effect_tests.rs"]
+mod w6d12_addiction_effect_tests;
+
 impl Game<'_> {
     /// A base actor's actor effects (SPLO), the record's last first [observed: jip8,
     /// the Super Mutant's two in reverse record order], AddBaseEffectListEffect's and
@@ -372,7 +376,7 @@ impl Game<'_> {
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
-    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(f) == Some(*sig));
+    let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*sig));
     let is_actor = |g: &Game, f: FormId| matches!(g.data.sig(f).as_ref(), Some(b"NPC_" | b"CREA"));
     // `[baseActor]` at `k`, else the calling reference's base [documented: the pages'
     // `ref.F` and `F … baseForm` forms].
@@ -445,14 +449,20 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "addbaseeffectlisteffect" | "removebaseeffectlisteffect" => {
             let (Some(e), Some(a)) = (of_sig(g, form(args, 0), b"SPEL"), actor_at(g, 1)) else { return Some(Ok(zero)) };
             let mut list = g.actor_effects(a);
+            let mut xlist = g.generic_list(6, a).unwrap_or_default();
             if name == "addbaseeffectlisteffect" {
                 if !list.contains(&e) {
                     list.insert(0, e);
                 }
+                if !xlist.contains(&e) {
+                    xlist.insert(0, e);
+                }
             } else {
                 list.retain(|&x| x != e);
+                xlist.retain(|&x| x != e);
             }
             g.other.jip8.actor_effects.insert(a, list);
+            g.other.generic.insert((6, a), xlist);
             zero
         }
         // `creature bpd`: CREA PNAM [documented: SetBodyPartData; the field: xEdit CREA].
@@ -509,12 +519,15 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         "getaddictioneffect" => XVal::Ref(form(args, 0).and_then(|a| g.ingestible_def(a)).and_then(|d| d.withdrawal).map_or(0, |f| f.0)),
         "setaddictioneffect" => {
-            // An actor effect; none is ignored [documented: "actorEffect"; observed: jip8,
-            // none leaves Cateye's effect].
-            let alch = form(args, 0).filter(|&a| g.data.sig(g.unclone(a)) == Some(*b"ALCH"));
-            let spel = form(args, 1).filter(|&e| g.data.sig(g.unclone(e)) == Some(*b"SPEL"));
-            if let (Some(a), Some(e)) = (alch, spel) {
-                g.set_field8(a, "ENIT", "withdrawal_effect", XVal::Ref(e.0));
+            // Explicit null (`0`) / omitted leaves the effect unchanged [observed: jip8],
+            // while a non-null non-SPEL form clears ENIT/withdrawal_effect to 0 [observed:
+            // w6d12_07_addiction_chance_effect_and_consume_sound_edges].
+            if let (Some(a), Some(e)) = (
+                form(args, 0).filter(|&a| g.data.sig(g.unclone(a)) == Some(*b"ALCH")),
+                form(args, 1),
+            ) {
+                let next = if g.data.sig(g.unclone(e)) == Some(*b"SPEL") { e.0 } else { 0 };
+                g.set_field8(a, "ENIT", "withdrawal_effect", XVal::Ref(next));
             }
             zero
         }
@@ -642,7 +655,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "weaponhasmodtype" => {
             let t = num(args, 1, 0.0);
             let w = of_sig(g, form(args, 0).map(|f| base(g, f)), b"WEAP");
-            XVal::Num(w.filter(|_| t >= 1.0).and_then(|w| (1..=3u8).find(|k| g.num_field8(w, "DNAM", &format!("effect_mod{k}")) == t.trunc())).map_or(0.0, f64::from))
+            // A slot only counts when its WMI{k} form is populated
+            // [observed: w6d6_27_weapon_has_mod_type_and_item_mod_getters].
+            XVal::Num(
+                w.filter(|_| t >= 1.0)
+                    .and_then(|w| {
+                        (1..=3u8).find(|k| {
+                            as_ref(crate::nvse::record_value(g, w, &format!("WMI{k}"), "")).is_some_and(|m| m.0 != 0)
+                                && g.num_field8(w, "DNAM", &format!("effect_mod{k}")) == t.trunc()
+                        })
+                    })
+                    .map_or(0.0, f64::from),
+            )
         }
         // `ref.F type`: one of the attached mods (the equipped weapon's mod bits 1, 2, 4)
         // has the type [documented].
@@ -729,18 +753,37 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `cell water`: XCWT [documented: the page; the field: xEdit CELL].
+        // `cell [water]`: XCWT [documented: the page; the field: xEdit CELL]. Omitted arg
+        // clears to 0; explicit null 0 and non-WATR replacement forms are no-ops
+        // [observed: w6d2_14, w6d2p2_50]; arg-0 CELL target check is [documented] / [hypothesis].
         "setcellwaterform" => {
-            if let (Some(c), Some(w)) = (of_sig(g, form(args, 0), b"CELL"), of_sig(g, form(args, 1), b"WATR")) {
-                g.set_field8(c, "XCWT", "", XVal::Ref(w.0));
+            if let Some(c) = of_sig(g, form(args, 0), b"CELL") {
+                match args.get(1) {
+                    None => g.set_field8(c, "XCWT", "", XVal::Ref(0)),
+                    Some(_) => {
+                        if let Some(w) = of_sig(g, form(args, 1), b"WATR") {
+                            g.set_field8(c, "XCWT", "", XVal::Ref(w.0));
+                        }
+                    }
+                }
             }
             zero
         }
-        // `water effect`: XNAM, an actor effect [documented: the page].
+        // `water [effect]`: XNAM, an actor effect [documented: the page]. Omitted arg
+        // clears to None and explicit null 0 is a no-op [observed: w6d2_14, w6d2p2_50];
+        // arg-0 WATR target check and non-SPEL replacement rejection are [documented] / [hypothesis].
         "setwaterformeffect" => {
-            let e = form(args, 1);
-            if let Some(w) = of_sig(g, form(args, 0), b"WATR").filter(|_| e.is_none_or(|e| g.data.sig(e) == Some(*b"SPEL"))) {
-                g.other.jip8.water_effects.insert(w, e);
+            if let Some(w) = of_sig(g, form(args, 0), b"WATR") {
+                match args.get(1) {
+                    None => {
+                        g.other.jip8.water_effects.insert(w, None);
+                    }
+                    Some(_) => {
+                        if let Some(e) = form(args, 1).filter(|&e| g.data.sig(g.unclone(e)) == Some(*b"SPEL")) {
+                            g.other.jip8.water_effects.insert(w, Some(e));
+                        }
+                    }
+                }
             }
             zero
         }
@@ -766,7 +809,61 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 },
             })
         }
+        // `water trait value`: writes ANAM (0 opacity, u8 0..=255), FNAM (1 flags, u8
+        // 0..=255), or DNAM traits 2..=50 (colours 12..=14 as RRRGGGBBB, floats for all
+        // other non-unused slots; unused 9 and 15 and out-of-range inputs are no-ops)
+        // [documented: GECK wiki SetWaterTrait; observed: Fallout: New Vegas 1.4.0.525
+        // (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+        // `w6d10_25_set_water_trait_live_roundtrip_and_bounds`:
+        // `t0(50->77:77,300:77,-5:77)|t1(2->3)|t6(50.0->25.5)|t12(33->100150200)|t50(0.25->0.75)|oob=0,bad=0`].
+        "setwatertrait" => {
+            let Some(w) = of_sig(g, form(args, 0), b"WATR") else { return Some(Ok(zero)) };
+            let t = num(args, 1, -1.0);
+            let raw = num(args, 2, f64::NAN);
+            if t.fract() != 0.0 || !(0.0..=50.0).contains(&t) || !raw.is_finite() {
+                return Some(Ok(zero));
+            }
+            match t as usize {
+                0 => {
+                    if (0.0..=255.0).contains(&raw) {
+                        g.set_field8(w, "ANAM", "", XVal::Num(raw.trunc()));
+                    }
+                }
+                1 => {
+                    if (0.0..=255.0).contains(&raw) {
+                        g.set_field8(w, "FNAM", "", XVal::Num(raw.trunc()));
+                    }
+                }
+                t => match WATER_TRAITS[t - 2] {
+                    "" => {}
+                    p if p.ends_with("_color") => {
+                        if (0.0..=255_255_255.0).contains(&raw) {
+                            let v = raw as i64;
+                            let packed = v / 1_000_000 + (v / 1000 % 1000) * 256 + (v % 1000) * 65536;
+                            let (r, gg, b) = ((packed & 255) as f64, ((packed >> 8) & 255) as f64, ((packed >> 16) & 255) as f64);
+                            g.set_field8(w, "DNAM", &format!("{p}.red"), XVal::Num(r));
+                            g.set_field8(w, "DNAM", &format!("{p}.green"), XVal::Num(gg));
+                            g.set_field8(w, "DNAM", &format!("{p}.blue"), XVal::Num(b));
+                        }
+                    }
+                    p => {
+                        if let Some(val) = field_number(raw, F32.0, F32.1) {
+                            g.set_field8(w, "DNAM", p, XVal::Num(val));
+                        }
+                    }
+                },
+            }
+            zero
+        }
         _ => return None,
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_setwatertrait_tests.rs"]
+mod w6d10_setwatertrait_tests;
+
+#[cfg(test)]
+#[path = "w6d12_splo_sync_tests.rs"]
+mod w6d12_splo_sync_tests;

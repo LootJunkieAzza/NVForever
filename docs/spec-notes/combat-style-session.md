@@ -74,3 +74,12 @@ refusal. The previous draft's CSTY whole-save refusal is withdrawn in response
 to the maintainer's compatibility request.
 
 No compilation, regression or native result is claimed by this source note alone.
+
+### `Get/SetCombatStyleFlag` 16-bit (`0..=15`) cutoff [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted), `w6d6_37_combat_style_flags_and_bounds` & `w6d6p2_37b_csty_flag_bit16_cutoff` (`tools/capture/nvse/catalogs/wave6d6_csty_flags_16bit.json`)]: `Get/SetCombatStyleFlag` stores bits `0..=15` (`14=1, 15=1`) and ignores/returns `0` for bits `>= 16` (`16=0, 17=0, 31=0`):
+
+```text
+PROBE|w6d6_37_combat_style_flags_and_bounds|init(0=1,8=1)|set(0=1,8=1,9=1,15=1,31=0)|oob(-1=0,32=0,non=0)|st8=1|clr8=0
+PROBE|w6d6p2_37b_csty_flag_bit16_cutoff|b(14,15,16,17,31)=1,1,0,0,0
+```

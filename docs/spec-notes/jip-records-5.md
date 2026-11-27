@@ -17,11 +17,13 @@ has that part type (0 torso, 1-2 head, 3-6 arms, 7-12 legs, 13 brain, 14 weapon)
 | Function | NVForever |
 |---|---|
 | GetBodyPartDataHasPart `bpd part` | a group of that part type [observed: NVGecko, every ID 0-15] |
-| Get/SetBodyPartDataRagdoll `bpd [ragdoll]` | RAGA |
+| Get/SetBodyPartDataRagdoll `bpd [ragdoll]` | RAGA; setter requires `RGDL`, leaves `RAGA` unchanged on non-`RGDL` or explicit `0`, and clears to `0` when omitted [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_30_bptd_haspart_ragdoll_skeleton_and_setbodypartdata` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `has(mask=1195,m1=0,p15=0,ca=0)|raga(0=000658D6,1=000658D0,bad=000658D0,nul=000658D0,om=00000000)|skel(len0=29,eq=1)|crea(0=0005144E,1=0002931E,bad=0002931E)`; no DLL or source consulted] |
 | Get/SetBodyPartDataSkeleton `bpd [path]` | MODL |
 | Get/SetBodyPartTraitNumeric `bpd part trait [value]` | BPND: 0 actor value, 1 damage mult, 2 health percent, 3 to-hit chance, 4 tracking max angle, 5-7 severable debris count / scale / decal count, 8 explosion chance, 9 limb replacement scale, 10-12 explodable debris count / scale / decal count, 13-15 the gore effects' translation, 16-18 their rotation [documented: the page's table; observed: NVGecko's head, traits 0-18, and 19 past the table reading 0] |
 | Get/SetBodyPartTraitForm `bpd part trait [form]` | BPND: 0-1 severable and explodable explosion, 2-3 their debris, 4-5 their impact data set [documented; observed] |
 | Get/SetBodyPartFlag `bpd part flag [value]` | BPND's flag bits 0-6 [documented: the page's table; observed: the head's flags 0-7] |
+
+`SetBodyPartTraitForm` enforces each slot's record type (`0..=1` `EXPL`, `2..=3` `DEBR`, `4..=5` `IPDS`), rejecting wrong-type forms on empty slots (`0`/`2`) and clearing an occupied slot (`4`, `0002ED47->00000000`) to `0` on a wrong-type form [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_31_bptd_trait_numeric_form_and_flags_all` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `num(t0=25.00->3.00,t1=2,t2=20,t18=0.00,t19=0.00,mis=0.00)|frm(f0=00000000->00000000,bad=00000000,nul=00000000,om=00000000|f2=00000000->00000000,f4=0002ED47->00000000,f6=00000000)|fl(b0=1,b1=1,b2=0->1,b5=1,b6=0,b7=0,m1=0)`; no DLL or source consulted]; retaining `main`'s existing explicit-null and omitted-argument clear-to-`0` behavior on non-zero slots remains [hypothesis] / [design] (`w6d12_31` called `rNull` and omitted arg only when slot `0` was already `00000000`).
 
 ## 2. Land textures (LTEX)
 
@@ -62,7 +64,7 @@ texture (LTEX TNAM) reads 1, whatever its DNAM; every other texture set reads DN
 | Function | NVForever |
 |---|---|
 | Get/SetWorldspaceNoiseTexture `world [path]` | XNAM, the water noise texture [observed: FreesideWorld, WastelandNV] |
-| Get/SetWorldspaceWaterType `world [water]` | NAM2 [observed] |
+| Get/SetWorldspaceWaterType `world [water]` | NAM2; passing a non-`WATR` form (e.g. `ALCH` Stimpak) is ignored and leaves the previous water type intact [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_12_worldspace_water_type_noise_tex_and_cell_flags_lnam` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_12_worldspace_water_type_noise_tex_and_cell_flags_lnam|wWat(wnv=00030009,str=0016663E,set=1,badEqDef=1,badZ=0)|nt(wn=45->Textures\Water\w6d10_test.dds,cn=0->Textures\Water\w6d10_cell.dds)|lnam(1,1,0->1)|wf(1,0)`; zero DLL, PDB, or third-party source consulted] |
 
 Not built: GetWorldspacePersistentCell (the world index does not keep a worldspace's
 persistent cell yet).

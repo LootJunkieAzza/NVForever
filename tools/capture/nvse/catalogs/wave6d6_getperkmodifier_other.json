@@ -1,0 +1,99 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_getperkmodifier_other",
+  "description": "Wave 6D-6 read-only probe verifying GetPerkModifier forwards target actor ref for tab-0 conditions (TheProfessional/Ninja) and stacks EP 56/58.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_getperkmodifier_other",
+      "title": "GetPerkModifier tab-0 target actor forwarding",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p2_15_ep56_ep58_and_other_actor",
+          "bucket": "perk_entry_points",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 68,
+          "functions_tested": [
+            "GetPerkModifier",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "SD-04: Verify GetPerkModifier EP 56 (Toughness+Stonewall+HitTheDeck), EP 58 (ShotgunSurgeon vs PiercingStrike), and tab-0 target condition GetDetected on TheProfessional/Ninja.",
+          "expected": "Record EP 56/58 stacked results and tab-0 target condition results.",
+          "script_lines": [
+            "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31DE0\"",
+            "ref rStw = GetFormFromMod \"FalloutNV.esm\" \"165449\"",
+            "ref rHtd = GetFormFromMod \"FalloutNV.esm\" \"1651B6\"",
+            "ref rSrg = GetFormFromMod \"FalloutNV.esm\" \"16578B\"",
+            "ref rPrc = GetFormFromMod \"FalloutNV.esm\" \"14609F\"",
+            "ref rPrf = GetFormFromMod \"FalloutNV.esm\" \"165AEC\"",
+            "ref rNnj = GetFormFromMod \"FalloutNV.esm\" \"31DCC\"",
+            "ref rSg = GetFormFromMod \"FalloutNV.esm\" \"8ED0B\"",
+            "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rGrn = GetFormFromMod \"FalloutNV.esm\" \"4330\"",
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 120 0",
+            "rNpc.SetRestrained 1",
+            "Player.AddPerk rTgh",
+            "Player.AddPerk rStw",
+            "Player.AddPerk rHtd",
+            "float fDt10 = Player.GetPerkModifier 56 10 rNpc r10",
+            "float fDtKn = Player.GetPerkModifier 56 10 rNpc rKn",
+            "float fDtGr = Player.GetPerkModifier 56 10 rNpc rGrn",
+            "float fDtSw = Player.GetPerkModifier 56 10 rKn rNpc",
+            "Player.AddPerk rSrg",
+            "Player.AddPerk rPrc",
+            "float fIgSg = Player.GetPerkModifier 58 0 rSg rNpc",
+            "float fIgKn = Player.GetPerkModifier 58 0 rKn rNpc",
+            "float fIg10 = Player.GetPerkModifier 58 0 r10 rNpc",
+            "Player.AddPerk rPrf",
+            "Player.AddPerk rNnj",
+            "float fPrf10 = Player.GetPerkModifier 2 100 r10 rNpc",
+            "float fNnj1 = Player.GetPerkModifier 1 10 rKn rNpc",
+            "float fNnj2 = Player.GetPerkModifier 2 100 rKn rNpc",
+            "Player.RemovePerk rTgh",
+            "Player.RemovePerk rStw",
+            "Player.RemovePerk rHtd",
+            "Player.RemovePerk rSrg",
+            "Player.RemovePerk rPrc",
+            "Player.RemovePerk rPrf",
+            "Player.RemovePerk rNnj",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "PrintToConsole \"PROBE|w6d6p2_15_ep56_ep58_and_other_actor|ep56(10,kn,gr,sw)=%.1f,%.1f,%.1f,%.1f|ep58(sg,kn,10)=%.1f,%.1f,%.1f|prf=%.1f|nnj(1,2)=%.2f,%.1f\" fDt10 fDtKn fDtGr fDtSw fIgSg fIgKn fIg10 fPrf10 fNnj1 fNnj2"
+          ]
+        }
+      ]
+    }
+  ]
+}

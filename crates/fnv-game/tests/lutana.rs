@@ -328,6 +328,8 @@ SetServiceFlag TestNPC 16 0");
     q(&mut g, "LNSetAggroRadius 1000 TestNPC");
     assert_eq!(n(&mut g, "LNGetAggroRadius TestNPC"), 1000.0);
     assert_eq!(n(&mut g, "GetCombatStyle TestNPC"), f64::from(CSTY));
+    // Explicit non-actor-base argument (e.g., placed ref) returns 0 [observed: w6d6p3_35_combat_style_precedence].
+    assert_eq!(n(&mut g, "GetCombatStyle PlayerREF"), 0.0);
 }
 
 #[test]

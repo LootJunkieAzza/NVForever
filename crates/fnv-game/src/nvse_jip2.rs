@@ -77,6 +77,10 @@ fn form(args: &[XVal], k: usize) -> Option<FormId> {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d12_castimmediate_area_tests.rs"]
+mod w6d12_castimmediate_area_tests;
+
 fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {
     match args.get(k) {
         Some(XVal::Num(x)) => *x,
@@ -407,7 +411,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             match u8::try_from(point as i64) {
                 Ok(pt) => {
                     let tabs = [form(args, 2), form(args, 3)];
-                    XVal::Num(g.entry_point_with(a, pt, &tabs, v).0)
+                    let is_actor = |f: FormId| {
+                        f == FormId::PLAYER_REF
+                            || crate::functions::base_of(g, f).is_some_and(|b| {
+                                let raw = g.unclone(b);
+                                g.template_source(raw, f, |_| false).is_some()
+                                    || g.data.sig(raw).is_some_and(|s| s == *b"NPC_" || s == *b"CREA")
+                            })
+                    };
+                    // Prefer tabs[1] over tabs[0] when both are actor refs [design].
+                    let other = tabs[1].filter(|&f| is_actor(f)).or_else(|| tabs[0].filter(|&f| is_actor(f)));
+                    XVal::Num(g.entry_point_with_other(a, pt, &tabs, other, v).0)
                 }
                 Err(_) => XVal::Num(v),
             }
@@ -467,6 +481,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (Some(r), Some(s)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
             let caster = form(args, 1).or(Some(r));
             g.apply_magic_item(r, s, caster, false);
+            g.spread_area(r, s, caster, false);
             zero
         }
         // Back to where the record placed it [observed: Chet back in his cell; the player
