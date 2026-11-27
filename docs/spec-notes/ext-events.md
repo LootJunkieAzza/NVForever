@@ -163,15 +163,20 @@ SetEventHandlerAlt].
 event to every handler registered for that name. A handler receives one string map: by
 default `"eventName"` (the name) and `"eventSender"` (the dispatching mod's file name);
 `infoMap` replaces the whole map, and `senderName` replaces the sender string
-[documented: DispatchEvent]. A custom `infoMap` still receives `"eventName"` and
-`"eventSender"` alongside its custom keys, and handlers run synchronously inside
-`DispatchEvent` before the dispatching script continues [observed: Fallout: New Vegas
-1.4.0.525 + xNVSE 6.4.9, 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base
-masters, read-only `PrintToConsole` probe `core_09_dispatch_event_custom_map_sync`
+[documented: DispatchEvent]. Returns `1`, runs handlers synchronously inside the
+dispatching line before the dispatching script continues (so in-place mutations to
+`infoMap` are visible immediately after the call), and unconditionally adds/overwrites
+`"eventName"` and `"eventSender"` alongside custom keys even when the caller-supplied
+`infoMap` already defines those keys [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
+6.4.9 + JIP LN 57.30, 2026-11-23/24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official
+base masters, read-only `PrintToConsole` probes `core_09_dispatch_event_custom_map_sync`
 (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3679, dispatching `"W4CustomEvent"`
 with custom stringmap `{"k": 42}` and sender `"W4Sender"` and reading the handler's side
-effects immediately afterward): `PROBE|core_09_dispatch_event_custom_map_sync|1,1,1,42`;
-no DLL or source consulted].
+effects immediately afterward: `PROBE|core_09_dispatch_event_custom_map_sync|1,1,1,42`)
+and `w6d1_04_dispatch_event_map_and_sync`
+(`tools/capture/nvse/catalogs/wave6d1_dispatch_event_return_overwrite.json`:
+`PROBE|w6d1_04_dispatch_event_map_and_sync|def(r=1,n=1,en=W6D1_DEv,es=)|c1(r=1,mut=1/1,en=W6D1_DEv)|c2(r=1,en=W6D1_DEv,es=NewSnd)`);
+no binary, DLL, PDB, or third-party source consulted].
 
 **DispatchEventAlt** `[ref.]DispatchEventAlt "Name" [arg1 … arg15]` (xNVSE 6.2.8):
 calls every handler registered for that user-defined event whose filters match the
@@ -268,7 +273,7 @@ One row per function E1–E3 cover, then one row per built-in event, from §2–
 | SetEventHandler | — | event name string; handler udf/lambda; `"first"::x`?; `"second"::y`?; `"priority"::n`? (pairs in any order) | bool | registers the handler for the event | filters: forms or form lists (any member); an array filter is ignored; priority default 1, range -9999..9999, 0 refused, higher runs first, ties by registration order (6.2.9); duplicate registrations rejected (return 0) [observed: `w6d1_03_set_event_handler_dups_and_bounds`]; lasts for the session, never saved |
 | SetEventHandlerAlt | — | event name; handler; up to 16 `index::filter`?; `"priority"::n`? | bool | registers with indexed filters (6.2.8): 0 the calling reference, 1-15 the arguments | filter matching per §4; array value = any of; duplicate registrations rejected (return 0) [observed: `w6d1_03_set_event_handler_dups_and_bounds`]; flushed on every load; not for plugin (LN) events |
 | RemoveEventHandler | — | event name; handler; filter1?; filter2?; `"priority"::n`? (default 0 = any) | bool | removes matching handlers; 1 if any was removed | no filters: all of that handler for that event; takes Alt's numeric indexes |
-| DispatchEvent | — | event name; infoMap stringmap?; senderName string? | none | calls handlers of a user-defined event with one string map | default map: eventName, eventSender (the mod file); infoMap replaces the map, senderName the sender; inline or deferred: open |
+| DispatchEvent | — | event name; infoMap stringmap?; senderName string? | bool (1) | calls handlers of a user-defined event synchronously with one string map | default map: eventName, eventSender (the mod file); infoMap replaces the map, and eventName/eventSender are overwritten even if already present [observed: `w6d1_04_dispatch_event_map_and_sync`] |
 | DispatchEventAlt | — | [ref.] event name; up to 15 values any | bool | calls handlers whose filters match the arguments (6.2.8) | optional calling reference passed on; handlers may take fewer parameters than sent |
 | GetCurrentEventName | — | — | string | the event being handled | inside a SetEventHandler-style handler; outside: open |
 | IsEventHandlerFirst | — | event name; handler; startPriority int; scriptsToIgnore?; pluginsToIgnore array?; pluginHandlersToIgnore array? | bool | 1 for unique highest priority, 0 for middle/lowest/absent [observed: `w6d1p2_01_priority_first_last_higher_lower`: `10->1/0`, `5a->0/0`, `1->0/1`, `99->0/0`, `k5=hi(1,1),lo(1,1)`] | 0 when not at startPriority [observed]; 0 when tied at the top [hypothesis] (6.2.9) |

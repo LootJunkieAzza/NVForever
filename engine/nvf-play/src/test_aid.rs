@@ -117,6 +117,9 @@
 //!   (#3322), and with `=alpha` a diffuse too: one flat colour a texture, a checkerboard in
 //!   the alpha (#3789); `=alpha-height`: no sets, and a diffuse with the height map in its
 //!   alpha (#3486).
+//! - `NVF_PLAY_TEST_TONE_PRESET=1` (nvforever tone_presets.rs, #4690): the tonemapping
+//!   preset "Smoke Dusk" written into the `Tonemapping` folder of an explicit
+//!   `NVFOREVER_HOME` before the folder is read.
 //! - `NVF_PLAY_TEST_TERRAIN_PARALLAX_AB=<seconds>[:hold][:grazing|head-on][,...]` (nvforever
 //!   terrain_parallax_ab.rs): three screenshots at each time, the Terrain parallax switch
 //!   off, on, off (or left alone with `hold`), optionally from its own pose on a spot of

@@ -136,7 +136,7 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 
 | Tab | Heading | Rows (keys), in order |
 |---|---|---|
-| Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy`, `npc-weapon-mods` (#3876) |
+| Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy`, `npc-weapon-mods` (#3876), `sneak-bounding-box` (#3845) |
 | Gameplay | Saving | `autosave-travel`, `autosave-fast-travel`, `autosave-wait`, `autosave-sleep`, `autosave-scripts` |
 | Gameplay | Combat | `localized-dt-dr` (#3843) |
 | Gameplay | Menus | `quantity-select-short-keys` (#3799) |
@@ -144,7 +144,7 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 | Gameplay | Camera | `detached-camera`, `true-iron-sights`, `first-person-body`, `weapon-lower`, `field-of-view`, `viewmodel-field-of-view` |
 | Gameplay | World | `grass-fire` (#2662), `sound-cover` (#2688) |
 | Display | Screen | `resolution`, `borderless`, `monitor`, `display-sync`, `frame-cap`, `physics-rate`, `ui-scale`, `menu-scale` |
-| Display | Interface | `hud-colour`, `hud-red`, `hud-green`, `hud-blue`, `pipboy-colour`, `pipboy-red`, `pipboy-green`, `pipboy-blue`, `language`, `dynamic-crosshair`, `crosshair-style`, `sneak-gauges` |
+| Display | Interface | `hud-colour`, `hud-red`, `hud-green`, `hud-blue`, `pipboy-colour`, `pipboy-red`, `pipboy-green`, `pipboy-blue`, `language`, `dynamic-crosshair`, `crosshair-style`, `sneak-gauges`, `location-load-screens` (#3844) |
 | Display | Performance | `fps-counter`, `fps-counter-fps`, `fps-counter-low`, `fps-counter-graph`, `fps-counter-split`, `fps-counter-cpu`, `fps-counter-gpu`, `fps-counter-vram`, `fps-counter-ram`, `fps-counter-loaded`, `fps-counter-upscaling` |
 | Audio | (none) | `volume-master`, `volume-music`, `volume-footstep`, `volume-voice`, `volume-effects`, `volume-radio`, `music`, `voice`, `reverb`, `voice-reverb` |
 | Controls | (none) | the Controls tab's own rows (§4), then `button-style`, `aim-assist`, `aim-slowdown`, `aim-lock` |
@@ -180,8 +180,10 @@ and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distanc
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
-(Detail and Distance, after `mesh-terrain-blend`; read at the next start), and #3843's
-`localized-dt-dr` (Gameplay › Combat). The
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start), #3843's
+`localized-dt-dr` (Gameplay › Combat), `physical-pbr` (Lighting and Effects, after
+`night-sky-detail`; read at the next start), and #4690's `tonemap-preset` (after
+`physical-pbr`, a list of the presets found at the start). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
 [observed: #1953], hence Interface there.
 

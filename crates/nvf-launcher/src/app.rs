@@ -31,6 +31,8 @@ enum Page {
     Settings,
     Mods,
     Game,
+    /// Co-op: what it is and Play Co-Op (the game's main menu, where co-op is turned on).
+    Coop,
 }
 
 enum NewsState {
@@ -211,7 +213,7 @@ pub struct App {
     exe: Option<PathBuf>,
     child: Option<Child>,
     /// Test aid: `NVF_LAUNCHER_SHOT=<file.png>[;page]` saves the window once the news has
-    /// settled and closes (`NVF_LAUNCHER_PAGE`: home, settings, mods, game).
+    /// settled and closes (`NVF_LAUNCHER_PAGE`: home, settings, mods, game, coop).
     shot: Option<(PathBuf, u32)>,
 }
 
@@ -277,6 +279,7 @@ impl App {
             Ok("settings") => Page::Settings,
             Ok("mods") => Page::Mods,
             Ok("game") => Page::Game,
+            Ok("coop") => Page::Coop,
             Ok("update") => {
                 app.upd_open = true;
                 Page::Home
@@ -577,6 +580,33 @@ impl App {
         }
     }
 
+    /// Play Co-Op: the plain game at its main menu, as Play's main menu start. Co-op is part
+    /// of the game itself (no separate co-op program), run in the game's own home with its
+    /// saves, settings and mods; the game's Co-op switch (off by default) turns it on.
+    fn start_coop(&mut self, ctx: &egui::Context) {
+        self.start(ctx, COOP_START);
+    }
+
+    /// The Co-op page: what co-op is, how it is turned on, and Play Co-Op.
+    fn coop_page(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Co-op");
+        ui.label(RichText::new(COOP_ABOUT).color(WEAK));
+        ui.add_space(8.0);
+        let running = self.child.is_some();
+        ui.add_enabled_ui(self.exe.is_some() && !running, |ui| {
+            if big_button(ui, "Play Co-Op", "the main menu: then host or join", true).clicked() {
+                self.start_coop(ui.ctx());
+            }
+        });
+        if self.exe.is_none() {
+            ui.label(RichText::new(format!("{} was not found beside the launcher: pick it on the Game folder page.", launch::GAME_EXE)).color(BAD));
+        }
+        if let Some(home) = self.home.as_ref() {
+            ui.add_space(4.0);
+            ui.label(RichText::new(format!("Co-op uses the game's own saves, settings, mods and logs, in {}", home.root.display())).small().color(WEAK));
+        }
+    }
+
     fn save_settings(&mut self) -> Result<(), String> {
         self.write_ini(|text| catalog::with_edits(text, &self.edits))
     }
@@ -607,6 +637,7 @@ impl eframe::App for App {
             Page::Settings => self.settings_page(ui),
             Page::Mods => self.mods_page(ui),
             Page::Game => self.game_page(ui),
+            Page::Coop => self.coop_page(ui),
         });
         // Last, after everything that can draw a link (a post's Markdown is in the central
         // panel): egui's own link opening would skip the https rule.
@@ -714,7 +745,7 @@ impl App {
     fn nav(&mut self, root: &mut egui::Ui) {
         egui::Panel::left("nav").exact_size(210.0).resizable(false).frame(Frame::new().fill(theme::PANEL).inner_margin(Margin::same(12))).show(root, |ui| {
             ui.add_space(4.0);
-            for (page, name) in [(Page::Home, "HOME"), (Page::Settings, "SETTINGS"), (Page::Mods, "MODS"), (Page::Game, "GAME FOLDER")] {
+            for (page, name) in [(Page::Home, "HOME"), (Page::Settings, "SETTINGS"), (Page::Mods, "MODS"), (Page::Game, "GAME FOLDER"), (Page::Coop, "CO-OP")] {
                 if nav_button(ui, name, self.page == page).clicked() {
                     self.page = page;
                     self.message = None;
@@ -774,6 +805,9 @@ impl App {
                                 self.start(ctx, s);
                             }
                         }
+                        if self.exe.is_some() && !running && big_button(ui, "Play Co-Op", "the main menu: then host or join", false).clicked() {
+                            self.start_coop(ctx);
+                        }
                         if self.newest.is_some() && !running && big_button(ui, "Main menu", "load or start a game", false).clicked() {
                             self.start(ctx, Start::MainMenu);
                         }
@@ -788,6 +822,13 @@ impl App {
 }
 
 const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
+
+/// How Play Co-Op starts the game: the same program and main menu start as Play, nothing
+/// co-op on the command line, so co-op stays as the game's own Co-op switch has it [design].
+const COOP_START: Start = Start::MainMenu;
+
+/// The Co-op page's text: the game's own menu names (nvf-play `lobby.rs`, `main_menu.rs`, `pause.rs`).
+const COOP_ABOUT: &str = "Play the Mojave with friends: one player hosts a lobby and the others join it with its code. Co-op is off until you turn it on in the game's Settings, under Gameplay, with the Co-op row. The host then loads a game, opens the pause menu's Co-op and picks Create Lobby; friends (they turn Co-op on too) pick Join Lobby on their main menu and type the code.";
 
 /// A page button of the left bar; the open page's has a gold edge and mark.
 fn nav_button(ui: &mut egui::Ui, name: &str, on: bool) -> egui::Response {
@@ -2215,6 +2256,30 @@ fn preview(body: &str, open: bool) -> (&str, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Azza's review of #3723 item 10: Play Co-Op starts the plain game, as Play's main
+    /// menu start does, with no co-op program and no co-op arguments.
+    #[test]
+    fn play_coop_starts_the_plain_game_at_its_main_menu() {
+        assert_eq!(COOP_START.args(), Start::MainMenu.args());
+        assert!(COOP_START.args().iter().all(|a| !a.contains("coop") && a != "--host" && a != "--join"));
+        assert!(launch::GAME_EXE == "nvforever.exe" || launch::GAME_EXE == "nvforever");
+    }
+
+    /// The page names the game's own menu entries, so a renamed entry shows up here.
+    #[test]
+    fn coop_page_names_the_games_menu_entries() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvf-play/src/");
+        let lobby = std::fs::read_to_string(format!("{root}lobby.rs")).unwrap();
+        let menu = std::fs::read_to_string(format!("{root}main_menu.rs")).unwrap();
+        for name in ["Create Lobby", "Join Lobby"] {
+            assert!(COOP_ABOUT.contains(name) && (lobby.contains(&format!("\"{name}\"")) || menu.contains(&format!("\"{name}\""))), "{name}");
+        }
+        assert!(lobby.contains("const TITLE: &str = \"Co-op\";") && lobby.contains("key: COOP_KEY") && lobby.contains("label: \"Co-op\"") && lobby.contains("pub const COOP_KEY: &str = \"coop\";"));
+        let pause = std::fs::read_to_string(format!("{root}pause.rs")).unwrap();
+        assert!(lobby.contains("group: crate::pause::GROUP_MENUS"));
+        assert!(pause.contains("pub const GROUP_MENUS: &str = \"Gameplay\";") && COOP_ABOUT.contains("Gameplay") && COOP_ABOUT.contains("Settings"));
+    }
 
     /// #3117: the close guard holds the window only during the swap; once the new launcher
     /// was started the old one's own close goes through.
