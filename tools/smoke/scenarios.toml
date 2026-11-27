@@ -33429,6 +33429,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "run-end-session"
+source = "#2755: a run something outside ends says so in its run log as it happens (run_end.rs); Windows sends a top-level window WM_ENDSESSION when it shuts down, restarts or signs the user out [documented: Microsoft, WM_ENDSESSION]. The test aid sends the game's hidden window that message; the game goes on (only the line is written)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/run_end.rs", "engine/nvforever/src/crash.rs"]
+# Windows only, as the window is.
+requires = ["WINDIR"]
+env = { NVF_PLAY_TEST_END_SESSION = "4" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 10
+expect = [
+  { re = 'run log: ended from outside: shutdown \(Windows is shutting down or restarting\)', count = 1, label = "the shutdown is written once into the run log" },
+]
+
+[[scenario]]
 name = "native-crash-exit-code"
 source = "#2755: a watcher process adds the process's exit code to the end of the run log of a run that did not exit normally, and the next start names it (engine/nvforever/src/exit_watch.rs, crash.rs)"
 areas = ["crash"]
