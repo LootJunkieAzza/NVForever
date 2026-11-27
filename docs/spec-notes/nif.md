@@ -1667,7 +1667,15 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
     alone, as the lit surfaces do. Window shapes keep #2462's unscaled term by default
     (`NVF_PLAY_DEBUG_ENV_LIGHT_WINDOW=scene` scales them too). Views without the world
     view's display-value lights (the minigame views) keep the term unscaled.
-  - No slot-5 mask: full strength [hypothesis; observer check 272].
+  - No slot-5 mask: masked by the normal map's alpha (full strength when the normal map
+    has no alpha channel) [hypothesis; observer check 272]. At full strength the Throwing
+    Spear (`weapons\1handgrenadethrow\spear.nif`, `chrome_e.dds`, scale 1, no mask) drew
+    grey chrome over its wooden shaft and grip wrap; the original shows the wrap's own
+    colour with highlights on its ridges and no grey sheen [observed: capture job
+    spear_4783 against NVForever's three variants at the same place, #4783]. The spear's
+    normal-map alpha is mid-grey on its metal parts and near black on the wood
+    [observed: the texture]. Window shapes keep full strength (#2462's rule;
+    `NVF_PLAY_DEBUG_ENV_NO_MASK_WINDOW`).
   - Cube orientation: the same lookup as window shapes, (x, z, y) of the game-space
     reflection [hypothesis: the wiki says the two differ by a flip; observer check 273].
   - A blended shape without the window flag keeps its blend, so its reflection is

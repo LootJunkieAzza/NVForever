@@ -36570,7 +36570,7 @@ run_seconds = 14
 manual = "env_saloon.png, env_saloon_b.png: the two bottles on the floor ahead and the pistol in hand show grey-white reflection streaks that move between the two angles; the whiskey bottle (no mask) reflects over its whole surface, the Sarsaparilla bottle and the pistol only where their masks allow"
 expect = [
   { re = '(?i)ssbottle02\.nif: \d+ shape\(s\) with an environment map, no window flag: .*textures.effects.shinybright_e\.dds, scale 1\.20, masked, ', label = "the Sarsaparilla bottle reflects, masked, at its scale" },
-  { re = '(?i)whiskeybottle01empty\.nif: \d+ shape\(s\) with an environment map, no window flag: .*textures.effects.shinydull_e\.dds, scale 1\.00, no mask, ', label = "the whiskey bottle reflects at full strength (no slot-5 mask)" },
+  { re = '(?i)whiskeybottle01empty\.nif: \d+ shape\(s\) with an environment map, no window flag: .*textures.effects.shinydull_e\.dds, scale 1\.00, normal-map alpha as mask, ', label = "the whiskey bottle reflects by its normal map's alpha (no slot-5 mask, #4783)" },
   { re = '(?i)10mmpistol\.nif: \d+ shape\(s\) with an environment map, no window flag: .*, masked, ', label = "the pistol's masked shapes reflect" },
   { re = 'test aid: screenshot .*env_saloon\.png', label = "the frame is saved" },
   { re = 'test aid: screenshot .*env_saloon_b\.png', label = "the second angle is saved" },

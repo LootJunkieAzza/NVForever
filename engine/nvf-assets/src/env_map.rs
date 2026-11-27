@@ -38,10 +38,11 @@
 //!   (the pictures of #2669, from the same build). Default on.
 //! - `NVF_PLAY_DEBUG_ENV_STRENGTH=<factor>`: every reflection × the factor (0 or more;
 //!   window shapes too). Default 1.
-//! - `NVF_PLAY_DEBUG_ENV_NO_MASK=full|none|normal-alpha`: a reflecting shape whose set
-//!   names no slot-5 mask reflects at full strength, not at all, or masked by its normal
-//!   map's alpha (full when the normal map has no alpha channel). Window shapes too.
-//!   Default `full`.
+//! - `NVF_PLAY_DEBUG_ENV_NO_MASK=full|none|normal-alpha` (shapes without the window
+//!   flag) and `NVF_PLAY_DEBUG_ENV_NO_MASK_WINDOW=…` (window shapes, same values): a
+//!   reflecting shape whose set names no slot-5 mask reflects at full strength, not at
+//!   all, or masked by its normal map's alpha (full when the normal map has no alpha
+//!   channel). Defaults `normal-alpha` and `full` ([`NoMask`], #4783).
 //! - `NVF_PLAY_DEBUG_ENV_AXES=<orientation>` (shapes without the window flag) and
 //!   `NVF_PLAY_DEBUG_ENV_AXES_WINDOW=<orientation>` (window shapes): `base` (the lookup of
 //!   #2669: the Bevy-space reflection (x, y, z) read as (x, y, −z)), `flip-x`, `flip-y`,
@@ -118,15 +119,26 @@ pub(crate) struct ShapeEnv {
     pub light_fade: bool,
 }
 
-/// What a shape without a slot-5 mask reflects with (`NVF_PLAY_DEBUG_ENV_NO_MASK`).
+/// What a shape without a slot-5 mask reflects with (`NVF_PLAY_DEBUG_ENV_NO_MASK`,
+/// `_NO_MASK_WINDOW`). Nothing documents the case. Shapes without the window flag default
+/// to [`NoMask::NormalAlpha`]: at full strength the Throwing Spear (`spear.nif`,
+/// `chrome_e.dds`, no mask) drew grey chrome over its wooden shaft and grip wrap, where
+/// the original shows the wrap's own warm colour with highlights on its ridges and no
+/// grey sheen [observed: capture job spear_4783 against NVForever's three variants at
+/// the same place, Goodsprings at noon, #4783]; and check 272's whiskey bottle shows one
+/// glossy patch rather than an even wash [observed]. The spear's normal-map alpha is
+/// mid-grey on the metal parts and near black on the wood [observed: the texture]. The
+/// capture does not tell the normal-map alpha from no reflection at all on the wrap; that
+/// the alpha is the mask is a [hypothesis] (observer check 272). Window shapes keep
+/// [`NoMask::Full`], #2462's rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoMask {
-    /// Full strength [hypothesis: the default; nothing documents the case].
+    /// Full strength (window shapes' default).
     Full,
     /// No reflection.
     None,
     /// The normal map's alpha (documented as gloss/specular, not as the environment
-    /// mask; a variant to compare).
+    /// mask); the default for shapes without the window flag.
     NormalAlpha,
 }
 
@@ -184,6 +196,7 @@ pub struct EnvAids {
     pub non_window: bool,
     pub strength: f32,
     pub no_mask: NoMask,
+    pub no_mask_window: NoMask,
     pub axes: Axes,
     pub axes_window: Axes,
     pub blend: EnvBlend,
@@ -198,7 +211,8 @@ impl Default for EnvAids {
         EnvAids {
             non_window: true,
             strength: 1.0,
-            no_mask: NoMask::Full,
+            no_mask: NoMask::NormalAlpha,
+            no_mask_window: NoMask::Full,
             axes: Axes::Base,
             axes_window: Axes::Base,
             blend: EnvBlend::Weighted,
@@ -211,10 +225,11 @@ impl Default for EnvAids {
 }
 
 /// The names of the debug switches, in the order the module docs give them.
-pub const ENV_SWITCHES: [&str; 10] = [
+pub const ENV_SWITCHES: [&str; 11] = [
     "NVF_PLAY_DEBUG_ENV_NON_WINDOW",
     "NVF_PLAY_DEBUG_ENV_STRENGTH",
     "NVF_PLAY_DEBUG_ENV_NO_MASK",
+    "NVF_PLAY_DEBUG_ENV_NO_MASK_WINDOW",
     "NVF_PLAY_DEBUG_ENV_AXES",
     "NVF_PLAY_DEBUG_ENV_AXES_WINDOW",
     "NVF_PLAY_DEBUG_ENV_BLEND",
@@ -302,6 +317,7 @@ impl EnvAids {
                 "NVF_PLAY_DEBUG_ENV_NON_WINDOW" => put(&mut aids.non_window, on_off(v)),
                 "NVF_PLAY_DEBUG_ENV_STRENGTH" => put(&mut aids.strength, strength(v)),
                 "NVF_PLAY_DEBUG_ENV_NO_MASK" => put(&mut aids.no_mask, no_mask(v)),
+                "NVF_PLAY_DEBUG_ENV_NO_MASK_WINDOW" => put(&mut aids.no_mask_window, no_mask(v)),
                 "NVF_PLAY_DEBUG_ENV_AXES" => put(&mut aids.axes, axes(v)),
                 "NVF_PLAY_DEBUG_ENV_AXES_WINDOW" => put(&mut aids.axes_window, axes(v)),
                 "NVF_PLAY_DEBUG_ENV_BLEND" => put(&mut aids.blend, blend(v)),
@@ -321,6 +337,11 @@ impl EnvAids {
     /// The cube orientation for a window shape or another.
     pub fn axes_for(&self, window: bool) -> Axes {
         if window { self.axes_window } else { self.axes }
+    }
+
+    /// What a window shape or another reflects with when its set names no mask.
+    pub fn no_mask_for(&self, window: bool) -> NoMask {
+        if window { self.no_mask_window } else { self.no_mask }
     }
 
     /// What scales the reflection of a window shape or another.
@@ -482,7 +503,8 @@ mod tests {
         let (a, bad) = EnvAids::parse(set(&[
             ("NVF_PLAY_DEBUG_ENV_NON_WINDOW", "0"),
             ("NVF_PLAY_DEBUG_ENV_STRENGTH", "0.5"),
-            ("NVF_PLAY_DEBUG_ENV_NO_MASK", "normal-alpha"),
+            ("NVF_PLAY_DEBUG_ENV_NO_MASK", "full"),
+            ("NVF_PLAY_DEBUG_ENV_NO_MASK_WINDOW", "none"),
             ("NVF_PLAY_DEBUG_ENV_AXES", "swap-yz"),
             ("NVF_PLAY_DEBUG_ENV_AXES_WINDOW", "flip-z"),
             ("NVF_PLAY_DEBUG_ENV_BLEND", "premultiplied"),
@@ -497,7 +519,8 @@ mod tests {
             EnvAids {
                 non_window: false,
                 strength: 0.5,
-                no_mask: NoMask::NormalAlpha,
+                no_mask: NoMask::Full,
+                no_mask_window: NoMask::None,
                 axes: Axes::SwapYZ,
                 axes_window: Axes::FlipZ,
                 blend: EnvBlend::Premultiplied,
@@ -516,6 +539,8 @@ mod tests {
         assert!(bad.is_empty());
         assert_eq!(c, EnvAids::default());
         assert_eq!((EnvAids::default().light, EnvAids::default().light_window), (EnvLight::Scene, EnvLight::Off));
+        // #4783: an unmasked shape reflects by its normal map's alpha; a window at full strength.
+        assert_eq!((EnvAids::default().no_mask_for(false), EnvAids::default().no_mask_for(true)), (NoMask::NormalAlpha, NoMask::Full));
         assert!(!EnvAids::default().distance_fade, "the distance fade is off by default: it would change window shapes too");
     }
 
