@@ -12,6 +12,7 @@ struct TestCache {
     wanted: HashSet<u32>,
     results: HashMap<u32, Option<Entity>>,
     oracle: HashMap<u32, Option<Entity>>,
+    removed_visual_drained: bool,
 }
 
 fn sync_and_query(
@@ -21,11 +22,17 @@ fn sync_and_query(
     mut changes: VisualChanges,
     dropped: Dropped,
 ) {
-    // Mirrors `mirror()`: always sync change-detection deltas before gating on `rt`.
-    state.cache.sync(&visuals, &mut changes);
-    if !state.rt_active {
+    // Mirrors `mirror()` / `mirror_game_impl()`: only sync while `rt` is active and
+    // `wanted` is non-empty; otherwise drain `RemovedComponents` and clear `initialized`.
+    if !state.rt_active || state.wanted.is_empty() {
+        state.cache.suspend(&mut changes);
+        state.removed_visual_drained = changes.removed_visual.is_empty();
+        state.results.clear();
+        state.oracle.clear();
         return;
     }
+    state.cache.sync(&visuals, &mut changes);
+    state.removed_visual_drained = changes.removed_visual.is_empty();
     let wanted = state.wanted.clone();
     let index = MirrorIndex::build_from_cache(&wanted, &rigs, &visuals, &dropped, &mut state.cache);
     state.results.clear();
@@ -268,13 +275,17 @@ fn visual_root_cache_does_not_drop_deltas_while_script_runtime_is_none() {
     app.world_mut().despawn(before);
     let during = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_DURING))).id();
     app.update();
+    assert!(!app.world().resource::<TestCache>().cache.initialized);
+    assert!(app.world().resource::<TestCache>().removed_visual_drained);
 
     app.world_mut().entity_mut(sess).remove::<crate::lights::SessionLight>();
     app.world_mut().entity_mut(p_parent).insert(nvf_play::DrawOnly);
     app.update();
+    assert!(!app.world().resource::<TestCache>().cache.initialized);
 
-    // Frame 4: rt returns; cache must reflect every delta that occurred while rt was None.
+    // Frame 4: rt returns; cache must rebuild once and reflect every delta that occurred while rt was None.
     run_step(&mut app, &tracked);
+    assert!(app.world().resource::<TestCache>().cache.initialized);
     let r = &app.world().resource::<TestCache>().results;
     assert_eq!(r[&R_BEFORE], None);
     assert_eq!(r[&R_DURING], Some(during));
@@ -288,6 +299,75 @@ fn visual_root_cache_does_not_drop_deltas_while_script_runtime_is_none() {
     mirror_app.update();
     mirror_app.world_mut().despawn(e);
     mirror_app.update();
+}
+
+#[test]
+fn visual_root_cache_suspends_when_idle_drains_removals_and_rebuilds_on_resume() {
+    const R_KEPT: u32 = 0x8001;
+    const R_DESPAWNED: u32 = 0x8002;
+    const R_SPAWNED_IDLE: u32 = 0x8003;
+    const R_PROMOTED_IDLE: u32 = 0x8004;
+    let tracked = [R_KEPT, R_DESPAWNED, R_SPAWNED_IDLE, R_PROMOTED_IDLE];
+
+    let mut app = App::new();
+    app.init_resource::<TestCache>();
+    app.add_systems(Update, sync_and_query);
+
+    let kept = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_KEPT))).id();
+    let despawned = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_DESPAWNED))).id();
+    let parent = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_PROMOTED_IDLE))).id();
+    let child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_PROMOTED_IDLE), ChildOf(parent))).id();
+
+    // Frame 1: active watching initializes the cache.
+    run_step(&mut app, &tracked);
+    {
+        let state = app.world().resource::<TestCache>();
+        assert!(state.cache.initialized);
+        assert_eq!(state.results[&R_KEPT], Some(kept));
+        assert_eq!(state.results[&R_DESPAWNED], Some(despawned));
+        assert_eq!(state.results[&R_SPAWNED_IDLE], None);
+        assert_eq!(state.results[&R_PROMOTED_IDLE], Some(parent));
+    }
+
+    // Frame 2: watching stops (`wanted` is empty) while a visual is despawned; cache must
+    // suspend (`initialized = false`), clear cached maps, and drain `RemovedComponents`.
+    app.world_mut().despawn(despawned);
+    {
+        let mut state = app.world_mut().resource_mut::<TestCache>();
+        state.rt_active = true;
+        state.wanted.clear();
+    }
+    app.update();
+    {
+        let state = app.world().resource::<TestCache>();
+        assert!(!state.cache.initialized, "idle frame must reset initialized so Added/Changed queries are skipped");
+        assert!(state.cache.roots.is_empty());
+        assert!(state.cache.entity_ref.is_empty());
+        assert!(state.removed_visual_drained, "idle frame must drain RemovedComponents readers");
+    }
+
+    // Frame 3: another idle frame with new spawn + parent exclusion stays suspended.
+    let spawned_idle = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_SPAWNED_IDLE))).id();
+    app.world_mut().entity_mut(parent).insert(nvf_play::DrawOnly);
+    app.update();
+    assert!(!app.world().resource::<TestCache>().cache.initialized);
+
+    // Frame 4: watching resumes -> cache rebuilds once and matches the live world.
+    run_step(&mut app, &tracked);
+    {
+        let state = app.world().resource::<TestCache>();
+        assert!(state.cache.initialized, "resuming watch must rebuild and re-arm the cache");
+        assert_eq!(state.results[&R_KEPT], Some(kept));
+        assert_eq!(state.results[&R_DESPAWNED], None);
+        assert_eq!(state.results[&R_SPAWNED_IDLE], Some(spawned_idle));
+        assert_eq!(state.results[&R_PROMOTED_IDLE], Some(child));
+    }
+
+    // Frame 5: incremental updates work normally after rebuild.
+    let late = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_DESPAWNED))).id();
+    run_step(&mut app, &tracked);
+    assert!(app.world().resource::<TestCache>().cache.initialized);
+    assert_eq!(app.world().resource::<TestCache>().results[&R_DESPAWNED], Some(late));
 }
 
 #[test]

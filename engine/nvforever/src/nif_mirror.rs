@@ -202,15 +202,29 @@ impl VisualRootCache {
         }
     }
 
+    fn drain_removed(changes: &mut VisualChanges) {
+        for _ in changes.removed_visual.read() {}
+        for _ in changes.removed_parent.read() {}
+        for _ in changes.removed_draw_only.read() {}
+        for _ in changes.removed_point_light.read() {}
+        for _ in changes.removed_spot_light.read() {}
+        for _ in changes.removed_session_light.read() {}
+    }
+
+    /// Idle-frame maintenance when `rt` is `None` or nothing wants a reference:
+    /// drain `RemovedComponents` readers without scanning `Added`/`Changed` queries
+    /// and reset `initialized` so the next active frame rebuilds the cache once.
+    fn suspend(&mut self, changes: &mut VisualChanges) {
+        Self::drain_removed(changes);
+        self.initialized = false;
+        self.roots.clear();
+        self.entity_ref.clear();
+    }
+
     fn sync(&mut self, visuals: &Visuals, changes: &mut VisualChanges) {
         if !self.initialized {
             // Drain any initial deltas before doing the one-time full scan.
-            for _ in changes.removed_visual.read() {}
-            for _ in changes.removed_parent.read() {}
-            for _ in changes.removed_draw_only.read() {}
-            for _ in changes.removed_point_light.read() {}
-            for _ in changes.removed_spot_light.read() {}
-            for _ in changes.removed_session_light.read() {}
+            Self::drain_removed(changes);
             self.roots.clear();
             self.entity_ref.clear();
             for (e, v, p) in visuals.iter() {
@@ -981,9 +995,24 @@ fn mirror(
     extra: Extra,
     dropped: Dropped,
 ) {
-    mem.visual_cache.sync(&visuals, &mut visual_changes);
-    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    mirror_game_impl(&mut rt.game, rigs, visuals, parents, nodes, commands, &mut mem, materials, shapes, extra, dropped, true);
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+        mem.visual_cache.suspend(&mut visual_changes);
+        return;
+    };
+    mirror_game_impl(
+        &mut rt.game,
+        rigs,
+        visuals,
+        parents,
+        nodes,
+        commands,
+        &mut mem,
+        materials,
+        shapes,
+        extra,
+        dropped,
+        Some(&mut visual_changes),
+    );
 }
 
 /// The real mirror producer, separated from ScriptState acquisition so authored
@@ -1004,7 +1033,7 @@ fn mirror_game(
     extra: Extra,
     dropped: Dropped,
 ) {
-    mirror_game_impl(game, rigs, visuals, parents, nodes, commands, mem, materials, shapes, extra, dropped, false);
+    mirror_game_impl(game, rigs, visuals, parents, nodes, commands, mem, materials, shapes, extra, dropped, None);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1020,7 +1049,7 @@ fn mirror_game_impl(
     (shapes, meshes): Shapes,
     (globals, boxes, mut particles, world, sim): Extra,
     dropped: Dropped,
-    use_visual_cache: bool,
+    visual_changes: Option<&mut VisualChanges>,
 ) {
     let Memory { logged, held, bound_held, pending_held, edit_order, tables, materials, alpha_props, stencil_props, owned, attachment_materials, attachment_alpha, attachment_stencil, props, files, visual_cache } = mem;
     game.scene.use_separate_player_models();
@@ -1051,8 +1080,14 @@ fn mirror_game_impl(
     wanted_refs.extend(bound_held.keys().map(|(r, _, _)| *r));
     wanted_refs.extend(watched.iter().map(|r| r.0));
     wanted_refs.extend(wanted.iter().map(|(r, _)| r.0));
-    let index = if use_visual_cache {
-        MirrorIndex::build_from_cache(&wanted_refs, &rigs, &visuals, &dropped, visual_cache)
+    let index = if let Some(visual_changes) = visual_changes {
+        if wanted_refs.is_empty() {
+            visual_cache.suspend(visual_changes);
+            MirrorIndex::default()
+        } else {
+            visual_cache.sync(&visuals, visual_changes);
+            MirrorIndex::build_from_cache(&wanted_refs, &rigs, &visuals, &dropped, visual_cache)
+        }
     } else {
         MirrorIndex::build(&wanted_refs, &rigs, &visuals, &dropped)
     };
