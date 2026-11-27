@@ -14,7 +14,7 @@ Lutana, now part of JIP) is the catalogue's.
 
 | Function | Origin | Arguments | Returns | Behaviour | Observed |
 |---|---|---|---|---|---|
-| fsin, fcos, ftan | LU / LU / JIP | angle (float, degrees) | float | sine, cosine, tangent of an angle **in degrees**, accurate to at least 6 decimals [documented: Fsin; Fcos; Ftan] | fsin 90 = 1, fsin 30 = 0.5, fcos 60 = 0.5, fcos 0 = 1, ftan 45 = 1 [observed: fsin.90, fsin.30, fcos.60, fcos.0, ftan.45] |
+| fsin, fcos, ftan | LU / LU / JIP | angle (float, degrees) | float | sine, cosine, tangent of an angle **in degrees**, accurate to at least 6 decimals [documented: Fsin; Fcos; Ftan] | fsin 90 = 1, fsin 30 = 0.5, fcos 60 = 0.5, fcos 0 = 1, ftan 45 = 1 [observed: fsin.90, fsin.30, fcos.60, fcos.0, ftan.45]; vanilla `Sin`/`Cos`/`Tan` optional 2nd `arc` flag returns inverse trig in degrees (`Sin 0.5 1 = 30.000`, `Cos 0.5 1 = 60.000`, `Tan 1 1 = 45.000`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_40_trig_vanilla_arc_flag_and_jip_fast_trig` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `van(s=0.500/1.000,c=0.500/-1.000,t=1.000/-1.000)|arc(st=2,as=30.000,ac=60.000,at=45.000)`; no DLL or source consulted] |
 | fasin, facos, fatan | JIP | value (float) | float (degrees) | principal arc sine, arc cosine, arc tangent, in degrees [documented: Fasin; Facos; Fatan] | fasin 1 = 90, facos 0 = 90, **fatan 1 = 44.9998**; **fasin 2 = 90** [observed: fasin.1, facos.0, fatan.1, fasin.out]; out-of-range inputs clamped to ±1: fasin(-2) = -90, facos(2) = 0, facos(-2) = 180 [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_11_fasin_facos_out_of_range (fasin/facos): -90.0000,0.0000,180.0000; no DLL or source consulted] |
 | fatan2 | JIP | y, x (floats) | float (degrees) | arc tangent of y/x using both signs for the quadrant [documented: Fatan2] | **(1,1) = 44.9998**, (1,-1) = 135, (-1,-1) = -135 [observed: fatan2.q1–q3] |
 | dATan2 | NVSE | y, x (floats) | float (degrees) | exact arc tangent of y/x in degrees in `[-180, 180]`, with `(0, 0) -> 0` [documented: `https://obse.silverlock.org/obse_command_doc.html` (`(atan2:float) datan2 arg1:float arg2:float`, "ATan2 and DATan2 use degrees"), cross-referenced on `https://geckwiki.com/index.php?title=Fatan2` ("significantly faster than dATan2")] | (0,0) = 0, (1,0) = 90, (0,1) = 0, (-1,0) = -90, (0,-1) = 180, (1,1) = 45, (-1,1) = -45, (-1,-1) = -135, (1,-1) = 135, (1,1.7320508) = 30.000002 [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, `#3678` / PR `#3679` probe `w1_3495_compound_assign_and_datan2` (`dATan2 y x` across all 10 axis/quadrant points plus `ATan2 1 1 = 0.785398` rad); no DLL or source consulted] |
@@ -29,6 +29,8 @@ fatan.1, fatan2.q1], so JIP uses an approximation there whose formula we do not 
 An exact atan misses those two goldens by 0.0002. Open question [owner review]: accept a
 tolerance on the arc tangents, or probe more points (a sweep of fatan over -10…10) and fit
 the approximation from the observed values alone.
+
+Vanilla/NVSE `Log x [base]` returns natural log `ln(x)` with 1 argument (`Log 10 = 2.3026`) and `log_base(x)` when optional 2nd `base` is provided (`Log 100 10 = 2.00`, `Log 8 2 = 3.00`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_41_log_exp_pow_sqrt_abs_and_anh_hyperbolic` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `log(1=0.00,10=2.3026,l10=2.00/-2.00,b=2:2.00/3.00)`; no DLL or source consulted].
 
 ## 2. Names, mods and plugins
 
@@ -82,3 +84,7 @@ ClearJIPSavedData, SetOptionalPatch (GetOptionalPatch reads JIP's optional game 
 which are also set in `jip_nvse.ini` [documented: SetOptionalPatch; GetOptionalPatch]),
 SetGameDifficulty, ToggleImmortalMode, SetLocalGravityVector and the other setters in
 these families are documented here only when a later task needs them.
+
+## 6. xNVSE `fmod` signed-divisor and zero-divisor semantics
+
+- `fmod x n [offset]` uses floored modulo matching the sign of `n` (`fmod 10 -3 0 = -2.0`, `fmod -10 -3 0 = -1.0`, `fmod -10 3 0 = 2.0`, `fmod 370 360 -180 = 10.0`, `fmod -190 360 -180 = 170.0`) and returns `NaN` (`-nan(ind)`) without aborting when `n == 0` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + SUP NVSE Plugin 855, 10 official base masters, read-only `PrintToConsole` probe `w6d11_42_fmod_floor_ceil_and_sup_round_edges` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `fm(1.0,2.0,-2.0,-1.0,359.0,10.0,170.0,1.5)|fm0(st=2,v=-nan(ind))`; no DLL or source consulted].

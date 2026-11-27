@@ -819,9 +819,9 @@ fn eval_truthiness_for_arrays_and_strings() {
 
 #[test]
 fn format_signs_and_huge_fields() {
-    // %g writes -0 as 0 (see crates/fnv-script/src/vm.rs, `printf_number`), %f keeps its sign
-    // [observed: "%.4f" of -0 reads "-0.0000" in the original, #1919], + never doubles a minus,
-    // and a huge precision or width is cut (#1145 review, #1134) [hypothesis: the C library's forms].
+    // %g and %f both preserve -0's minus sign [observed: w6d5_01_printf_negzero_flags_width,
+    // "%.4f" of -0 reads "-0.0000" (#1919), "%g" of -0 reads "-0"], + never doubles a minus,
+    // and a huge precision or width is cut (#1145 review, #1134) [hypothesis: C library forms].
     let h = run("string_var s
 string_var t
 string_var u
@@ -830,7 +830,7 @@ let s := Sv_Construct \"%g|%+.2f|%+g|%05.1f\", -0, -0, -2.5, -1.5
 let t := Sv_Construct \"%.4000000000f|%4000000000g\", 1, 2
 let u := Sv_Construct \"%.4f|%.4f|%+.1f\", -0, 0, 0
 end");
-    assert_eq!(h.text(1), "0|-0.00|-2.5|-01.5");
+    assert_eq!(h.text(1), "-0|-0.00|-2.5|-01.5");
     assert_eq!(h.text(3), "-0.0000|0.0000|+0.0");
     assert!(h.text(2).len() < 1200, "{}", h.text(2).len());
 }
@@ -984,7 +984,7 @@ string_var c
 begin GameMode
 let d := IsDigit 55
 let u := ToUpper 97
-let a := CharToAscii \"Az\"
+let a := CharToAscii \"A\"
 let b := GetBit 5, 2
 let s := SetBit 0, 3
 let x := LogicalXor 6, 3
