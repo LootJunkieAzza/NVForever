@@ -1472,8 +1472,25 @@ impl Ui {
         self.add_template(src, at, template, name, Origin::Code)
     }
 
+    /// [design] Like [`Ui::add_code_tile_from_template`], attaching directly under `parent`
+    /// by [`TileId`] instead of resolving a string path. Avoids sibling collisions when
+    /// multiple list rows share the same display name or contain path delimiters (`/`, `\`,
+    /// `:`).
+    #[track_caller]
+    pub fn add_code_tile_from_template_under(&mut self, src: &dyn Source, parent: TileId, template: &str, name: Option<&str>) -> Option<TileId> {
+        self.entered("add_code_tile_from_template_under");
+        self.add_template_under(src, parent, template, name, Origin::Code)
+    }
+
     fn add_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>, origin: Origin) -> Option<TileId> {
         let parent = self.find_tile(at)?;
+        self.add_template_under(src, parent, template, name, origin)
+    }
+
+    fn add_template_under(&mut self, src: &dyn Source, parent: TileId, template: &str, name: Option<&str>, origin: Origin) -> Option<TileId> {
+        if !self.is_live(parent) {
+            return None;
+        }
         let mut look = Some(parent);
         let mut body = loop {
             let t = look?;

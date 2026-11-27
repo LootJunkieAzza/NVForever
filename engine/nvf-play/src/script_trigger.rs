@@ -95,6 +95,13 @@ pub struct Triggers {
     /// that the reference is not on layer 23 keyed by reference alone so pose changes never
     /// re-decode its record. Pruned when cells unload.
     projectile_zones: HashMap<FormId, ProjectileZoneEntry>,
+    /// A co-op guest's game: its story triggers are held ([`Triggers::held_for_guest`]).
+    guest: bool,
+    /// This game has been a co-op guest's (`Game::coop_guest` set) since it joined.
+    was_guest: bool,
+    /// Candidates whose volumes come from their model's trigger shapes (traps: bear
+    /// traps, tripwires, pressure plates), not from a placed primitive.
+    from_model: std::collections::HashSet<FormId>,
     /// Number of `XPRM` decodes performed for `projectile_zones` (test aid).
     #[cfg(test)]
     projectile_zone_decodes: u64,
@@ -124,6 +131,43 @@ impl ProjectileZoneEntry {
 }
 
 impl Triggers {
+    /// Whether this frame's story triggers are held because this game is a co-op guest's
+    /// (`fnv_game::Game::coop_guest`). The host's world runs the world's scripts: its
+    /// stand-in for the guest is in the host's world there. Held are the placed volumes
+    /// (XPRM primitives, the level designers' story triggers); a trap's trigger from its
+    /// model still fires here for the guest's own player only, so a guest who steps on a
+    /// bear trap is hit [design]; the guest's NPCs follow the host's and fire nothing. A
+    /// guest's own copy of a trigger running for its own player locked every control at
+    /// Old World Blues' slide show (`DisablePlayerControls` with no quest check, and the
+    /// EnablePlayerControls that ends it only comes from the quest the guest's game never
+    /// runs) and killed the guest's own Jed at Honest Hearts' ambush, which then showed
+    /// "Honest Hearts can't be accessed" [observed: buckallobill, in game, NVForever
+    /// co-op]. Nothing is entered, run or left while held, and what was inside is
+    /// forgotten, so a game that stops being a guest enters what it stands in afresh (as
+    /// after a load).
+    ///
+    /// `joining`: the host welcomed this game as a guest (`crate::save::KeepSolo`). The
+    /// game is flagged a guest only once its own game was kept (`crate::save::SoloBase`),
+    /// a moment after the host's world moved its player: before, its player entered its
+    /// own copy of a story trigger on that first frame [observed: buckallobill, in game,
+    /// NVForever co-op, two windows]. So it is held from the welcome until the flag first
+    /// comes, and after that by the flag alone (a game that leaves the host's world runs
+    /// its triggers again). Outside co-op both are false and nothing is held.
+    pub fn held_for_guest(&mut self, guest: bool, joining: bool) -> bool {
+        self.was_guest |= guest;
+        let guest = guest || (joining && !self.was_guest);
+        if guest != self.guest {
+            self.guest = guest;
+            if guest {
+                bevy::log::info!("script: triggers held: a co-op guest's world is the host's, whose game runs them ({} inside forgotten)", self.inside.len());
+            } else {
+                bevy::log::info!("script: triggers run again: no longer a co-op guest");
+            }
+            self.inside.clear();
+        }
+        guest
+    }
+
     /// Every trigger volume built so far, at the pose it was built at (the collision
     /// view draws them, `crate::collision_view`).
     pub fn volumes(&self) -> impl Iterator<Item = &TriggerShape> {
@@ -330,7 +374,8 @@ pub fn crossed_projectile_zones(vols: &[(FormId, TriggerShape)], from: [f32; 3],
 /// Test the actors against the triggers of the loaded cells and run the blocks. `player`
 /// is the player's capsule; `None` when the player has no position yet: the volumes are
 /// looked up (and their scripts held while they wait) but nobody enters or leaves.
-pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>) {
+pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>, joining: bool) {
+    let guest = rt.triggers.held_for_guest(rt.game.coop_guest, joining);
     let data = rt.game.data;
     let mut candidates: Vec<FormId> = Vec::new();
     let mut hit_candidates: Vec<FormId> = Vec::new();
@@ -367,6 +412,9 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
         if rt.triggers.waiting.get(&r).is_some_and(|l| matches!(l, Lookup::Model(.., at) if *at != pose)) {
             rt.triggers.waiting.remove(&r);
         }
+        if guest && !rt.triggers.from_model.contains(&r) && rt.triggers.shapes.contains_key(&r) {
+            continue;
+        }
         if !rt.triggers.shapes.contains_key(&r) {
             let l = match rt.triggers.waiting.remove(&r) {
                 Some(l) => l,
@@ -374,7 +422,11 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
             };
             match l {
                 Lookup::Shapes(s) => {
+                    rt.triggers.from_model.remove(&r);
                     rt.triggers.shapes.insert(r, (pose, s));
+                    if guest {
+                        continue;
+                    }
                 }
                 Lookup::Model(path, pos, rot, scale, at) => match phys.model_triggers(&path) {
                     Some(objects) => {
@@ -382,6 +434,7 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
                         if !s.is_empty() {
                             bevy::log::info!("script: trigger {} has {} trigger volume(s) in its model", rt.game.data.name(r), s.len());
                         }
+                        rt.triggers.from_model.insert(r);
                         let gas: Vec<_> = objects.iter().filter(|o| o.layer == fnv_phys::layers::GAS_TRAP).cloned().collect();
                         let gas = model_shapes(&gas, pos, rot, scale);
                         if !gas.is_empty() {
@@ -447,7 +500,9 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     let Some(player) = player else { return };
     let mut now = BTreeSet::new();
     if !shapes.is_empty() {
-        for (a, cap) in actors(rt, phys, player) {
+        // A co-op guest's game: only its own player, in the traps' volumes (above).
+        let who = if guest { vec![(FormId::PLAYER_REF, player)] } else { actors(rt, phys, player) };
+        for (a, cap) in who {
             for (t, s) in &shapes {
                 if s.touches(&cap) {
                     now.insert((*t, a));
@@ -504,6 +559,24 @@ fn leave_reported(actor: FormId, present: bool, loaded: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A co-op guest's game runs no trigger blocks: held while a guest, with
+    /// what was inside forgotten, and run again once it is not.
+    #[test]
+    fn a_guests_triggers_are_held() {
+        let mut t = Triggers::default();
+        t.inside.insert((FormId(0x0300_326F), FormId::PLAYER_REF));
+        assert!(!t.held_for_guest(false, false));
+        assert_eq!(t.inside.len(), 1, "solo: as before");
+        // Welcomed, not flagged a guest yet: held already.
+        assert!(t.held_for_guest(false, true));
+        assert!(t.inside.is_empty(), "forgotten: no Leave runs for them");
+        t.inside.insert((FormId(0x0200_A7CC), FormId::PLAYER_REF));
+        assert!(t.held_for_guest(true, true));
+        // Left the host's world: the welcome stays, the flag goes, triggers run again.
+        assert!(!t.held_for_guest(false, true));
+        assert!(t.inside.is_empty(), "entered afresh after");
+    }
 
     /// #2449: the player fast-travelling out of the Boomers' artillery field (its cell
     /// unloads) leaves the trigger with an OnTriggerLeave, so the script counts the
@@ -681,7 +754,7 @@ mod tests {
             assert!(cell_scripted.contains(&OTHER_LAYER_REF));
             assert!(cell_scripted.contains(&PLAIN_REFR));
 
-            with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None));
+            with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None, false));
             assert_eq!(rt.triggers.projectile_zone_decodes, 3, "only the 3 non-actor REFRs decode XPRM once; ACHR/ACRE are skipped");
             assert!(!rt.triggers.projectile_zones.contains_key(&NPC_REF), "ACHR is skipped");
             assert!(!rt.triggers.projectile_zones.contains_key(&CREA_REF), "ACRE is skipped");
@@ -696,7 +769,7 @@ mod tests {
                     s.pos = [base_x + dx, 200.0 + dx, 64.0];
                     s.rot = [0.0, 0.0, step as f32 * 0.25];
                 }
-                with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None));
+                with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None, false));
             }
             assert_eq!(rt.triggers.projectile_zone_decodes, 3, "pose changes on actors and non-layer-23 REFRs must not re-decode XPRM");
         }
@@ -707,7 +780,7 @@ mod tests {
         fn moving_layer23_projectile_zone_updates_pose_without_redecoding() {
             let (mut state, mut sim, play, phys) = build_harness();
             let rt = state.rt.as_mut().unwrap();
-            with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None));
+            with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None, false));
             assert_eq!(rt.triggers.projectile_zone_decodes, 3);
 
             let vols = with_world(rt, &mut sim, |rt| projectile_zones(rt));
@@ -716,7 +789,7 @@ mod tests {
 
             // Move the layer-23 zone to X = 600 and run update again.
             sim.world.get(ZONE_REF).unwrap().pos = [600.0, 200.0, 64.0];
-            with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None));
+            with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None, false));
             assert_eq!(rt.triggers.projectile_zone_decodes, 3, "moving a cached layer-23 zone updates pose in place without re-decoding XPRM");
 
             let vols = with_world(rt, &mut sim, |rt| projectile_zones(rt));
@@ -730,7 +803,7 @@ mod tests {
         fn unloading_cell_prunes_projectile_zones_cache() {
             let (mut state, mut sim, play, phys) = build_harness();
             let rt = state.rt.as_mut().unwrap();
-            with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None));
+            with_world(rt, &mut sim, |rt| update(rt, &play, &phys, None, false));
             assert_eq!(rt.triggers.projectile_zones.len(), 3, "Zone + 2 NotZone entries cached for loaded CELL_A");
 
             // Unload CELL_A by moving the player into CELL_B; pruning removes all CELL_A entries.
@@ -745,14 +818,14 @@ mod tests {
             with_world(rt, &mut sim, |rt| {
                 rt.game.world.get(FormId::PLAYER_REF).unwrap().cell = Some(CELL_A);
                 rt.game.player_entered(Some(CELL_A));
-                update(rt, &play, &phys, None);
+                update(rt, &play, &phys, None, false);
             });
             assert_eq!(rt.triggers.projectile_zones.len(), 3, "re-entering CELL_A re-populates cache");
 
             with_world(rt, &mut sim, |rt| {
                 rt.game.world.get(FormId::PLAYER_REF).unwrap().cell = Some(CELL_B);
                 rt.game.player_entered(Some(CELL_B));
-                update(rt, &play, &phys, None);
+                update(rt, &play, &phys, None, false);
             });
             assert!(rt.triggers.projectile_zones.is_empty(), "update() prunes unloaded cell entries");
         }

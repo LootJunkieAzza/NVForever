@@ -36,6 +36,9 @@ pub mod editor;
 pub mod container_anim;
 pub mod control;
 pub mod controller_aim;
+pub mod coop_downed;
+pub mod coop_mates;
+pub mod coop_subtitles;
 pub mod corner_messages;
 pub mod crafting;
 pub mod cursor;
@@ -503,6 +506,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
+            .add_plugins((coop_downed::CoopDownedPlugin, coop_mates::CoopMatesPlugin, coop_subtitles::CoopSubtitlesPlugin))
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(credits::CreditsPlugin)
             .add_plugins(lockpick::LockpickPlugin)
