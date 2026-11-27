@@ -7917,6 +7917,20 @@ impl<'a> Game<'a> {
         idx.initialized = true;
     }
 
+    pub(crate) fn clear_extra_index(&mut self, r: FormId) {
+        if !self.extra_index.initialized {
+            return;
+        }
+        let idx = &mut self.extra_index;
+        idx.package_ends.remove(&r);
+        idx.knocked_out.remove(&r);
+        idx.fatigue_damaged.remove(&r);
+        idx.head_crippled.remove(&r);
+        idx.teammates.remove(&r);
+        idx.marked_for_delete.remove(&r);
+        idx.burning.remove(&r);
+    }
+
     pub(crate) fn note_burning(&mut self, r: FormId, active: bool) {
         if self.extra_index.initialized {
             if active {

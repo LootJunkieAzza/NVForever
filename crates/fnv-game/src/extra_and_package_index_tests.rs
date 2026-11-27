@@ -149,3 +149,175 @@ fn package_schedule_wakes_immediately_on_enable_ai_on_resurrect_and_dynamic_spaw
         "unpaused AI actor must pick package immediately"
     );
 }
+
+#[test]
+fn respawned_actor_clears_extra_index_and_immediately_reschedules_package() {
+    use crate::game::RunCtx;
+    use fnv_esm::raw::{write_subrecords, Subrecord};
+    use fnv_esm::Plugin;
+
+    const CELL_HOME: u32 = 0x200;
+    const CELL_OTHER: u32 = 0x202;
+    const PKG_WANDER: u32 = 0x600;
+    const NPC_BASE: u32 = 0x800;
+    const GUARD_REF: u32 = 0x301;
+    const RESPAWN_FLAG: u32 = 0x8;
+    const WANDER: u8 = 5;
+
+    fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
+        Subrecord { sig: *sig, data, extended: false }
+    }
+    fn z(s: &str) -> Vec<u8> {
+        [s.as_bytes(), &[0]].concat()
+    }
+    fn record(sig: &[u8; 4], fid: u32, subs: &[Subrecord]) -> Vec<u8> {
+        let payload = write_subrecords(subs);
+        [
+            &sig[..],
+            &(payload.len() as u32).to_le_bytes(),
+            &0u32.to_le_bytes(),
+            &fid.to_le_bytes(),
+            &[0; 4],
+            &15u16.to_le_bytes(),
+            &[0; 2],
+            &payload,
+        ]
+        .concat()
+    }
+    fn group(label: [u8; 4], gtype: i32, body: &[u8]) -> Vec<u8> {
+        [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &label, &gtype.to_le_bytes(), &[0; 8], body].concat()
+    }
+    fn tes4() -> Vec<u8> {
+        let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x900u32.to_le_bytes()].concat();
+        let payload = write_subrecords(&[sub(b"HEDR", hedr)]);
+        [&b"TES4"[..], &(payload.len() as u32).to_le_bytes(), &1u32.to_le_bytes(), &[0; 4], &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+    }
+    fn glob(fid: u32, edid: &str, v: f32) -> Vec<u8> {
+        record(b"GLOB", fid, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", v.to_le_bytes().to_vec())])
+    }
+    fn achr(fid: u32, edid: &str, base: u32, pos: [f32; 3]) -> Vec<u8> {
+        let mut data = Vec::with_capacity(24);
+        for v in pos {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        data.extend_from_slice(&[0u8; 12]);
+        record(b"ACHR", fid, &[sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", data)])
+    }
+    fn cell_block(cid: u32, edid: &str, children: &[u8]) -> Vec<u8> {
+        let c = record(b"CELL", cid, &[sub(b"EDID", z(edid)), sub(b"DATA", vec![1])]);
+        if children.is_empty() {
+            c
+        } else {
+            [c, group(cid.to_le_bytes(), 6, &group(cid.to_le_bytes(), 9, children))].concat()
+        }
+    }
+
+    let globs = [
+        glob(0x37, "GameDaysPassed", 1.0),
+        glob(0x38, "GameHour", 12.0),
+        glob(0x3A, "GameDay", 19.0),
+        glob(0x3B, "GameMonth", 9.0),
+        glob(0x3C, "GameYear", 2281.0),
+        glob(0x39, "TimeScale", 30.0),
+    ]
+    .concat();
+    let pack = record(
+        b"PACK",
+        PKG_WANDER,
+        &[
+            sub(b"EDID", z("TestWanderPkg")),
+            sub(b"PKDT", [&0u32.to_le_bytes()[..], &[WANDER, 0, 0, 0], &[0; 4]].concat()),
+            sub(b"PLDT", [2i32.to_le_bytes(), 0u32.to_le_bytes(), 256i32.to_le_bytes()].concat()),
+        ],
+    );
+    let mut acbs = RESPAWN_FLAG.to_le_bytes().to_vec();
+    acbs.extend([0u8; 18]);
+    acbs.extend(0u16.to_le_bytes());
+    let npc = record(
+        b"NPC_",
+        NPC_BASE,
+        &[
+            sub(b"EDID", z("TestGuardNpc")),
+            sub(b"ACBS", acbs),
+            sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat()),
+            sub(b"PKID", PKG_WANDER.to_le_bytes().to_vec()),
+        ],
+    );
+    let cells = [
+        cell_block(CELL_HOME, "HomeCell", &achr(GUARD_REF, "GuardRef", NPC_BASE, [100.0, 0.0, 0.0])),
+        cell_block(CELL_OTHER, "OtherCell", &[]),
+    ]
+    .concat();
+    let bytes = [
+        tes4(),
+        group(*b"GLOB", 0, &globs),
+        group(*b"PACK", 0, &pack),
+        group(*b"NPC_", 0, &npc),
+        group(*b"CELL", 0, &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cells))),
+    ]
+    .concat();
+
+    let plugins = vec![Plugin::parse(&bytes, "RespawnPkg.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+    let schema = Schema::load_dir(root.join("fnv")).unwrap();
+    let path = root.join("script/functions.json");
+    let catalog: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, FunctionTable::load(&path).unwrap(), &catalog, &refs);
+    let mut g = Game::new(
+        &data,
+        World::new(&forms, &refs, SimConfig::default()),
+        GameConfig { package_interval: Some(10.0), ..GameConfig::default() },
+    );
+    let guard = FormId(GUARD_REF);
+
+    // Enter CELL_HOME: GUARD picks its wander package and initializes PackageSchedule + ExtraIndex.
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(CELL_HOME));
+    g.player_entered(Some(FormId(CELL_HOME)));
+    g.time += 0.1;
+    g.tick();
+    assert_eq!(g.extra.get(&guard).and_then(|e| e.current_package), Some(FormId(PKG_WANDER)));
+
+    // Initialize ExtraIndex, kill GUARD first (teammates go unconscious instead of dying
+    // in non-hardcore), populate ExtraIndex (teammates + burning), and tick past its next
+    // due time so PackageSchedule reschedules the dead actor for `now + 10.0`.
+    g.ensure_extra_index();
+    g.run_query("Begin Function {}\nGuardRef.Kill\nGuardRef.SetPlayerTeammate 1\nEnd\n", RunCtx::default()).unwrap();
+    g.extra.entry(guard).or_default().burning = Some(30.0);
+    g.note_burning(guard, true);
+    assert!(g.is_dead(guard));
+    assert!(g.extra_index.teammates.contains(&guard));
+    assert!(g.extra_index.burning.contains(&guard));
+    g.time += 10.5;
+    g.tick();
+    assert!(g.is_dead(guard));
+
+    // Leave CELL_HOME for 72 hours, then return so cell_reset calls recreate(guard).
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(CELL_OTHER));
+    g.player_entered(Some(FormId(CELL_OTHER)));
+    g.world.advance_hours(72.0).unwrap();
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(CELL_HOME));
+    g.player_entered(Some(FormId(CELL_HOME)));
+
+    let resets = g.take_cell_resets();
+    assert_eq!(resets.len(), 1);
+    assert!(resets[0].respawned.contains(&guard));
+    assert!(!g.is_dead(guard));
+    assert_eq!(g.extra.get(&guard).and_then(|e| e.current_package), None);
+    assert!(
+        !g.extra_index.teammates.contains(&guard) && !g.extra_index.burning.contains(&guard),
+        "recreate() must clear stale ExtraIndex entries when removing RefExtra"
+    );
+
+    // On the very next short tick (well before the stale 10 s dead-actor interval),
+    // the respawned actor must immediately choose its package.
+    g.time += 0.05;
+    g.tick();
+    assert_eq!(
+        g.extra.get(&guard).and_then(|e| e.current_package),
+        Some(FormId(PKG_WANDER)),
+        "respawned actor must immediately pick a fresh package after recreate()"
+    );
+}
