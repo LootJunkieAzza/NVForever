@@ -307,22 +307,50 @@ fn needed(wanted: Option<Res<AirDraws>>, state: Res<SolidCores>) -> bool {
 
 /// A mesh of a placed reference.
 type Placed = (Or<(With<RefVisual>, With<crate::destroyed::StagedShape>)>, With<Mesh3d>, Without<SolidCore>);
-/// Something a core copies or asks of its shape was added or changed (removals: [`Lost`]).
-type Moved = Or<(
-    Added<RefVisual>,
-    Added<crate::destroyed::StagedShape>,
-    Changed<Mesh3d>,
-    Changed<MeshMaterial3d<NifMaterial>>,
-    Changed<MeshMaterial3d<NifBlendMaterial>>,
-    Changed<BlendShape>,
-    Changed<VisibilityRange>,
-    Changed<RenderLayers>,
-    Added<NotShadowReceiver>,
-    Added<SkinnedMesh>,
-    Added<PlayingMorph>,
-    Added<MaterialOverride>,
-    Changed<ChildOf>,
-)>;
+/// Split change/addition queries so Bevy's archetype matching skips the 47k+ static opaque
+/// meshes that lack rare components (`StagedShape`, `NifBlendMaterial`, `BlendShape`,
+/// `RenderLayers`, `NotShadowReceiver`, `SkinnedMesh`, `PlayingMorph`, `MaterialOverride`)
+/// instead of evaluating a 13-branch `Or<...>` on every placed mesh every frame [design].
+#[derive(SystemParam)]
+struct MovedQueries<'w, 's> {
+    common: Query<
+        'w,
+        's,
+        Entity,
+        (
+            Placed,
+            Or<(
+                Added<RefVisual>,
+                Changed<Mesh3d>,
+                Changed<MeshMaterial3d<NifMaterial>>,
+                Changed<VisibilityRange>,
+                Changed<ChildOf>,
+            )>,
+        ),
+    >,
+    staged: Query<'w, 's, Entity, (Placed, Added<crate::destroyed::StagedShape>)>,
+    blend_mat: Query<'w, 's, Entity, (Placed, Changed<MeshMaterial3d<NifBlendMaterial>>)>,
+    blend_shape: Query<'w, 's, Entity, (Placed, Changed<BlendShape>)>,
+    render_layers: Query<'w, 's, Entity, (Placed, Changed<RenderLayers>)>,
+    no_shadow_recv: Query<'w, 's, Entity, (Placed, Added<NotShadowReceiver>)>,
+    skinned: Query<'w, 's, Entity, (Placed, Added<SkinnedMesh>)>,
+    morph: Query<'w, 's, Entity, (Placed, Added<PlayingMorph>)>,
+    cloak: Query<'w, 's, Entity, (Placed, Added<MaterialOverride>)>,
+}
+
+impl MovedQueries<'_, '_> {
+    fn collect(&self, out: &mut EntityHashSet) {
+        out.extend(self.common.iter());
+        out.extend(self.staged.iter());
+        out.extend(self.blend_mat.iter());
+        out.extend(self.blend_shape.iter());
+        out.extend(self.render_layers.iter());
+        out.extend(self.no_shadow_recv.iter());
+        out.extend(self.skinned.iter());
+        out.extend(self.morph.iter());
+        out.extend(self.cloak.iter());
+    }
+}
 
 /// The meshes that lost something a core copies or asks of its shape (despawned ones too).
 #[derive(SystemParam)]
@@ -410,7 +438,7 @@ fn follow(
     (textures, data): (Option<Res<TextureCache>>, Option<Res<GameData>>),
     mut events: MessageReader<AssetEvent<NifMaterial>>,
     mut lost: Lost,
-    (all, moved): (Query<Entity, Placed>, Query<Entity, (Placed, Moved)>),
+    (all, moved): (Query<Entity, Placed>, MovedQueries),
     shapes: Query<Shape, Placed>,
     cores: Query<Core>,
     core_entities: Query<Entity, With<SolidCore>>,
@@ -448,7 +476,7 @@ fn follow(
 
     // The meshes to look at.
     if st.on {
-        look.extend(moved.iter());
+        moved.collect(&mut look);
     } else {
         st.on = true;
         st.log.since = time.elapsed_secs();
