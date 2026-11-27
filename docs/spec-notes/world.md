@@ -71,9 +71,15 @@ Issue #2345. Code: `fnv_world::WorldIndex::take_parent_data`, `WorldIndex::lod_w
   parent's (GNRroofWorld's are flat at about 12,280, over ground at about 10,700).
 - **As built** [hypothesis on the observations above]:
   - Use Land Data: the default land and water heights (`DNAM` holds both) are the
-    parent's when the child has none; a cell without LAND takes the LAND of the parent's
-    cell on the same grid square; a cell with its own LAND keeps it. Which the original
-    uses where both exist and differ is not known (observer check 225).
+    parent's when the child has none; every cell takes the LAND of the parent's cell on
+    the same grid square, its own LAND too, and keeps its own only where the parent has
+    none (#3755). Drawn, ParadiseFalls's own LAND on (-9, 16) (11,704 to 13,536 against
+    the parent's 11,504 to 11,984) hung a strip of ground in the sky behind the
+    entrance, with steep stretched faces down to the parent's cells, which players of
+    the original TTW do not report [observed: NVForever, TTW data, 2026-11-25]; and
+    GNRroofWorld's own LAND, flat at about 12,280 over ground at about 10,700, would be
+    a floor at roof height over the plaza. So the parent's wins [hypothesis; observer
+    check 225 asks the original].
   - Use Water Data: the water type (`NAM2`) and the default heights are the parent's
     when the child has none. Per-cell water (`XCLW`, `XCWT`) is not taken from the
     parent's cells [not known].
@@ -166,6 +172,28 @@ apart and the last row/column coincides with the neighbour's first.
   [engine rule, `nvf_assets::nif_material::sort_first`]: a blended mesh has no depth,
   so a layer drawn after one would paint the ground behind it over it (seen on the
   Goodsprings corn rows, docs/spec-notes/nif.md §6 "Alpha").
+- **Landscape layers: the diffuse's alpha** (#3789). A layer covers by its painted opacity
+  alone; its diffuse texture's alpha has no part in it. [observed: FalloutNV.exe 1.4.0.525,
+  native 1920 x 1080 pictures of its window, Goodsprings (-71552, 2892) heading 0 at noon,
+  pitch 25 and 50 down, the lower half, mean absolute difference of 255] The 61 DXT1 files of
+  `textures\landscape` in `Fallout - Textures.bsa` and `Fallout - Textures2.bsa` that are no
+  normal map or LOD, as DXT5 with the same colour blocks and a 40/255 checkerboard of
+  16 texels in the alpha draw as without it: 0.002 and 0.013, where two runs with the game's
+  own differ by 0.002 and 0.002; solid magenta in their place (the control) differs by 66.6
+  and 91.1. The test was jojokengly's first [observed: jojokengly, #3486,
+  FalloutNV.exe 1.4.0.525, unmodified shader packages, Goodsprings (-71552, 2892) at noon, the
+  game's 512 x 288 save-header picture, mean absolute difference of the ground half] The
+  game's own ground textures with a 40/255 checkerboard put in their alpha draw as without it
+  (0.11 of 255, plants moving), and Sandstone Desert 3.00 as shipped (DXT5, alpha about 0.41)
+  as the same colours in opaque DXT1 (0.05); Sandstone Desert against the game's own is 14.4.
+  All 69 landscape diffuses the base game ships that FalloutNV.esm's LTEX records name are
+  opaque DXT1 [observed: jojokengly, the same comment], so only texture packs show the
+  difference: several keep a height map in that alpha. Until #3789 `nvforever` multiplied the
+  opacity by it. Now none of its landscape draws read it: the folded layers with or without
+  height blending, anti-tiling and parallax, the layers drawn on their own, the mesh terrain
+  blend's copies of both, and the generated LOD (which never did). Road strips and other NIF
+  shapes keep their alpha. Smoke: `terrain-layer-alpha`, `terrain-layer-alpha-parallax` and
+  `terrain-layer-alpha-separate`.
 - **Alpha grid orientation** [observed]: VTXT position = row × 17 + column, rows south →
   north, columns west → east. Neighbouring quadrants share an edge of the grid; for a
   texture layered on both sides, the edge opacities agree (within 1/255) for 38,039 of
@@ -2176,7 +2204,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   - patches `apply_pbr_lighting`: in a world view (marked by a negative ambient-light
     alpha; the minigame views keep Bevy's sum) Bevy's diffuse terms are left out and the
     sum is formed from the same lights, whose colours there hold display values; the
-    surface gets diffuse colour × sum^2.2, held to 1 per channel. The lights' and the
+    surface gets the linear colour of (diffuse colour's display value × sum), held to 1
+    per channel, both ways by the sRGB curve (until 2026-11-25: diffuse colour × sum^2.2;
+    "Dark values of the sum" below). The lights' and the
     ambient light's highlights (specular) take their colours back as linear light;
     taken as display values they put white sparkles on the floors of Jacobstown's lodge.
     On first-person shapes (`FIRST_PERSON_DEPTH`: arms, held weapon, Pip-Boy),
@@ -2221,6 +2251,45 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     under the same rule, are right; the attenuation's shape (1 − (d / r)², the falloff
     exponent unused) is the next candidate. Outdoors by day the frames came out a little
     bluer than the original (the weather's bluish ambient takes a larger share).
+- **Dark values of the sum** (2026-11-25; the Vikki and Vance Casino's floor, cell
+  000D7845 `VikkiAndVance`). The rule above shows texture × sum as a display value. The
+  renderer formed it as diffuse colour × sum^2.2 in linear light, while the texture is
+  read, and the frame shown, through the sRGB curve [observed: nvforever
+  `lights/display_shader.rs` before this date]. The two agree for mid and bright values
+  and part in the dark, where the sRGB curve is a straight line: for a texture of display
+  value 0.4, a product of 102 / 255 was shown as 102, 51 as 47, 26 as 19 and 16 as 7
+  [observed: the two curves]. The sum is now made linear by the sRGB curve itself
+  (`nvf_linear_to_display`, `nvf_display_to_linear`), so the shown value is the product
+  at every level [design: the rule as stated; whether the original's dark end is that
+  product is the rule's own hypothesis].
+  - The casino's records [documented: FalloutNV.esm]: XCLL ambient (31, 27, 24) with the
+    template's inherited (LNAM bit 0: Vault19Template, (40, 40, 40)); directional
+    (34, 21, 13) at rotation 0 / 0, which the reading above takes as level, so it adds
+    nothing on a floor; 25 LIGH references, all `BasementLight…` fills, keys and kickers
+    of base radius 200, placed radii 147 to 502, hung 59 to 225 units over the two floors
+    (z 7296 and the pit's 7232), each with an XEMI naming another light. With 1 − (d / r)²
+    × N·L, a lamp adds more than 0.05 to the sum on 41 % of the upper floor's area and
+    35 % of the pit's, and more than 0.3 on 15 % and 12 % (`fnvtool world refs`, a grid of
+    50 units). The rest of the floor is lit by the ambient alone.
+  - Measured in the renderer [observed: 1920 × 1080, post effects, grade, lamp shadows,
+    ambient occlusion and eye adaptation off; a temporary switch, not kept, drew the
+    ambient, the lamps and the highlight apart]:
+    the pit's floor away from the lamps, ambient alone, (8, 5, 3) before and
+    (17, 13, 10) after; the floor under the kicker lamp 0016A82B (radius 502, 145 units
+    up), (134, 89, 32) before and (134, 89, 36) after, of which ambient alone
+    (8, 5, 3) → (17, 13, 10) and lamps alone (117, 74, 20) → (116, 75, 26): after the
+    change the parts add up to the whole in display values, as the rule says. The
+    highlight is 1-2 % of the light looking down at one's feet and at most about a third
+    in the streak towards a lamp; the floor that reads bright from a distance is a
+    lamp's diffuse pool, not its highlight.
+  - Still open, each of which would lift this floor further and none of which this
+    change touches [hypothesis]: the attenuation's shape and reach (above); what a
+    directional rotation of 0 / 0 means (121 of 388 cells store it); the rule for a light
+    whose XEMI names a light (it dims these lamps to 0.4-0.9 of their own colour × fade
+    and turns the door's fill orange); the original's bloom and eye adaptation in this
+    cell's image space. No frame of the original in this cell exists yet. The saloon's
+    north and bar frames above, darker than the original's by 6 of 255, are the size of
+    difference this change makes at that level and are to be measured again.
 - **Highlights at grazing angles** (2026-11-13, #2266): a fire barrel in Primm,
   Barrel03Fire1024 (ref 000E89EF, a flickering LIGH of radius 1024 [documented:
   FalloutNV.esm LIGH]) standing on the urban sidewalk kit (texture `sidewalkquad01`,

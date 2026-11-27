@@ -129,61 +129,7 @@ pub fn register(app: &mut App) {
         },
     );
     // The resolution first, then full screen [owner 2026-10-18].
-    add_choice_list(
-        app,
-        Setting {
-            key: "resolution",
-            group: GROUP_PICTURE,
-            label: "Resolution",
-            note: "The window's size, or in full screen the monitor's (its own size: borderless). A new one goes back after 20 seconds unless you keep it.",
-            switches: "--size",
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
-        ChoiceList {
-            names: window_mode::resolution_names,
-            chosen: window_mode::resolution_chosen,
-            pick: window_mode::resolution_pick,
-            save: window_mode::resolution_save,
-            load: window_mode::resolution_load,
-            ask_keep: true,
-        },
-    );
-    add_setting(
-        app,
-        Setting {
-            key: "borderless",
-            group: GROUP_PICTURE,
-            label: "Full screen",
-            note: "On: the game fills its monitor without a frame, at the full screen resolution above. Off: a window of the window resolution.",
-            switches: "--window",
-            get: |w| w.resource::<Args>().window == window_mode::WindowChoice::Borderless,
-            set: window_mode::set_borderless,
-            slider: None,
-        },
-    );
-    add_choice_list(
-        app,
-        Setting {
-            key: "monitor",
-            group: GROUP_PICTURE,
-            label: "Monitor",
-            note: "The display the game opens on in full screen (the main display until you pick one).",
-            switches: "--window",
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
-        ChoiceList {
-            names: window_mode::monitor_names,
-            chosen: window_mode::monitor_chosen,
-            pick: window_mode::monitor_pick,
-            save: window_mode::monitor_save,
-            load: window_mode::monitor_load,
-            ask_keep: false,
-        },
-    );
+    register_window_display(app);
     if has_body {
         add_setting(
             app,
@@ -1136,7 +1082,7 @@ fn register_graphics(app: &mut App) {
         Setting {
             key: "light-shadows",
             group: GROUP_GRAPHICS,
-            label: "ALC shadows",
+            label: "ALCS (experimental)",
             note: LIGHT_SHADOWS_NOTE,
             switches: "--light-shadows",
             get: |_| false,
@@ -1207,7 +1153,7 @@ fn register_graphics(app: &mut App) {
         Setting { key: CLOUDS_KEY, group: GROUP_GRAPHICS, label: "Volumetric clouds (experimental)", note: CLOUDS_NOTE, switches: "--graphics-only", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| CLOUD_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: clouds_chosen, pick: take_clouds, save: clouds_chosen, load: take_clouds, ask_keep: false },
     );
-    let switches: [Switch; 25] = [
+    let switches: [Switch; 26] = [
         (
             "fine-shadows",
             "Longer sun shadows",
@@ -1379,6 +1325,14 @@ fn register_graphics(app: &mut App) {
             |w, on| w.resource_mut::<Graphics>().night_sky_detail = on,
         ),
         (
+            "physical-pbr",
+            "Physical lighting (experimental)",
+            PHYSICAL_PBR_NOTE,
+            "--graphics-only",
+            |w| w.resource::<Graphics>().physical_pbr,
+            |w, on| w.resource_mut::<Graphics>().physical_pbr = on,
+        ),
+        (
             "distant-lights",
             "Distant lights (experimental)",
             "On: at night, lamps in the places beyond the loaded area show as small glows, so towns can be seen from afar. They light nothing. Not in the original.",
@@ -1457,7 +1411,7 @@ pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_KEY: &str = "volumetric-light-strengt
 
 /// The Volumetric light row's note: what it does and what it looks best with (its rays are
 /// cut by the Cloud shadows image and the Terrain shadows map, medium_air_grid.rs) [design].
-pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight shows in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's.";
+pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight and moonlight show in the air as rays and a glow toward a low sun. An addition of NVForever's.";
 
 /// The strength slider's note [design].
 pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_NOTE: &str = "How strongly the light in the air brightens lit air and darkens shaded air: 100% is the look as tuned, 0% none.";
@@ -1506,7 +1460,7 @@ pub(crate) const PARALLAX_RESTART: &str = "After a restart (Authored Materials)"
 
 /// The Authored materials row's note (#2981): it takes effect at the next start, as the run's
 /// state is fixed before the first material (main.rs).
-pub(crate) const AUTHORED_MATERIALS_NOTE: &str = "On: surfaces whose textures a texture pack gives material maps for (textures\\pbr\\) are shaded from them. Off: every surface uses the game's own values. Takes effect at the next start.";
+pub(crate) const AUTHORED_MATERIALS_NOTE: &str = "On: a material pack's maps (textures\\pbr\\) shade its surfaces. Off: the game's own values. Takes effect at the next start.";
 
 /// The command-line switches the Authored materials row weighs against the INI at the start
 /// (`authored_after_ini`).
@@ -1524,9 +1478,25 @@ pub(crate) fn authored_after_ini(command_line: bool, given: Option<&nvf_play::se
     nvf_play::settings::switch_after_ini(command_line, stored, given, AUTHORED_MATERIALS_SWITCHES)
 }
 
+/// The Physical lighting row's note (graphics-enhanced.md §3.25).
+const PHYSICAL_PBR_NOTE: &str = "On: light, sky, fog and exposure follow physical rules instead of the original's display values. Still being tuned. Takes effect at the next start. Not in the original.";
+
+/// The run's Physical PBR lighting state, decided before the first shader hook and material
+/// by [`authored_after_ini`]'s rule: the command line's (`--graphics-only physical-pbr`),
+/// then the INI's stored row. In a build with the developer aids (dev_aids.rs),
+/// `NVF_PHYSICAL_PBR=1` or `0` overrides both, for comparing.
+pub(crate) fn physical_pbr_after_ini(command_line: bool, given: Option<&nvf_play::settings::GivenSwitches>) -> bool {
+    if let Some(v) = crate::dev_aids::var("NVF_PHYSICAL_PBR") {
+        return v.trim() == "1";
+    }
+    let Some(given) = given else { return command_line };
+    let stored = stored_at_start("physical-pbr").and_then(|v| nvf_play::settings::parse_switch(&v));
+    nvf_play::settings::switch_after_ini(command_line, stored, given, "--graphics-only")
+}
+
 /// The Reflections on authored materials row's note (#2981 reflections): it needs a pack and
 /// Authored materials, and takes effect at the next start (main.rs).
-pub(crate) const AUTHORED_REFLECTIONS_NOTE: &str = "On: pack materials reflect the sky outdoors and an approximation of the room and nearby lights indoors. Needs a material pack and Authored materials on. Takes effect at the next start.";
+pub(crate) const AUTHORED_REFLECTIONS_NOTE: &str = "On: pack materials reflect the sky outside and nearby lights inside. Needs Authored materials on. Takes effect at the next start.";
 
 /// The run's Reflections on authored materials state (#2981 reflections), decided before the
 /// first NIF pipeline by [`authored_after_ini`]'s rule: the command line's
@@ -1571,7 +1541,7 @@ fn take_ao(world: &mut World, text: &str) -> bool {
 
 /// The Volumetric clouds row's key and note (volumetric_clouds.rs `CloudLevel`).
 const CLOUDS_KEY: &str = "volumetric-clouds";
-const CLOUDS_NOTE: &str = "The weather's clouds drawn with depth, lit by the sun: Off, or Performance, Normal or High, each finer and dearer than the last. A prototype. Not in the original.";
+const CLOUDS_NOTE: &str = "The weather's clouds drawn with depth and lit by the sun: Off, or Performance, Normal or High. A prototype. Not in the original.";
 
 /// The Volumetric clouds row's choice now: Off, or the level the clouds are drawn at.
 fn clouds_chosen(world: &World) -> String {
@@ -1879,9 +1849,10 @@ fn take_shadow_resolution(w: &mut World, text: &str) -> bool {
     }
 }
 
-/// The ALC shadows row's note (light_shadows.rs; ALC: All Lights Cast, the user-visible
+/// The ALCS (experimental) row's note (light_shadows.rs; ALCS: All Lights Cast Shadows; the
+/// row was ALC shadows until 2026-11-24 and Lamp shadows until 2026-11-19; the user-visible
 /// name since 2026-11-19, once Lamp shadows; the INI key stays `light-shadows`).
-const LIGHT_SHADOWS_NOTE: &str = "ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the shadow distance, so walls stop their light. Performance redraws less often. Costs frame rate. Not in the original.";
+const LIGHT_SHADOWS_NOTE: &str = "ALCS (All Lights Cast Shadows): lamps, fires and spot lights cast shadows in the shadow distance; Performance casts fewer. Costs frame rate. Not in the original.";
 
 fn light_shadows_chosen(w: &World) -> String {
     let choice = w.get_resource::<crate::light_shadows::LightShadows>().map_or(0, |l| l.choice);
@@ -3229,6 +3200,7 @@ dlss-model=Preset K
             ("volumetric-clouds", &["--graphics-only"]),
             ("aerial-perspective", &["--graphics", "--graphics-only"]),
             ("night-sky-detail", &["--graphics", "--graphics-only"]),
+            ("physical-pbr", &["--graphics-only"]),
             ("distant-lights", &["--graphics", "--graphics-only"]),
             (VOLUMETRIC_LIGHT_KEY, &["--graphics-only"]),
             (VOLUMETRIC_LIGHT_STRENGTH_KEY, &[]),
@@ -3628,5 +3600,123 @@ mod terrain_wireframe_tests {
 
     fn row_of(app: &App, key: &str) -> usize {
         app.world().resource::<Settings>().index(key).unwrap()
+    }
+}
+
+/// Register the Display group's window rows (`resolution`, `borderless`, `monitor`).
+fn register_window_display(app: &mut App) {
+    add_choice_list(
+        app,
+        Setting {
+            key: "resolution",
+            group: GROUP_PICTURE,
+            label: "Resolution",
+            note: "The window's size, or in full screen the monitor's (its own size: borderless). A new one goes back after 20 seconds unless you keep it.",
+            switches: "--size",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: window_mode::resolution_names,
+            chosen: window_mode::resolution_chosen,
+            pick: window_mode::resolution_pick,
+            save: window_mode::resolution_save,
+            load: window_mode::resolution_load,
+            ask_keep: true,
+        },
+    );
+    add_setting(
+        app,
+        Setting {
+            key: "borderless",
+            group: GROUP_PICTURE,
+            label: "Full screen",
+            note: "On: the game fills its monitor without a frame, at the full screen resolution above. Off: a window of the window resolution.",
+            // [design, #3884] In a test run (`given_switches` win), an explicit `--size`
+            // asks for a window of that size, so a saved `borderless=1` in `NVForever.ini`
+            // does not override it into borderless full screen (which ignores `--size`).
+            switches: "--window --size",
+            get: |w| w.resource::<Args>().window == window_mode::WindowChoice::Borderless,
+            set: window_mode::set_borderless,
+            slider: None,
+        },
+    );
+    add_choice_list(
+        app,
+        Setting {
+            key: "monitor",
+            group: GROUP_PICTURE,
+            label: "Monitor",
+            note: "The display the game opens on in full screen (the main display until you pick one).",
+            switches: "--window",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: window_mode::monitor_names,
+            chosen: window_mode::monitor_chosen,
+            pick: window_mode::monitor_pick,
+            save: window_mode::monitor_save,
+            load: window_mode::monitor_load,
+            ask_keep: false,
+        },
+    );
+}
+
+#[cfg(test)]
+mod display_precedence_tests {
+    use super::*;
+    use clap::Parser;
+    use nvf_play::settings::{apply_stored, SettingsFile};
+    use window_mode::WindowChoice;
+
+    fn run_with_ini(cli: &[&str], ini_text: &str, tag: &str) -> Args {
+        let dir = std::env::temp_dir().join(format!("nvf-display-prec-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        std::fs::write(&path, ini_text).unwrap();
+        let line: Vec<String> = cli.iter().map(|s| (*s).to_string()).collect();
+        let args = Args::try_parse_from(&line).unwrap();
+        let given = given_switches(&args, &line);
+        let mut app = App::new();
+        app.insert_resource(args);
+        app.init_resource::<window_mode::FullScreenSize>();
+        app.init_resource::<window_mode::MonitorModes>();
+        app.init_resource::<window_mode::MonitorChoice>();
+        app.insert_resource(SettingsFile(Some(path)));
+        app.insert_resource(given);
+        register_window_display(&mut app);
+        apply_stored(app.world_mut());
+        let out = app.world().resource::<Args>().clone();
+        let _ = std::fs::remove_dir_all(&dir);
+        out
+    }
+
+    /// #3884: in a timed/test run (`--run-seconds`), an explicit `--size` keeps the run
+    /// windowed at that size instead of letting a saved `borderless=1` in `NVForever.ini`
+    /// switch the window to borderless full screen (which ignores `--size`). Interactive
+    /// runs without `--run-seconds` still honor the INI, and an explicit `--window
+    /// borderless` still enters borderless full screen.
+    #[test]
+    fn explicit_size_in_a_test_run_is_not_overridden_by_saved_borderless() {
+        let ini = "[Settings]\nborderless=1\nresolution=1920x1080;desktop\n";
+        let timed_sized = run_with_ini(&["nvforever", "--play", "--size", "1280x720", "--run-seconds", "16"], ini, "timed-sized");
+        assert_eq!(timed_sized.window, WindowChoice::Windowed);
+        assert_eq!(timed_sized.size, "1280x720");
+
+        let timed_borderless = run_with_ini(
+            &["nvforever", "--play", "--size", "1280x720", "--window", "borderless", "--run-seconds", "16"],
+            "[Settings]\nborderless=0\nresolution=1920x1080;desktop\n",
+            "timed-borderless",
+        );
+        assert_eq!(timed_borderless.window, WindowChoice::Borderless);
+        assert_eq!(timed_borderless.size, "1280x720");
+
+        let interactive = run_with_ini(&["nvforever", "--play"], ini, "interactive");
+        assert_eq!(interactive.window, WindowChoice::Borderless);
+        assert_eq!(interactive.size, "1920x1080");
     }
 }

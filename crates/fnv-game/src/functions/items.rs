@@ -218,6 +218,20 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
+    // Scripted UnequipItem dispatches ShowOff:OnPreActivateInventoryItemAlt (with
+    // bEquipping = 1) and honors SetFunctionValue 0 veto [observed: 2026-11-24,
+    // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+    // (0x00103DF9), 10 official base masters,
+    // `tools/capture/nvse/catalogs/wave6d1_pre_activate_inv_alt_unequip.json` probes
+    // `w6d1_15_pre_activate_inv_aid_and_unequip` and
+    // `w6d1p3_15_unequip_alt_beq_and_veto`: `pre=1|veto(eq=1,n=1,bEq=1)|alw(eq=0,n=2,bEq=1)`;
+    // no DLL, PDB, or third-party source consulted].
+    if g.handled(crate::nvse_showoff::ON_PRE_ACTIVATE_INVENTORY_ITEM_ALT)
+        && g.world.get(actor).ok().and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item))
+        && !g.pre_activate_inventory_item_alt(actor, item, 0, true)
+    {
+        return none();
+    }
     if g.world.equip_lock(actor, item) == Some(EquipLock::NoUnequip) {
         g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }
@@ -237,6 +251,16 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
 pub fn get_equipped(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let wanted = items(g, a.form(0)?);
+    // A co-op guest's shot, run as the player's: the weapon it was fired with
+    // is what the player has equipped as far as weapons go.
+    if let Some(w) = g.shot_for_player.filter(|_| actor == FormId::PLAYER_REF) {
+        if wanted.contains(&w) {
+            return yes(true);
+        }
+        if wanted.iter().all(|&i| g.world.forms.item(i).is_some_and(|f| f.kind == fnv_sim::forms::ItemKind::Weapon)) {
+            return yes(false);
+        }
+    }
     let s = g.world.get(actor).map_err(|e| e.to_string())?;
     yes(s.inventory.as_ref().is_some_and(|i| wanted.iter().any(|&w| i.is_equipped(w))))
 }
@@ -482,6 +506,8 @@ pub fn is_weapon_skill_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
 pub fn reset_inventory(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.world.reset_inventory(r).map_err(|e| e.to_string())?;
+    g.clear_npc_weapon_mods_roll(r);
+    g.maybe_apply_npc_weapon_mods(r);
     none()
 }
 

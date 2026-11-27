@@ -198,6 +198,9 @@ pub struct TileFonts {
     /// What each notice text copy's width was last measured from
     /// ([`super::notices::write_widths`]).
     notice_widths: super::notices::WidthsWritten,
+    /// What each mod-added HUD text's width was last measured from: its string and wrap
+    /// ([`FontKit::write_mod_widths`]).
+    mod_widths: HashMap<TileId, (String, f64)>,
 }
 
 #[derive(SystemParam)]
@@ -327,6 +330,36 @@ impl FontKit<'_> {
         if let Some(measure) = self.widths(ui) {
             fnv_game::ui_hud::write_text_widths(ui, &*measure);
         }
+        self.write_mod_widths(ui);
+    }
+
+    /// The widths of the text tiles mods add to the HUD (`fnv_game::ui_hud::unmeasured_texts`),
+    /// each measured in its own font when that font is read, and only when its string or
+    /// wrap changed. The original sets every text tile's `width` to its measured size; a mod
+    /// that centres a text by its own width read 0 here, so MAPMO's HUD clock (x = (dial
+    /// width − text width) / 2 from its place) ran off the right edge of the view
+    /// [observed 2026-11-21 in FadedLight's Nuclear Sunset fork, #4493].
+    fn write_mod_widths(&mut self, ui: &mut Ui) {
+        // The notices' copies have their own measure (`write_notice_widths`).
+        let notices: std::collections::HashSet<TileId> = super::notices::texts(ui).into_iter().collect();
+        let tiles: Vec<TileId> = fnv_game::ui_hud::unmeasured_texts(ui).into_iter().filter(|t| !notices.contains(t)).collect();
+        let present: std::collections::HashSet<TileId> = tiles.iter().copied().collect();
+        self.fonts.mod_widths.retain(|id, _| present.contains(id));
+        for tile in tiles {
+            let t = ui.tile(tile);
+            let Some(string) = t.get("string").map(Value::text) else { continue };
+            let font = t.get("font").map_or(0.0, Value::num);
+            let wrap = t.get("wrapwidth").map_or(0.0, Value::num);
+            if self.fonts.mod_widths.get(&tile).is_some_and(|(s, w)| *s == string && *w == wrap) {
+                continue;
+            }
+            self.load(font);
+            let Some(face) = self.face(font).filter(|f| f.image.is_some()) else { continue };
+            let (width, _) = measure(&face.font, self.font_number(font), &string, Some(wrap).filter(|w| *w > 0.0));
+            ui.set_trait(tile, "width", Value::Num(width));
+            ui.set_trait(tile, fnv_game::ui_hud::MEASURED_MARK, Value::Num(1.0));
+            self.fonts.mod_widths.insert(tile, (string, wrap));
+        }
     }
 
     /// Write the tile HUD's notice texts' widths (`super::notices::write_widths`), after
@@ -406,6 +439,12 @@ pub enum Fit {
     /// trait's name; the bars' 8-texel tick picture in boxes the code sizes in steps of 8,
     /// hud.md §14.3; zoom as the multiplier of the picture's size, GECK wiki Zoom].
     Tiled(f64),
+    /// `tile` `&scale;` (the map's dotted line, `PathLineTemplate`, the one vanilla use): the
+    /// picture scaled to this height (the box's), its shape kept, and repeated along the box
+    /// [observed: #4685, the original's World Map line is a row of whole dots about the line's
+    /// height apart; `&scale;` is the number 0, so it is not a true `tile`, and read as one
+    /// the 64 x 16 picture stood once at its texels' size, its dot cut to a sliver].
+    TiledToHeight(f64),
     /// The compass strip: twice side by side, moved across its window by the heading
     /// (nothing in the tree moves it, hud.md §14.4) at 1024 units a turn with its N at
     /// x 154 of the window at heading 0, and fading out at the window's right end
@@ -480,6 +519,11 @@ pub fn placed(fit: Fit, piece: bool, texels: (f64, f64)) -> Placed {
             let (width, height) = at(z);
             Placed::Repeat { width, height }
         }
+        Fit::TiledToHeight(h) if texels.1 > 0.0 => {
+            let (width, height) = at(h / texels.1 * 100.0);
+            Placed::Repeat { width, height }
+        }
+        Fit::TiledToHeight(_) => Placed::Fill,
         Fit::Strip => Placed::Strip,
     }
 }
@@ -690,6 +734,12 @@ pub(super) fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
 /// How an image fills its box, by its `tile` and `zoom` ([`Fit`]).
 pub fn fit(tile: &fnv_ui::Tile) -> Fit {
     let zoom = tile.get("zoom");
+    if tile.get("tile").is_some_and(|t| *t == Value::Sym("scale".into())) {
+        let h = tile.get("height").map_or(0.0, Value::num);
+        if h > 0.0 {
+            return Fit::TiledToHeight(h);
+        }
+    }
     if tile.get("tile").is_some_and(Value::truthy) {
         let z = zoom.filter(|v| !matches!(v, Value::Sym(_))).map(Value::num).filter(|z| *z > 0.0).unwrap_or(100.0);
         return Fit::Tiled(z);
@@ -2691,15 +2741,16 @@ mod tests {
             r#"<menu name="Z"><image name="none"/><image name="free"><zoom>-1</zoom></image><image name="scale"><zoom>&scale;</zoom></image>
               <image name="hundred"><zoom>100</zoom></image><image name="more"><zoom> 125 </zoom></image><image name="tiled"><tile>&true;</tile><zoom>50</zoom></image>
               <image name="untiled"><tile>&false;</tile></image><image name="tiled_scale"><tile>&true;</tile><zoom>&scale;</zoom></image>
-              <image name="tiled_free"><tile>&true;</tile><zoom>-1</zoom></image></menu>"#,
+              <image name="tiled_free"><tile>&true;</tile><zoom>-1</zoom></image>
+              <image name="path"><tile>&scale;</tile><height>5.8</height></image><image name="path_flat"><tile>&scale;</tile></image></menu>"#,
         );
         let mut ui = Ui::new();
         ui.load_menu(&src, "z.xml").unwrap();
         ui.update();
         let fit_of = |name: &str| fit(ui.tile(ui.find_tile(&format!("Z/{name}")).unwrap()));
         assert_eq!(
-            ["none", "free", "scale", "hundred", "more", "tiled", "untiled", "tiled_scale", "tiled_free"].map(fit_of),
-            [Fit::Natural, Fit::Stretch, Fit::Stretch, Fit::Zoom(100.0), Fit::Zoom(125.0), Fit::Tiled(50.0), Fit::Natural, Fit::Tiled(100.0), Fit::Tiled(100.0)]
+            ["none", "free", "scale", "hundred", "more", "tiled", "untiled", "tiled_scale", "tiled_free", "path", "path_flat"].map(fit_of),
+            [Fit::Natural, Fit::Stretch, Fit::Stretch, Fit::Zoom(100.0), Fit::Zoom(125.0), Fit::Tiled(50.0), Fit::Natural, Fit::Tiled(100.0), Fit::Tiled(100.0), Fit::TiledToHeight(5.8), Fit::Natural]
         );
     }
 
@@ -2738,6 +2789,9 @@ mod tests {
         assert_eq!(placed(Fit::Stretch, false, (512.0, 128.0)), Placed::Fill);
         assert_eq!(placed(Fit::Zoom(75.0), false, (128.0, 64.0)), Placed::At { width: 96.0, height: 48.0 });
         assert_eq!(placed(Fit::Tiled(100.0), false, (8.0, 32.0)), Placed::Repeat { width: 8.0, height: 32.0 });
+        // #4685: the dotted line's 64 x 16 picture at its 5.8-high box's height, repeated.
+        let Placed::Repeat { width, height } = placed(Fit::TiledToHeight(5.8), false, (64.0, 16.0)) else { panic!("repeated") };
+        assert!((width - 23.2).abs() < 1e-9 && (height - 5.8).abs() < 1e-9);
         assert_eq!(placed(Fit::Strip, true, (1023.0, 63.0)), Placed::Strip);
         // The condition fill's zoom stands its picture's 11 drawn rows over its 20-unit
         // box: one repeat covers it.
