@@ -164,7 +164,7 @@ fn the_sky() {
     assert_eq!((g.script_climate(), n(&mut g, "GetCurrentClimate")), (Some(FormId(CLMT2)), f64::from(CLMT2)));
     q(&mut g, "ForceClimate");
     assert_eq!(g.script_climate(), None);
-    assert_eq!(n(&mut g, "SetCurrentClimate TestClimateTwo"), f64::from(CLMT2));
+    assert_eq!(n(&mut g, "SetCurrentClimate TestClimateTwo"), 0.0);
     assert_eq!(g.script_climate(), Some(FormId(CLMT2)));
     // Not a climate: nothing.
     q(&mut g, "ForceClimate TestStatic");

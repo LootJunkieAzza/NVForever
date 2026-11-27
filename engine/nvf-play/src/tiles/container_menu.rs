@@ -133,11 +133,11 @@ pub fn is_container(m: Option<&MenuModel>) -> bool {
     m.is_some_and(|m| matches!(m.mode, Mode::Container(_)))
 }
 
-/// The weight label [observed: "Wg   52/200", three spaces; 289.50 carried reads 289, 49.50
-/// reads 49, so whole units cut off; the words are the hand-built menu's
-/// (`look::half_figure`)].
+/// The weight label [observed: three spaces; 289.50 carried reads 289, 49.50 reads 49, so
+/// whole units cut off]. The word is the hand-built menu's (`look::weight_word`, the
+/// setting `sInventoryWeight`) [design, #4495].
 fn weight_text(weight: f64, capacity: f64) -> String {
-    format!("Wg   {:.0}/{capacity:.0}", weight.floor())
+    format!("{}   {:.0}/{capacity:.0}", crate::menu::look::weight_word(), weight.floor())
 }
 
 fn weight_label(m: &MenuModel) -> String {
@@ -315,7 +315,7 @@ mod tests {
         Snapshot {
             lists: [list(right, Side::Container), list(left, Side::Player)],
             titles: ["Footlocker".into(), "ITEMS".into()],
-            weight: "Wg   52/200".into(),
+            weight: "Weight   52/200".into(),
             focus,
             pointer_pick: false,
             asking: false,
@@ -331,9 +331,9 @@ mod tests {
 
     #[test]
     fn the_weight_cuts_off_to_whole_units() {
-        assert_eq!(weight_text(52.0, 200.0), "Wg   52/200");
-        assert_eq!(weight_text(49.5, 200.0), "Wg   49/200");
-        assert_eq!(weight_text(289.5, 200.0), "Wg   289/200");
+        assert_eq!(weight_text(52.0, 200.0), "Weight   52/200");
+        assert_eq!(weight_text(49.5, 200.0), "Weight   49/200");
+        assert_eq!(weight_text(289.5, 200.0), "Weight   289/200");
     }
 
     /// A frame as the writer does it: what changed written, then [`settle`].
@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(at(&ui, &format!("{left}/_scroll_delta")), OWN_DELTA);
         // The strings, the arrow, the picture, the figures.
         assert_eq!(ui.get_string(&format!("{}/string", TITLES[0])).as_deref(), Some("Footlocker"));
-        assert_eq!(ui.get_string(&format!("{WEIGHT}/string")).as_deref(), Some("Wg   52/200"));
+        assert_eq!(ui.get_string(&format!("{WEIGHT}/string")).as_deref(), Some("Weight   52/200"));
         assert_eq!((at(&ui, &format!("{ARROW}/visible")), at(&ui, &format!("{ARROW}/user0"))), (1.0, 1.0));
         assert_eq!(at(&ui, &format!("{ICON}/visible")), 1.0);
         assert_eq!(ui.get_string(&format!("{CARD}/WeightInfo/_Value")).as_deref(), Some("5.00"));

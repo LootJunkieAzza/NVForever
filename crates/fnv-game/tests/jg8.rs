@@ -28,6 +28,12 @@ const FLST_QP: u32 = 0x909;
 const CELL_A: u32 = 0x200;
 const TRAP_REF: FormId = FormId(0x305);
 const MISC_REF: FormId = FormId(0x306);
+const NPC_BASE: u32 = 0x910;
+const NPC_OTHER: u32 = 0x911;
+const FLST_BASE: u32 = 0x912;
+const FLST_REF: u32 = 0x913;
+const CELL_ID: u32 = 0x920;
+const NPC_REF: u32 = 0x921;
 
 fn edid(sig: &[u8; 4], fid: u32, name: &str) -> Vec<u8> {
     record(sig, 0, fid, &[sub(b"EDID", z(name))])
@@ -50,15 +56,23 @@ fn plugin_bytes() -> Vec<u8> {
             sub(b"LNAM", PERK_A.to_le_bytes().to_vec()),
         ],
     );
+    let flst_base = record(b"FLST", 0, FLST_BASE, &[sub(b"EDID", z("ListNpcBase")), sub(b"LNAM", NPC_BASE.to_le_bytes().to_vec())]);
+    let flst_ref = record(b"FLST", 0, FLST_REF, &[sub(b"EDID", z("ListNpcRef")), sub(b"LNAM", NPC_REF.to_le_bytes().to_vec())]);
     let refs = [placed_obj(TRAP_REF, "TrapRef", ACTI_TRAP), placed_obj(MISC_REF, "MiscRef", MISC_A)].concat();
-    let cell = [
+    let cell_a = [
         record(b"CELL", 0, CELL_A, &[sub(b"EDID", z("TestCellA"))]),
         group(CELL_A.to_le_bytes(), 6, &group(CELL_A.to_le_bytes(), 9, &refs)),
     ]
     .concat();
+    let npc_ref = record(b"ACHR", 0, NPC_REF, &[sub(b"EDID", z("TestNpcRef")), sub(b"NAME", NPC_BASE.to_le_bytes().to_vec())]);
+    let cell_npc = [
+        record(b"CELL", 0, CELL_ID, &[sub(b"EDID", z("TestCell"))]),
+        group(CELL_ID.to_le_bytes(), 6, &group(CELL_ID.to_le_bytes(), 8, &npc_ref)),
+    ]
+    .concat();
     [
         tes4(),
-        top(b"NPC_", &edid(b"NPC_", 0x7, "Player")),
+        top(b"NPC_", &[edid(b"NPC_", 0x7, "Player"), edid(b"NPC_", NPC_BASE, "TestNpcBase"), edid(b"NPC_", NPC_OTHER, "OtherNpcBase")].concat()),
         top(b"STAT", &edid(b"STAT", XMARKER, "XMarker")),
         top(b"ACTI", &edid(b"ACTI", ACTI_TRAP, "TestTrap")),
         top(b"GLOB", &glob),
@@ -67,7 +81,8 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"FLST", &flst_qp),
         top(b"REPU", &edid(b"REPU", REPU, "TestReputation")),
         top(b"MISC", &[edid(b"MISC", MISC_A, "ZuluThing"), edid(b"MISC", MISC_B, "AlphaThing")].concat()),
-        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+        top(b"FLST", &[flst_base, flst_ref].concat()),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell_a, cell_npc].concat()))),
     ]
     .concat()
 }
@@ -372,6 +387,69 @@ PlayerREF.DamageAV Health 0.6
     assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_o""#), 199.0);
     assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_i_new""#), 198.0);
     assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*av_m1_n""#), 2.0);
+}
+
+#[test]
+fn on_dying_handler_matches_base_form_ref_and_xmarker() {
+    let f = fixture();
+    let mut g = game(&f);
+    // [observed 2026-11-24: w6t2p2_09_jg_on_dying_all_filters, FNV 1.4.0.525 + JG 528:
+    // dead=1|u=1,xm=1,ref=1,base=1,flst=0]
+    q(
+        &mut g,
+        r#"
+SetJohnnyOnDyingEventHandler 1 (begin function {ref rDead}
+PlayerREF.AuxVarSetFlt "*d_u" ((PlayerREF.AuxVarGetFlt "*d_u") + 1)
+PlayerREF.AuxVarSetRef "*d_arg" rDead
+end) 0
+SetJohnnyOnDyingEventHandler 1 (begin function {ref rDead}
+PlayerREF.AuxVarSetFlt "*d_xm" ((PlayerREF.AuxVarGetFlt "*d_xm") + 1)
+end) 0 XMarker
+SetJohnnyOnDyingEventHandler 1 (begin function {ref rDead}
+PlayerREF.AuxVarSetFlt "*d_ref" ((PlayerREF.AuxVarGetFlt "*d_ref") + 1)
+end) 0 TestNpcRef
+SetJohnnyOnDyingEventHandler 1 (begin function {ref rDead}
+PlayerREF.AuxVarSetFlt "*d_base" ((PlayerREF.AuxVarGetFlt "*d_base") + 1)
+end) 0 TestNpcBase
+SetJohnnyOnDyingEventHandler 1 (begin function {ref rDead}
+PlayerREF.AuxVarSetFlt "*d_other" ((PlayerREF.AuxVarGetFlt "*d_other") + 1)
+end) 0 OtherNpcBase
+SetJohnnyOnDyingEventHandler 1 (begin function {ref rDead}
+PlayerREF.AuxVarSetFlt "*d_fl_base" ((PlayerREF.AuxVarGetFlt "*d_fl_base") + 1)
+end) 0 ListNpcBase
+SetJohnnyOnDyingEventHandler 1 (begin function {ref rDead}
+PlayerREF.AuxVarSetFlt "*d_fl_ref" ((PlayerREF.AuxVarGetFlt "*d_fl_ref") + 1)
+end) 0 ListNpcRef
+TestNpcRef.KillActor PlayerREF
+"#,
+    );
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_u""#), 1.0, "unfiltered handler fires");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetRef "*d_arg" == TestNpcRef"#), 1.0, "dying actor ref passed as arg");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_xm""#), 1.0, "XMarker (0x3B) acts as wildcard");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_ref""#), 1.0, "exact placed ref matches");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_base""#), 1.0, "NPC_ base form matches placed ref");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_other""#), 0.0, "unrelated NPC_ base form does not match");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_fl_base""#), 0.0, "FormList of NPC_ base forms does not match (flst=0)");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_fl_ref""#), 1.0, "FormList of placed refs still matches");
+
+    // Unregistering an XMarker-registered handler with XMarker removes it; verify by
+    // spawning and killing a second actor so Dying genuinely dispatches again.
+    q(
+        &mut g,
+        r#"
+ref h
+ref rNpc2
+let h := (begin function {ref rDead}
+PlayerREF.AuxVarSetFlt "*d_rm" 1
+end)
+SetJohnnyOnDyingEventHandler 1 h 0 XMarker
+SetJohnnyOnDyingEventHandler 0 h 0 XMarker
+let rNpc2 := TestNpcRef.PlaceAtMe TestNpcBase 1
+rNpc2.KillActor PlayerREF
+"#,
+    );
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_u""#), 2.0, "second actor kill must dispatch Dying");
+    assert_eq!(n(&mut g, r#"PlayerREF.AuxVarGetFlt "*d_rm""#), 0.0, "unregistered XMarker handler must not fire on second kill");
 }
 
 #[test]

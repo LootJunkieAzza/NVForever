@@ -275,3 +275,5 @@ pub use data::GameData;
 pub use game::{Game, GameConfig, InstKey};
 
 mod texture_filter;
+#[cfg(test)]
+mod ui_ysi_duplicate_row_tests;

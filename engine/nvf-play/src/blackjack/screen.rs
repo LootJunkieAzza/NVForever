@@ -5,8 +5,9 @@
 //! file lays out its information box the same way.
 //!
 //! - The information box: 400 × 175, 10 in from the main rectangle's left and bottom, the
-//!   bracket of lines, three rows in font 7 at 20 in and 35, 80 and 125 down: "Current
-//!   Bet:", "Chips:" and "<casino> Earnings:" [observed: the owner's screenshot], each
+//!   bracket of lines, three rows in font 7 at 20 in and 35, 80 and 125 down: "Your
+//!   bet:", "Your chips:" and "Won at <casino>:" (NVForever's own words [design, #4495:
+//!   in place of the titles read from the original's screen]), each
 //!   value right-aligned 80 short of the box's width; a long casino name or a big number
 //!   moves the values right and widens the box (`casino_hud::info_fit`).
 //! - Six buttons right-aligned 50 from the main rectangle's right, one under the other,
@@ -162,7 +163,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
             // The information box.
-            let rows = [(tr("Current Bet:").to_string(), shown_bet(s).to_string()), (tr("Chips:").into(), s.chips.to_string()), (s.earnings_title(), s.earnings.to_string())];
+            let rows = [(tr("Your bet:").to_string(), shown_bet(s).to_string()), (tr("Your chips:").into(), s.chips.to_string()), (s.earnings_title(), s.earnings.to_string())];
             let widths: Vec<(f32, f32)> = rows.iter().map(|(t, v)| (c.text_width(FontKind::Menu, t), c.text_width(FontKind::Menu, v))).collect();
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, VALUE_GAP, &widths);
             let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };

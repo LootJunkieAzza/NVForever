@@ -880,6 +880,8 @@ pub fn allocate_uniforms(
     light_query: Query<&LightEntity>,
     // NVForever held shadow maps (light.rs `HoldDirectionalShadowMaps`).
     hold_directional: Option<Res<crate::HoldDirectionalShadowMaps>>,
+    // NVForever hosted shadow views (light.rs `NvfSharedShadowViews`).
+    nvf_shared: Option<Res<crate::NvfSharedShadowViews>>,
     batched_instance_buffers: Res<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>,
     pipeline_cache: Res<PipelineCache>,
     preprocess_pipelines: Res<PreprocessPipelines>,
@@ -935,7 +937,7 @@ pub fn allocate_uniforms(
     let view_entity = current_view.entity();
     let shadow_cascade_views = current_view.into_inner();
     let all_views =
-        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref());
+        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref(), nvf_shared.as_deref());
 
     // Loop over each view…
     for view_entity in all_views {
@@ -1009,6 +1011,8 @@ pub fn unpack_bins(
     light_query: Query<&LightEntity>,
     // NVForever held shadow maps (light.rs `HoldDirectionalShadowMaps`).
     hold_directional: Option<Res<crate::HoldDirectionalShadowMaps>>,
+    // NVForever hosted shadow views (light.rs `NvfSharedShadowViews`).
+    nvf_shared: Option<Res<crate::NvfSharedShadowViews>>,
     batched_instance_buffers: Res<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>,
     pipeline_cache: Res<PipelineCache>,
     preprocess_pipelines: Res<PreprocessPipelines>,
@@ -1030,7 +1034,7 @@ pub fn unpack_bins(
     let view_entity = current_view.entity();
     let shadow_cascade_views = current_view.into_inner();
     let all_views =
-        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref());
+        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref(), nvf_shared.as_deref());
 
     // Don't run if the shaders haven't been compiled yet.
     if let Some(bin_unpacking_pipeline_id) = preprocess_pipelines.bin_unpacking.pipeline_id
@@ -1097,6 +1101,8 @@ pub fn early_gpu_preprocess(
     light_query: Query<&LightEntity>,
     // NVForever held shadow maps (light.rs `HoldDirectionalShadowMaps`).
     hold_directional: Option<Res<crate::HoldDirectionalShadowMaps>>,
+    // NVForever hosted shadow views (light.rs `NvfSharedShadowViews`).
+    nvf_shared: Option<Res<crate::NvfSharedShadowViews>>,
     batched_instance_buffers: Res<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>,
     pipeline_cache: Res<PipelineCache>,
     preprocess_pipelines: Res<PreprocessPipelines>,
@@ -1117,7 +1123,7 @@ pub fn early_gpu_preprocess(
     let view_entity = current_view.entity();
     let shadow_cascade_views = current_view.into_inner();
     let all_views =
-        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref());
+        gather_shadow_cascades_for_view(view_entity, shadow_cascade_views, &light_query, hold_directional.as_deref(), nvf_shared.as_deref());
 
     // Run the compute passes.
     for view_entity in all_views {
@@ -1282,6 +1288,7 @@ fn gather_shadow_cascades_for_view(
     shadow_cascade_views: Option<&ViewLightEntities>,
     light_query: &Query<&LightEntity>,
     hold_directional: Option<&crate::HoldDirectionalShadowMaps>,
+    nvf_shared: Option<&crate::NvfSharedShadowViews>,
 ) -> SmallVec<[Entity; 8]> {
     let mut all_views: SmallVec<[_; 8]> = SmallVec::new();
     all_views.push(view_entity);
@@ -1299,6 +1306,10 @@ fn gather_shadow_cascades_for_view(
                 })
                 .copied(),
         );
+    }
+    // NVForever hosted shadow views: the point and spot lights' views this camera draws.
+    if let Some(shared) = nvf_shared.filter(|shared| shared.host == Some(view_entity)) {
+        all_views.extend(shared.views.iter().copied());
     }
     all_views
 }
@@ -2573,6 +2584,11 @@ impl PreprocessBindGroupCache {
 pub fn prepare_preprocess_bind_groups(
     mut commands: Commands,
     views: Query<(Entity, &ExtractedView)>,
+    // NVForever stale unpacking bind groups: the light views not drawn this frame.
+    nvf_held_views: Query<
+        &LightEntity,
+        Without<bevy_core_pipeline::schedule::RootNonCameraView>,
+    >,
     view_depth_pyramids: Query<(&ViewDepthPyramid, &PreviousViewUniformOffset)>,
     (render_device, mut cache): (Res<RenderDevice>, Local<PreprocessBindGroupCache>),
     pipeline_cache: Res<PipelineCache>,
@@ -2585,8 +2601,11 @@ pub fn prepare_preprocess_bind_groups(
     view_uniforms: Res<ViewUniforms>,
     previous_view_uniforms: Res<PreviousViewUniforms>,
     pipelines: Res<PreprocessPipelines>,
-    mut bin_unpacking_bind_groups: ResMut<BinUnpackingBindGroups>,
-    mut uniform_allocation_bind_groups: ResMut<UniformAllocationBindGroups>,
+    // NVForever: the two in one parameter (a system takes sixteen at most).
+    (mut bin_unpacking_bind_groups, mut uniform_allocation_bind_groups): (
+        ResMut<BinUnpackingBindGroups>,
+        ResMut<UniformAllocationBindGroups>,
+    ),
 ) {
     cache.begin_frame();
     for groups in bin_unpacking_bind_groups.values_mut() {
@@ -2623,8 +2642,22 @@ pub fn prepare_preprocess_bind_groups(
     // don't, then we can skip building indirect parameters.
     let mut any_indirect = false;
 
+    // NVForever stale unpacking bind groups (2026-11-25, engine/vendor/README.md): a point
+    // or spot light's shadow view that is not a root view is one the game holds this frame
+    // (light.rs `HoldLightShadowMaps`: the view is kept, its map is not drawn). Nothing is
+    // dispatched or drawn for it, so no bind groups are made for it either; upstream has no
+    // such views.
+    let nvf_held = |view_entity: Entity| {
+        nvf_held_views.get(view_entity).is_ok_and(|light| {
+            matches!(light, LightEntity::Point { .. } | LightEntity::Spot { .. })
+        })
+    };
+
     // Loop over each view.
     for (view_entity, view) in &views {
+        if nvf_held(view_entity) {
+            continue;
+        }
         let mut bind_groups = TypeIdHashMap::default();
 
         // Loop over each phase.
@@ -2736,9 +2769,16 @@ pub fn prepare_preprocess_bind_groups(
         );
     }
 
+    // (NVForever stale unpacking bind groups: the entries of views no longer there, and of
+    // the held light views skipped below, go with the tables' own sweep at the end, which
+    // drops every entry no bind group was made for this frame.)
+
     // Create the bind groups we'll need for each dispatch of the bin unpacking
     // (`unpack_bins`) and uniform allocation (`allocate_uniforms`) shaders.
-    for (_, view) in &views {
+    for (view_entity, view) in &views {
+        if nvf_held(view_entity) {
+            continue;
+        }
         create_bin_unpacking_bind_groups(
             &mut bin_unpacking_bind_groups,
             &render_device,
