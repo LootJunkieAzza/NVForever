@@ -217,7 +217,13 @@ not decode yet.
   [observed: jip4, 2 in the `nvftest` save, where Ringo, not hostile, stands near the
   player; hypothesis: 3 in combat, not probed]. With no measure it reads 0. NVForever never reads
   -1, because the function runs only in a game.
-- `GetRefType` [documented: the type code of the reference, not its base]: the
+- `GetRefType` [documented: the type code of the reference, not its base; observed: Fallout:
+  New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe;
+  zero writes to game install or Saves), `w6d2_45_jip4_ref_type_teleport_global_poison`
+  (`tools/capture/nvse/catalogs/wave6d2_jip_lutana_observed.json`):
+  `PROBE|w6d2_45_jip4_ref_type_teleport_global_poison|rt=59,59,58,58|td=1/1|gr=1/1|pois=0,det=0,del=0.01`;
+  zero DLL, PDB, or third-party source consulted]: the
   reference's own record type. The player is an ACHR; an inventory reference or one made
   at run time is a REFR, an ACHR or an ACRE by its base, as the script host names it.
 - `GetTeleportDoor` [documented]: the door at the other end, SetDoorTeleport's change
@@ -277,3 +283,11 @@ not decode yet.
 The detection state 3 (needs a fight), GetEditorPosition (does not compile at run time,
 §10), and GetIsPoisoned on a poisoned actor. The quest flag 5 rule and flag 7 are read
 from five quests only.
+
+## Wave 6D-8 Live Observation (2026-11-25)
+
+- **`GetPCDetectionState` & `GetActorLightAmount` indoor baseline** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8_43_force_detection_value_and_pc_detection_state`: `PROBE|w6d8_43_force_detection_value_and_pc_detection_state|pc0=0 pc1=0 lt=100.0 v0=-42 v1=-42 d1=0 v2=-42 d2=0 l2=0 v3=-42 v4=-42`]: in `GSDocMitchellHouse` with no hostile detector, `GetPCDetectionState` returned `0` (`pc0=0 pc1=0`) and `Player.GetActorLightAmount` returned `100.0` (`lt=100.0`).
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Quest flag bounds & post-`CompleteQuest` objective edge cases (`GetQuestFlag`)** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_12_quest_flags_and_objective_edge_indices`: `PROBE|w6d9_12_quest_flags_and_objective_edge_indices|flg(neg=0,oob=0,b3=0->1)|o999(d=0,c=0)|afterComp(d=0,c=0)`]: confirms `GetQuestFlag` returns `0` for `-1`/`8`, nonexistent objective `999` stays `0`, and `SetObjectiveDisplayed`/`SetObjectiveCompleted` after `CompleteQuest` leave `d=0,c=0`.

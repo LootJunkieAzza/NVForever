@@ -128,3 +128,7 @@ self-damage) is in `combat-rules.md` (step C7); this note is about the model.
   shapes below one in a model drawn as a rig (an idle, a door); blast nodes
   (`nif-node-audit.md` item 3); creatures' destruction stages (76 stages with debris, the
   robots').
+
+## Wave 6D-9 Live Observations (2026-11-25)
+
+- **`GetDestructionDataHealth` / `SetDestructionDataHealth` & non-destructible `DamageObject`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probes `w6d9_29_destruction_stages_damage_clear_and_health`: `PROBE|w6d9_29_destruction_stages_damage_clear_and_health|hp(50->100)|stg(-1,1=-1,6=-1,16=-1,51=-1:d0)|clr(-1:d0)|hp100d50=-1|nonD(s=-1,st=2)` and `w6d9p2_29_destruction_after_ticks`: `PROBE|w6d9p2_29_destruction_after_ticks|hp=50|s(-1,1=-1,6=-1,16=-1,51=-1:d0)|clr(-1:d0)`]: confirms `GetDestructionDataHealth` reads `50` on `ElectricBox01` (`0x00020D31`), `SetDestructionDataHealth` updates it to `100`, undamaged/non-destructible `GetDestructionStage` returns `-1`, and `DamageObject` on a non-destructible container does not abort the script (`nonD(s=-1,st=2)`).

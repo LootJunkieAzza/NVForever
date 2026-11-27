@@ -106,3 +106,23 @@ The rule (§1's table) fits every row:
 
 Built (`nvse_sup4.rs` `near_cells`, #2039): the loaded cells are `Game::loaded_cells`; the
 sup4 `near` row is equal since.
+
+### 5.1 Wave 6D-4 clean-room `[observed]` confirmations
+
+Confirmed fresh New Game `GetLoadedSaveSize` / `GetSavedSaveSize` (`-1`),
+`CallFunctionNextFrame` (`inFrames=2` fires: `ret=1,fired=1`), and exterior Goodsprings
+(`0x000DAEBB`, reached from `GSDocMitchellHouse` via `Player.MoveTo` `GSMapMarker`
+`0x000CDF51` and restored to `0x00103E6B`) `GetNearCells` (`1,9,23`) and `GetNearMapMarkers` (`1,1`) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
+SUP NVSE 855 + JIP LN 57.30 [observed: probes `w6d4_29_sup4_saves_pickpocket_and_onload`:
+`PROBE|w6d4_29_sup4_saves_pickpocket_and_onload|save(ls=-1/-1,ss=-1,snLen=-1)|cp(0,0,0)|mol=0|nf(ret=1,fired=1)`
+and `w6d4_36_sup4_near_cells_and_markers_exterior`:
+`PROBE|w6d4_36_sup4_near_cells_and_markers_exterior|cell=000DAEBB|cells(1,9,23)|marks(1,1)`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`)].
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Objective teleport links & `GetQuestTargetsChanged`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `SUP NVSE Plugin 855`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_07_objective_teleport_links_and_targets_changed`: `PROBE|w6d9_07_objective_teleport_links_and_targets_changed|chg(0,1)|in(x=3,sup=3,jip=3)|rem(x=3,sup=3)|clr(x=0,sup=0)`]: with VMS04 objective 10 active, xNVSE `GetCurrentQuestObjectiveTeleportLinks`, SUP `GetCurrentQuestObjectiveTeleportLinksAlt`, and JIP `GetObjectiveTeleportLinks` all returned 3 entries (`in(x=3,sup=3,jip=3)`), clearing active quest returned 0 (`clr(x=0,sup=0)`), and `GetQuestTargetsChanged` transitioned `0 -> 1` after modifying targets.
+
+## Wave 6D-10 Live Clean-Room Near Cells & Near Map Markers Baselines
+
+- Indoors in `GSDocMitchellHouse`, `GetNearCells` at depths `0`, `1`, and `-1` returns 1 cell (`nc(1,1,1)`), and `GetNearMapMarkers` at depths `0`, `1`, and `-1` returns 0 markers (`nm(0,0,0)`) [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + SUP NVSE Plugin 855, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_44_near_cells_near_markers_and_cell_visited_expired` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_44_near_cells_near_markers_and_cell_visited_expired|nc(1,1,1)|nm(0,0,0)|vis(1,0,0,0)|exp(-1,-1,0,0)|buf(om=1,gs=0,bad=0)`; zero DLL, PDB, or third-party source consulted].

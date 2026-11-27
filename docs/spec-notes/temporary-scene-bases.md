@@ -174,3 +174,7 @@ Documentation changes and a later current-main composition have not been
 compiled or executed by this adoption. Broader suites, strict lint, installed
 GAME scenarios, native parity, existing user-save recovery, rendered/collision
 behavior and complete B42/profile acceptance remain unqualified.
+
+### Wave 6D-5 observation: clone-of-clone `PlaceAtMe`, post-placement `SetModelPath`, and script inheritance
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe in `tools/capture/nvse/catalogs/wave6d5_promote_observed.json`; zero DLL, PDB, or third-party source consulted (JIP LN NVSE 57.30), `w6d5_29_tempcloneform_chain_and_post_place_edit`] In original FNV, `PlaceAtMe` succeeds on a clone-of-clone (`ic2=1, p2=1`), post-placement `SetModelPath` isolates clone vs original (`c1=[w6d5_post_c1.nif], orig=[w6d5_post_orig.nif], c1After=[w6d5_post_c1.nif]`), and `TempCloneForm` of a scripted `NPC_` (`DocMitchell`) inherits the original's script (`origValid=1, eq=1`); NVForever's current preview-admission limits remain `[design]` for follow-on work: `PROBE|w6d5_29_tempcloneform_chain_and_post_place_edit|chain(ic2=1,p2=1)|post(c1=[w6d5_post_c1.nif],orig=[w6d5_post_orig.nif],c1After=[w6d5_post_c1.nif])|scr(origValid=1,eq=1)`.

@@ -97,3 +97,16 @@ hudflags, lockpick.shut, grenade. Followed since: cursor.gradual and cursor.grad
 (§2), fonts (§5, headless too), modtraits (§5). Left: screen (the window's: 0 in a
 headless run by decision, the rule followed in the engine), pctraits (the machine's, by
 decision 0). Did not compile in the original: mouse.moves, mouse.pos (§1).
+
+### 7.1 Wave 6D-4 clean-room `[observed]` confirmations
+
+Confirmed `GetScreenTrait` (`-1` & `5` = `0`), `GetFontTrait` (`0` & `9` = `0`),
+`GetModTraitSTR`, `Get/SetHUDVisibilityFlags`, `GetGrenadeTimeHeld`, `GetCursorTrait`
+(`-1` = `0.0`, rest `255/32/32`), `SetCursorTraitGradual`, and `GetMouseMovement` (`0.0`)
+in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, SUP NVSE 855 [observed: probes `w6d4p2_31a_sup6_screen_font_mod`:
+`PROBE|w6d4p2_31a_sup6_screen_font_mod|scr(n=0,0=1706.7,1=960,2=1280,3=720,4=1.333,5=0)|fnt(31,31,z=0,f9=0)|mod([ipely],[(null)],[],oobLen=0)`,
+`w6d4p2_31b_sup6_hud_grenade_pc`:
+`PROBE|w6d4p2_31b_sup6_hud_grenade_pc|hud(131071->15->131071)|gr=0.00|pc(1,0,1)`,
+and `w6d4_32_sup6_cursor_traits_gradual_and_mouse`:
+`PROBE|w6d4_32_sup6_cursor_traits_gradual_and_mouse|ct(n=0.0,0=255.00,1=32.00,2=32.00->0.75,r=0)|grad(2a=0,bm=0)|mp(r=0,xOk=0,yOk=0)|mm(r=0,0.0,0.0)|mw(0,0)`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`)].

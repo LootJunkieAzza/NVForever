@@ -3302,3 +3302,7 @@ foot turn, and the time a frame.
 - Creatures with four legs or other leg names are not placed.
 - The hit capsules (`limbs.rs`) follow the placed legs, since they are read after
   propagation; the ragdoll starts from the placed pose.
+
+### Wave 6D-7 Live Observations (2026-11-25)
+- **Partial biped slot overlap replacement** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7p2_27_biped_slot_overlap_settled`]: equipping overlapping multi-slot headgear replaces only conflicting pieces (`s1(h=1,g=1,m=20042)|ban(h=0,b=1,g=1)|reb(g=0,r=1,b=1)|hlm(b=0,r=0,hl=1,m=20043)`).
+- **Template inheritance chains** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7_37_template_chain_base_vs_placed_ref_inheritance`]: direct `NPC_`, `LVLN`, and `CREA` template chains resolve base traits/stats/health (`tpl(pg=1,lv=1,cr=1,fl=0/0)|ref(b1=1,b2=0,labV=1,labD=1)|hp(60.0/60.0,60.0,12.0)|lv(1,1)`).

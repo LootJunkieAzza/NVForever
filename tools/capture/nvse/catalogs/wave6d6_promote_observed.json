@@ -1,0 +1,2194 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_promote_observed",
+  "description": "Wave 6D-6 read-only parity probes confirming vanilla combat, weapons, weapon mods, perks, combat styles, projectiles, and VATS behaviors.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184",
+    "JohnnyGuitarNVSE": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d6_promote_observed",
+      "title": "Wave 6D-6 confirmed combat, weapons, mods, perks & VATS observations",
+      "extender": "JIP LN NVSE / ShowOffNVSE / JohnnyGuitarNVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ShowOffNVSE.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_01_energy_fire_emp_resist_and_dr",
+          "bucket": "combat_damage_armour",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/damage-armour.md",
+          "spec_line": 84,
+          "functions_tested": [
+            "FireWeapon",
+            "SetOnHitEventHandler",
+            "GetHitHealthDamage",
+            "GetHitBaseWeaponDamage",
+            "SetAV"
+          ],
+          "claim": "SD-12: Test whether EnergyResist cuts Energy weapon hit damage alone or alongside DamageResist on WeapLaserRifle.",
+          "expected": "Record GetHitHealthDamage for WeapLaserRifle at (ER=0,DR=0), (ER=50,DR=0), (ER=0,DR=30), and (ER=50,DR=30).",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*w6d601_t\" rT",
+            "Player.AuxVarSetFlt \"*w6d601_n\" 0",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 0",
+            "rT.SetAV DamageResist 0",
+            "rT.SetAV EnergyResist 0",
+            "rT.SetRestrained 1",
+            "float fPx = Player.GetPos X",
+            "float fPy = Player.GetPos Y",
+            "float fPz = Player.GetPos Z",
+            "rT.SetPos X fPx",
+            "rT.SetPos Y (fPy + 85)",
+            "rT.SetPos Z fPz",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_w6d6_01.gek\"",
+            "Player.AuxVarSetRef \"*w6d601_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+            "ref rMfc = GetFormFromMod \"FalloutNV.esm\" \"4485\"",
+            "Player.AuxVarSetFlt \"*w6d601_ew\" (Player.GetBaseAV EnergyWeapons)",
+            "Player.AuxVarSetFlt \"*w6d601_cc\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV EnergyWeapons 100",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent rLas 1 1.0",
+            "Player.AddItem rMfc 100 1",
+            "Player.EquipItem rLas 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_w6d6_01.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*w6d601_n\" ((Player.AuxVarGetFlt \"*w6d601_n\") + 1)",
+              "Player.AuxVarSetFlt \"*w6d601_hd\" (rTgt.GetHitHealthDamage)",
+              "Player.AuxVarSetFlt \"*w6d601_bd\" (rTgt.GetHitBaseWeaponDamage)",
+              "Player.AuxVarSetFlt \"*w6d601_ld\" (rTgt.GetHitLimbDamage)",
+              "Player.AuxVarSetFlt \"*w6d601_fd\" (rTgt.GetHitFatigueDamage)",
+              "Player.AuxVarSetFlt \"*w6d601_loc\" (rTgt.GetHitLocation)",
+              "Player.AuxVarSetFlt \"*w6d601_ap\" (rTgt.GetArmourPenetrated)",
+              "Player.AuxVarSetFlt \"*w6d601_f1\" (rTgt.GetHitExtendedFlag 1)",
+              "Player.AuxVarSetFlt \"*w6d601_f2\" (rTgt.GetHitExtendedFlag 2)",
+              "Player.AuxVarSetFlt \"*w6d601_f8\" (rTgt.GetHitExtendedFlag 8)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_base",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "Player.FireWeapon rLas"
+              ]
+            },
+            {
+              "suffix": "s2_er50",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d601_t\"",
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "Player.AuxVarSetFlt \"*w6d601_h0\" (Player.AuxVarGetFlt \"*w6d601_hd\")",
+                "Player.AuxVarSetFlt \"*w6d601_b0\" (Player.AuxVarGetFlt \"*w6d601_bd\")",
+                "rT.SetAV EnergyResist 50",
+                "Player.FireWeapon rLas"
+              ]
+            },
+            {
+              "suffix": "s3_dr30",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d601_t\"",
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "Player.AuxVarSetFlt \"*w6d601_h1\" (Player.AuxVarGetFlt \"*w6d601_hd\")",
+                "rT.SetAV EnergyResist 0",
+                "rT.SetAV DamageResist 30",
+                "Player.FireWeapon rLas"
+              ]
+            },
+            {
+              "suffix": "s4_both",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d601_t\"",
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "Player.AuxVarSetFlt \"*w6d601_h2\" (Player.AuxVarGetFlt \"*w6d601_hd\")",
+                "rT.SetAV EnergyResist 50",
+                "rT.SetAV DamageResist 30",
+                "Player.FireWeapon rLas"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d601_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*w6d601_cb\"",
+                "float fH0 = Player.AuxVarGetFlt \"*w6d601_h0\"",
+                "float fB0 = Player.AuxVarGetFlt \"*w6d601_b0\"",
+                "float fH1 = Player.AuxVarGetFlt \"*w6d601_h1\"",
+                "float fH2 = Player.AuxVarGetFlt \"*w6d601_h2\"",
+                "float fH3 = Player.AuxVarGetFlt \"*w6d601_hd\"",
+                "int iN = Player.AuxVarGetFlt \"*w6d601_n\"",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "ref rMfc = GetFormFromMod \"FalloutNV.esm\" \"4485\"",
+                "Player.UnequipItem rLas 0 1",
+                "Player.RemoveItem rLas 1 1",
+                "Player.RemoveItem rMfc 100 1",
+                "Player.SetAV EnergyWeapons (Player.AuxVarGetFlt \"*w6d601_ew\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*w6d601_cc\")",
+                "PrintToConsole \"PROBE|w6d6_01_energy_fire_emp_resist_and_dr|n=%g|base=%.3f|h(0,0)=%.3f|h(er50,0)=%.3f|h(0,dr30)=%.3f|h(er50,dr30)=%.3f\" iN fB0 fH0 fH1 fH2 fH3"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p2_03_dt_ammo_mod_and_perk_order",
+          "bucket": "combat_damage_armour",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 68,
+          "functions_tested": [
+            "FireWeapon",
+            "SetOnHitEventHandler",
+            "GetHitHealthDamage",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "Determine exact order of Ammo DT Mod (10mm Hollow Point x3 DT, x1.75 dmg) vs Toughness defender DT (+3) vs ShotgunSurgeon attacker DT ignore (-10).",
+          "expected": "Compare hDmg for 10mm Pistol (std vs HP) on DT=5 target with/without Toughness, and HuntingShotgun+Slug on DT=15 with/without ShotgunSurgeon.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*p203_t\" rT",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 5",
+            "rT.SetAV DamageResist 0",
+            "rT.SetRestrained 1",
+            "rT.SetPos X (Player.GetPos X)",
+            "rT.SetPos Y ((Player.GetPos Y) + 85)",
+            "rT.SetPos Z (Player.GetPos Z)",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_p203_cb.gek\"",
+            "Player.AuxVarSetRef \"*p203_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+            "Player.AuxVarSetFlt \"*p203_g\" (Player.GetBaseAV Guns)",
+            "Player.AuxVarSetFlt \"*p203_c\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItem rA10 20 1",
+            "Player.AddItem rAHp 20 1",
+            "Player.EquipItem r10 0 1",
+            "Player.EquipItem rA10 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_p203_cb.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*p203_n\" ((Player.AuxVarGetFlt \"*p203_n\") + 1)",
+              "Player.AuxVarSetFlt \"*p203_hd\" (rTgt.GetHitHealthDamage)",
+              "Player.AuxVarSetFlt \"*p203_bd\" (rTgt.GetHitBaseWeaponDamage)",
+              "Player.AuxVarSetFlt \"*p203_ld\" (rTgt.GetHitLimbDamage)",
+              "Player.AuxVarSetFlt \"*p203_fd\" (rTgt.GetHitFatigueDamage)",
+              "Player.AuxVarSetFlt \"*p203_loc\" (rTgt.GetHitLocation)",
+              "Player.AuxVarSetFlt \"*p203_ap\" (rTgt.GetArmourPenetrated)",
+              "Player.AuxVarSetFlt \"*p203_hf1\" (rTgt.GetHitExtendedFlag 1)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_std",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s2_eqhp",
+              "wait_ticks": 3,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p203_h1\" (Player.AuxVarGetFlt \"*p203_hd\")",
+                "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+                "Player.EquipItem rAHp 0 1"
+              ]
+            },
+            {
+              "suffix": "s3_hp",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s4_hptgh",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p203_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31DE0\"",
+                "Player.AuxVarSetFlt \"*p203_h2\" (Player.AuxVarGetFlt \"*p203_hd\")",
+                "rT.AddPerk rTgh",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s5_eqsg",
+              "wait_ticks": 5,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p203_t\"",
+                "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31DE0\"",
+                "Player.AuxVarSetFlt \"*p203_h3\" (Player.AuxVarGetFlt \"*p203_hd\")",
+                "rT.RemovePerk rTgh",
+                "rT.SetAV DamageThreshold 15",
+                "rT.SetPos Y ((Player.GetPos Y) + 120)",
+                "ref rSg = GetFormFromMod \"FalloutNV.esm\" \"8ED0B\"",
+                "ref rSlug = GetFormFromMod \"FalloutNV.esm\" \"13E447\"",
+                "Player.AddItemHealthPercent rSg 1 1.0",
+                "Player.AddItem rSlug 10 1",
+                "Player.EquipItem rSg 0 1",
+                "Player.EquipItem rSlug 0 1"
+              ]
+            },
+            {
+              "suffix": "s6_sgbase",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rSg = GetFormFromMod \"FalloutNV.esm\" \"8ED0B\"",
+                "Player.FireWeapon rSg"
+              ]
+            },
+            {
+              "suffix": "s7_sgsrg",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rSg = GetFormFromMod \"FalloutNV.esm\" \"8ED0B\"",
+                "ref rSrg = GetFormFromMod \"FalloutNV.esm\" \"16578B\"",
+                "Player.AuxVarSetFlt \"*p203_h4\" (Player.AuxVarGetFlt \"*p203_hd\")",
+                "Player.AddPerk rSrg",
+                "Player.FireWeapon rSg"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p203_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*p203_cb\"",
+                "float fH1 = Player.AuxVarGetFlt \"*p203_h1\"",
+                "float fH2 = Player.AuxVarGetFlt \"*p203_h2\"",
+                "float fH3 = Player.AuxVarGetFlt \"*p203_h3\"",
+                "float fH4 = Player.AuxVarGetFlt \"*p203_h4\"",
+                "float fH5 = Player.AuxVarGetFlt \"*p203_hd\"",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rSg = GetFormFromMod \"FalloutNV.esm\" \"8ED0B\"",
+                "ref rSrg = GetFormFromMod \"FalloutNV.esm\" \"16578B\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+                "ref rSlug = GetFormFromMod \"FalloutNV.esm\" \"13E447\"",
+                "Player.RemovePerk rSrg",
+                "Player.UnequipItem rSg 0 1",
+                "Player.RemoveItem rSg 1 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.RemoveItem rA10 20 1",
+                "Player.RemoveItem rAHp 20 1",
+                "Player.RemoveItem rSlug 10 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*p203_g\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*p203_c\")",
+                "PrintToConsole \"PROBE|w6d6p2_03_dt_ammo_mod_and_perk_order|std=%.3f|hp=%.3f|hpTgh=%.3f|sgNoSrg=%.3f|sgSrg=%.3f\" fH1 fH2 fH3 fH4 fH5"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p3_04_ignores_res_flag_clean",
+          "bucket": "combat_damage_armour",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-data-fields.md",
+          "spec_line": 42,
+          "functions_tested": [
+            "TempCloneForm",
+            "SetWeaponFlag",
+            "GetWeaponFlags1",
+            "FireWeapon",
+            "GetHitHealthDamage"
+          ],
+          "claim": "SD-12: Confirm GetWeaponFlags1 transitions 0->1 and flag 0 (Ignores Normal Weapon Resistance) bypasses DT=50 and DR=50.",
+          "expected": "f1(0->1)=0->1|ignDT50=16.500|ignDR50=16.500|offDT50=3.300",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*p304_t\" rT",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 50",
+            "rT.SetAV DamageResist 0",
+            "rT.SetRestrained 1",
+            "rT.SetPos X (Player.GetPos X)",
+            "rT.SetPos Y ((Player.GetPos Y) + 85)",
+            "rT.SetPos Z (Player.GetPos Z)",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_p304_cb.gek\"",
+            "Player.AuxVarSetRef \"*p304_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rCl = TempCloneForm r10",
+            "Player.AuxVarSetRef \"*p304_w\" rCl",
+            "Player.AuxVarSetFlt \"*p304_wf0\" (GetWeaponFlags1 rCl)",
+            "SetWeaponFlag 0 1 rCl",
+            "Player.AuxVarSetFlt \"*p304_wf1\" (GetWeaponFlags1 rCl)",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "Player.AuxVarSetFlt \"*p304_g\" (Player.GetBaseAV Guns)",
+            "Player.AuxVarSetFlt \"*p304_c\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent rCl 1 1.0",
+            "Player.AddItem rA10 20 1",
+            "Player.EquipItem rCl 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_p304_cb.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*p304_hd\" (rTgt.GetHitHealthDamage)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1",
+              "wait_ticks": 4,
+              "script_lines": [
+                "Player.FireWeapon (Player.AuxVarGetRef \"*p304_w\")"
+              ]
+            },
+            {
+              "suffix": "s2",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p304_t\"",
+                "Player.AuxVarSetFlt \"*p304_hdt\" (Player.AuxVarGetFlt \"*p304_hd\")",
+                "rT.SetAV DamageThreshold 0",
+                "rT.SetAV DamageResist 50",
+                "Player.FireWeapon (Player.AuxVarGetRef \"*p304_w\")"
+              ]
+            },
+            {
+              "suffix": "s3",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p304_t\"",
+                "ref rCl = Player.AuxVarGetRef \"*p304_w\"",
+                "Player.AuxVarSetFlt \"*p304_hdr\" (Player.AuxVarGetFlt \"*p304_hd\")",
+                "SetWeaponFlag 0 0 rCl",
+                "rT.SetAV DamageThreshold 50",
+                "rT.SetAV DamageResist 0",
+                "Player.FireWeapon rCl"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p304_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*p304_cb\"",
+                "ref rCl = Player.AuxVarGetRef \"*p304_w\"",
+                "int iF0 = Player.AuxVarGetFlt \"*p304_wf0\"",
+                "int iF1 = Player.AuxVarGetFlt \"*p304_wf1\"",
+                "float fHdt = Player.AuxVarGetFlt \"*p304_hdt\"",
+                "float fHdr = Player.AuxVarGetFlt \"*p304_hdr\"",
+                "float fHoff = Player.AuxVarGetFlt \"*p304_hd\"",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "Player.UnequipItem rCl 0 1",
+                "Player.RemoveItem rCl 1 1",
+                "Player.RemoveItem (GetFormFromMod \"FalloutNV.esm\" \"4241\") 20 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*p304_g\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*p304_c\")",
+                "PrintToConsole \"PROBE|w6d6p3_04_ignores_res_flag_clean|f1(0->1)=%g->%g|ignDT50=%.3f|ignDR50=%.3f|offDT50=%.3f\" iF0 iF1 fHdt fHdr fHoff"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6_07_calc_weapon_damage_multi_stack_invref",
+          "bucket": "combat_damage_calc",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 344,
+          "functions_tested": [
+            "GetInvRefsForItem",
+            "GetCalculatedWeaponDamage",
+            "GetWeaponRefModFlags",
+            "SetWeaponRefModFlags",
+            "GetItemRefCurrentHealth"
+          ],
+          "claim": "SD-03: Verify whether rInv.GetCalculatedWeaponDamage distinguishes two inventory units of the same weapon with different conditions (100% vs 25%) and mod flags (0 vs 7).",
+          "expected": "Record per-invref health, mod flags, and GetCalculatedWeaponDamage for both units (nvse_gaps.rs:339-349 always picks first inventory group).",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "float fOG = Player.GetBaseAV Guns",
+            "Player.SetAV Guns 100",
+            "Player.RemoveItem r10 99 1",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItemHealthPercent r10 1 0.25",
+            "array_var aRefs = Player.GetInvRefsForItem r10",
+            "int iSz = Ar_Size aRefs",
+            "float fH0 = -1",
+            "float fD0 = -1",
+            "int iM0 = -1",
+            "float fH1 = -1",
+            "float fD1 = -1",
+            "int iM1 = -1",
+            "if iSz >= 1",
+            "  ref rI0 = aRefs[0]",
+            "  let fH0 := rI0.GetItemRefCurrentHealth 1",
+            "  let fD0 := rI0.GetCalculatedWeaponDamage",
+            "  let iM0 := rI0.GetWeaponRefModFlags",
+            "endif",
+            "if iSz >= 2",
+            "  ref rI1 = aRefs[1]",
+            "  rI1.SetWeaponRefModFlags 7",
+            "  let fH1 := rI1.GetItemRefCurrentHealth 1",
+            "  let fD1 := rI1.GetCalculatedWeaponDamage",
+            "  let iM1 := rI1.GetWeaponRefModFlags",
+            "endif",
+            "Player.RemoveItem r10 99 1",
+            "Player.SetAV Guns fOG",
+            "PrintToConsole \"PROBE|w6d6_07_calc_weapon_damage_multi_stack_invref|sz=%g|u0(hp=%.2f,dmg=%.2f,m=%g)|u1(hp=%.2f,dmg=%.2f,m=%g)\" iSz fH0 fD0 iM0 fH1 fD1 iM1"
+          ]
+        },
+        {
+          "id": "w6d6_08_crit_chance_damage_and_sneak_order",
+          "bucket": "combat_crits",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 78,
+          "functions_tested": [
+            "FireWeapon",
+            "SetOnHitEventHandler",
+            "GetHitHealthDamage",
+            "GetHitBaseWeaponDamage",
+            "GetHitExtendedFlag",
+            "SetWeaponCritChance",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "SD-13: Verify Luck->CritChance AV, Finesse/BuiltToDestroy, live critical hit damage with BetterCriticals (x1.5), HeavyHanded (x0.4), both stacked, and w.crit_mult==0.",
+          "expected": "Record derived CritChance AV and live critical hit hDmg/baseDmg/critFlag across none, BetterCriticals, HeavyHanded, both, and critMult=0.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*w6d608_t\" rT",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 0",
+            "rT.SetAV DamageResist 0",
+            "rT.SetRestrained 1",
+            "float fPx = Player.GetPos X",
+            "float fPy = Player.GetPos Y",
+            "float fPz = Player.GetPos Z",
+            "rT.SetPos X fPx",
+            "rT.SetPos Y (fPy + 85)",
+            "rT.SetPos Z fPz",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_w6d6_08.gek\"",
+            "Player.AuxVarSetRef \"*w6d608_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rCl = TempCloneForm r10",
+            "Player.AuxVarSetRef \"*w6d608_w\" rCl",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "Player.AuxVarSetFlt \"*w6d608_g\" (Player.GetBaseAV Guns)",
+            "Player.AuxVarSetFlt \"*w6d608_l\" (Player.GetBaseAV Luck)",
+            "Player.AuxVarSetFlt \"*w6d608_c\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV Luck 5",
+            "Player.AuxVarSetFlt \"*w6d608_cc5\" (Player.GetAV CritChance)",
+            "Player.SetAV Luck 10",
+            "Player.AuxVarSetFlt \"*w6d608_cc10\" (Player.GetAV CritChance)",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 100",
+            "Player.AddItemHealthPercent rCl 1 1.0",
+            "Player.AddItem rA10 30 1",
+            "Player.EquipItem rCl 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_w6d6_08.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*w6d608_n\" ((Player.AuxVarGetFlt \"*w6d608_n\") + 1)",
+              "Player.AuxVarSetFlt \"*w6d608_hd\" (rTgt.GetHitHealthDamage)",
+              "Player.AuxVarSetFlt \"*w6d608_bd\" (rTgt.GetHitBaseWeaponDamage)",
+              "Player.AuxVarSetFlt \"*w6d608_ld\" (rTgt.GetHitLimbDamage)",
+              "Player.AuxVarSetFlt \"*w6d608_fd\" (rTgt.GetHitFatigueDamage)",
+              "Player.AuxVarSetFlt \"*w6d608_loc\" (rTgt.GetHitLocation)",
+              "Player.AuxVarSetFlt \"*w6d608_ap\" (rTgt.GetArmourPenetrated)",
+              "Player.AuxVarSetFlt \"*w6d608_f1\" (rTgt.GetHitExtendedFlag 1)",
+              "Player.AuxVarSetFlt \"*w6d608_f2\" (rTgt.GetHitExtendedFlag 2)",
+              "Player.AuxVarSetFlt \"*w6d608_f8\" (rTgt.GetHitExtendedFlag 8)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_crit",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rCl = Player.AuxVarGetRef \"*w6d608_w\"",
+                "Player.FireWeapon rCl"
+              ]
+            },
+            {
+              "suffix": "s2_bc",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rCl = Player.AuxVarGetRef \"*w6d608_w\"",
+                "ref rBc = GetFormFromMod \"FalloutNV.esm\" \"31DBB\"",
+                "Player.AuxVarSetFlt \"*w6d608_h1\" (Player.AuxVarGetFlt \"*w6d608_hd\")",
+                "Player.AuxVarSetFlt \"*w6d608_c1\" (Player.AuxVarGetFlt \"*w6d608_f1\")",
+                "Player.AddPerk rBc",
+                "Player.FireWeapon rCl"
+              ]
+            },
+            {
+              "suffix": "s3_hh",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rCl = Player.AuxVarGetRef \"*w6d608_w\"",
+                "ref rHh = GetFormFromMod \"FalloutNV.esm\" \"135EC5\"",
+                "Player.AuxVarSetFlt \"*w6d608_h2\" (Player.AuxVarGetFlt \"*w6d608_hd\")",
+                "Player.AddPerk rHh",
+                "Player.FireWeapon rCl"
+              ]
+            },
+            {
+              "suffix": "s4_cm0",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rCl = Player.AuxVarGetRef \"*w6d608_w\"",
+                "ref rBc = GetFormFromMod \"FalloutNV.esm\" \"31DBB\"",
+                "ref rHh = GetFormFromMod \"FalloutNV.esm\" \"135EC5\"",
+                "Player.AuxVarSetFlt \"*w6d608_h3\" (Player.AuxVarGetFlt \"*w6d608_hd\")",
+                "Player.RemovePerk rBc",
+                "Player.RemovePerk rHh",
+                "SetWeaponCritChance 0.0 rCl",
+                "Player.FireWeapon rCl"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d608_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*w6d608_cb\"",
+                "ref rCl = Player.AuxVarGetRef \"*w6d608_w\"",
+                "float fCc5 = Player.AuxVarGetFlt \"*w6d608_cc5\"",
+                "float fCc10 = Player.AuxVarGetFlt \"*w6d608_cc10\"",
+                "float fH1 = Player.AuxVarGetFlt \"*w6d608_h1\"",
+                "int iC1 = Player.AuxVarGetFlt \"*w6d608_c1\"",
+                "float fH2 = Player.AuxVarGetFlt \"*w6d608_h2\"",
+                "float fH3 = Player.AuxVarGetFlt \"*w6d608_h3\"",
+                "float fH4 = Player.AuxVarGetFlt \"*w6d608_hd\"",
+                "int iC4 = Player.AuxVarGetFlt \"*w6d608_f1\"",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "Player.UnequipItem rCl 0 1",
+                "Player.RemoveItem rCl 1 1",
+                "Player.RemoveItem rA10 30 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*w6d608_g\")",
+                "Player.SetAV Luck (Player.AuxVarGetFlt \"*w6d608_l\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*w6d608_c\")",
+                "PrintToConsole \"PROBE|w6d6_08_crit_chance_damage_and_sneak_order|cc(L5,L10)=%.1f,%.1f|crit=%.2f(f1=%g)|bc=%.2f|bcHh=%.2f|cm0=%.2f(f1=%g)\" fCc5 fCc10 fH1 iC1 fH2 fH3 fH4 iC4"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6_09_ammo_effects_order_and_spread",
+          "bucket": "combat_ammo_effects",
+          "extender": "JIP LN NVSE / ShowOffNVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 64,
+          "functions_tested": [
+            "AddAmmoEffect",
+            "RemoveAmmoEffect",
+            "GetNumAmmoEffects",
+            "GetNthAmmoEffect",
+            "GetAmmoEffectTraitNumeric",
+            "SetAmmoEffectTraitNumeric",
+            "GetCalculatedActorSpread",
+            "GetCalculatedWeaponDamage"
+          ],
+          "claim": "SD-01: Verify AddAmmoEffect/RemoveAmmoEffect/GetNthAmmoEffect/SetAmmoEffectTraitNumeric on TempCloneForm AMMO, plus whether ammo Spread/Damage effects update GetCalculatedActorSpread and GetCalculatedWeaponDamage.",
+          "expected": "Record effect count/trait readback, duplicate add behavior, and GetCalculatedActorSpread/Damage with Ammo10mm vs Ammo10mmHollowPoint vs Ammo10mmJHPHandLoad.",
+          "script_lines": [
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+            "ref rAJhp = GetFormFromMod \"FalloutNV.esm\" \"140AA8\"",
+            "ref rEfDmg = GetFormFromMod \"FalloutNV.esm\" \"160C45\"",
+            "ref rEfSpr = GetFormFromMod \"FalloutNV.esm\" \"160C4C\"",
+            "ref rCl = TempCloneForm rA10",
+            "int iN0 = GetNumAmmoEffects rCl",
+            "int iA1 = AddAmmoEffect rCl rEfDmg",
+            "int iA2 = AddAmmoEffect rCl rEfSpr",
+            "int iDup = AddAmmoEffect rCl rEfDmg",
+            "int iN1 = GetNumAmmoEffects rCl",
+            "ref rE0 = GetNthAmmoEffect rCl 0",
+            "ref rE1 = GetNthAmmoEffect rCl 1",
+            "int iT0 = GetAmmoEffectTraitNumeric rEfDmg 0",
+            "int iT1 = GetAmmoEffectTraitNumeric rEfDmg 1",
+            "float fT2 = GetAmmoEffectTraitNumeric rEfDmg 2",
+            "int iRm = RemoveAmmoEffect rCl rEfDmg",
+            "int iN2 = GetNumAmmoEffects rCl",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "float fOG = Player.GetBaseAV Guns",
+            "Player.SetAV Guns 100",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItem rA10 5 1",
+            "Player.AddItem rAHp 5 1",
+            "Player.AddItem rAJhp 5 1",
+            "Player.EquipItem r10 0 1",
+            "Player.EquipItem rA10 0 1",
+            "float fDStd = Player.GetCalculatedWeaponDamage",
+            "float fSStd = Player.GetCalculatedActorSpread",
+            "Player.EquipItem rAHp 0 1",
+            "float fDHp = Player.GetCalculatedWeaponDamage",
+            "Player.EquipItem rAJhp 0 1",
+            "float fDJhp = Player.GetCalculatedWeaponDamage",
+            "Player.UnequipItem r10 0 1",
+            "Player.RemoveItem r10 1 1",
+            "Player.RemoveItem rA10 5 1",
+            "Player.RemoveItem rAHp 5 1",
+            "Player.RemoveItem rAJhp 5 1",
+            "Player.SetAV Guns fOG",
+            "PrintToConsole \"PROBE|w6d6_09_ammo_effects_order_and_spread|n=%g->%g->%g|add=%g,%g,dup=%g,rm=%g|e0=%i,e1=%i|tr=%g,%g,%.2f|dmg(std,hp,jhp)=%.2f,%.2f,%.2f|spr=%.3f\" iN0 iN1 iN2 iA1 iA2 iDup iRm rE0 rE1 iT0 iT1 fT2 fDStd fDHp fDJhp fSStd"
+          ]
+        },
+        {
+          "id": "w6d6p2_09_ammo_effects_equipped",
+          "bucket": "combat_ammo_effects",
+          "extender": "JIP LN NVSE / ShowOffNVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 64,
+          "functions_tested": [
+            "GetCalculatedWeaponDamage",
+            "GetCalculatedActorSpread"
+          ],
+          "claim": "SD-01: Verify equipped 10mm Pistol GetCalculatedWeaponDamage and GetCalculatedActorSpread across Ammo10mm, Ammo10mmHollowPoint, and Ammo10mmJHPHandLoad after equip settles.",
+          "expected": "Record exact damage and spread across all 3 ammo types.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+            "ref rAJhp = GetFormFromMod \"FalloutNV.esm\" \"140AA8\"",
+            "Player.AuxVarSetFlt \"*p209_g\" (Player.GetBaseAV Guns)",
+            "Player.SetAV Guns 100",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItem rA10 5 1",
+            "Player.AddItem rAHp 5 1",
+            "Player.AddItem rAJhp 5 1",
+            "Player.EquipItem r10 0 1",
+            "Player.EquipItem rA10 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_std",
+              "wait_ticks": 3,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p209_d1\" (Player.GetCalculatedWeaponDamage)",
+                "Player.AuxVarSetFlt \"*p209_s1\" (Player.GetCalculatedActorSpread)",
+                "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+                "Player.EquipItem rAHp 0 1"
+              ]
+            },
+            {
+              "suffix": "s2_hp",
+              "wait_ticks": 3,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p209_d2\" (Player.GetCalculatedWeaponDamage)",
+                "Player.AuxVarSetFlt \"*p209_s2\" (Player.GetCalculatedActorSpread)",
+                "ref rAJhp = GetFormFromMod \"FalloutNV.esm\" \"140AA8\"",
+                "Player.EquipItem rAJhp 0 1"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "float fD3 = Player.GetCalculatedWeaponDamage",
+                "float fS3 = Player.GetCalculatedActorSpread",
+                "float fD1 = Player.AuxVarGetFlt \"*p209_d1\"",
+                "float fS1 = Player.AuxVarGetFlt \"*p209_s1\"",
+                "float fD2 = Player.AuxVarGetFlt \"*p209_d2\"",
+                "float fS2 = Player.AuxVarGetFlt \"*p209_s2\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+                "ref rAJhp = GetFormFromMod \"FalloutNV.esm\" \"140AA8\"",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.RemoveItem rA10 5 1",
+                "Player.RemoveItem rAHp 5 1",
+                "Player.RemoveItem rAJhp 5 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*p209_g\")",
+                "PrintToConsole \"PROBE|w6d6p2_09_ammo_effects_equipped|dmg(std,hp,jhp)=%.2f,%.2f,%.2f|spr(std,hp,jhp)=%.4f,%.4f,%.4f\" fD1 fD2 fD3 fS1 fS2 fS3"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p2_10_armor_rating_condition_and_nerve",
+          "bucket": "combat_armour_nerve",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 185,
+          "functions_tested": [
+            "GetArmorRating",
+            "GetArmorDT",
+            "SetArmorDT",
+            "GetArmorAR",
+            "SetArmorAR",
+            "SetPlayerTeammate",
+            "GetAV"
+          ],
+          "claim": "SD-11 & SD-13: Verify GetArmorRating and GetAV DR/DT with worn cloned Combat Armor + Helmet at 100%/25% condition, plus Companion Nerve at Player CHA 1 vs 10.",
+          "expected": "Record GetArmorRating vs GetAV DR/DT across conditions and teammate Nerve.",
+          "script_lines": [
+            "ref rArm = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+            "ref rCl = TempCloneForm rArm",
+            "SetArmorDT 20.0 rCl",
+            "SetArmorAR 10 rCl",
+            "Player.AuxVarSetRef \"*p210_cl\" rCl",
+            "Player.AuxVarSetFlt \"*p210_cldt\" (GetArmorDT rCl)",
+            "Player.AuxVarSetFlt \"*p210_clar\" (GetArmorAR rCl)",
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 100 0",
+            "rNpc.SetRestrained 1",
+            "Player.AuxVarSetRef \"*p210_npc\" rNpc",
+            "Player.AuxVarSetFlt \"*p210_cha\" (Player.GetBaseAV Charisma)",
+            "rNpc.AddItemHealthPercent rCl 1 1.0",
+            "rNpc.EquipItem rCl 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_100",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rNpc = Player.AuxVarGetRef \"*p210_npc\"",
+                "Player.AuxVarSetFlt \"*p210_ar100\" (rNpc.GetArmorRating)",
+                "Player.AuxVarSetFlt \"*p210_dr100\" (rNpc.GetAV DamageResist)",
+                "Player.AuxVarSetFlt \"*p210_dt100\" (rNpc.GetAV DamageThreshold)",
+                "ref rHlm = GetFormFromMod \"FalloutNV.esm\" \"20426\"",
+                "rNpc.AddItemHealthPercent rHlm 1 1.0",
+                "rNpc.EquipItem rHlm 0 1"
+              ]
+            },
+            {
+              "suffix": "s2_hlm",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rNpc = Player.AuxVarGetRef \"*p210_npc\"",
+                "ref rCl = Player.AuxVarGetRef \"*p210_cl\"",
+                "ref rHlm = GetFormFromMod \"FalloutNV.esm\" \"20426\"",
+                "Player.AuxVarSetFlt \"*p210_arhlm\" (rNpc.GetArmorRating)",
+                "Player.AuxVarSetFlt \"*p210_dthlm\" (rNpc.GetAV DamageThreshold)",
+                "rNpc.UnequipItem rHlm 0 1",
+                "rNpc.RemoveItem rHlm 1 1",
+                "rNpc.UnequipItem rCl 0 1",
+                "rNpc.RemoveItem rCl 1 1",
+                "rNpc.AddItemHealthPercent rCl 1 0.25",
+                "rNpc.EquipItem rCl 0 1"
+              ]
+            },
+            {
+              "suffix": "s3_25",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rNpc = Player.AuxVarGetRef \"*p210_npc\"",
+                "Player.AuxVarSetFlt \"*p210_ar25\" (rNpc.GetArmorRating)",
+                "Player.AuxVarSetFlt \"*p210_dr25\" (rNpc.GetAV DamageResist)",
+                "Player.AuxVarSetFlt \"*p210_dt25\" (rNpc.GetAV DamageThreshold)",
+                "Player.SetAV Charisma 1",
+                "rNpc.SetPlayerTeammate 1"
+              ]
+            },
+            {
+              "suffix": "s4_tm1",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rNpc = Player.AuxVarGetRef \"*p210_npc\"",
+                "Player.AuxVarSetFlt \"*p210_tmdt1\" (rNpc.GetAV DamageThreshold)",
+                "Player.AuxVarSetFlt \"*p210_tmdr1\" (rNpc.GetAV DamageResist)",
+                "Player.SetAV Charisma 10"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rNpc = Player.AuxVarGetRef \"*p210_npc\"",
+                "float fClDt = Player.AuxVarGetFlt \"*p210_cldt\"",
+                "int iClAr = Player.AuxVarGetFlt \"*p210_clar\"",
+                "float fAr100 = Player.AuxVarGetFlt \"*p210_ar100\"",
+                "float fDr100 = Player.AuxVarGetFlt \"*p210_dr100\"",
+                "float fDt100 = Player.AuxVarGetFlt \"*p210_dt100\"",
+                "float fArHlm = Player.AuxVarGetFlt \"*p210_arhlm\"",
+                "float fDtHlm = Player.AuxVarGetFlt \"*p210_dthlm\"",
+                "float fAr25 = Player.AuxVarGetFlt \"*p210_ar25\"",
+                "float fDr25 = Player.AuxVarGetFlt \"*p210_dr25\"",
+                "float fDt25 = Player.AuxVarGetFlt \"*p210_dt25\"",
+                "float fTmDt1 = Player.AuxVarGetFlt \"*p210_tmdt1\"",
+                "float fTmDr1 = Player.AuxVarGetFlt \"*p210_tmdr1\"",
+                "float fTmDt10 = rNpc.GetAV DamageThreshold",
+                "float fTmDr10 = rNpc.GetAV DamageResist",
+                "rNpc.SetPlayerTeammate 0",
+                "rNpc.Disable",
+                "rNpc.MarkForDelete",
+                "Player.SetAV Charisma (Player.AuxVarGetFlt \"*p210_cha\")",
+                "PrintToConsole \"PROBE|w6d6p2_10_armor_rating_condition_and_nerve|cl(dt=%.1f,ar=%g)|100(ar=%.2f,dr=%.2f,dt=%.2f)|+hlm(ar=%.2f,dt=%.2f)|25(ar=%.2f,dr=%.2f,dt=%.2f)|nerve(c1=%.2f/%.2f,c10=%.2f/%.2f)\" fClDt iClAr fAr100 fDr100 fDt100 fArHlm fDtHlm fAr25 fDr25 fDt25 fTmDt1 fTmDr1 fTmDt10 fTmDr10"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p2_11_explosion_perks_radius_and_defenses",
+          "bucket": "combat_explosions",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 80,
+          "functions_tested": [
+            "PlaceAtMe",
+            "SetOnHitEventHandler",
+            "GetHitHealthDamage",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "SD-13: Verify MineFragExplosion (r=192) distance falloff (d=0 vs d=100) and HitTheDeck (+25 DT) vs Toughness (+3 DT).",
+          "expected": "Record hDmg at d=0 (base, Toughness, HitTheDeck) and d=100.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 120 0",
+            "Player.AuxVarSetRef \"*p211_t\" rT",
+            "Player.AuxVarSetFlt \"*p211_n\" 0",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 0",
+            "rT.SetAV DamageResist 0",
+            "rT.SetRestrained 1",
+            "ref rCb = CompileScript \"nvseprobe_s_p211_cb.gek\"",
+            "Player.AuxVarSetRef \"*p211_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT"
+          ],
+          "wait_ticks_after": 3,
+          "helper_scripts": {
+            "nvseprobe_s_p211_cb.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*p211_n\" ((Player.AuxVarGetFlt \"*p211_n\") + 1)",
+              "Player.AuxVarSetFlt \"*p211_hd\" (rTgt.GetHitHealthDamage)",
+              "Player.AuxVarSetFlt \"*p211_bd\" (rTgt.GetHitBaseWeaponDamage)",
+              "Player.AuxVarSetFlt \"*p211_ld\" (rTgt.GetHitLimbDamage)",
+              "Player.AuxVarSetFlt \"*p211_fd\" (rTgt.GetHitFatigueDamage)",
+              "Player.AuxVarSetFlt \"*p211_loc\" (rTgt.GetHitLocation)",
+              "Player.AuxVarSetFlt \"*p211_ap\" (rTgt.GetArmourPenetrated)",
+              "Player.AuxVarSetFlt \"*p211_hf1\" (rTgt.GetHitExtendedFlag 1)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_d0",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p211_t\"",
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"7078B\"",
+                "rT.PlaceAtMe rExpl 1"
+              ]
+            },
+            {
+              "suffix": "s2_tgh",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p211_t\"",
+                "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31DE0\"",
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"7078B\"",
+                "Player.AuxVarSetFlt \"*p211_h0\" (Player.AuxVarGetFlt \"*p211_hd\")",
+                "Player.AuxVarSetFlt \"*p211_b0\" (Player.AuxVarGetFlt \"*p211_bd\")",
+                "rT.AddPerk rTgh",
+                "rT.PlaceAtMe rExpl 1"
+              ]
+            },
+            {
+              "suffix": "s3_htd",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p211_t\"",
+                "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31DE0\"",
+                "ref rHtd = GetFormFromMod \"FalloutNV.esm\" \"1651B6\"",
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"7078B\"",
+                "Player.AuxVarSetFlt \"*p211_h1\" (Player.AuxVarGetFlt \"*p211_hd\")",
+                "rT.RemovePerk rTgh",
+                "rT.AddPerk rHtd",
+                "rT.PlaceAtMe rExpl 1"
+              ]
+            },
+            {
+              "suffix": "s4_d100",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p211_t\"",
+                "ref rHtd = GetFormFromMod \"FalloutNV.esm\" \"1651B6\"",
+                "ref rXmk = GetFormFromMod \"FalloutNV.esm\" \"3B\"",
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"7078B\"",
+                "Player.AuxVarSetFlt \"*p211_h2\" (Player.AuxVarGetFlt \"*p211_hd\")",
+                "rT.RemovePerk rHtd",
+                "ref rM = rT.PlaceAtMe rXmk 1",
+                "rM.SetPos X ((rT.GetPos X) + 100)",
+                "rM.SetPos Y (rT.GetPos Y)",
+                "rM.SetPos Z ((rT.GetPos Z) + 15)",
+                "rM.PlaceAtMe rExpl 1",
+                "rM.Disable",
+                "rM.MarkForDelete"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p211_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*p211_cb\"",
+                "float fB0 = Player.AuxVarGetFlt \"*p211_b0\"",
+                "float fH0 = Player.AuxVarGetFlt \"*p211_h0\"",
+                "float fH1 = Player.AuxVarGetFlt \"*p211_h1\"",
+                "float fH2 = Player.AuxVarGetFlt \"*p211_h2\"",
+                "float fH3 = Player.AuxVarGetFlt \"*p211_hd\"",
+                "int iN = Player.AuxVarGetFlt \"*p211_n\"",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "PrintToConsole \"PROBE|w6d6p2_11_explosion_perks_radius_and_defenses|n=%g|b0=%.2f|d0=%.2f|tgh=%.2f|htd=%.2f|d100=%.2f\" iN fB0 fH0 fH1 fH2 fH3"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6_12_perk_mod_ep0_weapon_target_tabs",
+          "bucket": "perk_entry_points",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 105,
+          "functions_tested": [
+            "GetPerkModifier",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "SD-05: Verify GetPerkModifier EP 0 (Calculate Weapon Damage) with Weapon tab (Cowboy, LaserCommander, Pyromaniac), Target tab (ConfirmedBachelor, LadyKiller), and omitted/null form1/form2.",
+          "expected": "Record GetPerkModifier 0 100 across matching vs non-matching weapons, male vs female NPC targets, and omitted optional args.",
+          "script_lines": [
+            "ref rCow = GetFormFromMod \"FalloutNV.esm\" \"138562\"",
+            "ref rLc = GetFormFromMod \"FalloutNV.esm\" \"165789\"",
+            "ref rPyr = GetFormFromMod \"FalloutNV.esm\" \"31DB2\"",
+            "ref rCb = GetFormFromMod \"FalloutNV.esm\" \"1361B4\"",
+            "ref rLk = GetFormFromMod \"FalloutNV.esm\" \"94EB9\"",
+            "ref rRev = GetFormFromMod \"FalloutNV.esm\" \"8F216\"",
+            "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+            "ref rFlm = GetFormFromMod \"FalloutNV.esm\" \"432D\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rMBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rFBase = GetFormFromMod \"FalloutNV.esm\" \"104E84\"",
+            "ref rMale = Player.PlaceAtMe rMBase 1 120 0",
+            "ref rFem = Player.PlaceAtMe rFBase 1 140 0",
+            "rMale.SetRestrained 1",
+            "rFem.SetRestrained 1",
+            "Player.AddPerk rCow",
+            "Player.AddPerk rLc",
+            "Player.AddPerk rPyr",
+            "Player.AddPerk rCb",
+            "Player.AddPerk rLk",
+            "float fNoArg = Player.GetPerkModifier 0 100",
+            "float fRev = Player.GetPerkModifier 0 100 rRev",
+            "float fLas = Player.GetPerkModifier 0 100 rLas",
+            "float fFlm = Player.GetPerkModifier 0 100 rFlm",
+            "float f10M = Player.GetPerkModifier 0 100 r10 rMale",
+            "float f10F = Player.GetPerkModifier 0 100 r10 rFem",
+            "float fRevM = Player.GetPerkModifier 0 100 rRev rMale",
+            "Player.RemovePerk rCow",
+            "Player.RemovePerk rLc",
+            "Player.RemovePerk rPyr",
+            "Player.RemovePerk rCb",
+            "Player.RemovePerk rLk",
+            "rMale.Disable",
+            "rMale.MarkForDelete",
+            "rFem.Disable",
+            "rFem.MarkForDelete",
+            "PrintToConsole \"PROBE|w6d6_12_perk_mod_ep0_weapon_target_tabs|noArg=%.2f|rev=%.2f|las=%.2f|flm=%.2f|10M=%.2f|10F=%.2f|revM=%.2f\" fNoArg fRev fLas fFlm f10M f10F fRevM"
+          ]
+        },
+        {
+          "id": "w6d6_16_perk_mod_combat_utility_eps",
+          "bucket": "perk_entry_points",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 55,
+          "functions_tested": [
+            "GetPerkModifier",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "SD-04 & SD-05: Sweep 14 unprobed combat/utility GetPerkModifier entry points (6, 22, 36, 37, 38, 40, 43, 52, 53, 54, 57, 59, 72, 73) including DLC perks Hoarder, AndStayBack, and Heavyweight.",
+          "expected": "Verify exact numeric outputs for all 14 entry points against perks.rs table.",
+          "script_lines": [
+            "ref rSf = GetFormFromMod \"FalloutNV.esm\" \"135EC6\"",
+            "ref rHrd = GetFormFromMod \"OldWorldBlues.esm\" \"1276D\"",
+            "ref rDrm = GetFormFromMod \"FalloutNV.esm\" \"30FEB\"",
+            "ref rRr = GetFormFromMod \"FalloutNV.esm\" \"1377FD\"",
+            "ref rQd = GetFormFromMod \"FalloutNV.esm\" \"1377FE\"",
+            "ref rMw = GetFormFromMod \"FalloutNV.esm\" \"135EC3\"",
+            "ref rSly = GetFormFromMod \"FalloutNV.esm\" \"165446\"",
+            "ref rWh = GetFormFromMod \"FalloutNV.esm\" \"146097\"",
+            "ref rRng = GetFormFromMod \"FalloutNV.esm\" \"14609D\"",
+            "ref rHl = GetFormFromMod \"FalloutNV.esm\" \"16581B\"",
+            "ref rHh = GetFormFromMod \"FalloutNV.esm\" \"14609C\"",
+            "ref rSd = GetFormFromMod \"FalloutNV.esm\" \"165AF0\"",
+            "ref rHw = GetFormFromMod \"DeadMoney.esm\" \"11468\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+            "ref rGr = GetFormFromMod \"FalloutNV.esm\" \"4330\"",
+            "ref rSl = GetFormFromMod \"FalloutNV.esm\" \"4351\"",
+            "Player.AddPerk rSf",
+            "Player.AddPerk rHrd",
+            "Player.AddPerk rDrm",
+            "Player.AddPerk rRr",
+            "Player.AddPerk rQd",
+            "Player.AddPerk rMw",
+            "Player.AddPerk rSly",
+            "Player.AddPerk rWh",
+            "Player.AddPerk rRng",
+            "Player.AddPerk rHl",
+            "Player.AddPerk rHh",
+            "Player.AddPerk rSd",
+            "Player.AddPerk rHw",
+            "float fE6 = Player.GetPerkModifier 6 100",
+            "float fE22 = Player.GetPerkModifier 22 100",
+            "float fE36 = Player.GetPerkModifier 36 100 r10",
+            "float fE37 = Player.GetPerkModifier 37 1.0 r10",
+            "float fE38 = Player.GetPerkModifier 38 1.0 r10",
+            "float fE40 = Player.GetPerkModifier 40 20.0 r10",
+            "float fE43 = Player.GetPerkModifier 43 1.0 rKn",
+            "float fE53 = Player.GetPerkModifier 53 0 r10",
+            "float fE54 = Player.GetPerkModifier 54 1.0 r10",
+            "float fE57 = Player.GetPerkModifier 57 1.0 r10",
+            "float fE59 = Player.GetPerkModifier 59 1.0 rGr",
+            "float fE72 = Player.GetPerkModifier 72 100 rGr",
+            "float fE73 = Player.GetPerkModifier 73 12.0 rSl",
+            "Player.RemovePerk rSf",
+            "Player.RemovePerk rHrd",
+            "Player.RemovePerk rDrm",
+            "Player.RemovePerk rRr",
+            "Player.RemovePerk rQd",
+            "Player.RemovePerk rMw",
+            "Player.RemovePerk rSly",
+            "Player.RemovePerk rWh",
+            "Player.RemovePerk rRng",
+            "Player.RemovePerk rHl",
+            "Player.RemovePerk rHh",
+            "Player.RemovePerk rSd",
+            "Player.RemovePerk rHw",
+            "PrintToConsole \"PROBE|w6d6_16_perk_mod_combat_utility_eps|e6=%.2f|e22=%.1f|e36=%.1f|e37=%.2f|e38=%.2f|e40=%.1f|e43=%.2f|e53=%.1f|e54=%.1f|e57=%.1f|e59=%.2f|e72=%.1f|e73=%.1f\" fE6 fE22 fE36 fE37 fE38 fE40 fE43 fE53 fE54 fE57 fE59 fE72 fE73"
+          ]
+        },
+        {
+          "id": "w6d6p2_17_teammate_npc_and_alt_rank",
+          "bucket": "perk_teammates",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 162,
+          "functions_tested": [
+            "AddPerk",
+            "RemovePerk",
+            "GetPerkModifier",
+            "GetPerkRank",
+            "GetAltPerkRank",
+            "HasPerk",
+            "GetAllPerks",
+            "SetPlayerTeammate"
+          ],
+          "claim": "SD-06: Verify player teammate perks, placed NPC own perks vs teammate status on GetPerkModifier/GetPerkRank/GetAltPerkRank/HasPerk/GetAllPerks.",
+          "expected": "Record GetPerkModifier on teammate vs non-teammate NPC, GetPerkRank/GetAltPerkRank on Player vs NPC.",
+          "script_lines": [
+            "ref rCs = GetFormFromMod \"FalloutNV.esm\" \"15C571\"",
+            "ref rBm = GetFormFromMod \"FalloutNV.esm\" \"94EBA\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 110 0",
+            "rNpc.SetRestrained 1",
+            "Player.AddPerk rCs 1",
+            "int iPAlt = Player.GetAltPerkRank rCs",
+            "int iPRk = Player.GetPerkRank rCs",
+            "array_var aPAlt = Player.GetAllPerks 1 1",
+            "int iPAltN = Ar_Size aPAlt",
+            "float fTm0 = rNpc.GetPerkModifier 58 0 r10",
+            "rNpc.SetPlayerTeammate 1",
+            "float fTm1 = rNpc.GetPerkModifier 58 0 r10",
+            "int iNAlt = rNpc.GetAltPerkRank rCs",
+            "rNpc.AddPerk rBm",
+            "float fNBm = rNpc.GetPerkModifier 0 100 r10",
+            "int iNRk = rNpc.GetPerkRank rBm",
+            "int iNHas = rNpc.HasPerk rBm",
+            "array_var aNP = rNpc.GetAllPerks 0 1",
+            "int iNPN = Ar_Size aNP",
+            "rNpc.SetPlayerTeammate 0",
+            "Player.RemovePerk rCs 1",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "PrintToConsole \"PROBE|w6d6p2_17_teammate_npc_and_alt_rank|p(alt=%g,rk=%g,all1=%g)|tm(0=%.1f,1=%.1f,nAlt=%g)|npcBm(pm=%.2f,rk=%g,has=%g,all0=%g)\" iPAlt iPRk iPAltN fTm0 fTm1 iNAlt fNBm iNRk iNHas iNPN"
+          ]
+        },
+        {
+          "id": "w6d6p2_18_perk_entry_mutation_live",
+          "bucket": "perk_entry_points",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-lutana.md",
+          "spec_line": 214,
+          "functions_tested": [
+            "GetPerkEntryCount",
+            "GetNthPerkEntryType",
+            "GetNthPerkEntryFunction",
+            "SetNthPerkEntryFunction",
+            "GetNthPerkEntryValue1",
+            "SetNthPerkEntryValue1",
+            "GetPerkModifier"
+          ],
+          "claim": "SD-05: Inspect both BloodyMess entries (0 and 1) and verify SetNthPerkEntryValue1/Function immediately change live GetPerkModifier 0 100 r10 rNpc.",
+          "expected": "Record BloodyMess entry 0/1 types, funcs, values, and live GetPerkModifier before/after mutation.",
+          "script_lines": [
+            "ref rBm = GetFormFromMod \"FalloutNV.esm\" \"94EBA\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 110 0",
+            "rNpc.SetRestrained 1",
+            "int iT0 = GetNthPerkEntryType rBm 0",
+            "int iT1 = GetNthPerkEntryType rBm 1",
+            "int iFn0 = GetNthPerkEntryFunction rBm 0",
+            "int iFn1 = GetNthPerkEntryFunction rBm 1",
+            "float fV0 = GetNthPerkEntryValue1 rBm 0",
+            "float fV1 = GetNthPerkEntryValue1 rBm 1",
+            "Player.AddPerk rBm",
+            "float fM0 = Player.GetPerkModifier 0 100 r10 rNpc",
+            "float fM0NoT = Player.GetPerkModifier 0 100 r10",
+            "SetNthPerkEntryValue1 rBm 1 2.0",
+            "float fM1 = Player.GetPerkModifier 0 100 r10 rNpc",
+            "SetNthPerkEntryFunction rBm 1 2",
+            "float fM2 = Player.GetPerkModifier 0 100 r10 rNpc",
+            "SetNthPerkEntryFunction rBm 1 1",
+            "float fM3 = Player.GetPerkModifier 0 100 r10 rNpc",
+            "SetNthPerkEntryFunction rBm 1 iFn1",
+            "SetNthPerkEntryValue1 rBm 1 fV1",
+            "float fMR = Player.GetPerkModifier 0 100 r10 rNpc",
+            "Player.RemovePerk rBm",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "PrintToConsole \"PROBE|w6d6p2_18_perk_entry_mutation_live|e0(t=%g,fn=%g,v=%.2f)|e1(t=%g,fn=%g,v=%.2f)|pm(0=%.2f,noT=%.2f,v2=%.2f,fn2=%.2f,fn1=%.2f,r=%.2f)\" iT0 iFn0 fV0 iT1 iFn1 fV1 fM0 fM0NoT fM1 fM2 fM3 fMR"
+          ]
+        },
+        {
+          "id": "w6d6_19_weight_perks_packrat_heavyweight_hoarder",
+          "bucket": "perk_weight",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 206,
+          "functions_tested": [
+            "GetInventoryWeight",
+            "GetAV",
+            "AddPerk",
+            "RemovePerk",
+            "SetEquippedWeaponModFlags"
+          ],
+          "claim": "Verify live GetInventoryWeight and CarryWeight under PackRat (2.0 lb threshold), NVDLC01HeavyWeight (10.0 lb threshold), NVDLC03TraitHoarder (+25 CarryWeight), and Decrease Weight mod on Sniper Rifle.",
+          "expected": "Record exact delta in GetInventoryWeight for Knife (1.0 lb), Sledgehammer (12.0 lb), and Sniper Rifle (8.0 lb -> 3.0 lb modded) under each perk.",
+          "script_lines": [
+            "ref rPr = GetFormFromMod \"FalloutNV.esm\" \"14609B\"",
+            "ref rHw = GetFormFromMod \"DeadMoney.esm\" \"11468\"",
+            "ref rHrd = GetFormFromMod \"OldWorldBlues.esm\" \"1276D\"",
+            "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+            "ref rSl = GetFormFromMod \"FalloutNV.esm\" \"4351\"",
+            "ref rAmr = GetFormFromMod \"FalloutNV.esm\" \"8F21C\"",
+            "float fCw0 = Player.GetAV CarryWeight",
+            "Player.AddPerk rHrd",
+            "float fCwHrd = Player.GetAV CarryWeight",
+            "Player.RemovePerk rHrd",
+            "float fWBase = Player.GetInventoryWeight",
+            "Player.AddItem rKn 2 1",
+            "float fWKn0 = (Player.GetInventoryWeight) - fWBase",
+            "Player.AddPerk rPr",
+            "float fWKnPr = (Player.GetInventoryWeight) - fWBase",
+            "Player.RemovePerk rPr",
+            "Player.RemoveItem rKn 2 1",
+            "Player.AddItem rSl 1 1",
+            "float fWSl0 = (Player.GetInventoryWeight) - fWBase",
+            "Player.AddPerk rHw",
+            "float fWSlHw = (Player.GetInventoryWeight) - fWBase",
+            "Player.AddItem rAmr 1 1",
+            "float fWBothHw = (Player.GetInventoryWeight) - fWBase",
+            "Player.RemovePerk rHw",
+            "Player.RemoveItem rSl 1 1",
+            "Player.RemoveItem rAmr 1 1",
+            "PrintToConsole \"PROBE|w6d6_19_weight_perks_packrat_heavyweight_hoarder|cw(0,hrd)=%.1f,%.1f|kn2(0,pr)=%.2f,%.2f|sl(0,hw)=%.2f,%.2f|sl+amr(hw)=%.2f\" fCw0 fCwHrd fWKn0 fWKnPr fWSl0 fWSlHw fWBothHw"
+          ]
+        },
+        {
+          "id": "w6d6p2_22_perk_abilities_settled",
+          "bucket": "perk_abilities",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 162,
+          "functions_tested": [
+            "AddPerk",
+            "RemovePerk",
+            "GetAV"
+          ],
+          "claim": "SD-12: Verify settled AV deltas after AddPerk + wait ticks for Finesse, BuiltToDestroy, SmallFrame, ActionBoy 1->2, and Toughness 1->2.",
+          "expected": "Confirm whether Toughness alters GetAV DamageThreshold or only EP 56 after settling.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*p222_cc0\" (Player.GetAV CritChance)",
+            "Player.AuxVarSetFlt \"*p222_ag0\" (Player.GetAV Agility)",
+            "Player.AuxVarSetFlt \"*p222_ap0\" (Player.GetAV ActionPoints)",
+            "Player.AuxVarSetFlt \"*p222_dt0\" (Player.GetAV DamageThreshold)",
+            "ref rFin = GetFormFromMod \"FalloutNV.esm\" \"94EC1\"",
+            "ref rBtd = GetFormFromMod \"FalloutNV.esm\" \"137B02\"",
+            "ref rSf = GetFormFromMod \"FalloutNV.esm\" \"135EC6\"",
+            "ref rAb = GetFormFromMod \"FalloutNV.esm\" \"31DBA\"",
+            "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31DE0\"",
+            "Player.AddPerk rFin",
+            "Player.AddPerk rBtd",
+            "Player.AddPerk rSf",
+            "Player.AddPerk rAb",
+            "Player.AddPerk rTgh"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "rk2",
+              "wait_ticks": 3,
+              "script_lines": [
+                "Player.AuxVarSetFlt \"*p222_cc1\" (Player.GetAV CritChance)",
+                "Player.AuxVarSetFlt \"*p222_ag1\" (Player.GetAV Agility)",
+                "Player.AuxVarSetFlt \"*p222_ap1\" (Player.GetAV ActionPoints)",
+                "Player.AuxVarSetFlt \"*p222_dt1\" (Player.GetAV DamageThreshold)",
+                "ref rAb = GetFormFromMod \"FalloutNV.esm\" \"31DBA\"",
+                "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31DE0\"",
+                "Player.AddPerk rAb",
+                "Player.AddPerk rTgh"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "float fCc0 = Player.AuxVarGetFlt \"*p222_cc0\"",
+                "float fCc1 = Player.AuxVarGetFlt \"*p222_cc1\"",
+                "float fAg0 = Player.AuxVarGetFlt \"*p222_ag0\"",
+                "float fAg1 = Player.AuxVarGetFlt \"*p222_ag1\"",
+                "float fAp0 = Player.AuxVarGetFlt \"*p222_ap0\"",
+                "float fAp1 = Player.AuxVarGetFlt \"*p222_ap1\"",
+                "float fAp2 = Player.GetAV ActionPoints",
+                "float fDt0 = Player.AuxVarGetFlt \"*p222_dt0\"",
+                "float fDt1 = Player.AuxVarGetFlt \"*p222_dt1\"",
+                "float fDt2 = Player.GetAV DamageThreshold",
+                "Player.RemovePerk (GetFormFromMod \"FalloutNV.esm\" \"94EC1\")",
+                "Player.RemovePerk (GetFormFromMod \"FalloutNV.esm\" \"137B02\")",
+                "Player.RemovePerk (GetFormFromMod \"FalloutNV.esm\" \"135EC6\")",
+                "Player.RemovePerk (GetFormFromMod \"FalloutNV.esm\" \"31DBA\")",
+                "Player.RemovePerk (GetFormFromMod \"FalloutNV.esm\" \"31DE0\")",
+                "PrintToConsole \"PROBE|w6d6p2_22_perk_abilities_settled|cc(0,fin+btd)=%.1f,%.1f|ag(0,sf)=%.1f,%.1f|ap(0,ab1,ab2)=%.1f,%.1f,%.1f|dt(0,t1,t2)=%.1f,%.1f,%.1f\" fCc0 fCc1 fAg0 fAg1 fAp0 fAp1 fAp2 fDt0 fDt1 fDt2"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p3_24_mod_rof_dps_invref",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 104,
+          "functions_tested": [
+            "GetInvRefsForItem",
+            "SetWeaponRefModFlags",
+            "GetCalculatedWeaponDPS"
+          ],
+          "claim": "SD-02: Verify Increase Rate of Fire weapon mod effect on Minigun, Hunting Rifle, and Cowboy Repeater via rInv.GetCalculatedWeaponDPS.",
+          "expected": "Record unmodded vs modded DPS for all 3 weapons.",
+          "script_lines": [
+            "ref rMg = GetFormFromMod \"FalloutNV.esm\" \"433F\"",
+            "ref rHr = GetFormFromMod \"FalloutNV.esm\" \"4333\"",
+            "ref rCr = GetFormFromMod \"FalloutNV.esm\" \"8F21A\"",
+            "float fOG = Player.GetBaseAV Guns",
+            "float fOC = Player.GetBaseAV CritChance",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 0",
+            "Player.RemoveItem rMg 99 1",
+            "Player.AddItemHealthPercent rMg 1 1.0",
+            "array_var aMg = Player.GetInvRefsForItem rMg",
+            "ref rIMg = aMg[0]",
+            "rIMg.SetWeaponRefModFlags 0",
+            "float fMg0 = rIMg.GetCalculatedWeaponDPS",
+            "rIMg.SetWeaponRefModFlags 7",
+            "float fMg7 = rIMg.GetCalculatedWeaponDPS",
+            "Player.RemoveItem rMg 99 1",
+            "Player.RemoveItem rHr 99 1",
+            "Player.AddItemHealthPercent rHr 1 1.0",
+            "array_var aHr = Player.GetInvRefsForItem rHr",
+            "ref rIHr = aHr[0]",
+            "rIHr.SetWeaponRefModFlags 0",
+            "float fHr0 = rIHr.GetCalculatedWeaponDPS",
+            "rIHr.SetWeaponRefModFlags 7",
+            "float fHr7 = rIHr.GetCalculatedWeaponDPS",
+            "Player.RemoveItem rHr 99 1",
+            "Player.RemoveItem rCr 99 1",
+            "Player.AddItemHealthPercent rCr 1 1.0",
+            "array_var aCr = Player.GetInvRefsForItem rCr",
+            "ref rICr = aCr[0]",
+            "rICr.SetWeaponRefModFlags 0",
+            "float fCr0 = rICr.GetCalculatedWeaponDPS",
+            "rICr.SetWeaponRefModFlags 7",
+            "float fCr7 = rICr.GetCalculatedWeaponDPS",
+            "Player.RemoveItem rCr 99 1",
+            "Player.SetAV Guns fOG",
+            "Player.SetAV CritChance fOC",
+            "PrintToConsole \"PROBE|w6d6p3_24_mod_rof_dps_invref|mg(0=%.2f,7=%.2f)|hr(0=%.2f,7=%.2f)|cr(0=%.2f,7=%.2f)\" fMg0 fMg7 fHr0 fHr7 fCr0 fCr7"
+          ]
+        },
+        {
+          "id": "w6d6p3_25_mod_weight_max_cond_value",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE / ShowOffNVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 146,
+          "functions_tested": [
+            "SetWeaponRefModFlags",
+            "GetInventoryWeight",
+            "GetItemRefCurrentHealth",
+            "SetItemRefCurrentHealth",
+            "GetCalculatedItemValue"
+          ],
+          "claim": "Verify Decrease Weight mod (Sniper Rifle), Increase Max Condition mod (Cowboy Repeater), and GetCalculatedItemValue mod-value stacking at 100% and 50% health.",
+          "expected": "Record exact weight, max/cur health, and calculated item value across mod flags 0 vs 7.",
+          "script_lines": [
+            "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+            "ref rCr = GetFormFromMod \"FalloutNV.esm\" \"8F21A\"",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "float fWb = Player.GetInventoryWeight",
+            "Player.RemoveItem rSn 99 1",
+            "Player.AddItemHealthPercent rSn 1 1.0",
+            "array_var aSn = Player.GetInvRefsForItem rSn",
+            "ref rISn = aSn[0]",
+            "rISn.SetWeaponRefModFlags 0",
+            "float fSn0 = (Player.GetInventoryWeight) - fWb",
+            "rISn.SetWeaponRefModFlags 7",
+            "float fSn7 = (Player.GetInventoryWeight) - fWb",
+            "Player.RemoveItem rSn 99 1",
+            "Player.RemoveItem rCr 99 1",
+            "Player.AddItemHealthPercent rCr 1 1.0",
+            "array_var aCr = Player.GetInvRefsForItem rCr",
+            "ref rICr = aCr[0]",
+            "rICr.SetWeaponRefModFlags 0",
+            "float fCh0 = rICr.GetItemRefCurrentHealth 0",
+            "float fCp0 = rICr.GetItemRefCurrentHealth 1",
+            "rICr.SetWeaponRefModFlags 7",
+            "float fCh7 = rICr.GetItemRefCurrentHealth 0",
+            "float fCp7 = rICr.GetItemRefCurrentHealth 1",
+            "Player.RemoveItem rCr 99 1",
+            "Player.RemoveItem r10 99 1",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "array_var a10 = Player.GetInvRefsForItem r10",
+            "ref rI10 = a10[0]",
+            "rI10.SetWeaponRefModFlags 0",
+            "float fV0 = rI10.GetCalculatedItemValue 0",
+            "rI10.SetWeaponRefModFlags 7",
+            "float fV7 = rI10.GetCalculatedItemValue 0",
+            "rI10.SetItemRefCurrentHealth 0.5 1",
+            "float fV7h = rI10.GetCalculatedItemValue 0",
+            "Player.RemoveItem r10 99 1",
+            "PrintToConsole \"PROBE|w6d6p3_25_mod_weight_max_cond_value|snW(0,7)=%.2f,%.2f|crHp(0,7)=%.1f(%.2f),%.1f(%.2f)|10val(0,7,7h)=%.1f,%.1f,%.1f\" fSn0 fSn7 fCh0 fCp0 fCh7 fCp7 fV0 fV7 fV7h"
+          ]
+        },
+        {
+          "id": "w6d6p2_26_suppressor_vs_silencer_sound",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 108,
+          "functions_tested": [
+            "IsEquippedWeaponSilenced",
+            "GetWeaponDetectionSoundLevel",
+            "WeaponHasModType",
+            "EquippedWeaponHasModType",
+            "GetWeaponItemModEffect"
+          ],
+          "claim": "SD-07 & SD-09: Test Sniper Rifle Suppressor (effect 16) vs 10mm Silencer (effect 11) vs innate .22 Pistol after equip settles.",
+          "expected": "Confirm whether Suppressor returns 2 or 0 on IsEquippedWeaponSilenced and whether EquippedWeaponHasModType returns slot 1..3 or 0/1.",
+          "script_lines": [
+            "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+            "Player.AuxVarSetFlt \"*p226_se1\" (GetWeaponItemModEffect 1 rSn)",
+            "Player.AuxVarSetFlt \"*p226_se2\" (GetWeaponItemModEffect 2 rSn)",
+            "Player.AuxVarSetFlt \"*p226_se3\" (GetWeaponItemModEffect 3 rSn)",
+            "Player.AddItemHealthPercent rSn 1 1.0",
+            "Player.EquipItem rSn 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_sn",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.SetEquippedWeaponModFlags 0",
+                "Player.AuxVarSetFlt \"*p226_sn0\" (Player.IsEquippedWeaponSilenced)",
+                "Player.AuxVarSetFlt \"*p226_sne0\" (Player.EquippedWeaponHasModType 16)",
+                "Player.SetEquippedWeaponModFlags 7",
+                "Player.AuxVarSetFlt \"*p226_sn7\" (Player.IsEquippedWeaponSilenced)",
+                "Player.AuxVarSetFlt \"*p226_sne7\" (Player.EquippedWeaponHasModType 16)",
+                "Player.AuxVarSetFlt \"*p226_sne11\" (Player.EquippedWeaponHasModType 11)",
+                "Player.UnequipItem rSn 0 1",
+                "Player.RemoveItem rSn 1 1",
+                "Player.AddItemHealthPercent r10 1 1.0",
+                "Player.EquipItem r10 0 1"
+              ]
+            },
+            {
+              "suffix": "s2_10",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref r22 = GetFormFromMod \"FalloutNV.esm\" \"E377A\"",
+                "Player.SetEquippedWeaponModFlags 0",
+                "Player.AuxVarSetFlt \"*p226_100\" (Player.IsEquippedWeaponSilenced)",
+                "Player.SetEquippedWeaponModFlags 7",
+                "Player.AuxVarSetFlt \"*p226_107\" (Player.IsEquippedWeaponSilenced)",
+                "Player.AuxVarSetFlt \"*p226_10e11\" (Player.EquippedWeaponHasModType 11)",
+                "Player.AuxVarSetFlt \"*p226_10e3\" (Player.EquippedWeaponHasModType 3)",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.AddItemHealthPercent r22 1 1.0",
+                "Player.EquipItem r22 0 1"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref r22 = GetFormFromMod \"FalloutNV.esm\" \"E377A\"",
+                "int i22Sil = Player.IsEquippedWeaponSilenced",
+                "Player.UnequipItem r22 0 1",
+                "Player.RemoveItem r22 1 1",
+                "int iSe1 = Player.AuxVarGetFlt \"*p226_se1\"",
+                "int iSe2 = Player.AuxVarGetFlt \"*p226_se2\"",
+                "int iSe3 = Player.AuxVarGetFlt \"*p226_se3\"",
+                "int iSn0 = Player.AuxVarGetFlt \"*p226_sn0\"",
+                "int iSn7 = Player.AuxVarGetFlt \"*p226_sn7\"",
+                "int iSnE0 = Player.AuxVarGetFlt \"*p226_sne0\"",
+                "int iSnE7 = Player.AuxVarGetFlt \"*p226_sne7\"",
+                "int iSnE11 = Player.AuxVarGetFlt \"*p226_sne11\"",
+                "int i100 = Player.AuxVarGetFlt \"*p226_100\"",
+                "int i107 = Player.AuxVarGetFlt \"*p226_107\"",
+                "int i10E11 = Player.AuxVarGetFlt \"*p226_10e11\"",
+                "int i10E3 = Player.AuxVarGetFlt \"*p226_10e3\"",
+                "PrintToConsole \"PROBE|w6d6p2_26_suppressor_vs_silencer_sound|snEff=%g,%g,%g|snSil(0,7)=%g,%g|snEq(16:%g->%g,11:%g)|10Sil(0,7)=%g,%g|10Eq(11=%g,3=%g)|22Sil=%g\" iSe1 iSe2 iSe3 iSn0 iSn7 iSnE0 iSnE7 iSnE11 i100 i107 i10E11 i10E3 i22Sil"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p3_26b_suppressor_effect16_silenced",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 108,
+          "functions_tested": [
+            "TempCloneForm",
+            "SetWeaponItemModEffect",
+            "SetEquippedWeaponModFlags",
+            "IsEquippedWeaponSilenced",
+            "EquippedWeaponHasModType",
+            "WeaponHasModType"
+          ],
+          "claim": "SD-07: Set slot 1 effect to 16 (Suppressor) on cloned 10mm Pistol and test IsEquippedWeaponSilenced (0 vs 2?) and EquippedWeaponHasModType 16.",
+          "expected": "Definitively prove whether effect 16 (Suppressor) makes IsEquippedWeaponSilenced return 0 or 2.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rCl = TempCloneForm r10",
+            "SetWeaponItemModEffect rCl 1 16",
+            "Player.AuxVarSetRef \"*p326_cl\" rCl",
+            "Player.AuxVarSetFlt \"*p326_eff\" (GetWeaponItemModEffect 1 rCl)",
+            "Player.AuxVarSetFlt \"*p326_whas\" (WeaponHasModType rCl 16)",
+            "Player.AddItemHealthPercent rCl 1 1.0",
+            "Player.EquipItem rCl 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rCl = Player.AuxVarGetRef \"*p326_cl\"",
+                "Player.SetEquippedWeaponModFlags 0",
+                "int iSil0 = Player.IsEquippedWeaponSilenced",
+                "int iHas0 = Player.EquippedWeaponHasModType 16",
+                "Player.SetEquippedWeaponModFlags 1",
+                "int iSil1 = Player.IsEquippedWeaponSilenced",
+                "int iHas1 = Player.EquippedWeaponHasModType 16",
+                "Player.SetEquippedWeaponModFlags 4",
+                "int iSil4 = Player.IsEquippedWeaponSilenced",
+                "Player.UnequipItem rCl 0 1",
+                "Player.RemoveItem rCl 1 1",
+                "int iEff = Player.AuxVarGetFlt \"*p326_eff\"",
+                "int iWhas = Player.AuxVarGetFlt \"*p326_whas\"",
+                "PrintToConsole \"PROBE|w6d6p3_26b_suppressor_effect16_silenced|eff=%g,whas=%g|m0(sil=%g,has16=%g)|m1_supp(sil=%g,has16=%g)|m4_sil(sil=%g)\" iEff iWhas iSil0 iHas0 iSil1 iHas1 iSil4"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p2_31_weapon_scope_settled",
+          "bucket": "weapon_scopes",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-scopes.md",
+          "spec_line": 52,
+          "functions_tested": [
+            "IsEquippedWeaponScoped",
+            "SetWeaponFlag",
+            "SetEquippedWeaponModFlags"
+          ],
+          "claim": "SD-07: Verify IsEquippedWeaponScoped on innate Sniper Rifle, Varmint Rifle (mod flags 0 vs 7), and cloned 10mm Pistol before/after SetWeaponFlag 2 1.",
+          "expected": "Record settled IsEquippedWeaponScoped return values (0, 1, 2).",
+          "script_lines": [
+            "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+            "Player.AddItemHealthPercent rSn 1 1.0",
+            "Player.EquipItem rSn 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_sn",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+                "ref rVr = GetFormFromMod \"FalloutNV.esm\" \"7EA24\"",
+                "Player.AuxVarSetFlt \"*p231_sn\" (Player.IsEquippedWeaponScoped)",
+                "Player.UnequipItem rSn 0 1",
+                "Player.RemoveItem rSn 1 1",
+                "Player.AddItemHealthPercent rVr 1 1.0",
+                "Player.EquipItem rVr 0 1"
+              ]
+            },
+            {
+              "suffix": "s2_vr",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rVr = GetFormFromMod \"FalloutNV.esm\" \"7EA24\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rCl = TempCloneForm r10",
+                "Player.AuxVarSetRef \"*p231_cl\" rCl",
+                "Player.SetEquippedWeaponModFlags 0",
+                "Player.AuxVarSetFlt \"*p231_vr0\" (Player.IsEquippedWeaponScoped)",
+                "Player.SetEquippedWeaponModFlags 7",
+                "Player.AuxVarSetFlt \"*p231_vr7\" (Player.IsEquippedWeaponScoped)",
+                "Player.UnequipItem rVr 0 1",
+                "Player.RemoveItem rVr 1 1",
+                "Player.AddItemHealthPercent rCl 1 1.0",
+                "Player.EquipItem rCl 0 1"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rCl = Player.AuxVarGetRef \"*p231_cl\"",
+                "int iCl0 = Player.IsEquippedWeaponScoped",
+                "SetWeaponFlag 2 1 rCl",
+                "int iCl1 = Player.IsEquippedWeaponScoped",
+                "int iWf1 = GetWeaponFlags1 rCl",
+                "Player.UnequipItem rCl 0 1",
+                "Player.RemoveItem rCl 1 1",
+                "int iSn = Player.AuxVarGetFlt \"*p231_sn\"",
+                "int iVr0 = Player.AuxVarGetFlt \"*p231_vr0\"",
+                "int iVr7 = Player.AuxVarGetFlt \"*p231_vr7\"",
+                "PrintToConsole \"PROBE|w6d6p2_31_weapon_scope_settled|sc(sn=%g,vr0=%g,vr7=%g,cl0=%g,clF2=%g)|clWf1=%g\" iSn iVr0 iVr7 iCl0 iCl1 iWf1"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6_33_weapon_crit_and_attack_damage_clone",
+          "bucket": "weapon_stats",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-data-fields.md",
+          "spec_line": 42,
+          "functions_tested": [
+            "TempCloneForm",
+            "GetAttackDamage",
+            "SetAttackDamage",
+            "GetWeaponCritChance",
+            "SetWeaponCritChance",
+            "GetWeaponCritDamage",
+            "SetWeaponCritDamage",
+            "GetCalculatedWeaponDamage",
+            "GetCalculatedWeaponDPS"
+          ],
+          "claim": "SD-01 & SD-02: Verify SetAttackDamage, SetWeaponCritChance, and SetWeaponCritDamage on TempCloneForm 10mm Pistol isolate stock base and propagate into GetCalculatedWeaponDamage and GetCalculatedWeaponDPS.",
+          "expected": "Record before/after values on clone vs stock and calc damage/DPS deltas (at CritChance=50).",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rCl = TempCloneForm r10",
+            "float fOG = Player.GetBaseAV Guns",
+            "float fOC = Player.GetBaseAV CritChance",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 50",
+            "int iA0 = GetAttackDamage rCl",
+            "float fCc0 = GetWeaponCritChance rCl",
+            "int iCd0 = GetWeaponCritDamage rCl",
+            "float fD0 = Player.GetCalculatedWeaponDamage rCl",
+            "float fP0 = Player.GetCalculatedWeaponDPS rCl",
+            "SetAttackDamage 50 rCl",
+            "SetWeaponCritChance 2.0 rCl",
+            "SetWeaponCritDamage 100 rCl",
+            "int iA1 = GetAttackDamage rCl",
+            "float fCc1 = GetWeaponCritChance rCl",
+            "int iCd1 = GetWeaponCritDamage rCl",
+            "int iStA = GetAttackDamage r10",
+            "int iStCd = GetWeaponCritDamage r10",
+            "float fD1 = Player.GetCalculatedWeaponDamage rCl",
+            "float fP1 = Player.GetCalculatedWeaponDPS rCl",
+            "Player.SetAV Guns fOG",
+            "Player.SetAV CritChance fOC",
+            "PrintToConsole \"PROBE|w6d6_33_weapon_crit_and_attack_damage_clone|orig(%g,%.1f,%g,d=%.2f,dps=%.2f)|mut(%g,%.1f,%g,d=%.2f,dps=%.2f)|stock(%g,%g)\" iA0 fCc0 iCd0 fD0 fP0 iA1 fCc1 iCd1 fD1 fP1 iStA iStCd"
+          ]
+        },
+        {
+          "id": "w6d6_36_combat_style_traits_0_to_63_and_clone",
+          "bucket": "combat_style",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-style-session.md",
+          "spec_line": 16,
+          "functions_tested": [
+            "GetCombatStyleTraitNumeric",
+            "SetCombatStyleTraitNumeric",
+            "TempCloneForm"
+          ],
+          "claim": "SD-16: Probe GetCombatStyleTraitNumeric and SetCombatStyleTraitNumeric across CSSD (0,9,24..28), CSTD (29,40,42), CSAD (43..63), OOB (-1, 64), and TempCloneForm CSTY isolation.",
+          "expected": "Record exact trait indices for DefaultCombatstyle, CSNCRTrooper, and CSNVLegateLanius, plus mutation isolation on cloned CSTY.",
+          "script_lines": [
+            "ref rDef = GetFormFromMod \"FalloutNV.esm\" \"3D\"",
+            "ref rNcr = GetFormFromMod \"FalloutNV.esm\" \"137AC1\"",
+            "ref rLeg = GetFormFromMod \"FalloutNV.esm\" \"1438E9\"",
+            "ref rCl = TempCloneForm rNcr",
+            "float fD0 = GetCombatStyleTraitNumeric rDef 0",
+            "float fD9 = GetCombatStyleTraitNumeric rDef 9",
+            "float fD40 = GetCombatStyleTraitNumeric rDef 40",
+            "float fN9 = GetCombatStyleTraitNumeric rNcr 9",
+            "float fL9 = GetCombatStyleTraitNumeric rLeg 9",
+            "float fL43 = GetCombatStyleTraitNumeric rLeg 43",
+            "float fL44 = GetCombatStyleTraitNumeric rLeg 44",
+            "float fL50 = GetCombatStyleTraitNumeric rLeg 50",
+            "float fL62 = GetCombatStyleTraitNumeric rLeg 62",
+            "float fL63 = GetCombatStyleTraitNumeric rLeg 63",
+            "float fOobN = GetCombatStyleTraitNumeric rNcr -1",
+            "float fOobH = GetCombatStyleTraitNumeric rNcr 64",
+            "SetCombatStyleTraitNumeric rCl 0 0.77",
+            "SetCombatStyleTraitNumeric rCl 9 2",
+            "SetCombatStyleTraitNumeric rCl 43 0.55",
+            "float fC0 = GetCombatStyleTraitNumeric rCl 0",
+            "float fC9 = GetCombatStyleTraitNumeric rCl 9",
+            "float fC43 = GetCombatStyleTraitNumeric rCl 43",
+            "float fS0 = GetCombatStyleTraitNumeric rNcr 0",
+            "PrintToConsole \"PROBE|w6d6_36_combat_style_traits_0_to_63_and_clone|def(0=%.2f,9=%.1f,40=%.2f)|ncr9=%.1f|leg(9=%.1f,43=%.2f,44=%.2f,50=%.2f,62=%.2f,63=%.2f)|oob(-1=%.1f,64=%.1f)|cl(%.2f,%.1f,%.2f)|st0=%.2f\" fD0 fD9 fD40 fN9 fL9 fL43 fL44 fL50 fL62 fL63 fOobN fOobH fC0 fC9 fC43 fS0"
+          ]
+        },
+        {
+          "id": "w6d6_39_proj_traits_flags_and_ammo_proj_fallback",
+          "bucket": "projectile_traits",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/projectile-launch-session-traits.md",
+          "spec_line": 71,
+          "functions_tested": [
+            "TempCloneForm",
+            "GetProjectileTraitNumeric",
+            "SetProjectileTraitNumeric",
+            "GetProjectileFlag",
+            "SetProjectileFlag",
+            "GetAmmoProjectile",
+            "SetAmmoProjectile"
+          ],
+          "claim": "SD-18: Verify Get/SetProjectileTraitNumeric (traits 0..18 + OOB -1/19), Get/SetProjectileFlag (bits 0..10 + OOB -1/32), TempCloneForm PROJ isolation, and SetAmmoProjectile set/clear/explicit-0 on TempCloneForm AMMO.",
+          "expected": "Record projectile traits & flags before/after mutation, stock isolation, and ammo projectile clear semantics.",
+          "script_lines": [
+            "ref rPr = GetFormFromMod \"FalloutNV.esm\" \"2CD5F\"",
+            "ref rPr2 = GetFormFromMod \"FalloutNV.esm\" \"8F20A\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "ref rClP = TempCloneForm rPr",
+            "ref rClA = TempCloneForm rA10",
+            "float fSp0 = GetProjectileTraitNumeric rClP 2",
+            "float fGr0 = GetProjectileTraitNumeric rClP 1",
+            "float fRg0 = GetProjectileTraitNumeric rClP 3",
+            "float fOobN = GetProjectileTraitNumeric rClP -1",
+            "float fOobH = GetProjectileTraitNumeric rClP 19",
+            "SetProjectileTraitNumeric rClP 2 1234.0",
+            "SetProjectileTraitNumeric rClP 1 0.42",
+            "float fSp1 = GetProjectileTraitNumeric rClP 2",
+            "float fGr1 = GetProjectileTraitNumeric rClP 1",
+            "float fStSp = GetProjectileTraitNumeric rPr 2",
+            "int iFl0 = GetProjectileFlag rClP 0",
+            "SetProjectileFlag rClP 0 0",
+            "int iFl0Off = GetProjectileFlag rClP 0",
+            "int iFlOob = GetProjectileFlag rClP 32",
+            "ref rAp0 = GetAmmoProjectile rClA",
+            "SetAmmoProjectile rClA rPr2",
+            "ref rAp1 = GetAmmoProjectile rClA",
+            "SetAmmoProjectile rClA",
+            "ref rApClr = GetAmmoProjectile rClA",
+            "PrintToConsole \"PROBE|w6d6_39_proj_traits_flags_and_ammo_proj_fallback|tr(sp=%.1f->%.1f,gr=%.2f->%.2f,rg=%.1f,stSp=%.1f)|oob(-1=%.1f,19=%.1f)|fl0(%g->%g,oob=%g)|ap(%i->%i->%i)\" fSp0 fSp1 fGr0 fGr1 fRg0 fStSp fOobN fOobH iFl0 iFl0Off iFlOob rAp0 rAp1 rApClr"
+          ]
+        },
+        {
+          "id": "w6d6_43_limb_damage_formula_and_small_frame",
+          "bucket": "combat_limbs",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 666,
+          "functions_tested": [
+            "FireWeapon",
+            "SetOnHitEventHandler",
+            "GetHitHealthDamage",
+            "GetHitLimbDamage",
+            "GetHitLocation",
+            "AddPerk",
+            "RemovePerk",
+            "GetAV"
+          ],
+          "claim": "SD-17: Measure live GetHitHealthDamage vs GetHitLimbDamage vs actual limb AV delta on torso vs head shots, and with vs without SmallFrame (EP 6 x1.25) on target.",
+          "expected": "Verify limb damage scaling and SmallFrame multiplier on live hits.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*w6d643_t\" rT",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 0",
+            "rT.SetAV DamageResist 0",
+            "rT.SetRestrained 1",
+            "float fPx = Player.GetPos X",
+            "float fPy = Player.GetPos Y",
+            "float fPz = Player.GetPos Z",
+            "rT.SetPos X fPx",
+            "rT.SetPos Y (fPy + 85)",
+            "rT.SetPos Z fPz",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_w6d6_43.gek\"",
+            "Player.AuxVarSetRef \"*w6d643_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "Player.AuxVarSetFlt \"*w6d643_g\" (Player.GetBaseAV Guns)",
+            "Player.AuxVarSetFlt \"*w6d643_c\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItem rA10 20 1",
+            "Player.EquipItem r10 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_w6d6_43.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*w6d643_n\" ((Player.AuxVarGetFlt \"*w6d643_n\") + 1)",
+              "Player.AuxVarSetFlt \"*w6d643_hd\" (rTgt.GetHitHealthDamage)",
+              "Player.AuxVarSetFlt \"*w6d643_bd\" (rTgt.GetHitBaseWeaponDamage)",
+              "Player.AuxVarSetFlt \"*w6d643_ld\" (rTgt.GetHitLimbDamage)",
+              "Player.AuxVarSetFlt \"*w6d643_fd\" (rTgt.GetHitFatigueDamage)",
+              "Player.AuxVarSetFlt \"*w6d643_loc\" (rTgt.GetHitLocation)",
+              "Player.AuxVarSetFlt \"*w6d643_ap\" (rTgt.GetArmourPenetrated)",
+              "Player.AuxVarSetFlt \"*w6d643_f1\" (rTgt.GetHitExtendedFlag 1)",
+              "Player.AuxVarSetFlt \"*w6d643_f2\" (rTgt.GetHitExtendedFlag 2)",
+              "Player.AuxVarSetFlt \"*w6d643_f8\" (rTgt.GetHitExtendedFlag 8)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_torso",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s2_torso_sf",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d643_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rSf = GetFormFromMod \"FalloutNV.esm\" \"135EC6\"",
+                "Player.AuxVarSetFlt \"*w6d643_h1\" (Player.AuxVarGetFlt \"*w6d643_hd\")",
+                "Player.AuxVarSetFlt \"*w6d643_l1\" (Player.AuxVarGetFlt \"*w6d643_ld\")",
+                "Player.AuxVarSetFlt \"*w6d643_loc1\" (Player.AuxVarGetFlt \"*w6d643_loc\")",
+                "Player.AuxVarSetFlt \"*w6d643_ec1\" (rT.GetAV EnduranceCondition)",
+                "rT.RestoreAV EnduranceCondition 100",
+                "rT.AddPerk rSf",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s3_head",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d643_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rSf = GetFormFromMod \"FalloutNV.esm\" \"135EC6\"",
+                "Player.AuxVarSetFlt \"*w6d643_h2\" (Player.AuxVarGetFlt \"*w6d643_hd\")",
+                "Player.AuxVarSetFlt \"*w6d643_l2\" (Player.AuxVarGetFlt \"*w6d643_ld\")",
+                "Player.AuxVarSetFlt \"*w6d643_ec2\" (rT.GetAV EnduranceCondition)",
+                "rT.RemovePerk rSf",
+                "Player.SetAngle X -2",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d643_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*w6d643_cb\"",
+                "float fH1 = Player.AuxVarGetFlt \"*w6d643_h1\"",
+                "float fL1 = Player.AuxVarGetFlt \"*w6d643_l1\"",
+                "int iLoc1 = Player.AuxVarGetFlt \"*w6d643_loc1\"",
+                "float fEc1 = Player.AuxVarGetFlt \"*w6d643_ec1\"",
+                "float fH2 = Player.AuxVarGetFlt \"*w6d643_h2\"",
+                "float fL2 = Player.AuxVarGetFlt \"*w6d643_l2\"",
+                "float fEc2 = Player.AuxVarGetFlt \"*w6d643_ec2\"",
+                "float fH3 = Player.AuxVarGetFlt \"*w6d643_hd\"",
+                "float fL3 = Player.AuxVarGetFlt \"*w6d643_ld\"",
+                "int iLoc3 = Player.AuxVarGetFlt \"*w6d643_loc\"",
+                "float fPc3 = rT.GetAV PerceptionCondition",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.RemoveItem rA10 20 1",
+                "Player.SetAngle X 0",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*w6d643_g\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*w6d643_c\")",
+                "PrintToConsole \"PROBE|w6d6_43_limb_damage_formula_and_small_frame|torso(loc=%g,h=%.2f,l=%.2f,ec=%.1f)|sf(h=%.2f,l=%.2f,ec=%.1f)|head(loc=%g,h=%.2f,l=%.2f,pc=%.1f)\" iLoc1 fH1 fL1 fEc1 fH2 fL2 fEc2 iLoc3 fH3 fL3 fPc3"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p2_45_vats_queries_and_excluded",
+          "bucket": "combat_vats",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/vats-menu.md",
+          "spec_line": 77,
+          "functions_tested": [
+            "GetVATSMode",
+            "GetVATSTargetHeight",
+            "GetVATSLeftAreaFree",
+            "GetVATSRightAreaFree",
+            "SetVatsTarget",
+            "GetExcludedCombatActions",
+            "SetExcludedCombatActions"
+          ],
+          "claim": "SD-18: Verify GetVATSMode, GetVATSTargetHeight, GetVATSLeftAreaFree, GetVATSRightAreaFree on Player/NPC/XMarker, SetVatsTarget, and ExcludedCombatActions mask.",
+          "expected": "Record outside-VATS return values and ExcludedCombatActions bit 0/26 mask.",
+          "script_lines": [
+            "int iVm = GetVATSMode",
+            "float fVh = GetVATSTargetHeight",
+            "int iPlL = Player.GetVATSLeftAreaFree",
+            "int iPlR = Player.GetVATSRightAreaFree",
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 110 0",
+            "rNpc.SetRestrained 1",
+            "int iNL = rNpc.GetVATSLeftAreaFree",
+            "int iNR = rNpc.GetVATSRightAreaFree",
+            "rNpc.SetVatsTarget 0",
+            "rNpc.SetVatsTarget 1",
+            "int iEx0 = rNpc.GetExcludedCombatActions",
+            "rNpc.SetExcludedCombatActions 5",
+            "int iEx5 = rNpc.GetExcludedCombatActions",
+            "rNpc.SetExcludedCombatActions 67108864",
+            "int iEx26 = rNpc.GetExcludedCombatActions",
+            "rNpc.SetExcludedCombatActions 0",
+            "ref rXmk = GetFormFromMod \"FalloutNV.esm\" \"3B\"",
+            "ref rM = Player.PlaceAtMe rXmk 1",
+            "int iML = rM.GetVATSLeftAreaFree",
+            "int iMR = rM.GetVATSRightAreaFree",
+            "rM.Disable",
+            "rM.MarkForDelete",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "PrintToConsole \"PROBE|w6d6p2_45_vats_queries_and_excluded|vm=%g|vh=%.2f|pl(L=%g,R=%g)|npc(L=%g,R=%g)|xmk(L=%g,R=%g)|excl(0=%g,5=%g,b26=%g)\" iVm fVh iPlL iPlR iNL iNR iML iMR iEx0 iEx5 iEx26"
+          ]
+        }
+      ]
+    }
+  ]
+}

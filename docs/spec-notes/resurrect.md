@@ -130,3 +130,6 @@ companion's dialogue quest.
   it]; `ResurrectActor 1` keeps them gone [documented, the same note]. Not yet checked
   with the observer.
 - ResurrectActor on the player.
+
+### Wave 6D-7 Live Observation (2026-11-25)
+- **`Resurrect 0` vs `Resurrect 1` AVs, factions, and inventory** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7_38_resurrect_0_vs_1_avs_limbs_factions_and_inv`]: both modes preserve faction rank; `Resurrect 1` keeps `ModAV` and added inventory, whereas in original FNV `Resurrect 0` cleared `ModAV` and regenerated inventory (`r0(d=0,s=6.0->6.0,lg=0->0,f=2,inv=0)|r1(d=0,s=9.0,lg=0->0,f=2,inv=2)`).

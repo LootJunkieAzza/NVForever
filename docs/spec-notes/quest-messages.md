@@ -154,3 +154,7 @@ of the second objective screenshot break at the same words.
   `quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.`
   (the add-on packs' quests are added before, between or after them, each quest's lines
   together), and the sound summary counts their sounds.
+
+## Wave 6D-9 Live Observations (2026-11-25)
+
+- **`ToggleQuestMessages`, `ClearCinematicTextQueue`, `AutoDisplayObjectives`, `setAllReachable`, `Get/SetShowQuestItems`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_10_quest_messages_toggle_clear_and_autodisplay`: `PROBE|w6d9_10_quest_messages_toggle_clear_and_autodisplay|tqm(q0=1,om=1,off=1:0,rdOff=0)|on=1:0,rdOn=1|sqi(1->0->1)`]: confirms `ToggleQuestMessages` returns current state (`1` enabled) on `-1`/omitted, returns `1` on state flip and `0` on redundant calls, and `GetShowQuestItems`/`SetShowQuestItems` round-trips `1 -> 0 -> 1`.

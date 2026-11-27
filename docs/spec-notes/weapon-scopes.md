@@ -120,3 +120,11 @@ night). Both passed on 2026-10-21; the sniper rifle's frame at 1280 × 800 showe
 reticle in a black-masked circle about 0.75 of the screen's height, the HUD over it, no
 arms or weapon [observed: `play-14s.png`, not committed]. The scenario's player had PSp
 0.671 (a new character's skill under the rifle's requirement), a sway radius of 1.0°.
+
+### Wave 6D-6 `IsEquippedWeaponScoped` settled states [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6p2_31_weapon_scope_settled`]: `IsEquippedWeaponScoped` returns `1` for innate scopes (Sniper Rifle), `0` for unmodded Varmint Rifle, `2` for modded Varmint Rifle (`mods=7`), and `0 -> 1` when `SetWeaponFlag 2 1` is set on a clone (`clWf1=4`):
+
+```text
+PROBE|w6d6p2_31_weapon_scope_settled|sc(sn=1,vr0=0,vr7=2,cl0=0,clF2=1)|clWf1=4
+```

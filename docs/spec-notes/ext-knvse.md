@@ -96,6 +96,20 @@ Follow-ups (engine side, slice 2 of knvse-anim.md):
   and `Game::set_sequence_info` clip metadata publication in `play_npc_sequences`.
 - **Remaining:** runtime text-key triggers (`AddAnimTextKey` / `SetAnimTextKeys`).
 
+### 4.1 Wave 6D-4 clean-room `[observed]` confirmations
+
+Confirmed independent 3rd-person vs 1st-person `Get/SetGlobalAnimTime` clocks (`indep=1`),
+`GetDirectoryFiles`, `EraseCurrentAnimAction` (`1`), `PlayGroupAlt` (`1`), `GetActiveAnims`,
+`GetPlayingAnimBySequenceType` (`0` -> 22 keys, `2` -> `-1`), and
+`GetAnimPathBySequenceType` in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, kNVSE 37 + JIP LN 57.30 [observed: probes
+`w6d4_43_knvse_global_and_current_anim_time`:
+`PROBE|w6d4_43_knvse_global_and_current_anim_time|glob(3p=1.56->50.00,1p=1.56->1.56,indep=1)|cur(t0=0.00,same=0.00)`,
+`w6d4_47_knvse_unlisted_dirfiles_and_controls`:
+`PROBE|w6d4_47_knvse_unlisted_dirfiles_and_controls|dir(dllGt0=1,miss=0)|this(0,0)|era=1|ct(0,0)|df(0,0)|pg=1`,
+and `w6d4p4_41_knvse_live_anim`:
+`PROBE|w6d4p4_41_knvse_live_anim|live=[Meshes\Characters\_Male\IdleAnims\DynamicIdle_ChairSit.kf]|p1=[Characters\_1stPerson\mtidle.kf]|act(d=1,p3=1,p1=1,pth=8,grp=1,id=0,sq=22/-1)|attr(nr=-1,ref=-1,isp=0)|freq(-1.00,-1.00,-1.00)|w(-99.00/-99.00/-99.00,gw=0.00)|un(-1,0,-1,-1.00)`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`)].
+
 ## 5. Runtime `kNVSE.ini` (`[Anim Fixes] sLegacyAnimTimePaths`)
 
 **Clean-room provenance:** File path, section name, key name, shipped default, and

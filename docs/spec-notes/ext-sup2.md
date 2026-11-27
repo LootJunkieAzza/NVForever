@@ -124,3 +124,7 @@ JSON and file readers, the cursor, mouse and HUD functions, debug text, the NIF 
 interpolation, and the web, clipboard, screenshot and window functions (ext-sup1.md lists
 why those need a policy first). JohnnyGuitar's IsInDialogueWithPlayer and the activation
 prompt overrides, and ShowOff's SayTo_GetTopic/…Info, are not dialogue record edits.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **`TopicInfoSetFlagsHigh`/`Low`, `TopicInfoSetPrompt`, `TopicInfoSetSaidOnce` vs `Get/SetSaidOnce`, `TopicInfoSetNthResponseString`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528` + `SUP NVSE Plugin 855`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_17_topicinfo_flags_prompt_saidonce_and_responses`: `PROBE|w6d9_17_topicinfo_flags_prompt_saidonce_and_responses|flg(1,0)|pr(len0=39,s1=,len2=0)|said(0->jg1:sup1->0)|resp(n=2,ok=1,oob=0,neg=0,bad=0,cmp=0)`]: confirms cross-plugin said-once synchronization (`0->jg1:sup1->0`) and ShowOff `TopicInfoSetNthResponseString` returns `1` on valid index and `0` on OOB, negative, or non-INFO forms.

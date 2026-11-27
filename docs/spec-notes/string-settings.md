@@ -37,3 +37,18 @@ later in those cases were not reached. The fixture now checks the renderer's exi
 gap-aware text and the actual glyph advances, retaining exact spaced expectations.
 Production is unchanged. Current validation results are recorded in PR #2914;
 native and installed-mod behavior remain unqualified.
+
+## Wave 6D-11 read-only GMST getter baselines
+
+- **GMST string and numeric getters (`xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730)`):**
+  `GetStringSetting` and `GetStringGameSetting` match case-insensitively (`"sYes"` / `"syes"`
+  -> `"Yes"`), return empty string for missing (`"sNoSuchGMST_W6D11"`) or numeric-prefixed
+  (`"iCrimeGoldAttack"`) names, and `GetNumericGameSetting` returns exact integer/float values
+  (`iCrimeGoldAttack = 40`, `fJumpHeightMin` / `fjumpheightmin = 64`) and `-1` for missing
+  (`"fNoSuchGMST_W6D11"`) or `s`-prefixed string (`"sYes"`) GMSTs
+  [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+  xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole`
+  probe `w6d11_33_gmst_string_and_numeric_getters_readonly`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `yes(lu=[Yes],nv=[Yes],lo=[Yes]/[Yes])|mis(lu=0,nv=0)|xStr(lu=0,nv=0)|num(i=40,f=64,lo=64,mis=-1,str=-1)`;
+  no DLL or source consulted].

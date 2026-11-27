@@ -90,3 +90,7 @@ namespace remapping, runtime loss/replacement with matching revision counts, and
 `Game::restore`. This is a CPU consumer contract, not displayed pixels,
 `SetImageSpaceTrait` / `SetWeatherTraitNumeric` fog consumers, native update
 timing equivalence, successful installed-mod initialization, or NVR support.
+
+## Wave 6D-10 Live Clean-Room Interior Lighting & `LGTM` Trait Baselines
+
+- Verified `GetInteriorLightingTraitNumeric` / `SetInteriorLightingTraitNumeric` on `GSDocMitchellHouse` (`doc(6=35.0,7=270.0,10=62.00,12=100.00,oob=0,0)`) and `GSProspectorSaloon` (`SetInteriorLightingTraitNumeric rSalC 6 512.5` -> `sal6=0.0->512.0`), and `GetLightingTemplateTraitNumeric` / `SetLightingTemplateTraitNumeric` on `HiddenValleyInterior` (`177550`: `lgtm(6=81.0,7=23.0,8=27.0,10=32.00->2.50,12=120.00,oob=2,cellZ=1)`) [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_32_interior_lighting_and_lgtm_full_trait_sweep` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_32_interior_lighting_and_lgtm_full_trait_sweep|doc(6=35.0,7=270.0,10=62.00,12=100.00,oob=0,0)|sal6=0.0->512.0|lgtm(6=81.0,7=23.0,8=27.0,10=32.00->2.50,12=120.00,oob=2,cellZ=1)`; zero DLL, PDB, or third-party source consulted].

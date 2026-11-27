@@ -265,3 +265,7 @@ chooses with the body's eye and 5 units to spare, and stands on a target it can 
 when no ring spot reaches it. Whether the original lets the crosshair through the
 mattress, or measures its reach differently (physics.md §6, the pick sphere), is not
 known.
+
+## Wave 6D-9 Live Observations (2026-11-25)
+
+- **Door/container `Lock`, `Unlock`, `SetOpenKey`, `Get/SetLockedOut`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probes `w6d9_24_lock_unlock_level_key_and_lockedout_door_cont`: `PROBE|w6d9_24_lock_unlock_level_key_and_lockedout_door_cont|d0(0,0,0)|50(1,50)|u(0,50)|z(1,0)|255=255|key(1,badKeeps=1)|lo(1=1:b1:l2,2=2,3=2,-1=2)|c(0,75)` and `w6d9p2_24_lock_omitted_vs_zero_and_term_lo`: `PROBE|w6d9p2_24_lock_omitted_vs_zero_and_term_lo|dOm(1,0)|dZ(1,0)|t3(1,3)|tOm(1,0)|tLo(0=3,1=3,clr=3)`]: confirms `SetOpenKey` ignores non-`KEYM` forms (`badKeeps=1`), `SetLockedOut` accepts `0/1/2` (with `1` setting `GetIsLockBroken == 1` and `GetLocked == 2`) and ignores OOB `3` and `-1`, and notes that `Lock 0` / omitted `Lock` reset door lock level to `0` (`Very Easy`) in the console probe (recorded without reversing existing GECK-documented `Lock 0` door tests).

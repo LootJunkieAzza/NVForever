@@ -328,10 +328,18 @@ commands that touch the menus, the sky or the minimap ran one per launch].
 - **SetContainerOpenSound / SetContainerCloseSound** `sound [container]`: the container's
   base takes the sound; 0 (`opensound.set`, `closesound.set`; `cmd2.opensound.set` from a
   reference). NVForever hands them to SetContainerSound.
-- **RefMapArraySetValue** `name value key` (alias RefMapSetVal) answers 0, and the map then
-  holds one key. **RefMapArrayGetValue** `name key` gave a one-element list. Its element
-  read back as a float with a denormal value (2.1e-310) when 5 was set, so how the value is
-  stored is open. NVForever keeps the value as given and lists it.
+- **RefMapArraySetValue** `name value key` (alias RefMapSetVal) answers `0` and expects its
+  value argument wrapped as a 1-element array (`ar_List 77` — passing a bare scalar `5`
+  earlier gave `RefMapArrayGetValue` a one-element list whose element read back as a denormal
+  float `2.1e-310`). With `ar_List 77`, `RefMapSetVal` returns `0`, `RefMapGetType` reports
+  `1` (float), and `RefMapGetVal` returns a 1-element list holding `77` (a 1-element list on
+  an existing string key, or `ar_Null` size `-1` on a null key) [observed: 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+  JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe
+  `w6d11_38_refmap_set_get_types_null_and_setval`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `val(s=0:t1,g=1:77,b=1,m=-1)`; no DLL or source consulted]. NVForever keeps the value as
+  given and lists it.
 - **HasActionRef**: takes 0 arguments (1-argument calls fail to compile) and returns `1`
   for references with active action/interaction state rather than unconditionally for every
   actor (`rest5.hasactionref.doc` observed `1` on sitting Doc Mitchell;
@@ -389,6 +397,28 @@ commands that touch the menus, the sky or the minimap ran one per launch].
 **No argument pattern compiled**, so the shape is unknown. These get optional arguments
 and answer 0 or "": CCCTaskPackageFlags, GetCameraMovement, GetTranslatedPos,
 GetWorldMapPosMults, TransformWorldToLocal.
+
+### 9.1 Wave 6D-4 clean-room `[observed]` confirmations (`wave6d4_promote_observed.json`)
+
+All probes below ran in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted:
+
+- **`HasActionRef`** (JIP LN 57.30): `0` on Player, Chair, Dresser, Rorschach; `1` on
+  DocMitchellREF and front Door [observed: probe `w6d4_15_has_action_ref_unscripted_and_actors`:
+  `PROBE|w6d4_15_has_action_ref_unscripted_and_actors|p=0,doc=1,chair=0,dresser=0,door=1,ror=0`].
+- **`RefreshAnimData` and JIP switches** (JIP LN 57.30): `RefreshAnimData`,
+  `LockEquipment`, `SetTeammateUsingAmmo`, `ToggleDetectionFix`, `ToggleIgnoreLockedDoors`,
+  and `DisableScriptedActivate` all return `0` [observed: probe
+  `w6d4_16_refresh_anim_data_and_jip_toggles`:
+  `PROBE|w6d4_16_refresh_anim_data_and_jip_toggles|ra(0,0)|lk(0,0)|tmAmmo(1,s=0,1)|tog(df=0/0,ld=0/0,da=0/0)`].
+- **JohnnyGuitar / JIP unlisted getters & setters** (JIP LN 57.30 + JohnnyGuitar 528):
+  `GetExtraAccuracyPenaltyMult` (`1.00`), `SetWaterTrait` (`0`), `SetTextureTransformKey`
+  (`0`), `GetCasinoDeckTexture` OOB `""` [observed: probe
+  `w6d4_20_jg_accuracy_mult_water_tex_transform`:
+  `PROBE|w6d4_20_jg_accuracy_mult_water_tex_transform|acc(g=1.00->1.00->1.00,s=1.00->1.00)|wt=0|tt=0|cas(0=[terminals\NV_PlayingCards\DeckB\cardB_Back.dds],1=[terminals\NV_PlayingCards\DeckB\cardB_Back.dds],9=[])`].
+- **ShowOff `_OLD` aliases & unlisted getters** (ShowOffNVSE 184 + JIP LN 57.30): `Matrix_IsMatrix_OLD`,
+  `Matrix_Transpose_OLD`, `IsTemporaryReference`, `Get/SetNoEquipShowOff`, `SayTo_*`, and
+  `GetPipboyRadioVoiceEntryData` [observed: probe `w6d4_22_showoff_unlisted_old_and_flags`:
+  `PROBE|w6d4_22_showoff_unlisted_old_and_flags|mat(is=1,1d=1,tr=3)|tmp(doc=0,pl=0)|noEq(0,0,0)|say(00000000,00000000)|radSz=0`].
 
 ## 10. Where this leaves the catalogue
 

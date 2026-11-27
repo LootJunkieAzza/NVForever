@@ -473,3 +473,16 @@ for each effect, and how it fits a long description.
   `Game::weapon_model_changes` / `Game::weapon_model_stamp` (§8) [design]. Engine playback
   consumption over `WeaponFx` and inventory pickup/putdown audio is documented in
   `docs/spec-notes/weapon-sound-bridge.md`.
+
+### Wave 6D-6 multi-stack inv-refs, mod weight/value/DPS, and silencer observations [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6_07_calc_weapon_damage_multi_stack_invref`, `w6d6p3_24_mod_rof_dps_invref`, `w6d6p3_25_mod_weight_max_cond_value`, `w6d6p2_26_suppressor_vs_silencer_sound`]:
+  - `GetInvRefsForItem` produces per-stack references tracking independent condition and mod flags (`u0: hp=0.25, dmg=14.63, m=0` vs `u1: hp=1.00, dmg=22.00, m=7`); per-stack `Extra` in NVForever `Game::temp_refs` remains a tracked follow-up.
+  - `Decrease Weight` reduces Sniper Rifle weight (`8.00 -> 3.00`), `GetCalculatedItemValue` adds attached mod values (`748 -> 2898`, 50% `2415`), and `IsEquippedWeaponSilenced` distinguishes innate (`1`) vs mod (`2`) silencers:
+
+```text
+PROBE|w6d6_07_calc_weapon_damage_multi_stack_invref|sz=2|u0(hp=0.25,dmg=14.63,m=0)|u1(hp=1.00,dmg=22.00,m=7)
+PROBE|w6d6p3_24_mod_rof_dps_invref|mg(0=240.00,7=240.00)|hr(0=49.26,7=49.26)|cr(0=54.15,7=54.15)
+PROBE|w6d6p3_25_mod_weight_max_cond_value|snW(0,7)=8.00,3.00|crHp(0,7)=119.9(1.00),119.9(1.00)|10val(0,7,7h)=748.0,2898.0,2415.0
+PROBE|w6d6p2_26_suppressor_vs_silencer_sound|snEff=11,4,0|snSil(0,7)=0,2|snEq(16:0->0,11:1)|10Sil(0,7)=0,2|10Eq(11=1,3=1)|22Sil=1
+```

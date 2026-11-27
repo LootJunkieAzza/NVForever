@@ -33,7 +33,7 @@ page's nothing (0, none) [documented: each page's `ref.F` and `F … baseForm` f
 | Add/RemoveBaseEffectListEffect `effect [base]` | the list, an actor effect (SPEL) only; added at the front, once [documented: "the specified Actor Effect"; observed: after two adds the list is one longer and the old first is second] |
 | SetBodyPartData `creature bpd` | CREA PNAM [documented]; GetBodyPartData reads it |
 | SetCRESkeletonModel `creature path`, SetNPCSkeletonModel `npc [path]` | MODL; an NPC's path left out, sNPCModelMale or sNPCModelFemale by its ACBS Female bit [documented]; GetSkeletonModel reads it |
-| Get/SetExcludedCombatActions `[mask]` | the calling actor's mask of the 27 combat actions, bits past 26 dropped; 0 until set; not saved [documented: "reset upon loading a game"] |
+| Get/SetExcludedCombatActions `[mask]` | the calling actor's mask of the 27 combat actions, bits past 26 dropped; 0 until set; not saved [documented: "reset upon loading a game"; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to game install or Saves), `w6d2_31_actor_leveling_effects_and_factions` (`tools/capture/nvse/catalogs/wave6d2_jip_lutana_observed.json`): `PROBE\|w6d2_31_actor_leveling_effects_and_factions\|lv=0.75,oob=0\|splo=1,2,2,2,1,e0=1\|facN=3\|ex=0->1.34218e+08`; zero DLL, PDB, or third-party source consulted] |
 
 The actor records keep INAM, TPLT and SPLO for these (`ACTOR_SUBS`, data.rs).
 
@@ -80,7 +80,7 @@ next part, holding the BPND of that part type [documented: xEdit BPTD].
 
 | Function | NVForever |
 |---|---|
-| SetCellFlag `cell flag set` | 0-7 DATA's bits (4 too, which the table leaves out), 8-16 the lighting template inherit flags, LNAM bits 0-8 [documented: the table; observed: 4 is set; GetCellFlag 8-16 follow LNAM in this order on Doc Mitchell's house and the saloon]. GetCellFlag reads 8-16 the same way now (it read DATA, so 0) and requires a `CELL` form (and integer `flagID` in `0..=16`), returning `0` for non-`CELL` forms such as `WRLD` so worldspace `DATA` flags are not read as cell flags [documented: GECK wiki GetCellFlag (`cell:ref`, `flagID:int{0-16}`); hypothesis: exact original JIP LN return on a `WRLD` with bit 0 set is pending an original-game runtime probe, #3757] |
+| SetCellFlag `cell flag set` | 0-7 DATA's bits (4 too, which the table leaves out), 8-16 the lighting template inherit flags, LNAM bits 0-8 [documented: the table; observed: 4 is set; GetCellFlag 8-16 follow LNAM in this order on Doc Mitchell's house and the saloon]. GetCellFlag reads 8-16 the same way now (it read DATA, so 0) and requires a `CELL` form (and integer `flagID` in `0..=16`), returning `0` for non-`CELL` forms such as `WRLD` so worldspace `DATA` flags are not read as cell flags [documented: GECK wiki GetCellFlag (`cell:ref`, `flagID:int{0-16}`)]; `GetCellFlag` returns `0` on `WRLD` (even after `SetWorldspaceFlag` sets bit 0), `FLST`, null `0`, and out-of-range flags `-1`/`17` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to game install or Saves), `w6d2p2_49_get_cell_flag_wrld_3757` (`tools/capture/nvse/catalogs/wave6d2_jip_lutana_observed.json`): `PROBE\|w6d2p2_49_get_cell_flag_wrld_3757\|wnv(wf=0->1,cf=0->0)\|free(wf=1,cf=0)\|fl=0,null=0\|doc(0=1,neg=0,17=0)`; zero DLL, PDB, or third-party source consulted] |
 | SetCellWaterForm `cell water` | XCWT, a water (WATR) [documented]; GetCellWaterForm reads it |
 | SetWaterFormEffect `water [effect]` | the actor effect, or none; GetWaterFormEffect and drinking (`Game::drink_from`) read it. In the original it has no result (`let x := SetWaterFormEffect …` does not compile) |
 | GetWaterTrait `water trait` | 0 opacity (ANAM), 1 the flags (FNAM), 2-50 DNAM in its order; colours 12-14 as R × 1000000 + G × 1000 + B; the table's "Unknown" 9 (unused bytes), and past 50, 0 [documented: the table; observed: NVCleanWater's 0-14 and 16-50] |
@@ -103,3 +103,15 @@ jip8]. NVForever gives the record's 0 [decision: no record value to give].
   on-hit setting, delays and sound level as loaded; the idle player its loop counts;
   dismemberment its limb models; the level calculation ACBS as loaded; drinking-water
   radiation (`radiation::water_rads`) the record's effect.
+
+### Wave 6D-6 `SetWeaponItemModEffect` effect 16 rejection [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6p3_26b_suppressor_effect16_silenced`]: `SetWeaponItemModEffect` rejects value `16`, leaving slot 1 at its prior effect (`2`), while silencer slot 3 returns `IsEquippedWeaponSilenced == 2`:
+
+```text
+PROBE|w6d6p3_26b_suppressor_effect16_silenced|eff=2,whas=0|m0(sil=0,has16=0)|m1_supp(sil=0,has16=0)|m4_sil(sil=2)
+```
+
+## Wave 6D-8 Live Observation (2026-11-25)
+
+- **`GetWeaponDetectionSoundLevel` / `SetWeaponDetectionSoundLevel` range clamping** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8_44_detection_event_and_weapon_sound_level`: `PROBE|w6d8_44_detection_event_and_weapon_sound_level|v0=-100 v1=-100 v2=-100 l2=0 s0=1 s2=2 s99=2 sNeg=2 sRest=1`]: `SetWeaponDetectionSoundLevel` updates valid sound levels (`1 -> 2 -> 1`) and ignores out-of-range values (`99`, `-1`), retaining `2` (`s0=1 s2=2 s99=2 sNeg=2 sRest=1`).

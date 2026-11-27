@@ -1742,7 +1742,7 @@ Code: `engine/nvforever/src/underwater.rs` (`fog_bytes`, `DEEP_AT`).
     values onto an `IMGS` record's `Cinematic` grade: HDR (`0..=14`), Bloom (`15..=17`),
     and Cinematic (`25..=32`, converting tint RGB traits `29..=31` from 0–255 to 0–1).
     Traits `18..=24` (`GetHit` / `NightEye`) remain stored in `Game::traits` for script
-    readback (`GetImageSpaceTrait`) and have no rendered `Cinematic` field.
+    readback (`GetImageSpaceTrait`) and have no rendered `Cinematic` field. Traits `0..=32` round-trip cleanly on `TempCloneForm` `IMGS` clones without mutating the original, while `-1`, `33`, and non-`IMGS` forms read and stay `0.00` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_21_imagespace_traits_0_to_32_and_oob` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `imgs(t0=0.90->2.25,t1=7.00,t16=0.70->1.50,t24=2.50,t32=0.00->0.75)|oob(m1=0.00,t33=0.00->0.00,ca=0.00,orig0=0.90)`; no DLL or source consulted].
   - `SetCellImageSpace` preserves the original game's documented next-load behaviour
     [documented: GECK wiki `SetCellImageSpace`, notes]: `nvforever::world::cell_image_space`
     binds an interior cell's active `IMGS` FormID (`SetCellImageSpace` override, else

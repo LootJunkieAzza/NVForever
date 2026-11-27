@@ -271,3 +271,7 @@ witness reset. Smoke `pickpocket-save-write` saves a live fuse while the console
 it; `pickpocket-save-load` uses an authored load hook to query the plant before time
 advances, then requires one blast/death and the consumed item. Run the pair in that order
 with their isolated NVForever home. These scenarios require runtime validation.
+
+## Wave 6D-8 Live Observation (2026-11-25)
+
+- **Pickpocket equipped toggle, `ActorHasBaseFlag 28`, planted explosives, and `SetCaughtPCPickpocketting`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `ShowOffNVSE Plugin 184` + `JIP LN NVSE 57.30 (5730)` + `SUP NVSE Plugin 855`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`; no DLL, PDB, or third-party source consulted, probe `w6d8_45_pickpocket_flags_equipped_planted_caught`: `PROBE|w6d8_45_pickpocket_flags_equipped_planted_caught|eq=0,1,1,0 f28=1,1,0,0,0 pl=0,0 cg=0,0,1 ce=0`]: `GetPlayerCanPickpocketEquippedItems` toggles `0 -> 1 -> 0` (`eq=0,1,1,0`), `ActorHasBaseFlag 28` reflects no-pickpocket base flag (`f28=1,1,0,0,0`), `GetPlantedExplosive` reads `0` with no live plant (`pl=0,0`), and `SetCaughtPCPickpocketting 1` sets the caught flag without flagging `IsCrimeEnemy` (`cg=0,0,1 ce=0`).
