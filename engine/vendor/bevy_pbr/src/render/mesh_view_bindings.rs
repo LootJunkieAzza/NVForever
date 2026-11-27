@@ -111,20 +111,24 @@ bitflags::bitflags! {
 /// view bind group holds for the game's sun visibility factor (nvforever
 /// `sun_visibility.rs`), at bindings 39 (uniform), 40 (cloud transmittance, a filterable
 /// float 2D texture), 41 (terrain shadow-height map, an unfilterable float 2D texture,
-/// `Rgba32Float`, read with `textureLoad` only) and 42 (a filtering sampler, used with 40
-/// only). A view with it gets [`MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`] and
-/// those bindings, and its pipelines `MeshPipelineKey::NVF_SUN_VISIBILITY` with the
-/// shader def of the same name (`cloud` and `terrain` add `NVF_CLOUD_VISIBILITY` and
-/// `NVF_TERRAIN_VISIBILITY`). Both sides read this one component in the same frame, so
-/// it may be inserted or removed, and `cloud`/`terrain` changed, only during extraction;
-/// the texture views and the buffer's contents may change in any render set before
-/// `RenderSystems::PrepareBindGroups`. Bevy inserts none; without it views are as
-/// upstream's.
+/// `Rgba32Float`, read with `textureLoad` only), 42 (a filtering sampler, used with 40
+/// only) and 45 (the sun contact shadows of the screen, a filterable float 2D texture at
+/// half the render size, written by nvforever `sun_contact_shadows.rs`; the white
+/// fallback while that pass draws nothing, and the sampler at 42 by then). A view with it
+/// gets [`MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`] and those bindings, and its
+/// pipelines `MeshPipelineKey::NVF_SUN_VISIBILITY` with the shader def of the same name
+/// (`cloud` and `terrain` add `NVF_CLOUD_VISIBILITY` and `NVF_TERRAIN_VISIBILITY`; the
+/// uniform's feature bits say which of the three has an image). Both sides read this one
+/// component in the same frame, so it may be inserted or removed, and `cloud`/`terrain`
+/// changed, only during extraction; the texture views and the buffer's contents may
+/// change in any render set before `RenderSystems::PrepareBindGroups`. Bevy inserts none;
+/// without it views are as upstream's.
 #[derive(Component, Clone)]
 pub struct NvfSunVisibilityBindings {
     pub uniform: Buffer,
     pub cloud_texture: TextureView,
     pub terrain_texture: TextureView,
+    pub screen_texture: TextureView,
     pub sampler: Sampler,
     pub cloud: bool,
     pub terrain: bool,
@@ -560,6 +564,12 @@ fn layout_entries(
                 texture_2d(TextureSampleType::Float { filterable: false }),
             ),
             (42, sampler(SamplerBindingType::Filtering)),
+            // The sun contact shadows of the screen (nvforever sun_contact_shadows.rs):
+            // R8Unorm, half the render size, filterable for the 2 x 2 upsample.
+            (
+                45,
+                texture_2d(TextureSampleType::Float { filterable: true }),
+            ),
         ));
     }
     // NVForever ambient occlusion ([`NvfAmbientOcclusionBindings`]).
@@ -1012,6 +1022,7 @@ pub fn prepare_mesh_view_bind_groups(
                     (40, &sun.cloud_texture),
                     (41, &sun.terrain_texture),
                     (42, &sun.sampler),
+                    (45, &sun.screen_texture),
                 ));
             }
 

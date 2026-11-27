@@ -90,7 +90,10 @@ fn test_fragment(in: VertexOutput) -> u32 {
     }
     @if(MAY_DISCARD) let alpha_mode = flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     @if(MAY_DISCARD) if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_MASK {
-        @if(!COVERAGE_MASK) if alpha < standard.alpha_cutoff {
+        @if(!COVERAGE_MASK && !FOLIAGE_SHADOW_PREPASS) if alpha < standard.alpha_cutoff {
+            discard;
+        }
+        @if(!COVERAGE_MASK && FOLIAGE_SHADOW_PREPASS) if alpha < max(standard.alpha_cutoff * 0.42, 0.16) {
             discard;
         }
         @if(COVERAGE_MASK) mask = sample_mask(edge_share(alpha, standard.alpha_cutoff), in.position.xy);

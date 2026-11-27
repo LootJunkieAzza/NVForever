@@ -255,6 +255,16 @@ pub struct TerrainLayers {
     /// Each layer's depth in texture-coordinate units, its height map's set's (0 for a layer
     /// without one) [design, #3322: kept per layer, so a layer moves as far wherever it lies].
     pub parallax_depths: [f32; FOLDED_LAYERS],
+    /// The march's height multiplier (the F11 window's Parallax tab, [`ParallaxTuning`]):
+    /// `None` draws each set's depth as authored (the default); `Some(x)` scales every
+    /// height map's depth by x (0 flat) [design, an addition of our own].
+    pub parallax_height: Option<f32>,
+    /// The march's self-shadowing strength (0 none, 1 the mod's) [documented: the mod's
+    /// `sload.h`; an addition of our own].
+    pub parallax_ao: Option<f32>,
+    /// The distance (game units) the march fades out at (the F11 window's Parallax tab):
+    /// `None` keeps [`PARALLAX_FADE`]'s end. The start is two thirds of it.
+    pub parallax_fade: Option<f32>,
     #[texture(51)]
     pub diffuse0: Option<Handle<Image>>,
     #[texture(52)]
@@ -352,6 +362,9 @@ pub struct TerrainLayersUniform {
     pub parallax: Vec4,
     pub depths_low: Vec4,
     pub depths_high: Vec4,
+    /// x: the march's height multiplier ([`TerrainLayers::parallax_height`], 1 as authored);
+    /// y, z, w: unused.
+    pub boost: Vec4,
 }
 
 /// Where the height-map bits start in `counts.y` ([`TerrainLayersUniform`]).
@@ -365,7 +378,7 @@ pub const HEIGHT_BITS_SHIFT: u32 = 8;
 /// at 16 a step is 0.020 there, and no ridge of that width is stepped over down to about 12 degrees
 /// (the test `the_march_meets_the_ground_packs_ridges_where_the_ray_does`). Every step reads
 /// the height maps of each layer with a share there, so its frame cost is still to measure].
-pub const PARALLAX_LAYERS: f32 = 16.0;
+pub const PARALLAX_LAYERS: f32 = 12.0;
 
 /// The terrain march's grazing clamp: the step's divisor is the view's steepness (the view
 /// vector's normal part) held at least at this, as on NIF shapes (vendored
@@ -392,9 +405,75 @@ pub const PARALLAX_RELIEF_STEPS: u32 = 4;
 pub const PARALLAX_SCALE: f32 = nvf_assets::texture::TextureCache::AUTHORED_HEIGHT_MAX_DEPTH;
 
 /// The distances from the camera (world units) where the terrain parallax starts to fade and
-/// where it is gone [design, #3322: within the camera's own cell and its neighbours' near
-/// half, well inside the loaded cells; the texture repeats every 256 units].
-pub const PARALLAX_FADE: (f32, f32) = (1024.0, 2048.0);
+/// where it is gone [design, #3322; shortened from 1024–2048 on the owner's note of
+/// 2026-11-25: the relief stops reading at about 20 m, so everything past that was paid for
+/// and not seen]. A run may set the end (the F11 window's Parallax tab): the start is two
+/// thirds of it.
+pub const PARALLAX_FADE: (f32, f32) = (600.0, 900.0);
+
+/// The most the F11 window's Height slider multiplies a set's depth by (3 x the deepest a
+/// pack may author, 0.24 in texture coordinates: past what the march's step grid is for, so
+/// the top of the range is for looking at the method's limits) [design].
+pub const PARALLAX_HEIGHT_MAX: f32 = 3.0;
+
+/// The terrain parallax's live tuning: the F11 window's Parallax tab, kept in `parallax.ini`
+/// in the engine home. `1` draws each authored set's depth as authored; `0` flattens every
+/// height map; the layers' own depths still come from their packs' scalar files.
+#[derive(Resource, Clone, Debug, PartialEq)]
+pub struct ParallaxTuning {
+    pub height: f32,
+    /// Whether NIF materials' own height maps (a set's `_p`, the game's height slot) are
+    /// drawn at all (the F11 window's Parallax tab; `nif_parallax.rs`).
+    pub objects: bool,
+    /// The distance (game units) the terrain march fades out at ([`PARALLAX_FADE`]'s end
+    /// unless the F11 window's Parallax tab sets another).
+    pub fade: f32,
+    /// The terrain march's self-shadowing strength (0 none, 1 the mod's): the marched
+    /// surface's own height darkens it [documented: ScreenSpaceShaders' `sload.h`].
+    pub ao: f32,
+}
+
+impl Default for ParallaxTuning {
+    fn default() -> Self {
+        Self { height: 1.0, objects: true, fade: PARALLAX_FADE.1, ao: 0.35 }
+    }
+}
+
+/// Where [`ParallaxTuning`] lives (the engine home, beside `nr-settings.ini`).
+pub const PARALLAX_TUNING_FILE: &str = "parallax.ini";
+
+impl ParallaxTuning {
+    pub fn load() -> Self {
+        let mut t = Self::default();
+        let Some(home) = fnv_install::EngineHome::user() else { return t };
+        let Ok(text) = std::fs::read_to_string(home.root.join(PARALLAX_TUNING_FILE)) else { return t };
+        for line in text.lines() {
+            let Some((k, v)) = line.split_once('=') else { continue };
+            let v = v.trim();
+            match k.trim() {
+                "height" => t.height = v.parse().unwrap_or(t.height),
+                "objects" => t.objects = v != "0",
+                "ao" => t.ao = v.parse().unwrap_or(t.ao),
+                "fade" => t.fade = v.parse().unwrap_or(t.fade),
+                _ => {}
+            }
+        }
+        t.held_to_range()
+    }
+
+    /// The slider's range: 0 (flat) to [`PARALLAX_HEIGHT_MAX`].
+    pub fn held_to_range(mut self) -> Self {
+        self.height = self.height.clamp(0.0, PARALLAX_HEIGHT_MAX);
+        self.ao = self.ao.clamp(0.0, 1.0);
+        self.fade = self.fade.clamp(200.0, 4000.0);
+        self
+    }
+
+    pub fn save(&self) {
+        let Some(home) = fnv_install::EngineHome::user() else { return };
+        let _ = std::fs::write(home.root.join(PARALLAX_TUNING_FILE), format!("height={}\nobjects={}\nao={}\nfade={}\n", self.height, u8::from(self.objects), self.ao, self.fade));
+    }
+}
 
 /// Start-up comparison parameters [design, #2550], independent of the on/off key.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -481,7 +560,8 @@ impl From<&TerrainLayers> for TerrainLayersUniform {
         let features = if l.height_blend { FEATURE_HEIGHT_BLEND } else { 0 } | if key.anti_tiling { FEATURE_ANTI_TILING } else { 0 } | if key.parallax { FEATURE_PARALLAX } else { 0 };
         let repeat = if nvf_assets::terrain_sampling::repeat_valid(l.texture_repeat) { l.texture_repeat } else { 0.0 };
         let bits = bits | l.height_bits() << HEIGHT_BITS_SHIFT;
-        let parallax = Vec4::new(l.parallax_scale(), PARALLAX_LAYERS, PARALLAX_FADE.0, PARALLAX_FADE.1);
+        let fade_end = l.parallax_fade.unwrap_or(PARALLAX_FADE.1).clamp(200.0, 4000.0);
+        let parallax = Vec4::new(l.parallax_scale(), PARALLAX_LAYERS, fade_end * (PARALLAX_FADE.0 / PARALLAX_FADE.1), fade_end);
         let d = l.layer_depths();
         TerrainLayersUniform {
             counts: UVec4::new(l.count.min(most as u32), bits, u32::from(l.burn.is_some()), features),
@@ -490,6 +570,7 @@ impl From<&TerrainLayers> for TerrainLayersUniform {
             parallax,
             depths_low: Vec4::new(d[0], d[1], d[2], d[3]),
             depths_high: Vec4::new(d[4], d[5], 0.0, 0.0),
+            boost: Vec4::new(l.parallax_height.unwrap_or(1.0).clamp(0.0, PARALLAX_HEIGHT_MAX), l.parallax_ao.unwrap_or(0.0).clamp(0.0, 1.0), 0.0, 0.0),
         }
     }
 }
@@ -564,6 +645,11 @@ impl MaterialExtension for TerrainLayers {
         if key.bind_group_data.anti_tiling {
             nvf_assets::terrain_sampling::anti_tiling_defs(descriptor, false);
         }
+        if nvf_assets::authored::physical_pbr() && !descriptor.vertex.shader_defs.contains(&bevy::shader::ShaderDefVal::from("PREPASS_PIPELINE")) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.push("NVF_PHYSICAL_PBR".into());
+            }
+        }
         Ok(())
     }
 }
@@ -591,8 +677,56 @@ impl Plugin for TerrainPlugin {
 /// mesh terrain blend's capture refresh (after the events) that same frame.
 fn add_switch_systems(app: &mut App) {
     app.init_resource::<ParallaxEdits>()
-        .add_systems(PostUpdate, (sync_height_blend, sync_anti_tiling, sync_parallax).before(bevy::asset::AssetEventSystems))
+        .insert_resource(ParallaxTuning::load())
+        .add_systems(PostUpdate, (sync_height_blend, sync_anti_tiling, sync_parallax, sync_parallax_height).before(bevy::asset::AssetEventSystems))
+        .add_systems(Update, persist_parallax_tuning)
         .add_systems(Last, |mut edits: ResMut<ParallaxEdits>| edits.0.clear());
+}
+
+/// The march's height multiplier changed (the F11 window's Parallax tab): every folded
+/// material that holds a height map takes it, noted for the mesh terrain blend's capture
+/// refresh as [`sync_parallax`]'s edits are. Nothing at the default (1): the materials keep
+/// `None` and no event is sent.
+pub fn sync_parallax_height(tuning: Res<ParallaxTuning>, mut materials: ResMut<Assets<TerrainMaterial>>, mut edits: Option<ResMut<ParallaxEdits>>, mut last: Local<Option<(usize, f32, f32, f32)>>) {
+    // Also when the count changes: a material made after the last run takes the multiplier
+    // on the frame after its own (one frame of the authored height, unseen).
+    let seen = (materials.len(), tuning.height, tuning.ao, tuning.fade);
+    if *last == Some(seen) {
+        return;
+    }
+    *last = Some(seen);
+    let value = if (tuning.height - 1.0).abs() < 1e-4 { None } else { Some(tuning.height) };
+    let ao = if tuning.ao <= 1e-4 { None } else { Some(tuning.ao) };
+    let fade = if (tuning.fade - PARALLAX_FADE.1).abs() < 1e-3 { None } else { Some(tuning.fade) };
+    let stale: Vec<AssetId<TerrainMaterial>> = materials
+        .iter()
+        .filter(|(_, m)| {
+            m.extension.holds_heights() && (m.extension.parallax_height != value || m.extension.parallax_ao != ao || m.extension.parallax_fade != fade)
+        })
+        .map(|(id, _)| id)
+        .collect();
+    for id in &stale {
+        if let Some(mut m) = materials.get_mut(*id) {
+            m.extension.parallax_height = value;
+            m.extension.parallax_ao = ao;
+            m.extension.parallax_fade = fade;
+            if let Some(edits) = edits.as_deref_mut() {
+                *edits.0.entry(*id).or_default() += 1;
+            }
+        }
+    }
+    if !stale.is_empty() && value.is_some() {
+        info!("terrain parallax: height x{} on {} folded material(s) with height maps", tuning.height, stale.len());
+    }
+}
+
+/// Keep [`ParallaxTuning`] in its file when it changed (the F11 window's Parallax tab).
+fn persist_parallax_tuning(tuning: Res<ParallaxTuning>, mut last: Local<Option<ParallaxTuning>>) {
+    if last.as_ref() == Some(&*tuning) {
+        return;
+    }
+    tuning.save();
+    *last = Some(tuning.clone());
 }
 
 /// The folded materials [`sync_parallax`] edited this frame, one count per edit. The mesh
@@ -1039,6 +1173,12 @@ impl TerrainCtx<'_, '_, '_> {
         // The layers' authored height maps in their order (module notes, "Parallax"); none
         // while the run's Authored materials state is off. The base's is not asked for.
         let layer_heights: Vec<Option<(Handle<Image>, f32)>> = layers.iter().map(|l| self.height(l)).collect();
+        // A diagnostic (`NVF_PLAY_DEBUG_TERRAIN_PBR=1`): which of a quadrant's layers a pack
+        // gives a height map for, so a pack that misses a ground texture is named.
+        if std::env::var_os("NVF_PLAY_DEBUG_TERRAIN_PBR").is_some() {
+            let named: Vec<String> = layers.iter().zip(layer_heights.iter()).map(|(l, h)| format!("{l}{}", if h.is_some() { " [+p]" } else { "" })).collect();
+            info!("terrain pbr: {}", named.join(", "));
+        }
         let (heights, parallax_depths) = layer_height_slots(layer_heights);
         let [height0, height1, height2, height3, height4, height5] = heights;
         let burn = self.tm.burn.as_deref().map(|b| b.0.clone());
@@ -2455,8 +2595,9 @@ mod tests {
             assert!(parse_height_blend(invalid).is_err(), "{invalid}");
         }
         // The additional uniform does not enter TerrainLayersKey or enable the effect.
-        // Six four-number fields since #3322 (parallax and each layer's depth).
-        assert_eq!(TerrainLayersUniform::min_size().get(), 96);
+        // Six four-number fields since #3322 (parallax and each layer's depth), the seventh the
+        // march's height multiplier (the F11 window's Parallax tab).
+        assert_eq!(TerrainLayersUniform::min_size().get(), 112);
         let off = TerrainLayers::default();
         assert!(!TerrainLayersKey::from(&off).height_blend);
         assert_eq!(TerrainLayersUniform::from(&off).height, height_blend_params().uniform());
@@ -2575,7 +2716,7 @@ mod tests {
         };
         let layers = fields("TerrainLayers");
         let names: Vec<&str> = layers.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, ["counts", "tile", "height", "parallax", "depths_low", "depths_high"], "TerrainLayersUniform's fields, in order");
+        assert_eq!(names, ["counts", "tile", "height", "parallax", "depths_low", "depths_high", "boost"], "TerrainLayersUniform's fields, in order");
         assert!(layers[0].1 == "vec4<u32>" && layers[1..].iter().all(|(_, t)| t == "vec4<f32>"), "{layers:?}");
         assert_eq!(TerrainLayersUniform::min_size().get(), 16 * layers.len() as u64);
         // The index table: one u32 per index of range(50..70) (the data, then every texture).
@@ -2882,7 +3023,8 @@ mod tests {
         assert!(terrain.contains("    var delta = values.x * fade * layer_depth * Vt.xy * vec2(1.0, -1.0) / max(steepness, PARALLAX_GRAZING);"));
         assert!(terrain.contains("    for (var i = 0u; i < PARALLAX_RELIEF_STEPS; i += 1u) {"), "the relief search after the layers");
         assert!(terrain.contains("    let V = calculate_view(world, view.clip_from_view[3].w == 1.0);"), "the view's own ray (orthographic views too)");
-        assert!(terrain.contains("            depth += w[k + 1u] * scale[k] * (1.0 - layer_height(k, instance_index, uv, footprint));"));
+        assert!(terrain.contains("            contribution[k] = w[k + 1u] * scale[k];"));
+        assert!(terrain.contains("            depth += contribution[k] * (1.0 - layer_height(k, instance_index, uv, footprint));"));
         assert!(terrain.contains("    let scale = parallax_scales(instance_index, values.x);"));
         // One set of weights, worked out at the plain place before the shift.
         for line in [

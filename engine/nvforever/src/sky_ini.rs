@@ -405,7 +405,7 @@ fn cloud_layer_index(section: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sky::{authored_session_sky, light_unit, update_sky, SkyState};
+    use crate::sky::{authored_session_sky, light_unit, update_sky, OutdoorLighting, SkyState};
     use bevy::prelude::*;
     use fnv_world::sky::{Climate, Weather};
     use std::path::PathBuf;
@@ -544,7 +544,7 @@ mod tests {
         }
     }
 
-    fn run_sky_illuminance(sky: SkyState) -> f32 {
+    fn lighting_app(sky: SkyState) -> (App, Entity) {
         let mut app = App::new();
         app.insert_resource(Time::<()>::default())
             .insert_resource(Assets::<Mesh>::default())
@@ -566,8 +566,37 @@ mod tests {
                 Transform::IDENTITY,
             ))
             .id();
+        (app, sun)
+    }
+
+    fn run_sky_illuminance(sky: SkyState) -> f32 {
+        let (mut app, sun) = lighting_app(sky);
         app.update();
         app.world().get::<DirectionalLight>(sun).unwrap().illuminance
+    }
+
+    #[test]
+    fn outdoor_lighting_multipliers_apply_live_with_the_clock_stopped() {
+        let (mut app, sun) = lighting_app(night_or_day_sky(12.0, 12.0, 0x83, None));
+        app.update();
+        let daylight = app.world().get::<DirectionalLight>(sun).unwrap().illuminance;
+        let ambient = app.world().resource::<GlobalAmbientLight>().brightness;
+        assert!(daylight > 0.0 && ambient > 0.0);
+        let hour = app.world().resource::<SkyState>().hour;
+        app.insert_resource(OutdoorLighting { sun: 0.5, sky: 2.0 });
+        app.update();
+        assert_eq!(app.world().get::<DirectionalLight>(sun).unwrap().illuminance, daylight * 0.5);
+        assert_eq!(app.world().resource::<GlobalAmbientLight>().brightness, ambient * 2.0);
+        assert_eq!(app.world().resource::<SkyState>().hour, hour);
+
+        let (mut night, moon) = lighting_app(night_or_day_sky(23.0, 12.0, 0x83, None));
+        night.update();
+        let moonlight = night.world().get::<DirectionalLight>(moon).unwrap().illuminance;
+        night.insert_resource(OutdoorLighting { sun: 0.0, sky: 0.0 });
+        night.update();
+        assert!(moonlight > 0.0);
+        assert_eq!(night.world().get::<DirectionalLight>(moon).unwrap().illuminance, moonlight);
+        assert_eq!(night.world().resource::<GlobalAmbientLight>().brightness, 0.0);
     }
 
     fn night_or_day_sky(hour: f32, days_passed: f32, moons: u8, moonlight: Option<MoonlightConfig>) -> SkyState {

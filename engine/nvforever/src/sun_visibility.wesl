@@ -14,6 +14,8 @@
 // `with_shade_light`).
 
 // Bevy world axes throughout (y up); positions and heights in game units.
+import bevy_pbr::render::mesh_view_bindings::lights;
+
 struct NvfSunVisibility {
     // World xz to cloud texture uv: xy scale, zw offset (uv = hit.xz * scale + offset).
     cloud_uv: vec4<f32>,
@@ -25,9 +27,12 @@ struct NvfSunVisibility {
     terrain_uv: vec4<f32>,
     // x, y: unused (0); z: the map's texel size (world units); w: its side (texels).
     terrain: vec4<f32>,
-    // x: feature mask (1 cloud, 2 terrain); y: debug view (0 off, 1 cloud K, 2 terrain T,
+    // x: feature mask (1 cloud, 2 terrain, 4 screen); y: debug view (0 off, 1 cloud K, 2 terrain T,
     // 3 combined V).
     mode: vec4<u32>,
+    // x: the strength of the screen's contact shadows (nvforever sun_contact_shadows.rs), 0..1;
+    // y, z, w: unused.
+    screen: vec4<f32>,
 }
 
 @group(0) @binding(39) var<uniform> nvf_sun: NvfSunVisibility;
@@ -38,6 +43,10 @@ struct NvfSunVisibility {
 // units). Unfilterable: read with textureLoad only, never with the sampler.
 @group(0) @binding(41) var nvf_terrain_texture: texture_2d<f32>;
 @group(0) @binding(42) var nvf_sun_visibility_sampler: sampler;
+// Sun contact shadows (nvforever sun_contact_shadows.rs): R8Unorm at half the render size,
+// 1 where the sun reaches the fragment, below 1 in a contact shadow; the white fallback
+// while the pass draws nothing (mask bit 4 clear).
+@group(0) @binding(45) var nvf_screen_texture: texture_2d<f32>;
 
 // The debug view asked for (NVF_PLAY_DEBUG_SUN_VISIBILITY), 0 when off.
 fn nvf_sun_debug_mode() -> u32 {
@@ -185,6 +194,20 @@ fn nvf_sun_visibility_parts(P: vec3<f32>, L: vec3<f32>, cascade_shadow: f32, vie
     return vec4<f32>(k, t, solid, k * solid);
 }
 
+// Fade the outdoor sun's final cascade before composing it with terrain and contact
+// visibility. Earlier cascade seams still use the shadow map's normal overlap.
+fn nvf_cascade_visibility(shadow: f32, view_z: f32, light_id: u32) -> f32 {
+    let light = &lights.directional_lights[light_id];
+    let count = (*light).num_cascades;
+    if count < 2u {
+        return shadow;
+    }
+    let last = (*light).cascades[count - 1u].far_bound;
+    let previous = (*light).cascades[count - 2u].far_bound;
+    let fade = smoothstep(max(previous, last * 0.82), last, -view_z);
+    return mix(shadow, 1.0, fade);
+}
+
 // V, the factor that takes the place of the sun's cascade shadow in its direct light.
 fn nvf_sun_visibility(P: vec3<f32>, L: vec3<f32>, cascade_shadow: f32, view_z: f32) -> f32 {
     return nvf_sun_visibility_parts(P, L, cascade_shadow, view_z).w;
@@ -203,4 +226,22 @@ fn nvf_sun_debug_value(parts: vec4<f32>) -> f32 {
             return parts.w;
         }
     }
+}
+
+// S: the sun contact shadows (nvforever sun_contact_shadows.rs), a factor 1 where the sun
+// reaches the fragment along the depth buffer's own gap to what lies just in front, below 1
+// in a shadow that gap casts. `uv` is the fragment's place in the main pass's viewport
+// (0..1, the top left at 0): the half-resolution texture is read bilinearly at it, clamped
+// inside the edge texels (the shared sampler repeats). With no texture (mask bit 4 clear,
+// off, the pass could not draw) it is 1 before any read. The strength scales the shadow,
+// not the light: 1 leaves it whole.
+fn nvf_screen_visibility(uv: vec2<f32>) -> f32 {
+    if (nvf_sun.mode.x & 4u) == 0u {
+        return 1.0;
+    }
+    let dims = vec2<f32>(textureDimensions(nvf_screen_texture));
+    let half_texel = 0.5 / max(dims, vec2<f32>(1.0));
+    let at = clamp(uv, half_texel, vec2<f32>(1.0) - half_texel);
+    let s = textureSampleLevel(nvf_screen_texture, nvf_sun_visibility_sampler, at, 0.0).r;
+    return mix(1.0, s, saturate(nvf_sun.screen.x));
 }

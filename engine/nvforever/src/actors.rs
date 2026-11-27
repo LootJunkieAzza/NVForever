@@ -530,13 +530,14 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         // shape can take a set (the setting off, or no active set, authored or height only,
         // in the mount): nothing to exclude, and no copies made.
         if nvf_assets::authored::mount_has_sets(&ctx.models.data) {
+            let allow_skin_authored = nvf_assets::authored::allow_skin_authored();
             let mut cache = world.facegen.lock().expect("facegen cache");
             for (i, s) in part.shapes.iter().enumerate().filter(|(_, s)| !s.cap) {
                 let given = worn_skin[i].or(p.texture.as_deref().filter(|_| takes_texture[i]));
                 let race_skin = given.or_else(|| s.base_texture()).map(fnv_vfs::texture_path).is_some_and(|t| {
                     [&a.body_texture, &a.hand_texture].into_iter().flatten().any(|k| fnv_vfs::texture_path(k) == t)
                 });
-                if race_skin || p.role == "hair" || (p.role == "head:head" && takes_texture[i]) {
+                if p.role == "hair" || (!allow_skin_authored && (race_skin || (p.role == "head:head" && takes_texture[i]))) {
                     materials[i] = cache.role_legacy(&mut ctx.models.materials, &materials[i]);
                 }
             }
@@ -701,8 +702,17 @@ pub fn spawn_body(
         // What it wears and holds follows its inventory (`outfits.rs`).
         crate::outfits::Dressed::new(world, &a, &part_index, &spawned),
     ));
-    for e in &spawned.drawn {
+    for (idx, e) in spawned.drawn.iter().enumerate() {
         commands.entity(*e).insert(RefVisual(reference));
+        if spawned
+            .part_of
+            .get(idx)
+            .and_then(|&u| part_index.get(u))
+            .and_then(|&pi| a.parts.get(pi))
+            .is_some_and(|p| is_internal_head_part(&p.role))
+        {
+            commands.entity(*e).insert(bevy::light::NotShadowCaster);
+        }
     }
     if hidden && !world.show_disabled {
         spawn_hidden(commands, spawned.root, reference);
@@ -765,6 +775,20 @@ pub fn spawn_body(
         stats.record_spawns += 1;
     }
     Some(spawned.root)
+}
+
+/// Internal head cavity parts (mouth bag, upper/lower teeth, tongue, eyeballs) sit just
+/// behind the lips and eyelids; they must not cast shadow maps outward onto the face.
+pub fn is_internal_head_part(role: &str) -> bool {
+    matches!(
+        role,
+        "head:mouth"
+            | "head:teeth_lower"
+            | "head:teeth_upper"
+            | "head:tongue"
+            | "head:left_eye"
+            | "head:right_eye"
+    )
 }
 
 /// [`spawn_creature_body`], returning whether anything was drawn.
@@ -1100,5 +1124,15 @@ mod tests {
         let p: Vec<f32> = (0..64u32).map(|r| clip_phase(0x0010_4C0C + r)).collect();
         assert!(p.iter().all(|x| (0.0..1.0).contains(x)));
         assert!(p.iter().any(|&x| x < 0.25) && p.iter().any(|&x| x > 0.75));
+    }
+
+    #[test]
+    fn internal_head_parts_do_not_cast_face_shadows() {
+        for role in ["head:mouth", "head:teeth_lower", "head:teeth_upper", "head:tongue", "head:left_eye", "head:right_eye"] {
+            assert!(is_internal_head_part(role), "{role}");
+        }
+        for role in ["head:head", "head:ears", "hair", "head_part", "body:upper_body", "armor"] {
+            assert!(!is_internal_head_part(role), "{role}");
+        }
     }
 }

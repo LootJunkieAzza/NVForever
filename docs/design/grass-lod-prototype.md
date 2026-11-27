@@ -1,0 +1,9 @@
+# Experimental grass LOD
+
+[observed: engine/nvforever/src/grass.rs] F11 Grass exposes a persistent distance multiplier (0.25?4) on top of the ordinary Grass distance setting. It scales both the full visibility distance and the fade range. It applies live; density still requires restarting to regenerate placements.
+
+[engineering choice] The optional LOD replaces each authored shape with two intersecting, textured vertical cards using the shape bounds. Each plant uses eight vertices and four triangles per shape. Cards retain the grass material extension for wind, ground lighting, distance fading and grass fires. The cards reuse the original material, texture and alpha cutoff, with the mean authored vertex tint. Wasteland atlas regions follow the owner's grasswastelandcomp01.jpg markup; the bright-green region is rotated 180 degrees. A shape selects its region by model-space-area-weighted UV triangle samples. Other atlases use the authored UV bounds and infer orientation from height/UV covariance.
+
+[engineering choice] Whole quadrant/type chunks switch based on the distance to their bounding sphere, with 150 game units of hysteresis on either side of the chosen distance. This intentionally conservative first prototype has visible switching. Both meshes stay resident; it does not reduce memory or placement work and may not save triangles for already simple source shapes. LOD is off by default.
+
+[observed: world.rs CellStart and grass.rs GrassSeed] This covers loaded cells only. Increasing the distance cannot generate grass beyond the cell streaming radius. Extending coverage requires a separate landscape/grass streaming ring, without loading actors, physics or full object references. Follow-up work: smaller spatial batches, stable density reduction, blended transitions and finer per-model card fitting.

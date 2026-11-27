@@ -49,7 +49,7 @@ pub struct GrassParams {
     /// sway weight 1 moves (game units).
     pub wind: Vec4,
     /// x: wave angular speed (rad/s); y: distance at which the grass starts to go; z:
-    /// distance over which it goes (game units); w: unused.
+    /// distance over which it goes (game units); w: unscaled tuft height (game units).
     pub motion: Vec4,
     /// x: factor on the ambient light; y: factor on every other light (the sun).
     pub light: Vec4,
@@ -111,9 +111,12 @@ impl MaterialExtension for GrassSway {
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Grass fades in and out with its cell (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        nvf_assets::enable_foliage_canopy(descriptor);
+        nvf_assets::grass_shadow_prepass(descriptor, key.mesh_key);
         if !GRASS_READS_AMBIENT_OCCLUSION {
             nvf_assets::ambient_occlusion_opt_out(descriptor);
         }
+        nvf_assets::nif_material::enable_foliage_sss(descriptor);
         // A multisampled view with a depth-only prepass: the prepass writes the share of
         // the pixel's samples each blade covers, and the main pass tests depth for
         // equality (nvf_assets `grass_edges`).
@@ -152,6 +155,41 @@ pub struct GrassConfig {
     pub generate: GrassSettings,
 }
 
+/// Density of the placement lattice, applied when grass is generated at startup.
+#[derive(Resource)]
+pub struct GrassDensity {
+    pub multiplier: f32,
+    pub distance: f32,
+    pub lod: bool,
+    pub lod_start: f32,
+}
+
+impl GrassDensity {
+    const FILE: &str = "grass-density.ini";
+
+    fn load() -> Self {
+        let text = fnv_install::EngineHome::user()
+            .and_then(|home| std::fs::read_to_string(home.root.join(Self::FILE)).ok()).unwrap_or_default();
+        let read = |key: &str, default: f32| text.lines().find_map(|line| {
+            let (k, v) = line.split_once('=')?;
+            (k == key).then(|| v.trim().parse::<f32>().ok()).flatten()
+        }).filter(|v| v.is_finite()).unwrap_or(default);
+        Self { multiplier: read("density", 1.0).clamp(0.5, 3.0), distance: read("distance", 1.0).clamp(0.25, 4.0),
+            lod: read("lod", 0.0) != 0.0, lod_start: read("lod-start", 4000.0).clamp(500.0, 20000.0) }
+    }
+
+    pub fn save(&self) {
+        if let Some(home) = fnv_install::EngineHome::user() {
+            if let Err(error) = std::fs::write(home.root.join(Self::FILE), format!("density={}\ndistance={}\nlod={}\nlod-start={}\n", self.multiplier, self.distance, u8::from(self.lod), self.lod_start)) {
+                warn!("grass density settings: {error}");
+            }
+        }
+    }
+}
+/// Distance from the camera within which nearby grass casts directional sun shadows
+/// when **Grass shadows** is enabled (roughly the near cascade reach, game units).
+const GRASS_SHADOW_DISTANCE: f32 = 1500.0;
+
 /// One shape of a grass model, kept on the CPU: every plant gets a transformed copy.
 struct GrassShape {
     positions: Vec<Vec3>,
@@ -160,10 +198,12 @@ struct GrassShape {
     colors: Vec<[f32; 4]>,
     indices: Vec<u32>,
     material: Handle<GrassMaterial>,
+    max_height: f32,
 }
 
 struct GrassModel {
     shapes: Vec<GrassShape>,
+    lod_shapes: Vec<GrassShape>,
 }
 
 /// Grass types, the textures that grow them and their models, loaded on first use.
@@ -202,6 +242,11 @@ pub struct GrassChunk {
     centre: Vec3,
     radius: f32,
     plants: u32,
+    full: Handle<Mesh>,
+    low: Handle<Mesh>,
+    full_material: Handle<GrassMaterial>,
+    low_material: Handle<GrassMaterial>,
+    using_lod: bool,
 }
 
 /// On a cell whose grass was not grown because grass was switched off: what growing it
@@ -227,14 +272,27 @@ pub struct GrassPlugin(pub GrassConfig);
 impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "grass.wesl");
+        let density = GrassDensity::load();
+        let mut config = self.0;
+        // A denser lattice increases the number of candidates even for grass types
+        // whose authored probability is already 100 percent.
+        config.generate.min_size /= density.multiplier.sqrt();
         app.add_plugins(MaterialPlugin::<GrassMaterial>::default())
-            .insert_resource(self.0)
+            .insert_resource(config)
+            .insert_resource(density)
             .init_resource::<GrassCache>()
             .init_resource::<GrassBurn>()
-            .add_systems(Update, (wind.after(crate::sky::update_sky), cull.after(crate::world::stream)))
+            .add_systems(Update, (wind.after(crate::sky::update_sky), cull.after(crate::world::stream), update_distance.before(wind).before(cull)))
             // Before the fades are applied, so the new meshes get their cell's range.
             .add_systems(Update, grow_owed.after(crate::world::stream).before(crate::fade::fade_cells).before(cull));
     }
+}
+
+// Keep the F11 multiplier independent of the ordinary settings page's distance fraction.
+fn update_distance(tuning: Res<GrassDensity>, distances: Res<crate::draw_distance::DrawDistances>, mut config: ResMut<GrassConfig>) {
+    let scale = tuning.distance * distances.grass;
+    config.fade_start = distances.grass_full.0 * scale;
+    config.fade_range = distances.grass_full.1 * scale;
 }
 
 /// Waves per minute (GRAS wave period [documented: Construction Set wiki; hypothesis:
@@ -261,7 +319,7 @@ fn wind(sky: Res<crate::sky::SkyState>, config: Res<GrassConfig>, cache: Res<Gra
         return;
     }
     *last = (wind, fade, built);
-    for s in cache.models.values().flatten().flat_map(|m| &m.shapes) {
+    for s in cache.models.values().flatten().flat_map(|m| m.shapes.iter().chain(&m.lod_shapes)) {
         // Read first: taking the asset mutably marks it changed.
         if materials.get(&s.material).is_some_and(|m| m.extension.params.wind != wind || m.extension.params.motion.yz() != fade) {
             if let Some(mut m) = materials.get_mut(&s.material) {
@@ -301,24 +359,56 @@ fn grow_owed(
     }
 }
 
+fn casts_grass_shadow(dist: f32, visible: bool, grass_shadows: bool, sun_shadows: bool, shadow_reach: f32) -> bool {
+    visible && grass_shadows && sun_shadows && dist <= shadow_reach
+}
+
 /// Hide the grass meshes that lie wholly beyond the grass distance (the shader has
 /// lowered all their plants into the ground), or all of them while grass is switched
-/// off, and count the plants.
+/// off, update near shadow-casting state, and count the plants.
+#[allow(clippy::too_many_arguments)]
 fn cull(
+    mut commands: Commands,
     config: Res<GrassConfig>,
+    graphics: Option<Res<crate::graphics::Graphics>>,
+    sky: Option<Res<crate::sky::SkyState>>,
     mut cache: ResMut<GrassCache>,
+    tuning: Res<GrassDensity>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
-    mut chunks: Query<(&GrassChunk, &mut Visibility)>,
+    mut chunks: Query<(Entity, &mut GrassChunk, &mut Visibility, &mut Mesh3d, &mut MeshMaterial3d<GrassMaterial>, Has<NotShadowCaster>)>,
 ) {
     let Ok(cam) = camera.single() else { return };
     let eye = bevy_to_game(cam.translation());
     let reach = config.fade_start + config.fade_range;
+    let grass_shadows = graphics.as_ref().is_some_and(|g| g.grass_shadows);
+    let sun_shadows = sky.as_ref().is_some_and(|s| s.shadows);
+    let shadow_reach = GRASS_SHADOW_DISTANCE.min(config.fade_start + config.fade_range * 0.5);
     let (mut plants, mut near) = (0, 0);
-    for (c, mut v) in &mut chunks {
-        let show = config.enabled && eye.distance(c.centre) - c.radius <= reach;
+    for (entity, mut c, mut v, mut mesh, mut material, no_shadow) in &mut chunks {
+        // Conservative chunk distance and hysteresis avoid rapid switching at the boundary.
+        let distance = (eye.distance(c.centre) - c.radius).max(0.0);
+        let threshold = tuning.lod_start + if c.using_lod { -150.0 } else { 150.0 };
+        let low = tuning.lod && distance > threshold;
+        if low != c.using_lod {
+            mesh.0 = if low { c.low.clone() } else { c.full.clone() };
+            material.0 = if low { c.low_material.clone() } else { c.full_material.clone() };
+            c.using_lod = low;
+        }
+        let dist = eye.distance(c.centre) - c.radius;
+        let show = config.enabled && dist <= reach;
         plants += c.plants as usize;
         near += if show { c.plants as usize } else { 0 };
         v.set_if_neq(if show { Visibility::Inherited } else { Visibility::Hidden });
+        let want_cast = casts_grass_shadow(dist, show, grass_shadows, sun_shadows, shadow_reach);
+        match (want_cast, no_shadow) {
+            (true, true) => {
+                commands.entity(entity).remove::<NotShadowCaster>();
+            }
+            (false, false) => {
+                commands.entity(entity).insert(NotShadowCaster);
+            }
+            _ => {}
+        }
     }
     if (cache.plants, cache.plants_in_range) != (plants, near) {
         (cache.plants, cache.plants_in_range) = (plants, near);
@@ -420,9 +510,14 @@ impl GrassCtx<'_> {
         if let Some(fires) = self.fires.as_deref_mut().filter(|_| !grown.patches.is_empty()) {
             fires.fires.add_fuel(grid, grown.patches);
         }
-        for (mesh, material, chunk) in grown.chunks {
+        for (mesh, material, low_mesh, low_material, mut chunk) in grown.chunks {
+            let full = models.meshes.add(mesh);
+            chunk.full = full.clone();
+            chunk.low = models.meshes.add(low_mesh);
+            chunk.full_material = material.clone();
+            chunk.low_material = low_material;
             commands.entity(cell).with_child((
-                Mesh3d(models.meshes.add(mesh)),
+                Mesh3d(full),
                 MeshMaterial3d(material),
                 Transform::IDENTITY,
                 chunk,
@@ -478,7 +573,7 @@ pub struct Grown {
     plants: usize,
     /// The grass fires' fuel: the patches the plants stand on, at the lowest plant's ground.
     patches: HashMap<nvf_play::grass_fire::Key, f32>,
-    chunks: Vec<(Mesh, Handle<GrassMaterial>, GrassChunk)>,
+    chunks: Vec<(Mesh, Handle<GrassMaterial>, Mesh, Handle<GrassMaterial>, GrassChunk)>,
 }
 
 /// A cell's grass being grown on a read thread ([`GrassCtx::begin`]).
@@ -526,10 +621,11 @@ impl GrassSeed {
         for ((_, kind), group) in groups {
             let Some(model) = self.models.get(&kind) else { continue };
             let fit_to_slope = self.types[kind].fit_to_slope;
-            for shape in &model.shapes {
+            for (shape, low_shape) in model.shapes.iter().zip(&model.lod_shapes) {
                 let (mesh, lo, hi) = merged_mesh(shape, &group, fit_to_slope);
-                let chunk = GrassChunk { centre: origin + (lo + hi) / 2.0, radius: (hi - lo).length() / 2.0, plants: group.len() as u32 };
-                grown.chunks.push((mesh, shape.material.clone(), chunk));
+                let chunk = GrassChunk { centre: origin + (lo + hi) / 2.0, radius: (hi - lo).length() / 2.0, plants: group.len() as u32, full: default(), low: default(), full_material: default(), low_material: default(), using_lod: false };
+                let (low_mesh, _, _) = merged_mesh(low_shape, &group, fit_to_slope);
+                grown.chunks.push((mesh, shape.material.clone(), low_mesh, low_shape.material.clone(), chunk));
             }
         }
         grown
@@ -565,32 +661,54 @@ fn shade_colour(shade: f32) -> f32 {
     shade.clamp(0.0, 1.0).powf(2.2)
 }
 
+/// Blend smooth dome normals at the dense root/base into outward-pointing radial normals
+/// toward the blade tips so tufts catch golden-hour rim and directional sun across 3D cards.
+fn grass_canopy_normal(w: Vec3, foot: Vec3, ground: Vec3, max_h: f32, max_r: f32) -> Vec3 {
+    let ground = ground.normalize_or(Vec3::Z);
+    let offset = w - foot;
+    let height = offset.dot(ground).max(0.0);
+    let horiz = offset - ground * offset.dot(ground);
+    let tip = (height / max_h.max(1.0)).clamp(0.0, 1.0);
+    let rad = (horiz.length() / max_r.max(1.0)).clamp(0.0, 1.0);
+    let horiz_scale = 0.55 + 0.65 * tip.max(rad * 0.7);
+    let up_scale = (0.85 - 0.30 * tip).max(0.40) * max_r.max(6.0);
+    (horiz * horiz_scale + ground * up_scale).normalize_or(ground)
+}
+
 /// One mesh holding a copy of `shape` for every plant (cell space), and its bounds.
 ///
 /// Attributes: every vertex carries the landscape's normal under the plant, so the plant
-/// is lit like the ground it stands on, whichever way its faces point. The models' own
-/// normals are not used: most point sideways or down, which under the sun would leave
-/// the plants nearly unlit, and the game's grass is evenly lit [observed; hypothesis,
-/// grass.md §5]. UV_1 is (sway weight, height above the plant's foot), which grass.wesl
-/// uses for the wind and the fade. The colour's alpha (the colour itself is opaque) holds
-/// the way from the vertex to its plant's foot ([`pack_foot`]): the whole plant reads the
-/// grass fires' burn map at its foot, so it chars and sinks as one (grass.wesl,
-/// "Burning").
+/// is lit like the ground it stands on, whichever way its faces point (or radial 3D dome
+/// normals under physical PBR / SSS). UV_1 is (sway weight, height above the plant's foot),
+/// which grass.wesl uses for the wind and the fade. The colour's alpha (the colour itself is
+/// opaque) holds the way from the vertex to its plant's foot ([`pack_foot`]): the whole
+/// plant reads the grass fires' burn map at its foot, so it chars and sinks as one
+/// (grass.wesl, "Burning").
 fn merged_mesh(shape: &GrassShape, plants: &[&Plant], fit_to_slope: bool) -> (Mesh, Vec3, Vec3) {
     let n = shape.positions.len() * plants.len();
     let (mut pos, mut nor, mut uv, mut uv_b, mut col) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n));
     let mut idx = Vec::with_capacity(shape.indices.len() * plants.len());
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let tuft_normals = nvf_assets::authored::physical_pbr() || nvf_assets::authored::sss_enabled();
+    let shape_max_r = shape.positions.iter().fold(0.0f32, |m, p| m.max(Vec2::new(p.x, p.y).length())).max(4.0);
     for p in plants {
         let first = pos.len() as u32;
         let t = plant_transform(p, fit_to_slope);
         let shade = shade_colour(p.shade);
+        let ground = Vec3::from_array(p.normal);
+        let foot = Vec3::from_array(p.position);
+        let max_h = (shape.max_height * p.scale[1]).max(6.0);
+        let max_r = (shape_max_r * p.scale[0]).max(4.0);
         for (i, v) in shape.positions.iter().enumerate() {
             let w = t.transform_point3(*v);
             lo = lo.min(w);
             hi = hi.max(w);
             pos.push(w.to_array());
-            nor.push(p.normal);
+            if tuft_normals {
+                nor.push(grass_canopy_normal(w, foot, ground, max_h, max_r).to_array());
+            } else {
+                nor.push(p.normal);
+            }
             uv.push(shape.uvs[i]);
             let c = shape.colors[i];
             uv_b.push([c[3], (w.z - p.position[2]).max(0.0)]);
@@ -606,6 +724,87 @@ fn merged_mesh(shape: &GrassShape, plants: &[&Plant], fit_to_slope: bool) -> (Me
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
     mesh.insert_indices(Indices::U32(idx));
     (mesh, lo, hi)
+}
+
+/// Two intersecting vertical cards: eight vertices and four triangles per plant.
+fn card_shape(shape: &GrassShape, material: Handle<GrassMaterial>) -> GrassShape {
+    let lo = shape.positions.iter().copied().fold(Vec3::splat(f32::MAX), Vec3::min);
+    let hi = shape.positions.iter().copied().fold(Vec3::splat(f32::MIN), Vec3::max);
+    let mid = (lo + hi) * 0.5;
+    let positions = vec![
+        Vec3::new(lo.x, mid.y, lo.z), Vec3::new(hi.x, mid.y, lo.z), Vec3::new(hi.x, mid.y, hi.z), Vec3::new(lo.x, mid.y, hi.z),
+        Vec3::new(mid.x, lo.y, lo.z), Vec3::new(mid.x, hi.y, lo.z), Vec3::new(mid.x, hi.y, hi.z), Vec3::new(mid.x, lo.y, hi.z),
+    ];
+    GrassShape { positions, uvs: vec![[0.0, 0.0]; 8], colors: (0..8).map(|i| [1.0, 1.0, 1.0, if i % 4 >= 2 { 1.0 } else { 0.0 }]).collect(),
+        indices: vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7], material, max_height: shape.max_height }
+}
+
+// Owner's grasswastelandcomp01.jpg markup, normalized from the atlas's top-left.
+// The third (bright green) plant has its root at the top and needs a half turn.
+const WASTELAND_REGIONS: [([f32; 4], bool); 8] = [
+    ([0.0, 0.0, 0.25, 0.25], false),
+    ([0.275, 0.0, 0.5, 0.25], false),
+    ([0.0, 0.25, 0.5, 0.5], true),
+    ([0.5, 0.0, 1.0, 0.322], false),
+    ([0.732, 0.325, 1.0, 0.5], false),
+    ([0.0, 0.5, 0.35, 1.0], false),
+    ([0.5, 0.5, 0.84, 0.794], false),
+    ([0.607, 0.8, 1.0, 1.0], false),
+];
+
+fn card_uvs(rect: [f32; 4], rotated: bool) -> Vec<[f32; 2]> {
+    // Small inset keeps the card's edge inside its region at full resolution.
+    let [left, top, right, bottom] = rect;
+    let inset = 0.0005;
+    let (left, top, right, bottom) = (left + inset, top + inset, right - inset, bottom - inset);
+    let corners = if rotated {
+        [[right, top], [left, top], [left, bottom], [right, bottom]]
+    } else {
+        [[left, bottom], [right, bottom], [right, top], [left, top]]
+    };
+    corners.into_iter().cycle().take(8).collect()
+}
+
+fn textured_card(shape: &GrassShape, wasteland: bool) -> GrassShape {
+    let mut card = card_shape(shape, shape.material.clone());
+    if shape.uvs.len() != shape.positions.len() || shape.uvs.is_empty() {
+        return card;
+    }
+    let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
+    for uv in &shape.uvs {
+        lo = lo.min(Vec2::from_array(*uv));
+        hi = hi.max(Vec2::from_array(*uv));
+    }
+    let mut rect = [lo.x.clamp(0.0, 1.0), lo.y.clamp(0.0, 1.0), hi.x.clamp(0.0, 1.0), hi.y.clamp(0.0, 1.0)];
+    // For other atlases retain the authored UV extent and infer which end is the root.
+    let mean_z = shape.positions.iter().map(|p| p.z).sum::<f32>() / shape.positions.len() as f32;
+    let mean_v = shape.uvs.iter().map(|uv| uv[1]).sum::<f32>() / shape.uvs.len() as f32;
+    let mut rotated = shape.positions.iter().zip(&shape.uvs).map(|(p, uv)| (p.z - mean_z) * (uv[1] - mean_v)).sum::<f32>() > 0.0;
+    if wasteland {
+        // Triangle samples weighted by model-space area avoid bias from dense tessellation
+        // or duplicated vertices at the edge of an atlas region.
+        let mut scores = [0.0; 8];
+        for triangle in shape.indices.chunks_exact(3) {
+            let [a, b, c] = [triangle[0] as usize, triangle[1] as usize, triangle[2] as usize];
+            let uv = (Vec2::from_array(shape.uvs[a]) + Vec2::from_array(shape.uvs[b]) + Vec2::from_array(shape.uvs[c])) / 3.0;
+            let weight = (shape.positions[b] - shape.positions[a]).cross(shape.positions[c] - shape.positions[a]).length();
+            for (i, (r, _)) in WASTELAND_REGIONS.iter().enumerate() {
+                if uv.x >= r[0] && uv.y >= r[1] && uv.x <= r[2] && uv.y <= r[3] {
+                    scores[i] += weight;
+                }
+            }
+        }
+        if let Some((index, _)) = scores.iter().enumerate().filter(|(_, score)| **score > 0.0).max_by(|a, b| a.1.total_cmp(b.1)) {
+            (rect, rotated) = WASTELAND_REGIONS[index];
+        }
+    }
+    card.uvs = card_uvs(rect, rotated);
+    // Retain the authored tint; sway weights still come from the card's height.
+    let tint = shape.colors.iter().fold(Vec3::ZERO, |sum, c| sum + Vec3::new(c[0], c[1], c[2])) / shape.colors.len().max(1) as f32;
+    for color in &mut card.colors {
+        color[..3].copy_from_slice(&tint.to_array());
+    }
+    card
 }
 
 /// The way from a vertex to its plant's foot (game x, y, units), rounded to whole units and
@@ -644,6 +843,7 @@ fn load_model(path: &str, models: &mut ModelCtx, materials: &mut Assets<GrassMat
     let objects = scene_objects(&file, &dec);
     let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
     let mut shapes = Vec::new();
+    let mut lod_shapes = Vec::new();
     for o in objects.iter().filter(|o| !o.is_node) {
         // The shape and its ancestors, nearest first.
         let mut chain: Vec<&SceneObject> = vec![o];
@@ -708,6 +908,10 @@ fn load_model(path: &str, models: &mut ModelCtx, materials: &mut Assets<GrassMat
         };
 
         let uvs = md.uv_sets.first().filter(|u| u.len() == n).cloned().unwrap_or_else(|| vec![[0.0, 0.0]; n]);
+        let positions: Vec<Vec3> = md.positions.iter().map(|p| to_model.transform_point3(Vec3::from_array(*p))).collect();
+        let max_height = positions.iter().fold(0.0f32, |m, p| m.max(p.z)).max(6.0);
+        let mut shape_params = params;
+        shape_params.motion.w = max_height;
         let material = materials.add(GrassMaterial {
             base: StandardMaterial {
                 base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.55, 0.5, 0.3) },
@@ -720,20 +924,24 @@ fn load_model(path: &str, models: &mut ModelCtx, materials: &mut Assets<GrassMat
                 reflectance: 0.0,
                 ..default()
             },
-            extension: GrassSway { params, burn: burn.clone() },
+            extension: GrassSway { params: shape_params, burn: burn.clone() },
         });
-        shapes.push(GrassShape {
-            positions: md.positions.iter().map(|p| to_model.transform_point3(Vec3::from_array(*p))).collect(),
+        let shape = GrassShape {
+            positions,
             uvs,
             colors,
             indices: md.triangles.iter().filter(|t| t.iter().all(|&i| (i as usize) < n)).flatten().copied().collect(),
             material,
-        });
+            max_height,
+        };
+        let wasteland = texture.as_deref().is_some_and(|t| t.replace('\\', "/").to_ascii_lowercase().ends_with("grasswastelandcomp01.dds"));
+        lod_shapes.push(textured_card(&shape, wasteland));
+        shapes.push(shape);
     }
     if shapes.is_empty() {
         return Err("no shapes".into());
     }
-    Ok(GrassModel { shapes })
+    Ok(GrassModel { shapes, lod_shapes })
 }
 
 #[cfg(test)]
@@ -750,6 +958,38 @@ mod tests {
         assert_eq!(unpack(pack_foot(-37.4, 112.6)), (-37.0, 113.0));
         assert_eq!(unpack(pack_foot(0.0, 0.0)), (0.0, 0.0));
         assert_eq!(unpack(pack_foot(5000.0, -5000.0)), (1023.0, -1023.0));
+    }
+
+    #[test]
+    fn lod_cards_preserve_authored_bounds_and_stand_on_the_ground() {
+        let source = GrassShape { positions: vec![Vec3::new(-12.0, -8.0, 0.0), Vec3::new(16.0, 10.0, 60.0)],
+            uvs: vec![], colors: vec![], indices: vec![], material: default(), max_height: 60.0 };
+        let cards = card_shape(&source, default());
+        assert_eq!(cards.positions.len(), 8);
+        assert_eq!(cards.indices.len(), 12);
+        assert!(cards.indices.iter().all(|i| (*i as usize) < cards.positions.len()));
+        let (mesh, lo, hi) = merged_mesh(&cards, &[&plant([100.0, 200.0, 30.0], [0.0, 0.0, 1.0])], false);
+        assert_eq!(mesh.count_vertices(), 8);
+        assert_eq!(lo, Vec3::new(88.0, 192.0, 30.0));
+        assert_eq!(hi, Vec3::new(116.0, 210.0, 150.0));
+    }
+
+    #[test]
+    fn textured_lod_selects_the_inverted_atlas_plant_and_rotates_both_cards() {
+        let shape = GrassShape {
+            positions: vec![Vec3::ZERO, Vec3::X, Vec3::Z],
+            uvs: vec![[0.1, 0.26], [0.4, 0.26], [0.2, 0.49]],
+            colors: vec![[0.7, 0.6, 0.5, 0.0]; 3], indices: vec![0, 1, 2], material: default(), max_height: 1.0,
+        };
+        let card = textured_card(&shape, true);
+        assert_eq!(card.uvs, card_uvs(WASTELAND_REGIONS[2].0, true));
+        assert!(card.uvs[0][1] < card.uvs[2][1], "the top of the inverted region belongs at the root");
+        assert!(card.uvs[0][0] > card.uvs[1][0], "a half turn reverses U as well as V");
+        assert_eq!(card.uvs[..4], card.uvs[4..]);
+        assert!((card.colors[0][0] - 0.7).abs() < 0.0001);
+        let mut normal = shape;
+        normal.uvs = vec![[0.01, 0.24], [0.24, 0.24], [0.1, 0.01]];
+        assert_eq!(textured_card(&normal, true).uvs, card_uvs(WASTELAND_REGIONS[0].0, false));
     }
 
     #[test]
@@ -789,6 +1029,7 @@ mod tests {
             colors: vec![[0.5, 0.5, 0.5, 0.0], [0.5, 0.5, 0.5, 0.0], [1.0, 1.0, 1.0, 0.15]],
             indices: vec![0, 1, 2],
             material: Handle::default(),
+            max_height: 10.0,
         };
         let (a, b) = (plant([0.0, 0.0, 100.0], [0.0, 0.0, 1.0]), plant([500.0, 0.0, 50.0], [0.0, 0.0, 1.0]));
         let b = Plant { yaw: std::f32::consts::FRAC_PI_2, ..b };
@@ -803,5 +1044,25 @@ mod tests {
         // Every vertex has the ground's normal.
         let Some(bevy::mesh::VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else { panic!("no normals") };
         assert!(normals.iter().all(|n| *n == [0.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn grass_canopy_normals_and_shadow_range_work_as_intended() {
+        let foot = Vec3::ZERO;
+        let ground = Vec3::Z;
+        let base_n = grass_canopy_normal(Vec3::new(2.0, 0.0, 0.0), foot, ground, 20.0, 10.0);
+        let tip_n = grass_canopy_normal(Vec3::new(10.0, 0.0, 20.0), foot, ground, 20.0, 10.0);
+        assert!(base_n.z > 0.9, "base stays nearly upright: {base_n:?}");
+        assert!(tip_n.x > base_n.x && tip_n.x > 0.7, "outer tips tilt strongly outward: {tip_n:?}");
+
+        let slope = Vec3::new(0.4, 0.0, 1.0).normalize();
+        let slope_foot_n = grass_canopy_normal(foot, foot, slope, 20.0, 10.0);
+        assert!((slope_foot_n - slope).length() < 1e-5, "foot normal follows slope: {slope_foot_n:?} vs {slope:?}");
+
+        assert!(casts_grass_shadow(600.0, true, true, true, 1500.0));
+        assert!(!casts_grass_shadow(1600.0, true, true, true, 1500.0));
+        assert!(!casts_grass_shadow(600.0, true, false, true, 1500.0));
+        assert!(!casts_grass_shadow(600.0, true, true, false, 1500.0));
+        assert!(!casts_grass_shadow(600.0, false, true, true, 1500.0));
     }
 }

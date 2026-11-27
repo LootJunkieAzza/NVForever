@@ -6,8 +6,9 @@
 //! gets one and writes its content.
 //!
 //! - **Whether** ([`decide`]): the run's Reflections on authored materials row on, the
-//!   Authored materials row on, the mount holding at least one authored set
-//!   (nvf_assets `authored::mount_has_sets`) and the reflection gate installed in
+//!   Authored materials row on, the mount holding at least one authored set — one with an
+//!   `_orm`, as a height-only set reflects nothing — (nvf_assets
+//!   `authored::mount_has_authored_sets`) and the reflection gate installed in
 //!   `pbr_functions` (nvforever lights.rs). Then one cube is made for the world camera and no
 //!   other; slice 1's rule stays: Bevy's `EnvironmentMapLight` goes on only once the first
 //!   fill is on the GPU (`reflection_cube::attach_lights`). Otherwise no cube is allocated.
@@ -1176,7 +1177,7 @@ fn directional(sun: Option<(&DirectionalLight, &Transform)>) -> (Vec3, Vec3) {
 
 /// The inputs now (module notes, "What"), from the sky's state, the directional light, the
 /// interior cell, the room and the lamps.
-fn gather(sky: &SkyState, sun: Option<(&DirectionalLight, &Transform)>, mut s: Surroundings) -> Inputs {
+fn gather(sky: &SkyState, sun: Option<(&DirectionalLight, &Transform)>, ambient_scale: f32, mut s: Surroundings) -> Inputs {
     let (sun, sun_dir) = directional(sun);
     match sky.interior {
         Some(l) => {
@@ -1207,7 +1208,7 @@ fn gather(sky: &SkyState, sun: Option<(&DirectionalLight, &Transform)>, mut s: S
                 horizon: c(ColorType::Horizon),
                 lower: c(ColorType::SkyLower),
                 upper: c(ColorType::SkyUpper),
-                ambient: c(ColorType::Ambient).map(crate::lights::linear_to_display),
+                ambient: c(ColorType::Ambient).map(crate::lights::linear_to_display) * ambient_scale,
                 sun,
                 sun_dir,
                 sky_scale: sky.sky_scale(),
@@ -1277,6 +1278,7 @@ pub fn produce(
     mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
     lights: PlacedLights,
     tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
+    lighting: Option<Res<crate::sky::OutdoorLighting>>,
 ) {
     if matches!(state.phase, Phase::Off(_)) {
         return;
@@ -1285,7 +1287,7 @@ pub fn produce(
     let camera = cams.single_mut();
     if state.phase == Phase::Waiting {
         let (row, authored) = (state.row, state.authored);
-        match decide(row, authored, || data.as_deref().is_some_and(nvf_assets::authored::mount_has_sets), reflection_cube::gate_state(), camera.is_ok()) {
+        match decide(row, authored, || data.as_deref().is_some_and(nvf_assets::authored::mount_has_authored_sets), reflection_cube::gate_state(), camera.is_ok()) {
             Decision::Wait => return,
             Decision::Off(reason) => {
                 state.phase = Phase::Off(reason);
@@ -1343,7 +1345,7 @@ pub fn produce(
         lamps,
         no_interior_fog: tweaks.as_ref().is_some_and(|t| t.no_interior_fog),
     };
-    let inputs = gather(&sky, sun.single().ok(), surroundings);
+    let inputs = gather(&sky, sun.single().ok(), lighting.as_deref().map_or(1.0, |l| l.sky), surroundings);
     let reason = state.last.as_ref()
         .and_then(|last| inputs.change(last).or(profile_changed.then_some(Refill::Profile)));
     if !target_changed && reason.is_none() {

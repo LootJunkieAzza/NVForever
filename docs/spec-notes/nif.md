@@ -1445,6 +1445,28 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   soft outer band blends over it instead of hiding it. Whether the game draws its hair
   this way, alpha-tests it, or does something else that comes out the same is not known
   [hypothesis]. Smoke checks `hair-solid-chet`, `hair-shaved-mohawk`.
+- **Hair strand direction** (2026-11-23, #1503): the hair textures paint their strands
+  along curves that turn across the texture, so neither texture axis is the strand. Over
+  the NoHat shapes of the 67 HAIR models, the texture's V axis follows the painted strands
+  no better than a line straight down the head: |cos| 0.74 on average for both, against
+  0.64 for a random line [observed: the structure tensor of the diffuse texture's luma
+  against each shape's UVs]. With Subsurface scattering and Physical PBR on
+  (graphics-enhanced.md §3.24) the strand direction is therefore read per fragment from the
+  strokes themselves, at the mip about 128 texels across, and falls back to the line down
+  the head where the texels are flat [design]. In that mode only, hair takes a strand
+  highlight, which sets aside the "no specular" reading of "Hair" above on purpose: it is
+  NVForever's own look, not a claim about what the original's hair shader does with the
+  normal-map alpha or the `_hl` map, which stays open [design, #1503].
+- **Eye shapes** (2026-11-23, #1503): every human eye mesh looks along its own +Y with +Z
+  up at the shape's identity transform, and maps its texture straight along that gaze: the
+  foremost vertex has UV (0.51, 0.46), the topmost v 0.19, the lowest v 0.88; v grows
+  downward and the corner by the nose is at low u in both eyes, the right eye mirroring
+  the left [observed: `meshes\characters\head\eyelefthuman.nif` (49 vertices),
+  `eyerighthuman.nif`, `eyelefthumanfemale.nif`, `eyerighthumanfemale.nif`]. The iris of
+  the eye textures is a disc of radius about 0.19 round (0.50, 0.44) [observed:
+  `textures\characters\eyes\eyeblue.dds` and `eyedarkbrown.dds`, 128 x 128]. The cornea,
+  iris depth and lid shading drawn from these under Subsurface scattering are NVForever's
+  own look (graphics-enhanced.md §3.24) [design].
 - **Window glass and environment maps** (#2462). The observation window of Camp
   McCarran's interrogation room (`CampMCTermInt02`, reference 000FB2F4, base `VWindow01`)
   is `dungeons\vault\accessories\vwindow01.nif` [observed: `fnvtool world refs`,
