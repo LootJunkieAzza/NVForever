@@ -23,8 +23,8 @@
 //!   FSR and DLSS treat it as they treat the sky. Only the main world camera draws it
 //!   ([`VOLUME_LAYER`]); while it is drawn the flat layers move to [`FLAT_CLOUD_LAYER`]
 //!   ([`hide_flat_layers`], in the same frame as the volume shows or goes), out of the main
-//!   camera's view, so the water's mirrored reflection and the scope's lens keep the
-//!   weather's flat clouds. The volume shows only once the medium has written its buffer at the
+//!   camera's view. The scope and extra cameras see those layers. The water camera sees them
+//!   until its own reflected volume is ready. The volume shows only once the medium has written its buffer at the
 //!   right size (medium.rs, the handover). The march (volumetric_clouds_march.wesl) is a
 //!   module of plain functions the medium's trace imports.
 //! - **Amount and placement** (#3032 stage 2a) [design]: the weather
@@ -1230,14 +1230,15 @@ pub fn place_width(rel: Vec3, dir: Vec3, width: f32, r: f32) -> f32 {
     width / dir.dot(n).abs().max(1e-3)
 }
 
-/// Isotropic footprint for filtering the placement (march `vc_place_width`). Fair banks use the area of
-/// the projected footprint.
+/// Isotropic footprint for filtering placement (march `vc_place_width`). Fair banks use the
+/// projected area. An isolated mixed bank resolves the reconstructed texel across that area.
 /// As coverage becomes a continuous deck the horizontal base dominates again.
 fn cloud_place_width(rel: Vec3, dir: Vec3, width: f32, u: &CloudVolumeUniform) -> f32 {
     let projected = place_width(rel, dir, width, u.reach.y);
     if u.scale.w < 0.72 {
         let deck = smoothstep(0.55, 0.72, u.scale.w);
-        let fair = (width * projected).sqrt();
+        let texel = 1.0 + (u.dshape.w - 1.0) * crate::volumetric_clouds_model2::mixed_sheet(u);
+        let fair = (width * projected).sqrt() * texel;
         fair + (projected - fair) * deck
     } else {
         projected
@@ -2349,11 +2350,8 @@ struct Follow {
     told_level: Option<CloudLevel>,
 }
 
-/// The render layer the flat cloud layers move to while the volume draws: the water's mirror,
-/// the scope's lens and the extra cameras see it (reflection.rs, scope_view.rs, extra_camera.rs),
-/// the main world camera does not, so every other view of the sky keeps the weather's clouds
-/// (#3032 decision 9; the minimap's camera looks straight down, under the clouds' dome). Nothing
-/// is on it otherwise.
+/// The weather's flat layers while the main volume draws. The scope and extra cameras see them
+/// (#3032 decision 9), as does the water camera while its own reflected volume is warming.
 pub const FLAT_CLOUD_LAYER: usize = 20;
 
 /// Whether the flat cloud layers are on [`FLAT_CLOUD_LAYER`] ([`hide_flat_layers`] puts them
@@ -2366,8 +2364,8 @@ fn flat_layers_follow(shown: Res<CloudVolumeShown>, moved: Res<FlatLayersMoved>)
 }
 
 /// After [`show_volume`] has decided whether the volume draws this frame: while it draws, the
-/// flat cloud layers move to [`FLAT_CLOUD_LAYER`], out of the main camera's view but still in
-/// the mirror's and the lens's, and back to the world's layer (implicit layer 0) in the frame
+/// flat cloud layers move to [`FLAT_CLOUD_LAYER`] for the auxiliary views,
+/// and back to the world's layer (implicit layer 0) in the frame
 /// the volume goes, so the main view never has a frame with both or with neither. Their
 /// visibility stays the weather's (sky.rs `update_clouds`, both sets of a fade), and their
 /// entities stay (cloud_shadows.rs composes from them).
@@ -2709,7 +2707,7 @@ fn trace_above_water(submerged: Option<Res<crate::underwater::CameraSubmerged>>,
 /// The flat layers are hidden ([`CloudVolumeShown`],
 /// [`hide_flat_layers`]) in the frame the hold is released, never before. A new image is never
 /// drawn the frame it is swapped in (the medium's epoch moved with it).
-fn show_volume(
+pub(super) fn show_volume(
     request: Res<MediumRequest>,
     medium: Res<MediumOutput>,
     mut shown: ResMut<CloudVolumeShown>,

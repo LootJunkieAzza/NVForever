@@ -274,6 +274,11 @@ fn map_markers_and_radio_stations_from_their_data() {
     assert_eq!(n(&mut g, "TestRadioRef.GetRadioRadius"), 2000.0);
     assert_eq!(n(&mut g, "TestRadioRef.GetRadioBroadcastType"), 1.0);
     assert_eq!(n(&mut g, "TestRadioRef.GetRadioPosRef"), f64::from(MARKER));
+    // OOB broadcast types (outside 0..=4) and static percentages (outside 0..=100) are
+    // rejected without mutating prior values [observed: w6d2_33].
+    q(&mut g, "TestRadioRef.SetRadioBroadcastType 9\nTestRadioRef.SetRadioBroadcastType -1\nTestRadioRef.SetRadioStatic 150\nTestRadioRef.SetRadioStatic -5");
+    assert_eq!(n(&mut g, "TestRadioRef.GetRadioBroadcastType"), 1.0);
+    assert_eq!(n(&mut g, "TestRadioRef.GetRadioStatic"), 15.0);
 }
 
 #[test]

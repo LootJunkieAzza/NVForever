@@ -5,8 +5,48 @@ use crate::{game::Game, mod_files};
 use fnv_script::vm::{form_type_code, XVal};
 use fnv_sim::FormId;
 use serde_json::{Map, Value as Json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
+
+/// Maximum ancestor traversal depth when resolving nested ySI subfolder chains [design].
+const MAX_CATEGORY_DEPTH: usize = 16;
+
+/// One clickable Pip-Boy category or nested subfolder resolved from `menus/ySI/*.json`
+/// `"icons"` entries (`name`, `tab`, `count`, `filename`, `template`, `icon`, optional
+/// parent `category`) [documented: ySI - Sorting Ycons v1.4b
+/// (`https://www.nexusmods.com/newvegas/mods/74358`), `menus/ySI/ySI.json` `"icons"` entries
+/// defining `(jdc0)` / `(jdd0)` / `(jde0)` with `"name"`, `"tab"`, `"count"`, `"filename"`,
+/// `"template"`, `"icon"`, and child tags carrying `"category"`; no yUI/ySI DLL or source
+/// consulted].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YsiCategoryDef {
+    /// Sorting tag of the category folder row itself (e.g. `"(jdd0)"`, `"(kw00)"`).
+    pub tag: String,
+    /// Resolved display label (game-string entities like `"&-sKeyring;"` expanded).
+    pub name: String,
+    /// Pip-Boy Inventory tab index (`0` Weapons, `1` Apparel, `2` Aid, `3` Misc, `4` Ammo).
+    pub tab: u8,
+    /// Optional parent category index in [`YsiCategoryIndex::categories`] for nested subfolders.
+    pub parent: Option<u32>,
+    /// Minimum distinct matching rows required to collapse into a folder (clamped `>= 1`).
+    pub min_count: usize,
+    /// Row icon DDS path (`filename`) for `ySIImage`.
+    pub row_icon: Option<String>,
+    /// Row XML template name (`template`, defaulting to `ySIDefault`).
+    pub template: String,
+    /// Large Pip-Boy preview picture DDS path (`icon`) shown in `IM_ItemIcon`.
+    pub preview_icon: Option<String>,
+}
+
+/// Resolved table of Pip-Boy ySI categories/subfolders and item-tag -> category memberships
+/// built from the session's `menus/ySI/*.json` configuration [design].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct YsiCategoryIndex {
+    /// Deterministic category list ordered by `(tab, tag)`.
+    pub categories: Vec<YsiCategoryDef>,
+    /// Maps an item sorting tag (e.g. `"(jdd1)"`, `"(fbb3)"`) to its direct category index.
+    pub tag_to_category: BTreeMap<String, u32>,
+}
 
 // Mapped configuration resource bounds, not native limits.
 const MAX_FILES: usize = 128;
@@ -74,6 +114,36 @@ pub(crate) fn json_icon_spec(g: &Game<'_>, tag: &str) -> Option<(String, Option<
 /// Whether a valid `menus/ySI/*.json` configuration book is loaded in this session.
 pub(crate) fn has_loaded_book(g: &Game<'_>) -> bool {
     g.ysi_filename.book.get_or_init(Book::load).is_ok()
+}
+
+/// Resolves all clickable Pip-Boy category/subfolder definitions and tag memberships from
+/// the session's cached `menus/ySI/*.json` book (`None` when no valid book or no categories
+/// are defined).
+pub(crate) fn json_categories(g: &Game<'_>) -> Option<YsiCategoryIndex> {
+    let book = g.ysi_filename.book.get_or_init(Book::load).as_ref().ok()?;
+    let index = book.build_categories(|raw| resolve_category_name(g, raw));
+    (!index.categories.is_empty()).then_some(index)
+}
+
+/// Expands game-string entities like `"&-sKeyring;"` on category names through
+/// `ui_loading::game_string`, falling back to clean built-in labels when a test or install
+/// omits the GMST [design].
+fn resolve_category_name(g: &Game<'_>, raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Some(inner) = trimmed.strip_prefix("&-").and_then(|s| s.strip_suffix(';')) {
+        let key = inner.trim();
+        let resolved = crate::ui_loading::game_string(g, key);
+        if !resolved.trim().is_empty() {
+            return resolved;
+        }
+        return match key.to_ascii_lowercase().as_str() {
+            "skeyring" => "Keyring".to_string(),
+            "snotestoggle" => "Notes".to_string(),
+            "scaravandecktext" => "Caravan Deck".to_string(),
+            _ => key.to_string(),
+        };
+    }
+    trimmed.to_string()
 }
 
 impl Book {
@@ -232,6 +302,199 @@ impl Book {
             None
         };
         Ok(((*filenames.first().expect("one filename")).to_string(), template))
+    }
+
+    /// Builds the deterministic category/subfolder index from winning highest-priority
+    /// `"icons"` entries across all loaded `menus/ySI/*.json` files.
+    fn build_categories(&self, mut resolve_name: impl FnMut(&str) -> String) -> YsiCategoryIndex {
+        // Group winning (highest-priority) icon rules per tag.
+        let mut max_prio: BTreeMap<&str, i64> = BTreeMap::new();
+        for rule in &self.icons {
+            if rule.tag.is_empty() {
+                continue;
+            }
+            max_prio
+                .entry(rule.tag.as_str())
+                .and_modify(|p| *p = (*p).max(rule.priority))
+                .or_insert(rule.priority);
+        }
+
+        struct RawCategory {
+            tag: String,
+            name: String,
+            tab: Option<u8>,
+            parent_tag: Option<String>,
+            min_count: usize,
+            row_icon: Option<String>,
+            template: String,
+            preview_icon: Option<String>,
+        }
+
+        let mut raw_cats: BTreeMap<String, RawCategory> = BTreeMap::new();
+        let mut raw_membership: BTreeMap<String, String> = BTreeMap::new();
+
+        for rule in &self.icons {
+            if rule.tag.is_empty() || max_prio.get(rule.tag.as_str()) != Some(&rule.priority) {
+                continue;
+            }
+            let parent_tag = rule
+                .fields
+                .get("category")
+                .and_then(Json::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && *s != rule.tag.as_str())
+                .map(str::to_string);
+
+            let name_raw = rule
+                .fields
+                .get("name")
+                .and_then(Json::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+
+            let tab = rule
+                .fields
+                .get("tab")
+                .and_then(Json::as_i64)
+                .filter(|t| (0..=4).contains(t))
+                .map(|t| t as u8);
+
+            if let Some(raw_name) = name_raw {
+                if tab.is_some() || parent_tag.is_some() {
+                    let min_count = rule
+                        .fields
+                        .get("count")
+                        .and_then(Json::as_i64)
+                        .map_or(1, |c| c.max(1) as usize);
+                    let row_icon = rule
+                        .fields
+                        .get("filename")
+                        .and_then(Json::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                    let tpl_opt = rule
+                        .fields
+                        .get("template")
+                        .and_then(Json::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty());
+                    let template =
+                        crate::ui_ysi::row_template_or_default(tpl_opt, row_icon.is_some());
+                    let preview_icon = rule
+                        .fields
+                        .get("icon")
+                        .and_then(Json::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                    let resolved = resolve_name(raw_name);
+                    if !resolved.is_empty() {
+                        raw_cats.insert(
+                            rule.tag.clone(),
+                            RawCategory {
+                                tag: rule.tag.clone(),
+                                name: resolved,
+                                tab,
+                                parent_tag: parent_tag.clone(),
+                                min_count,
+                                row_icon,
+                                template,
+                                preview_icon,
+                            },
+                        );
+                    }
+                }
+            } else if let Some(parent) = parent_tag {
+                raw_membership.insert(rule.tag.clone(), parent);
+            }
+        }
+
+        // Resolve effective tab for each category (own tab or inherited from parent chain
+        // with cycle protection) and keep only well-formed categories.
+        let mut resolved_tabs: BTreeMap<String, u8> = BTreeMap::new();
+        for (tag, cat) in &raw_cats {
+            let mut cur_tag = tag.as_str();
+            let mut seen = BTreeSet::new();
+            let mut found_tab = cat.tab;
+            let mut cycle = false;
+            seen.insert(cur_tag);
+            while found_tab.is_none() && seen.len() <= MAX_CATEGORY_DEPTH {
+                let Some(next) = raw_cats.get(cur_tag).and_then(|c| c.parent_tag.as_deref()) else {
+                    break;
+                };
+                if !seen.insert(next) {
+                    cycle = true;
+                    break;
+                }
+                let Some(parent_cat) = raw_cats.get(next) else {
+                    break;
+                };
+                found_tab = parent_cat.tab;
+                cur_tag = next;
+            }
+            // Also verify explicit-tab child categories do not form a parent cycle.
+            if !cycle {
+                let mut walk = cat.parent_tag.as_deref();
+                let mut check_seen = BTreeSet::new();
+                check_seen.insert(tag.as_str());
+                while let Some(next) = walk {
+                    if !check_seen.insert(next) || check_seen.len() > MAX_CATEGORY_DEPTH {
+                        cycle = true;
+                        break;
+                    }
+                    walk = raw_cats.get(next).and_then(|c| c.parent_tag.as_deref());
+                }
+            }
+            if !cycle {
+                if let Some(t) = found_tab {
+                    resolved_tabs.insert(tag.clone(), t);
+                }
+            }
+        }
+
+        let mut ordered: Vec<(u8, String)> = resolved_tabs
+            .iter()
+            .map(|(tag, &tab)| (tab, tag.clone()))
+            .collect();
+        ordered.sort();
+
+        let tag_to_idx: BTreeMap<String, u32> = ordered
+            .iter()
+            .enumerate()
+            .map(|(i, (_, tag))| (tag.clone(), i as u32))
+            .collect();
+
+        let mut categories = Vec::with_capacity(ordered.len());
+        for (tab, tag) in &ordered {
+            let cat = &raw_cats[tag];
+            let parent = cat
+                .parent_tag
+                .as_deref()
+                .and_then(|p| tag_to_idx.get(p).copied());
+            categories.push(YsiCategoryDef {
+                tag: cat.tag.clone(),
+                name: cat.name.clone(),
+                tab: *tab,
+                parent,
+                min_count: cat.min_count,
+                row_icon: cat.row_icon.clone(),
+                template: cat.template.clone(),
+                preview_icon: cat.preview_icon.clone(),
+            });
+        }
+
+        let mut tag_to_category = BTreeMap::new();
+        for (item_tag, cat_tag) in raw_membership {
+            if let Some(&idx) = tag_to_idx.get(&cat_tag) {
+                tag_to_category.insert(item_tag, idx);
+            }
+        }
+
+        YsiCategoryIndex {
+            categories,
+            tag_to_category,
+        }
     }
 }
 
@@ -663,6 +926,10 @@ fn commented_json(text: &str) -> Result<String, String> {
     }
     String::from_utf8(out).map_err(|_| "invalid UTF-8 in ySI configuration".into())
 }
+
+#[cfg(test)]
+#[path = "ysi_categories_tests.rs"]
+mod ysi_categories_tests;
 
 #[cfg(test)]
 mod tests {

@@ -1334,12 +1334,18 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-11-05 (placed particle scale, issue #1547)
 
-87. **Does a placed reference's scale size its particles?** (P2; particles.md §7.7.) The
+87. **Does a placed reference's scale size its particles?** (P2; particles.md §7.7, #3673.) The
     Ultra-Luxe fountain's ULFountainFX (0x0016566E) is placed at scale 0.5. Take a frame of the
     original at hour 12 from about (1176, -700, 1080), facing north, and the same frame in
     NVForever. Check the size of the drops against the basin, how high the spray goes, and
     whether it comes out of the spout. If the original's spray is the file's full size, the
     rule in §7.7 is wrong and the cause of the misplaced spray lies elsewhere.
+    Also compare placed smoke in FalloutNV.esm (#3673): `dlc03fxdarksmoke.nif` at scale
+    0.23 (`0x000E72EF`, WastelandNV 28255, 32694, 5595) against the one at scale 1
+    (`0x00137F86`, -31401, -95650, 6918), measuring puff size beside nearby geometry in
+    the original. If that comparison supports radius scaling, re-check the Ultra-Luxe
+    fountain (`0x0016566E`) and tyre smoke (`fxtiresmoke.nif`) before and after testing
+    the candidate rule.
 
 ## Added 2026-11-05 (leveled rolls and locks, issue #1567)
 
@@ -3940,8 +3946,8 @@ capture setup, so every part of a check that needs an interior is still open.
      told from an unmasked term.
 273. **Which way is the cube turned on a shape without the window flag, and on a window?**
      (P3; #2841, nif.md §6.) The GECK wiki says the window flag "simply flips the cubemap
-     orientation" without saying which axis. Ours: both read the game-space reflection
-     (x, y, z) as (x, z, y) [hypothesis]. In Lucky 38, frame a shape that reflects
+     orientation" without saying which axis. Ours until #4392: both read the game-space reflection
+     (x, y, z) as (x, z, y); since then only windows do [hypothesis]. In Lucky 38, frame a shape that reflects
      `textures\effects\nv\nvl38reflect_e.dds` (a distinctive cube; 9 shapes in 6 models
      set it without the window flag) from a level view and from looking down at it, and
      do the same for a window shape (both flags) under any cube, e.g. the observation
@@ -3952,7 +3958,9 @@ capture setup, so every part of a check that needs an interior is still open.
      object or the view [observed, firm: envmap4's pot and held pistol]; whether they are
      the cube or the sun's own highlight cannot be told, so that the cube lookup is
      world-fixed is a hypothesis. Which axis is up and what the window flag flips are
-     open: no cube content could be recognised. Lucky 38 is an interior: not captured.
+     open: no cube content could be recognised. For shapes without the window flag the Goodsprings camper, captured
+     2026-11-25, fits the direction (x, y, z) unchanged and the interpolated normal
+     [hypothesis; nif.md §6, #4392], now the default (`NVF_PLAY_DEBUG_ENV_AXES=swap-yz`, `NVF_PLAY_DEBUG_ENV_NORMAL=vertex`). Windows and Lucky 38 stay open. Lucky 38 is an interior: not captured.
      The wiki also says Lighting30ShaderProperty flips the cube orientation and is "Used
      by the engine for … advanced effect combinations (e.g. parallax + cube mapping)": if
      the engine switches a PPLighting shape with parallax and a cube to it at run time,

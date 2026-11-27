@@ -14,6 +14,11 @@
 //!   material by `presence * actor_alpha`; either effect starting, changing, or ending
 //!   recomputes the copy in place, and the last one to end removes the copy and puts the
 //!   mesh's own material back.
+//! - The copy is marked as a [`HeldCopy`]: an animated model whose rig binds the mesh's
+//!   material while it is see-through makes its own copy from the material held and puts
+//!   it there ([`follow_rig_materials`]); the fade then draws a see-through copy of the
+//!   rig's own, as it moves, and gives that back (#3919: the Hidden Valley dust storm,
+//!   enabled by its quest with a fade, stood still after it).
 //! - **Out**: the simulation keeps the reference enabled while it fades
 //!   (`fnv_game::functions::refs::FADE_OUT_HOLD`, GetDisabled 0 [observed]); its meshes
 //!   fade to nothing and stay hidden until the hold ends and the simulation disables it
@@ -34,15 +39,18 @@
 //!   fade.
 //!
 //! Log: `fade: <id> in|out over <s> s (<n> meshes)` when one starts (meshes drawn then;
-//! a cell loaded later joins in) and `fade: <id> in|out done` at its end.
+//! a cell loaded later joins in) and `fade: <id> in|out done` at its end, with `; <n>
+//! meshes given their own material anew while it ran, drawn after it` when a rig bound
+//! the material of some while it ran (#3919).
 
 use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::{PlaySet, RefVisual};
 use bevy::prelude::*;
 use fnv_sim::FormId;
+use nvf_assets::material_anim::HeldCopy;
 use nvf_assets::NifMaterial;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How long a fade lasts, seconds: a fade out as long as the original kept the reference
 /// enabled while it faded (`fnv_game::functions::FADE_OUT_HOLD`, 2 s [observed: capture
@@ -61,7 +69,26 @@ pub struct FadePlugin;
 
 impl Plugin for FadePlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<RefFade>().init_resource::<Fades>().add_systems(Update, (start, step).chain().after(crate::activate::sync_visuals).in_set(PlaySet::Sync));
+        // A model drawn while its reference fades (one a script enabled, drawn by
+        // `script_draw::sync` the frame it fades) is given the fade's held copy before its rig
+        // binds: `step` runs after the drawing and its copy goes on before
+        // `bind_rig_materials`, so the rig binds under it ([`HeldCopy`]). Otherwise the rig's
+        // own is put on over the copy and the fade gives back the model's material (#3919).
+        app.add_message::<RefFade>()
+            .init_resource::<Fades>()
+            .add_systems(
+                Update,
+                (start, step)
+                    .chain()
+                    .after(crate::activate::sync_visuals)
+                    .after(crate::script_draw::sync)
+                    .in_set(PlaySet::Sync)
+                    .before(nvf_assets::material_anim::bind_rig_materials),
+            )
+            .add_systems(
+            Update,
+            follow_rig_materials.after(nvf_assets::material_anim::bind_rig_materials).after(nvf_assets::material_anim::animate_rig_materials).after(step),
+        );
     }
 }
 
@@ -76,6 +103,9 @@ struct Active {
 #[derive(Resource, Default)]
 pub struct Fades {
     active: HashMap<u32, Active>,
+    /// The meshes of each reference given a new own material by a rig while they were
+    /// see-through (#3919), counted in the fade's "done" line.
+    renewed: HashMap<u32, HashSet<Entity>>,
 }
 
 impl Fades {
@@ -112,6 +142,10 @@ pub struct Fading {
     cut: Option<f32>,
     presence: Option<f32>,
     actor_alpha: Option<f32>,
+    /// The original is an animated model's own (bound while the mesh was see-through,
+    /// [`HeldCopy`]): the copy is made from it again every frame, so it moves as the
+    /// original does (#3919).
+    follows: bool,
 }
 
 impl Fading {
@@ -201,8 +235,10 @@ pub fn apply_factor(world: &mut World, entity: Entity, channel: FadeChannel, val
             if let Some(mut materials) = world.get_resource_mut::<Assets<NifMaterial>>() {
                 materials.remove(&copy);
             }
+            // A rig bound since [`follow_rig_materials`] last ran: its own is given back.
+            let original = world.get::<HeldCopy>(entity).filter(|h| h.copy == copy).map_or(original, |h| h.source.clone());
             if let Ok(mut e) = world.get_entity_mut(entity) {
-                e.insert(MeshMaterial3d(original)).remove::<Fading>();
+                e.insert(MeshMaterial3d(original)).remove::<(Fading, HeldCopy)>();
             }
             return;
         }
@@ -241,7 +277,11 @@ pub fn apply_factor(world: &mut World, entity: Entity, channel: FadeChannel, val
         FadeChannel::ActorAlpha => (None, Some(factor)),
     };
     if let Ok(mut e) = world.get_entity_mut(entity) {
-        e.insert((MeshMaterial3d(copy.clone()), Fading { original, copy, alpha: base_alpha, cut, presence, actor_alpha }));
+        e.insert((
+            MeshMaterial3d(copy.clone()),
+            HeldCopy { source: original.clone(), copy: copy.clone() },
+            Fading { original, copy, alpha: base_alpha, cut, presence, actor_alpha, follows: false },
+        ));
     }
 }
 
@@ -253,37 +293,73 @@ pub fn apply_retarget(world: &mut World, entity: Entity, new_original: Handle<Ni
     if world.get_entity(entity).is_err() {
         return;
     }
-    let Some((copy, factor)) = world.get::<Fading>(entity).map(|f| (f.copy.clone(), f.factor())) else {
+    if world.get::<Fading>(entity).is_none() {
         if let Ok(mut e) = world.get_entity_mut(entity) {
             e.insert(MeshMaterial3d(new_original));
         }
         return;
-    };
-    let Some(source) = world.get_resource::<Assets<NifMaterial>>().and_then(|a| a.get(&new_original).cloned()) else {
-        return;
-    };
-    let (rebuilt, base_alpha, cut) = make_see_through(&source, factor);
-    let mut replaced_copy = None;
-    if let Some(mut materials) = world.get_resource_mut::<Assets<NifMaterial>>() {
-        if materials.contains(copy.id()) {
-            if let Some(mut dst) = materials.get_mut(&copy) {
-                *dst = rebuilt;
-            }
-        } else {
-            replaced_copy = Some(materials.add(rebuilt));
-        }
     }
-    if let Some(mut f) = world.get_mut::<Fading>(entity) {
+    let renewed = world.resource_scope(|world, mut materials: Mut<Assets<NifMaterial>>| {
+        let mut f = world.get_mut::<Fading>(entity)?;
+        let old_copy = f.copy.clone();
         f.original = new_original;
-        f.alpha = base_alpha;
-        f.cut = cut;
-        if let Some(new_copy) = &replaced_copy {
-            f.copy = new_copy.clone();
+        rebuild_copy(&mut materials, &mut f).then(|| (old_copy, f.original.clone(), f.copy.clone()))
+    });
+    let Some((old_copy, original, copy)) = renewed else { return };
+    if let Ok(mut e) = world.get_entity_mut(entity) {
+        e.insert(HeldCopy { source: original, copy: copy.clone() });
+        if copy != old_copy {
+            e.insert(MeshMaterial3d(copy));
         }
     }
-    if let Some(new_copy) = replaced_copy {
-        if let Ok(mut e) = world.get_entity_mut(entity) {
-            e.insert(MeshMaterial3d(new_copy));
+}
+
+/// Make `f`'s see-through copy again from its original at its current factor: in place,
+/// or as a new asset when the old copy is gone (then `f.copy` is the new one). False when
+/// the original is not loaded, and nothing changed [design, #3105, #3919].
+fn rebuild_copy(materials: &mut Assets<NifMaterial>, f: &mut Fading) -> bool {
+    let Some(source) = materials.get(&f.original) else { return false };
+    let (rebuilt, base_alpha, cut) = make_see_through(source, f.factor());
+    if materials.contains(f.copy.id()) {
+        if let Some(mut dst) = materials.get_mut(&f.copy) {
+            *dst = rebuilt;
+        }
+    } else {
+        f.copy = materials.add(rebuilt);
+    }
+    f.alpha = base_alpha;
+    f.cut = cut;
+    true
+}
+
+/// #3919: a mesh whose animated model's rig bound its material while it was see-through
+/// ([`HeldCopy`], `nvf_assets::material_anim::bind_rig_materials`) wears the fade's copy
+/// still, the rig's own copy held beneath it. That own copy becomes the original, which
+/// the see-through copy is made from again every frame, after the rig's pose (one
+/// material clone per such mesh a frame), so it moves; it is given back at the end.
+#[allow(clippy::type_complexity)]
+pub fn follow_rig_materials(
+    mut st: ResMut<Fades>,
+    mut materials: ResMut<Assets<NifMaterial>>,
+    mut meshes: Query<(Entity, &mut HeldCopy, &mut Fading, Option<&mut MeshMaterial3d<NifMaterial>>, Option<&RefVisual>)>,
+) {
+    for (e, mut h, mut f, worn, rv) in &mut meshes {
+        if h.copy == f.copy && h.source != f.original {
+            f.original = h.source.clone();
+            f.follows = true;
+            // Counted for a presence fade's log line (an actor alpha alone has none).
+            if let Some(rv) = rv.filter(|rv| st.active.contains_key(&rv.0)) {
+                st.renewed.entry(rv.0).or_default().insert(e);
+            }
+        }
+        if f.follows {
+            let old = f.copy.clone();
+            if rebuild_copy(&mut materials, &mut f) && f.copy != old {
+                h.copy = f.copy.clone();
+                if let Some(mut worn) = worn {
+                    worn.0 = f.copy.clone();
+                }
+            }
         }
     }
 }
@@ -397,7 +473,13 @@ fn step(
     let done: Vec<(u32, bool)> = st.active.iter().filter(|(&id, a)| over(id, a)).map(|(&id, a)| (id, a.fade_in)).collect();
     for (id, fade_in) in done {
         st.active.remove(&id);
-        info!("fade: 0x{id:08X} {} done", if fade_in { "in" } else { "out" });
+        let renewed = st.renewed.remove(&id).map_or(0, |m| m.len());
+        let way = if fade_in { "in" } else { "out" };
+        if renewed > 0 {
+            info!("fade: 0x{id:08X} {way} done; {renewed} meshes given their own material anew while it ran, drawn after it");
+        } else {
+            info!("fade: 0x{id:08X} {way} done");
+        }
     }
 }
 
@@ -513,6 +595,142 @@ mod tests {
         apply_factor(&mut world, e, FadeChannel::Presence, None);
         apply_factor(&mut world, e, FadeChannel::ActorAlpha, None);
         assert!(world.get::<Fading>(e).is_none());
+        assert_eq!(world.get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, edited);
+    }
+
+    /// #3919: a reference enabled with a fade whose model scrolls its texture (the Hidden
+    /// Valley storm's sheets). The fade's copy goes on before the model's rig binds its
+    /// material; the rig's own is made from the mesh's own, fades in as it moves, and is
+    /// what is drawn after the fade.
+    #[test]
+        fn an_animated_model_bound_while_it_fades_in_keeps_its_own_material_moving() {
+        use fnv_nif::anim::{Channel, Key, KeyKind, Keys, ValueTrack};
+        use nvf_assets::anim_play::{Clip, MaterialTarget, MaterialTrack, Playing};
+        use nvf_assets::material_anim::{animate_rig_materials, bind_rig_materials, MaterialSlot, RigMaterials};
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        const ID: u32 = 0x0000_0D01;
+        let mut app = App::new();
+        app.insert_resource(SimState::over_placed([crate::sim::placed_ref(ID)]))
+            .init_resource::<Assets<NifMaterial>>()
+            .init_resource::<Time<Virtual>>()
+            .add_plugins(FadePlugin)
+            .add_systems(Update, (bind_rig_materials, animate_rig_materials).chain().after(step));
+        let original = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(nvf_assets::nif_material::nif_material(StandardMaterial::default()));
+        let mesh = app.world_mut().spawn((RefVisual(ID), MeshMaterial3d(original.clone()), Visibility::Inherited)).id();
+        let worn = |app: &App| app.world().get::<MeshMaterial3d<NifMaterial>>(mesh).unwrap().0.clone();
+        let look = |app: &App, h: &Handle<NifMaterial>| {
+            let m = app.world().resource::<Assets<NifMaterial>>().get(h).unwrap();
+            (m.base.uv_transform.translation.x, m.base.base_color.alpha())
+        };
+
+        app.world_mut().write_message(RefFade { form_id: ID, fade_in: true });
+        app.update();
+        let copy = app.world().get::<Fading>(mesh).unwrap().copy().clone();
+        assert_eq!(worn(&app), copy);
+
+        // The model's scroll: half a repeat a second, on a 4 s loop.
+        let track = MaterialTrack {
+            shape: "sheet".into(),
+            target: MaterialTarget::UvOffset(0),
+            cycle: None,
+            priority: 0,
+            values: Arc::new(ValueTrack::Float(Channel::Keys(Keys {
+                kind: KeyKind::Linear,
+                keys: [(0.0, 0.0), (4.0, 2.0)].into_iter().map(|(time, value)| Key { time, value: [value], forward: [0.0], backward: [0.0], tbc: [0.0; 3] }).collect(),
+            }))),
+        };
+        let mut clip = Clip::from_controllers(vec![track.clone()], Vec::new(), Vec::new());
+        clip.stop = 4.0;
+        clip.cycle_type = 0;
+        let rig = app
+            .world_mut()
+            .spawn((Playing::new("sheet", &clip, |_| None), RigMaterials { slots: vec![MaterialSlot::new("sheet".into(), mesh, original.clone(), [0.0; 3], 1.0, 1.0)], idle: Arc::new(vec![track]), dark: false, fade: 1.0 }))
+            .id();
+        let play = |app: &mut App, played: f32, faded: f32| {
+            app.world_mut().get_mut::<Playing>(rig).unwrap().time = played;
+            app.world_mut().resource_mut::<Time<Virtual>>().advance_by(Duration::from_secs_f32(faded));
+            app.update();
+            app.world().get::<RigMaterials>(rig).unwrap().slots[0].handle.clone()
+        };
+
+        // Bound while it fades: the fade's copy stays on, its source the rig's own.
+        let own = play(&mut app, 0.5, 0.0);
+        assert_ne!(own, original, "the rig has its own copy");
+        assert_ne!(own, copy, "made from the mesh's own, not the fade's copy");
+        assert_eq!(worn(&app), copy);
+        assert_eq!(app.world().get::<HeldCopy>(mesh).unwrap().source, own);
+        // The fade follows it: the copy drawn moves as the rig's own does, see-through.
+        for (played, alpha) in [(1.0, 0.25), (2.0, 0.5)] {
+            assert_eq!(play(&mut app, played, 0.5), own);
+            assert_eq!(worn(&app), copy);
+            assert_eq!(app.world().get::<Fading>(mesh).unwrap().original(), &own);
+            assert_eq!(look(&app, &own), (played * 0.5, 1.0), "its own stays opaque");
+            // The copy is made after this frame's rig pose (`follow_rig_materials`).
+            assert_eq!(look(&app, &copy), (played * 0.5, alpha), "at {played} s the copy moves with it");
+        }
+
+        // At its end the rig's own is drawn, and it goes on moving.
+        play(&mut app, 3.0, 2.0);
+        assert!(app.world().get::<Fading>(mesh).is_none());
+        assert!(app.world().get::<HeldCopy>(mesh).is_none());
+        assert!(!app.world().resource::<Assets<NifMaterial>>().contains(copy.id()));
+        assert_eq!(worn(&app), own);
+        assert!(app.world().resource::<Fades>().renewed.is_empty(), "counted in the done line, then dropped");
+        play(&mut app, 3.5, 0.5);
+        assert_eq!(worn(&app), own);
+        assert_eq!(look(&app, &own), (1.75, 1.0));
+    }
+
+    /// #3919 with #3105: a retarget (SwapTexture) while a rig's own material is followed
+    /// under the see-through copy makes the swapped material the one held, followed and
+    /// given back.
+    #[test]
+    fn retarget_while_a_rigs_own_material_is_followed_moves_the_held_copy_too() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.init_resource::<Assets<NifMaterial>>();
+        world.init_resource::<Fades>();
+        let add = |world: &mut World, alpha: f32, emissive: LinearRgba| {
+            world.resource_mut::<Assets<NifMaterial>>().add(nvf_assets::nif_material(StandardMaterial { base_color: Color::linear_rgba(1.0, 1.0, 1.0, alpha), emissive, ..default() }))
+        };
+        let own = add(&mut world, 1.0, LinearRgba::BLACK);
+        let rig_own = add(&mut world, 1.0, LinearRgba::rgb(0.0, 1.0, 0.0));
+        let edited = add(&mut world, 0.5, LinearRgba::rgb(0.9, 0.1, 0.2));
+        let e = world.spawn(MeshMaterial3d(own.clone())).id();
+
+        apply_factor(&mut world, e, FadeChannel::Presence, Some(0.4));
+        let copy = world.get::<Fading>(e).unwrap().copy().clone();
+        {
+            let h = world.get::<HeldCopy>(e).expect("the new copy is held");
+            assert_eq!((&h.source, &h.copy), (&own, &copy));
+        }
+        // A rig binds: its own copy is held beneath the fade's (`bind_rig_materials`).
+        world.get_mut::<HeldCopy>(e).unwrap().source = rig_own.clone();
+        world.run_system_once(follow_rig_materials).unwrap();
+        assert_eq!(world.get::<Fading>(e).unwrap().original(), &rig_own);
+        assert_eq!(world.resource::<Assets<NifMaterial>>().get(&copy).unwrap().base.emissive, LinearRgba::rgb(0.0, 1.0, 0.0));
+
+        apply_retarget(&mut world, e, edited.clone());
+        {
+            let h = world.get::<HeldCopy>(e).unwrap();
+            assert_eq!((&h.source, &h.copy), (&edited, &copy));
+        }
+        // Followed from the swapped material now, not taken back to the rig's.
+        world.run_system_once(follow_rig_materials).unwrap();
+        assert_eq!(world.get::<Fading>(e).unwrap().original(), &edited);
+        assert_eq!(world.get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, copy);
+        {
+            let m = world.resource::<Assets<NifMaterial>>().get(&copy).unwrap();
+            assert_eq!(m.base.emissive, LinearRgba::rgb(0.9, 0.1, 0.2));
+            assert!((m.base.base_color.alpha() - 0.5 * 0.4).abs() < 1e-6);
+        }
+
+        apply_factor(&mut world, e, FadeChannel::Presence, None);
+        assert!(world.get::<Fading>(e).is_none());
+        assert!(world.get::<HeldCopy>(e).is_none());
+        assert!(!world.resource::<Assets<NifMaterial>>().contains(copy.id()));
         assert_eq!(world.get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, edited);
     }
 }

@@ -275,12 +275,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             XVal::Num(((p[3] - p[0]).powi(2) + (p[4] - p[1]).powi(2) + (p[5] - p[2]).powi(2)).sqrt())
         }
         // Load-order override queries backed by `GameData::form_overrides`
-        // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden;
+        // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden ("overridden by a
+        // plugin lower in the load order than the calling script");
         // observed: plugins1, non-overridden Stimpak returns 0 and 0;
         // observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528,
-        // clean-room script probe jg_01_form_override_index_edge: overridden pistol=5,
-        // null=0, TempCloneForm=255, IsFormOverridden(clone)=0; no DLL or source consulted].
-        "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden(f))),
+        // clean-room script probe jg_01_form_override_index_edge (runtime CompileScript
+        // caller): overridden pistol GetFormOverrideIndex=5, null=0, TempCloneForm=255,
+        // IsFormOverridden(pistol)=0, IsFormOverridden(clone)=0; no DLL or source consulted].
+        "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden_after(f, &g.other.plugin))),
         "getformoverrideindex" => {
             let Some(f) = form(args, 0).or(subject) else { return Some(Ok(XVal::Num(0.0))) };
             let idx = if let Some(i) = g.data.form_override_index(f) {

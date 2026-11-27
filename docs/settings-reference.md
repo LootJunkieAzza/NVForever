@@ -118,6 +118,18 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
 - In full: Off by default. When on, each non-player NPC (`NPC_`, including leveled `LVLN` picks) rolls once when its main weapon is outfitted for a `Min(60, Max(10, Level * 2))`% chance to attach 1-3 random weapon mods from the weapon's valid `WMI1`-`WMI3` slots, without overwriting already-modded weapons or re-rolling across ticks. Never reads `jip_nvse.ini` (`docs/design/extender-compat.md` §8.4). Follows JIP LN NVSE Plugin `57.30` (`https://www.nexusmods.com/newvegas/mods/58277`) `jip_nvse.ini` `[GamePatches]` `bNPCWeaponMods` (`uWMChancePerLevel=2`, `uWMChanceMin=10`, `uWMChanceMax=60`; no DLL or source consulted): "When enabled, all NPCs will have a chance for their main weapon to include weapon mods. The chance is based on each NPC's level - the higher the level, the greater the chance. The type of mod(s) is selected randomly from the ones available for the particular weapon. Weapons have a chance to include multiple mods, though 2 mods is rare, and a fully-modded weapon is uncommon." NVForever's deterministic per-NPC seed, multi-mod probability curve, and single-roll tracking are NVForever's own (`[design]`, `docs/spec-notes/npc-weapon-mods.md`, #3876).
 - Registered in `engine/nvf-play/src/tweaks.rs`
 
+### `sneak-bounding-box`: Crouch height collision
+
+- On the page: On: crouching shrinks collision height for you and crouching human companions
+  to fit under low spaces, holding sneak if headroom is blocked. Off: fixed standing height.
+- In full: Default Off (vanilla keeps the standing character collider height while sneaking).
+  When On, crouching scales the collision capsule height for the player and crouching human
+  companions so they can move under low clearances, and keeps sneak active if overhead
+  geometry blocks standing back up. Optional NVForever setting following the public
+  `bSneakBoundingBoxFix` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/sneak-bounding-box.md`, #3845).
+- Registered in `engine/nvf-play/src/player.rs`
+
 ## Gameplay › V.A.T.S.
 
 ### `vats-style`: V.A.T.S. style
@@ -321,6 +333,22 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   following the public `bLocalizedDTDR` behaviour in JIP LN NVSE Plugin v57.30
   (`docs/spec-notes/localized-dt-dr.md`, #3843).
 - Registered in `engine/nvf-play/src/combat.rs`
+
+## Gameplay › Menus
+
+### `quantity-select-short-keys`: Quantity select shortcuts
+
+- On the page: In inventory, container and barter menus, Shift transfers or drops the whole
+  stack, Ctrl acts on one item, and weightless container stacks open the quantity prompt.
+- In full: Off by default (unmodded menu behaviour unchanged). On: in Inventory, Container
+  and Barter menus, holding Shift transfers or drops the entire stack and holding Ctrl
+  transfers or drops a single item without opening the quantity prompt (Shift takes
+  precedence if both are held); picking up a stack of more than one weightless item (such
+  as ammo outside Hardcore mode) from a container opens the quantity prompt instead of
+  taking without asking. Optional NVForever setting following the public `bQttSelectShortKeys`
+  behaviour in JIP LN NVSE Plugin v57.30 (`docs/spec-notes/quantity-select-short-keys.md`,
+  #3799).
+- Registered in `engine/nvf-play/src/menu.rs`
 
 ## Gameplay › Bug Reports
 
@@ -593,6 +621,13 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   make, as detection counts them. Not in the original.
 - Registered in `engine/nvf-play/src/sneak_gauges.rs`
 
+### `caravan-tips`: Caravan tips
+
+- On the page: On: the Caravan table says what the chosen card does and why a card can't be
+  played, and the menu has a Tips button. Off: only the game's short messages. Not in
+  the original.
+- Registered in `engine/nvf-play/src/caravan.rs`
+
 ### `dynamic-crosshair`: Dynamic crosshair
 
 - On the page: On: with a gun or thrown weapon drawn the crosshair opens with how wide your
@@ -610,6 +645,18 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
 - In full: With Dynamic crosshair on and a gun or thrown weapon drawn. Cross: four bars that
   part with the spread. Arrows: the plain crosshair's two arrows part instead.
 - Registered in `engine/nvf-play/src/reticle.rs`
+
+### `location-load-screens`: Location-specific loading screens
+
+- On the page: On: prefer loading screens matching the destination cell or worldspace over
+  generic screens. Off: mix matching and generic loading screens as in the original.
+- In full: Default Off (vanilla mixes generic loading screens into the same pool as
+  location-specific `LSCR` records). When On, destination-matching location-specific `LSCR`
+  records are always preferred over generic loading screens, falling back to generic screens
+  only when no location-specific screen matches. Optional NVForever setting following the
+  public `bLoadScreenFix` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/location-load-screens.md`, #3844).
+- Registered in `engine/nvf-play/src/loading.rs`
 
 ### `ui-scale`: HUD scale
 
@@ -1136,10 +1183,14 @@ below cover them all.
 
 - On the page: Creases, corners and the ground under things darken by how enclosed they are:
   Off, Performance (cheaper, a little grainier) or Quality. Not in the original.
-- In full: Screen-space ambient occlusion from the depth, on the ambient light and the lamps
-  that cast no shadow: Off; Performance (one slice direction a pixel instead of two: half the
-  horizon march, the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4
-  steps a side at half resolution, depth-aware denoise). Quality in the enhanced look.
+- In full: Screen-space ambient occlusion from the depth, on the ambient light, on the lamps
+  that cast no shadow and by half on those that do (the flashlight, the ALC shadows row's
+  lamps), and on the lamps' highlights (a shiny surface no longer glints in a crease as in the
+  open): Off; Performance (one slice direction a pixel instead of two: half the horizon march,
+  the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4 steps a side at
+  half resolution, depth-aware denoise). Under TAA, FSR or DLSS its sample pattern moves each
+  frame, so what the denoise leaves on leaves and outlines is averaged away. Quality in the
+  enhanced look.
 - Shown as a list since 2026-11-19; an INI written while it was an on/off switch (`1`/`0`,
   true/false, on/off, yes/no) still loads as Quality or Off.
 - Command-line switches: `--graphics`, `--ambient-occlusion`
@@ -1462,11 +1513,11 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   docs/spec-notes/pbr-materials.md), the ground near the camera shows that relief: one
   march over the layers' heights, blended as the layers are, moves the texture coordinate
   every ground texture is read at, fading out by 2048 units; each layer moves as far as its
-  own set's depth asks. The base texture of a quadrant and layers without a height map
-  count as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
+  own set's depth asks, and so does the base texture of a quadrant (#3846). A base or layer
+  without a height map counts as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
   collision, the mesh terrain blend and the distant landscape keep the plain surface, and
   so do layers drawn on their own (GPUs without bindless textures; a texture repeat that
-  does not divide the cell). A layer whose texture has no set takes the height from its
+  does not divide the cell). A layer or base whose texture has no set takes the height from its
   diffuse's alpha where that is a varying DXT5 alpha, as the ground packs for the original's
   terrain parallax shaders have it (depth 0.03; read only while the switch is on, over some
   frames when it is switched on in a game). Needs
