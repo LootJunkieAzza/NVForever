@@ -54,7 +54,8 @@ menu: scripts see it as open until the player leaves it.
   "<name> (<have>/<need>)". NVForever's hand-built page writes the titles the file's
   settings give (`sRecipes` in capitals, `sMadeAt`, `sSkillRequirement`, `sIngredients`),
   as the tile page does [design, #4495: in place of the words read from the screen].
-- Under the list: the first output's WG and VAL.
+- Under the list: the first output's WG and VAL. NVForever's cards read the settings
+  `sInventoryWeightUpper` and `sInventoryValue`, as the Pip-Boy's do [design, #4495].
 - Accept A) and Exit X).
 - **The shade** (2026-10-19) [observed: the owner's screenshot at 1920 x 1080,
   C:\fnv-private\references\crafting_repair\recipes.jpg; documented: `RM_Background`,

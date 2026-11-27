@@ -4,7 +4,8 @@ The plan is a crate that works out the light that an interior's lamps throw back
 surfaces, as a small 3D texture, on the CPU and without Bevy. It is built in parts, each with
 tests on scenes it makes itself. **Built: part 1, the ray scene, part 2, the light gathered at
 points of the air, part 3, the volume, and part 4, the fit of its constants.** Nothing in the game
-calls it yet: there is no setting, no upload and no shader. It ships no data.
+solves anything yet and there is no setting; of the crate the game has the volume and its read alone
+([rtgi-volume](rtgi-volume.md)). It ships no data.
 
 The direction now is a live solve on the GPU from the first frame of a visit, with this solver as its
 reference ([below](#for-another-tracer-the-live-solve)). "The whole" is the earlier plan, for the CPU

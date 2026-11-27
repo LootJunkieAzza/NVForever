@@ -375,6 +375,12 @@ impl Loading {
     pub fn placing_capped(&self) -> bool {
         self.placing_capped
     }
+
+    /// A start's screen that is up, and settling or not, for the tests of who follows it.
+    #[cfg(feature = "test-support")]
+    pub fn starting_for_test(settling: bool) -> Loading {
+        Loading { start: Some(StartHold { started: 0.0, ready: settling.then_some((0.0, 0)) }), ..default() }
+    }
 }
 
 /// The loading screens of the plugins.

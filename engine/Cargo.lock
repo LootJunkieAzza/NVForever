@@ -4820,6 +4820,7 @@ dependencies = [
  "nvf-coop",
  "nvf-dlss-files",
  "nvf-play",
+ "nvf-rtgi",
  "png",
  "rapier3d",
  "rayon",
