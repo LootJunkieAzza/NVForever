@@ -1014,14 +1014,17 @@ fn stubs(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> Valu
         .filter(|(c, k, ..)| c + k > 0)
         .map(|(c, k, op, f)| (c + k, json!({"opcode": format!("0x{op:04X}"), "name": f.name, "origin": origin(*op), "calls": c, "condition_uses": k})))
         .collect();
-    // Opcodes the load order's scripts call that the function table has never seen (a
-    // plugin's commands the catalogue does not name, #1408), and nothing answers.
-    for (op, c) in &stats.calls {
-        if *op >= 0x1000 && l.table.get(*op).is_none() && fnv_game::functions::lookup(*op).is_none() && !by_name.contains(op) {
-            let n = c[0] + c[1];
-            unhandled.push((n, json!({"opcode": format!("0x{op:04X}"), "name": null, "origin": "", "calls": n, "condition_uses": 0, "counted_from": "calls"})));
-        }
-    }
+    // Opcodes the load order's scripts call that the function table has no name for (a
+    // plugin's commands the catalogue never saw, or bytes no name matches: the
+    // catalogue's `unresolved_opcodes`), and nothing answers (#1408). Kept apart from
+    // `unhandled`, which lists named functions.
+    let mut unnamed: Vec<(u64, Value)> = stats
+        .calls
+        .iter()
+        .filter(|(op, _)| **op >= 0x1000 && l.table.get(**op).is_none() && fnv_game::functions::lookup(**op).is_none() && !by_name.contains(op))
+        .map(|(op, c)| (c[0] + c[1], json!({"opcode": format!("0x{op:04X}"), "calls": c[0] + c[1]})))
+        .collect();
+    unnamed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1["opcode"].as_str().cmp(&b.1["opcode"].as_str())));
     // Condition indices the catalogue does not count (no `condition_uses`, often no page
     // at all) that a CTDA in the load order uses and nothing answers: the registry has
     // no function and `Game::condition_value` no handler (#3614: 123 and 258 reached
@@ -1063,9 +1066,11 @@ fn stubs(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> Valu
             "stub_calls": stub_calls,
             "stub_condition_uses": stub_conds,
             "unhandled_used": unhandled.len(),
+            "unnamed_called": unnamed.len(),
         },
         "functions": rows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
         "unhandled": unhandled.into_iter().map(|r| r.1).collect::<Vec<_>>(),
+        "unnamed": unnamed.into_iter().map(|r| r.1).collect::<Vec<_>>(),
     })
 }
 
