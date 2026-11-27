@@ -373,11 +373,46 @@ impl Status {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BodySet;
 
+/// Named NVForever option `sneak-bounding-box` (off by default; #3845): when enabled,
+/// crouching shrinks the character collider height for the player and crouching human
+/// companions and keeps sneak active if overhead geometry blocks standing back up
+/// [documented: JIP LN NVSE v57.30 / Settings INI v56.24 `jip_nvse.ini`
+/// `bSneakBoundingBoxFix`; no DLL or source consulted; design:
+/// `docs/spec-notes/sneak-bounding-box.md`].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SneakBoundingBox(pub bool);
+
+/// Keep [`PhysState::sneak_bounding_box_fix`] and crouching human companions'
+/// [`crate::phys::NpcBody::sneak_crouch`] aligned with the live [`SneakBoundingBox`]
+/// setting so toggling it from the pause menu takes effect immediately.
+pub(crate) fn sync_sneak_bounding_box(
+    setting: Option<Res<SneakBoundingBox>>,
+    script: Option<Res<crate::script::ScriptState>>,
+    mut phys: Option<ResMut<PhysState>>,
+) {
+    let Some(p) = phys.as_deref_mut() else { return };
+    let enabled = setting.as_deref().is_some_and(|s| s.0);
+    if p.sneak_bounding_box_fix != enabled {
+        p.sneak_bounding_box_fix = enabled;
+    }
+    if let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) {
+        for (&id, body) in &mut p.npcs {
+            let r = FormId(id);
+            body.sneak_crouch = enabled && rt.game.is_teammate(r) && rt.game.is_human_npc(r) && rt.game.sneaks(r);
+        }
+    } else if !enabled {
+        for body in p.npcs.values_mut() {
+            body.sneak_crouch = false;
+        }
+    }
+}
+
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MoveIntent>()
+            .init_resource::<SneakBoundingBox>()
             .add_message::<crate::rumble::Landed>()
             .init_resource::<Controls>()
             .init_resource::<Status>()
@@ -410,7 +445,7 @@ impl Plugin for PlayerPlugin {
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
-                (place_initial, interior_net, crate::phys::piles_pass_their_corpses, step, crate::phys::settle_created, sync_sim, log_status)
+                (place_initial, interior_net, crate::phys::piles_pass_their_corpses, sync_sneak_bounding_box, step, crate::phys::settle_created, sync_sim, log_status)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),
@@ -513,6 +548,19 @@ impl Plugin for PlayerPlugin {
                 switches: "",
                 get: |w| w.resource::<crate::control::DetachedCamera>().0,
                 set: |w, on| w.resource_mut::<crate::control::DetachedCamera>().0 = on,
+                slider: None,
+            },
+        );
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "sneak-bounding-box",
+                group: crate::pause::GROUP_MENUS,
+                label: "Crouch height collision",
+                note: "On: crouching shrinks collision height for you and crouching human companions to fit under low spaces, holding sneak if headroom is blocked. Off: fixed standing height.",
+                switches: "",
+                get: |w| w.resource::<SneakBoundingBox>().0,
+                set: |w, on| w.resource_mut::<SneakBoundingBox>().0 = on,
                 slider: None,
             },
         );
@@ -1466,6 +1514,40 @@ fn interior_net(
 /// it is put back on the ground (logged as a warning).
 const FELL_THROUGH: f32 = 1000.0;
 
+/// Optional `sneak-bounding-box` setting (#3845): shrink crouch collider height for the
+/// player and crouching human companions once per frame before movement substeps. If
+/// standing up is refused because headroom is blocked, keep `intent.sneak` and
+/// `control.sneak` crouched so camera height, movement speed, and `IsSneaking` stay in sync
+/// with the collider [design: `docs/spec-notes/sneak-bounding-box.md`].
+fn sync_sneak_heights(p: &mut PhysState, intent: &mut MoveIntent, control: Option<&mut PlayerControl>) {
+    if let Some(c) = p.player.as_mut() {
+        let want_height = if p.sneak_bounding_box_fix && intent.sneak && !c.swimming {
+            fnv_phys::character::HEIGHT * fnv_phys::character::CROUCH_HEIGHT_SCALE
+        } else {
+            fnv_phys::character::HEIGHT
+        };
+        if (c.params.height - want_height).abs() > 1e-3 {
+            let growing = want_height > c.params.height;
+            if !p.world.set_character_height(c, want_height) && growing {
+                intent.sneak = true;
+                if let Some(ctrl) = control {
+                    ctrl.sneak = true;
+                }
+            }
+        }
+    }
+    for n in p.npcs.values_mut() {
+        let npc_want = if p.sneak_bounding_box_fix && n.sneak_crouch {
+            n.standing_height * fnv_phys::character::CROUCH_HEIGHT_SCALE
+        } else {
+            n.standing_height
+        };
+        if (n.ch.params.height - npc_want).abs() > 1e-3 {
+            p.world.set_character_height(&mut n.ch, npc_want);
+        }
+    }
+}
+
 /// Fixed steps of the character for the frame's time; the camera's feet between the last
 /// two.
 #[allow(clippy::too_many_arguments)]
@@ -1484,7 +1566,7 @@ fn step(
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip, mut inertia): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>, ResMut<crate::inertia::MovementInertia>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (tweaks, mut control): (Option<Res<crate::tweaks::TweakSettings>>, Option<ResMut<PlayerControl>>),
 ) {
     if *state.get() != PlayState::Playing {
         // No time reaches the stepper while not playing, so nothing steps; its remainder is
@@ -1592,6 +1674,7 @@ fn step(
     let p = &mut *phys;
     let dt = p.world.params.dt;
     let n = p.stepper.advance(&p.world.params, time.delta_secs());
+    sync_sneak_heights(p, &mut intent, control.as_deref_mut());
     let c = p.player.as_mut().expect("placed");
     inertia.check_game_placed(player.placed);
     inertia.check_placed(c.feet);
@@ -2435,5 +2518,153 @@ mod tests {
         // Fallback eye height scales cleanly with SetScale.
         let p = Player { heading: 0.0, pitch: 0.0, eye_height: EYE_HEIGHT * 0.4, feet: [0.0, 0.0, 10.0], body_eye: None, body_view: None, placed: None };
         assert!((p.eye()[2] - (10.0 + EYE_HEIGHT * 0.4)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn sneak_bounding_box_setting_defaults_off_syncs_and_round_trips_ini() {
+        use bevy::app::PostStartup;
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::MinimalPlugins;
+
+        let dir = std::env::temp_dir().join(format!("nvf-sneak-bbox-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+
+        let make_app = |ini_path: &std::path::Path| {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+                .init_state::<PlayState>()
+                .insert_resource(crate::settings::SettingsFile(Some(ini_path.to_path_buf())))
+                .init_resource::<crate::settings::GivenSwitches>()
+                .add_plugins(PlayerPlugin)
+                .add_systems(PostStartup, crate::settings::apply_stored);
+            app.world_mut().run_schedule(PostStartup);
+            app
+        };
+
+        // 1. Fresh start with no INI: defaults to off, within note budget.
+        let mut app = make_app(&path);
+        assert!(!app.world().resource::<SneakBoundingBox>().0, "must default to off");
+        let idx = app.world().resource::<crate::settings::Settings>().index("sneak-bounding-box").expect("setting registered");
+        let row = &app.world().resource::<crate::settings::Settings>().list()[idx];
+        assert_eq!(crate::settings::note_over_budget(row.note), None, "note must fit within 200-char budget");
+
+        // Live sync propagates to PhysState::sneak_bounding_box_fix and persists to NVForever.ini.
+        app.insert_resource(PhysState::default());
+        assert_eq!(crate::settings::flip(app.world_mut(), idx), Some(true));
+        app.world_mut().run_system_once(sync_sneak_bounding_box).unwrap();
+        assert!(app.world().resource::<SneakBoundingBox>().0);
+        assert!(app.world().resource::<PhysState>().sneak_bounding_box_fix);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert!(ini.contains("sneak-bounding-box=1"), "persisted to NVForever.ini: {ini}");
+
+        // 2. Next start loads ON from NVForever.ini.
+        let mut reloaded = make_app(&path);
+        assert!(reloaded.world().resource::<SneakBoundingBox>().0, "restored from NVForever.ini");
+
+        // 3. Flipping back off writes 0 and restores off on next start.
+        let idx2 = reloaded.world().resource::<crate::settings::Settings>().index("sneak-bounding-box").unwrap();
+        assert_eq!(crate::settings::flip(reloaded.world_mut(), idx2), Some(false));
+        let ini_off = std::fs::read_to_string(&path).unwrap();
+        assert!(ini_off.contains("sneak-bounding-box=0"), "off persisted: {ini_off}");
+        let reloaded_off = make_app(&path);
+        assert!(!reloaded_off.world().resource::<SneakBoundingBox>().0, "off restored from NVForever.ini");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sneak_bounding_box_off_keeps_vanilla_height_and_on_holds_sneak_under_lintel() {
+        use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+        use fnv_phys::{CharacterParams, RefPose};
+
+        let box_obj = |half_extents: [f32; 3]| CollisionObject {
+            node: None,
+            node_block: 0,
+            node_transform: Iso::IDENTITY,
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Static,
+            layer: 1,
+            mass: 0.0,
+            friction: 0.5,
+            restitution: 0.0,
+            shape: Shape::Box { half_extents }.into(),
+            shell: 0.0,
+            material: None,
+            wind: false,
+        };
+        let pose = |id: u32, position: [f32; 3]| RefPose {
+            form_id: id,
+            position,
+            rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            scale: 1.0,
+        };
+
+        let mut phys = PhysState::default();
+        // Floor top at z = 0; low lintel spanning x = 80..180 with bottom at z = 100.
+        phys.world.add_ref(&pose(1, [0.0, 0.0, -10.0]), &[box_obj([500.0, 500.0, 10.0])]);
+        phys.world.add_ref(&pose(2, [130.0, 0.0, 125.0]), &[box_obj([50.0, 200.0, 25.0])]);
+        phys.world.step();
+
+        let ch = phys.world.add_character(FormId::PLAYER_REF.0, CharacterParams::default(), [0.0, 0.0, 1.0]);
+        phys.player = Some(ch);
+        let companion_id = 0x5001;
+        let companion_ch = phys.world.add_character(companion_id, CharacterParams::default(), [20.0, 40.0, 1.0]);
+        let companion_standing = companion_ch.params.height;
+        phys.npcs.insert(
+            companion_id,
+            crate::phys::NpcBody {
+                prev_feet: companion_ch.feet,
+                ch: companion_ch,
+                velocity: [0.0; 2],
+                jump: false,
+                sink: 0.0,
+                lift: Default::default(),
+                standing_height: companion_standing,
+                sneak_crouch: true,
+            },
+        );
+
+        let mut intent = MoveIntent { sneak: true, ..default() };
+        let mut control = PlayerControl { sneak: true, ..default() };
+        let crouched = fnv_phys::character::HEIGHT * fnv_phys::character::CROUCH_HEIGHT_SCALE;
+
+        // 1. Default off (vanilla unchanged): sneaking does not shrink player or companion collider.
+        assert!(!phys.sneak_bounding_box_fix, "must default to off");
+        sync_sneak_heights(&mut phys, &mut intent, Some(&mut control));
+        assert!((phys.player.as_ref().unwrap().params.height - fnv_phys::character::HEIGHT).abs() < 1e-3);
+        assert!((phys.npcs[&companion_id].ch.params.height - companion_standing).abs() < 1e-3);
+
+        // 2. Enabled: crouching in open space shrinks both player and crouching human companion.
+        phys.sneak_bounding_box_fix = true;
+        sync_sneak_heights(&mut phys, &mut intent, Some(&mut control));
+        assert!((phys.player.as_ref().unwrap().params.height - crouched).abs() < 1e-3);
+        assert!((phys.npcs[&companion_id].ch.params.height - companion_standing * fnv_phys::character::CROUCH_HEIGHT_SCALE).abs() < 1e-3);
+
+        // 3. Move player under the low lintel and attempt to un-crouch: headroom refuses stand-up,
+        // and both intent.sneak and control.sneak stay true so camera/speed/IsSneaking stay synced.
+        if let Some(c) = phys.player.as_mut() {
+            phys.world.place_character(c, [130.0, 0.0, 0.0]);
+        }
+        phys.world.step();
+        intent.sneak = false;
+        control.sneak = false;
+        sync_sneak_heights(&mut phys, &mut intent, Some(&mut control));
+        assert!((phys.player.as_ref().unwrap().params.height - crouched).abs() < 1e-3);
+        assert!(intent.sneak, "blocked stand-up must keep MoveIntent::sneak active");
+        assert!(control.sneak, "blocked stand-up must keep PlayerControl::sneak active");
+
+        // 4. Move clear of the lintel and release sneak: stands up cleanly.
+        if let Some(c) = phys.player.as_mut() {
+            phys.world.place_character(c, [240.0, 0.0, 0.0]);
+        }
+        phys.world.step();
+        intent.sneak = false;
+        control.sneak = false;
+        sync_sneak_heights(&mut phys, &mut intent, Some(&mut control));
+        assert!((phys.player.as_ref().unwrap().params.height - fnv_phys::character::HEIGHT).abs() < 1e-3);
+        assert!(!intent.sneak, "clear headroom allows standing up");
+        assert!(!control.sneak, "clear headroom clears PlayerControl::sneak");
     }
 }

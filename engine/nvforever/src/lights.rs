@@ -849,6 +849,12 @@ mod tests {
         assert!(physical_lighting.contains("    let F = fresnel(F0, LdotH);"), "Cook-Torrance keeps full Schlick Fresnel");
         assert!(!physical_lighting.contains("select(fresnel(F0, LdotH), F0"), "display Fresnel clamp is absent");
         assert!(physical_lighting.contains("fn nvf_light_colour("), "display-space light uniforms remain linearized");
+        // One sRGB decode (the owner's review of #4199): main's nvf_display_to_linear, once, and
+        // the HDR decode written with it; the physical pbr_functions carries no copy of its own.
+        assert_eq!(physical_lighting.matches("fn nvf_display_to_linear(").count(), 1);
+        assert!(physical_lighting.contains("return nvf_display_to_linear(x / m) * m;"));
+        assert!(!physical_lighting.contains("@if(!PREPASS_FRAGMENT)\nfn nvf_display_to_linear("), "pbr_lighting is read by prepass shaders too");
+        assert!(!physical_lighting.contains("NVF_DISPLAY_TO_LINEAR"), "the mark is replaced");
 
         let display_lighting = lighting_patched(&lighting_src, false).expect("display lighting_patched succeeds");
         assert!(!display_lighting.contains("fn Fd_OrenNayar("));
@@ -864,6 +870,8 @@ mod tests {
         assert!(physical_functions.contains("// nvf_physical_ibl_diff_ao"));
         assert!(physical_functions.contains("let nvf_ambient_lin = "));
         assert!(!physical_functions.contains("nvf_point_display"));
+        assert!(!physical_functions.contains("fn nvf_srgb_to_linear_hdr(") && !physical_functions.contains("fn nvf_display_to_linear("), "no copy of the decode");
+        assert!(physical_functions.contains("lighting::nvf_srgb_to_linear_hdr("));
         let sun_patched = crate::sun_visibility::hook_patched(&physical_functions).expect("sun_visibility hook applies after physical_patched");
         // Authored reflections under physical lighting: the reflection gate goes in after them.
         assert!(reflection_gate::gate_patched(&sun_patched).is_some(), "the reflection gate applies after physical_patched");
