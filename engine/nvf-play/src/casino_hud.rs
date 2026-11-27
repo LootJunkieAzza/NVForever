@@ -318,7 +318,7 @@ pub struct CardLayout {
 }
 
 fn key_text(key: &str) -> String {
-    format!("{key})")
+    format!("[{key}]")
 }
 
 /// Words onto lines no wider than `width` (a word wider than that has a line to itself).

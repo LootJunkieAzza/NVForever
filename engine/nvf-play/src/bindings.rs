@@ -518,16 +518,17 @@ impl Bindings {
         swapped
     }
 
-    /// What a prompt names for the control on the device in use: `E)`, `A)` [design: the
-    /// original writes the key and ")" [observed: "E)" under the crosshair]; with a
-    /// controller it shows the button's picture, NVForever its letter].
+    /// What a prompt names for the control on the device in use: `[E]`, `[A]`, the shape
+    /// of the built-in `sPCMenuHint*` labels [design, #4495: in place of the key and ")"
+    /// read from the original's screen; with a controller NVForever writes the button's
+    /// letter where the original shows its picture].
     pub fn prompt(&self, c: Control) -> String {
         let b = self.get(c);
         let name = match self.device {
             InputDevice::Controller => self.pad(c).map(|p| crate::pad::pad_shown(p).to_string()),
             InputDevice::KeyboardMouse => b.key.and_then(key_name).map(String::from).or_else(|| b.mouse.map(mouse_name)),
         };
-        format!("{})", name.unwrap_or_else(|| "?".into()))
+        format!("[{}]", name.unwrap_or_else(|| "?".into()))
     }
 
     /// What the Controls tab shows for the control on the device in use.
