@@ -447,7 +447,8 @@ impl Plugin for CoopPlugin {
             .add_systems(Update, scene::slide_spot.in_set(nvf_play::PlaySet::Physics).before(nvf_play::control::place_camera))
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends)
-            .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .init_resource::<LitPuppets>()
+            .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, peer_lights, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
 }
 
@@ -971,6 +972,9 @@ struct Doing<'w> {
     actor_world: Option<Res<'w, ActorWorld>>,
     sim: Option<Res<'w, nvf_play::sim::SimState>>,
     script: Option<Res<'w, nvf_play::script::ScriptState>>,
+    flashlight: Option<Res<'w, nvf_play::flashlight::Flashlight>>,
+    /// The flashlight's rows (Tweaks > Flashlight): the others light it as this game does.
+    flashlight_look: Option<Res<'w, crate::flashlight::FlashlightLook>>,
     /// The furniture holding the player (`nvf_play::furniture`).
     seat: Option<Res<'w, nvf_play::furniture::PlayerSeat>>,
     knockdown: Option<Res<'w, crate::player_knockdown::PlayerKnockdown>>,
@@ -1010,6 +1014,11 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         *was_lying = lying;
         // The others' copies of this player get up when this ends (`revive::bodies`).
         info!("co-op: sent: this player's body {}", if lying { "lies" } else { "gets up" });
+    }
+    let light = doing.flashlight.as_deref().is_some_and(|f| f.on);
+    if light {
+        flags |= flag::LIGHT;
+        s.light = doing.flashlight_look.as_deref().copied().unwrap_or_default().wire(nvf_play::interface::pipboy_rgb());
     }
     s.flags = flags;
     if doing.phys.as_ref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming) {
@@ -3167,6 +3176,65 @@ fn lines_in(lines: &[net::LineView], ago: f32, me: Option<u8>) -> Vec<fnv_game::
         .collect()
 }
 
+/// The puppets' references (`Peer::references`) whose players have their flashlight on
+/// here, for detection to light them as it lights the player (`detection.rs`).
+#[derive(Resource, Default, Debug, PartialEq)]
+pub struct LitPuppets(pub std::collections::HashSet<u32>);
+
+/// Each other player's flashlight, on their puppet where its eyes are (`flashlight.rs`),
+/// while it is on and the player is in this place, with their own look
+/// (`PlayerState::light`; made again when it changes).
+fn peer_lights(
+    mut commands: Commands,
+    time: Res<Time>,
+    coop: Res<Coop>,
+    loc: Option<Res<Location>>,
+    mut lights: Query<(&mut Transform, &crate::flashlight::PeerFlashlight)>,
+    mut lit: Local<HashMap<u8, Entity>>,
+    mut puppets: ResMut<LitPuppets>,
+) {
+    let here = loc.as_deref().map(place_of);
+    let now = time.elapsed_secs();
+    let mut want = HashMap::new();
+    let mut refs = std::collections::HashSet::new();
+    for (&id, p) in &coop.peers {
+        let (Some((place, feet, yaw, _)), Some(&(_, s))) = (p.pose(now - DELAY), p.samples.back()) else { continue };
+        if Some(place) != here || p.lost || !s.has(flag::LIGHT) || s.has(flag::DOWN) {
+            continue;
+        }
+        let eye = [feet[0], feet[1], feet[2] + if s.has(flag::SNEAKING) { nvf_play::player::EYE_HEIGHT * 0.7 } else { nvf_play::player::EYE_HEIGHT }];
+        want.insert(id, (crate::flashlight::placement(eye, yaw, s.pitch), s.light));
+        refs.extend(p.references(id));
+    }
+    if puppets.0 != refs {
+        puppets.0 = refs;
+    }
+    lit.retain(|id, e| {
+        // Gone, off, or another look (their rows changed): made again below.
+        let keep = want.get(id).is_some_and(|(_, look)| lights.get(*e).is_ok_and(|(_, made)| made.1 == *look));
+        if !keep {
+            if !want.contains_key(id) {
+                info!("co-op: player {}'s flashlight is off here", id + 1);
+            }
+            commands.entity(*e).despawn();
+        }
+        keep
+    });
+    for (id, (place, look)) in want {
+        match lit.get(&id).copied() {
+            Some(e) => {
+                if let Ok((mut t, _)) = lights.get_mut(e) {
+                    *t = place;
+                }
+            }
+            None => {
+                let e = crate::flashlight::peer_light(&mut commands, id, look, place);
+                lit.insert(id, e);
+            }
+        }
+    }
+}
+
 /// The other players swimming in their own games: their bodies here swim too
 /// (`swimming.rs`).
 fn swimmers(coop: Res<Coop>, mut swim: ResMut<crate::swimming::Swimmers>, mut was: Local<HashMap<u8, bool>>) {
@@ -3520,6 +3588,77 @@ mod tests {
         let coop = app.world().resource::<Coop>();
         assert!(coop.link.is_none());
         assert_eq!(coop.joining, Joining::Failed(NO_TRANSPORT.to_string()));
+    }
+
+    /// An app with `peer_lights` and one peer (id 1) in `Place::Exterior(0xA001)`, here.
+    fn lights_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<Time>().init_resource::<LitPuppets>();
+        app.insert_resource(Location { world: 0xA001, interior: None });
+        app.insert_resource(Coop::new("A".into()));
+        app.add_systems(Update, peer_lights);
+        app
+    }
+
+    fn set_peer(app: &mut App, state: Option<PlayerState>) {
+        let mut coop = app.world_mut().resource_mut::<Coop>();
+        let peer = coop.peers.entry(1).or_default();
+        peer.samples.clear();
+        if let Some(s) = state {
+            peer.samples.push_back((0.0, s));
+        }
+    }
+
+    fn lights(app: &mut App) -> Vec<net::LightLook> {
+        app.world_mut().query::<&crate::flashlight::PeerFlashlight>().iter(app.world()).map(|p| p.1).collect()
+    }
+
+    fn lit(look: net::LightLook) -> PlayerState {
+        PlayerState { flags: flag::LIGHT, light: look, ..PlayerState::at(Place::Exterior(0xA001), [0.0, 0.0, 0.0], 0.0) }
+    }
+
+    #[test]
+    fn a_players_light_is_on_their_puppet_with_their_look_and_follows_the_state() {
+        let mut app = lights_app();
+        let green = net::LightLook { kind: net::light_kind::POINT, rgb: [0, 255, 0], shadows: false, ..net::LightLook::default() };
+        let yellow = net::LightLook { rgb: [255, 255, 0], outer_deg: 5.0, softness: 0.0, ..net::LightLook::default() };
+        // Off: no light, and no puppet lit for detection.
+        set_peer(&mut app, Some(PlayerState::at(Place::Exterior(0xA001), [0.0; 3], 0.0)));
+        app.update();
+        assert!(lights(&mut app).is_empty());
+        // On: a light with the look; the puppet is lit for detection.
+        set_peer(&mut app, Some(lit(green)));
+        app.update();
+        assert_eq!(lights(&mut app), vec![green]);
+        assert!(app.world().resource::<LitPuppets>().0.contains(&(PUPPET_REF + 1)));
+        // The same look again: the same light, not another.
+        let before: Vec<Entity> = app.world_mut().query_filtered::<Entity, With<crate::flashlight::PeerFlashlight>>().iter(app.world()).collect();
+        app.update();
+        let after: Vec<Entity> = app.world_mut().query_filtered::<Entity, With<crate::flashlight::PeerFlashlight>>().iter(app.world()).collect();
+        assert_eq!(before, after);
+        // A changed look makes it again, with the new one.
+        set_peer(&mut app, Some(lit(yellow)));
+        app.update();
+        assert_eq!(lights(&mut app), vec![yellow]);
+        // Away (another place), down, lost or off: gone.
+        let away = PlayerState { place: Place::Exterior(0xB002), ..lit(yellow) };
+        for gone in [Some(away), Some(PlayerState { flags: flag::LIGHT | flag::DOWN, ..lit(yellow) }), Some(PlayerState::at(Place::Exterior(0xA001), [0.0; 3], 0.0)), None] {
+            set_peer(&mut app, Some(lit(yellow)));
+            app.update();
+            assert_eq!(lights(&mut app).len(), 1);
+            set_peer(&mut app, gone);
+            app.update();
+            assert!(lights(&mut app).is_empty());
+            assert!(app.world().resource::<LitPuppets>().0.is_empty());
+        }
+        set_peer(&mut app, Some(lit(yellow)));
+        app.update();
+        app.world_mut().resource_mut::<Coop>().peers.get_mut(&1).unwrap().lost = true;
+        app.update();
+        assert!(lights(&mut app).is_empty(), "a lost player's light is gone");
+        app.world_mut().resource_mut::<Coop>().peers.clear();
+        app.update();
+        assert!(lights(&mut app).is_empty(), "a player who left");
     }
 
     #[test]

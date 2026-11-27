@@ -25,7 +25,7 @@ const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wesl";
 mod display_shader;
 #[cfg(test)]
 pub(crate) use self::display_shader::{
-    lighting_patched, spot_display_scale, spot_specular_scale, BEVY_ATTENUATION,
+    lighting_patched, flashlight_display_scale, flashlight_specular_scale, BEVY_ATTENUATION,
     FIRST_PERSON_FLASHLIGHT_DIFFUSE, FIRST_PERSON_FLASHLIGHT_SPECULAR, FRESNEL_EDIT,
     GAME_ATTENUATION, PHYSICAL_ATTENUATION, SPECULAR_EDITS,
 };
@@ -1386,36 +1386,52 @@ mod tests {
         assert!(reflection_gate::gate_patched(&input).is_none());
     }
 
-    /// Issue #3121: on `FIRST_PERSON_DEPTH` shapes only, shadow-casting spot lights
-    /// (the player's flashlight) take the diffuse and specular scales in
-    /// `lights/display_shader.rs`, matching the Rust constants, while `!FIRST_PERSON_DEPTH`
-    /// keeps full strength and the full shader-patch chain stays balanced.
+    /// Issue #3121: on `FIRST_PERSON_DEPTH` shapes only, the player's flashlight (the light
+    /// with the lightmapped-diffuse flag cleared, spot or point, with shadows or without:
+    /// #3280) takes the diffuse and specular scales in `lights/display_shader.rs`, matching
+    /// the Rust constants, while `!FIRST_PERSON_DEPTH` keeps full strength and the full
+    /// shader-patch chain stays balanced.
     #[test]
-    fn first_person_flashlight_patch_scales_shadow_spots_only() {
+    fn first_person_flashlight_patch_scales_the_flashlight_only() {
         let chained = reflection_gate::gate_patched(&chain_before_gate())
             .expect("full pbr_functions patch chain applies");
         assert!(crate::sun_visibility::tests::balanced(&chained));
         let diffuse_lit = format!(
-            "let nvf_fp_scale = select(1.0, {:.2}, ((*light).flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u);",
+            "let nvf_fp_scale = select(1.0, {:.2}, nvf_is_flashlight(light_id));",
             FIRST_PERSON_FLASHLIGHT_DIFFUSE,
         );
         let spec_lit = format!(
-            "direct_light += light_contrib * (max(shadow, 0.0) * select(1.0, {:.2}, (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));",
+            "direct_light += light_contrib * (max(shadow, 0.0) * select(1.0, {:.2}, nvf_is_flashlight(light_id)));",
             FIRST_PERSON_FLASHLIGHT_SPECULAR,
         );
         assert_eq!(chained.matches(&diffuse_lit).count(), 1, "diffuse scale matches Rust constant once");
-        assert_eq!(chained.matches(&spec_lit).count(), 1, "specular scale matches Rust constant once");
+        // Point and spot loops alike: a point flashlight is scaled as a spot one is.
+        assert_eq!(chained.matches(&spec_lit).count(), 2, "specular scale matches Rust constant in both loops");
         assert_eq!(
-            chained.matches("@if(!FIRST_PERSON_DEPTH)\n    let nvf_fp_scale = 1.0;").count(),
+            chained.matches("nvf_first_person_diffuse(light_id) * view_bindings::view.exposure").count(),
+            1,
+            "nvf_point_display, which nvf_spot_display goes through, takes the diffuse scale",
+        );
+        assert_eq!(
+            chained
+                .matches("(view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_AFFECTS_LIGHTMAPPED_MESH_DIFFUSE_BIT) == 0u")
+                .count(),
+            1,
+            "the flashlight is known by its mark, not by its shadows",
+        );
+        assert_eq!(
+            chained.matches("@if(!FIRST_PERSON_DEPTH)
+    let nvf_fp_scale = 1.0;").count(),
             1,
             "world and third-person spot diffuse stay at 1.0",
         );
         assert_eq!(
             // (`max(shadow, 0.0)`: a held lamp's shadow may be under 0, which only the display
             // sum takes; lights/display_shader.rs `DISPLAY_EDITS`.)
-            chained.matches("@if(!FIRST_PERSON_DEPTH)\n        direct_light += light_contrib * max(shadow, 0.0);").count(),
-            1,
-            "world and third-person spot specular stay unscaled",
+            chained.matches("@if(!FIRST_PERSON_DEPTH)
+        direct_light += light_contrib * max(shadow, 0.0);").count(),
+            2,
+            "world and third-person point and spot specular stay unscaled",
         );
     }
 }

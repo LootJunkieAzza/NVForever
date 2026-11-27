@@ -59,11 +59,14 @@ module notes "First-person depth"; `first_person_depth.wesl`):
   eye and flat game attenuation (`1 - (d / r)^2`) leaves it near 1.0 at weapon distance,
   aiming down sights placed the held weapon and hand inside the full-strength core and blew
   bright or shiny weapons out to white. In `lights/display_shader.rs`, under
-  `@if(FIRST_PERSON_DEPTH)`, shadow-casting spot lights (the flashlight) are scaled to
+  `@if(FIRST_PERSON_DEPTH)`, the flashlight is scaled to
   `FIRST_PERSON_FLASHLIGHT_DIFFUSE` (0.15) for display-value diffuse and
-  `FIRST_PERSON_FLASHLIGHT_SPECULAR` (0.10) for specular. World surfaces, third-person
-  body/weapon (`BODY_LAYER`, no `FIRST_PERSON_DEPTH`), and non-shadow-casting world spot
-  lamps (`LIGH` `SPOT`) are unchanged. Live 1280×720 GPU before/after screenshot acceptance
+  `FIRST_PERSON_FLASHLIGHT_SPECULAR` (0.10) for specular, whatever its Tweaks › Flashlight
+  Type (spot or point) and Shadows rows (#3280): the shader knows it by Bevy's
+  lightmapped-diffuse flag, which only the flashlight clears (`flashlight.rs` `made`;
+  NVForever draws no lightmaps, so the flag does nothing else). World surfaces,
+  third-person body/weapon (`BODY_LAYER`, no `FIRST_PERSON_DEPTH`), and the world's lights
+  (`LIGH`, with shadows or without) are unchanged. Live 1280×720 GPU before/after screenshot acceptance
   across weapon classes (revolver, rifle, energy weapon, melee) remains to be verified on a
   live GPU build.
 

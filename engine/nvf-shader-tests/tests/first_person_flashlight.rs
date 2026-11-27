@@ -4,8 +4,8 @@
 //! device is created.
 //!
 //! First-person shapes (`FIRST_PERSON_DEPTH`: arms, held weapon, Pip-Boy) compile with the
-//! diffuse and specular attenuation scales for shadow-casting spot lights (the player's
-//! flashlight), while every non-first-person lit shader (world NIFs, third-person body and
+//! diffuse and specular attenuation scales for the player's flashlight (spot or point,
+//! with shadows or without, #3280), while every non-first-person lit shader (world NIFs, third-person body and
 //! weapon on `BODY_LAYER`, Bevy's PBR fragment, terrain, grass, trees) compiles without
 //! those scales so world and third-person flashlight illumination stay at full strength.
 
@@ -32,7 +32,7 @@ fn function_has_f32_literal(compiled: &Compiled, name_part: &str, target: f32) -
 }
 
 #[test]
-fn first_person_shaders_scale_shadow_spot_lights_and_world_shaders_do_not() {
+fn first_person_shaders_scale_the_flashlight_and_world_shaders_do_not() {
     let mut compiler = Compiler::with_reflection_gate();
     let diffuse = support::production_display_shader::FIRST_PERSON_FLASHLIGHT_DIFFUSE;
     let specular = support::production_display_shader::FIRST_PERSON_FLASHLIGHT_SPECULAR;
@@ -53,8 +53,8 @@ fn first_person_shaders_scale_shadow_spot_lights_and_world_shaders_do_not() {
             "{extra:?}: fragment entry point",
         );
         assert!(
-            function_has_f32_literal(&compiled, "nvf_spot_display", diffuse),
-            "{extra:?}: nvf_spot_display must carry first-person flashlight diffuse scale {diffuse}",
+            function_has_f32_literal(&compiled, "nvf_first_person_diffuse", diffuse),
+            "{extra:?}: nvf_first_person_diffuse must carry first-person flashlight diffuse scale {diffuse}",
         );
         assert!(
             function_has_f32_literal(&compiled, "nvf_apply_pbr_lighting", specular),
@@ -79,8 +79,8 @@ fn first_person_shaders_scale_shadow_spot_lights_and_world_shaders_do_not() {
             "{shader} {extra:?}: fragment entry point",
         );
         assert!(
-            !function_has_f32_literal(&compiled, "nvf_spot_display", diffuse),
-            "{shader} {extra:?}: world/third-person nvf_spot_display must stay unscaled",
+            !function_has_f32_literal(&compiled, "nvf_first_person_diffuse", diffuse),
+            "{shader} {extra:?}: world/third-person nvf_first_person_diffuse must stay unscaled",
         );
         assert!(
             !function_has_f32_literal(&compiled, "nvf_apply_pbr_lighting", specular),

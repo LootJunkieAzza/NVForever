@@ -178,7 +178,8 @@ table above, added rows include #1966's `quality`, the overhaul's `menu-font` (#
 right after the first), #2701's `full-detail` and #3014's `distant-objects` (Graphics › Detail
 and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distance, the last
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
-(Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
+(Gameplay › Game, under `difficulty`, greyed unless Custom), #3280's ten `flashlight-*`
+rows (Tweaks › Quality of Life › Flashlight), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
 (Detail and Distance, after `mesh-terrain-blend`; read at the next start), #3843's
 `localized-dt-dr` (Gameplay › Combat), `physical-pbr` (Lighting and Effects, after
