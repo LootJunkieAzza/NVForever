@@ -95,6 +95,8 @@ const ACTION_BASE: f32 = 326.5;
 const LINE_PITCH: f32 = 40.0;
 /// From the key's end to the action's start.
 const KEY_GAP: f32 = 11.0;
+/// Between the first action's word and the second action's key [design].
+const SECOND_GAP: f32 = 24.0;
 /// The divider picture's top under the name's line; its stem's middle, across.
 const DIVIDER_BELOW: f32 = 8.5;
 const STEM_X: f32 = -4.0;
@@ -143,6 +145,9 @@ pub struct Prompt {
     pub note: Option<String>,
     /// Drawn greyed: E would do nothing (a co-op revive with nothing to revive with).
     pub grey: bool,
+    /// A second action on the action line, its key ("R)") and word: a cold campfire's
+    /// "Light fire" (`crate::campfire`).
+    pub second: Option<(String, String)>,
 }
 
 /// Under the name of an empty container or body [owner 2026-10-27].
@@ -176,6 +181,16 @@ impl Prompt {
     pub(crate) fn bound(t: &Targeted, sim: &SimState, bindings: Option<&crate::bindings::Bindings>) -> Prompt {
         let key = bindings.map(|b| b.prompt(crate::bindings::Control::Activate)).unwrap_or_default();
         Prompt { key, ..Prompt::of(t, sim) }
+    }
+
+    /// With the second action of a cold campfire (`crate::campfire`): Activate's word is
+    /// "Craft" and Ready Item's "Light fire". Anything else is left as it is.
+    pub(crate) fn with_second(mut self, t: &Targeted, campfires: Option<&crate::campfire::Campfires>, bindings: Option<&crate::bindings::Bindings>) -> Prompt {
+        if let Some((action, second)) = crate::campfire::prompt_actions(campfires, t.form_id, bindings) {
+            self.action = action.into();
+            self.second = Some(second);
+        }
+        self
     }
 
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
@@ -219,7 +234,7 @@ impl Prompt {
         if grey {
             note = Some(NOTHING_TO_REVIVE_WITH.into());
         }
-        Prompt { action, name, figures, crime: t.crime, key: String::new(), note, grey }
+        Prompt { action, name, figures, crime: t.crime, key: String::new(), note, grey, second: None }
     }
 }
 
@@ -252,6 +267,8 @@ pub struct Layout {
     /// A PlayStation face button's glyph in the key's place ("Cross)" drawn as the cross
     /// and ")"): the glyph, its top left corner and its side [design, #1452].
     pub glyph: Option<(crate::pad::Glyph, Vec2, f32)>,
+    /// The same for the second action's key, when it has one.
+    pub glyph2: Option<(crate::pad::Glyph, Vec2, f32)>,
 }
 
 pub fn layout(p: &Prompt, font: &Font) -> Layout {
@@ -263,18 +280,39 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let glyph = p.key_text().strip_suffix(')').and_then(crate::pad::Glyph::named).filter(|g| g.is_face()).filter(|_| !p.action.is_empty());
     let key = line(if glyph.is_some() { ")" } else { p.key_text() });
     let name = line(&p.name);
-    let action_x = ACTION_X - action.width / 2.0;
     let name_base = ACTION_BASE + LINE_PITCH;
+    // The second action's key and word, when there is one (a cold campfire).
+    // Its key gets a glyph the same way as the first [design, #1452].
+    let face = |k: &str| k.strip_suffix(')').and_then(crate::pad::Glyph::named).filter(|g| g.is_face());
+    let glyph2 = p.second.as_ref().and_then(|(k, a)| face(k).filter(|_| !a.is_empty()));
+    let second = p.second.as_ref().map(|(k, a)| (line(if glyph2.is_some() { ")" } else { k }), line(a)));
+    // A glyph before the second key needs room beside the gap: the first action's word
+    // must not run under it.
+    let gap2 = SECOND_GAP + if glyph2.is_some() { font.size * GLYPH_SHARE + GLYPH_GAP } else { 0.0 };
+    // One action: its word centred, the key before it. Two: "E) Craft   R) Light fire",
+    // the pair centred where the one action is [design].
+    let action_x = match &second {
+        None => ACTION_X - action.width / 2.0,
+        Some((key2, action2)) => {
+            let width = key.width + KEY_GAP + action.width + gap2 + key2.width + KEY_GAP + action2.width;
+            ACTION_X - width / 2.0 + key.width + KEY_GAP
+        }
+    };
+    let key_x = action_x - KEY_GAP - key.width;
     // No action (an actor shown by name only, `Action::Name`): the name alone, on its
     // own line [hypothesis: the line stays where it is with an action].
     let mut texts = if p.action.is_empty() {
         vec![set(name.clone(), NAME_X - name.width / 2.0, name_base)]
     } else {
-        vec![
-            set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE),
-            set(action, action_x, ACTION_BASE),
-            set(name.clone(), NAME_X - name.width / 2.0, name_base),
-        ]
+        let mut texts = vec![set(key.clone(), key_x, ACTION_BASE), set(action.clone(), action_x, ACTION_BASE)];
+        if let Some((key2, action2)) = second {
+            let key2_x = action_x + action.width + gap2;
+            let action2_x = key2_x + key2.width + KEY_GAP;
+            texts.push(set(key2, key2_x, ACTION_BASE));
+            texts.push(set(action2, action2_x, ACTION_BASE));
+        }
+        texts.push(set(name.clone(), NAME_X - name.width / 2.0, name_base));
+        texts
     };
     // The note on its own line under the name, centred as the name is [design].
     if let Some(note) = p.note.as_deref().map(line) {
@@ -298,10 +336,15 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     });
     let glyph = glyph.map(|g| {
         let side = font.size * GLYPH_SHARE;
-        let x = action_x - KEY_GAP - key.width - GLYPH_GAP - side;
+        let x = key_x - GLYPH_GAP - side;
         (g, Vec2::new(x, ACTION_BASE - side * GLYPH_RISE), side)
     });
-    Layout { texts, divider, glyph }
+    let glyph2 = glyph2.and_then(|g| {
+        let key2_x = texts.get(2).filter(|_| !p.action.is_empty())?.x;
+        let side = font.size * GLYPH_SHARE;
+        Some((g, Vec2::new(key2_x - GLYPH_GAP - side, ACTION_BASE - side * GLYPH_RISE), side))
+    });
+    Layout { texts, divider, glyph, glyph2 }
 }
 
 /// A glyph's side as a share of the font's size, how much of it stands above the line
@@ -556,7 +599,7 @@ fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
     for set in &l.texts {
         set_text(p, &kit.face, set, Vec2::ZERO, color, ());
     }
-    if let Some((g, corner, side)) = l.glyph {
+    for (g, corner, side) in [l.glyph, l.glyph2].into_iter().flatten() {
         let i = crate::pad::Glyph::FACES.iter().position(|x| *x == g).unwrap_or(0);
         if let Some(image) = kit.glyphs.get(i) {
             p.spawn((at(corner.x, corner.y, side, side), ImageNode { color, ..ImageNode::new(image.clone()) }));
@@ -588,7 +631,7 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut kit: Local<Option<Kit>>,
-    (mut shown, mut sweep): (Local<Option<Prompt>>, Option<ResMut<crate::test_aid::activation_sweep::ActivationSweep>>),
+    (mut shown, mut sweep, campfires): (Local<Option<Prompt>>, Option<ResMut<crate::test_aid::activation_sweep::ActivationSweep>>, Option<Res<crate::campfire::Campfires>>),
     mut root: Query<&mut Visibility, With<Root>>,
     (mut crosses, mut bars): (
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
@@ -728,7 +771,7 @@ fn draw(
     }
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
     // Quick Loot's list stands for the prompt while it shows (`crate::quick_loot`).
-    let want = target.0.as_ref().filter(|t| !locks.rollover && t.prompted() && !barred(t) && !crate::quick_loot::holds_input()).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
+    let want = target.0.as_ref().filter(|t| !locks.rollover && t.prompted() && !barred(t) && !crate::quick_loot::holds_input()).map(|t| Prompt::bound(t, &sim, bindings.as_deref()).with_second(t, campfires.as_deref(), bindings.as_deref()));
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
@@ -738,7 +781,10 @@ fn draw(
         });
         // What the prompt says, once per change (docs/spec-notes/cells-refs.md §3).
         if let Some(p) = &want {
-            info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name);
+            match &p.second {
+                Some((key, second)) => info!("reticle: prompt \"{}\" and \"{key} {second}\" on \"{}\"", p.action, p.name),
+                None => info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name),
+            }
         }
         *shown = want;
     }
@@ -757,7 +803,43 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None, grey: false }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None, grey: false, second: None }
+    }
+
+    #[test]
+    fn two_actions_stand_side_by_side_centred_where_one_stands() {
+        let one = layout(&prompt("Craft", "Campfire", None), &font());
+        let two = Prompt { second: Some(("R)".into(), "Light fire".into())), ..prompt("Craft", "Campfire", None) };
+        let l = layout(&two, &font());
+        let [key, action, key2, action2, name] = &l.texts[..] else { panic!("{:?}", l.texts) };
+        assert_eq!(key2.line.text(), "R)");
+        assert_eq!(action2.line.text().replace(" ", ""), "Lightfire", "the words of the second action");
+        // All four on the action line, left to right, with the gaps of the one action.
+        assert!([key, action, key2, action2].iter().all(|t| t.base == ACTION_BASE));
+        assert_eq!(key.x + key.line.width, action.x - KEY_GAP);
+        assert_eq!(action.x + action.line.width + SECOND_GAP, key2.x);
+        assert_eq!(key2.x + key2.line.width, action2.x - KEY_GAP);
+        // The pair centred where the one action is; the name where it was.
+        assert!(((key.x + action2.x + action2.line.width) / 2.0 - ACTION_X).abs() < 0.01);
+        assert_eq!(name, &one.texts[2]);
+        // The first key moves left with the pair: a PlayStation glyph stays before it.
+        let ps = Prompt { key: "Cross)".into(), ..two };
+        let l = layout(&ps, &font());
+        let (_, corner, side) = l.glyph.expect("a glyph");
+        assert!(corner.x + side <= l.texts[0].x && l.texts[0].x < l.texts[1].x);
+        assert_eq!(l.glyph2, None, "a keyboard letter for the second key has no glyph");
+        // The second key too: a glyph before its ")", the pair still centred.
+        let both = Prompt { key: "Cross)".into(), second: Some(("Triangle)".into(), "Light fire".into())), ..prompt("Craft", "Campfire", None) };
+        let l = layout(&both, &font());
+        let [_, action, key2, action2, _] = &l.texts[..] else { panic!("{:?}", l.texts) };
+        assert_eq!(key2.line.text(), ")");
+        let (g, corner, side) = l.glyph2.expect("a glyph for the second key");
+        assert_eq!(g, crate::pad::Glyph::Triangle);
+        assert!(corner.x + side <= key2.x && action.x + action.line.width < corner.x && side > 0.0);
+        assert_eq!(l.glyph.map(|g| g.0), Some(crate::pad::Glyph::Cross));
+        assert!(((l.texts[0].x + action2.x + action2.line.width) / 2.0 - ACTION_X).abs() < 0.01);
+        // Without a second action the line is as before.
+        assert_eq!(one.texts.len(), 3);
     }
 
     #[test]

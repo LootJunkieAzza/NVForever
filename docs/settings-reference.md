@@ -130,6 +130,18 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   (`docs/spec-notes/sneak-bounding-box.md`, #3845).
 - Registered in `engine/nvf-play/src/player.rs`
 
+### `light-campfires`: Light campfires
+
+- On the page: On: at a campfire with no fire, Ready Item lights it; Activate still opens
+  crafting. Off: campfires are the original's. Not in the original.
+- In full: On: over a campfire with no fire burning at it, the prompt shows a second
+  action, Ready Item's "Light fire", beside Activate's "Craft"; Ready Item then places a
+  small fire and its light at the campfire instead of drawing or holstering the weapon.
+  The fire is saved with the game and stays lit. Campfires that already burn are left as
+  they are. Off: the prompt and Ready Item are the original's. Not in the original
+  (docs/design/campfires.md).
+- Registered in `engine/nvf-play/src/campfire.rs`
+
 ## Gameplay › V.A.T.S.
 
 ### `vats-style`: V.A.T.S. style

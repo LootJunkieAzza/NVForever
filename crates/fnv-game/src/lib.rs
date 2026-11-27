@@ -75,6 +75,7 @@ mod extender_ctda_tests;
 #[cfg(test)]
 mod base_functions_tests;
 pub mod companion_wheel;
+pub mod campfire;
 pub mod coop;
 pub mod cond;
 pub mod coverage;

@@ -631,6 +631,14 @@ pub(crate) fn seed_test_system(
     );
 }
 
+/// A created reference's add-on nodes (`nvf_play::dropped::AddonNode`) emit as a placed
+/// reference's do: the flames and sparks of a fire a script places.
+fn dropped_addons(mut commands: Commands, added: Query<(Entity, &nvf_play::dropped::AddonNode), Added<nvf_play::dropped::AddonNode>>) {
+    for (e, a) in &added {
+        commands.entity(e).insert(AddonEmitter::placed(a.index, a.reference));
+    }
+}
+
 /// A system's values by GetNiPSysModifierValue's IDs [documented: the page's table]: 0
 /// the order (0, not kept), 1 active, 2-7 the emitter's speed, declination and planar
 /// angle with their variations, 8-11 its initial colour, 12-15 radius and life with their
@@ -699,7 +707,7 @@ impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
         configure_draw_set(app);
         app.init_resource::<Particles>()
-            .add_systems(Update, (script_drawn, script_drawn_rig, staged_addons, emit.after(crate::effect_shaders::sync_player_effects), simulate, take_basis).chain().after(crate::shot_fx::ShotFxSet))
+            .add_systems(Update, (script_drawn, script_drawn_rig, dropped_addons, staged_addons, emit.after(crate::effect_shaders::sync_player_effects), simulate, take_basis).chain().after(crate::shot_fx::ShotFxSet))
             .add_systems(PostUpdate, draw.in_set(ParticleDrawSet))
             .add_systems(Last, report);
     }

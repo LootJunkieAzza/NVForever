@@ -336,7 +336,7 @@ mod shared_table_tests {
     /// #2991's volumetric clouds row; #3348's HDR output row; #3783's occlusion culling row;
     /// #3032's volumetric light row and its strength; #3843's localized armor DT/DR row; the
     /// casino screens' Caravan tips row; the
-    /// physical lighting row; #4690's tonemapping preset row), by the group it registers with.
+    /// physical lighting row; the Light campfires row; #4690's tonemapping preset row), by the group it registers with.
     pub(super) const KNOWN: &[(&str, &str)] = &[
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
@@ -352,6 +352,7 @@ mod shared_table_tests {
         ("npc-weapon-mods", "Gameplay"),
         ("quantity-select-short-keys", "Gameplay"),
         ("sneak-bounding-box", "Gameplay"),
+        ("light-campfires", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
         ("reload-slows", "Gameplay"),
@@ -735,7 +736,7 @@ mod shared_table_tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..16], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..17], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "light-campfires", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
         assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
         assert_eq!(
@@ -794,7 +795,7 @@ mod shared_table_tests {
         let l = resolve_layout(&list);
         let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
         let g = lines(&list, &l, "Gameplay", closed);
-        assert_eq!(g[..15], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
+        assert_eq!(g[..16], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "light-campfires", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
         let p = l.placement_of(list.iter().position(|s| s.key == "vats-style").unwrap()).unwrap();
         assert_eq!(l.shown_count(&p, |_| true), 3);
         assert_eq!(l.shown_count(&p, |i| i != LayoutItem::Setting(list.iter().position(|s| s.key == "vats-slowdown").unwrap())), 2);
@@ -1113,7 +1114,7 @@ mod android_profile_tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..16], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..16], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "light-campfires", "", "[V.A.T.S.]", "vats-style", "vats-slowdown"]);
         assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
         assert_eq!(
@@ -1144,7 +1145,7 @@ mod android_profile_tests {
         let l = resolve_layout(&list);
         let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
         let g = lines(&list, &l, "Gameplay", closed);
-        assert_eq!(g[..15], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
+        assert_eq!(g[..15], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "light-campfires", "", "[V.A.T.S.]", "[Camera]"]);
         let p = l.placement_of(list.iter().position(|s| s.key == "vats-style").unwrap()).unwrap();
         assert_eq!(l.shown_count(&p, |_| true), 3);
         assert_eq!(l.shown_count(&p, |i| i != LayoutItem::Setting(list.iter().position(|s| s.key == "vats-slowdown").unwrap())), 2);

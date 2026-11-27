@@ -23,6 +23,7 @@ pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
 pub mod bullet_snap;
+pub mod campfire;
 pub mod chargen;
 pub mod clutter_pose;
 pub mod collision_view;
@@ -499,6 +500,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(script_texture_filter::ScriptTextureFilterPlugin)
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin, sound_cover::SoundCoverPlugin))
+            .add_plugins(campfire::CampfirePlugin)
             .add_plugins(perk_marks::PerkMarksPlugin)
             .add_plugins(softlock::SoftlockPlugin)
             .add_plugins(sup_screen::SupScreenPlugin)

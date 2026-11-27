@@ -657,6 +657,7 @@ pub fn read_controls(
     hud: Option<ResMut<HudMessage>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
     stance: Option<Res<crate::inertia::MovementInertia>>,
+    campfire: Option<Res<crate::campfire::SecondAction>>,
 ) {
     if let Some(held) = held_sneak.as_deref_mut() {
         control.sneak = held.base(control.sneak);
@@ -713,8 +714,9 @@ pub fn read_controls(
         c.auto_move = !c.auto_move;
     }
     // Ready Item: draw at once; with the weapon out, tap to reload, hold to holster.
-    // Not while Quick Loot has the key (its full menu, `crate::quick_loot`).
-    if input.just_pressed(Control::ReadyItem) && !crate::quick_loot::holds_input() {
+    // Not while Quick Loot has the key (its full menu, `crate::quick_loot`), nor for a
+    // press that lit a cold campfire (`crate::campfire`).
+    if input.just_pressed(Control::ReadyItem) && !campfire.is_some_and(|c| c.took) && !crate::quick_loot::holds_input() {
         if c.weapon_out {
             c.ready_held = Some(0.0);
         } else if tweaks.as_ref().is_some_and(|t| t.ready_does_not_draw) {

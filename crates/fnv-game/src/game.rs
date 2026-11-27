@@ -1599,6 +1599,9 @@ pub struct Game<'a> {
     pub difficulty_request: Option<crate::difficulty::Difficulty>,
     /// The player's tweaks (`crate::tweaks`): the engine sets them from its settings.
     pub tweaks: crate::tweaks::Tweaks,
+    /// The settings row "Light campfires" (`crate::campfire`): while it is off,
+    /// [`Game::light_campfire`] does nothing. Off by default; the engine sets it.
+    pub light_campfires: bool,
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
@@ -2818,6 +2821,7 @@ impl<'a> Game<'a> {
             difficulty_custom: Default::default(),
             difficulty_request: None,
             tweaks,
+            light_campfires: false,
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
             due_children: Vec::new(),

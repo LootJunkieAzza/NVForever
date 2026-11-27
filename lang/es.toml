@@ -820,3 +820,8 @@ name = "Español"
 # [design; engine/nvforever/src/coop/leave.rs] The message a guest sees at the main menu after the host ended the lobby, and its button.
 "Host has ended the lobby." = "El anfitrión ha cerrado la sala."
 "OK" = "Aceptar"
+# [design; engine/nvf-play/src/campfire.rs] Lighting a campfire: the settings row, and the two words on the prompt (not in the original).
+"Light campfires" = "Encender hogueras"
+"On: at a campfire with no fire, Ready Item lights it; Activate still opens crafting. Off: campfires are the original's. Not in the original." = "Sí: en una hoguera sin fuego, Preparar objeto la enciende; Activar sigue abriendo la fabricación. No: las hogueras son como en el original. No está en el original."
+"Light fire" = "Encender fuego"
+"Craft" = "Fabricar"

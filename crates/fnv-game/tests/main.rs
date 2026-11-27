@@ -24,6 +24,7 @@ mod armo_overrides;
 mod ash_piles;
 mod build_identity;
 mod camera_paths;
+mod campfire;
 mod caravan_data;
 mod clone_calling_reference;
 mod cloned_sound_traits;
