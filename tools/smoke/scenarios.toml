@@ -37503,6 +37503,6 @@ paths = ["crates/fnv-world/src/sky.rs", "crates/fnv-world/src/imagespace.rs"]
 args = ["--explore", "--cell", "28,16", "--pos=116992,66816,2420", "--heading", "0", "--pitch", "0", "--hour", "6", "--weather", "NVWastelandClear"]
 run_seconds = 14
 expect = [
-  { re = 'sky: 06:0\d  climate NVDefaultClimate  weather NVWastelandClear .*grade: saturation 1\.0\d', label = "at 06:00 the grade has left the night's (saturation 1.10)" },
+  { re = 'sky: 06:0\d  climate NVDefaultClimate  weather NVWastelandClear .*grade: saturation 1\.0[0-5]', label = "at 06:00 the grade is well on to the sunrise's (1.01 here; the old keys gave 1.09-1.10 at 06:02)" },
 ]
 forbid = ["Caught rendering error"]
