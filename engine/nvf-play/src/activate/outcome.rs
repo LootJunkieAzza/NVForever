@@ -91,6 +91,10 @@ pub fn terminal_lock_level(code: u8) -> u8 {
 }
 
 impl Action {
+    /// The prompt's verb: plain functional words of NVForever's own ("Take", "Open",
+    /// "Talk", ...), no game setting naming them in the data files [design, #4495; LEGAL.md:
+    /// the engine's short functional phrases]. A lock's level is named as the editor's
+    /// documentation names it ([`lock_text`]).
     pub fn label(&self) -> String {
         match self {
             Action::Take { .. } => "Take".into(),
@@ -124,8 +128,8 @@ impl Action {
 }
 
 /// The two prompt lines under the crosshair, as the original sets them: the action (the
-/// key goes before it), then what it is done to [observed: the owner's screenshots,
-/// docs/spec-notes/reticle.md §3]. A stack is named with its count; a door that leads
+/// key goes before it), then what it is done to [observed: the two lines' order on the
+/// owner's screenshots, docs/spec-notes/reticle.md §3; the words are [`Action::label`]'s]. A stack is named with its count; a door that leads
 /// elsewhere by where it leads, with the action "Open" [hypothesis, reticle.md §5].
 pub fn prompt(name: &str, action: &Action) -> (String, String) {
     match action {

@@ -131,7 +131,7 @@ pub struct Column {
 pub struct Geometry {
     pub crown_top: f32,
     pub crown_cover: f32,
-    pub deck_relief: f32,
+    pub deck_relief: Vec2,
     pub base_humidity: f32,
     pub parent: f32,
     pub cover: f32,
@@ -239,7 +239,7 @@ pub fn geometry(col: &Column, u: &CloudVolumeUniform) -> Geometry {
     let crown_cover = cover(col.over + 0.18 * crown_head) * (1.0 - 0.44 * saddle);
     let peak = if crown_cover == c { bank_top } else { top(crown_cover, tau, col.types, u) };
     let crown_top = stretch(parent * peak, parent, extent, FOOT * parent);
-    Geometry { parent, cover: c, crown_cover, crown_top, deck_relief: col.deck_relief.x, base_humidity: col.base_humidity, extent, top: bank_top, relief: relief(col.types, u) }
+    Geometry { parent, cover: c, crown_cover, crown_top, deck_relief: col.deck_relief, base_humidity: col.base_humidity, extent, top: bank_top, relief: relief(col.types, u) }
 }
 
 /// How much of each band a filter width `ew` keeps (march `vc_m2_keeps`).
@@ -265,11 +265,10 @@ pub struct Sample {
     pub wisp_g: f32,
 }
 
-/// The lean model's two reads, each given the filter width it is made at (the caller turns it into the
-/// level and does the wisps' displacement): the base (its R value) and the erosion read (raw RGB, at
-/// [`erode_coord`]).
+/// The base read takes its world-space filter width, frequency and offset in repeats.
+/// The erosion read takes its filter width at [`erode_coord`] displaced by the wisps.
 pub struct Reads<'a> {
-    pub base: &'a mut dyn FnMut(f32) -> f32,
+    pub base: &'a mut dyn FnMut(f32, f32, Vec3) -> f32,
     pub erode: &'a mut dyn FnMut(f32) -> [f32; 3],
 }
 
@@ -319,17 +318,26 @@ pub fn density(g: &Geometry, w: Vec3, s: &Sample, u: &CloudVolumeUniform, reads:
     let reach = 0.58 * gr * amp * c[0] * (1.0 - smoothstep(0.55, 0.72, u.scale.w));
     let mixed = mixed_sheet(u);
     let dry_base = 1.0 - smoothstep(0.25, 0.75, g.base_humidity);
-    let bed = 0.48 * g.parent * (-g.deck_relief).max(0.0) + mixed * dry_base * (0.16 * g.parent).min(600.0);
+    let bed = 0.48 * g.parent * (-g.deck_relief.x).max(0.0) + mixed * dry_base * (0.16 * g.parent).min(600.0);
     let soft = (0.6 * u.profile.x).max(1.0);
     let fair_skin = fair * (0.32 + 0.68 * side) * (0.34 * g.parent).min(1150.0);
-    let skin = storm * (1.0 - w.x) * (0.16 * g.parent).min(840.0) + fair_skin;
-    if e - r - most + offset >= widest && s.above >= bed + 0.65 * skin + soft.max(1.5 * skin) {
+    let storm_skin = storm * (1.0 - w.x) * (0.25 * g.parent).min(1350.0);
+    let skin = fair_skin + storm_skin;
+    let edge_lift = 0.12 * storm * storm_skin;
+    if e - r - most + offset >= widest && s.above >= bed + edge_lift + 0.65 * skin + soft.max(1.5 * skin) {
         return (1.0, hs);
     }
     let basal_width = 1600.0 * (1.0 - upper.max(side));
     let base_width = lw.max(basal_width + (240.0 - basal_width) * storm);
-    let n = spread((reads.base)(base_width), u);
-    let lower_edge = (bed + skin * (0.65 - n)).max(0.0);
+    let mut n = spread((reads.base)(base_width, 1.0, Vec3::ZERO), u);
+    let deck_foot = storm * (1.0 - w.x) * (1.0 - smoothstep(0.30, 0.65, h));
+    if deck_foot > 0.0 {
+        let bend = Vec3::new(g.deck_relief.y, n - 0.5, g.deck_relief.x);
+        let offset = Vec3::new(0.41, 0.37, 0.18) + 0.10 * bend;
+        let local = spread((reads.base)(base_width, 3.0, offset), u);
+        n = (n + deck_foot * 0.90 * (local - 0.5)).clamp(0.0, 1.0);
+    }
+    let lower_edge = (bed + edge_lift + skin * (0.65 - n)).max(0.0);
     let height_in_bank = s.above - lower_edge;
     let pocket = (storm * (1.0 - w.x)).max(0.45 * mixed) * (1.0 - smoothstep(0.20, 0.65, n));
     let water = 1.0 - 0.76 * pocket * (1.0 - smoothstep(0.0, (1.5 * skin).max(1.0), height_in_bank));
@@ -601,7 +609,7 @@ mod tests {
     fn run(g: &Geometry, w: Vec3, s: &Sample, u: &CloudVolumeUniform, n: f32, ep: f32) -> ((f32, f32), [u32; 2]) {
         let (b, e) = (raw_base(n, u), raw_erode(ep, u));
         let made = std::cell::Cell::new([0u32; 2]);
-        let mut base = |_w: f32| {
+        let mut base = |_, _, _| {
             let mut m = made.get();
             m[0] += 1;
             made.set(m);
@@ -631,8 +639,8 @@ mod tests {
         let read_width = |weather: &CloudVolumeUniform, fw: f32, eroded: bool| {
             let sample = Sample { fw, eroded, ..view(0.60 * g.parent, 600.0) };
             let mut used = None;
-            let mut base = |width| {
-                used = Some(width);
+            let mut base = |width, frequency, _| {
+                if frequency == 1.0 { used = Some(width); }
                 raw_base(0.5, weather)
             };
             density(&g, types, &sample, weather, &mut Reads { base: &mut base, erode: &mut |_| [raw_erode(0.5, weather); 3] });
@@ -721,7 +729,11 @@ mod tests {
             "lw = 2.0 * max(width, vc_light_cell(v));",
             "let ramp = max(intrinsic, select(min(footprint, 0.42), footprint, eroded));",
             "let amp = (1.0 - storm) * vc_m2_billow(w, v) * max(upper, side) * min(1.0, 0.12 + 2.0 * (1.0 - e));",
-            "if e - r - most + offset >= widest && above >= bed + 0.65 * skin + max(soft, 1.5 * skin) {",
+            "let storm_skin = storm * (1.0 - w.x) * min(0.25 * parent, 1350.0);",
+            "let skin = fair_skin + storm_skin;",
+            "let edge_lift = 0.12 * storm * storm_skin;",
+            "if e - r - most + offset >= widest && above >= bed + edge_lift + 0.65 * skin + max(soft, 1.5 * skin) {",
+            "let lower_edge = max(0.0, bed + edge_lift + skin * (0.65 - n));",
             "let bottom = water * smoothstep(0.0, soft, height_in_bank);",
             "bank += max(basin * gate * smoothstep(0.015, 0.07, pit), min(basin, deficit) * lip);",
             "let r = column.m2.w * (1.0 - 0.60 * core);",
@@ -768,6 +780,11 @@ mod tests {
             "col.head = fair * attachment * (max(nested, 0.0) + 0.40 * min(nested, 0.0));",
             "let h = vc_m2_stretch(above, column.m2.y, parent, VC_M2_FOOT * parent) / parent;",
             "let base_width = max(lw, mix(1600.0 * (1.0 - max(upper, side)), 240.0, storm));",
+            "let deck_foot = storm * (1.0 - w.x) * (1.0 - smoothstep(0.30, 0.65, h));",
+            "let bend = vec3<f32>(column.deck_relief.y, n - 0.5, column.deck_relief.x);",
+            "let detail_uv = 3.0 * uv + vec3<f32>(0.41, 0.37, 0.18) + 0.10 * bend;",
+            "vc_level(base_width, v.nlevel.x, 3.0 * v.nscale.x, v.nlevel.y)).r, v);",
+            "n = clamp(n + deck_foot * 0.90 * (local - 0.5), 0.0, 1.0);",
             "let water = max(0.88 * local_water, front_water * front_cover);",
             "var sigma = vc_m2_sigma(col.types, v) * mix(1.0 + column.fair_water_excess, water, deck);",
             "sigma *= exp2(lower_bank * (0.45 * broad + 0.72 * local));",
@@ -794,8 +811,8 @@ mod tests {
         }
         assert_eq!((COVER, EXTENT, RELIEF, EDGE, SIGMA, ERODE_TYPE), (0.12, [0.11, 0.14, 0.48], [0.25, 0.75, 0.6], [600.0, 240.0, 300.0], [1.5e-3, 2.5e-3, 3.0e-3], [0.3, 1.0, 0.8]));
         assert_eq!((ERODE_FREQ, BILLOW, GRAD_LEAST, FOOT, FILL, FRAY), (2.0, 1.15, 1.0e-4, 0.36, 0.6, 0.10));
-        // The column material uses two texture reads. The fair lobe material uses
-        // five filtered base reads and one erosion read. Both have a CPU mirror.
+        // The column material has a base read, lower-deck detail read and erosion read.
+        // The fair lobe material uses five filtered base reads and one erosion read.
         let lobes = &src[src.find("fn vc_m2_lobes(").unwrap()..];
         let lobes = &lobes[..lobes.find("\n}\n").unwrap()];
         assert_eq!(lobes.matches("textureSampleLevel(").count(), 6);
@@ -808,7 +825,7 @@ mod tests {
         }
         let lean = &src[src.find("fn vc_m2_density(").unwrap()..];
         let lean = &lean[..lean.find("\n}\n").unwrap()];
-        assert_eq!(lean.matches("textureSampleLevel(").count(), 2);
+        assert_eq!(lean.matches("textureSampleLevel(").count(), 3);
         for part in ["vc_m1_turret", "vc_m1_body", "vc_tuft", "vc_m1_aspect", "vc_puff_density", "vc_m1_cauli", "families", "fair_shoulder", "vc_column(", "vc_vigour("] {
             assert!(!lean.contains(part), "the bank's density reads no `{part}`");
         }
@@ -1111,7 +1128,7 @@ mod tests {
             let g = geometry(&Column { types, ..cumulus(0.06) }, &u);
             let smp = view(0.6 * g.extent, 100.0);
             let at = |n, bands: [f32; 3]| {
-                let mut base = |_| raw_base(n, &u);
+                let mut base = |_, _, _| raw_base(n, &u);
                 let mut erode = |_| bands.map(|band| raw_erode(band, &u));
                 density(&g, types, &smp, &u, &mut Reads { base: &mut base, erode: &mut erode }).0
             };
@@ -1242,10 +1259,73 @@ mod tests {
         let u = lean_uniform(0.73, None);
         let types = Vec3::new(0.11, 0.68, 0.21);
         let g = geometry(&Column { types, ..cumulus(0.4) }, &u);
-        let skin = (1.0 - types.x) * (0.16 * g.parent).min(840.0);
-        let at = |h, n| run(&g, types, &view(h * skin, 300.0), &u, n, 0.5).0.0;
-        assert!(at(0.46, 0.95) > 0.9 && at(0.46, 0.05) < 0.01);
-        assert!(at(1.0, 0.05) > 0.0 && at(1.0, 0.05) < at(1.0, 0.95));
+        let skin = (1.0 - types.x) * (0.25 * g.parent).min(1350.0);
+        let edge_lift = 0.12 * skin;
+        let dry_edge = 0.65 * skin + edge_lift;
+        let at = |height, n| run(&g, types, &view(height, 300.0), &u, n, 0.5).0.0;
+        assert!(at(0.46 * skin, 0.95) > 0.9 && at(0.46 * skin, 0.05) < 0.01);
+        assert_eq!(at(dry_edge - 0.5 * edge_lift, 0.0), 0.0, "a dry pocket is still open here");
+        assert!(at(skin, 0.05) > 0.0 && at(skin, 0.05) < at(skin, 0.95));
+        // A shortcut that forgets the lift would fill the first sample.
+        let mut full = u;
+        full.nscale.z = 0.1;
+        let inside = geometry(&Column { types, ..cumulus(0.4) }, &full);
+        let full_height = dry_edge + (1.5 * skin).max((0.6 * full.profile.x).max(1.0));
+        let dry = |height| run(&inside, types, &view(height, 300.0), &full, 0.0, 0.5);
+        let (density, reads) = dry(full_height - 0.5 * edge_lift);
+        assert!(density.0 < 0.999 && reads[0] > 0);
+        let (density, reads) = dry(full_height + 0.5 * edge_lift);
+        assert_eq!((density.0, reads), (1.0, [0, 0]));
+    }
+
+    #[test]
+    fn a_pure_sheet_in_transitional_weather_keeps_its_original_lower_ramp() {
+        let amount = 0.635;
+        let u = lean_uniform(amount, None);
+        let g = geometry(&Column { types: Vec3::X, ..cumulus(0.4) }, &u);
+        let fair = 1.0 - smoothstep(0.55, 0.72, amount);
+        let skin = fair * 0.32 * (0.34 * g.parent).min(1150.0);
+        let above = 120.0;
+        for noise in [0.18, 0.62] {
+            let original_edge = (skin * (0.65 - noise)).max(0.0);
+            let expected = smoothstep(0.0, 0.6 * u.profile.x, above - original_edge);
+            assert!(expected > 0.0 && expected < 1.0);
+            let density = run(&g, Vec3::X, &view(above, 64.0), &u, noise, 0.5).0.0;
+            assert!((density - expected).abs() < 1e-5, "sheet noise {noise}: {density} vs {expected}");
+        }
+    }
+
+    #[test]
+    fn only_the_mixed_deck_foot_takes_the_second_filtered_base_read() {
+        let types = Vec3::new(0.11, 0.68, 0.21);
+        let sample = |amount, types: Vec3, height, eroded, detail_noise| {
+            let mut u = lean_uniform(amount, None);
+            u.lcell.x = 600.0;
+            let col = Column { types, deck_relief: Vec2::new(0.12, 0.30), ..cumulus(0.4) };
+            let g = geometry(&col, &u);
+            let s = Sample { eroded, fw: 640.0, ..view(height * g.parent, 300.0) };
+            let mut second = None;
+            let mut base = |width, frequency, offset| {
+                if frequency == 1.0 { return raw_base(0.5, &u); }
+                assert_eq!(frequency, 3.0);
+                second = Some((width, offset));
+                raw_base(detail_noise, &u)
+            };
+            let d = density(&g, types, &s, &u, &mut Reads { base: &mut base, erode: &mut |_| [raw_erode(0.5, &u); 3] });
+            (d.0, second)
+        };
+        for (eroded, expected_width) in [(true, 640.0), (false, 1200.0)] {
+            let (dry, _) = sample(0.73, types, 0.05, eroded, 0.0);
+            let (wet, read) = sample(0.73, types, 0.05, eroded, 1.0);
+            let (width, offset) = read.expect("detail in the mixed deck foot");
+            assert_eq!(width, expected_width);
+            assert!((offset - Vec3::new(0.44, 0.37, 0.192)).length() < 1e-5);
+            assert!(wet > dry + 0.05, "the second band changes the lower surface");
+            assert!(sample(0.64, types, 0.05, eroded, 1.0).1.is_some(), "weather transition");
+            for (amount, mix, h) in [(0.29, types, 0.05), (0.55, types, 0.05), (0.73, Vec3::X, 0.05), (0.73, types, 0.75)] {
+                assert!(sample(amount, mix, h, eroded, 1.0).1.is_none());
+            }
+        }
     }
 
     /// A crown can change the roof without changing the support or optical density

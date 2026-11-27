@@ -374,7 +374,9 @@ with JIP on a footlocker; interface units; parts a to g, with their shots in the
 - **The buttons**: Take All 116 x 47 at -116, 0 of `CM_ButtonRect`, Exit 68 x 47 at -68, 45,
   hints "A)" and "E)" [observed: launchtest shot, which reads "Take All A)", unlike §3's
   earlier reading "R)"]. `ClickMenuTile` on Take All takes all and closes, no prompt, no
-  message after. The weight label "Wg   52/200", three spaces.
+  message after. The weight label "Wg   52/200", three spaces. NVForever writes the
+  setting `sInventoryWeight`'s word there and in the heading ("Weight   52/200" without a
+  plugin's text), and `sInventoryCaps`'s for the caps [design, #4495].
 
 What the tile path does with these, and where it differs:
 

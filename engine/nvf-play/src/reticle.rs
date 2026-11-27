@@ -99,8 +99,8 @@ const KEY_GAP: f32 = 11.0;
 const DIVIDER_BELOW: f32 = 8.5;
 const STEM_X: f32 = -4.0;
 /// The item's figures: their line under the divider picture's top; from the stem, where
-/// "WG" starts and the weight ends (left of it) and where "VAL" starts and the value ends
-/// (right of it).
+/// the weight's word starts and the weight ends (left of it) and where the value's word
+/// starts and the value ends (right of it).
 const FIGURES_BELOW: f32 = 50.5;
 const WG_X: f32 = -145.0;
 const WEIGHT_END: f32 = -21.0;
@@ -112,8 +112,21 @@ const VALUE_END: f32 = 135.0;
 /// names the Activate control's own key, or its controller button while a controller
 /// works the controls (`crate::bindings::Bindings::prompt`: "A)").
 const KEY: &str = "E)";
-const WG: &str = "WG";
-const VAL: &str = "VAL";
+/// The least room between a figure's word and the figure, when a long word or figure
+/// would otherwise meet it [design].
+const FIGURE_GAP: f32 = 8.0;
+
+/// The figures' words: the settings the item stats display's weight and value cards show
+/// (`sInventoryWeightUpper`, `sInventoryValue`), as the Pip-Boy's cards read them: the load
+/// order's text, else NVForever's own label (`fnv_ui::strings::BUILT_IN`) [design, #4495:
+/// in place of the abbreviations read from the original's screen].
+fn weight_word() -> &'static str {
+    crate::pipboy::labels::built_in_label("sInventoryWeightUpper")
+}
+
+fn value_word() -> &'static str {
+    crate::pipboy::labels::built_in_label("sInventoryValue")
+}
 
 /// What is written under the crosshair.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -270,11 +283,17 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let divider = p.figures.as_ref().map(|[weight, value]| {
         let top = name_base + DIVIDER_BELOW;
         let base = top + FIGURES_BELOW;
-        let (weight, value) = (line(weight), line(value));
-        texts.push(set(line(WG), STEM_X + WG_X, base));
-        texts.push(set(weight.clone(), STEM_X + WEIGHT_END - weight.width, base));
-        texts.push(set(line(VAL), STEM_X + VAL_X, base));
-        texts.push(set(value.clone(), STEM_X + VALUE_END - value.width, base));
+        let (weight, value, wg, val) = (line(weight), line(value), line(weight_word()), line(value_word()));
+        // The weight ends against the stem; its word starts at its place, or further left
+        // when the two would meet. The value's word starts by the stem; the value ends at
+        // its place, or further right after its word.
+        let weight_x = STEM_X + WEIGHT_END - weight.width;
+        let wg_x = (STEM_X + WG_X).min(weight_x - FIGURE_GAP - wg.width);
+        let value_x = (STEM_X + VALUE_END - value.width).max(STEM_X + VAL_X + val.width + FIGURE_GAP);
+        texts.push(set(wg, wg_x, base));
+        texts.push(set(weight.clone(), weight_x, base));
+        texts.push(set(val, STEM_X + VAL_X, base));
+        texts.push(set(value.clone(), value_x, base));
         Vec2::new(STEM_X - STEM_IN_PICTURE, top)
     });
     let glyph = glyph.map(|g| {
@@ -794,10 +813,23 @@ mod tests {
         assert_eq!(figures.len(), 4);
         assert!(figures.iter().all(|s| s.base == corner.y + FIGURES_BELOW));
         let [wg, weight, val, value] = figures else { unreachable!() };
-        assert_eq!(wg.x, STEM_X + WG_X);
+        // The weight's word starts at its place, or further left when it would meet the weight.
+        assert!(wg.x <= STEM_X + WG_X && wg.x + wg.line.width + FIGURE_GAP <= weight.x + 1e-3, "{wg:?} before {weight:?}");
         assert_eq!(weight.x + weight.line.width, STEM_X + WEIGHT_END);
         assert_eq!(val.x, STEM_X + VAL_X);
         assert_eq!(value.x + value.line.width, STEM_X + VALUE_END);
+        // The words are the item stats display's settings: NVForever's labels with no plugin's.
+        let width = |s: &str| font().lines(s, None)[0].width;
+        assert_eq!((wg.line.width, val.line.width), (width("WEIGHT"), width("Value")));
+    }
+
+    #[test]
+    fn a_long_figure_and_its_word_never_meet() {
+        let l = layout(&prompt("Take", "Anvil", Some(["123456789.5", "123456789012"])), &font());
+        let [wg, weight, val, value] = &l.texts[3..] else { panic!("{:?}", l.texts) };
+        assert_eq!(weight.x + weight.line.width, STEM_X + WEIGHT_END, "the weight stays against the stem");
+        assert!(weight.x >= wg.x + wg.line.width + FIGURE_GAP - 1e-3, "{weight:?} after {wg:?}");
+        assert!(value.x >= val.x + val.line.width + FIGURE_GAP, "{value:?} after {val:?}");
     }
 
     #[test]
