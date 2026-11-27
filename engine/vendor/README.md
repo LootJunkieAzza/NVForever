@@ -1262,6 +1262,11 @@ seconds after it from 6.3 s to 1.2 s (asked to ready, all together) [observed, n
 `pipeline_disk_cache.rs`]. Composing on several threads instead was tried and is slower
 (wesl 0.6's identifiers share reference counts). The test `composed_store_skips_compositions_of_unchanged_sources`
 checks a second cache composes nothing the first kept and composes again after a change.
+In `src/nvf_composed.rs` (`#4785`, `[design]`): entries hold `Arc<str>` WGSL and
+`Arc<[(String, Option<u64>)]>` deps so `to_bytes` snapshots handles under the mutex and
+releases the lock before sorting and serializing up to ~96 MiB of WGSL; `pending_new()`
+tracks newly inserted compositions separately from cache-hit `used` touches so callers can
+throttle mid-session rewrites.
 Drop it when Bevy caches compositions itself.
 
 `NVForever modules off the lock` (`src/shader_cache.rs`): `get` is split into `prepare`

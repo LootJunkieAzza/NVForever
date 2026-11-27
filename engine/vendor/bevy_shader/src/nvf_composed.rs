@@ -19,6 +19,7 @@
 //! the key) must still be missing.
 
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bevy_platform::collections::HashMap;
 use core::hash::{Hash, Hasher};
@@ -49,8 +50,8 @@ pub const MAX_BYTES: usize = 96 << 20;
 pub const MAX_VARIANTS: usize = 4;
 
 struct Entry {
-    wgsl: String,
-    deps: ComposedDeps,
+    wgsl: Arc<str>,
+    deps: Arc<[(String, Option<u64>)]>,
     /// The run it was last used or made in.
     used: u64,
 }
@@ -62,6 +63,8 @@ pub struct ComposedStore {
     /// This run's number: one more than the file's.
     run: u64,
     changed: AtomicBool,
+    /// New compositions inserted since the last [`ComposedStore::to_bytes`].
+    pending_new: AtomicU32,
     /// Compositions skipped this run.
     pub hits: AtomicU32,
     /// Compositions made this run.
@@ -110,19 +113,28 @@ impl ComposedStore {
     }
 
     /// The store as a file, without the entries unused for [`UNUSED_RUNS`] runs and within
-    /// [`MAX_BYTES`] of WGSL. Clears [`ComposedStore::changed`].
+    /// [`MAX_BYTES`] of WGSL. Clears [`ComposedStore::changed`] and
+    /// [`ComposedStore::pending_new`].
+    ///
+    /// Snapshots cheap `Arc` handles under the mutex and releases the lock before sorting
+    /// and serializing up to ~96 MiB of WGSL so shader-compile threads never block on disk
+    /// serialization [design].
     pub fn to_bytes(&self) -> Vec<u8> {
         self.changed.store(false, Relaxed);
-        let entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut kept: Vec<(&String, &Entry)> = entries
-            .iter()
-            .flat_map(|(k, v)| v.iter().map(move |e| (k, e)))
-            .filter(|(_, e)| self.run.saturating_sub(e.used) < UNUSED_RUNS)
-            .collect();
-        kept.sort_unstable_by(|a, b| b.1.used.cmp(&a.1.used).then_with(|| a.0.cmp(b.0)));
+        self.pending_new.store(0, Relaxed);
+        let mut kept: Vec<(String, Arc<str>, u64, Arc<[(String, Option<u64>)]>)> = {
+            let entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+            entries
+                .iter()
+                .flat_map(|(k, v)| v.iter().map(move |e| (k, e)))
+                .filter(|(_, e)| self.run.saturating_sub(e.used) < UNUSED_RUNS)
+                .map(|(k, e)| (k.clone(), Arc::clone(&e.wgsl), e.used, Arc::clone(&e.deps)))
+                .collect()
+        };
+        kept.sort_unstable_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
         let mut total = 0;
-        kept.retain(|(_, e)| {
-            total += e.wgsl.len();
+        kept.retain(|(_, wgsl, _, _)| {
+            total += wgsl.len();
             total <= MAX_BYTES
         });
         let mut out = Vec::with_capacity(total + 1024);
@@ -130,12 +142,12 @@ impl ComposedStore {
         put_str(&mut out, PRODUCER);
         out.extend_from_slice(&self.run.to_le_bytes());
         out.extend_from_slice(&(kept.len() as u32).to_le_bytes());
-        for (key, e) in kept {
-            put_str(&mut out, key);
-            put_str(&mut out, &e.wgsl);
-            out.extend_from_slice(&e.used.to_le_bytes());
-            out.extend_from_slice(&(e.deps.len() as u32).to_le_bytes());
-            for (path, hash) in &e.deps {
+        for (key, wgsl, used, deps) in kept {
+            put_str(&mut out, &key);
+            put_str(&mut out, &wgsl);
+            out.extend_from_slice(&used.to_le_bytes());
+            out.extend_from_slice(&(deps.len() as u32).to_le_bytes());
+            for (path, hash) in deps.iter() {
                 put_str(&mut out, path);
                 match hash {
                     Some(h) => {
@@ -152,6 +164,13 @@ impl ComposedStore {
     /// Whether anything was added or used since the last [`ComposedStore::to_bytes`].
     pub fn changed(&self) -> bool {
         self.changed.load(Relaxed)
+    }
+
+    /// Number of newly composed shaders added via [`ComposedStore::put`] since the last
+    /// [`ComposedStore::to_bytes`] (distinguishing new compositions from cache-hit `used`
+    /// touches) [design].
+    pub fn pending_new(&self) -> u32 {
+        self.pending_new.load(Relaxed)
     }
 
     /// Entries held.
@@ -186,7 +205,7 @@ impl ComposedStore {
             self.changed.store(true, Relaxed);
         }
         Some((
-            entry.wgsl.clone(),
+            entry.wgsl.as_ref().to_owned(),
             entry.deps.iter().map(|(p, _)| p.clone()).collect(),
         ))
     }
@@ -195,10 +214,10 @@ impl ComposedStore {
     pub fn put(&self, key: String, wgsl: String, deps: ComposedDeps) {
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         let variants = entries.entry(key).or_default();
-        variants.retain(|e| e.deps != deps);
+        variants.retain(|e| e.deps.as_ref() != deps.as_slice());
         variants.push(Entry {
-            wgsl,
-            deps,
+            wgsl: Arc::from(wgsl),
+            deps: Arc::from(deps),
             used: self.run,
         });
         if variants.len() > MAX_VARIANTS {
@@ -206,6 +225,7 @@ impl ComposedStore {
             variants.truncate(MAX_VARIANTS);
         }
         self.changed.store(true, Relaxed);
+        self.pending_new.fetch_add(1, Relaxed);
     }
 }
 
@@ -263,7 +283,11 @@ fn decode(bytes: &[u8]) -> Option<(HashMap<String, Vec<Entry>>, u64)> {
         entries
             .entry(key)
             .or_insert_with(Vec::new)
-            .push(Entry { wgsl, deps, used });
+            .push(Entry {
+                wgsl: Arc::from(wgsl),
+                deps: Arc::from(deps),
+                used,
+            });
     }
     r.0.is_empty().then_some((entries, run))
 }

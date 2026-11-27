@@ -105,6 +105,13 @@ use std::time::Instant;
 pub const QUIET_SECS: f64 = 2.0;
 /// The least time between two saves.
 pub const MIN_GAP_SECS: f64 = 10.0;
+/// Minimum interval between mid-session rewrites of the ~96 MiB composed-shaders file
+/// unless at least [`COMPOSED_NEW_BATCH`] new shaders were composed [design: prevents
+/// rewriting the whole cache every 10 s on mere cache-hit touches].
+const COMPOSED_MIN_GAP_SECS: f64 = 60.0;
+/// New shader compositions that justify flushing `composed-shaders.bin` sooner than
+/// [`COMPOSED_MIN_GAP_SECS`] [design].
+const COMPOSED_NEW_BATCH: u32 = 16;
 /// A driver cache bigger than this is neither written nor read: it keeps every pipeline it
 /// was ever given (each new build's or driver's shaders add to it [observed: 7.8 MB for one
 /// set, 23 MB after three]), so past this its file is removed and the next run starts a
@@ -130,6 +137,7 @@ struct DiskCache {
     screen_up: bool,
     saved_asked: u32,
     last_save: Option<Instant>,
+    last_composed_save: Option<Instant>,
     quiet_since: Option<Instant>,
     writing: Arc<AtomicBool>,
     /// The hash of the driver cache's contents last written.
@@ -259,6 +267,7 @@ impl Plugin for PipelineDiskCachePlugin {
             screen_up: false,
             saved_asked: 0,
             last_save: None,
+            last_composed_save: None,
             quiet_since: None,
             writing: Arc::default(),
             driver_saved: Arc::default(),
@@ -446,6 +455,14 @@ fn due(asked: u32, saved_asked: u32, quiet_for: Option<f64>, since_save: Option<
     asked > saved_asked && quiet_for.is_some_and(|q| q >= QUIET_SECS) && since_save.is_none_or(|s| s >= MIN_GAP_SECS)
 }
 
+/// Whether `composed-shaders.bin` is due to be rewritten during a quiet save window:
+/// the first save runs as soon as `changed` is set; later hit-only touches wait for
+/// [`COMPOSED_MIN_GAP_SECS`] unless at least [`COMPOSED_NEW_BATCH`] new compositions
+/// arrived [design].
+fn composed_save_due(changed: bool, pending_new: u32, since_composed: Option<f64>) -> bool {
+    changed && (since_composed.is_none_or(|s| s >= COMPOSED_MIN_GAP_SECS) || pending_new >= COMPOSED_NEW_BATCH)
+}
+
 fn save_when_quiet(gate: Option<Res<PipelineGate>>, mut disk: ResMut<DiskCache>) {
     let Some(gate) = gate else { return };
     let now = Instant::now();
@@ -461,56 +478,66 @@ fn save_when_quiet(gate: Option<Res<PipelineGate>>, mut disk: ResMut<DiskCache>)
     }
     disk.saved_asked = asked;
     disk.last_save = Some(now);
-    // The driver cache's contents (up to MAX_DRIVER_BYTES) are copied out on the I/O pool,
-    // not here on the main thread.
+    // The driver cache's contents (up to MAX_DRIVER_BYTES) are copied out on a dedicated
+    // background save thread, not on the main thread or IoTaskPool.
     // Once over the cap (`save_driver`) nothing more is written this run: the contents are
     // not copied out only to be thrown away.
     let driver = disk.driver.clone().filter(|_| disk.driver_saved.load(Relaxed) != OVER_CAP);
-    let composed = disk.composed.clone().filter(|(store, _)| store.changed());
+    let since_composed = disk.last_composed_save.map(|t| now.duration_since(t).as_secs_f64());
+    let composed = disk.composed.clone().filter(|(store, _)| {
+        composed_save_due(store.changed(), store.pending_new(), since_composed)
+    });
     let list = disk.list.clone().filter(|(list, _)| list.changed());
     let at_screen_end = disk.at_screen_end;
     if driver.is_none() && composed.is_none() && list.is_none() {
         return;
     }
+    if composed.is_some() {
+        disk.last_composed_save = Some(now);
+    }
     let (writing, driver_saved) = (disk.writing.clone(), disk.driver_saved.clone());
     writing.store(true, Relaxed);
-    IoTaskPool::get()
-        .spawn(async move {
-            // Cleared however the task ends, a panic included: else no save would run again.
-            let _writing = ClearOnDrop(writing);
-            // `get_data` is a driver call: not while the device is being switched (the gate
-            // bevy_render's compile tasks hold for the same reason).
-            let data = driver.and_then(|(cache, file)| {
-                let _gate = bevy::render::render_resource::RENDER_DEVICE_API_GATE
-                    .read()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                cache.get_data().map(|d| (d, file))
-            });
-            if let Some((data, file)) = data {
-                save_driver(&data, &file, &driver_saved, asked);
+    // Run disk serialization & ~96 MiB writes on a dedicated background thread rather than
+    // `IoTaskPool` so asset/texture/sound streaming never queues behind cache flushes [design].
+    let spawned = std::thread::Builder::new().name("nvf-pipeline-cache-save".into()).spawn(move || {
+        // Cleared however the task ends, a panic included: else no save would run again.
+        let _writing = ClearOnDrop(writing);
+        // `get_data` is a driver call: not while the device is being switched (the gate
+        // bevy_render's compile tasks hold for the same reason).
+        let data = driver.and_then(|(cache, file)| {
+            let _gate = bevy::render::render_resource::RENDER_DEVICE_API_GATE
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            cache.get_data().map(|d| (d, file))
+        });
+        if let Some((data, file)) = data {
+            save_driver(&data, &file, &driver_saved, asked);
+        }
+        if let Some((store, file)) = composed {
+            let began = Instant::now();
+            let body = store.to_bytes();
+            let bytes = driver_file(&body, bevy::shader::nvf_composed::source_hash(&body));
+            match write_replacing(&file, &bytes) {
+                Ok(()) => info!(
+                    "composed shaders: saved {} ({} bytes; {} used again and {} composed this run) in {:.0} ms to {}",
+                    store.len(),
+                    bytes.len(),
+                    store.hits.load(Relaxed),
+                    store.misses.load(Relaxed),
+                    began.elapsed().as_secs_f64() * 1000.0,
+                    file.display()
+                ),
+                Err(e) => warn!("composed shaders: not saved to {}: {e}", file.display()),
             }
-            if let Some((store, file)) = composed {
-                let began = Instant::now();
-                let body = store.to_bytes();
-                let bytes = driver_file(&body, bevy::shader::nvf_composed::source_hash(&body));
-                match write_replacing(&file, &bytes) {
-                    Ok(()) => info!(
-                        "composed shaders: saved {} ({} bytes; {} used again and {} composed this run) in {:.0} ms to {}",
-                        store.len(),
-                        bytes.len(),
-                        store.hits.load(Relaxed),
-                        store.misses.load(Relaxed),
-                        began.elapsed().as_secs_f64() * 1000.0,
-                        file.display()
-                    ),
-                    Err(e) => warn!("composed shaders: not saved to {}: {e}", file.display()),
-                }
-            }
-            if let Some((list, file)) = list {
-                save_list(&list, &file, at_screen_end);
-            }
-        })
-        .detach();
+        }
+        if let Some((list, file)) = list {
+            save_list(&list, &file, at_screen_end);
+        }
+    });
+    if let Err(e) = spawned {
+        disk.writing.store(false, Relaxed);
+        warn!("pipeline cache: could not start save thread: {e}");
+    }
 }
 
 /// Clears a flag when dropped.
@@ -753,5 +780,34 @@ mod tests {
             .and_then(|v| v.strip_suffix('"'))
             .expect("wesl in Cargo.lock");
         assert_eq!(bevy::shader::nvf_composed::WESL_VERSION, version);
+    }
+
+    #[test]
+    fn composed_store_pending_new_distinguishes_puts_from_hit_touches_and_throttles_rewrites() {
+        let store = ComposedStore::from_bytes(&[]);
+        assert_eq!(store.pending_new(), 0);
+        store.put("k1".into(), "fn main() {}".into(), vec![("m".into(), Some(1))]);
+        assert_eq!(store.pending_new(), 1);
+        assert!(store.changed());
+
+        let bytes = store.to_bytes();
+        assert_eq!(store.pending_new(), 0);
+        assert!(!store.changed());
+
+        // Reload in the next run: a cache hit bumps `used` and sets `changed`, but not `pending_new`.
+        let next = ComposedStore::from_bytes(&bytes);
+        let got = next.get("k1", |p| (p == "m").then_some(1));
+        assert_eq!(got.map(|(w, _)| w).as_deref(), Some("fn main() {}"));
+        assert!(next.changed());
+        assert_eq!(next.pending_new(), 0);
+
+        // First save in a run proceeds; subsequent hit-only saves wait for COMPOSED_MIN_GAP_SECS
+        // unless COMPOSED_NEW_BATCH new compositions arrive.
+        assert!(!composed_save_due(false, COMPOSED_NEW_BATCH, Some(COMPOSED_MIN_GAP_SECS)));
+        assert!(composed_save_due(true, 0, None));
+        assert!(!composed_save_due(true, 0, Some(10.0)));
+        assert!(!composed_save_due(true, COMPOSED_NEW_BATCH - 1, Some(10.0)));
+        assert!(composed_save_due(true, 0, Some(COMPOSED_MIN_GAP_SECS)));
+        assert!(composed_save_due(true, COMPOSED_NEW_BATCH, Some(10.0)));
     }
 }
