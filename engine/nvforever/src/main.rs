@@ -73,6 +73,7 @@ mod medium;
 mod medium_air;
 mod medium_air_compose;
 mod medium_air_grid;
+mod mesh_asset_sync;
 mod medium_air_light;
 mod volumetric_clouds;
 mod volumetric_clouds_light;
@@ -2011,6 +2012,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         .disable::<bevy::ui_widgets::ScrollbarPlugin>()
         .disable::<bevy::ui_widgets::SliderPlugin>()
         .disable::<bevy::ui_widgets::TabPlugin>()
+        .disable::<bevy::mesh::MeshPlugin>()
+        .add_before::<bevy::pbr::PbrPlugin>(mesh_asset_sync::MeshAssetSyncPlugin)
         .disable::<bevy::input_focus::pointer_focus::PointerFocusPlugin>()
         // The console's lines go to the run log too (crash.rs).
         .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
