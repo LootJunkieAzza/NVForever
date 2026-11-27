@@ -40,6 +40,32 @@ struct MediumTrace {
 @group(0) @binding(2) var noise_base: texture_3d<f32>;
 @group(0) @binding(3) var noise_sampler: sampler;
 @group(0) @binding(4) var noise_erosion: texture_3d<f32>;
+// Conservative min-depth Hi-Z pyramid from the early depth prepass (1x1 dummy when unavailable
+// or for the water mirror camera).
+@group(1) @binding(0) var depth_pyramid: texture_2d<f32>;
+
+// True only when every opaque pixel in a conservative ~81x64 screen-pixel neighbourhood around
+// `uv` has reverse-Z depth > 0 (zero sky pixels anywhere nearby, so the sky dome cannot show
+// through even under fast camera pans or alpha-cutout foliage gaps) [design].
+fn medium_sky_occluded(uv: vec2<f32>) -> bool {
+    let dim0 = textureDimensions(depth_pyramid, 0);
+    if dim0.x <= 1u || dim0.y <= 1u {
+        return false;
+    }
+    let levels = textureNumLevels(depth_pyramid);
+    let mip = i32(min(4u, levels - 1u));
+    let dim = max(textureDimensions(depth_pyramid, mip), vec2<u32>(1u));
+    let last = vec2<i32>(dim) - vec2<i32>(1);
+    let c = clamp(vec2<i32>(uv * vec2<f32>(dim)), vec2<i32>(0), last);
+    if textureLoad(depth_pyramid, c, mip).r <= 0.0 {
+        return false;
+    }
+    let d1 = textureLoad(depth_pyramid, clamp(c + vec2<i32>(-1, 0), vec2<i32>(0), last), mip).r;
+    let d2 = textureLoad(depth_pyramid, clamp(c + vec2<i32>(1, 0), vec2<i32>(0), last), mip).r;
+    let d3 = textureLoad(depth_pyramid, clamp(c + vec2<i32>(0, -1), vec2<i32>(0), last), mip).r;
+    let d4 = textureLoad(depth_pyramid, clamp(c + vec2<i32>(0, 1), vec2<i32>(0), last), mip).r;
+    return min(min(d1, d2), min(d3, d4)) > 0.0;
+}
 
 struct TraceOutput {
     @location(0) light: vec4<f32>,
@@ -137,6 +163,13 @@ fn medium_offset(texel: vec2<u32>, phase: u32, mode: u32, cycle: u32) -> f32 {
 
 @fragment
 fn medium_trace_refined(in: FullscreenVertexOutput) -> TraceOutput {
+    let view = vc_view_code(volume);
+    if view == 0u && medium.tiles.w == 0.0 {
+        let uv = in.position.xy / max(medium.grid.xy, vec2<f32>(1.0));
+        if medium_sky_occluded(uv) {
+            return medium_output(MediumSample(vec3<f32>(0.0), 1.0, -1.0));
+        }
+    }
     let dir = medium_ray_dir(in.position.xy);
     var start = 0.0;
     if medium.tiles.w > 0.0 {
@@ -148,7 +181,6 @@ fn medium_trace_refined(in: FullscreenVertexOutput) -> TraceOutput {
     }
     let ray = MediumRay(medium.origin.xyz, dir, start, medium.grid.w, medium.origin.w);
     var s: MediumSample;
-    let view = vc_view_code(volume);
     if view == 1u || view == 2u || view == 4u {
         s = vc_view_sample(ray, view, noise_base, noise_sampler, noise_erosion, volume);
     } else {
@@ -167,9 +199,15 @@ fn medium_trace_tiles_refined(in: FullscreenVertexOutput) -> TraceOutput {
     let phase = u32(medium.tiles.x);
     let side = clamp(u32(medium.tiles.z), 1u, 3u);
     let texel = side * tile + medium_corner(tile, size, phase, side);
+    let view = vc_view_code(volume);
+    if view == 0u {
+        let uv = (vec2<f32>(texel) + 0.5) / max(medium.grid.xy, vec2<f32>(1.0));
+        if medium_sky_occluded(uv) {
+            return medium_output(MediumSample(vec3<f32>(0.0), 1.0, -1.0));
+        }
+    }
     let ray = MediumRay(medium.origin.xyz, medium_ray_dir(vec2<f32>(texel) + 0.5), 0.0, medium.grid.w, medium.origin.w);
     var s: MediumSample;
-    let view = vc_view_code(volume);
     if view == 1u || view == 2u || view == 4u {
         s = vc_view_sample(ray, view, noise_base, noise_sampler, noise_erosion, volume);
     } else {

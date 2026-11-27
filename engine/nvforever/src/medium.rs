@@ -1588,6 +1588,8 @@ pub(crate) struct MediumPipelines(Option<Pipelines>);
 
 pub(crate) struct Pipelines {
     trace_layout: BindGroupLayoutDescriptor,
+    depth_layout: BindGroupLayoutDescriptor,
+    dummy_depth: TextureView,
     resolve_layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     /// The trace without a view and its view variant (volumetric_clouds.rs `view_variant`), each queued the
@@ -1638,6 +1640,7 @@ pub(crate) struct MediumHistory {
     /// The bind groups kept while their buffers and views stay the same; the
     /// reconstruction's by which history set it reads.
     trace_group: Option<(TraceGroupKey, BindGroup)>,
+    depth_group: Option<(TextureViewId, BindGroup)>,
     resolve_groups: [Option<(ResolveGroupKey, BindGroup)>; 2],
     /// The history's cuts, tallied for the log (#3032 B1b).
     cuts: CutTally,
@@ -2094,9 +2097,10 @@ fn prepare_medium(
         }
         // Off (or nothing to trace) frees everything that holds a texture view of the history,
         // the trace targets, the cover or the buffers.
-        if history.set.is_some() || history.trace_group.is_some() || history.resolve_groups.iter().any(Option::is_some) {
+        if history.set.is_some() || history.trace_group.is_some() || history.depth_group.is_some() || history.resolve_groups.iter().any(Option::is_some) {
             history.set = None;
             history.trace_group = None;
+            history.depth_group = None;
             history.resolve_groups = [None, None];
         }
         lv.clear();
@@ -2293,6 +2297,18 @@ fn prepare_medium(
     }
 }
 
+/// The trace's `@group(1)` layout: the early prepass min-depth pyramid (or a 1x1 dummy when
+/// occlusion culling is off or for the water reflection camera).
+pub(crate) fn depth_pyramid_layout() -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "medium_trace_depth_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::FRAGMENT,
+            (texture_2d(TextureSampleType::Float { filterable: false }),),
+        ),
+    )
+}
+
 /// The bind group layouts and the history's sampler.
 fn make_pipelines(device: &RenderDevice) -> Pipelines {
     // medium_trace.wesl's bindings 0-4, in order: the trace's uniform, the march's uniform, the
@@ -2311,6 +2327,19 @@ fn make_pipelines(device: &RenderDevice) -> Pipelines {
             ),
         ),
     );
+    let depth_layout = depth_pyramid_layout();
+    let dummy_depth = device
+        .create_texture(&TextureDescriptor {
+            label: Some("medium_dummy_depth_pyramid"),
+            size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::R32Float,
+            usage: TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+        .create_view(&default());
     // medium_resolve.wesl's bindings 0-5: the uniform, the trace's light and distance, the
     // history's light (sampled bilinear), its sampler, its distance and age.
     let resolve_layout = BindGroupLayoutDescriptor::new(
@@ -2335,7 +2364,7 @@ fn make_pipelines(device: &RenderDevice) -> Pipelines {
         address_mode_v: AddressMode::ClampToEdge,
         ..default()
     });
-    Pipelines { trace_layout, resolve_layout, sampler, reference: [None; 2], tiles: [None; 2], resolve: None }
+    Pipelines { trace_layout, depth_layout, dummy_depth, resolve_layout, sampler, reference: [None; 2], tiles: [None; 2], resolve: None }
 }
 
 /// The noise textures' sampler: repeating on all three axes, linear within and between levels
@@ -2367,7 +2396,7 @@ pub fn trace_entry(mode: MediumMode) -> (&'static str, &'static str) {
 pub(crate) fn trace_pipeline(layout: &BindGroupLayoutDescriptor, shader: Handle<Shader>, label: &'static str, entry: &'static str, fullscreen: &FullscreenShader, views: bool) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
         label: Some(format!("{label}{}", variant_suffix(views)).into()),
-        layout: vec![layout.clone()],
+        layout: vec![layout.clone(), depth_pyramid_layout()],
         vertex: fullscreen.to_vertex_state(),
         fragment: Some(FragmentState {
             shader,
@@ -2406,7 +2435,7 @@ fn resolve_pipeline(layout: &BindGroupLayoutDescriptor, shader: Handle<Shader>, 
 
 /// A full-screen pass into up to three `targets` (each cleared to its colour), kept in a fixed
 /// array (no allocation per pass).
-fn fullscreen_pass(ctx: &mut RenderContext, label: &'static str, targets: &[(&TextureView, wgpu::Color)], draw: Option<(&RenderPipeline, &BindGroup)>) {
+fn fullscreen_pass(ctx: &mut RenderContext, label: &'static str, targets: &[(&TextureView, wgpu::Color)], draw: Option<(&RenderPipeline, &BindGroup)>, group1: Option<&BindGroup>) {
     let mut attachments: [Option<RenderPassColorAttachment>; 3] = [None, None, None];
     for (slot, (view, clear)) in attachments.iter_mut().zip(targets) {
         *slot = Some(RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: Operations { load: LoadOp::Clear(*clear), store: StoreOp::Store } });
@@ -2422,6 +2451,9 @@ fn fullscreen_pass(ctx: &mut RenderContext, label: &'static str, targets: &[(&Te
     if let Some((pipeline, bind_group)) = draw {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, bind_group, &[]);
+        if let Some(g1) = group1 {
+            pass.set_bind_group(1, g1, &[]);
+        }
         pass.draw(0..3, 0..1);
     }
 }
@@ -2445,7 +2477,7 @@ fn trace_draw<'a, P, G>(volume: Option<&'a (P, G)>, legacy: Option<&'a P>, group
 /// ([`Written`]): whole only when the passes completed.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn medium_trace_pass(
-    view: ViewQuery<&MediumPass>,
+    view: ViewQuery<(&MediumPass, Option<&bevy::core_pipeline::mip_generation::experimental::depth::ViewDepthPyramid>)>,
     pipelines: Res<MediumPipelines>,
     gpu: Res<MediumGpu>,
     mut history: ResMut<MediumHistory>,
@@ -2454,11 +2486,19 @@ pub(crate) fn medium_trace_pass(
     device: Res<RenderDevice>,
     mut ctx: RenderContext,
 ) {
-    let p = view.into_inner();
+    let (p, pyramid) = view.into_inner();
     let Some(pl) = pipelines.0.as_ref() else { return };
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let history = &mut *history;
+    let depth_view = pyramid.map_or(&pl.dummy_depth, |py| &py.all_mips);
+    let depth_id = depth_view.id();
+    if history.depth_group.as_ref().is_none_or(|(k, _)| *k != depth_id) {
+        let layout = cache.get_bind_group_layout(&pl.depth_layout);
+        let group = device.create_bind_group("medium_trace_depth_bind_group", &layout, &BindGroupEntries::sequential((depth_view,)));
+        history.depth_group = Some((depth_id, group));
+    }
+    let depth_group = history.depth_group.as_ref().map(|(_, g)| g.clone());
     let buffers = (gpu.trace.as_ref(), gpu.clouds.as_ref());
     // The source reads no texture (the cover image is gone), so nothing but the
     // two uniforms and the extent waits here.
@@ -2487,7 +2527,7 @@ pub(crate) fn medium_trace_pass(
         (MediumMode::Reference, Some(group)) => match trace_draw(lv_draw.as_ref(), pl.reference[usize::from(p.views)].and_then(|id| cache.get_render_pipeline(id)), &group) {
             Some(draw) => {
                 let span = diagnostics.time_span(ctx.command_encoder(), "nvf_medium_trace");
-                fullscreen_pass(&mut ctx, "medium_trace_pass", &[(&p.far, CLEAR_LIGHT), (&p.distance.default_view, CLEAR_DISTANCE)], Some(draw));
+                fullscreen_pass(&mut ctx, "medium_trace_pass", &[(&p.far, CLEAR_LIGHT), (&p.distance.default_view, CLEAR_DISTANCE)], Some(draw), depth_group.as_ref());
                 span.end(ctx.command_encoder());
                 true
             }
@@ -2523,11 +2563,11 @@ pub(crate) fn medium_trace_pass(
                     match (resolve_found, history.set.as_ref()) {
                         (Some(resolve_group), Some(set)) => {
                             let span = diagnostics.time_span(ctx.command_encoder(), "nvf_medium_trace");
-                            fullscreen_pass(&mut ctx, "medium_trace_tiles_pass", &[(&trace_light.default_view, CLEAR_LIGHT), (&p.distance.default_view, CLEAR_DISTANCE)], Some(draw));
+                            fullscreen_pass(&mut ctx, "medium_trace_tiles_pass", &[(&trace_light.default_view, CLEAR_LIGHT), (&p.distance.default_view, CLEAR_DISTANCE)], Some(draw), depth_group.as_ref());
                             span.end(ctx.command_encoder());
                             let span = diagnostics.time_span(ctx.command_encoder(), "nvf_medium_reconstruct");
                             let aux_clear = wgpu::Color { r: EMPTY_DISTANCE as f64, g: 0.0, b: 0.0, a: 0.0 };
-                            fullscreen_pass(&mut ctx, "medium_resolve_pass", &[(&p.far, CLEAR_LIGHT), (&set.light[write], CLEAR_LIGHT), (&set.aux[write], aux_clear)], Some((resolve, &resolve_group)));
+                            fullscreen_pass(&mut ctx, "medium_resolve_pass", &[(&p.far, CLEAR_LIGHT), (&set.light[write], CLEAR_LIGHT), (&set.aux[write], aux_clear)], Some((resolve, &resolve_group)), None);
                             span.end(ctx.command_encoder());
                             true
                         }
@@ -2561,7 +2601,7 @@ pub(crate) fn medium_trace_pass(
         history.whole = Some(p.image);
     } else if history.whole != Some(p.image) {
         // Never written whole at this size: cleared, never shown as it was made.
-        fullscreen_pass(&mut ctx, "medium_far_clear", &[(&p.far, CLEAR_LIGHT)], None);
+        fullscreen_pass(&mut ctx, "medium_far_clear", &[(&p.far, CLEAR_LIGHT)], None, None);
     }
     let cause = write_cause(drawn, p.composer_ready, p.size == p.wanted, p.noise.is_some());
     history.pending = Some(Written { epoch: p.epoch, frame: p.frame, view: Some(p.owner), size: p.size, ok: cause == WriteCause::Whole, cause });
@@ -3186,7 +3226,7 @@ mod tests {
         ] {
             assert!(source.contains(binding), "{binding}");
         }
-        assert!(!source.contains("@binding(5)") && !source.contains("texture_2d"), "the trace binds the two noise textures and nothing else");
+        assert!(!source.contains("@binding(5)") && source.contains("@group(1) @binding(0) var depth_pyramid: texture_2d<f32>;"), "the trace binds the two noise textures in group 0 and the conservative min-depth pyramid in group 1");
         // Two targets: the light (FAR_FORMAT, vec4) and the distance (DISTANCE_FORMAT, f32).
         assert!(source.contains("@location(0) light: vec4<f32>,") && source.contains("@location(1) hit_distance: f32,"));
         assert!(source.contains("import nvforever::volumetric_clouds_march::"), "the march module is imported by its path");
