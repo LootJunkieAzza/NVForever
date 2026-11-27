@@ -2053,3 +2053,8 @@ name = "简体中文"
 # [design; engine/nvforever/src/coop/leave.rs] The message a guest sees at the main menu after the host ended the lobby, and its button.
 "Host has ended the lobby." = "主机已关闭房间。"
 "OK" = "确定"
+# [design; engine/nvf-play/src/campfire.rs] Lighting a campfire: the settings row, and the two words on the prompt (not in the original).
+"Light campfires" = "点燃营火"
+"On: at a campfire with no fire, Ready Item lights it; Activate still opens crafting. Off: campfires are the original's. Not in the original." = "开：在没有火的营火旁，“准备物品”键会将其点燃；“互动”键仍打开制作界面。关：营火与原版一致。原版中没有此功能。"
+"Light fire" = "点燃营火"
+"Craft" = "制作"

@@ -841,3 +841,8 @@ name = "Русский"
 # [design; engine/nvforever/src/coop/leave.rs] The message a guest sees at the main menu after the host ended the lobby, and its button.
 "Host has ended the lobby." = "Хозяин закрыл лобби."
 "OK" = "ОК"
+# [design; engine/nvf-play/src/campfire.rs] Lighting a campfire: the settings row, and the two words on the prompt (not in the original).
+"Light campfires" = "Разжигать костры"
+"On: at a campfire with no fire, Ready Item lights it; Activate still opens crafting. Off: campfires are the original's. Not in the original." = "Вкл.: у костра без огня «Достать предмет» разжигает его; «Действие» по-прежнему открывает создание предметов. Выкл.: костры как в оригинале. Нет в оригинале."
+"Light fire" = "Разжечь костёр"
+"Craft" = "Создать"

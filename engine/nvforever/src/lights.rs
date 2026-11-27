@@ -127,7 +127,64 @@ impl Plugin for LightsPlugin {
             .insert_resource(FunctionsShader { handle: functions, patched: false })
             .insert_resource(TonemapShader { handle: tonemapping, patched: false, hdr: false })
             .add_systems(PreUpdate, patch_clip)
-            .add_systems(Update, (patch_attenuation, patch_display_sum, sync_script_lights, animate_lights, bind_model_lights, animate_model_lights).chain().after(nvf_play::PlaySet::Scripts));
+            .add_systems(Update, (patch_attenuation, patch_display_sum, sync_script_lights, dropped_lights, animate_lights, bind_model_lights, animate_model_lights).chain().after(nvf_play::PlaySet::Scripts));
+    }
+}
+
+/// Marks a created light whose light [`dropped_lights`] has dealt with.
+#[derive(Component)]
+struct DroppedLightDone;
+
+/// A light a script created at run time (`nvf_play::dropped::DroppedLight`, a
+/// `PlaceAtMe` of a LIGH) sheds the light a placed reference of its base would
+/// ([`spawn_light`]: colour, radius, flicker, the model's `AttachLight` node), hung from
+/// the root nvf-play draws it under, so it moves with it and goes when the script deletes
+/// it or its cell unloads [design].
+#[allow(clippy::too_many_arguments)]
+fn dropped_lights(
+    mut commands: Commands,
+    added: Query<(Entity, &nvf_play::dropped::DroppedLight), Without<DroppedLightDone>>,
+    world: Option<Res<WorldData>>,
+    streamer: Option<Res<crate::world::Streamer>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
+    mut models: nvf_assets::model::ModelCtx,
+    mut emittance: Option<ResMut<crate::emittance::EmittanceState>>,
+) {
+    // A light waits, unmarked, until the resources exist: `Added` would be spent by a frame
+    // that returned early here, and the light would never come on until its cell reloaded.
+    if added.is_empty() {
+        return;
+    }
+    let (Some(world), Some(emittance)) = (world, emittance.as_deref_mut()) else { return };
+    let scale = streamer.map_or(1.0, |s| s.light_scale);
+    for (root, l) in &added {
+        commands.entity(root).insert(DroppedLightDone);
+        let Some(base) = fnv_world::placed::base_object(world.lo, world.schema, l.base) else { continue };
+        let pos = sim.as_ref().and_then(|s| s.world.peek(fnv_sim::FormId(l.reference))).map_or([0.0; 3], |s| s.pos);
+        let placed = created_placement(l.reference, l.base, pos);
+        let lit = spawn_light(&mut commands, root, &world, l.base, base.model.as_deref(), &mut models, bevy::math::Affine3A::IDENTITY, scale, &placed, emittance).is_some_and(|s| s.emitting);
+        info!("lights: created light 0x{:08X} (base 0x{:08X}) {}", l.reference, l.base, if lit { "lit" } else { "sheds no light (negative, off by default, no radius or black)" });
+    }
+}
+
+/// The placement [`spawn_light`] reads for a created reference: its FormID (the flicker's
+/// phase), base and position (the cell its light is faded with); no XRDS or emittance, as
+/// `PlaceAtMe` gives none.
+pub fn created_placement(reference: u32, base: u32, position: [f32; 3]) -> Placement {
+    Placement {
+        form_id: reference,
+        sig: *b"REFR",
+        flags: 0,
+        base: Some(base),
+        position,
+        rotation: [0.0; 3],
+        scale: 1.0,
+        enable_parent: None,
+        open_by_default: false,
+        teleport: false,
+        emittance: None,
+        imposter: false,
+        primitive: false,
     }
 }
 

@@ -39,6 +39,10 @@ benches' activators call it. The recipe menu is MenuMode 1077 [documented: GECK 
 GetMenuTargetRef, "1077 The actor whose skills are used for crafting"]. It is an engine
 menu: scripts see it as open until the player leaves it.
 
+The campfires' scripts (`CraftingCampfireRecipesScript`, `VCG03CraftingCampfireRecipesScript`)
+open `CampfireRecipes`. The original has no way to light a campfire, and
+66 of the 110 placed in FalloutNV.esm stand with no fire beside them [documented: FalloutNV.esm records]. NVForever can light them behind a switch, off by default (docs/design/campfires.md).
+
 ## 3. The menu
 
 [observed: the owner's screenshots in C:\fnv-private\Crafting; documented: the layout in

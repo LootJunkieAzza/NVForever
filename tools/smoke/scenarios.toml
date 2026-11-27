@@ -37563,3 +37563,40 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
+
+[[scenario]]
+name = "created-fire-light"
+source = "a light a script places (PlaceAtMe of a LIGH) sheds its light with its flicker (nvf-play dropped.rs DroppedLight, nvforever lights.rs dropped_lights); before, created lights drew nothing. Here the vanilla flickering FireBrightOrange is placed at the player at night outside Goodsprings"
+areas = ["lights", "scripts"]
+paths = ["engine/nvf-play/src/dropped.rs", "engine/nvforever/src/lights.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:player.PlaceAtMe FireBrightOrange 1;8.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: light 0x[0-9A-F]{8}, no model', label = "the created light has a root to hang from although it has no model" },
+  { re = 'lights: created light 0xFF[0-9A-F]{6} \(base 0x[0-9A-F]{8}\) lit', label = "it sheds the light of its base" },
+]
+
+[[scenario]]
+name = "campfire-light-vanilla"
+source = "lighting the base game's cold campfires (docs/design/campfires.md; fnv-game campfire.rs, nvf-play campfire.rs): with the Light campfires row switched on, the cold CampfireCrafting02 0x000E9B02 by Goodsprings Source (no fire or light within 150 units in FalloutNV.esm) offers \"Light fire\" on Ready Item beside \"Craft\"; Ready Item places FXFireSmall01 and FireBrightOrange at it at night, both drawn, the light lit, and the weapon is not drawn"
+areas = ["crafting", "activation", "settings", "lights"]
+paths = ["crates/fnv-game/src/campfire.rs", "engine/nvf-play/src/campfire.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "5:6.5", NVF_PLAY_TEST_SETTINGS = "5.5:light-campfires", NVF_PLAY_TEST_FACE = "7:000E9B02", NVF_PLAY_TEST_LOOK = "7.5:0:-48", NVF_PLAY_TEST_KEYS = "10:r" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-59493,-19100,6600", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { text = "settings: light-campfires on", label = "the switch goes on" },
+  { text = "campfire: lighting cold campfires on", label = "the running game takes the switch" },
+  { re = 'reticle: prompt "Craft" and "R\) Light fire" on "Campfire"', label = "the cold campfire offers the second action" },
+  { re = 'campfire: 0x000E9B02 lit \(fire 0xFF[0-9A-F]{6}, light 0xFF[0-9A-F]{6}\)', label = "Ready Item lights it" },
+  { re = '(?i)dropped reference 0xFF[0-9A-F]{6} drawn: meshes.effects.ambient.fxfiresmall01\.nif', label = "the fire is drawn" },
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: light 0x00076D9E, no model', label = "the light has its root" },
+  { re = 'lights: created light 0xFF[0-9A-F]{6} \(base 0x00076D9E\) lit', label = "the light sheds its light" },
+]
+forbid = [
+  { text = "Ready Item pressed: the weapon drawn", label = "the press lit the campfire, not the weapon" },
+  { re = 'campfire: 0x[0-9A-F]{8} not lit', label = "nothing kept it from being lit" },
+  { re = 'NVF_PLAY_TEST_SETTINGS: ("|no switch|\S+ is a (list|slider):)', label = "the switch step is understood" },
+  { re = 'panicked', label = "nothing panics" },
+]
