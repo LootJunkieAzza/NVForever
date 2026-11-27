@@ -6376,11 +6376,11 @@ run_seconds = 15
 order = [[
   "settings: quick-loot on",
   { re = 'language: ru', label = "the language is Russian" },
-  { re = 'quick loot: drawn "Refrigerator" \(.*keys "E\) Взять \| R\) Взять всё \| T\) Обыскать"\): no overlaps', label = "the keys in Russian, nothing overlapping" },
+  { re = 'quick loot: drawn "Refrigerator" \(.*keys "\[E\] Взять \| \[R\] Взять всё \| \[T\] Обыскать"\): no overlaps', label = "the keys in Russian, nothing overlapping" },
 ]]
 forbid = [
   { re = 'quick loot: drawn .*overlaps: ', label = "something overlaps" },
-  { re = 'quick loot: drawn "Refrigerator" .*keys "E\) Take', label = "the keys stayed English after the language changed" },
+  { re = 'quick loot: drawn "Refrigerator" .*keys "\[E\] Take', label = "the keys stayed English after the language changed" },
 ]
 
 [[scenario]]
@@ -12655,7 +12655,7 @@ run_seconds = 25
 expect = [
   { re = 'pipboy items: 10mm Pistol selected: .*dps: None', label = "no DPS card on the ITEMS page" },
   { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("[^"]*weap_skill_icon_sm_arms\.dds"\), skill_req: Some\(\d+\)', label = "the Guns badge and the skill the pistol needs" },
-  { re = 'pipboy items: 10mm Pistol Modify X\)', label = "Modify X) for a weapon with mod slots" },
+  { re = 'pipboy items: 10mm Pistol Modify \[X\]', label = "Modify [X] for a weapon with mod slots" },
   "pipboy repair: clicked row 1",
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "the click on the chosen part repairs the pistol" },
 ]
@@ -12747,7 +12747,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-repair-home", NV
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 23
 expect = [
-  { re = 'pipboy items: 10mm Pistol Repair R\)(?! \(dim)', label = "the worn pistol shows Repair R), bright (another pistol can repair it)" },
+  { re = 'pipboy items: 10mm Pistol Repair \[R\](?! \(dim)', label = "the worn pistol shows Repair [R], bright (another pistol can repair it)" },
   { re = 'pipboy repair: open 10mm Pistol at [34]0% \(Repair \d+\): 10mm Pistol [34]0%', label = "R lists the other pistol as the part" },
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "using it repairs the pistol" },
   { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "a repair plays UIRepairWeapon" },
@@ -12779,13 +12779,13 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-repair-full-home
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 23
 expect = [
-  { text = "pipboy items: 10mm Pistol Maintain R) (dim)", label = "the pistol's hint is dim: at AddItem's 99.9 % it counts as full" },
+  { text = "pipboy items: 10mm Pistol Maintain [R] (dim)", label = "the pistol's hint is dim: at AddItem's 99.9 % it counts as full" },
   { re = 'pipboy repair: 10mm Pistol at \d+%: nothing to repair it with \(full condition\)', label = "R refuses it as full" },
 ]
 forbid = [
   { text = "pipboy repair: open", label = "the repair list opening on an item that counts as full" },
   { re = 'pipboy repair: 10mm Pistol \d+% with 10mm Pistol', label = "a pistol scrapped to raise the other from 99.9 %" },
-  { re = 'pipboy items: 10mm Pistol Maintain R\)(?! \(dim)', label = "the hint bright on an item that counts as full" },
+  { re = 'pipboy items: 10mm Pistol Maintain \[R\](?! \(dim)', label = "the hint bright on an item that counts as full" },
 ]
 
 [[scenario]]
@@ -12841,7 +12841,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 25
 expect = [
-  { re = 'pipboy items: 10mm Pistol Modify X\)(?! \(dim)', label = "Modify X) bright: the player carries a mod that fits" },
+  { re = 'pipboy items: 10mm Pistol Modify \[X\](?! \(dim)', label = "Modify [X] bright: the player carries a mod that fits" },
   { re = 'pipboy mod: open 10mm Pistol \(flags 0\): 10mm Pistol Extended Mags \(slot 1\)', label = "X lists the extended magazines for slot 1" },
   { text = "pipboy: menu code 1061", label = "MenuMode 1061 while the mod menu is open" },
   { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "attaching sets the slot's flag" },
@@ -12859,7 +12859,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-right-click-drop
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 21
 expect = [
-  { re = 'pipboy items: 10mm Pistol Modify X\)', label = "the pistol's Modify X) shows: a weapon with mod slots" },
+  { re = 'pipboy items: 10mm Pistol Modify \[X\]', label = "the pistol's Modify [X] shows: a weapon with mod slots" },
   { text = "test aid: pipboy clicked the screen", label = "the right click lands on the screen" },
   { re = 'menu: Drop: Dropped 10mm Pistol x1', label = "the right click drops the pistol" },
   { text = "pipboy mod: open", count = 0, label = "the mod menu stays closed" },
@@ -15000,13 +15000,13 @@ run_seconds = 32
 expect = [
   { text = "controls: input device Controller", label = "the Controls tab's first row picks the controller" },
   { text = "hints: Xbox labels", label = "the hints take the controller's names" },
-  { re = 'caravan: hints: Auto Match Y\), Raise RT\), Accept A\), Exit B\); help: \S.* \[B\]', label = "the bet screen under its help box: the buttons, and B closes the box" },
-  { text = "caravan: hints: Auto Match Y), Raise RT), Accept A), Exit B)", label = "the bet screen's buttons once the help box is closed" },
-  { re = 'caravan: hints: Randomize Caravan Deck Y\), Add A\), Remove X\), Play Caravan RT\)', label = "the deck builder's buttons" },
-  { re = 'caravan: hints: Select Card A\), Discard Card X\), Discard Track Y\), Cancel B\)', label = "the game's buttons" },
+  { re = 'caravan: hints: Auto Match \[Y\], Raise \[RT\], Accept \[A\], Exit \[B\]; help: \S.* \[B\]', label = "the bet screen under its help box: the buttons, and B closes the box" },
+  { text = "caravan: hints: Auto Match [Y], Raise [RT], Accept [A], Exit [B]", label = "the bet screen's buttons once the help box is closed" },
+  { re = 'caravan: hints: Randomize Caravan Deck \[Y\], Add \[A\], Remove \[X\], Play Caravan \[RT\]', label = "the deck builder's buttons" },
+  { re = 'caravan: hints: Select Card \[A\], Discard Card \[X\], Discard Track \[Y\], Cancel \[B\]', label = "the game's buttons" },
   { re = 'caravan: hints: [^;]* [WQFRS]\)', max = 0, label = "no keyboard key left in a caravan hint" },
 ]
-order = [["controls: input device Controller", "caravan: hints: Auto Match Y)", "caravan: hints: Randomize Caravan Deck Y)", "caravan: hints: Select Card A)"]]
+order = [["controls: input device Controller", "caravan: hints: Auto Match [Y]", "caravan: hints: Randomize Caravan Deck [Y]", "caravan: hints: Select Card [A]"]]
 
 [[scenario]]
 name = "controller-playstation-hints"
@@ -15020,10 +15020,10 @@ run_seconds = 32
 expect = [
   { text = "controller: button style PlayStation", label = "the settings page's Button style picks the PlayStation names" },
   { text = "hints: PlayStation labels", label = "the hints take them" },
-  { re = 'caravan: hints: Auto Match Triangle\), Raise R2\), Accept Cross\), Exit Circle\); help: \S.* \[Circle\]', label = "the bet screen under its help box, Circle closing the box" },
-  { re = 'caravan: hints: Randomize Caravan Deck Triangle\), Add Cross\), Remove Square\), Play Caravan R2\)', label = "the deck builder's buttons" },
-  { re = 'caravan: hints: Select Card Cross\), Discard Card Square\), Discard Track Triangle\), Cancel Circle\)', label = "the game's buttons" },
-  { re = 'caravan: hints: [^;]* (?:[WQFRSAXYB]|RT)\)', max = 0, label = "no keyboard key or Xbox name left in a caravan hint" },
+  { re = 'caravan: hints: Auto Match \[Triangle\], Raise \[R2\], Accept \[Cross\], Exit \[Circle\]; help: \S.* \[Circle\]', label = "the bet screen under its help box, Circle closing the box" },
+  { re = 'caravan: hints: Randomize Caravan Deck \[Triangle\], Add \[Cross\], Remove \[Square\], Play Caravan \[R2\]', label = "the deck builder's buttons" },
+  { re = 'caravan: hints: Select Card \[Cross\], Discard Card \[Square\], Discard Track \[Triangle\], Cancel \[Circle\]', label = "the game's buttons" },
+  { re = 'caravan: hints: [^;]* \[(?:[WQFRSAXYB]|RT)\]', max = 0, label = "no keyboard key or Xbox name left in a caravan hint" },
 ]
 
 [[scenario]]
@@ -32443,17 +32443,17 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-items-hints-home
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
 run_seconds = 26
 expect = [
-  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Modify X\)$', label = "Weapons: Repair, then Mod, nothing else" },
-  { re = 'pipboy hints: items Apparel: (Repair|Maintain) R\)( \(dim\))?$', label = "Apparel: the repair hint alone" },
-  { re = 'pipboy hints: items Aid: Repair R\) \(dim\)$', label = "Aid: Repair alone, dim" },
-  { re = 'pipboy hints: items Misc: Repair R\) \(dim\)$', label = "Misc: Repair alone, dim" },
-  { re = 'pipboy hints: items Ammo: Repair R\) \(dim\)$', label = "Ammo: Repair alone, dim" },
-  { re = 'pipboy hints: items \w+: .*(Enter\)|Right Mouse\)|1-8\))', max = 0, label = "no equip, drop or hotkey hint with the keyboard" },
-  { text = "pipboy hints: mod menu: Modify Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
-  { re = 'pipboy hints: mod menu: Modify Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
-  { re = 'pipboy items: 10mm Pistol Modify X\)(?! \(dim)', label = "the pistol's own Modify X) line, bright" },
+  { re = 'pipboy hints: items Weapons: (Repair|Maintain) \[R\]( \(dim\))?, Modify \[X\]$', label = "Weapons: Repair, then Mod, nothing else" },
+  { re = 'pipboy hints: items Apparel: (Repair|Maintain) \[R\]( \(dim\))?$', label = "Apparel: the repair hint alone" },
+  { re = 'pipboy hints: items Aid: Repair \[R\] \(dim\)$', label = "Aid: Repair alone, dim" },
+  { re = 'pipboy hints: items Misc: Repair \[R\] \(dim\)$', label = "Misc: Repair alone, dim" },
+  { re = 'pipboy hints: items Ammo: Repair \[R\] \(dim\)$', label = "Ammo: Repair alone, dim" },
+  { re = 'pipboy hints: items \w+: .*(\[Enter\]|\[Right Mouse\]|\[1-8\])', max = 0, label = "no equip, drop or hotkey hint with the keyboard" },
+  { text = "pipboy hints: mod menu: Modify [Enter] (dim), Exit [E]", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Modify \[Enter\](?! \(dim), Exit \[E\]', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Modify \[X\](?! \(dim)', label = "the pistol's own Modify [X] line, bright" },
 ]
-order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify Enter) (dim), Exit E)"]]
+order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify [Enter] (dim), Exit [E]"]]
 
 [[scenario]]
 name = "pipboy-items-hints-pad"
@@ -32467,16 +32467,16 @@ run_seconds = 26
 expect = [
   { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller" },
   { text = "hints: Xbox labels", label = "the hints take the Xbox names before the Pip-Boy opens" },
-  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\), Modify LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
-  { re = 'pipboy hints: items Apparel: (Equip|Unequip) A\)( \(dim\))?, Drop X\)( \(dim\))?, (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\)$', label = "Apparel: the set without Mod" },
-  { re = 'pipboy hints: items Aid: Use A\), Drop X\), Repair Y\) \(dim\), Hotkey RB\)$', label = "Aid: Use; Repair dim" },
-  { re = 'pipboy hints: items Misc: Equip A\) \(dim\), Drop X\)( \(dim\))?, Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
-  { re = 'pipboy hints: items Ammo: Equip A\) \(dim\), Drop X\), Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
-  { text = "pipboy hints: mod menu: Modify A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
-  { re = 'pipboy hints: mod menu: Modify A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
-  { re = 'pipboy items: 10mm Pistol Modify LB\)(?! \(dim)', label = "the pistol's own Modify LB) line, bright" },
+  { re = 'pipboy hints: items Weapons: (Equip|Unequip) \[A\], Drop \[X\], (Repair|Maintain) \[Y\]( \(dim\))?, Hotkey \[RB\], Modify \[LB\]$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
+  { re = 'pipboy hints: items Apparel: (Equip|Unequip) \[A\]( \(dim\))?, Drop \[X\]( \(dim\))?, (Repair|Maintain) \[Y\]( \(dim\))?, Hotkey \[RB\]$', label = "Apparel: the set without Mod" },
+  { re = 'pipboy hints: items Aid: Use \[A\], Drop \[X\], Repair \[Y\] \(dim\), Hotkey \[RB\]$', label = "Aid: Use; Repair dim" },
+  { re = 'pipboy hints: items Misc: Equip \[A\] \(dim\), Drop \[X\]( \(dim\))?, Repair \[Y\] \(dim\), Hotkey \[RB\] \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
+  { re = 'pipboy hints: items Ammo: Equip \[A\] \(dim\), Drop \[X\], Repair \[Y\] \(dim\), Hotkey \[RB\] \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
+  { text = "pipboy hints: mod menu: Modify [A] (dim), Exit [B]", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Modify \[A\](?! \(dim), Exit \[B\]', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Modify \[LB\](?! \(dim)', label = "the pistol's own Modify [LB] line, bright" },
 ]
-order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify A) (dim), Exit B)"]]
+order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify [A] (dim), Exit [B]"]]
 
 [[scenario]]
 name = "pipboy-data-hints"
@@ -32490,8 +32490,8 @@ run_seconds = 24
 expect = [
   { re = 'pipboy hints: data local map: Place Marker$', label = "Local Map: Place Marker alone with the keyboard, no key, bright (#1954)" },
   { re = 'pipboy hints: data world map: Place Marker$', label = "World Map: Place Marker alone with the keyboard (Travel is the controller's)" },
-  { re = 'pipboy hints: data quests: Show Location X\)$', label = "Quests: Show Location alone, with its key (the make-active hint is the controller's)" },
-  { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', label = "Misc: the notes' filter and Challenges with their keys" },
+  { re = 'pipboy hints: data quests: Show Location \[X\]$', label = "Quests: Show Location alone, with its key (the make-active hint is the controller's)" },
+  { re = 'pipboy hints: data misc: Active Notes \[X\], Challenges \[R\]$', label = "Misc: the notes' filter and Challenges with their keys" },
   { re = 'pipboy hints: data radio: none$', label = "Radio: no hint with the keyboard (Tune is the controller's)" },
 ]
 order = [["pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc", "pipboy hints: data radio"]]
@@ -32508,12 +32508,12 @@ run_seconds = 25
 expect = [
   { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller before the DATA steps" },
   { text = "hints: Xbox labels", label = "the DATA hints take the Xbox names before the Pip-Boy opens" },
-  { re = 'pipboy hints: data local map: Place Marker X\)$', label = "Local Map: Place Marker with its button, bright (#1954)" },
-  { re = 'pipboy hints: data world map: Travel A\)( \(dim\))?, Place Marker X\)$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
-  { re = 'pipboy hints: data quests: Set Active A\), Show Location X\)$', label = "Quests: the make-active hint and Show Location with their buttons" },
-  { re = 'pipboy hints: data misc: Play A\), Active Notes X\), Challenges Y\)$', label = "Misc: Play on the audio note, the notes' filter and Challenges" },
-  { re = 'pipboy hints: data misc: Stop A\), Active Notes X\), Challenges Y\)$', label = "Misc: Stop while the picked audio note plays" },
-  { re = 'pipboy hints: data radio: Tune In A\)$', label = "Radio: the tune hint with its button" },
+  { re = 'pipboy hints: data local map: Place Marker \[X\]$', label = "Local Map: Place Marker with its button, bright (#1954)" },
+  { re = 'pipboy hints: data world map: Travel \[A\]( \(dim\))?, Place Marker \[X\]$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
+  { re = 'pipboy hints: data quests: Set Active \[A\], Show Location \[X\]$', label = "Quests: the make-active hint and Show Location with their buttons" },
+  { re = 'pipboy hints: data misc: Play \[A\], Active Notes \[X\], Challenges \[Y\]$', label = "Misc: Play on the audio note, the notes' filter and Challenges" },
+  { re = 'pipboy hints: data misc: Stop \[A\], Active Notes \[X\], Challenges \[Y\]$', label = "Misc: Stop while the picked audio note plays" },
+  { re = 'pipboy hints: data radio: Tune In \[A\]$', label = "Radio: the tune hint with its button" },
 ]
 order = [["controls: input device Controller", "pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc: Play", "pipboy hints: data misc: Stop", "pipboy hints: data radio"]]
 
@@ -32529,11 +32529,11 @@ run_seconds = 30
 expect = [
   { re = 'tiles: \[UI\] TileMenus=MapMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): MapMenu drawn from tiles', label = "the switch is read from the test aid" },
   { text = "tiles: MapMenu draws quests from tiles", min = 2, label = "Quests is drawn from its file, and again back from the World Map" },
-  { re = 'tiles: MapMenu page from tiles: tab quests, [1-9]\d* rows, "[^"]+" selected, [1-9]\d* objectives, hints: X Show Location X\), device$', min = 1, label = "the quest, its objectives and the keyboard's one hint written, on the device" },
+  { re = 'tiles: MapMenu page from tiles: tab quests, [1-9]\d* rows, "[^"]+" selected, [1-9]\d* objectives, hints: X Show Location \[X\], device$', min = 1, label = "the quest, its objectives and the keyboard's one hint written, on the device" },
   { re = 'tiles: MapMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', count = 1, label = "structure only, no pixels: the menu goes to the painter once for the run: its rows outlast the tab changes and the reopening" },
   { re = '''tiles: MapMenu set out for the Pip-Boy's image: [1-9]\d* pieces, [1-9]\d* row names''', min = 1, label = "structure only, logs cannot prove pixels (the shots do): pieces of the file go to the painter, the quests' and objectives' names among them" },
   { text = "MapMenu drawn by hand", count = 0, label = "the file has every name the page needs" },
-  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "the hints' rules stay the hand-built page's (#1952)" },
+  { re = 'pipboy hints: data quests: Show Location \[X\]$', min = 1, label = "the hints' rules stay the hand-built page's (#1952)" },
   { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the quest acted once, through its tile" },
   { re = 'pipboy data: active quest ', min = 1, label = "the click made the quest active, the hand-built page's rule" },
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the click on the Show Location hint, through its tile" },
@@ -32570,7 +32570,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 30
 expect = [
   { re = 'tiles: MapMenu|MapMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
-  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "switch off: the Quests hint as before" },
+  { re = 'pipboy hints: data quests: Show Location \[X\]$', min = 1, label = "switch off: the Quests hint as before" },
   { re = 'pipboy data: active quest ', min = 1, label = "switch off: the click on the quest makes it active, as before" },
   { text = "pipboy: DATA World Map", min = 1, label = "switch off: the Show Location hint's click shows the World Map, as before" },
 ]
@@ -32606,7 +32606,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 29
 expect = [
   { text = "tiles: MapMenu draws misc from tiles", min = 1, label = "Misc is drawn from its file" },
-  { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, audio, hints: X [^,]+ X\), Y [^,]+ R\), device$', min = 1, label = "the two notes, the audio note's pane, the filter and Challenges hints, written" },
+  { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, audio, hints: X [^,]+ \[X\], Y [^,]+ \[R\], device$', min = 1, label = "the two notes, the audio note's pane, the filter and Challenges hints, written" },
   { re = 'pipboy data: note .+ \(0x001618BF\) picked', min = 1, label = "the aid picks the voice note" },
   { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ', min = 1, label = "Down selects the text note: its text from the file" },
   { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the first note acted once, through its tile" },
@@ -32617,7 +32617,7 @@ expect = [
   { re = 'tiles: MapMenu page from tiles: tab misc challenges, \d+ rows, ', min = 1, label = "the challenges written in their list" },
   { text = "pipboy data: notes shown", count = 1, label = "and the notes again" },
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the notes' filter's click, through its tile" },
-  { re = 'pipboy hints: data misc: All Notes X\)', min = 1, label = "the filter acted once: its hint now offers all the notes" },
+  { re = 'pipboy hints: data misc: All Notes \[X\]', min = 1, label = "the filter acted once: its hint now offers all the notes" },
   { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "Radio is drawn from its file too since #1513's Radio slice (tiles-data-radio); before: it kept the hand-built page" },
   { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Misc needs, and its panes show (a challenge's short text without a scroll bar)" },
   { re = 'MapMenu: Button\(.\) does not take the pointer', count = 0, label = "the hints take the pointer at their words, not their keys beside the box" },
@@ -32635,7 +32635,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 29
 expect = [
   { re = 'tiles: MapMenu|MapMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
-  { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', min = 1, label = "switch off: Misc's hints as before" },
+  { re = 'pipboy hints: data misc: Active Notes \[X\], Challenges \[R\]$', min = 1, label = "switch off: Misc's hints as before" },
   { re = 'pipboy data: note .+ \(0x001618BF\) picked', min = 1, label = "switch off: the aid picks the voice note, as before" },
   { text = "pipboy data: challenges shown", count = 1, label = "switch off: the Challenges hint's click, as before" },
   { text = "pipboy data: notes shown", count = 1, label = "switch off: and the notes again" },
@@ -32882,7 +32882,7 @@ run_seconds = 27
 expect = [
   { text = "MapMenu drawn by hand: MM_ListMarkerTemplate missing", count = 1, label = "the template cut, by hand: the reason, once" },
   { text = "tiles: MapMenu leaves quests hand-built: MM_ListMarkerTemplate missing", min = 1, label = "the draw state's line" },
-  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "the hand-built page draws meanwhile, its hints as before" },
+  { re = 'pipboy hints: data quests: Show Location \[X\]$', min = 1, label = "the hand-built page draws meanwhile, its hints as before" },
   { text = "test aid: NVF_PLAY_TEST_MAP_TILE_CUT over", count = 1, label = "the aid stops" },
   { re = 'test aid: MapMenu built again from \S', count = 1, label = "the tree changes: the menu built again from its file" },
   { re = 'tiles: MapMenu page from tiles: tab quests', min = 1, label = "and the page comes from its tiles" },
@@ -33536,13 +33536,13 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 16
 order = [[
   { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens with the keyboard" },
-  { re = 'tutorial menu: hints [^,]+ A\), [^,]+ S\), [^,]+ E\)', label = "its hints name the keys: Close E)" },
+  { re = 'tutorial menu: hints [^,]+ \[A\], [^,]+ \[S\], [^,]+ \[E\]', label = "its hints name the keys: Close [E]" },
   { text = "controls: input device Controller", label = "the controller is picked" },
   { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens again" },
-  { re = 'tutorial menu: hints [^,]+ RT\), [^,]+ LT\), [^,]+ B\)', label = "its hints name the buttons: Close B)" },
+  { re = 'tutorial menu: hints [^,]+ \[RT\], [^,]+ \[LT\], [^,]+ \[B\]', label = "its hints name the buttons: Close [B]" },
 ]]
 expect = [
-  { re = 'tutorial menu: hints .*\[', max = 0, label = "no hint in square brackets" },
+  { re = 'tutorial menu: hints .*\b(?:[A-Z]|RT|LT)\)', max = 0, label = "no hint in the old X) shape (#4495)" },
 ]
 
 [[scenario]]
@@ -33788,7 +33788,7 @@ order = [[
   { re = 'pause menu: inspect: Gameplay,', label = "the Gameplay tab is inspected" },
   { re = 'pause menu: inspect: back Back$', label = "Back alone with the keyboard" },
   { text = "controls: input device Controller", label = "the controller is picked" },
-  { re = 'pause menu: inspect: back \S+  B\)', label = "Back names the controller's B" },
+  { re = 'pause menu: inspect: back \S+  \[B\]', label = "Back names the controller's B" },
 ]]
 
 [[scenario]]
@@ -35742,7 +35742,7 @@ run_seconds = 46
 expect = [
   "controls: input device Controller",
   { text = "pipboy hotkeys: controller opened, key 1 chosen", count = 2 },
-  { re = 'pipboy hints: items Weapons: .*Hotkey RB\)', min = 1 },
+  { re = 'pipboy hints: items Weapons: .*Hotkey \[RB\]', min = 1 },
   "pipboy hotkeys: controller key 2 chosen",
   { re = 'hotkeys: slot 2 is Ammo Swap: \.357 Magnum Revolver not assigned', count = 1 },
   "pipboy hotkeys: controller key 3 chosen",
