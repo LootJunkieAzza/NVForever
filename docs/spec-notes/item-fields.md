@@ -56,3 +56,7 @@ Not built, and why:
 
 Unit test `weapon_rumble_from_the_record` (rumble.rs). The jam rule is logged per jam
 (`combat: … jammed …`).
+
+## 4. `SetValueAlt` / `GetValueAlt` on `ALCH` ingestibles
+
+- **`SetValueAlt` writes `ENIT/value` on `ALCH`** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`, `w6d9_39_item_value_setitemvalue_getvaluealt_setvaluealt`: `PROBE|w6d9_39_item_value_setitemvalue_getvaluealt_setvaluealt|weap(750:750->888:888)|armo(160:160->444:444)|misc(1:1)|stim(0:75->0:123)`; no DLL, PDB, or third-party source consulted]: `SetValueAlt` updates `ENIT/value` for `ALCH` forms (visible to `GetValueAlt`, while vanilla `GetItemValue` stays `0`) and `DATA/value` for `WEAP`/`ARMO`/`MISC`.

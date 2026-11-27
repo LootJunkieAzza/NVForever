@@ -1,0 +1,168 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_calc_weapon_dps_auto",
+  "description": "Wave 6D-6 read-only probe verifying GetCalculatedWeaponDPS divides crit_percent_mult by fire_rate on automatic weapons.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "JohnnyGuitarNVSE": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d6_calc_weapon_dps_auto",
+      "title": "GetCalculatedWeaponDPS automatic crit rate scaling",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p2_06b_calc_dmg_dps_perks_ammo_gmst",
+          "bucket": "combat_damage_calc",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 64,
+          "functions_tested": [
+            "GetCalculatedWeaponDamage",
+            "GetCalculatedWeaponDPS",
+            "GetWeaponFireRate",
+            "GetWeaponAnimShotsPerSec",
+            "SetNumericGameSetting"
+          ],
+          "claim": "SD-01 & SD-02: Isolate FastShot, TriggerDiscipline, Finesse (settled), BetterCriticals, HeavyHanded, Slayer, HP ammo, fDamageSkillBase/Mult, and 10mm SMG fire_rate vs animShots on GetCalculatedWeaponDamage/DPS.",
+          "expected": "Record exact damage/DPS deltas for each perk, ammo, and GMST.",
+          "script_lines": [
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rSmg = GetFormFromMod \"FalloutNV.esm\" \"4321\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+            "Player.AuxVarSetFlt \"*p206_g\" (Player.GetBaseAV Guns)",
+            "Player.AuxVarSetFlt \"*p206_m\" (Player.GetBaseAV MeleeWeapons)",
+            "Player.AuxVarSetFlt \"*p206_s\" (Player.GetBaseAV Strength)",
+            "Player.AuxVarSetFlt \"*p206_c\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV Guns 100",
+            "Player.SetAV MeleeWeapons 100",
+            "Player.SetAV Strength 10",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItem rA10 20 1",
+            "Player.AddItem rAHp 20 1",
+            "Player.EquipItem r10 0 1",
+            "Player.EquipItem rA10 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_std",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rSmg = GetFormFromMod \"FalloutNV.esm\" \"4321\"",
+                "ref rKn = GetFormFromMod \"FalloutNV.esm\" \"4334\"",
+                "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+                "ref rFs = GetFormFromMod \"FalloutNV.esm\" \"135EC7\"",
+                "ref rTd = GetFormFromMod \"FalloutNV.esm\" \"135EC8\"",
+                "ref rBc = GetFormFromMod \"FalloutNV.esm\" \"31DBB\"",
+                "ref rHh = GetFormFromMod \"FalloutNV.esm\" \"135EC5\"",
+                "ref rSl = GetFormFromMod \"FalloutNV.esm\" \"165446\"",
+                "Player.AuxVarSetFlt \"*p206_smgFr\" (GetWeaponFireRate rSmg)",
+                "Player.AuxVarSetFlt \"*p206_smgAs\" (GetWeaponAnimShotsPerSec rSmg)",
+                "Player.AuxVarSetFlt \"*p206_dStd\" (Player.GetCalculatedWeaponDamage)",
+                "Player.AuxVarSetFlt \"*p206_pStd\" (Player.GetCalculatedWeaponDPS)",
+                "Player.AddPerk rFs",
+                "Player.AuxVarSetFlt \"*p206_pFs\" (Player.GetCalculatedWeaponDPS r10)",
+                "Player.RemovePerk rFs",
+                "Player.AddPerk rTd",
+                "Player.AuxVarSetFlt \"*p206_pTd\" (Player.GetCalculatedWeaponDPS r10)",
+                "Player.RemovePerk rTd",
+                "Player.SetAV CritChance 50",
+                "Player.AuxVarSetFlt \"*p206_pC50\" (Player.GetCalculatedWeaponDPS r10)",
+                "Player.AuxVarSetFlt \"*p206_smgC50\" (Player.GetCalculatedWeaponDPS rSmg)",
+                "Player.AddPerk rBc",
+                "Player.AuxVarSetFlt \"*p206_pBc\" (Player.GetCalculatedWeaponDPS r10)",
+                "Player.RemovePerk rBc",
+                "Player.SetAV CritChance 0",
+                "Player.AuxVarSetFlt \"*p206_kn0\" (Player.GetCalculatedWeaponDamage rKn)",
+                "Player.AuxVarSetFlt \"*p206_knP0\" (Player.GetCalculatedWeaponDPS rKn)",
+                "Player.AddPerk rHh",
+                "Player.AuxVarSetFlt \"*p206_knHh\" (Player.GetCalculatedWeaponDamage rKn)",
+                "Player.RemovePerk rHh",
+                "Player.AddPerk rSl",
+                "Player.AuxVarSetFlt \"*p206_knSl\" (Player.GetCalculatedWeaponDPS rKn)",
+                "Player.RemovePerk rSl",
+                "Player.EquipItem rAHp 0 1"
+              ]
+            },
+            {
+              "suffix": "s2_hp",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "ref rAHp = GetFormFromMod \"FalloutNV.esm\" \"13E43B\"",
+                "float fDHp = Player.GetCalculatedWeaponDamage",
+                "float fPHp = Player.GetCalculatedWeaponDPS",
+                "float fOSb = GetNumericGameSetting \"fDamageSkillBase\"",
+                "float fOSm = GetNumericGameSetting \"fDamageSkillMult\"",
+                "Player.SetAV Guns 0",
+                "float fG0 = Player.GetCalculatedWeaponDamage r10",
+                "SetNumericGameSetting \"fDamageSkillBase\" 0.25",
+                "float fG0Sb = Player.GetCalculatedWeaponDamage r10",
+                "SetNumericGameSetting \"fDamageSkillBase\" fOSb",
+                "SetNumericGameSetting \"fDamageSkillMult\" 1.0",
+                "Player.SetAV Guns 100",
+                "float fG100Sm = Player.GetCalculatedWeaponDamage r10",
+                "SetNumericGameSetting \"fDamageSkillMult\" fOSm",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.RemoveItem rA10 20 1",
+                "Player.RemoveItem rAHp 20 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*p206_g\")",
+                "Player.SetAV MeleeWeapons (Player.AuxVarGetFlt \"*p206_m\")",
+                "Player.SetAV Strength (Player.AuxVarGetFlt \"*p206_s\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*p206_c\")",
+                "float fSmgFr = Player.AuxVarGetFlt \"*p206_smgFr\"",
+                "float fSmgAs = Player.AuxVarGetFlt \"*p206_smgAs\"",
+                "float fDStd = Player.AuxVarGetFlt \"*p206_dStd\"",
+                "float fPStd = Player.AuxVarGetFlt \"*p206_pStd\"",
+                "float fPFs = Player.AuxVarGetFlt \"*p206_pFs\"",
+                "float fPTd = Player.AuxVarGetFlt \"*p206_pTd\"",
+                "float fPC50 = Player.AuxVarGetFlt \"*p206_pC50\"",
+                "float fSmgC50 = Player.AuxVarGetFlt \"*p206_smgC50\"",
+                "float fPBc = Player.AuxVarGetFlt \"*p206_pBc\"",
+                "float fKn0 = Player.AuxVarGetFlt \"*p206_kn0\"",
+                "float fKnP0 = Player.AuxVarGetFlt \"*p206_knP0\"",
+                "float fKnHh = Player.AuxVarGetFlt \"*p206_knHh\"",
+                "float fKnSl = Player.AuxVarGetFlt \"*p206_knSl\"",
+                "PrintToConsole \"PROBE|w6d6p2_06b_calc_dmg_dps_perks_ammo_gmst|smg(fr=%.2f,as=%.2f,c50=%.2f)|std=%.2f/%.2f|hp=%.2f/%.2f|fs=%.2f|td=%.2f|c50=%.2f|bc=%.2f|kn(0=%.2f/%.2f,hh=%.2f,sl=%.2f)|gmst(g0=%.2f,sb25=%.2f,sm1=%.2f)\" fSmgFr fSmgAs fSmgC50 fDStd fPStd fDHp fPHp fPFs fPTd fPC50 fPBc fKn0 fKnP0 fKnHh fKnSl fG0 fG0Sb fG100Sm"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

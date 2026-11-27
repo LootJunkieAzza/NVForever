@@ -1,0 +1,142 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_weapon_ref_mod_flags",
+  "description": "Clean-room read-only Wave 6D-4 probes for JIP LN SetWeaponRefModFlags 0..=7 range validation.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "JIP LN": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d4_weapon_ref_mod_flags",
+      "title": "Wave 6D-4: JIP LN SetWeaponRefModFlags 0..=7 bounds validation",
+      "extender": "JIP LN",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4_01_weapon_ref_mod_flags_edges",
+          "bucket": "xnvse_core_items",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 347,
+          "functions_tested": [
+            "GetWeaponRefModFlags",
+            "SetWeaponRefModFlags",
+            "GetEquippedWeaponModFlags",
+            "GetInvRefsForItem"
+          ],
+          "claim": "SD-04: Verify SetWeaponRefModFlags / GetWeaponRefModFlags bitmask clamping (0, 5, 7, 8, 255, -1) on inventory ref vs non-weapon inv-ref (Stimpak) vs placed world weapon ref.",
+          "expected": "NVForever clamps SetWeaponRefModFlags to u8 (0..255) without 3-bit & 7 masking and returns 0 on non-inventory placed world refs.",
+          "script_lines": [
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "Player.AddItem rGun 1 1",
+            "Player.AddItem rStim 1 1",
+            "array_var aGun = Player.GetInvRefsForItem rGun",
+            "array_var aStim = Player.GetInvRefsForItem rStim",
+            "ref rInv = aGun[0]",
+            "ref rStimInv = aStim[0]",
+            "int f0 = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 5",
+            "int f5 = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 7",
+            "int f7 = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 8",
+            "int f8 = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 255",
+            "int f255 = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags -1",
+            "int fNeg = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 3",
+            "Player.EquipItem rGun 0 1",
+            "int eqF = Player.GetEquippedWeaponModFlags",
+            "Player.UnequipItem rGun 0 1",
+            "int fStim = rStimInv.GetWeaponRefModFlags",
+            "ref rPlaced = Player.PlaceAtMe rGun 1",
+            "int wp0 = rPlaced.GetWeaponRefModFlags",
+            "rPlaced.SetWeaponRefModFlags 5",
+            "int wp5 = rPlaced.GetWeaponRefModFlags",
+            "rPlaced.Disable",
+            "rPlaced.MarkForDelete",
+            "Player.RemoveItem rGun 1 1",
+            "Player.RemoveItem rStim 1 1",
+            "PrintToConsole \"PROBE|w6d4_01_weapon_ref_mod_flags_edges|inv(%g,%g,%g,%g,%g,%g)|eq=%g|stim=%g|placed(%g,%g)\" f0 f5 f7 f8 f255 fNeg eqF fStim wp0 wp5"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d4p3_01b_weapon_ref_mod_flags_disambig",
+          "bucket": "xnvse_core_items",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 347,
+          "functions_tested": [
+            "GetWeaponRefModFlags",
+            "SetWeaponRefModFlags",
+            "GetInvRefsForItem"
+          ],
+          "claim": "SD-04: Disambiguate SetWeaponRefModFlags >7 / <0: test 0->8, 5->8, 0->255, 0->-1, 5->-1 and capture setter return value.",
+          "expected": "Distinguish 3-bit clamp (0..7) vs mask (& 7) vs rejection keeping previous value.",
+          "script_lines": [
+            "ref rGun = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "Player.AddItem rGun 1 1",
+            "array_var aGun = Player.GetInvRefsForItem rGun",
+            "ref rInv = aGun[0]",
+            "int r0 = rInv.SetWeaponRefModFlags 0",
+            "int r8a = rInv.SetWeaponRefModFlags 8",
+            "int f8a = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 5",
+            "int r8b = rInv.SetWeaponRefModFlags 8",
+            "int f8b = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 0",
+            "int r255 = rInv.SetWeaponRefModFlags 255",
+            "int f255 = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 0",
+            "int rNeg = rInv.SetWeaponRefModFlags -1",
+            "int fNeg = rInv.GetWeaponRefModFlags",
+            "rInv.SetWeaponRefModFlags 5",
+            "int rNeg2 = rInv.SetWeaponRefModFlags -1",
+            "int fNeg2 = rInv.GetWeaponRefModFlags",
+            "Player.RemoveItem rGun 1 1",
+            "PrintToConsole \"PROBE|w6d4p3_01b_weapon_ref_mod_flags_disambig|r0=%g|0->8(r=%g,v=%g)|5->8(r=%g,v=%g)|0->255(r=%g,v=%g)|0->-1(r=%g,v=%g)|5->-1(r=%g,v=%g)\" r0 r8a f8a r8b f8b r255 f255 rNeg fNeg rNeg2 fNeg2"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

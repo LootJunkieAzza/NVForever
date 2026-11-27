@@ -53,8 +53,8 @@ impl Game<'_> {
         if self.ingestible_def(item).is_none() {
             return false;
         }
-        let Some(effects) = self.data.effect_items.get(&self.unclone(item)).filter(|e| !e.is_empty()) else { return false };
-        effects.iter().all(|e| self.magic_effect_def(e.effect).is_some_and(|m| m.has(MagicEffectDef::DETRIMENTAL) && m.has(MagicEffectDef::HOSTILE)))
+        let effects = self.effect_list(item);
+        !effects.is_empty() && effects.iter().all(|e| self.magic_effect_def(e.effect).is_some_and(|m| m.has(MagicEffectDef::DETRIMENTAL) && m.has(MagicEffectDef::HOSTILE)))
     }
 
     /// Whether `weapon` takes a poison: a Melee Weapons or Unarmed weapon [hypothesis, module notes].

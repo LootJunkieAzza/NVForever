@@ -1,0 +1,193 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_av_modifier_filters",
+  "description": "Wave 6D-7 read-only console probes for JIP GetActorValueModifier filter codes 0, 1, 2, 3 vs GetActorValueModifierAlt.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184",
+    "JohnnyGuitarNVSE": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d7_av_modifier_filters",
+      "title": "Wave 6D-7: GetActorValueModifier filter codes 0/1/2/3",
+      "extender": "JIP LN NVSE / ShowOffNVSE / JohnnyGuitarNVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ShowOffNVSE.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_02_av_modifier_filters_0_1_2_3_and_alt",
+          "bucket": "actor_values_pools",
+          "extender": "JIP LN NVSE / ShowOffNVSE / JohnnyGuitarNVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 215,
+          "functions_tested": [
+            "GetActorValueModifier",
+            "GetActorValueDamage",
+            "GetActorValueModifierAlt",
+            "ModAV",
+            "DamageAV",
+            "EquipItem",
+            "Dispel"
+          ],
+          "claim": "SD-03: Compare JIP GetActorValueModifier (filters omitted, 0, 1, 2, 3), GetActorValueDamage, and JG GetActorValueModifierAlt (1, 2, 3) across ModAV, DamageAV, Buffout temp effect, and worn armor ENCH.",
+          "expected": "Pin exact filter-code mapping for permanent, temp, and damage pools in both JIP and JohnnyGuitar.",
+          "script_lines": [
+            "ref rBuff = GetFormFromMod \"FalloutNV.esm\" \"15163\"",
+            "ref rHat = GetFormFromMod \"FalloutNV.esm\" \"10EA7F\"",
+            "float fStr0 = Player.GetAV Strength",
+            "Player.ModAV Strength 2",
+            "Player.DamageAV Strength 1",
+            "Player.AddItem rBuff 1 1",
+            "Player.EquipItem rBuff 0 1",
+            "Player.AddItem rHat 1 1",
+            "Player.EquipItem rHat 0 1",
+            "Player.AuxVarSetFlt \"*w6d702_s0\" fStr0"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rBuff = GetFormFromMod \"FalloutNV.esm\" \"15163\"",
+                "ref rHat = GetFormFromMod \"FalloutNV.esm\" \"10EA7F\"",
+                "float fJAll = Player.GetActorValueModifier Strength",
+                "float fJ0 = Player.GetActorValueModifier Strength 0",
+                "float fJ1 = Player.GetActorValueModifier Strength 1",
+                "float fJ2 = Player.GetActorValueModifier Strength 2",
+                "float fJ3 = Player.GetActorValueModifier Strength 3",
+                "float fJDmg = Player.GetActorValueDamage Strength",
+                "float fG1 = Player.GetActorValueModifierAlt Strength 1",
+                "float fG2 = Player.GetActorValueModifierAlt Strength 2",
+                "float fG3 = Player.GetActorValueModifierAlt Strength 3",
+                "float fPerJ0 = Player.GetActorValueModifier Perception 0",
+                "float fPerJ1 = Player.GetActorValueModifier Perception 1",
+                "float fPerG1 = Player.GetActorValueModifierAlt Perception 1",
+                "float fPerG2 = Player.GetActorValueModifierAlt Perception 2",
+                "Player.UnequipItem rHat 0 1",
+                "Player.RemoveItem rHat 1 1",
+                "Player.Dispel rBuff",
+                "Player.RestoreAV Strength 1",
+                "Player.ModAV Strength -2",
+                "Player.AuxVarErase \"*w6d702_s0\"",
+                "string_var sOut = sv_Construct \"PROBE|w6d7_02_av_modifier_filters_0_1_2_3_and_alt|jipStr(all=%.1f,f0=%.1f,f1=%.1f,f2=%.1f,f3=%.1f,dmg=%.1f)\" fJAll fJ0 fJ1 fJ2 fJ3 fJDmg",
+                "let sOut += sv_Construct \"|jgStr(f1=%.1f,f2=%.1f,f3=%.1f)|hatPer(j0=%.1f,j1=%.1f,g1=%.1f,g2=%.1f)\" fG1 fG2 fG3 fPerJ0 fPerJ1 fPerG1 fPerG2",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d7p3_02_av_mod_filters_clean",
+          "bucket": "actor_values_pools",
+          "extender": "JIP LN NVSE / ShowOffNVSE / JohnnyGuitarNVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 215,
+          "functions_tested": [
+            "GetActorValueModifier",
+            "GetActorValueDamage",
+            "GetActorValueModifierAlt",
+            "ModAV",
+            "DamageAV",
+            "EquipItem",
+            "AddSpell",
+            "RemoveSpell",
+            "Dispel"
+          ],
+          "claim": "SD-03: Clean comparison of JIP GetActorValueModifier (all/0/1/2/3), ShowOff GetActorValueDamage, and JG GetActorValueModifierAlt (1/2/3) across ModAV, DamageAV, Buffout, worn hat ENCH, and PerkToughness ability.",
+          "expected": "Pin exact filter-code meanings for JIP GetActorValueModifier and JG GetActorValueModifierAlt.",
+          "script_lines": [
+            "ref rBuff = GetFormFromMod \"FalloutNV.esm\" \"15163\"",
+            "ref rHat = GetFormFromMod \"FalloutNV.esm\" \"10EA7F\"",
+            "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31D7D\"",
+            "Player.ModAV Strength 2",
+            "Player.DamageAV Strength 1",
+            "Player.AddItem rBuff 1 1",
+            "Player.EquipItem rBuff 0 1",
+            "Player.AddItem rHat 1 1",
+            "Player.EquipItem rHat 0 1",
+            "Player.AddSpell rTgh"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rBuff = GetFormFromMod \"FalloutNV.esm\" \"15163\"",
+                "ref rHat = GetFormFromMod \"FalloutNV.esm\" \"10EA7F\"",
+                "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31D7D\"",
+                "float fJAll = Player.GetActorValueModifier Strength",
+                "float fJ0 = Player.GetActorValueModifier Strength 0",
+                "float fJ1 = Player.GetActorValueModifier Strength 1",
+                "float fJ2 = Player.GetActorValueModifier Strength 2",
+                "float fJ3 = Player.GetActorValueModifier Strength 3",
+                "float fJDmg = Player.GetActorValueDamage Strength",
+                "float fG1 = Player.GetActorValueModifierAlt Strength 1",
+                "float fG2 = Player.GetActorValueModifierAlt Strength 2",
+                "float fG3 = Player.GetActorValueModifierAlt Strength 3",
+                "float fPerJ0 = Player.GetActorValueModifier Perception 0",
+                "float fPerJ1 = Player.GetActorValueModifier Perception 1",
+                "float fPerJ2 = Player.GetActorValueModifier Perception 2",
+                "float fPerG1 = Player.GetActorValueModifierAlt Perception 1",
+                "float fPerG2 = Player.GetActorValueModifierAlt Perception 2",
+                "float fDrJ0 = Player.GetActorValueModifier DamageResist 0",
+                "float fDrJ1 = Player.GetActorValueModifier DamageResist 1",
+                "float fDrJ2 = Player.GetActorValueModifier DamageResist 2",
+                "float fDrG1 = Player.GetActorValueModifierAlt DamageResist 1",
+                "float fDrG2 = Player.GetActorValueModifierAlt DamageResist 2",
+                "Player.RemoveSpell rTgh",
+                "Player.UnequipItem rHat 0 1",
+                "Player.RemoveItem rHat 1 1",
+                "Player.Dispel rBuff",
+                "Player.RestoreAV Strength 1",
+                "Player.ModAV Strength -2",
+                "string_var sOut = sv_Construct \"PROBE|w6d7p3_02_av_mod_filters_clean|strJ(all=%.1f,0=%.1f,1=%.1f,2=%.1f,3=%.1f,dmg=%.1f)|strG(1=%.1f,2=%.1f,3=%.1f)\" fJAll fJ0 fJ1 fJ2 fJ3 fJDmg fG1 fG2 fG3",
+                "let sOut += sv_Construct \"|per(j=%.1f/%.1f/%.1f,g=%.1f/%.1f)|dr(j=%.1f/%.1f/%.1f,g=%.1f/%.1f)\" fPerJ0 fPerJ1 fPerJ2 fPerG1 fPerG2 fDrJ0 fDrJ1 fDrJ2 fDrG1 fDrG2",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

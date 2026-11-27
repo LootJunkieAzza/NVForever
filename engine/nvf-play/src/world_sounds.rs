@@ -2160,9 +2160,16 @@ mod tests {
         assert_eq!(sfx.forms.weapons[&c_after].shoot_2d, Some(FormId(0x0E22)));
         assert_eq!(ws.item_sound_of(Some(&sfx), c_after, true), Some(FormId(0x0E2C)));
 
-        // Clearing slots 12 and 13 via SetWeaponSound falls back to UIItemGenericUp / UIItemGenericDown.
+        // Explicit 0 is a no-op; clearing slots 12 and 13 by omitting the 3rd arg falls back to
+        // UIItemGenericUp / UIItemGenericDown [observed: w6d2_03_weapon_sound_slots_and_clone].
         game.run_query(
             "Begin Function {}\nSetWeaponSound OwnedWeap 12 0\nSetWeaponSound OwnedWeap 13 0\nEnd",
+            RunCtx::default(),
+        )
+        .unwrap();
+        assert!(!sync_script_weapon_items(&game, &mut ws.forms.items, &mut sync.items));
+        game.run_query(
+            "Begin Function {}\nSetWeaponSound OwnedWeap 12\nSetWeaponSound OwnedWeap 13\nEnd",
             RunCtx::default(),
         )
         .unwrap();

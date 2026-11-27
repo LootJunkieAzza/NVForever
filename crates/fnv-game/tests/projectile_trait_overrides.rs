@@ -247,12 +247,21 @@ fn projectile_setters_validate_targets_slots_and_replacement_forms_without_mutat
     let mut g = game(&f);
     let p = FormId(PROJ_MAIN);
 
-    // SetProjectileExplosion rejects non-PROJ targets, non-EXPL forms, and keeps explosion on null [observed: gaps6].
+    // SetProjectileExplosion ignores non-PROJ targets and keeps explosion on explicit null (0),
+    // while clearing DATA/explosion to None on non-null non-EXPL forms or omitted arg
+    // [observed: gaps6; w6d12_24_projectile_explosion_light_muzzle_clear_and_validation].
     call(&mut g, "setprojectileexplosion", &[XVal::Ref(STAT_OTHER), XVal::Ref(EXPL_B)]);
-    call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0), XVal::Ref(STAT_OTHER)]);
-    call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0), XVal::Ref(LIGH_B)]);
     call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0), XVal::Ref(0)]);
+    assert_eq!(g.projectile_traits(p).unwrap().explosion, Some(FormId(EXPL_A)));
+    call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0), XVal::Ref(STAT_OTHER)]);
+    assert_eq!(g.projectile_traits(p).unwrap().explosion, None);
+    call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0), XVal::Ref(EXPL_A)]);
+    call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0), XVal::Ref(LIGH_B)]);
+    assert_eq!(g.projectile_traits(p).unwrap().explosion, None);
+    call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0), XVal::Ref(EXPL_A)]);
     call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0)]);
+    assert_eq!(g.projectile_traits(p).unwrap().explosion, None);
+    call(&mut g, "setprojectileexplosion", &[XVal::Ref(p.0), XVal::Ref(EXPL_A)]);
     assert_eq!(g.projectile_traits(p).unwrap().explosion, Some(FormId(EXPL_A)));
     assert_eq!(call(&mut g, "getprojectileexplosion", &[XVal::Ref(STAT_OTHER)]), XVal::Ref(0));
 

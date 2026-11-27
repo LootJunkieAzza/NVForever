@@ -5,7 +5,8 @@
 [documented] Per the GECK wiki (`https://geckwiki.com/index.php?title=GetWeaponSound`,
 `https://geckwiki.com/index.php?title=SetWeaponSound`) and xEdit (`wbDefinitionsFNV.pas`
 `WEAP`), JIP LN `SetWeaponSound weapon soundID [newSound]` overrides or clears (when
-`newSound` is omitted or `0`) any of the 14 `WEAP` sound slots for the session:
+`newSound` is omitted; explicit null `0` is a no-op [observed:
+`w6d2_03_weapon_sound_slots_and_clone`]) any of the 14 `WEAP` sound slots for the session:
 
 | `soundID` | `WEAP` subrecord | Engine target |
 |---:|---|---|
@@ -56,8 +57,8 @@ into the engine's two live weapon-sound tables using a shared `WeaponSoundSync` 
 
 ## 3. Hypotheses & unmeasured edge cases
 
-[hypothesis] Clearing a `WEAP`'s `YNAM` or `ZNAM` slot (`SetWeaponSound weap 12 0` or
-`13 0`) sets `WorldSounds::forms.items[weap]`'s pickup/putdown entry to `None`, causing
+[hypothesis] Clearing a `WEAP`'s `YNAM` or `ZNAM` slot (`SetWeaponSound weap 12` or
+`SetWeaponSound weap 13`) sets `WorldSounds::forms.items[weap]`'s pickup/putdown entry to `None`, causing
 `world_sounds::item_sound` to fall back to `UIItemGenericUp` / `UIItemGenericDown` — the
 same fallback already used for authored weapons that omit `YNAM`/`ZNAM` — rather than
 muting pickup/putdown completely.
