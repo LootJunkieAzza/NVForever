@@ -1317,6 +1317,20 @@ below cover them all.
 - Command-line switches: `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.25
 
+### `subsurface-scattering`: Subsurface scattering (experimental)
+
+- On the page: On: light passes softly through skin; eyes get a wet cornea, hair a strand
+  sheen, outfits a leather, cloth or metal look. Needs Physical lighting. Takes effect at
+  the next start. Not in the original.
+- In full: Skin takes pre-integrated scattering with per-vertex curvature and a warm shadow
+  edge, and its diffuse light is blurred on the screen; eyes take a cornea clear coat, iris
+  depth and lid occlusion; hair takes a strand BSDF along the texture's painted strands;
+  outfits and armour are shaded as leather, cloth or metal by their texture's path and
+  their normal map's specular mask. Greyed while Physical lighting is off.
+  Read at the start. Off by default and in every preset.
+- Command-line switches: `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.26
+
 ### `tonemap-preset`: Tonemapping preset
 
 - On the page: A look laid on the tonemapper: exposure, contrast and highlight roll-off.

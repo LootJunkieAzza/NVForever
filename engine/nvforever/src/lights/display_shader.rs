@@ -103,15 +103,19 @@ fn nvf_dielectric_E(F0: vec3<f32>, perceptual_roughness: f32, mu: f32) -> vec3<f
 
 /// OpenPBR / Blender 4.3+ Energy-Conserving Oren-Nayar (EON) diffuse BRDF
 /// coupled with reciprocal multi-scatter dielectric Fresnel transmission.
-fn Fd_OrenNayar(
-    input: ptr<function, LightingInput>,
-    derived_input: ptr<function, DerivedLightingInput>,
+fn nvf_diffuse_brdf(
     diffuse_color: vec3<f32>,
+    perceptual_roughness: f32,
+    roughness: f32,
+    F0_dielectric: vec3<f32>,
+    NdotV_in: f32,
+    NdotL_in: f32,
+    NdotH: f32,
+    LdotH: f32,
 ) -> vec3<f32> {
-    let r = saturate((*input).layers[LAYER_BASE].perceptual_roughness);
-    let NdotV = max((*input).layers[LAYER_BASE].NdotV, 0.0001);
-    let NdotL = max((*derived_input).NdotL, 0.0001);
-    let LdotH = (*derived_input).LdotH;
+    let r = saturate(perceptual_roughness);
+    let NdotV = max(NdotV_in, 0.0001);
+    let NdotL = max(NdotL_in, 0.0001);
 
     // Fujii-improved qualitative Oren-Nayar single-scatter (trig-free via V.L = 2*(L.H)^2 - 1).
     let VdotL = clamp(2.0 * LdotH * LdotH - 1.0, -1.0, 1.0);
@@ -132,7 +136,7 @@ fn Fd_OrenNayar(
     let f_eon = f_ss + rho_ms * (ms_factor * (1.0 / PI));
 
     // Reciprocal Kulla-Conty / OpenPBR dielectric specular-diffuse energy coupling.
-    let F0_d = (*input).F0_dielectric;
+    let F0_d = F0_dielectric;
     let E_spec_o = nvf_dielectric_E(F0_d, r, NdotV);
     let E_spec_i = nvf_dielectric_E(F0_d, r, NdotL);
     // 3-point Gauss-Legendre on mu in [0, 1] for 2*mu*E_spec(mu).
@@ -141,6 +145,23 @@ fn Fd_OrenNayar(
         + (5.0 / 18.0) * (2.0 * 0.88729833) * nvf_dielectric_E(F0_d, r, 0.88729833);
     let T_d = ((vec3(1.0) - E_spec_i) * (vec3(1.0) - E_spec_o)) / max(vec3(1.0) - E_spec_avg, vec3(1e-4));
     return f_eon * T_d;
+}
+
+fn Fd_OrenNayar(
+    input: ptr<function, LightingInput>,
+    derived_input: ptr<function, DerivedLightingInput>,
+    diffuse_color: vec3<f32>,
+) -> vec3<f32> {
+    return nvf_diffuse_brdf(
+        diffuse_color,
+        (*input).layers[LAYER_BASE].perceptual_roughness,
+        (*input).layers[LAYER_BASE].roughness,
+        (*input).F0_dielectric,
+        (*input).layers[LAYER_BASE].NdotV,
+        (*derived_input).NdotL,
+        (*derived_input).NdotH,
+        (*derived_input).LdotH,
+    );
 }
 
 ";

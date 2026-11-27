@@ -277,6 +277,22 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
             (patched, false)
         }
     };
+    // Subsurface scattering (part 6 of #3828's split, sss.rs): skin, eyes, hair and outfits,
+    // after the bounce light's hook; it acts only under its shader defs.
+    let patched = if nvf_assets::authored::sss_enabled() {
+        match crate::sss::hook_patched(&patched, physical) {
+            Some(hooked) => {
+                info!("lights: subsurface scattering hook installed");
+                hooked
+            }
+            None => {
+                error!("{PBR_FUNCTIONS}: subsurface scattering hook's anchors not found (Bevy changed?); skin keeps the physical lighting alone");
+                patched
+            }
+        }
+    } else {
+        patched
+    };
     // The reflection gate last (lights/reflection_gate.rs): the view's environment map light
     // reaches only fragments that opt in. Made whether or not reflections are on in this run;
     // without the opt-in def its text compiles to what Bevy's did without a cube. Under

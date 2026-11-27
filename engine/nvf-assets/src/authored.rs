@@ -1454,5 +1454,53 @@ pub fn physical_pbr() -> bool {
     *PHYSICAL_PBR.get_or_init(|| false)
 }
 
+/// The run's Subsurface scattering state (the settings row `subsurface-scattering`;
+/// docs/design/graphics-enhanced.md §3.26), fixed at the start as [`PHYSICAL_PBR`] is. It
+/// needs Physical PBR: [`sss_enabled`] is off without it.
+static SSS: OnceLock<bool> = OnceLock::new();
+
+/// Fix the run's Subsurface scattering state before the first shader hook and material.
+pub fn set_sss_enabled(on: bool) {
+    if SSS.set(on).is_err() && sss_enabled() != on {
+        warn!("subsurface scattering: already {} for this run; the setting takes effect at the next start", if sss_enabled() { "on" } else { "off" });
+    }
+}
+
+/// Whether this run shades skin (pre-integrated scattering, screen-space diffusion), eyes
+/// (cornea, iris depth, lids), hair (the strand BSDF) and foliage (translucency): set at the
+/// start and only with [`physical_pbr`].
+pub fn sss_enabled() -> bool {
+    *SSS.get_or_init(|| false) && physical_pbr()
+}
+
+/// The environment variable of the screen-space skin scattering switch ([`screen_sss_enabled`]).
+pub const SCREEN_SSS_ENV: &str = "NVF_SSSS";
+
+/// The shader def of a skin shape whose diffuse light the screen-space scattering blurs
+/// (nif_material.rs `specialize`; nvforever sss/screen.rs).
+pub const SKIN_SPLIT_DEF: &str = "NVF_SKIN_SPLIT";
+
+static SCREEN_SSS: OnceLock<bool> = OnceLock::new();
+
+/// Whether `NVF_SSSS` turns the screen-space scattering off: `0`, `off`, `false` or `no`.
+pub fn screen_sss_env_off(value: Option<&str>) -> bool {
+    value.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "no"))
+}
+
+/// Screen-space skin scattering (Jimenez et al. 2015, separable; nvforever sss/screen.rs): on
+/// with subsurface scattering ([`sss_enabled`], which needs Physical lighting), unless
+/// `NVF_SSSS=0` (read once at the start), which keeps the pre-integrated skin alone. Skin's
+/// diffuse light, from every light and the sky, is then blurred across the skin by the
+/// diffusion profile after the opaque pass.
+pub fn screen_sss_enabled() -> bool {
+    *SCREEN_SSS.get_or_init(|| {
+        let on = sss_enabled() && !screen_sss_env_off(std::env::var(SCREEN_SSS_ENV).ok().as_deref());
+        if on {
+            info!("authored materials: screen-space skin scattering on ({SCREEN_SSS_ENV}=0 turns it off)");
+        }
+        on
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod tests;

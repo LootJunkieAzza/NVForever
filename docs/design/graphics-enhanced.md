@@ -4430,6 +4430,134 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
 - **Screenshots**: before and after, for the owner, still to be taken.
 
 
+### 3.26 Skin, eyes and hair (`subsurface-scattering`; needs `physical-pbr`; off in every preset, #1503)
+
+Carried over from #3828's branch and the work after it on mfangless's experimental branch (the split of #3828, part 6, on part 5). Tuning variables it names (`NVF_*`) are read only in a build with the developer aids (dev_aids.rs), except `NVF_SSSS`.
+
+[design, #1503] An addition of NVForever's own, as §3.25: not a fact about the original,
+never a parity item. All of it is behind **Subsurface scattering**
+(`subsurface-scattering`, Graphics > Lighting and Effects, after Physical lighting; read
+once at the start; greyed without Physical lighting and off in a run without it; in a build
+with the developer aids `NVF_SSS=1` / `0` overrides the row). Which shapes
+count is read from the data: skin from the skin shader and FaceGen heads, eyes from the
+eye shapes (`nif_spawn::is_eye_shape`), hair from the Hair shader flag (BSShaderFlags bit
+18: hair, beards, brows) [documented: nif.xml BSShaderFlags; nif.md §6 "Hair"]. No Skyrim
+Community Shaders code was read or used (the clean-room rule of #1503).
+
+- **Skin, pre-integrated**: the diffuse of each direct light is looked up across the skin's
+  curvature [documented: Penner and Borshukov 2011, "Pre-Integrated Skin Shading", GPU
+  Pro 2], from the six-Gaussian skin diffusion profile [documented: d'Eon and Luebke 2007,
+  "Advanced Techniques for Realistic Real-Time Skin Rendering", GPU Gems 3 ch. 14; the
+  variances 0.0064 to 7.41 mm² and their RGB weights]. The curvature is per vertex, from
+  the mesh (`skin_curvature.rs`). Shadow edges take a warm penumbra, red scattering
+  farthest. Light through thin parts (ears, nostrils) comes from the shadow map's
+  thickness.
+- **Skin, screen-space** (with Physical PBR and no multisampling; `NVF_SSSS=0` keeps the
+  pre-integration): every diffuse light on the skin, the sky's and the ambient included,
+  is blurred across the skin after the opaque pass by the same profile, in two
+  one-dimensional passes sized by depth [documented: Jimenez, Sundstedt and Gutierrez
+  2009, "Screen-Space Perceptual Rendering of Human Skin"; Jimenez et al. 2015,
+  "Separable Subsurface Scattering"] (`sss/screen.rs`, `sss_screen.wesl`).
+- **Skin, revision of 2026-11-26** (experimental, the owner to tune by eye; the numbers
+  are starting values from the owner's skin research notes, [hypothesis] unless the table
+  says otherwise): the shadow is read on skin and hair to 30° past the terminator (the
+  geometric normal's test; before, a normal-mapped pore facing away from the sun read full
+  shadow, black grit on a sunlit cheek, and the wrap and the ears' backlight never showed);
+  the backlight through an ear takes the shadow map's thickness alone, not the shadow its
+  front casts; skin is a dielectric of F0 0.028 everywhere (the normal map's specular mask,
+  which had scaled F0 to about 0.0002, under the 0.02 at which Bevy puts the sky's
+  reflection out, is its oiliness instead: roughness 0.64 to 0.42 and the sebum lobe's
+  weight 0.06 to 0.16, which now reflects the sky too); pores' specular is occluded; each
+  channel's diffuse normal is smoothed toward the geometric one (0.80, 0.50, 0.20), sky
+  light included; the penumbra bleeds warm only (an olive band on the lit side gone; the
+  notes' own formula for it added no red on the dark side, so the paper's sharpened ramps
+  are kept and only their cool lit side clamped); a
+  facial red tail; (the warm ambient occlusion on skin and the sun's contact shadow at a quarter on it
+  come after #4287, which puts the occlusion in the physical light loop); under the
+  screen-space pass, the pre-integration and penumbra are kept at 0.55 of their width, the
+  taps are read between pixels and shortened by the surface's slope, and most of the
+  skin's colour is applied after the blur (pre- and post-scatter texturing [documented:
+  Jimenez et al. 2015], p = 0.25), written by the skin's fragments to a storage texture
+  (bevy_pbr `NvfSkinAlbedoBindings`, engine/vendor/README.md), so lips and lash lines stay
+  sharp; the eyes take 0.42 of the sky's diffuse light, a lower-lid shade and a warm
+  socket tint, and reflect less sky (0.3) under a lower lid line.
+- **Eyes**: a clear coat for the cornea, through which the iris is seen refracted and
+  shifting with the view; a dark limbal ring; the sky's reflection shut out by the lids
+  and brow except through the eye's opening; the upper lid's and the corners' shading
+  (nif_material.wesl `NVF_EYE`). The iris's place on the texture and the eye mesh's
+  frame are observed (the table).
+- **Hair**: a strand BSDF (sss.wesl `NVF_HAIR`): the R and TRT lobes [documented:
+  Marschner et al. 2003, "Light Scattering from Human Hair Fibers"] in the closed forms
+  of Karis 2016 [documented: "Physically Based Hair Shading in Unreal", SIGGRAPH course
+  notes], with no TT lobe, since the hair is a shell on the head and the light it would
+  carry ends in the head; a wrapped diffuse mixed with a third of Kajiya and Kay's
+  [documented: Kajiya and Kay 1989, "Rendering fur with three dimensional textures"],
+  tinted by the hair's colour in shadow. Both lobes fall with the shell's N·L, since a
+  single fibre's lobes have no surface normal: without it a sun behind the camera put
+  them at their peak over the whole hair, outline included (6.8 times Lambert at
+  N·V 0.15 for dark brown hair), a grey sheen through which the hair looked see-through
+  (owner's frames, 2026-11-24). The strand direction comes from the texture's painted
+  strokes, as nif.md §6 "Hair strand direction" says.
+- **Hairline shade** (2026-11-26, with the screen-space skin pass): skin beside hair is
+  shaded, warm (red least), in streaks. Hair fragments mark their pixels in the skin-colour
+  texture (sss.wesl `nvf_hair_mark`, binding 50, cleared each frame), skin fragments write
+  a strand noise there (nif_material.wesl `skin_strand_noise`, in the head texture's
+  space so it stays on the skin), and the vertical blur reads the hair's cover round each
+  skin pixel at about its depth (sss_screen.wesl `hairline`), the strand noise widening
+  each pixel's reach. It needs nothing of the hair mesh but that it is drawn, so blended
+  shells and alpha-tested cards alike (§4, "Hair edges": a per-mesh rule failed).
+
+- **Outfits and armour** (under Physical lighting, without an authored set): each shape
+  is sorted by its diffuse texture's path into leather, cloth or metal (`nif_spawn.rs`
+  `classify_outfit_shape`; the token lists an engineering choice), and nif_material.wesl
+  `NVF_OUTFIT` reads the game's normal-map alpha (its specular mask) by class: roughness,
+  a dielectric F0 held above 0.02 so shadowed parts keep the sky's Fresnel, metallic only
+  for bright, grey, strongly masked hardware (or the env mask on metal armour), specular
+  antialiasing [documented: Kaplanyan and Hill 2016, "Filtering Distributions of Normals
+  for Shading Antialiasing"], fold occlusion from the normal map's tilt, a fine procedural
+  grain per class (leather pebble, cloth twill, brushed metal) fading with distance, and
+  cloth's sheen strength in `thickness` for sss.wesl. Body skin (`is_body_skin_shape`:
+  not the head) keeps its relief, a faint vascular tint and its concavity occlusion
+  [design].
+| Constant | Value | Tag and basis |
+|---|---|---|
+| skin profile (`sss/screen.rs` `PROFILE`, `sss.rs` tests `GAUSSIANS`) | six Gaussians, 0.0064-7.41 mm² | [documented: d'Eon and Luebke 2007, GPU Gems 3 ch. 14] |
+| `MM_PER_UNIT` (skin_curvature.rs, sss/screen.rs, sss_screen.wesl) | 14.3 mm | [hypothesis] 70 units per metre, as combat-rules.md |
+| `REACH_MM`, `TAPS`, `MAX_STEP_PX` (sss/screen.rs) | 8 mm, 17, 96 px | 8 mm: three σ of the widest Gaussian, under 1 % of red past it [checked: tests]; the rest [design] |
+| `NVF_SKIN_PENUMBRA_SIGMA` (sss.wesl) | (0.34, 0.11, 0.05) penumbra widths, warm side only | [hypothesis] red widest, blue narrowest, in the profile's order (2026-11-26; was 0.20, 0.10, 0.06, symmetric) |
+| facial red lobe (sss.wesl `nvf_preintegrated_skin`) | w2.r 0.64, s2.r 1.95 | [hypothesis] facial blood volume (was the forearm fit, 0.549 and 1.55, [checked: tests] against the profile) |
+| `NVF_SKIN_NORMAL_SMOOTH` | (0.80, 0.50, 0.20) | [hypothesis] after Penner and Borshukov 2011 §2.4 (was 0.08, 0.04, 0) |
+| `NVF_SKIN_SPLIT_SHARE` | 0.55 | [hypothesis] |
+| skin F0 (nif_material.wesl, reflectance 0.418) | 0.028 | [documented: Donner and Jensen 2006, IOR about 1.4] |
+| skin roughness (nif_material.wesl), oiliness ramp | 0.64-0.42; smoothstep(0.03, 0.20) of the mask, 0.25 unmasked (tuned 2026-11-26: 0.48 and 0.02-0.22 matte, 0-0.15 wet) | [hypothesis]; the mask's mean 16/255 [observed: nif.md] |
+| sebum lobe roughness, weight (sss.wesl) | 0.40-0.28, 0.06-0.16 | [hypothesis] (the notes' 0.34-0.20 and 0.15-0.30 mirrored the sky at grazing angles) |
+| pore specular occlusion | 1 − 2 (1 − N·Ng) | [design] (2.5 matte, 1.5 wet) |
+| `NVF_SKIN_PRE_SCATTER` (sss.wesl) | 0.25 | [hypothesis] within Jimenez et al. 2015's range |
+| hairline shade (sss_screen.wesl): reach, depth window, darkening | 6 mm; 10 mm behind to 40 mm in front; (0.30, 0.36, 0.40) at full cover | [hypothesis] |
+| strand noise (nif_material.wesl `SKIN_STRAND_U`, `_V`) | 400, 60 per texture unit | [hypothesis] about 1.5 by 10 mm; the head texture's v taken as up the forehead |
+| tap slope floor (sss_screen.wesl `tilt`) | 0.35 | [hypothesis] |
+| `EYE_IRIS_CENTRE`, `EYE_IRIS_RADIUS` (nif_material.wesl) | (0.50, 0.44), 0.19 | [observed: `eyelefthuman.nif`, `eyeblue.dds`, `eyedarkbrown.dds`] |
+| `EYE_IRIS_DEPTH` | 0.17 units | [hypothesis] about 2.5 mm, the human anterior chamber |
+| `EYE_CORNEA_ETA` | 1 / 1.376 | [hypothesis] the textbook cornea index |
+| `EYE_CORNEA_ROUGHNESS` (nif_spawn.rs), eye roughness | 0.06, 0.28-0.45 | [design] |
+| `EYE_LIMBUS_DARKEN`, `EYE_LIMBUS_WIDTH` | 0.35, 0.12 iris radii | [design] |
+| `EYE_SKY_OPEN`, `EYE_SKY_CLOSED` | 0.3, 0.08; upper cut 0.15-0.35 above the gaze | [design] the sky's reflection through the eye's opening and into the brow (owner's screenshot, 2026-11-23; 0.8 and 0.30-0.65 before 2026-11-26) |
+| `EYE_SKY_DIFFUSE` | 0.42 | [hypothesis] the hemisphere an eye in its socket sees |
+| `EYE_LID_V`, `EYE_LID_CLEAR_V`, `EYE_LID_DARKEN` | 0.30, 0.64, 0.45 | [design] darkest at the lower edge of the lid band the eye textures paint (clear by 0.50 before 2026-11-26) |
+| `EYE_LOWER_LID_V`, `EYE_LOWER_LID_DARKEN`; socket tint | 0.72 to 0.88, 0.25; socket^(0.65, 0.92, 1.10) | [hypothesis] |
+| `EYE_CORNER_U`, `EYE_CORNER_DEEP_U`, `EYE_CORNER_DARKEN` | 0.20, 0.36, 0.30 | [design] |
+| `NVF_HAIR_F0` (sss.wesl) | 0.0465 | [documented: keratin's index 1.55, Marschner et al. 2003 §4] |
+| `NVF_HAIR_SHIFT` | 0.035 rad | [documented: Karis 2016, after Marschner's 3°]; R shifted by −2×, TRT by 4× |
+| `NVF_HAIR_WRAP` | 0.5 | [design] light reaches 60° past the terminator |
+| `NVF_HAIR_R_SHARE` | 0.3 | [design] the glint's mean a quarter of the diffuse for dark brown hair; at 1 the owner's frames of 2026-11-24 read wet and grey |
+| Kajiya-Kay share, half-Lambert | a third; `0.5 · (N·L + 1)` | [design] |
+| `HAIR_ROUGHNESS` (nif_spawn.rs) | 0.35-0.5 | [documented: lobe widths of 5-10° measured for real fibres, Marschner et al. 2003 Table 1] widened to 7-14° for the meshes' few strands [design] |
+| strand direction mip (nif_material.wesl `hair_strand`) | about 128 texels across | [design] at 256 the direction turned from stroke to stroke (owner's frames, 2026-11-24) |
+
+- **Cost**: not measured yet (to be measured as in §5: a face filling the screen in the
+  Prospector Saloon, and Goodsprings by day, each part alone).
+- **Screenshots**: before and after, for the owner, still to be taken.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on

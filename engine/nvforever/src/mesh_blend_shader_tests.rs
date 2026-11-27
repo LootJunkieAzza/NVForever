@@ -216,8 +216,17 @@ fn composed_production_blend_module_validates_with_key_on_and_off() {
         assert!(pos < at("alpha_discard(pbr_input.material.flags"), "{statement}: before alpha_discard");
         assert!(pos < at("{"), "{statement}: before the first block (no branch)");
     }
-    assert_eq!(material.matches("dpdx(in.world_position.xyz)").count(), 1, "the world-position derivatives are taken once");
-    assert_eq!(material.matches("dpdy(in.world_position.xyz)").count(), 1, "the world-position derivatives are taken once");
+    // The skin, eye and hair variants (part 6 of #3828's split, their own shader defs, never
+    // with the blend) take their own derivatives; every other variant takes them once.
+    let shared = |needle: &str| {
+        material
+            .lines()
+            .filter(|l| l.contains(needle))
+            .filter(|l| !["NVF_SKIN_SSS", "NVF_EYE", "NVF_HAIR", "NVF_OUTFIT"].iter().any(|d| l.trim_start().starts_with("@if(") && l.split(')').next().is_some_and(|gate| gate.contains(d))))
+            .count()
+    };
+    assert_eq!(shared("dpdx(in.world_position.xyz)"), 1, "the world-position derivatives are taken once");
+    assert_eq!(shared("dpdy(in.world_position.xyz)"), 1, "the world-position derivatives are taken once");
     assert!(at("mesh_terrain_face_up(terrain_wdx, terrain_wdy, pbr_input.world_normal)") > at("let terrain_inputs = MeshTerrainInputs("), "the face's steepness is one of the lookup's inputs");
     let inputs = at("let terrain_inputs = MeshTerrainInputs(distance(view.world_position, in.world_position.xyz), terrain_dx, terrain_dy, view.mip_bias,");
     assert!(inputs < at("let terrain = mesh_terrain_lookup("));
