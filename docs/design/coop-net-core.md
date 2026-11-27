@@ -74,6 +74,8 @@ All of it is sans-IO and tested on its own:
   - Later parts register a `Rule` per message kind, and per reliable item by its first byte
     (`Kind::Item`).
   - Rules see the guest's last accepted state (`Guard::last_state`).
+  - The players' actions are reliable items of kind 0x40 (`action.rs`): their rule,
+    `action::Actions`, checks each game's rate and blob ([coop-social](coop-social.md)).
 - **Counts:**
   - Drops are counted per kind and reason (`Session::guard_stats`).
   - Each guest has a bad-message count, which a later kick policy will read

@@ -36,14 +36,14 @@ use nvf_assets::GameData;
 /// The wheel's square, interface units, and how far above the middle of the view it
 /// stands [design: the owner's picture, the mockups].
 pub const SIZE: f32 = 824.0;
-const RAISE: f32 = 20.0;
+pub(crate) const RAISE: f32 = 20.0;
 /// The slices' radii, the hub's, the gap between slices (degrees each side) and the lit
 /// rim's band outside the slices.
 pub const OUTER: f32 = 372.0;
 pub const INNER: f32 = 178.0;
-const HUB: f32 = 168.0;
+pub(crate) const HUB: f32 = 168.0;
 const GAP: f32 = 1.6;
-const RIM: [f32; 2] = [380.0, 392.0];
+pub(crate) const RIM: [f32; 2] = [380.0, 392.0];
 // The rim stays inside the square, the hub inside the slices.
 const _: () = assert!(RIM[1] < SIZE / 2.0 && HUB < INNER && INNER < OUTER && OUTER < RIM[0]);
 
@@ -57,7 +57,7 @@ const ROW: f32 = 22.0;
 const RULE_ROOM: f32 = 10.0;
 const BAR_HALF: f32 = 112.0;
 /// An outline's width.
-const LINE: f32 = 2.0;
+pub(crate) const LINE: f32 = 2.0;
 /// An unpicked slice's picture and count are drawn at this strength; a slot whose item
 /// is not carried at half that.
 const DIM: f32 = 0.62;
@@ -68,10 +68,10 @@ const FULL_WEIGHT: f32 = 20.0;
 const FULL_VALUE: f32 = 2000.0;
 const FULL_DT: f32 = 40.0;
 
-const MATTE: &str = "Interface\\companion_wheel\\hud_comp_bkg.dds";
+pub(crate) const MATTE: &str = "Interface\\companion_wheel\\hud_comp_bkg.dds";
 const SWAP: &str = "Interface\\Icons\\typeicons\\hot_keys_icon_ammoswap.dds";
-const FONT_1: &str = "textures\\fonts\\glow_monofonto_large.fnt";
-const FONT_3: &str = "textures\\fonts\\glow_monofonto_medium.fnt";
+pub(crate) const FONT_1: &str = "textures\\fonts\\glow_monofonto_large.fnt";
+pub(crate) const FONT_3: &str = "textures\\fonts\\glow_monofonto_medium.fnt";
 const SHADER: &str = "embedded://nvf_play/weapon_wheel/slice.wesl";
 
 /// The slice shader's numbers (`slice.wesl`).
@@ -108,7 +108,7 @@ pub fn build(app: &mut App) {
 
 /// A slice's shape and colours: `from`/`to` in degrees clockwise from up, radii in
 /// interface units.
-fn slice_uniform(from: f32, to: f32, inner: f32, outer: f32, fill: Color, edge: Color, line: f32) -> SliceUniform {
+pub(crate) fn slice_uniform(from: f32, to: f32, inner: f32, outer: f32, fill: Color, edge: Color, line: f32) -> SliceUniform {
     let half = SIZE / 2.0;
     SliceUniform {
         fill: fill.to_linear().to_vec4(),

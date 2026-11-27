@@ -1390,7 +1390,7 @@ fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
     use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput, ButtonState};
     use crate::{bindings::{Bindings, InputDevice}, menu::{ActiveMenu, AmountMeter, MenuInput, quantity_mouse}, ui_pointer::{PointerState, UiPointerPlugin}};
     let mut model = MenuModel::empty(Mode::Inventory, "Synthetic inventory".into());
-    model.quantity = Some(Quantity { cmd: crate::menu::model::Command::One, side: Side::Player, row: 0, max: 10, amount: 1 });
+    model.quantity = Some(Quantity { cmd: crate::menu::model::Command::One, side: Side::Player, row: 0, max: 10, amount: 1, label: None });
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin, UiPointerPlugin))
         .init_resource::<Bindings>().init_resource::<bevy::ui::UiStack>()

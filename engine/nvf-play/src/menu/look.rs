@@ -783,7 +783,7 @@ pub(super) fn spawn_quantity_reusing(root:&mut ChildSpawnerCommands,q:&Quantity,
                     }
                 }
             }
-            c.text(p, false, "How many?", Q_CENTRE, Q_PROMPT_Y, Align::Centre, bright);
+            c.text(p, false, q.label.unwrap_or("How many?"), Q_CENTRE, Q_PROMPT_Y, Align::Centre, bright);
             // The meter: its ground, the ticks as far as the amount, and over them what
             // takes the pointer.
             let (mx, my, mw, mh) = (Q_METER.min.x, Q_METER.min.y, Q_METER.width(), Q_METER.height());

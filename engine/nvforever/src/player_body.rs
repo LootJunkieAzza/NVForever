@@ -112,6 +112,8 @@ const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
 const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
+/// How far a clip over another is lifted in priority, so it takes the bones it keys.
+const OVER_LIFT: i32 = 1000;
 /// The Pip-Boy coming up (`pipboy_arm.rs`).
 const TAG_PIPBOY: u32 = 90;
 /// The Pip-Boy clip fades in over its first 8 frames [observed: its `Blend: 8` key;
@@ -3212,7 +3214,13 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
     let mode = if o.looped { Mode::Loop } else { Mode::Once };
     if rig.furniture != Some(o.serial) {
         a.layers.retain(|l| l.tag >= TAG_SPECIAL);
-        a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        let i = a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        // Over a clip under it, the clip takes the bones it keys outright; the one under
+        // poses the rest (an emote's clip that keys no `Bip01 NonAccum`, or the head
+        // alone, would leave those in the bind pose: the body sank to the waist).
+        if o.under.is_some() {
+            a.lift(i, OVER_LIFT);
+        }
         rig.furniture = Some(o.serial);
     }
     // The holstered weapon keeps its place on the holster bone: the seat clips have no
@@ -3231,6 +3239,9 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
         }
     }
     a.begin();
+    if let Some(under) = &o.under {
+        a.want(under, TAG_FURNITURE - 1, 1.0, Mode::Loop, 0.0);
+    }
     a.want(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
     // Over it the idle the body plays there (a fidget on furniture, `idles.rs`), as
     // `pose_rig` lays them.

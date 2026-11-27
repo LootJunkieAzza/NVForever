@@ -98,6 +98,8 @@ mod dismember;
 mod distant_lights;
 mod knockouts;
 mod coop;
+mod emote_play;
+mod mate_heads;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -2378,6 +2380,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.add_plugins(knockouts::KnockoutsPlugin);
             // Co-op: idle until a lobby is opened or joined.
             app.add_plugins(coop::CoopPlugin(coop::Config { host: None, join: None, name: "Courier".to_string() }));
+            // Emotes on the player's body and the other players' puppets (emote_play.rs).
+            app.add_plugins(emote_play::EmotePlayPlugin);
+            // The other players' name tags over their drawn heads, seated or not (mate_heads.rs).
+            app.add_plugins(mate_heads::MateHeadsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).

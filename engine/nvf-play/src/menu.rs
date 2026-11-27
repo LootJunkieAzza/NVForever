@@ -1047,7 +1047,7 @@ fn publish_menu_picks(
             e.1 = p;
         }
     };
-    if let Some(m) = active.0.as_ref() {
+    if let Some(m) = active.0.as_ref().filter(|m| !m.coop) {
         let other = match m.mode {
             Mode::Container(c) | Mode::Barter(c) => Some(c),
             Mode::Inventory => None,
@@ -1155,6 +1155,10 @@ fn apply_input(
             for mut paint in &mut physical_meter {paint.requested=None;paint.accepted=None;}
         }
         let Some(m) = active.0.as_mut() else { return };
+        // A co-op trade's commands are `crate::coop_social::barter`'s.
+        if m.coop {
+            return;
+        }
         if let Command::Expect(guard) = cmd {
             dropping = if m.row_is(&guard) { 0 } else { guard.then };
             if dropping > 0 {
@@ -1362,6 +1366,10 @@ fn apply_input(
 
 /// The line under a container menu: the note for a container that refills.
 pub(crate) fn note(m: &MenuModel, sim: &SimState) -> Option<String> {
+    // A co-op trade: the line its module keeps (where the selected item's trade stands).
+    if m.coop {
+        return m.status.clone();
+    }
     let refused = m.status.as_deref().filter(|s| s.ends_with("enough caps.") || s.starts_with("Cannot"));
     if let Some(s) = refused {
         return Some(s.to_string());
@@ -1622,6 +1630,7 @@ mod wheel_hold_tests {
                 row: 0,
                 max: 5,
                 amount: 2,
+                label: None,
             });
             let mut tweaks = crate::tweaks::TweakSettings::default();
             tweaks.game.wasd_as_arrow_keys = wasd;

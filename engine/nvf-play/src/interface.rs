@@ -1392,6 +1392,69 @@ fn own_texture(path: &str) -> String {
     format!("textures\\{}", path.trim().trim_start_matches(['\\', '/']).to_ascii_lowercase())
 }
 
+// ---- soft backing and fading rule (the menus' message-box look) -------------------------
+
+/// How far a soft backing's fade reaches past its box, in parts of its feather: the
+/// blur's tail is under 1 % there [design].
+pub const SOFT_REACH: f32 = 2.0;
+
+/// A dark backing that fades out at its edges, with no border [design: a box with
+/// corners rounded by `feather` and blurred by 0.6 × `feather`, black at `strength`]. The image covers the box (`width` × `height`
+/// interface units) and [`SOFT_REACH`] × `feather` around it, one texel a unit; draw it
+/// that much larger than the box, centred on it ([`soft_backing_node`]), stretched
+/// (`NodeImageMode::Stretch`: the image's own size is not kept in the main world).
+pub fn soft_backing_image(width: f32, height: f32, feather: f32, strength: f32) -> Image {
+    let pad = (feather * SOFT_REACH).ceil();
+    let (w, h) = ((width + 2.0 * pad).ceil().max(1.0) as u32, (height + 2.0 * pad).ceil().max(1.0) as u32);
+    let sigma = (feather * 0.6).max(0.5);
+    let (hx, hy) = (width / 2.0, height / 2.0);
+    let r = feather.min(hx).min(hy).max(0.0);
+    let mut px = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            // Signed distance from the rounded box (negative inside), from its middle.
+            let (dx, dy) = ((x as f32 + 0.5 - w as f32 / 2.0).abs() - (hx - r), (y as f32 + 0.5 - h as f32 / 2.0).abs() - (hy - r));
+            let outside = Vec2::new(dx.max(0.0), dy.max(0.0)).length();
+            let d = outside + dx.max(dy).min(0.0) - r;
+            // The blurred edge: the normal curve's tail past it (a logistic stand-in).
+            let a = strength / (1.0 + (1.702 * d / sigma).exp());
+            px.extend_from_slice(&[0, 0, 0, (a * 255.0).round().clamp(0.0, 255.0) as u8]);
+        }
+    }
+    Image::new(
+        bevy::render::render_resource::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        bevy::render::render_resource::TextureDimension::D2,
+        px,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// Where a [`soft_backing_image`] of the box `left`, `top`, `width`, `height` (interface
+/// units) is drawn: the box grown by its fade on every side.
+pub fn soft_backing_node(left: f32, top: f32, width: f32, height: f32, feather: f32) -> Node {
+    let pad = (feather * SOFT_REACH).ceil();
+    at(left - pad, top - pad, width + 2.0 * pad, height + 2.0 * pad)
+}
+
+/// A thin rule that fades out towards both ends, white to be tinted (the line under a
+/// message box's title) [design]: a row of texels, full in the middle.
+pub fn fading_rule_image() -> Image {
+    const N: u32 = 64;
+    let mut px = Vec::with_capacity((N * 4) as usize);
+    for x in 0..N {
+        let t = 1.0 - ((x as f32 + 0.5) / N as f32 * 2.0 - 1.0).abs();
+        px.extend_from_slice(&[255, 255, 255, (t.min(0.5) * 2.0 * 255.0).round() as u8]);
+    }
+    Image::new(
+        bevy::render::render_resource::Extent3d { width: N, height: 1, depth_or_array_layers: 1 },
+        bevy::render::render_resource::TextureDimension::D2,
+        px,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
 /// `face` drawn `k` times its size: every glyph's box and spacing scaled (the game's
 /// fonts come in few sizes).
 pub fn scaled_face(face: &Face, k: f32) -> Face {

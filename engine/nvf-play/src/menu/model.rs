@@ -769,6 +769,8 @@ pub struct Quantity {
     /// The stack's size, the most it can move.
     pub max: i32,
     pub amount: i32,
+    /// The prompt's line instead of "How many?" (the co-op trade's price, `crate::coop_social::barter`).
+    pub label: Option<&'static str>,
 }
 
 impl Quantity {
@@ -1040,6 +1042,10 @@ pub struct MenuModel {
     /// Inventory: the player's Caravan cards, one entry a card, set by the engine from
     /// the scripts' game ([`MenuModel::set_cards`]).
     pub cards: Vec<FormId>,
+    /// A co-op trade between two players drawn on the barter screen
+    /// (`crate::coop_social::barter`): its rows and commands are that module's, not
+    /// [`MenuModel::apply`]'s.
+    pub coop: bool,
 }
 
 /// What a command did besides changing the model.
@@ -1234,7 +1240,7 @@ impl MenuModel {
         MenuModel::empty(Mode::Inventory, "Inventory".into())
     }
 
-    fn empty(mode: Mode, title: String) -> MenuModel {
+    pub(crate) fn empty(mode: Mode, title: String) -> MenuModel {
         MenuModel {
             mode,
             search: Default::default(),
@@ -1289,6 +1295,7 @@ impl MenuModel {
             ysi_folder_stack: Vec::new(),
             last_exited_folder: None,
             cards: Vec::new(),
+            coop: false,
         }
     }
 
@@ -2214,6 +2221,7 @@ impl MenuModel {
             row: self.selected[self.focus as usize],
             max,
             amount: max,
+            label: None,
         })
     }
 
@@ -2616,7 +2624,7 @@ pub fn report_progress_fixture(mode: Mode, step: usize) -> MenuModel {
         m.category[0] = Category::Weapons;
     }
     if step >= 4 {
-        m.quantity = Some(Quantity { cmd: Command::One, side: Side::Player, row: 0, max: 3, amount: 1 });
+        m.quantity = Some(Quantity { cmd: Command::One, side: Side::Player, row: 0, max: 3, amount: 1, label: None });
     }
     if step >= 5 {
         m.quantity.as_mut().unwrap().amount = 2;

@@ -168,7 +168,10 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Combat"), &["localized-dt-dr"]),
     section("Gameplay", Some("Menus"), &["quantity-select-short-keys"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
-    section("Gameplay", Some("Co-op"), &["coop"]),
+    // What only a co-op game uses: the name tags (their switch first, its two distances right
+    // after), then who may hurt an NPC in a conversation. Greyed while the Co-op switch is
+    // off (nvf-play `coop_social::grey_outside_coop`).
+    section("Gameplay", Some("Co-op"), &["coop", "name-tags", "name-tag-near", "name-tag-far", "kill-in-conversation"]),
     section("Display", Some("Screen"), &["monitor", "resolution", "hdr-output", "borderless"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
     section("Display", Some("Upscaling and Anti-Aliasing"), &["upscaler", "upscaler-quality", "dlss-model", "fsr-library", "anti-aliasing", "sharpen"]),
@@ -259,6 +262,8 @@ pub const SECTIONS: &[Section] = &[
             "controls:bind:Place Marker Here",
             "controls:bind:Hide HUD",
             "controls:bind:Skip Radio Song",
+            "controls:bind:Ping",
+            "controls:bind:Emote",
             "controls:bind:Console",
             "controls:bind:Screenshot",
         ],
@@ -1019,6 +1024,8 @@ pub const SECTIONS: &[Section] = &[
 /// reads it; a row of a missing module is passed over.
 pub const NEEDS: &[(&str, &str, &str)] = &[
     ("dialogue-recentre", "dialogue-look", "Needs Turn to Each Other."),
+    ("name-tag-near", "name-tags", "Needs Player name tags."),
+    ("name-tag-far", "name-tags", "Needs Player name tags."),
     ("volume-music", "music", "Needs Play Music."),
     ("volume-voice", "voice", "Needs Dialogue Voice."),
     ("crosshair-style", "dynamic-crosshair", "Needs Dynamic Crosshair."),

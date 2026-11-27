@@ -58,6 +58,12 @@ pub enum Action {
     /// Stimpak); `None`: this player has nothing to revive with. Never offered outside
     /// co-op [design].
     Revive { with: Option<String> },
+    /// Another player in co-op [design]: E opens the interaction wheel
+    /// (`crate::coop_social`), not the world's activation.
+    Player,
+    /// An NPC in a conversation with another player (co-op): E only says to wait for
+    /// them (`host`: that player's name) [design: one conversation per NPC].
+    HostOnly { host: String },
     /// A knocked-out companion a Stimpak gets up (the player's Revive Unconscious
     /// Companions tweak, docs/design/tweaks.md).
     ReviveCompanion,
@@ -121,6 +127,10 @@ impl Action {
             Action::Inaccessible => "Inaccessible".into(),
             // [design: the game's own rollover with the verb]
             Action::Revive { .. } => "Revive".into(),
+            // [design: an interact prompt, as Talk is on NPCs]
+            Action::Player => "Interact".into(),
+            // [design: "Wait for <name>"]
+            Action::HostOnly { host } => trf("Wait for {host}", &[("host", host)]),
             // Our word for the tweak's prompt.
             Action::ReviveCompanion => "Revive".into(),
         }

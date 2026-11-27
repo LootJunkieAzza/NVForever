@@ -39,6 +39,9 @@ pub mod controller_aim;
 pub mod coop_downed;
 pub mod coop_mates;
 pub mod coop_subtitles;
+pub mod coop_social;
+pub mod coop_tables;
+pub mod coop_talk;
 pub mod corner_messages;
 pub mod crafting;
 pub mod cursor;
@@ -60,6 +63,7 @@ pub mod created_spots;
 pub mod dropped;
 pub mod ease;
 pub mod effect_sounds;
+pub mod emotes;
 pub mod fade;
 pub mod drowning;
 pub mod falls;
@@ -149,6 +153,7 @@ pub mod reputation;
 pub mod quick_loot;
 pub mod reticle;
 pub mod rumble;
+pub mod safe_zone;
 pub mod save;
 pub mod screen_splatter;
 pub mod script;
@@ -198,6 +203,7 @@ pub mod weapon_wheel;
 pub mod voice;
 pub mod voice_filter;
 pub mod wait;
+pub mod world_marks;
 pub mod world_sounds;
 pub mod xp_meter;
 
@@ -528,6 +534,9 @@ impl Plugin for PlayPlugin {
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(lobby::LobbyPlugin)
+            // Co-op's social layer: the interaction wheel, one conversation per NPC, name
+            // tags and pings, emotes (nothing runs outside a session but the emote wheel).
+            .add_plugins((coop_social::CoopSocialPlugin, coop_talk::CoopTalkPlugin, world_marks::WorldMarksPlugin, emotes::EmotesPlugin, safe_zone::SafeZonePlugin))
             .add_plugins(ui_pointer::UiPointerPlugin)
             .add_plugins(intro::IntroPlugin)
             .add_plugins(screen_splatter::ScreenSplatterPlugin)
