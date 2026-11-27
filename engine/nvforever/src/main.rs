@@ -1250,6 +1250,13 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             std::env::set_var("NVF_PLAY_SCRIPT_FUNCTIONS", &functions);
         }
     }
+    if std::env::var_os("NVF_GAMECONTROLLERDB_FILE").is_none() {
+        if let Some(db) = setup::user_controller_db() {
+            // Before any thread starts; read by vendored gilrs (`MappingDb::add_env_mappings`).
+            std::env::set_var("NVF_GAMECONTROLLERDB_FILE", &db);
+            eprintln!("setup: controller mappings from {}", db.display());
+        }
+    }
     let mut args = Args::parse_from(&line);
     let _ = COMMAND_LINE.set(line);
     // Taking over a load: tell the old run at once that this run takes part (#1903).

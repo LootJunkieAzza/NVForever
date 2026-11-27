@@ -16,6 +16,8 @@ use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FmtResult, Write as _};
+use std::fs;
+use std::path::Path;
 
 use fnv::FnvHashMap;
 use uuid::Uuid;
@@ -460,57 +462,252 @@ impl Display for ParseSdlMappingError {
     }
 }
 
+// NVForever patch (#4858): 3-tier SDL2/SDL3-compatible GUID lookup (exact -> CRC-masked ->
+// firmware-version-masked for hardware VID/PID GUIDs) and user override files
+// (`NVF_GAMECONTROLLERDB_FILE`, `SDL_GAMECONTROLLERCONFIG_FILE`, `SDL_GAMECONTROLLERCONFIG`).
+const NVF_GAMECONTROLLERDB_FILE_ENV: &str = "NVF_GAMECONTROLLERDB_FILE";
+const SDL_GAMECONTROLLERCONFIG_FILE_ENV: &str = "SDL_GAMECONTROLLERCONFIG_FILE";
+const SDL_GAMECONTROLLERCONFIG_ENV: &str = "SDL_GAMECONTROLLERCONFIG";
+
+/// Returns `true` when `bytes` encodes a standard hardware `(bus, vid, pid, version)` SDL GUID
+/// (non-zero VID and PID, zero reserved fields, and zero SDL driver signature in bytes 14..16).
+/// Rejects generic/zero-VID entries, ASCII name-based GUIDs, Android hash GUIDs, and SDL HIDAPI
+/// driver-tagged GUIDs so fallback matching never crosses unrelated controllers or drivers.
+fn is_hardware_vid_pid_guid(bytes: &[u8; 16]) -> bool {
+    let vid = u16::from_le_bytes([bytes[4], bytes[5]]);
+    let pid = u16::from_le_bytes([bytes[8], bytes[9]]);
+    vid != 0
+        && pid != 0
+        && bytes[6] == 0
+        && bytes[7] == 0
+        && bytes[10] == 0
+        && bytes[11] == 0
+        && bytes[14] == 0
+        && bytes[15] == 0
+}
+
+fn strip_crc(uuid: Uuid) -> Option<Uuid> {
+    let mut bytes = *uuid.as_bytes();
+    if !is_hardware_vid_pid_guid(&bytes) {
+        return None;
+    }
+    bytes[2] = 0;
+    bytes[3] = 0;
+    Some(Uuid::from_bytes(bytes))
+}
+
+fn strip_crc_and_version(uuid: Uuid) -> Option<Uuid> {
+    let mut bytes = *uuid.as_bytes();
+    if !is_hardware_vid_pid_guid(&bytes) {
+        return None;
+    }
+    bytes[2] = 0;
+    bytes[3] = 0;
+    bytes[12] = 0;
+    bytes[13] = 0;
+    Some(Uuid::from_bytes(bytes))
+}
+
+fn guid_version(uuid: Uuid) -> u16 {
+    let bytes = uuid.as_bytes();
+    u16::from_le_bytes([bytes[12], bytes[13]])
+}
+
+#[derive(Debug, Default)]
+struct MappingLayer {
+    exact: HashMap<Uuid, String>,
+    by_crc_masked: HashMap<Uuid, String>,
+    by_vid_pid: HashMap<Uuid, Vec<(u16, String)>>,
+}
+
+impl MappingLayer {
+    fn insert_for_platform(&mut self, s: &str, platform: &str) {
+        for raw_line in s.lines() {
+            let mapping = raw_line.trim();
+            if mapping.is_empty() || mapping.starts_with('#') {
+                continue;
+            }
+
+            let pat = "platform:";
+            if let Some(offset) = mapping.find(pat).map(|o| o + pat.len()) {
+                let rest = &mapping[offset..];
+                let end = rest.find(',').unwrap_or(rest.len());
+
+                if &rest[..end] != platform {
+                    continue;
+                }
+            }
+
+            if let Some(uuid) = mapping
+                .split(',')
+                .next()
+                .and_then(|s| Uuid::parse_str(s).ok())
+            {
+                self.exact.insert(uuid, mapping.to_owned());
+                if let Some(masked) = strip_crc(uuid) {
+                    self.by_crc_masked.insert(masked, mapping.to_owned());
+                }
+                if let Some(bvp) = strip_crc_and_version(uuid) {
+                    let ver = guid_version(uuid);
+                    let entries = self.by_vid_pid.entry(bvp).or_default();
+                    if let Some(existing) = entries.iter_mut().find(|(v, _)| *v == ver) {
+                        existing.1 = mapping.to_owned();
+                    } else {
+                        entries.push((ver, mapping.to_owned()));
+                    }
+                }
+            }
+        }
+    }
+
+    fn get(&self, uuid: Uuid) -> Option<&str> {
+        // Tier 1: exact 16-byte UUID match.
+        if let Some(mapping) = self.exact.get(&uuid) {
+            return Some(mapping.as_str());
+        }
+
+        // Tier 2: CRC-masked match (`bytes[2..4]` zeroed) for SDL 2.26+ CRC16 GUIDs.
+        if let Some(masked) = strip_crc(uuid) {
+            if let Some(mapping) = self.by_crc_masked.get(&masked) {
+                return Some(mapping.as_str());
+            }
+        }
+
+        // Tier 3: firmware-version-masked `(bus, vid, pid)` match (`bytes[2..4]` and
+        // `bytes[12..14]` zeroed). Prefer a version-agnostic `0` entry; otherwise pick the
+        // nearest firmware version (breaking ties toward the higher version, then string order
+        // for determinism).
+        if let Some(bvp) = strip_crc_and_version(uuid) {
+            if let Some(candidates) = self.by_vid_pid.get(&bvp) {
+                let query_ver = guid_version(uuid);
+                return candidates
+                    .iter()
+                    .min_by(|(va, sa), (vb, sb)| {
+                        (
+                            *va != 0,
+                            va.abs_diff(query_ver),
+                            std::cmp::Reverse(*va),
+                            sa.as_str(),
+                        )
+                            .cmp(&(
+                                *vb != 0,
+                                vb.abs_diff(query_ver),
+                                std::cmp::Reverse(*vb),
+                                sb.as_str(),
+                            ))
+                    })
+                    .map(|(_, s)| s.as_str());
+            }
+        }
+
+        None
+    }
+
+    fn len(&self) -> usize {
+        self.exact.len()
+    }
+}
+
 #[derive(Debug)]
 pub struct MappingDb {
-    mappings: HashMap<Uuid, String>,
+    included: MappingLayer,
+    api: MappingLayer,
+    nvf_file: MappingLayer,
+    sdl_file: MappingLayer,
+    sdl_inline: MappingLayer,
 }
 
 impl MappingDb {
     pub fn new() -> Self {
         MappingDb {
-            mappings: HashMap::new(),
+            included: MappingLayer::default(),
+            api: MappingLayer::default(),
+            nvf_file: MappingLayer::default(),
+            sdl_file: MappingLayer::default(),
+            sdl_inline: MappingLayer::default(),
         }
     }
 
     pub fn add_included_mappings(&mut self) {
-        self.insert(include_str!(concat!(
-            env!("OUT_DIR"),
-            "/gamecontrollerdb.txt"
-        )));
+        self.included.insert_for_platform(
+            include_str!(concat!(env!("OUT_DIR"), "/gamecontrollerdb.txt")),
+            SDL_PLATFORM_NAME,
+        );
     }
 
     pub fn add_env_mappings(&mut self) {
-        if let Ok(mapping) = env::var("SDL_GAMECONTROLLERCONFIG") {
-            self.insert(&mapping);
+        let nvf_file = env::var_os(NVF_GAMECONTROLLERDB_FILE_ENV).filter(|v| !v.is_empty());
+        let sdl_file = env::var_os(SDL_GAMECONTROLLERCONFIG_FILE_ENV).filter(|v| !v.is_empty());
+        let sdl_inline = env::var(SDL_GAMECONTROLLERCONFIG_ENV).ok();
+        self.add_env_mappings_from(
+            nvf_file.as_deref().map(Path::new),
+            sdl_file.as_deref().map(Path::new),
+            sdl_inline.as_deref(),
+            SDL_PLATFORM_NAME,
+        );
+    }
+
+    fn load_mapping_file(var_name: &str, path: &Path, layer: &mut MappingLayer, platform: &str) {
+        match fs::read_to_string(path) {
+            Ok(content) => layer.insert_for_platform(&content, platform),
+            Err(err) => {
+                warn!(
+                    "Failed to read controller mappings from {var_name} ({}): {err}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    fn add_env_mappings_from(
+        &mut self,
+        nvf_file: Option<&Path>,
+        sdl_file: Option<&Path>,
+        sdl_inline: Option<&str>,
+        platform: &str,
+    ) {
+        if let Some(path) = nvf_file {
+            Self::load_mapping_file(
+                NVF_GAMECONTROLLERDB_FILE_ENV,
+                path,
+                &mut self.nvf_file,
+                platform,
+            );
+        }
+
+        if let Some(path) = sdl_file {
+            Self::load_mapping_file(
+                SDL_GAMECONTROLLERCONFIG_FILE_ENV,
+                path,
+                &mut self.sdl_file,
+                platform,
+            );
+        }
+
+        if let Some(mapping) = sdl_inline {
+            self.sdl_inline.insert_for_platform(mapping, platform);
         }
     }
 
     pub fn insert(&mut self, s: &str) {
-        for mapping in s.lines() {
-            let pat = "platform:";
-            if let Some(offset) = mapping.find(pat).map(|o| o + pat.len()) {
-                let s = &mapping[offset..];
-                let end = s.find(',').unwrap_or(s.len());
-
-                if &s[..end] != SDL_PLATFORM_NAME {
-                    continue;
-                }
-            }
-
-            mapping
-                .split(',')
-                .next()
-                .and_then(|s| Uuid::parse_str(s).ok())
-                .and_then(|uuid| self.mappings.insert(uuid, mapping.to_owned()));
-        }
+        self.api.insert_for_platform(s, SDL_PLATFORM_NAME);
     }
 
     pub fn get(&self, uuid: Uuid) -> Option<&str> {
-        self.mappings.get(&uuid).map(String::as_ref)
+        self.sdl_inline
+            .get(uuid)
+            .or_else(|| self.sdl_file.get(uuid))
+            .or_else(|| self.nvf_file.get(uuid))
+            .or_else(|| self.api.get(uuid))
+            .or_else(|| self.included.get(uuid))
     }
 
     pub fn len(&self) -> usize {
-        self.mappings.len()
+        self.included.len()
+            + self.api.len()
+            + self.nvf_file.len()
+            + self.sdl_file.len()
+            + self.sdl_inline.len()
     }
 }
 
@@ -799,5 +996,312 @@ mod tests {
             assert_eq!(parsed.map(&AXES[2]), None);
             assert_eq!(parsed.map(&AXES[5]), None);
         }
+    }
+
+    const XPAD_BUTTONS: [EvCode; 11] = [
+        nec::BTN_SOUTH,
+        nec::BTN_EAST,
+        nec::BTN_NORTH,
+        nec::BTN_WEST,
+        nec::BTN_LT,
+        nec::BTN_RT,
+        nec::BTN_SELECT,
+        nec::BTN_START,
+        nec::BTN_MODE,
+        nec::BTN_LTHUMB,
+        nec::BTN_RTHUMB,
+    ];
+
+    fn assert_nacon_gc100_mapping(line: &str) {
+        let parsed = Mapping::parse_sdl_mapping(line, &XPAD_BUTTONS, &AXES).unwrap();
+        assert_eq!(parsed.name(), "Nacon GC100");
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[0]),
+            Some(AxisOrBtn::Btn(Button::South))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[1]),
+            Some(AxisOrBtn::Btn(Button::East))
+        );
+        // Linux xpad reports physical Xbox X on b2 (BTN_NORTH/BTN_X) and Y on b3 (BTN_WEST/BTN_Y).
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[2]),
+            Some(AxisOrBtn::Btn(Button::West))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[3]),
+            Some(AxisOrBtn::Btn(Button::North))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[4]),
+            Some(AxisOrBtn::Btn(Button::LeftTrigger))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[5]),
+            Some(AxisOrBtn::Btn(Button::RightTrigger))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[6]),
+            Some(AxisOrBtn::Btn(Button::Select))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[7]),
+            Some(AxisOrBtn::Btn(Button::Start))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[8]),
+            Some(AxisOrBtn::Btn(Button::Mode))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[9]),
+            Some(AxisOrBtn::Btn(Button::LeftThumb))
+        );
+        assert_eq!(
+            parsed.map(&XPAD_BUTTONS[10]),
+            Some(AxisOrBtn::Btn(Button::RightThumb))
+        );
+        assert_eq!(
+            parsed.map(&AXES[0]),
+            Some(AxisOrBtn::Axis(Axis::LeftStickX))
+        );
+        assert_eq!(
+            parsed.map(&AXES[1]),
+            Some(AxisOrBtn::Axis(Axis::LeftStickY))
+        );
+        assert_eq!(
+            parsed.map(&AXES[2]),
+            Some(AxisOrBtn::Btn(Button::LeftTrigger2))
+        );
+        assert_eq!(
+            parsed.map(&AXES[3]),
+            Some(AxisOrBtn::Axis(Axis::RightStickX))
+        );
+        assert_eq!(
+            parsed.map(&AXES[4]),
+            Some(AxisOrBtn::Axis(Axis::RightStickY))
+        );
+        assert_eq!(
+            parsed.map(&AXES[5]),
+            Some(AxisOrBtn::Btn(Button::RightTrigger2))
+        );
+        assert_eq!(parsed.hats_mapped(), 0x0f);
+    }
+
+    #[test]
+    fn nacon_gc100xf_0110_resolves_via_version_fallback_on_linux() {
+        let mut db = MappingDb::new();
+        db.included.insert_for_platform(
+            include_str!("../../SDL_GameControllerDB/gamecontrollerdb.txt"),
+            "Linux",
+        );
+
+        let uuid_0110 = Uuid::parse_str("03000000-8532-0000-0706-000010010000").unwrap();
+        let line = db
+            .get(uuid_0110)
+            .expect("expected Nacon GC-100XF 0x0110 to resolve via 0x0112 Linux sibling");
+        assert!(
+            line.starts_with("03000000853200000706000012010000,Nacon GC100,"),
+            "unexpected mapping line: {line}"
+        );
+        assert_nacon_gc100_mapping(line);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn bundled_db_maps_nacon_gc100xf_0110_on_linux() {
+        let mut db = MappingDb::new();
+        db.add_included_mappings();
+
+        let uuid_0110 = Uuid::parse_str("03000000-8532-0000-0706-000010010000").unwrap();
+        let line = db
+            .get(uuid_0110)
+            .expect("expected bundled Linux DB to map Nacon GC-100XF 0x0110");
+        assert_nacon_gc100_mapping(line);
+    }
+
+    #[test]
+    fn sdl_crc_tagged_bundled_entry_matches_zero_crc_uuid() {
+        let mut db = MappingDb::new();
+        db.included.insert_for_platform(
+            include_str!("../../SDL_GameControllerDB/gamecontrollerdb.txt"),
+            "Mac OS X",
+        );
+
+        // Bundled entry is CRC-tagged `0300004b4c0500005f0e000000010000` (PS5 Access Controller).
+        let zero_crc = Uuid::parse_str("03000000-4c05-0000-5f0e-000000010000").unwrap();
+        let line = db
+            .get(zero_crc)
+            .expect("expected CRC-masked match for PS5 Access Controller");
+        assert!(
+            line.starts_with("0300004b4c0500005f0e000000010000,PS5 Access Controller,"),
+            "unexpected line: {line}"
+        );
+    }
+
+    #[test]
+    fn exact_crc_and_version_tier_precedence() {
+        let mut db = MappingDb::new();
+        let entries = "\
+03000000341200007856000010010000,Ver0110,a:b0,platform:Linux,
+0300abcd341200007856000012010000,CrcVer0112,a:b1,platform:Linux,
+03000000341200007856000014010000,Ver0114,a:b2,platform:Linux,
+";
+        db.included.insert_for_platform(entries, "Linux");
+
+        // Tier 1: exact match wins.
+        let exact = Uuid::parse_str("03000000-3412-0000-7856-000010010000").unwrap();
+        assert!(db.get(exact).unwrap().contains(",Ver0110,"));
+
+        // Tier 2: CRC-masked match wins over version fallback.
+        let crc_zero = Uuid::parse_str("03000000-3412-0000-7856-000012010000").unwrap();
+        assert!(db.get(crc_zero).unwrap().contains(",CrcVer0112,"));
+
+        // Tier 3: equidistant between 0x0110 and 0x0112 -> tie breaks to higher version (0x0112).
+        let mid = Uuid::parse_str("03000000-3412-0000-7856-000011010000").unwrap();
+        assert!(db.get(mid).unwrap().contains(",CrcVer0112,"));
+
+        // Tier 3: nearest version (0x0115 is closest to 0x0114).
+        let newer = Uuid::parse_str("03000000-3412-0000-7856-000015010000").unwrap();
+        assert!(db.get(newer).unwrap().contains(",Ver0114,"));
+
+        // Tier 3: wildcard version 0 takes precedence over non-zero siblings.
+        db.included.insert_for_platform(
+            "03000000341200007856000000000000,WildcardVer0,a:b3,platform:Linux,",
+            "Linux",
+        );
+        assert!(db.get(newer).unwrap().contains(",WildcardVer0,"));
+        // Exact and CRC-masked matches still beat wildcard version 0.
+        assert!(db.get(exact).unwrap().contains(",Ver0110,"));
+        assert!(db.get(crc_zero).unwrap().contains(",CrcVer0112,"));
+    }
+
+    #[test]
+    fn crc_and_version_guards_reject_generic_name_and_driver_sig_guids() {
+        let mut db = MappingDb::new();
+        let entries = "\
+0300abcd000000007856000010010000,ZeroVid,a:b0,platform:Linux,
+0300abcd341200000000000010010000,ZeroPid,a:b0,platform:Linux,
+0500abcd4d4f435554452d3035335800,NameGuid,a:b0,platform:Linux,
+030000007e0500000920000000026803,HidapiTagged,a:b0,platform:Linux,
+05000000853200000706000012010000,WrongBusBt,a:b0,platform:Linux,
+";
+        db.included.insert_for_platform(entries, "Linux");
+
+        // Zero VID or PID never matches via CRC or version fallback.
+        assert_eq!(
+            db.get(Uuid::parse_str("03000000-0000-0000-7856-000010010000").unwrap()),
+            None
+        );
+        assert_eq!(
+            db.get(Uuid::parse_str("03000000-3412-0000-0000-000010010000").unwrap()),
+            None
+        );
+        // ASCII name-based GUID (non-zero bytes 6..8 / 10..12) never matches via CRC strip.
+        assert_eq!(
+            db.get(Uuid::parse_str("05000000-4d4f-4355-5445-2d3035335800").unwrap()),
+            None
+        );
+        // HIDAPI driver-signature GUID (bytes 14..16 = 0x6803) never matches standard evdev (0000).
+        assert_eq!(
+            db.get(Uuid::parse_str("03000000-7e05-0000-0920-000000020000").unwrap()),
+            None
+        );
+        // Bluetooth bus (0x0005) never matches USB bus (0x0003).
+        assert_eq!(
+            db.get(Uuid::parse_str("03000000-8532-0000-0706-000010010000").unwrap()),
+            None
+        );
+        // Exact match on non-hardware GUIDs still works in Tier 1.
+        assert!(db
+            .get(Uuid::parse_str("03000000-7e05-0000-0920-000000026803").unwrap())
+            .unwrap()
+            .contains(",HidapiTagged,"));
+    }
+
+    #[test]
+    fn env_file_and_config_override_precedence() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = env::temp_dir().join(format!(
+            "gilrs-env-mappings-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let nvf_file_crc = dir.join("nvf-crc.txt");
+        let nvf_file_exact = dir.join("nvf-exact.txt");
+        let sdl_file_crc = dir.join("sdl-crc.txt");
+        let sdl_file_exact = dir.join("sdl-exact.txt");
+        let missing_file = dir.join("does-not-exist.txt");
+
+        // CRLF + comments + omitted trailing comma on platform field.
+        fs::write(
+            &nvf_file_crc,
+            "# user comment\r\n0300abcd853200000706000010010000,FromNvfFileCrc,a:b0,platform:Linux\r\n",
+        )
+        .unwrap();
+        fs::write(
+            &nvf_file_exact,
+            "03000000853200000706000010010000,FromNvfFileExact,a:b0,platform:Linux,\n",
+        )
+        .unwrap();
+        fs::write(
+            &sdl_file_crc,
+            "0300beef853200000706000010010000,FromSdlFileCrc,a:b1,platform:Linux,\n",
+        )
+        .unwrap();
+        fs::write(
+            &sdl_file_exact,
+            "03000000853200000706000010010000,FromSdlFileExact,a:b1,platform:Linux,\n",
+        )
+        .unwrap();
+
+        let query = Uuid::parse_str("03000000-8532-0000-0706-000010010000").unwrap();
+        let bundled_exact =
+            "03000000853200000706000010010000,BundledExact,a:b9,platform:Linux,";
+        let api_exact = "03000000853200000706000010010000,ApiExact,a:b8,platform:Linux,";
+
+        // 1. API mapping (`insert`) overrides bundled exact; NVF_GAMECONTROLLERDB_FILE
+        //    (even CRC-tagged with CRLF) overrides both bundled exact and API exact.
+        let mut db = MappingDb::new();
+        db.included.insert_for_platform(bundled_exact, "Linux");
+        db.api.insert_for_platform(api_exact, "Linux");
+        assert!(db.get(query).unwrap().contains(",ApiExact,"));
+        db.add_env_mappings_from(Some(&nvf_file_crc), Some(&missing_file), None, "Linux");
+        assert!(db.get(query).unwrap().contains(",FromNvfFileCrc,"));
+
+        // 2. CRC-tagged SDL_GAMECONTROLLERCONFIG_FILE overrides zero-CRC exact in
+        //    NVF_GAMECONTROLLERDB_FILE.
+        let mut db = MappingDb::new();
+        db.included.insert_for_platform(bundled_exact, "Linux");
+        db.add_env_mappings_from(Some(&nvf_file_exact), Some(&sdl_file_crc), None, "Linux");
+        assert!(db.get(query).unwrap().contains(",FromSdlFileCrc,"));
+
+        // 3. CRC-tagged SDL_GAMECONTROLLERCONFIG overrides zero-CRC exact in both
+        //    SDL_GAMECONTROLLERCONFIG_FILE and NVF_GAMECONTROLLERDB_FILE.
+        let mut db = MappingDb::new();
+        db.included.insert_for_platform(bundled_exact, "Linux");
+        db.add_env_mappings_from(
+            Some(&nvf_file_exact),
+            Some(&sdl_file_exact),
+            Some("0300cafe853200000706000010010000,FromInlineCrc,a:b2,platform:Linux,"),
+            "Linux",
+        );
+        assert!(db.get(query).unwrap().contains(",FromInlineCrc,"));
+
+        // 4. Version-wildcard (0x0000) SDL_GAMECONTROLLERCONFIG also overrides zero-CRC exact in
+        //    both SDL_GAMECONTROLLERCONFIG_FILE and NVF_GAMECONTROLLERDB_FILE.
+        let mut db = MappingDb::new();
+        db.included.insert_for_platform(bundled_exact, "Linux");
+        db.add_env_mappings_from(
+            Some(&nvf_file_exact),
+            Some(&sdl_file_exact),
+            Some("03000000853200000706000000000000,FromInlineWildcard,a:b3,platform:Linux,"),
+            "Linux",
+        );
+        assert!(db.get(query).unwrap().contains(",FromInlineWildcard,"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

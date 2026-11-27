@@ -421,4 +421,34 @@ mod tests {
         }
         assert_eq!(errors, 0);
     }
+
+    #[test]
+    fn test_all_platforms_sdl_mappings_for_parse_errors() {
+        let all_mappings = include_str!("../../SDL_GameControllerDB/gamecontrollerdb.txt");
+
+        let mut errors = 0;
+        let mut parsed_entries = 0;
+        for (line_idx, raw_line) in all_mappings.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            parsed_entries += 1;
+            let mut parser = Parser::new(line);
+
+            while let Some(token) = parser.next_token() {
+                if let Err(ref e) = token {
+                    if e.kind() != &ErrorKind::EmptyValue {
+                        errors += 1;
+                        println!("line {}: {e:?}: {}", line_idx + 1, line);
+                        if e.kind() == &ErrorKind::InvalidParserState {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(parsed_entries > 2000, "expected full SDL_GameControllerDB");
+        assert_eq!(errors, 0);
+    }
 }

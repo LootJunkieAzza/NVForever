@@ -286,3 +286,38 @@ pub fn plugin_list(game: &GameInstall) -> Result<Vec<String>, String> {
     eprintln!("setup: plugins: {}", s.load.join(", "));
     Ok(s.load)
 }
+
+/// Optional user SDL controller mapping file in NVForever's home directory
+/// (`gamecontrollerdb.txt`), loaded by vendored `gilrs` before `SDL_GAMECONTROLLERCONFIG_FILE`
+/// and `SDL_GAMECONTROLLERCONFIG` (#4858, [design]).
+pub fn user_controller_db() -> Option<PathBuf> {
+    let home = EngineHome::user()?;
+    user_controller_db_in(&home.root)
+}
+
+fn user_controller_db_in(root: &Path) -> Option<PathBuf> {
+    let path = root.join("gamecontrollerdb.txt");
+    path.is_file().then_some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_controller_db_in_returns_file_when_present() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nvf-setup-pad-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(user_controller_db_in(&dir), None);
+
+        let db = dir.join("gamecontrollerdb.txt");
+        std::fs::write(&db, "# custom\n").unwrap();
+        assert_eq!(user_controller_db_in(&dir), Some(db));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

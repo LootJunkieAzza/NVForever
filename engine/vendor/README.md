@@ -55,6 +55,35 @@ where `b4` (`Y`) maps to `Button::LeftTrigger` (`LB`), `b0`/`b3`/`b8` shift (`A 
 `X -> Y`, `LT -> Back`), and idle trigger axis `a5` at `-1.0` maps to `Axis::RightStickY`,
 aiming the camera continuously upward.
 
+Third change (#4858), in `src/mapping/mod.rs`, `src/mapping/parser.rs`, `src/gamepad.rs`,
+and `SDL_GameControllerDB/gamecontrollerdb.txt`:
+
+- **3-tier SDL2/SDL3-compatible GUID lookup** in `MappingDb` (`src/mapping/mod.rs`):
+  upstream `gilrs` only checks an exact 16-byte `Uuid`, which misses both SDL 2.26+
+  CRC16-tagged entries (`bytes[2..4]`, since `gilrs-core` always writes `0x0000` there)
+  and firmware-revision siblings (`bytes[12..14]`, e.g. Linux Nacon GC-100XF `0x0110`
+  `03000000-8532-0000-0706-000010010000` missing bundled `0x0112`
+  `03000000-8532-0000-0706-000012010000`, falling back to Linux evdev `Mapping::default`
+  where `BTN_NORTH`/`BTN_WEST` swaps `X`/`Y`). `MappingDb::get` now checks (1) exact
+  16-byte `Uuid`, (2) CRC-masked (`bytes[2..4] = 0`), and (3) firmware-version-masked
+  `(bus, vid, pid)` (`bytes[2..4] = 0` and `bytes[12..14] = 0`, preferring wildcard
+  `version == 0` else nearest firmware revision with deterministic higher-version tie-break).
+  Tiers 2 and 3 require non-zero `vid` and `pid`, zero reserved bytes (`bytes[6..8]` and
+  `bytes[10..12]`), and zero SDL driver signature (`bytes[14..16]`) so generic, name-based,
+  and HIDAPI-tagged GUIDs never cross-match.
+- **Refreshed bundled `SDL_GameControllerDB/gamecontrollerdb.txt`** from official
+  `mdqinc/SDL_GameControllerDB` commit `01af257a606ebec9b932f274129c383873bbda67`
+  (2026-11-26, zlib license unchanged in `SDL_GameControllerDB/LICENSE`), preserving the
+  two GameSir `3537:100E` Windows entries from `#4661`.
+- **User mapping override files** in `MappingDb::add_env_mappings()`: supports
+  `NVF_GAMECONTROLLERDB_FILE` (set by `nvforever` when `<NVForever home>/gamecontrollerdb.txt`
+  exists) and standard `SDL_GAMECONTROLLERCONFIG_FILE` alongside `SDL_GAMECONTROLLERCONFIG`
+  in ascending precedence (`bundled < API < NVF_GAMECONTROLLERDB_FILE <
+  SDL_GAMECONTROLLERCONFIG_FILE < SDL_GAMECONTROLLERCONFIG`), with CRLF/comment trimming
+  and a dedicated `MappingLayer` per precedence level so higher-precedence overrides
+  (including CRC16-tagged or version-wildcard entries) always beat lower-precedence exact
+  entries across all 3 lookup tiers.
+
 The crate ships no licence files of its own; its `Cargo.toml` names Apache-2.0/MIT. The
 bundled `SDL_GameControllerDB` keeps its LICENSE. `Cargo.lock` and `Cargo.toml.orig` from
 the archive are left out.
