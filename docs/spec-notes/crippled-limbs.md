@@ -296,3 +296,6 @@ them.
 - Thrown explosives that are hit going off: held explosives are not hit-tested.
 - Over-encumbered speed (the notes compare the legs with it): no carry weight rule
   slows the player yet.
+
+### `DamageActorValue` limb condition floor (`w6d7_07`)
+- **Zero floor on scripted limb damage** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_07_thresholded_av_and_negative_temp_floor` in `tools/capture/nvse/catalogs/wave6d7_limb_damage_floor.json`]: `DamageAV PerceptionCondition 150` leaves both `GetAV` and `GetThresholdedAV` at `0.0` rather than `-50.0` (`PROBE|w6d7_07_thresholded_av_and_negative_temp_floor|strDmg(-5.0/1.0)|strModNeg(-5.0/1.0)|strHi(13.0/10.0)|gunNeg(-19.0/0.0)|gunHi(151.0/100.0)|limb(0.0/0.0)`).

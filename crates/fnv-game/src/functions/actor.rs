@@ -461,7 +461,9 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         shift_growing(g, r, code, a.num(1)?)?;
         return none();
     }
-    let amount = a.num(1)?;
+    // Negative amounts damage by their magnitude [observed 2026-11-25:
+    // w6d7_01_av_four_pools_set_mod_force_dmg_rest, dmgNeg1(4.0), hp dNeg10=-5.0].
+    let amount = a.num(1)?.abs();
     // God mode (`god_keeps_whole`) and JIP `ToggleImmortalMode 2` (for Health) keep
     // scripted `DamageActorValue` from hurting the player [observed: Fallout: New Vegas
     // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, probe jip_45_immortal_mode_damageav_bypass:
@@ -472,8 +474,15 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     {
         return none();
     }
-    let limb_before = if crate::actor_values::LIMB_CONDITIONS.contains(&code) { Some(actor_value(g, r, code)?) } else { None };
-    let d = damage(g, r, code) + amount;
+    let is_limb = crate::actor_values::LIMB_CONDITIONS.contains(&code);
+    let limb_before = if is_limb { Some(actor_value(g, r, code)?) } else { None };
+    let mut d = damage(g, r, code) + amount;
+    // Limb conditions floor at 0 under DamageAV [observed 2026-11-25:
+    // w6d7_07_thresholded_av_and_negative_temp_floor, limb(0.0/0.0)].
+    if is_limb && amount > 0.0 {
+        let cap = (permanent(g, r, code)? + temporary(g, r, code)).max(0.0);
+        d = d.min(cap);
+    }
     set_damage(g, r, code, d);
     // JIP's health-damage handlers see DamageAV too, with no source [documented:
     // SetOnHealthDamageEventHandler; observed: ev.amount -1, ev.source.type].
@@ -508,7 +517,9 @@ pub fn restore_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
         shift_growing(g, r, code, -a.num(1)?.max(0.0))?;
         return none();
     }
-    let d = damage(g, r, code) - a.num(1)?.max(0.0);
+    // Negative amounts restore by their magnitude [observed 2026-11-25:
+    // w6d7_01_av_four_pools_set_mod_force_dmg_rest, restNeg2(6.0), hp rNeg5=0.0].
+    let d = damage(g, r, code) - a.num(1)?.abs();
     set_damage(g, r, code, d);
     none()
 }
@@ -619,6 +630,8 @@ pub fn weapon_anim_code(record_type: i64) -> i64 {
         5 | 7 => 5,
         6 => 6,
         8..=12 => record_type - 1,
+        // OneHandThrown shares 9 with OneHandGrenade [observed: w6d6p3_30_get_weapon_anim_type_all_14].
+        13 => 9,
         _ => 0,
     }
 }
@@ -692,13 +705,15 @@ pub fn get_faction_rank(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     Ok(Value::Num(faction_rank(g, r, a.form(0)?) as f64))
 }
 
-/// `AddToFaction` / `SetFactionRank`: the actor reference joins at the rank. −1 takes it
-/// out [documented: GECK wiki SetFactionRank example]; any lower rank is read back as −1
-/// too [hypothesis: below −1 is no rank either].
+/// `AddToFaction` / `SetFactionRank`: the actor reference joins at the rank. Any
+/// negative rank leaves `GetInFaction == 0` while preserving the signed i8 rank for
+/// `GetFactionRank` (`SetFactionRank rF1 -5` reads `-5`, `GetInFaction == 0`) [observed:
+/// 2026-11-25, FNV 1.4.0.525, `w6d8_27_faction_rank_bounds_mod_remove_samefaction`:
+/// `rkNeg=-5 inNeg=0`].
 pub fn add_to_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let f = a.form(0)?;
-    let rank = (a.num_or(1, 0.0) as i8).max(-1);
+    let rank = (a.num_or(1, 0.0) as i64).clamp(i64::from(i8::MIN), i64::from(i8::MAX)) as i8;
     g.extra.entry(r).or_default().factions.insert(f, rank);
     forget_factions(g, r);
     none()
@@ -833,7 +848,23 @@ pub fn set_unconscious(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     }
     Ok(done)
 }
-flag!(set_player_teammate, get_player_teammate, teammate);
+/// `actor.SetPlayerTeammate flag`: ignored on the player (`Player.SetPlayerTeammate 1`
+/// leaves `GetPlayerTeammate == 0` and `GetPlayerTeammateCount == 0`) [observed:
+/// 2026-11-25, FNV 1.4.0.525, `w6d8_13_teammate_count_vs_getteammates_on_death`:
+/// `plrTm=0 cPlr=0`].
+pub fn set_player_teammate(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    if r == FormId::PLAYER_REF {
+        return none();
+    }
+    g.extra.entry(r).or_default().teammate = a.num_or(0, 1.0) != 0.0;
+    none()
+}
+
+pub fn get_player_teammate(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(r != FormId::PLAYER_REF && g.extra.get(&r).is_some_and(|e| e.teammate))
+}
 
 /// 1 for an actor whose race has the Child flag (RACE DATA) [documented: catalogue
 /// summary of IsChild].
@@ -883,8 +914,8 @@ fn teammates_unprotected(g: &Game) -> bool {
     if g.tweaks.hardcore_tweaks { !g.tweaks.hardcore_essential_companions } else { g.hardcore() }
 }
 
-/// Essential by flag, what IsEssential reads ("Returns 1 if the calling actor is flagged
-/// as essential" [documented: GECK wiki IsEssential]): the reference's own flag
+/// Essential by flag, what `IsActorRefEssential` reads ("Returns 1 if the calling actor is
+/// flagged as essential" [documented: GECK wiki IsEssential]): the reference's own flag
 /// (SetActorRefEssential) or its base's (ACBS, changed by SetEssential). The reference
 /// flag cannot clear the base's [documented: catalogue notes of SetActorRefEssential].
 /// A teammate in Hardcore reads 0 (the SetPlayerTeammate note, [`essential`]).
@@ -916,6 +947,15 @@ pub fn set_actor_ref_essential(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Valu
 
 pub fn is_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    // Outside Hardcore, teammates report IsEssential = 1; in Hardcore, 0
+    // [observed 2026-11-25: w6d7_41_essential_teammate_hardcore_and_ref_flag,
+    // tm(flag=1,nhEss=1,nhDead=0,hcEss=0,hcDead=1)].
+    yes(essential(g, r))
+}
+
+pub fn is_actor_ref_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    // Kept strictly on flag-only semantics so unprobed IsActorRefEssential stays unchanged.
     yes(essential_flagged(g, r))
 }
 
@@ -1111,11 +1151,14 @@ pub fn factions_between(g: &Game, mine: &[FormId], o: FormId, theirs: &[FormId])
     if o == FormId::PLAYER_REF && player_enemy_of_factions(g, mine, theirs) {
         return 1;
     }
+    // Ally (2) outranks Friend (3) when an actor has both reactions toward the target
+    // [observed: 2026-11-25, FNV 1.4.0.525, w6d8_26_multifaction_precedence_and_disguise_override
+    // (alFr=2) and w6d8p2_26_multifaction_swap_order (frAl=2)].
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
-    if all.contains(&3) {
-        3
-    } else if all.contains(&2) {
+    if all.contains(&2) {
         2
+    } else if all.contains(&3) {
+        3
     } else if all.contains(&1) {
         1
     } else {
@@ -1232,19 +1275,16 @@ pub fn get_pc_expelled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
     yes(g.player.expelled_from.contains(&faction_arg(g, a, 0)?))
 }
 
-/// `SetPCExpelled faction flag`: expels the player from `faction` and sets the expelled
-/// flag when `flag != 0`, or clears the flag when `flag == 0` without re-adding membership
-/// [documented: GECK wiki SetPCExpelled; hypothesis: interior faction-owned cell eviction
-/// is not performed in core rules].
+/// `SetPCExpelled faction flag`: sets the player's expelled flag for `faction` when
+/// `flag != 0` or clears it when `flag == 0`, preserving existing player faction rank and
+/// membership [documented: GECK wiki SetPCExpelled; observed: `w6d5_24_player_source_setpcexpelled_edges`,
+/// rank stays `2` and `GetInFaction` stays `1` across expel/unexpel; hypothesis: interior
+/// faction-owned cell eviction is not performed in core rules].
 pub(crate) fn set_pc_expelled(g: &mut Game, a: &Args) -> Result<(), String> {
     let f = faction_arg(g, a, 0)?;
     let expel = a.int(1)? != 0;
     if expel {
         g.player.expelled_from.insert(f);
-        if faction_rank(g, FormId::PLAYER_REF, f) >= 0 {
-            g.extra.entry(FormId::PLAYER_REF).or_default().factions.insert(f, -1);
-            forget_factions(g, FormId::PLAYER_REF);
-        }
     } else {
         g.player.expelled_from.remove(&f);
     }
@@ -1269,15 +1309,17 @@ flag!(ignore_crime, get_ignore_crime, ignore_crime);
 flag!(set_ignore_friendly_hits, get_ignore_friendly_hits, ignore_friendly_hits);
 
 /// `actor.SetLevel level [levelToPC min max]`: the player's level, or an actor's
-/// (with the level-to-player flag the level is an offset from the player's, kept within
-/// min and max when given) [documented: catalogue summary and notes]. On the player
+/// (with the level-to-player flag `level` is a thousandths multiplier of the player's
+/// level, `round(pc_level * level / 1000)`, kept within min and max when given)
+/// [observed 2026-11-25: `w6d7p2_11b_setlevel_pct_and_faction_rank_diff`]. On the player
 /// only the number changes, not the stats [documented: catalogue notes, "alters the
 /// level number but no stats"]. On another actor only the level changes too: its
 /// inventory is not rolled again [observed: capture ac1, 2026-10-18: three Stimpaks
 /// given to Easy Pete were still carried after SetLevel 7, and his item count stayed 8
 /// after a second SetLevel 7; the catalogue's note that it "regenerates the inventory"
-/// did not show]. With the flag, the offset and bounds as the original: player level 1,
-/// `SetLevel 2 1 5 20` gives 5 [observed: ac1, Joe Cobb].
+/// did not show]. With the flag, thousandths scaling and bounds match the original:
+/// player level 1, `SetLevel 2 1 5 20` gives 5 (`round(1 * 2 / 1000) = 0 -> min 5`)
+/// [observed: ac1, Joe Cobb].
 pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let mut level = a.int(0)?;
@@ -1291,7 +1333,11 @@ pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         return none();
     }
     if a.num_or(1, 0.0) != 0.0 {
-        level += g.player.level.unwrap_or(g.world.config().player_level as i32);
+        // With levelToPCFlag != 0, level is a thousandths multiplier of player level
+        // [observed 2026-11-25: w6d7p2_11b_setlevel_pct_and_faction_rank_diff,
+        // pc10(500=5,1000=10,2000=20,min15=15,max12=12)].
+        let pc = g.player.level.unwrap_or(g.world.config().player_level as i32) as f64;
+        level = (pc * (level as f64) / 1000.0).round() as i32;
         if let Ok(min) = a.int(2) {
             level = level.max(min);
         }
@@ -1455,12 +1501,9 @@ pub fn same_sex_as_pc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
     yes(is_female(g, r) == is_female(g, FormId::PLAYER_REF))
 }
 
-/// The disposition HasFriendDisposition counts as a friend's. The GECK wiki names a
-/// "friend disposition game setting" without naming it, and no game setting in the
-/// shipped master is one (`fFightFriendDispBase`, -25, is a fight base) [observed:
-/// FalloutNV.esm GMSTs with "Friend" or "Disp" in their names]; 70 is NVForever's
-/// [hypothesis: observer check 292 measures it].
-pub const FRIEND_DISPOSITION: f64 = 70.0;
+/// The disposition HasFriendDisposition counts as a friend's: 50 [observed 2026-11-25:
+/// w6d7p3_44b_friend_disposition_sweep, fd(49=0, 50=1); w6d7_44, fd(65=1..75=1)].
+pub const FRIEND_DISPOSITION: f64 = 50.0;
 
 /// `actor.HasFriendDisposition`: 1 when the actor's disposition towards the player is at
 /// or above the friend level [documented: GECK wiki HasFriendDisposition, "equal or
@@ -1589,3 +1632,7 @@ pub fn has_been_eaten(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
     let r = ctx.subject()?;
     yes(g.extra.get(&r).is_some_and(|e| e.eaten))
 }
+
+#[cfg(test)]
+#[path = "../w6d_actor_functions_parity_tests.rs"]
+mod w6d_actor_functions_parity_tests;

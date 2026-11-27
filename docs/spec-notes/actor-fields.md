@@ -59,3 +59,6 @@ impact of that set for the struck actor's material; before, it showed the player
   which reads that flag, the IK start node and Tracking Max Angle (`head_look.rs`). BPTD To
   Hit Chance is read since 2026-10-23: VATS mode's chance per mark starts from it
   (`fnv-combat` vats.rs, vats-mode.md §17).
+
+### `SetLevel` PC-relative thousandths multiplier (`w6d7_11`, `w6d7p2_11b`)
+- **Thousandths scaling with `levelToPCFlag != 0`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probes `w6d7_11_setlevel_npc_bounds_and_faction_rank_edges` and `w6d7p2_11b_setlevel_pct_and_faction_rank_diff` in `tools/capture/nvse/catalogs/wave6d7_setlevel_pc_mult.json`]: with the player at level `10`, `SetLevel mult 1 min max` computes `round(pc_level * mult / 1000)` clamped to `[min, max]` (`PROBE|w6d7p2_11b_setlevel_pct_and_faction_rank_diff|pc10(500=5,1000=10,2000=20,min15=15,max12=12)|diff(out=0,in=0,rev=0)`).

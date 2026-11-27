@@ -64,8 +64,11 @@ So the NPC cases below are built for mods and the console; the quests need the p
 
 - On the player it changes the level number only, not the stats [documented: catalogue
   notes]; nothing else changed here.
-- On another actor it sets the level, with the level-to-player flag as an offset from the
-  player's within min and max [documented]: player level 1, `SetLevel 2 1 5 20` gave 5
+- On another actor it sets the level; with the level-to-player flag (`levelToPCFlag != 0`),
+  `level` is a thousandths multiplier of the player's level (`round(pc_level * level / 1000)`
+  clamped to `[min, max]`, not an additive offset; see `actor-fields.md` /
+  `w6d7p2_11b_setlevel_pct_and_faction_rank_diff` [observed 2026-11-25]): player level 1,
+  `SetLevel 2 1 5 20` gave 5 (`round(1 * 2 / 1000) = 0`, clamped to `min = 5`)
   [observed: capture ac1, Joe Cobb]. **The inventory stays** [observed: ac1, 2026-10-18:
   three Stimpaks given to Easy Pete were still carried after `SetLevel 7 0`, and his item
   count was 8 after it and after a second `SetLevel 7 0`]. The catalogue's note that it

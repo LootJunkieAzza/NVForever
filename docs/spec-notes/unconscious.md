@@ -134,9 +134,17 @@ on screen).
    KillAllActors, and no planted explosive), flag or not, unless ToggleTeammateKillable 1
    made it killable [hypothesis: the companions' known behaviour, the data giving no flag;
    observer-checks.md check 165]. In Hardcore a teammate dies, flag or not [documented,
-   above]. Knocked out, it stays a teammate and gets up as row 2 says. IsEssential reads
-   only the flags (`essential_flagged`), so it gives 0 for an unflagged companion, and 0
-   for any teammate in Hardcore as before [hypothesis].
+   above]. Knocked out, it stays a teammate and gets up as row 2 says. `IsEssential` returns `1`
+   for a non-Hardcore teammate (flag or not) and `0` in Hardcore
+   [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` +
+   `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse`
+   (`0x00103DF9`), isolated clean-room staging, committed probe
+   `w6d7_41_essential_teammate_hardcore_and_ref_flag` in
+   `tools/capture/nvse/catalogs/wave6d7_isessential_teammate.json`:
+   `ess(00=0,b0r1=1/1,b1rU=1,b1r0=1)|tm(flag=1,nhEss=1,nhDead=0,hcEss=0,hcDead=1)`]. Returning
+   `0` from `IsEssential` once JIP's `ToggleTeammateKillable 1` makes a teammate killable
+   remains [hypothesis], and `IsActorRefEssential` remains flag-only (`essential_flagged`)
+   pending a dedicated teammate probe [hypothesis].
 3. **Fatigue at zero**: whenever an actor's Fatigue is lowered (DamageAV, a fatigue
    effect) and its current Fatigue is 0 or less, it is knocked out (cause fatigue) and
    says its KOed line [documented: §1 Stats Tab and KOed].

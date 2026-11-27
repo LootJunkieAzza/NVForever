@@ -297,7 +297,7 @@ fn set_level_keeps_an_actors_inventory() {
     call(&mut g, Some(joe), SET_LEVEL, &[num(12.0), num(0.0)]);
     assert_eq!(call(&mut g, Some(joe), GET_LEVEL, &[]), 12.0);
     assert_eq!((count(&mut g, KNIFE), count(&mut g, SWORD)), (1.0, 0.0));
-    // With the level-to-player flag: player level 1 + 2, raised to the minimum 5.
+    // With the level-to-player flag: round(1 * 2 / 1000) = 0, raised to the minimum 5.
     call(&mut g, Some(joe), SET_LEVEL, &[num(2.0), num(1.0), num(5.0), num(20.0)]);
     assert_eq!(call(&mut g, Some(joe), GET_LEVEL, &[]), 5.0);
     // The player: the level, nothing rolled.

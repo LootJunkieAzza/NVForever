@@ -1175,9 +1175,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 _ => XVal::Num(f64::from(f32::MAX)),
             }
         }
-        // The player's teammates; none is no array [observed: gaps2, ar_Null].
+        // The player's living teammates (excluding dead and Player); none is no array
+        // [observed: gaps2, ar_Null; 2026-11-25, FNV 1.4.0.525,
+        // w6d8_13_teammate_count_vs_getteammates_on_death: c2=2 a2=2 deadA=1 tmA=0 c1=1 a1=1 plrTm=0 cPlr=0].
         "getteammates" => {
-            let t: Vec<XVal> = g.extra.iter().filter(|(_, e)| e.teammate).map(|(r, _)| XVal::Ref(r.0)).collect();
+            let t: Vec<XVal> = g.teammates().into_iter().map(|r| XVal::Ref(r.0)).collect();
             if t.is_empty() { zero } else { list(g, t) }
         }
         // 0 the actors in the loaded cells, 3 the others; 1 and 2 none here, no array
