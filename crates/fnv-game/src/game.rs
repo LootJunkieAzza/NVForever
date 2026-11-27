@@ -2696,7 +2696,19 @@ impl fnv_script::compile::Env for GameEnv<'_, '_> {
     }
     fn script_vars(&self, form: u32) -> Option<Vec<fnv_script::VarDecl>> {
         let (_, script) = self.g.instance_of(FormId(form))?;
-        Some(self.g.data.script(script)?.unit.variables.clone())
+        let mut vars = self.g.data.script(script)?.unit.variables.clone();
+        if let Some(added) = self.g.other.jip10.added_vars.get(&script) {
+            for (i, name) in added.iter().enumerate() {
+                if !name.is_empty() {
+                    vars.push(fnv_script::VarDecl {
+                        index: u32::from(crate::nvse_jip10::ADDED_VAR_BASE) + i as u32,
+                        ty: VarType::FloatOrRef,
+                        name: name.clone(),
+                    });
+                }
+            }
+        }
+        Some(vars)
     }
 }
 
@@ -3399,20 +3411,22 @@ impl<'a> Game<'a> {
     pub fn store(&mut self, key: InstKey, script: Option<FormId>, index: u16, v: Value, unit: &str, letter_int: bool) {
         let data = self.data;
         let decl = script.and_then(|s| data.script(s)).and_then(|c| c.var_type(index).cloned());
-        if script.is_some() && decl.is_none() {
+        let is_added = script.is_some_and(|s| self.added_var_name(s, index).is_some());
+        if script.is_some() && decl.is_none() && !is_added {
             self.emit(EventKind::UndeclaredVariable { owner: key.label(), index, unit: unit.to_string() });
         }
         let int = match decl {
             Some(VarType::Int) => true,
             Some(_) => false,
-            None => letter_int,
+            None => !is_added && letter_int,
         };
         let v = if int { Value::Num(to_int_storage(v.num()) as f64) } else { v };
         self.instance(key, script).vars.insert(index, v);
     }
 
     pub fn var_name(&self, script: Option<FormId>, index: u16) -> Option<String> {
-        script.and_then(|s| self.data.script(s)).and_then(|c| c.var_name(index)).map(str::to_string)
+        let s = script?;
+        self.data.script(s).and_then(|c| c.var_name(index)).or_else(|| self.added_var_name(s, index)).map(str::to_string)
     }
 
     // ---- running scripts ---------------------------------------------------------
@@ -8063,7 +8077,7 @@ impl Host for Exec<'_, '_> {
             }),
             (Some(r), VarSlot::Local { index, .. }) => {
                 let (key, script) = self.remote(r)?;
-                if self.game.data.script(script).is_some_and(|c| c.var_type(index).is_none()) {
+                if self.game.data.script(script).is_some_and(|c| c.var_type(index).is_none()) && self.game.added_var_name(script, index).is_none() {
                     let unit = self.unit.key();
                     self.game.emit(EventKind::UndeclaredVariable { owner: key.label(), index, unit });
                 }
