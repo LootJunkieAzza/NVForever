@@ -496,7 +496,7 @@ impl MenuInputs<'_, '_> {
     /// row click that acts: the commands are applied later in the frame, so a second row
     /// click would be on rows the first may change.
     fn follow_item_menu(&mut self, ui: &fnv_ui::Ui, c: &fnv_ui::input::Click, at: Option<(f64, f64)>, inputs: Pressed<'_>, row_acted: &mut bool) -> Option<()> {
-        use super::container_menu::{row_commands, ContainerTile};
+        use super::container_menu::{row_commands_with, ContainerTile};
         use crate::menu::{model::Command, MenuInput};
         use fnv_ui::input::By;
         let st = if self.container.menu.is_some() { &mut *self.container } else { &mut self.barter.as_mut()?.view };
@@ -511,6 +511,7 @@ impl MenuInputs<'_, '_> {
         if m.quantity.is_some() {
             return Some(());
         }
+        let ctrl_single = m.qtt_select_short_keys && inputs.ctrl;
         let mut guard = None;
         let commands = match what {
             ContainerTile::Row(side, index) => {
@@ -521,7 +522,7 @@ impl MenuInputs<'_, '_> {
                 };
                 *row_acted = true;
                 let on_it = m.focus == side && m.selected[side as usize] == index;
-                let commands = row_commands(side, index, on_it, inputs.shift);
+                let commands = row_commands_with(side, index, on_it, inputs.shift, ctrl_single);
                 guard = st.guard(m.mode, side, index, on_it, commands.len() as u8);
                 commands
             }
@@ -665,10 +666,11 @@ impl MenuInputs<'_, '_> {
     }
 
     /// Act on a frame's report (see the module doc): `at` the pointer, `over` the tile under
-    /// it now, `held` the left button down, `shift` a Shift key down, `physical` the keys from
-    /// the keyboard (or a controller standing in for them) this frame.
+    /// it now, `held` the left button down, `shift` a Shift key down, `ctrl` a Control key
+    /// down, `physical` the keys from the keyboard (or a controller standing in for them)
+    /// this frame.
     #[allow(clippy::too_many_arguments)]
-    fn follow(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, over: Option<fnv_ui::TileId>, held: bool, shift: bool, physical: &[&str], tutorial: Option<fnv_ui::TileId>) -> Option<u32> {
+    fn follow(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, over: Option<fnv_ui::TileId>, held: bool, shift: bool, ctrl: bool, physical: &[&str], tutorial: Option<fnv_ui::TileId>) -> Option<u32> {
         use super::menus::{chosen_row, key_click_acts, message_pick, nav_by_hand, quantity_tile, row_button, QuantityTile, QUANTITY_MENU};
         use crate::menu::{model::Command, MenuInput};
         use fnv_ui::input::By;
@@ -701,16 +703,16 @@ impl MenuInputs<'_, '_> {
             if self.traits.as_mut().filter(|t| t.menu.is_some()).is_some_and(|t| super::trait_menu::follow_click(t, ui, c, at, held, physical).is_some()) {
                 continue;
             }
-            if self.follow_repair_services(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
+            if self.follow_repair_services(ui, c, at, Pressed { held, shift, ctrl, physical }, &mut row_acted).is_some() {
                 continue;
             }
             if self.tags.as_mut().filter(|t| t.menu.is_some()).is_some_and(|t| super::selection_menu::follow_click(t, ui, c, at, held, physical).is_some()) {
                 continue;
             }
-            if self.follow_item_menu(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
+            if self.follow_item_menu(ui, c, at, Pressed { held, shift, ctrl, physical }, &mut row_acted).is_some() {
                 continue;
             }
-            if self.follow_recipe(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
+            if self.follow_recipe(ui, c, at, Pressed { held, shift, ctrl, physical }, &mut row_acted).is_some() {
                 continue;
             }
             if let Some(hours) = self.follow_wait(ui, c, at, held, physical) {
@@ -789,6 +791,7 @@ impl MenuInputs<'_, '_> {
 struct Pressed<'a> {
     held: bool,
     shift: bool,
+    ctrl: bool,
     physical: &'a [&'a str],
 }
 
@@ -1152,7 +1155,8 @@ pub(crate) fn feed(
     let report = fnv_game::ui_input::step(&mut rt.game, &taking, &input, &no_measure);
     let over = rt.game.ui_pointer.active(&rt.game.ui_tree);
     let ui = &rt.game.ui_tree;
-    let slider = inputs.follow(ui, &report, at, over, held, input.shift, &physical, tutorial);
+    let ctrl = devices.keys.pressed(KeyCode::ControlLeft) || devices.keys.pressed(KeyCode::ControlRight);
+    let slider = inputs.follow(ui, &report, at, over, held, input.shift, ctrl, &physical, tutorial);
     if let Some(n)=*inputs.normal_event {
         if let Some(state)=inputs.normal.as_mut() {
             state.finish_native(n.token,*inputs.normal_emitted);

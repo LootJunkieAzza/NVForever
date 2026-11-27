@@ -62,7 +62,8 @@ pub fn spiral(i: usize, count: usize) -> V3 {
     V3::new(r * c, y, r * s)
 }
 
-/// All of them.
+/// The directions of a point's rays, in their order: a Fibonacci spiral over the sphere. A solve with `count` rays
+/// a point has these.
 pub fn directions(count: usize) -> Vec<V3> {
     (0..count).map(|i| spiral(i, count)).collect()
 }
@@ -114,6 +115,18 @@ impl Probe {
     pub fn valid(&self) -> bool {
         self.hits > 0 && !self.inside()
     }
+}
+
+/// Of a point's rays, those that met a surface and, of them, the hidden sides: the [`Probe::hits`] and [`Probe::backs`]
+/// of [`probe`], which are all that decide whether it is valid. Nothing is lit.
+pub fn counted(world: &PreparedScene, at: V3, directions: &[V3]) -> [u32; 2] {
+    let mut out = [0; 2];
+    for d in directions {
+        let Some(h) = world.transport(&Ray::new(at, *d), f32::INFINITY) else { continue };
+        out[0] += 1;
+        out[1] += u32::from(h.hidden);
+    }
+    out
 }
 
 /// The [`Probe`] at a point, its rays in the order of `directions`; `emission` is the share of the unlit

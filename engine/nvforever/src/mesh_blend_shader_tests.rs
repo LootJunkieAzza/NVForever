@@ -461,7 +461,7 @@ fn shader_ground_lookup_reads_the_surface_squares() {
     }
 }
 
-fn nif_defs(bindless: bool, blend: bool, prepass: bool, soft_edges: bool, layout: nvf_assets::nif_surface_blend::HeightLayout) -> Vec<ShaderDefVal> {
+pub(crate) fn nif_defs(bindless: bool, blend: bool, prepass: bool, soft_edges: bool, layout: nvf_assets::nif_surface_blend::HeightLayout) -> Vec<ShaderDefVal> {
     let mut defs = vec![
         ShaderDefVal::Bool("BINDLESS".into(), bindless),
         ShaderDefVal::Bool("NIF_SURFACE_BLEND".into(), blend),
@@ -547,7 +547,7 @@ fn without_pbr_debug(source: &str) -> String {
 /// at brace depth 0 (attribute lines included) to the line that brings the depth back to 0
 /// ending in `}` or `;`; blank lines at depth 0 separate nothing and are dropped, blank lines
 /// inside a body stay in it. The composed WGSL has no comments or strings.
-fn declarations(source: &str) -> Vec<String> {
+pub(crate) fn declarations(source: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current: Vec<&str> = Vec::new();
     let mut depth = 0i32;
@@ -570,7 +570,7 @@ fn declarations(source: &str) -> Vec<String> {
 }
 
 /// The first of two sorted declaration lists' differences, as a message (`None`: equal).
-fn declaration_difference(ours: &[String], theirs: &[String]) -> Option<String> {
+pub(crate) fn declaration_difference(ours: &[String], theirs: &[String]) -> Option<String> {
     let i = (0..ours.len().max(theirs.len())).find(|&i| ours.get(i) != theirs.get(i))?;
     let (a, b) = (ours.get(i).map_or("", String::as_str), theirs.get(i).map_or("", String::as_str));
     let at = first_difference(a, b).unwrap_or(0);
@@ -713,7 +713,7 @@ fn terrain_surface_bake_composes_for_the_folded_base() {
 
 /// The folded TerrainMaterial's main-pass defs (terrain.rs `TerrainLayersKey`) on the
 /// landscape's mesh layout.
-fn terrain_defs(bindless: bool, bake: bool, height: bool, anti: bool, parallax: bool) -> Vec<ShaderDefVal> {
+pub(crate) fn terrain_defs(bindless: bool, bake: bool, height: bool, anti: bool, parallax: bool) -> Vec<ShaderDefVal> {
     vec![
         ShaderDefVal::Bool("BINDLESS".into(), bindless),
         ShaderDefVal::Bool("SURFACE_BAKE".into(), bake),
@@ -749,7 +749,7 @@ fn terrain_parallax_composes_with_every_folded_variant_and_is_absent_without_its
     // shader reads no height map and holds no march: the pipeline there always was.
     let modules = terrain_modules();
     let entry = "embedded://nvforever/terrain.wesl";
-    let heights: std::collections::BTreeSet<(u32, u32)> = (64..70).map(|b| (3, b)).collect();
+    let heights: std::collections::BTreeSet<(u32, u32)> = (64..71).map(|b| (3, b)).collect();
     for bindless in [false, true] { for (height, anti) in [(false, false), (true, false), (false, true), (true, true)] {
         let off = compose(&modules, entry, &terrain_defs(bindless, false, height, anti, false));
         let on = compose(&modules, entry, &terrain_defs(bindless, false, height, anti, true));
@@ -762,7 +762,12 @@ fn terrain_parallax_composes_with_every_folded_variant_and_is_absent_without_its
             // the reads, terrain.rs `TerrainMaterials::folds`).
             let (t_off, t_on) = (texture_bindings(&off), texture_bindings(&on));
             assert!(t_off.is_disjoint(&heights), "{t_off:?}: no height map without the def");
-            assert!(heights.is_subset(&t_on), "{t_on:?}: every layer's height map with it");
+            assert!(heights.is_subset(&t_on), "{t_on:?}: every layer's height map, and the base's, with it");
+        }
+        // A quadrant of its base alone (#3846): the base mesh has no second coordinate.
+        for (bake, parallax) in [(false, false), (false, true), (true, false)] {
+            let defs: Vec<ShaderDefVal> = terrain_defs(bindless, bake, height, anti, parallax).into_iter().filter(|d| *d != ShaderDefVal::from("VERTEX_UVS_B")).collect();
+            compose(&modules, entry, &defs);
         }
     }}
     // A bake copy never takes the def (terrain.rs `parallax_def`), but the variant composes.

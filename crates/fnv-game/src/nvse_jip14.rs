@@ -83,6 +83,11 @@ pub struct Jip14State {
     /// AddNewEffect's entries, by magic item: those put at the top (newest first) and
     /// those appended.
     pub added_effects: BTreeMap<FormId, (Vec<EffectItem>, Vec<EffectItem>)>,
+    /// Signed script-level `[magnitude, area, duration]` trait overrides for `AddNewEffect`
+    /// slots, keyed by `(item, back, at)` so `SetNthEffectTraitNumeric` preserves negative
+    /// values while `EffectItem` keeps unsigned fields [observed:
+    /// `w6d2_05_nth_effect_traits_and_base_edges`; design].
+    pub added_effect_traits: BTreeMap<(FormId, bool, usize), [f64; 3]>,
     /// AddPrimitive's primitives and SetPrimitiveBound's changes, by reference.
     pub primitives: BTreeMap<FormId, ScriptPrimitive>,
     /// SetRefrModelPath's models (`None`: the base's again), by reference.
@@ -311,12 +316,59 @@ impl<'a> Game<'a> {
         self.other.jip14.added_effects.get(&item).and_then(|(f, b)| if back { b.get(at) } else { f.get(at) })
     }
 
+    /// Script-visible `[magnitude, area, duration]` trait for an `AddNewEffect` slot,
+    /// reading signed `SetNthEffectTraitNumeric` overrides before falling back to `EffectItem`.
+    pub fn added_effect_trait(&self, item: FormId, back: bool, at: usize, trait_idx: usize) -> Option<f64> {
+        let e = self.added_effect(item, back, at)?;
+        if let Some(ov) = self.other.jip14.added_effect_traits.get(&(item, back, at)) {
+            return ov.get(trait_idx).copied();
+        }
+        match trait_idx {
+            0 => Some(f64::from(e.magnitude)),
+            1 => Some(f64::from(e.area)),
+            2 => Some(f64::from(e.duration)),
+            _ => None,
+        }
+    }
+
+    /// Store a `SetNthEffectTraitNumeric` value on an `AddNewEffect` slot, keeping signed
+    /// script-visible storage alongside the clamped `u32` `EffectItem` field.
+    pub fn set_added_effect_trait(&mut self, item: FormId, back: bool, at: usize, trait_idx: usize, v: f64) {
+        if trait_idx >= 3 {
+            return;
+        }
+        let Some(e) = self.added_effect_mut(item, back, at) else { return };
+        let base = [f64::from(e.magnitude), f64::from(e.area), f64::from(e.duration)];
+        match trait_idx {
+            0 => e.magnitude = v.max(0.0) as u32,
+            1 => e.area = v.max(0.0) as u32,
+            _ => e.duration = v.max(0.0) as u32,
+        }
+        let entry = self.other.jip14.added_effect_traits.entry((item, back, at)).or_insert(base);
+        entry[trait_idx] = v;
+    }
+
     /// RemoveNthEffect on one of AddNewEffect's entries: it leaves the list.
     pub fn remove_added_effect(&mut self, item: FormId, back: bool, at: usize) {
         if let Some((f, b)) = self.other.jip14.added_effects.get_mut(&item) {
             let v = if back { b } else { f };
             if at < v.len() {
                 v.remove(at);
+                self.other.jip14.added_effect_traits.remove(&(item, back, at));
+                let shifted: Vec<(usize, [f64; 3])> = self
+                    .other
+                    .jip14
+                    .added_effect_traits
+                    .iter()
+                    .filter(|(&(i, bk, idx), _)| i == item && bk == back && idx > at)
+                    .map(|(&(_, _, idx), &vals)| (idx, vals))
+                    .collect();
+                for (idx, _) in &shifted {
+                    self.other.jip14.added_effect_traits.remove(&(item, back, *idx));
+                }
+                for (idx, vals) in shifted {
+                    self.other.jip14.added_effect_traits.insert((item, back, idx - 1), vals);
+                }
             }
         }
     }

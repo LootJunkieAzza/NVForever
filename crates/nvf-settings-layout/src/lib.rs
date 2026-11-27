@@ -159,18 +159,21 @@ pub const NVF_FEATURES_KEYS: [&str; 16] = [
 pub const SECTIONS: &[Section] = &[
     // #2688's sound cover with the game's own rules (a bigger gameplay change: NVF Features is the
     // owner's call, recommended to them, not moved there).
-    section("Gameplay", Some("Game"), &["difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover"]),
+    section("Gameplay", Some("Game"), &["difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box"]),
     // "V.A.T.S." as the data spells it (MESG `HelpVATS`).
     section("Gameplay", Some("V.A.T.S."), &["vats-style", "vats-slowdown", "kill-camera"]),
     section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-lower", "gore-shake", "field-of-view", "viewmodel-field-of-view"]),
     section("Gameplay", Some("Dialogue"), &["dialogue-zoom", "dialogue-look", "dialogue-recentre", "menu-pause", "dialogue-goodbye-hint", "lip-sync"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
+    section("Gameplay", Some("Combat"), &["localized-dt-dr"]),
+    section("Gameplay", Some("Menus"), &["quantity-select-short-keys"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
+    section("Gameplay", Some("Co-op"), &["coop"]),
     section("Display", Some("Screen"), &["monitor", "resolution", "hdr-output", "borderless"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
     section("Display", Some("Upscaling and Anti-Aliasing"), &["upscaler", "upscaler-quality", "dlss-model", "fsr-library", "anti-aliasing", "sharpen"]),
     section("Display", Some("Frame Generation and Latency"), &["frame-generation", "frame-generation-frames", "latency-reduction"]),
-    section("Display", Some("Interface"), &["language", "menu-font", "sneak-gauges", "dynamic-crosshair", "crosshair-style", "ui-scale", "menu-scale"]),
+    section("Display", Some("Interface"), &["language", "menu-font", "sneak-gauges", "caravan-tips", "dynamic-crosshair", "crosshair-style", "location-load-screens", "ui-scale", "menu-scale"]),
     section("Display", Some("Colours"), &["hud-colour", "hud-red", "hud-green", "hud-blue", "pipboy-colour", "pipboy-red", "pipboy-green", "pipboy-blue"]),
     section(
         "Display",
@@ -215,7 +218,7 @@ pub const SECTIONS: &[Section] = &[
     section(
         "Controls",
         Some("Actions"),
-        &["controls:bind:Activate", "controls:bind:Grab", "controls:bind:Menu Mode", "controls:bind:Rest", "controls:bind:Toggle POV", "controls:bind:QuickSave", "controls:bind:QuickLoad"],
+        &["controls:bind:Activate", "controls:bind:Grab", "controls:bind:Menu Mode", "controls:bind:Rest", "controls:bind:Toggle POV", "controls:bind:QuickSave", "controls:bind:QuickLoad", "controls:bind:Photo Mode"],
     ),
     section(
         "Controls",
@@ -501,6 +504,7 @@ pub const SECTIONS: &[Section] = &[
             "tweak-repair-at-workbench",
             "tweak-modding-needs-skill",
             "tweak-barter-repair-discount",
+            "tweak-crafted-item-health-pct",
             "tweak-repair-xp",
             "tweak-free-item-price",
         ],
@@ -888,7 +892,7 @@ pub const SECTIONS: &[Section] = &[
     group_section(
         "Menus",
         "Keys and Mouse",
-        &["tweak-key-repeat-accel", "tweak-key-repeat-delay", "tweak-key-repeat-mult", "tweak-key-repeat-delay-alt", "tweak-key-repeat-mult-alt", "tweak-horizontal-look"],
+        &["tweak-key-repeat-accel", "tweak-key-repeat-delay", "tweak-key-repeat-mult", "tweak-key-repeat-delay-alt", "tweak-key-repeat-mult-alt", "tweak-wasd-as-arrow-keys", "tweak-horizontal-look"],
     ),
     // Tweaks > Hotkeys.
     group_section("Hotkeys", "Hide HUD Key", &["tweak-hide-hud-ammo", "tweak-hide-hud-needs", "tweak-hide-hud-compass", "tweak-hide-hud-on-load", "tweak-hide-hud-sneak"]),

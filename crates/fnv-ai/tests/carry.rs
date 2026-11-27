@@ -2496,6 +2496,35 @@ fn a_sandbox_that_only_wanders_walks_about_inside_its_radius() {
 }
 
 #[test]
+fn a_sandbox_with_always_run_runs_between_its_spots() {
+    // Freeside's chased rat: a Sandbox package with Always Run (#4487). Without the flag
+    // the wanderer walks at its walk speed (100); with it, at its run (400).
+    let f = fixture();
+    let fastest = |s: &mut Sim| {
+        let mut top = 0.0f32;
+        for _ in 0..60 {
+            s.run(1.0);
+            let a = &s.ai.agents[&FormId(R_SB_WANDER)];
+            if a.activity == Activity::Travelling {
+                top = top.max(a.walker.speed);
+            }
+        }
+        top
+    };
+    let mut walking = sim(&f, &[R_SB_WANDER]);
+    let walk = fastest(&mut walking);
+    assert!(walk > 0.0 && walk <= 100.0 + 1e-3, "walks at its walk: {walk}");
+    let mut running = sim(&f, &[R_SB_WANDER]);
+    running.game.run_query("Begin Function { }
+SetPackageFlag SandboxWander 13 1
+End
+", Default::default()).unwrap();
+    let run = fastest(&mut running);
+    assert!((run - 400.0).abs() < 1.0, "runs at its run: {run}");
+    assert!(doings(&running, R_SB_WANDER).iter().all(|d| *d == Doing::Wandering));
+}
+
+#[test]
 fn a_sandbox_without_wandering_takes_turns_at_the_chair_and_the_idle_marker() {
     let f = fixture();
     let mut s = sim(&f, &[R_SB_OBJECTS]);

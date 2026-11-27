@@ -657,8 +657,8 @@ mod tests {
             let old_cloak = worn(&app, body);
             app.world_mut().resource_mut::<Alphas>().0.insert(FormId(reference), 0.5);
             app.update();
-            let faded = app.world().get::<crate::effect_shaders::Faded>(body).unwrap();
-            assert_eq!(faded.original, original);
+            let faded = app.world().get::<nvf_play::fade::Fading>(body).unwrap();
+            assert_eq!(faded.original(), &original);
             let plain = app.world().get::<MaterialOverride>(body).unwrap().source.clone();
             let materials = app.world().resource::<Assets<NifMaterial>>();
             assert!(!materials.contains(old_cloak.id()));
@@ -686,7 +686,7 @@ mod tests {
                 assert_eq!(worn(&app, body), original);
                 assert!(!refracts(&app, body));
                 assert_eq!(app.world().resource::<Assets<NifMaterial>>().get(&original).unwrap().base.base_color.alpha(), 1.0);
-                assert!(app.world().get::<crate::effect_shaders::Faded>(body).is_none());
+                assert!(app.world().get::<nvf_play::fade::Fading>(body).is_none());
                 app.update();
             }
         }
