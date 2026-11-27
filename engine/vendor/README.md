@@ -1180,6 +1180,26 @@ into each shader module's SPIR-V generator word, which names only the tool that 
 a driver's own shader cache sees new code: a first launch after a driver update, on demand,
 for measuring (perf/pipeline-cache). Without it nothing changes.
 
+Windows swapchain acquire-fence timeout and diagnostics (marked `NVForever (2026-11-26)`,
+`src/vulkan/swapchain/native.rs` and `src/vulkan/mod.rs`):
+
+- `NativeSwapchain::acquire` (`wait_and_reset_acquire_fence`): on Windows, wgpu creates a
+  post-acquire `VkFence` (`self.fence`) and calls `vkWaitForFences(&[fence], true, timeout_ns)`
+  with wgpu-core's 1000 ms `FRAME_TIMEOUT_MS` after `vkAcquireNextImageKHR` has already
+  returned an image. Upstream passed that result directly to `map_host_device_oom_and_lost_err`,
+  which does not handle `VK_TIMEOUT` and turns it into `DeviceError::Unexpected` (`"Unexpected
+  error variant (driver implementation is at fault)"`), causing wgpu-core to permanently lose
+  a healthy Vulkan device during transient >1 s DWM/maximize/resize presentation stalls.
+  `wait_and_reset_acquire_fence` now logs a warning and retries `VK_TIMEOUT` up to
+  `MAX_ACQUIRE_FENCE_WAITS` (10) times before returning `SurfaceError::Outdated` so the
+  swapchain reconfigures cleanly, while preserving real `VK_ERROR_DEVICE_LOST` and OOM errors.
+- `map_acquire_next_image_error` and `map_present_error`: map
+  `VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT` to `SurfaceError::Outdated` instead of
+  `DeviceError::Unexpected`.
+- `vulkan::get_unexpected_err`: logs the raw `vk::Result` (`log::error!`) before returning
+  `DeviceError::Unexpected` so any remaining unexpected driver error code is preserved in run
+  logs.
+
 ## naga 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 
 wgpu's shader translator, for the Vulkan SPIR-V of `@builtin(sample_mask)` (#2413). Vulkan

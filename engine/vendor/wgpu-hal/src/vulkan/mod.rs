@@ -246,6 +246,16 @@ pub fn swapchains_made() -> u64 {
     swapchain::swapchains_made()
 }
 
+/// NVForever (2026-11-26): Test-only re-exports for the swapchain acquire-fence timeout
+/// and error-mapping helpers (`engine/nvforever/tests/swapchain_acquire_timeout.rs`).
+#[doc(hidden)]
+pub mod nvf_swapchain_test_support {
+    pub use super::swapchain::{
+        map_acquire_next_image_error, map_present_error, wait_and_reset_acquire_fence,
+        MAX_ACQUIRE_FENCE_WAITS,
+    };
+}
+
 #[expect(missing_debug_implementations, reason = "TODO?")]
 pub struct Surface {
     swapchain: RwLock<Option<Box<dyn swapchain::Swapchain>>>,
@@ -1698,9 +1708,13 @@ fn map_pipeline_err(err: vk::Result) -> crate::DeviceError {
 
 /// Returns [`crate::DeviceError::Unexpected`] or panics if the `internal_error_panic`
 /// feature flag is enabled.
-fn get_unexpected_err(_err: vk::Result) -> crate::DeviceError {
+fn get_unexpected_err(err: vk::Result) -> crate::DeviceError {
+    // NVForever (2026-11-26): log the underlying VkResult before returning
+    // DeviceError::Unexpected, which otherwise erases the driver error code in crash logs.
+    log::error!("Unexpected Vulkan error: {err:?} (code {})", err.as_raw());
+
     #[cfg(feature = "internal_error_panic")]
-    panic!("Unexpected Vulkan error: {_err:?}");
+    panic!("Unexpected Vulkan error: {err:?}");
 
     #[allow(unreachable_code)]
     crate::DeviceError::Unexpected

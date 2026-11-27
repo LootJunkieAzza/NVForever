@@ -545,32 +545,26 @@ impl Swapchain for NativeSwapchain {
             #[cfg(not(target_os = "android"))]
             Ok(pair) => pair,
             Err(error) => {
-                return match error {
-                    vk::Result::TIMEOUT => Err(crate::SurfaceError::Timeout),
-                    vk::Result::NOT_READY | vk::Result::ERROR_OUT_OF_DATE_KHR => {
-                        Err(crate::SurfaceError::Outdated)
-                    }
-                    vk::Result::ERROR_SURFACE_LOST_KHR => Err(crate::SurfaceError::Lost),
-                    // We don't use VK_EXT_full_screen_exclusive
-                    // VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT
-                    other => Err(map_host_device_oom_and_lost_err(other).into()),
-                };
+                return Err(map_acquire_next_image_error(error));
             }
         };
 
         if let Some(fence) = self.fence {
-            unsafe {
-                // The `wait_all` argument must be `true` to avoid crash on some Android devices. See https://github.com/gfx-rs/wgpu/pull/8769
-                self.device
-                    .raw
-                    .wait_for_fences(&[fence], true, timeout_ns)
-                    .map_err(map_host_device_oom_and_lost_err)?;
-
-                self.device
-                    .raw
-                    .reset_fences(&[fence])
-                    .map_err(map_host_device_oom_and_lost_err)?;
-            }
+            // NVForever (2026-11-26): `vkWaitForFences` returns `VK_TIMEOUT` when the
+            // Windows DXGI presentation engine holds the acquired image past `timeout_ns`
+            // (1000 ms in wgpu-core). Upstream passed that result straight to
+            // `map_host_device_oom_and_lost_err`, which turns `VK_TIMEOUT` into
+            // `DeviceError::Unexpected` and permanently loses a healthy Vulkan device.
+            // Because `vkAcquireNextImageKHR` has already handed us the image with
+            // `acquire_semaphore` and `fence` pending, retry until signaled (or a real
+            // device error) and only fall back to `SurfaceError::Outdated` to rebuild the
+            // swapchain after repeated timeouts.
+            // The `wait_all` argument must be `true` to avoid crash on some Android devices. See https://github.com/gfx-rs/wgpu/pull/8769
+            wait_and_reset_acquire_fence(
+                timeout_ns,
+                |wait_ns| unsafe { self.device.raw.wait_for_fences(&[fence], true, wait_ns) },
+                || unsafe { self.device.raw.reset_fences(&[fence]) },
+            )?;
         }
 
         drop(acquire_semaphore_guard);
@@ -672,15 +666,8 @@ impl Swapchain for NativeSwapchain {
 
         let suboptimal = {
             profiling::scope!("vkQueuePresentKHR");
-            unsafe { self.functor.queue_present(queue.raw, &vk_info) }.map_err(|error| {
-                match error {
-                    vk::Result::ERROR_OUT_OF_DATE_KHR => crate::SurfaceError::Outdated,
-                    vk::Result::ERROR_SURFACE_LOST_KHR => crate::SurfaceError::Lost,
-                    // We don't use VK_EXT_full_screen_exclusive
-                    // VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT
-                    _ => map_host_device_oom_and_lost_err(error).into(),
-                }
-            })?
+            unsafe { self.functor.queue_present(queue.raw, &vk_info) }
+                .map_err(map_present_error)?
         };
         if suboptimal {
             // We treat `VK_SUBOPTIMAL_KHR` as `VK_SUCCESS` on Android.
@@ -994,4 +981,76 @@ impl<'a> SwapchainSubmissionSemaphoreGuard for NativeSwapchainSubmissionSemaphor
             .get_submit_signal_semaphore(device)
             .map(SemaphoreType::Binary)
     }
+}
+
+/// NVForever (2026-11-26): Maximum number of `timeout_ns` waits on the Windows swapchain
+/// acquire fence before asking the caller to recreate the swapchain (`SurfaceError::Outdated`).
+/// With wgpu-core's 1000 ms `FRAME_TIMEOUT_MS`, 10 attempts give 10 seconds — well past
+/// Windows WDDM TDR (2 s, which surfaces as `VK_ERROR_DEVICE_LOST`) while still recovering
+/// from transient DWM/resize/maximize presentation stalls without killing the device.
+pub const MAX_ACQUIRE_FENCE_WAITS: u32 = 10;
+
+/// NVForever (2026-11-26): Map `vkAcquireNextImageKHR` error codes, treating
+/// `VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT` as a recoverable outdated swapchain
+/// instead of `DeviceError::Unexpected`.
+pub fn map_acquire_next_image_error(error: vk::Result) -> crate::SurfaceError {
+    match error {
+        vk::Result::TIMEOUT => crate::SurfaceError::Timeout,
+        vk::Result::NOT_READY
+        | vk::Result::ERROR_OUT_OF_DATE_KHR
+        | vk::Result::ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT => crate::SurfaceError::Outdated,
+        vk::Result::ERROR_SURFACE_LOST_KHR => crate::SurfaceError::Lost,
+        other => map_host_device_oom_and_lost_err(other).into(),
+    }
+}
+
+/// NVForever (2026-11-26): Map `vkQueuePresentKHR` error codes, treating
+/// `VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT` as a recoverable outdated swapchain
+/// instead of `DeviceError::Unexpected`.
+pub fn map_present_error(error: vk::Result) -> crate::SurfaceError {
+    match error {
+        vk::Result::ERROR_OUT_OF_DATE_KHR
+        | vk::Result::ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT => crate::SurfaceError::Outdated,
+        vk::Result::ERROR_SURFACE_LOST_KHR => crate::SurfaceError::Lost,
+        other => map_host_device_oom_and_lost_err(other).into(),
+    }
+}
+
+/// NVForever (2026-11-26): Wait on the post-`vkAcquireNextImageKHR` acquire fence and reset
+/// it, retrying `VK_TIMEOUT` instead of mapping it through `map_host_device_oom_and_lost_err`
+/// to `DeviceError::Unexpected`.
+pub fn wait_and_reset_acquire_fence(
+    timeout_ns: u64,
+    mut wait_once: impl FnMut(u64) -> Result<(), vk::Result>,
+    reset: impl FnOnce() -> Result<(), vk::Result>,
+) -> Result<(), crate::SurfaceError> {
+    let max_attempts = if timeout_ns == u64::MAX {
+        1
+    } else {
+        MAX_ACQUIRE_FENCE_WAITS
+    };
+    for attempt in 0..max_attempts {
+        match wait_once(timeout_ns) {
+            Ok(()) => {
+                reset().map_err(map_host_device_oom_and_lost_err)?;
+                return Ok(());
+            }
+            Err(vk::Result::TIMEOUT) => {
+                if attempt == 0 {
+                    log::warn!(
+                        "vkWaitForFences on swapchain acquire fence timed out after {} ms; retrying",
+                        timeout_ns / 1_000_000,
+                    );
+                }
+            }
+            Err(other) => {
+                return Err(map_host_device_oom_and_lost_err(other).into());
+            }
+        }
+    }
+    log::warn!(
+        "vkWaitForFences on swapchain acquire fence timed out {} times; marking swapchain outdated",
+        max_attempts,
+    );
+    Err(crate::SurfaceError::Outdated)
 }
