@@ -14,6 +14,8 @@
 #   are written here. `offset` moves a member's timed test aids in a shared run.
 # - `requires = ["VAR", …]`: the scenario is skipped unless these environment variables
 #   are set (NVIDIA's files: NVF_DLSS_DIR); `"!VAR"` skips it when that one is set.
+# - `data_files = ["Mod.esp", …]`: the scenario is skipped unless the Data folder holds these
+#   files (a mod the repository cannot ship, such as Just Assorted Mods; names without case).
 # - NVF_SMOKE_DEV_AIDS=1 says the exe was built with the developer aids (`cargo build --release
 #   -p nvforever --features dev-aids`; engine/nvforever/src/dev_aids.rs): scenarios that set one
 #   of those aids require it, the one that checks a release build ignores them runs only
@@ -335,6 +337,31 @@ expect = [
 forbid = ["composed shaders: not saved", "pipeline cache: not saved", "pipeline list: not saved", "Caught rendering error", "Mismatched pop_error_scope"]
 
 [[scenario]]
+name = "gpu-sheds-over-budget"
+source = "#2754 (an 8 GB card at 1440p held 7,037 of its 6,844 MB budget and stalled 1-2 s at a time; #3349 a lost device over budget): over 95 % of the GPU budget at two checks in a row the game gives memory back one step at a time, at most one every 10 s (shadow maps 4096 to 2048, then multisampling 8x to 4x, then 4x to 2x), logs the use before and after each step and tells the player (engine/nvforever/src/memory_budget.rs)"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/graphics.rs"]
+# Goodsprings on foot holds about 1,070 MB at 2048 maps and 4x (2026-11-25), under 95 % of the test aid's 1,150 MB, so nothing is lowered until the settings page sets 4096 maps and 8x (anti-aliasing 0.5 is the fourth of seven choices); those take it over, and each step follows while it stays over.
+env = { NVF_PLAY_TEST_VRAM_MB = "1150", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "3:4", NVF_PLAY_TEST_SETTINGS = "3.3:shadow-resolution=4096,3.6:anti-aliasing=0.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows", "--size", "1920x1080"]
+run_seconds = 45
+expect = [
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: shadow resolution lowered to 2048 to give memory back', count = 1, label = "the shadow maps go to 2048 first" },
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: anti-aliasing lowered to 4x to give memory back', count = 1, label = "then 8x multisampling to 4x" },
+  { re = 'memory budget: over 95 % of the GPU budget \(\d+ of 1150 MB\) at 2 checks in a row: anti-aliasing lowered to 2x to give memory back', count = 1, label = "then 4x to 2x" },
+  { re = 'memory budget: after shadow resolution lowered to 2048 this process holds \d+ of 1150 MB \(it held \d+ MB\)', label = "the use after the step is logged" },
+]
+order = [[
+  "settings: shadow-resolution 4096",
+  { text = "sun shadows: maps 4096 x 4096 texels", label = "the maps go to 4096" },
+  { re = 'shadow resolution lowered to 2048 to give memory back', label = "the shadow step" },
+  { text = "sun shadows: maps 2048 x 2048 texels", label = "the maps are 2048 again" },
+  { re = 'anti-aliasing lowered to 4x to give memory back', label = "the first multisampling step" },
+  { re = 'anti-aliasing lowered to 2x to give memory back', label = "the second" },
+]]
+forbid = ["Caught rendering error", "Mismatched pop_error_scope", "lowered to 1024", "lowered to Off"]
+
+[[scenario]]
 name = "memory-budget-capped"
 source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
 areas = ["renderer"]
@@ -540,6 +567,23 @@ forbid = [
   { text = "still being retried after", label = "water effects pipeline retry cap" },
   { text = "DeviceLost", label = "GPU device loss" },
 ]
+
+[[scenario]]
+name = "water-volumetric-cloud-reflection"
+source = "[design] The Cottonwood Cove mirror draws the live volumetric sky on reflective water, including when the player looks down. Switching clouds off and back on must hand the mirror back to the newly prepared volume."
+areas = ["renderer", "graphics", "water", "sky"]
+paths = ["engine/nvforever/src/reflection*", "engine/nvforever/src/reflection/**", "engine/nvforever/src/medium*", "engine/nvforever/src/medium/**", "engine/nvforever/src/volumetric_clouds*"]
+env = { NVF_PLAY_TEST_LOOK = "3:107:1,19:107:-36", NVF_PLAY_TEST_PAUSE = "24:27,36:39", NVF_PLAY_TEST_SETTINGS = "25:volumetric-clouds=Off,37:volumetric-clouds=High" }
+args = ["--play", "--cell", "17,-23", "--pos=65664,-90752,-2178", "--heading", "107", "--pitch=1", "--hour", "7.3", "--weather", "NVWastelandClear", "--no-actors", "--no-messages", "--no-voice", "--graphics-only", "volumetric-clouds-high,water-effects,water-reflections"]
+run_seconds = 57
+order = [[
+  "water reflection: volumetric clouds ready",
+  "test aid: look heading 107.0 pitch -36.0",
+  "test aid NVF_PLAY_TEST_SETTINGS: volumetric-clouds=Off",
+  "test aid NVF_PLAY_TEST_SETTINGS: volumetric-clouds=High",
+  "water reflection: volumetric clouds ready",
+]]
+forbid = ["Caught rendering error", "failed and will not be tried again", "DeviceLost"]
 
 [[scenario]]
 name = "water-effects-submerged"
@@ -1210,7 +1254,7 @@ run_seconds = 14
 order = [
   [
     { re = 'graphics: ambient occlusion, light glow$', label = "the switch is on from the start (Goodsprings, MSAA)" },
-    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (Goodsprings, MSAA)" },
+    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (Goodsprings, MSAA)" },
   ],
   [
     "lights: ambient occlusion hook installed",
@@ -1243,7 +1287,7 @@ run_seconds = 14
 order = [
   [
     { re = 'graphics: ambient occlusion, light glow$', label = "the switch is on from the start (the saloon)" },
-    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (the saloon)" },
+    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (the saloon)" },
   ],
   [
     "lights: ambient occlusion hook installed",
@@ -1264,6 +1308,65 @@ forbid = [
 ]
 
 [[scenario]]
+name = "rtgi-made-volume"
+source = "[design, #3009] docs/design/rtgi-volume.md: a bounce light volume made by hand (engine/nvforever/src/rtgi_volume/made.rs), bound the way a solved one will be: the empty texture under the start's screen, the made one after it with the same view key; the pipelines that read it are there, none failed, and a compute pass's reads of it on the GPU are within their bounds of the CPU's"
+note = "needs NVF_SMOKE_DEV_AIDS: an nvforever built with --features dev-aids (a release build does not read the aid)."
+requires = ["NVF_SMOKE_DEV_AIDS"]
+areas = ["renderer", "graphics"]
+paths = [
+  "engine/nvforever/src/rtgi_*", "engine/nvforever/src/rtgi_volume/**", "engine/nvforever/src/lights.rs", "engine/nvforever/src/sun_visibility.rs", "engine/nvf-rtgi/src/volume.rs",
+  "engine/nvf-assets/src/nif_material*", "engine/vendor/bevy_pbr/src/render/mesh*.rs",
+]
+# No pipeline or composed shader of an earlier run, none kept for a later one; no scripts, so that the
+# visit is the same from its first frame (the game's token may come in the frame the screen settles,
+# which is late: the stock light).
+env = { NVF_PLAY_SCRIPTS = "0", NVF_PLAY_DEBUG_RTGI_MADE = "1", NVF_PIPELINE_CACHE = "0" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+order = [[
+  "lights: RTGI volume hook installed",
+  { re = 'rtgi: cell [0-9A-F]{8}, revision 1: the empty texture of \[3, 3, 12\] bound', label = "the empty texture is bound under the start's screen" },
+  "loading screen down after",
+  { re = 'rtgi: cell [0-9A-F]{8}, revision 1: a solved texture of \[5, 4, 24\] bound', label = "the made one takes its place when the screen is down" },
+  { re = 'rtgi: readback ', label = "the GPU's reads come back" },
+]]
+expect = [
+  { re = 'rtgi: pipelines that read the volume: (?P<n>\d+) there, 0 to come, 0 failed', range = [1, 100000], label = "at least one pipeline that reads is there and none failed" },
+  { text = "rtgi: readback passed: 96 reads", count = 1, label = "every read on the GPU is within its bound of the CPU's" },
+  { re = 'rtgi: \d+ allocations, \d+ uploads, \d+ binds, 1 dispatches; view bind groups \d+, with RTGI entries (?P<n>\d+)', range = [1, 100000000], label = "view bind groups were made with the three entries" },
+]
+forbid = [
+  { text = "rtgi: readback FAILED", label = "a read beyond its bound, or no pipeline to read with" },
+  { text = "rtgi: unbound", label = "it stays bound" },
+  { text = "asked for with no screen up", label = "it is bound under the start's screen" },
+  { text = "pipelines that read the volume failed", label = "a pipeline that reads failed for good" },
+  { re = 'rtgi: .*; the stock light', label = "the hook or the device refused it" },
+  { text = "hook's anchors not found", label = "the lighting hooks apply" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the volume bound" },
+  { text = "GPU validation error", label = "a validation error with the volume bound" },
+  { text = "Shader validation error", label = "a shader that reads the volume does not compile" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+]
+
+[[scenario]]
+name = "rtgi-off-interior"
+source = "[design, #3009] docs/design/rtgi-volume.md: without a request nothing of the bounce light volume is made, sent, bound or dispatched in an interior, counted where bevy_pbr makes the mesh view bind groups too"
+note = "needs NVF_SMOKE_DEV_AIDS: the line is written by an nvforever built with --features dev-aids."
+requires = ["NVF_SMOKE_DEV_AIDS"]
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/rtgi_*", "engine/nvforever/src/rtgi_volume/**", "engine/vendor/bevy_pbr/src/render/mesh_view_bindings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'rtgi: 0 allocations, 0 uploads, 0 binds, 0 dispatches; view bind groups (?P<n>\d+), with RTGI entries 0$', range = [1, 100000000], label = "nothing was done for the volume, and no view bind group has its entries" },
+]
+forbid = [
+  { text = "rtgi: cell", label = "a volume is bound" },
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+]
+
+[[scenario]]
 name = "ambient-occlusion-lighting-taa"
 source = "#2897 stage b, docs/design/graphics-enhanced.md §3.1.2: the default placement with temporal anti-aliasing instead of multisampling: the single-sampled pipelines without an upscaler"
 areas = ["renderer", "graphics"]
@@ -1276,7 +1379,7 @@ run_seconds = 14
 order = [
   [
     { re = 'graphics: ambient occlusion, .*temporal anti-aliasing', label = "the switch and TAA on from the start" },
-    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (TAA)" },
+    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (TAA)" },
   ],
   [
     "lights: ambient occlusion hook installed",
@@ -1309,7 +1412,7 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr",
 run_seconds = 16
 order = [
   [
-    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (FSR)" },
+    { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise, variant soft+thin, strength 0.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1", label = "the default: in the lighting, with the player's strength, remedies, lamps and exponent (FSR)" },
     { text = "FSR dispatch active: 3.1.4, 853x480 -> 1280x720", label = "FSR draws at the render size after the occlusion said where it runs (the estimate line comes with the camera, FSR's with its first dispatch)" },
   ],
   [
@@ -1453,7 +1556,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TE
 args = ["--cell", "Novac", "--play", "--hour", "12", "--no-voice", "--no-messages", "--graphics", "enhanced", "--ambient-occlusion=performance"]
 run_seconds = 28
 expect = [
-  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (Novac at 12:00, Performance)" },
+  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (Novac at 12:00, Performance)" },
   { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera (Novac at 12:00, Performance)" },
   { text = "ambient occlusion: the multisampled depth resolved once to one sample for the passes", label = "under 4x multisampling the passes read the resolved depth (Novac at 12:00, Performance)" },
 ]
@@ -1476,7 +1579,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TE
 args = ["--cell", "Novac", "--play", "--hour", "12", "--no-voice", "--no-messages", "--graphics", "enhanced", "--ambient-occlusion=performance", "--upscaler", "dlss", "--upscaler-quality", "quality"]
 run_seconds = 28
 expect = [
-  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (Novac at 12:00, Performance with DLSS Quality)" },
+  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (Novac at 12:00, Performance with DLSS Quality)" },
   { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera (Novac at 12:00, Performance with DLSS Quality)" },
 ]
 forbid = [
@@ -1496,7 +1599,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TE
 args = ["--cell", "UnderpassRanchInterior01", "--play", "--hour", "12", "--no-voice", "--no-messages", "--graphics", "enhanced", "--ambient-occlusion=performance"]
 run_seconds = 28
 expect = [
-  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.8, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (UnderpassRanchInterior01, Performance)" },
+  { re = 'ambient occlusion: ground-truth estimate \(GTAO\), 1 slice x 4 steps a side at half resolution, depth-aware denoise, variant soft\+thin, strength 0\.92, in the lighting: on the ambient light and on lamps without a shadow by 1, exponent 1, multi-bounce by surface colour, level Performance$', count = 1, label = "Performance: one slice, the rest as Quality (UnderpassRanchInterior01, Performance)" },
   { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera (UnderpassRanchInterior01, Performance)" },
   { text = "ambient occlusion: the multisampled depth resolved once to one sample for the passes", label = "under 4x multisampling the passes read the resolved depth (UnderpassRanchInterior01, Performance)" },
 ]
@@ -3737,7 +3840,7 @@ order = [[
   "settings: anti-aliasing TAA",
   "settings: ambient-occlusion Quality",
   "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
-  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$' },
+  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: on main (2026-11-27, this machine alone) the TAA and Quality AO change leaves 15 pipelines pending at the 15 s cap" },
   { re = 'pause menu: resume$' },
 ]]
 expect = [
@@ -3745,7 +3848,7 @@ expect = [
   { re = 'pause menu: resume$', count = 1, label = "one actual release" },
 ]
 forbid = [
-  { text = "capped true", label = "the graphics-resume cap" },
+  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on main" },
   { text = "Caught rendering error", label = "a rendering validation error" },
   { text = "failed and will not be tried again", label = "a failed pipeline" },
   { text = "and no longer waited for", label = "a pipeline over its retry cap" },
@@ -4037,6 +4140,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "ai-goal-off-navmesh-named"
+kind = "tool"
+source = "#2756: a package place with no navmesh near it is logged with its cell or worldspace. Jean-Baptiste's VFSJeanBaptisteStandInPlacePackage goes to VFSJeanBaptisteMarkerREF, placed at (0, 0, 0) in FreesideSilverRush (the data's own, 3,000 units from that cell's navmesh); without the cell the line read as a goal looked for in Freeside, where he was"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-nav/src/path.rs"]
+commands = [
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "2", "--actor", "VFSJeanBaptisteCuttingREF", "--force", "VFSJeanBaptisteCuttingREF=VFSJeanBaptisteStandInPlacePackage"],
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "2", "--actor", "VHDPreBattleNCRTrooper3REF"],
+]
+expect = [
+  { json = "actors.?actor=VFSJeanBaptisteCuttingREF.events.?kind=unreachable.why", schema = "fnv.ai.run/1", equals = "no navmesh triangle near the goal (0, 0, 0) in FreesideSilverRush", label = "Jean-Baptiste's goal is named in the marker's interior" },
+  { json = "actors.?actor=VHDPreBattleNCRTrooper3REF.events.?kind=unreachable.why", schema = "fnv.ai.run/1", equals = "no navmesh triangle near the goal (66071, 18461, 4825) in WastelandNV", label = "trooper 3's barricade marker, off the navmesh, is named in WastelandNV" },
+]
+
+[[scenario]]
 name = "ai-no-door-out-of-sight-game"
 source = "docs/spec-notes/packages.md §11 (#2405): in the game, with the player outside the NCR safehouse's cave door (0x001593B6, WastelandNV), Gomez in the interior behind it is out of the loaded area; his Leave package (vSafehouse variable 10, GomezGoToSleep, = 1) sends him from the side room's navmesh island to GomezDoor, which no door joins: he is put there instead of logging 'cannot reach' every game hour (players' reports, build 0.7.0)"
 areas = ["ai"]
@@ -4145,6 +4263,20 @@ order = [[
   { text = "furniture: 00104C80 gets off 0010634A", label = "getting off it" },
   { text = "furniture: 00104C80 is on 00176ACE", label = "on his bed 00176ACE" },
 ]]
+
+[[scenario]]
+name = "upright-talk-from-the-side"
+source = "#3446 (player reports, 0.8.1: NPCs lie flat for a moment as they are talked to; #2859, fixed by #2860: a turn clip's tilted accumulation root): Sunny Smiles is put 120 units to the player's side and talked to as she walks off to the saloon, the player 161° off her front, so her body turns round to face the player; a standing actor whose pelvis -> head line leans past 60° is logged (engine/nvforever/src/upright.rs) and none may"
+areas = ["dialogue", "locomotion"]
+paths = ["engine/nvforever/src/upright.rs", "engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:moveto:SunnyRef:player:120:0:0,9:activate:SunnyRef" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  "dialogue: conversation with SunnyRef started",
+  { re = 'upright: 0 tips of standing actors seen', label = "nobody standing leans over" },
+]
+forbid = [{ re = 'upright: .* leans \d+° from upright while standing', label = "a standing actor lay over" }]
 
 [[scenario]]
 name = "force-greet"
@@ -5648,6 +5780,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "new-game-walk-off"
+source = "#3046 (players' reports 0.8.0: player_stuck at the bed (2229, 2314) and the Vigor Tester (1857, 1858) in Doc Mitchell's house, 3 installs): a full new game, the opening's menus answered; VCG01 stage 55 gives back movement, the wake-up idle lets the player go beside the bed, and the movement keys walk the player off it (a --cell start runs the opening differently, PR #3195)"
+note = "the keys are held from 100 s, after stage 55 (about 70 s into the run on the owner's machine): forward 4 s, right 4 s, back 6 s; the player ends near (1703, 1977), about 620 units from the bed spot"
+areas = ["controls", "chargen"]
+paths = ["engine/nvf-play/src/control.rs", "engine/nvforever/src/reports/mod.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_MOVE = "100:1:0,104:0:0,106:0:1,110:0:0,112:-1:0,118:0:0" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 130
+order = [[
+  "VCG01 stage 55 set",
+  { re = 'player view: a second after the idle the character stands at \((?P<n>\d+), 23\d\d, 7361\)', range = [2150, 2300], label = "let go beside the bed (the first reported spot)" },
+  "test aid: movement keys forward 1 right 0",
+]]
+expect = [
+  { re = 'physics: the player stepped up \d+ times, feet at \((?P<n>-?\d+), ', range = [-100000, 2100], label = "the player walked off the bed spot (x below 2100)" },
+  { re = "controls summary: .*held back: nothing", label = "no movement held back by the scripts" },
+]
+
+[[scenario]]
 name = "idles-opening"
 source = "CLAUDE.md: after idle animation changes (docs/spec-notes/idles.md §7), the opening"
 areas = ["idles"]
@@ -6088,7 +6239,7 @@ args = ["--cell", "GSGeneralStore", "--play", "--no-voice"]
 run_seconds = 50
 expect = [
   { re = 'Player: .*Legion Denarius x3 at (\d+|0\.\d)', label = "the denarii have a price (their Absolute Value)" },
-  { re = 'menu: figures of 10mm Pistol: DAM \d+, WG [\d.]+, VAL \d+, .*DPS \d+, .*CND', label = "the pistol's figures as the Pip-Boy's: damage, weight, value, DPS, condition" },
+  { re = 'menu: figures of 10mm Pistol: Damage \d+, WEIGHT [\d.]+, Value \d+, .*DPS \d+, .*Condition', label = "the pistol's figures as the Pip-Boy's: damage, weight, value, DPS, condition" },
 ]
 order = [["menu: a script opens the barter menu with 0x00104C79", "menu: figures of 10mm Pistol", "menu: close"]]
 
@@ -6174,7 +6325,7 @@ expect = [
   { text = "tiles: BarterMenu", count = 0, label = "no barter adapter runs" },
   { text = "tiles: QuantityMenu", count = 0, label = "no prompt adapter runs" },
   { text = "tile menu blur:", count = 0, label = "no tile blur" },
-  { re = 'menu: figures of 10mm Pistol: DAM \d+, WG [\d.]+, VAL \d+, .*DPS \d+, .*CND', label = "hand-built item card" },
+  { re = 'menu: figures of 10mm Pistol: Damage \d+, WEIGHT [\d.]+, Value \d+, .*DPS \d+, .*Condition', label = "hand-built item card" },
   { text = "menu: Accept: Traded", count = 1, label = "A accepts once" },
 ]
 order = [["menu: a script opens the barter menu with 0x00104C79", "stock in 0x00104C7A", "Selling 10mm Pistol x1", "Took back 10mm Pistol x1", "menu: Accept: Traded", "menu: close"]]
@@ -6565,7 +6716,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:objective:
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
 run_seconds = 45
 order = [[
-  "quest message on screen: Quest added: BACK IN THE SADDLE",
+  "quest message on screen: New quest: BACK IN THE SADDLE",
   { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon." },
   { text = "quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon." },
 ]]
@@ -7704,7 +7855,7 @@ expect = [
   "pipboy sound: UIPipBoyMode",
   { text = "pipboy sound: UIPipBoyScroll", label = "pipboy: the STATS lists click as ITEMS' (General's other list at 18 s, #1340)" },
   "pipboy sound: UIPipBoyStatic",
-  { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, sKarmicTitleNeutral1)" },
+  { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, FalloutNV.esm sKarmicTitleNeutral01)" },
   { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', label = "pipboy data: the local map's outline made outdoors" },
   "pipboy data: map dragged by (-100, 0)",
 ]
@@ -8220,7 +8371,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 40
 order = [[
   "fast travel: over-encumbered, but Has Fast Travel Always (Long Haul) lets the player travel",
-  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: asks "Travel to Primm?" (0x000CDF46)',
   { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference', label = "and goes" },
 ]]
 forbid = [{ re = 'fast travel: to Primm .* refused \(Encumbered\)', label = "refused for the load" }]
@@ -8534,6 +8685,21 @@ expect = [
   { re = 'process summary: .* (?P<n>\d+) fell out of the cell buffer', range = [10, 100000], label = "process summary: ten or more fell out of the cell buffer" },
   { re = 'process summary: .* (?P<n>\d+) every 120 s \(', range = [10, 1000000], label = "process summary: Low-level updates every 120 s" },
 ]
+
+[[scenario]]
+name = "creature-stored-pose-settles"
+source = "issue #3408 (TTW report: dead brahmin at Arefu stood on their heads or hung above the ground beside a fence): a creature corpse's stored pose (XRGD) read with the human skeleton's reading floats or sinks, so on a skeleton other than the human one it starts awake in that pose and settles (engine/nvforever/src/deaths.rs, ragdoll.rs, authored_pose.rs CHECKED_ROOT; dead-on-spawn.md §5)"
+note = "the base game alone: DEADCaravanBrahmin 0x000F6909 (WastelandNV, stored pose above the ground, not lifted); before the fix it was held in its stored pose ('at rest ... after 0.0 s of physics') [observed 2026-11-25]; the Arefu corpses themselves need TTW's data, which is not a smoke data dir"
+areas = ["ragdoll", "deaths"]
+paths = ["engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1" }
+args = ["--play", "--pos=-11967,45400,4250", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  "ragdoll: actor 000F6909 starts awake from the pose its reference stores, to settle",
+  { re = 'ragdoll: actor 000F6909 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone, after (?P<s>[\d.]+) s of physics', range = [-1000, 35], label = "the brahmin settles lying down" },
+]
+forbid = [{ re = 'ragdoll: actor 000F6909 at rest at .* after 0\.0 s of physics', label = "not held in the stored pose without physics" }]
 
 [[scenario]]
 name = "dead-on-spawn"
@@ -9458,6 +9624,27 @@ order = [[
   { text = "console: GetActorValue on player >> 5.00", label = "Strength 5 after Fixer" },
   { text = "console: IsSpellTarget on player >> 0.00", label = "no addiction left" },
 ]]
+
+[[scenario]]
+name = "aid-rad-child"
+source = "issue #3471 (docs/spec-notes/aid-items.md §3): Rad Child regenerates Health by the second in a stage of radiation sickness, not once when the stage starts"
+note = "Health 200 damaged by 160, rads 650 (Radiation600, magnitude 6). Without the perk two readings 3 s apart are 40. The perk is added at 17.2 s; the game stands still while the console is open, so at 21 s it has had 2.6 to 3.6 s of play (its condition is checked once a second): about 56 to 62. At 29 s 7.7 s more: about 102 to 108. Before #3471 both readings were 46 (6 once, when the condition passed), outside both ranges and not rising. The perk is taken at 29.2 s (at most a second more); the readings at 32 s and 42 s must be the same within 0.5 (going on would add 57)"
+areas = ["aid", "perks"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/abilities.rs", "crates/fnv-game/src/needs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:damage:player:Health:160,3.5:set_av:player:RadiationRads:650", NVF_PLAY_TEST_CONSOLE = "14:PrintC \"nvf rc start %.2f\", (player.GetAV Health);14.4:close;17:PrintC \"nvf rc still %.2f\", (player.GetAV Health);17.2:player.addperk RadChild;17.4:close;21:PrintC \"nvf rc first %.2f\", (player.GetAV Health);21.3:close;29:PrintC \"nvf rc second %.2f\", (player.GetAV Health);29.2:player.removeperk RadChild;29.5:close;32:PrintC \"nvf rc less %.2f\", ((player.GetAV Health) - 0.5);32.2:PrintC \"nvf rc more %.2f\", ((player.GetAV Health) + 0.5);32.5:close;42:PrintC \"nvf rc last %.2f\", (player.GetAV Health);42.3:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 46
+expect = [
+  "test aid: 0x00000014 Health damaged by 160: now 40.0",
+  { re = 'needs: .* 650[\d.]*: Radiation600', label = "Critical radiation sickness" },
+  { re = 'nvf rc start 40\.00', label = "no regeneration without the perk" },
+  { re = 'nvf rc still 40\.00', label = "still none 3 s later" },
+  { re = 'nvf rc first (?P<n>[\d.]+)', range = [52, 72], label = "Health has risen by the second (46 before #3471)" },
+  { re = 'nvf rc second (?P<n>[\d.]+)', range = [92, 125], label = "and goes on rising 8 s later (46 before #3471)" },
+  { re = 'nvf rc second (?P<n>[\d.]+)', above = 'nvf rc first (?P<n>[\d.]+)', label = "the second reading is above the first" },
+  { re = 'nvf rc last (?P<n>[\d.]+)', above = 'nvf rc less (?P<n>[\d.]+)', label = "without the perk Health does not fall" },
+  { re = 'nvf rc more (?P<n>[\d.]+)', above = 'nvf rc last (?P<n>[\d.]+)', label = "without the perk Health stops rising" },
+]
 
 [[scenario]]
 name = "aid-hardcore"
@@ -10631,10 +10818,10 @@ expect = [
   { re = 'CraigBooneREF: package FollowersBooneFollowPlayerLONG', label = "his long Follow package" },
   { re = 'companion wheel: aggressive_passive \(Aggressive\): CraigBooneREF says \S+ \(FollowersTacticsCombatAggressive\)', label = "Aggressive" },
   { re = 'companion wheel: ranged_melee \(Melee\): CraigBooneREF says \S+ \(FollowersTacticsCombatMelee\)', label = "Melee (his combat style)" },
-  { re = 'companion wheel: stimpak \(Use Stimpak\): \S+ used on CraigBooneREF', label = "a stimpak used on the hurt companion" },
-  { re = 'CraigBooneREF: backs up from the player', label = "Back Up walks him away" },
+  { re = 'companion wheel: stimpak \(Heal\): \S+ used on CraigBooneREF', label = "a stimpak used on the hurt companion" },
+  { re = 'CraigBooneREF: backs up from the player', label = "Step Back walks him away" },
   { re = 'sneaking: CraigBooneREF .*crouches and sneaks', label = "he sneaks with the player" },
-  { re = 'menu: a script opens .*inventory \(OpenTeammateContainer\)', label = "Open Inventory opens his inventory" },
+  { re = 'menu: a script opens .*inventory \(OpenTeammateContainer\)', label = "Inventory opens his inventory" },
   { re = 'menu: open Container.*\(\d+ non-playable stacks hidden\)', label = "his rifle and Magical Companion Ammo (Non-Playable) are not listed (owner, 2026-10-20)" },
   { re = 'companion wheel summary: opened 3 times', label = "the summary" },
 ]
@@ -11359,6 +11546,83 @@ expect = [
 ]
 
 [[scenario]]
+name = "photo-mode"
+source = "[design] photo mode opens, pauses the game, moves its camera, changes its sliders, saves a PNG and closes (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open,11:orbit=60,11.5:near=200,12:set=zoom=50,12.5:set=saturation=0.4,13:shot,16:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 19
+expect = [
+  { re = 'photo mode: open \(the game pauses\), zoom \d+°', label = "photo mode opens and the game pauses" },
+  { re = 'menu pause: the picture stands still \(photo mode\)', label = "the picture stands still" },
+  "test aid NVF_PLAY_TEST_PHOTO: orbit 60°",
+  "test aid NVF_PLAY_TEST_PHOTO: Zoom (FOV) 50",
+  "test aid NVF_PLAY_TEST_PHOTO: Saturation 40%",
+  { re = 'photo mode: captured \d+x\d+, writing .*Photos.NVForever \d{4}-\d\d-\d\d \d\d-\d\d-\d\d .+\.png', label = "the window is captured and named by date, time and place" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  { text = "photo mode: notice: Photo saved", label = "photo mode's own notice says Photo saved (the corner messages wait while it is open)" },
+  "photo mode: closed, the view is back on the player",
+  { re = 'photo mode: the field of view is back at vertical 59\.8°', label = "the close gives back the gameplay field of view (75, vertical 59.8°), not the Zoom slider's 50" },
+  "menu pause: the picture runs again",
+]
+
+
+[[scenario]]
+name = "photo-mode-lights"
+source = "[design] photo mode lights: Hue and Saturation sliders, brightness, range, point or spot, a direction and a width the player sets, shadows; a new light drops at the camera; the camera stands still while a light is edited and comes back exactly; the lights go when photo mode closes (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvf-play/src/photo_lights.rs", "engine/nvforever/src/photo_lights.rs"]
+env = { NVF_PLAY_TEST_PHOTO = "8:open,8.5:tab=3,9:light=add,9.3:light=hue=0,9.4:light=sat=1,9.5:light=width=30,9.6:light=bright=3,9.8:light-move=-40:-120:60,10:light-turn=30:-10,10.2:lift=100,11:light-done,11.5:light=add,11.7:light=type,11.8:light=hue=220,11.9:light=sat=1,12:light-move=0:150:0,12.3:light-done,12.6:shot,15:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'photo mode: open \(the game pauses\)', label = "photo mode opens" },
+  { re = 'photo mode: light 1 added at the camera \(', label = "a new light drops at the camera" },
+  { re = 'photo mode: editing light 1; the camera stands at', label = "editing it begins with the camera held" },
+  "test aid NVF_PLAY_TEST_PHOTO: light Hue 0",
+  "test aid NVF_PLAY_TEST_PHOTO: light Saturation 100%",
+  "test aid NVF_PLAY_TEST_PHOTO: light Width 30",
+  { re = 'photo lights: light 1 drawn \(Spot', label = "the first light is drawn as a spot" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: light 1 now at .* direction [+-]\d+ tilt [+-]\d+', label = "the camera's inputs move and aim the light" },
+  { text = "test aid NVF_PLAY_TEST_PHOTO: the camera stands still while a light is edited", label = "the camera does not move while a light is edited" },
+  { re = 'photo mode: light editing ends; the camera is back at', min = 2, label = "leaving editing gives the camera back" },
+  "test aid NVF_PLAY_TEST_PHOTO: light Type pressed: Point",
+  { re = 'photo lights: light 2 drawn \(Point', label = "the second light is a point light" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "photo mode: 2 photo lights removed",
+  "photo mode: closed, the view is back on the player",
+]
+
+
+[[scenario]]
+name = "photo-mode-options"
+source = "[design] photo mode's camera is free (not locked to the player) and it has the options photo modes commonly have: depth of field, warmth, vignette, grain, letterbox, grid, hide player (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/imagespace.rs", "engine/nvforever/src/imagespace.wesl", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open,11:lift=150,11.2:fly=600,11.5:face,12:set=blur=0.5,12.2:set=focus=30,12.4:set=warmth=0.4,12.6:set=vignette=0.6,12.8:set=grain=0.3,13:set=letterbox=1,13.2:set=grid=1,13.4:set=hide=1,13.6:tab=2,14:shot,17:set=camera=1,17.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 20
+expect = [
+  { re = 'photo mode: open \(the game pauses\), zoom \d+°', label = "photo mode opens" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera flies 600, now [1-9]\d{2,} from the player', label = "the free camera flies away from the player (100 units or more)" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: the free camera faces the player from [1-9]\d{2,}', label = "the free camera turns back to the player" },
+  "test aid NVF_PLAY_TEST_PHOTO: Blur 50%",
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: Focus \d+(\.\d)? m', label = "the focus reads in metres" },
+  { re = 'depth of field: lens blur \(bokeh\), aperture 0\.50, .*\(photo mode', label = "photo mode's depth of field reaches the grade (the lens blur since cf5ff970a)" },
+  "test aid NVF_PLAY_TEST_PHOTO: Warmth +40",
+  "test aid NVF_PLAY_TEST_PHOTO: Vignette 60%",
+  "test aid NVF_PLAY_TEST_PHOTO: Film Grain 30%",
+  "test aid NVF_PLAY_TEST_PHOTO: Letterbox 2.39:1",
+  "test aid NVF_PLAY_TEST_PHOTO: Grid Thirds",
+  "test aid NVF_PLAY_TEST_PHOTO: Hide Player On",
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "test aid NVF_PLAY_TEST_PHOTO: Camera Orbit",
+  "photo mode: closed, the view is back on the player",
+]
+
+
+[[scenario]]
 name = "console-toggles"
 source = "console world and render toggles (docs/design/console.md): each switches and prints its state, and switches back"
 areas = ["console", "scripts"]
@@ -11555,7 +11819,7 @@ source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first 
 areas = ["save"]
 paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-save/", "crates/fnv-game/src/game.rs", "crates/fnv-sim/src/world.rs"]
 # The console waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
-env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:player.additem Stimpak 7;20.5:player.getitemcount Stimpak;21:0010A202.disable;21.5:player.setav luck 9;22:save smoke-roundtrip;23:saves;24:coc GSProspectorSaloonInterior;32:autosave;33:close", NVF_PLAY_TEST_PAUSE = "34:39.5", NVF_PLAY_TEST_PAUSE_MENU = "34.5:save,36:load,37:down,38:up,38.5:back" }
+env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:player.additem Stimpak 7;20.5:player.getitemcount Stimpak;21:0010A202.disable;21.5:player.setav luck 9;22:save smoke-roundtrip;23:saves;24:coc GSProspectorSaloonInterior;32:autosave;33:close", NVF_PLAY_TEST_PAUSE = "34:39.5", NVF_PLAY_TEST_PAUSE_MENU = "34.5:save,35:pick,36:load,37:down,38:up,38.5:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 41
 expect = [
@@ -12452,7 +12716,7 @@ run_seconds = 25
 expect = [
   { re = 'pipboy items: 10mm Pistol selected: .*dps: None', label = "no DPS card on the ITEMS page" },
   { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("[^"]*weap_skill_icon_sm_arms\.dds"\), skill_req: Some\(\d+\)', label = "the Guns badge and the skill the pistol needs" },
-  { re = 'pipboy items: 10mm Pistol Mod X\)', label = "Mod X) for a weapon with mod slots" },
+  { re = 'pipboy items: 10mm Pistol Modify X\)', label = "Modify X) for a weapon with mod slots" },
   "pipboy repair: clicked row 1",
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "the click on the chosen part repairs the pistol" },
 ]
@@ -12461,10 +12725,10 @@ order = [["pipboy repair: open", "pipboy repair: clicked row 1", "pipboy repair:
 [[scenario]]
 name = "pipboy-stats-heal"
 source = "owner 2026-10-23: on the STATS page's CND the Stimpak is used on the body (health not full) or on a hurt limb, the Doctor's Bag heals every limb, and the bars show the player's limb conditions (engine/nvf-play/src/pipboy/stats/, crates/fnv-game/src/aid.rs PARTS_LIMB_SHARE, docs/spec-notes/pipboy.md 5.1, aid-items.md 3)"
-note = "the console gives 3 Stimpaks and a Doctor's Bag, cripples the left arm and takes 50 health; on CND a Stimpak on the body, one refused on the whole right arm, one on the left arm, the bag, a second bag refused with every limb whole (the start carries some of each already)"
+note = "the console gives 3 Stimpaks and a Doctor's Bag, cripples the left arm and takes 50 health; on CND a Stimpak on the body, one refused on the whole right arm, one on the left arm, the bag, a second bag refused with every limb whole (the start carries some of each already). The STATS page at 22 s: about 1 s after the Pip-Boy opens the game's script opens the Healing Limbs tutorial over it (the aid closes it), and a page change in that frame goes to the tutorial (#4773)"
 areas = ["pipboy", "aid"]
 paths = ["engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/aid.rs", "crates/fnv-game/src/aid.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem 15169 3;8.3:player.AddItem CB05C 1;8.6:player.DamageAV LeftAttackCondition 100;8.9:player.DamageAV Health 50;9.5:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,31:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:use=stimpak,24:limb=3,24.5:use=stimpak,25:limb=2,25.5:use=stimpak,27:use=bag,28:use=bag", NVF_PLAY_TEST_SHOTS = "22.5:pipboy_cnd_hurt.png,29:pipboy_cnd_healed.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem 15169 3;8.3:player.AddItem CB05C 1;8.6:player.DamageAV LeftAttackCondition 100;8.9:player.DamageAV Health 50;9.5:close", NVF_PLAY_TEST_PIPBOY = "20:open,22:page=stats,31:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:use=stimpak,24:limb=3,24.5:use=stimpak,25:limb=2,25.5:use=stimpak,27:use=bag,28:use=bag", NVF_PLAY_TEST_SHOTS = "22.5:pipboy_cnd_hurt.png,29:pipboy_cnd_healed.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 33
 expect = [
@@ -12609,11 +12873,11 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 expect = [
-  { re = 'hud: enemy health .* \(See Enemy Health: "HP:\d+ DT:\d+\.\d\d"\)', label = "Living Anatomy: the line under the name, as the original's HP:250 DT:15.00" },
+  { re = 'hud: enemy health .* \(See Enemy Health: "Health \d+  DT \d+\.\d"\)', label = "Living Anatomy: the line under the name, our own form Health 250  DT 15.0 (#2984)" },
   { re = 'combat: Meltdown: 0x[0-9A-F]{8} gives off MinePlasmaExplosion \(0x00000014.s kill with WeapLaserPistol\)', label = "a laser kill gives off the Meltdown Explosion" },
   { re = 'combat: explosion MinePlasmaExplosion at', label = "and it goes off" },
 ]
-manual = "living_anatomy_bar.png: the dog's name under the enemy bar and HP:<n> DT:<n.nn> centred under it, both red"
+manual = "living_anatomy_bar.png: the dog's name under the enemy bar and Health <n>  DT <n.n> centred under it, both red"
 
 [[scenario]]
 name = "perk-implant-y3"
@@ -12638,7 +12902,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 25
 expect = [
-  { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "Mod X) bright: the player carries a mod that fits" },
+  { re = 'pipboy items: 10mm Pistol Modify X\)(?! \(dim)', label = "Modify X) bright: the player carries a mod that fits" },
   { re = 'pipboy mod: open 10mm Pistol \(flags 0\): 10mm Pistol Extended Mags \(slot 1\)', label = "X lists the extended magazines for slot 1" },
   { text = "pipboy: menu code 1061", label = "MenuMode 1061 while the mod menu is open" },
   { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "attaching sets the slot's flag" },
@@ -12656,7 +12920,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-right-click-drop
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 21
 expect = [
-  { re = 'pipboy items: 10mm Pistol Mod X\)', label = "the pistol's Mod X) shows: a weapon with mod slots" },
+  { re = 'pipboy items: 10mm Pistol Modify X\)', label = "the pistol's Modify X) shows: a weapon with mod slots" },
   { text = "test aid: pipboy clicked the screen", label = "the right click lands on the screen" },
   { re = 'menu: Drop: Dropped 10mm Pistol x1', label = "the right click drops the pistol" },
   { text = "pipboy mod: open", count = 0, label = "the mod menu stays closed" },
@@ -12956,7 +13220,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12"]
 run_seconds = 28
 expect = [
-  { re = 'hud: sneak \[(HIDDEN|DETECTED|CAUTION|DANGER)\]', label = "a sneak word once the player sneaks" },
+  { re = 'hud: sneak \[(UNSEEN|SPOTTED|ALERT|COMBAT)\]', label = "a sneak word once the player sneaks" },
   { re = 'hud: enemy health \S.* 0x[0-9A-F]{8} \d+ %', label = "the bighorner's health on the enemy bar" },
 ]
 order = [[
@@ -12968,8 +13232,8 @@ order = [[
 
 [[scenario]]
 name = "hud-sneak-companion"
-source = "issue #1159 (docs/spec-notes/hud.md §9): sneaking with only a following companion near shows [HIDDEN], though the companion detects the player"
-note = "Boone hired by his recruit line at 3 s in his room (as follower-boone; no one else in the cell); the player sneaks at 14 s, Boone following beside: his detection of the player is measured and logged, the sneak word stays [HIDDEN]"
+source = "issue #1159 (docs/spec-notes/hud.md §9): sneaking with only a following companion near shows [UNSEEN], though the companion detects the player"
+note = "Boone hired by his recruit line at 3 s in his room (as follower-boone; no one else in the cell); the player sneaks at 14 s, Boone following beside: his detection of the player is measured and logged, the sneak word stays [UNSEEN]"
 areas = ["hud", "detection", "followers"]
 paths = ["engine/nvf-play/src/hud.rs", "crates/fnv-game/src/followers.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF", NVF_PLAY_TEST_CONTROL = "14:sneak" }
@@ -12978,17 +13242,17 @@ run_seconds = 24
 expect = [
   { re = 'CraigBooneREF: package FollowersBooneFollowPlayerDEFAULT', label = "hired: his Follow package" },
   { re = 'detection: \S*Boone\S* .*→ the player: \S+ → detected', label = "Boone detects the player" },
-  { re = 'hud: sneak \[HIDDEN\]', label = "the sneak word is [HIDDEN]" },
+  { re = 'hud: sneak \[UNSEEN\]', label = "the sneak word is [UNSEEN]" },
 ]
 forbid = [
-  { re = 'hud: sneak \[(DETECTED|CAUTION)\]', label = "Boone alone sets neither [DETECTED] nor [CAUTION]" },
+  { re = 'hud: sneak \[(SPOTTED|ALERT)\]', label = "Boone alone sets neither [SPOTTED] nor [ALERT]" },
 ]
 
 # ------------------------------------------------------------------ enemies left behind (issue #3390)
 
 [[scenario]]
 name = "hud-sneak-left-behind"
-source = "issue #3390 (docs/design/alert.md §2): an enemy whose pair with the player is measured no more (its cell unloaded) loses the player: [DANGER] goes, and it goes Lost and then Normal on the timers"
+source = "issue #3390 (docs/design/alert.md §2): an enemy whose pair with the player is measured no more (its cell unloaded) loses the player: [COMBAT] goes, and it goes Lost and then Normal on the timers"
 note = "a gecko (NVCrGecko, the first created reference, 0xFF000000) placed at the player in Goodsprings at 3 s, put 600 units away and set on the player at 6 s, the player sneaking from 7 s; at 10 s the player is moved to the XMarker in Boone's room (0x000CAEB6, NovacBoonesRoom), where no enemy is. The gecko: hidden 1 s later, Lost 15 s after it last detected the player, Normal 30 s after it was hidden. Not run yet"
 areas = ["hud", "detection", "combat"]
 paths = ["crates/fnv-game/src/awareness.rs", "engine/nvforever/src/detection.rs", "engine/nvf-play/src/hud.rs"]
@@ -12997,8 +13261,8 @@ args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--
 run_seconds = 70
 order = [[
   { re = 'alert: .*FF000000 (Normal|Alert) → Combat', label = "the gecko fights the player" },
-  { re = 'hud: sneak \[DANGER\]', label = "in the fight the sneak word is [DANGER]" },
-  { re = 'hud: sneak \[(HIDDEN|DETECTED)\]', label = "left behind, it is [DANGER] no more" },
+  { re = 'hud: sneak \[COMBAT\]', label = "in the fight the sneak word is [COMBAT]" },
+  { re = 'hud: sneak \[(UNSEEN|SPOTTED)\]', label = "left behind, it is [COMBAT] no more" },
   { re = 'alert: .*FF000000 Combat → Lost', label = "the gecko loses the player" },
   { re = 'alert: .*FF000000 Lost → Normal', label = "and gives up" },
 ]]
@@ -13420,17 +13684,17 @@ order = [[
 
 [[scenario]]
 name = "reputation-box"
-source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('You have discovered'); fame with Goodsprings opens its 'Liked' box, infamy with the Powder Gangers their boxes up to 'Vilified'; the Pip-Boy's General page lists both"
+source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('Place found'); fame with Goodsprings opens its box at fame level 2, infamy with the Powder Gangers their boxes up to infamy level 3; the Pip-Boy's General page lists both"
 areas = ["hud", "pipboy"]
 paths = ["engine/nvf-play/src/reputation.rs", "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/functions/reputation.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close;17:player.addreputation 001558E6 0 5;17.2:player.addreputation 001558E6 0 5;17.4:player.addreputation 001558E6 0 5;17.6:close", NVF_PLAY_TEST_PIPBOY = "32:open,33:page=stats,34:tab=4,36:close", NVF_PLAY_TEST_SHOTS = "6,14,19,35" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--heading", "50", "--size", "1280x720"]
 run_seconds = 38
 expect = [
-  { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found" },
+  { re = 'quest message on screen: Place found: GOODSPRINGS', label = "the start's town found" },
   { re = 'compass: \d+ actors \(\d+ hostile\), [1-9]\d* map markers \([1-9]\d* found\)', label = "the found town's marker on the compass" },
-  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
-  { re = 'reputation: Powder Gangers \S.* -> Vilified', label = "the Powder Gangers' last box Vilified" },
+  "reputation: Goodsprings Neutral -> Trusted (fame 12, infamy 0)",
+  { re = 'reputation: Powder Gangers \S.* -> Reviled', label = "the Powder Gangers' last box at infamy level 3 (Reviled)" },
   { re = 'pipboy stats: .* 2 reputations', label = "both reputations in the Pip-Boy's list" },
   { re = 'pipboy stats: LVL 1, .*, XP 10/', label = "the discovery's 10 XP" },
 ]
@@ -13441,17 +13705,17 @@ source = "owner request 2026-10-30 (#1050): the reputation box and the level-up 
 note = "beside Violet's camp (as music-battle), god mode: Goodsprings fame is added at 12 s while the fight is on, the five fighters are killed at 15 s; the box waits for the fight to end and then 2 s more"
 areas = ["hud"]
 paths = ["engine/nvf-play/src/after_combat.rs", "engine/nvf-play/src/reputation.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F5741,15:kill:0x0013F85F" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F573C,15:kill:0x000F573D,15:kill:0x000F573F,15:kill:0x000F5741,15:kill:0x0013F85F" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-46800,65000,4600", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 26
 order = [[
   "after combat: in a fight, boxes wait",
   "after combat: the fight is over",
   { re = 'after combat: settled, boxes may come up \(2\.0 s' },
-  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
+  "reputation: Goodsprings Neutral -> Trusted (fame 12, infamy 0)",
 ]]
 expect = [
-  { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Liked"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
+  { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Trusted"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
 ]
 forbid = [{ re = 'the player died', label = "the player dies" }]
 
@@ -14128,11 +14392,11 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_P
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--window", "borderless"]
 run_seconds = 18
 expect = [
-  { re = 'window: borderless full screen$', label = "--window borderless starts borderless full screen" },
+  { re = 'window: borderless full screen, \d+x\d+$', label = "--window borderless starts borderless full screen, at the display's surface size" },
   { text = "settings: borderless off", label = "the Display switch is flipped" },
   { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
 ]
-order = [[{ re = 'window: borderless full screen$' }, "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+order = [[{ re = 'window: borderless full screen, \d+x\d+$' }, "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
 
 [[scenario]]
 name = "resolution-revert"
@@ -14190,7 +14454,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 131 of 131 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -14211,7 +14475,7 @@ order = [[
 [[scenario]]
 name = "settings-scroll-headings"
 source = "#1953: the mouse wheel moves the window of a tab with headings (Gameplay) as of one without, the chosen row brought into the window (the top row once the chosen one leaves it) and the window not pulled back to the chosen row's heading; a notch up moves it back one line"
-note = "Gameplay's first lines: [Game], difficulty, hardcore, reload-slows, UsePipBoy, sound-cover (#2688), an empty line, [V.A.T.S.] and its three rows, an empty line, [Camera] (the menu overhaul, owner 2026-11-15); the window is eleven lines (#2377, the heading links under the note)"
+note = "Gameplay's first lines: [Game], difficulty, difficulty-player-damage, difficulty-npc-damage, difficulty-kill-xp (the Custom level's rows), hardcore, reload-slows, UsePipBoy, sound-cover (#2688), npc-weapon-mods, sneak-bounding-box, an empty line, [V.A.T.S.] (the menu overhaul, owner 2026-11-15); the window is eleven lines (#2377, the heading links under the note)"
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:inspect,14:wheel-up,15:inspect" }
@@ -14222,10 +14486,10 @@ order = [[
   { re = 'pause menu: rows 2-12 of \d+ shown', label = "a notch of the wheel shows the next line" },
   { re = 'pause menu: rows 3-13 of \d+ shown' },
   { re = 'pause menu: rows 4-14 of \d+ shown', label = "three notches, three lines down" },
-  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected reload-slows, lines 4-14 of \d+', label = "the window stays moved, the chosen row its top row" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected difficulty-npc-damage, lines 4-14 of \d+', label = "the window stays moved, the chosen row its top row" },
   "pause menu: inspect: window 11 lines, 11 drawn",
   { re = 'pause menu: rows 3-13 of \d+ shown', label = "a notch up moves it back one line" },
-  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected reload-slows, lines 3-11 of \d+', label = "the chosen row still in the window ([Camera] on its last line left for the next window, with the empty line before it)" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected difficulty-npc-damage, lines 3-11 of \d+', label = "the chosen row still in the window ([V.A.T.S.] on its last line left for the next window, with the empty line before it)" },
   "pause menu: inspect: window 11 lines, 9 drawn",
 ]]
 forbid = [
@@ -14393,6 +14657,20 @@ expect = [
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
 
 [[scenario]]
+name = "settings-layout-portrait"
+source = "#3334: in a 9:16 window (540x960, a portrait display) the settings page is drawn smaller over the whole view until it is 1280 units wide (the 4:3 layout), so the list has room beside the rail instead of 0 width"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/interface.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics", NVF_PLAY_TEST_PAUSE_MENU = "13:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--size", "540x960"]
+run_seconds = 17
+expect = [
+  { re = 'pause menu: settings list [5-9]\d\d wide from \d+ in a view 1280 wide, band \d+-\d+', label = "a list 500 to 999 units wide in a view widened to 1280 units" },
+  { re = 'pause menu: inspect: Graphics, keys on the rows, selected \S+, lines 1-\d+ of \d+', label = "the Graphics rows listed" },
+]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
 name = "settings-launcher-menu"
 source = "owner 2026-11-16: the launcher's Settings page is the game's menu; the game writes its page (every tab, category and row with its label, note and kind) beside NVForever.ini once every row is registered, for the launcher (engine/nvf-play/src/settings_menu.rs)"
 areas = ["settings"]
@@ -14412,7 +14690,7 @@ forbid = [
 [[scenario]]
 name = "settings-note-budget"
 source = "#2377: every settings note within the budget (200 characters, no command-line switch) once every row is registered, and two lines at the page's width in a 16:9 view once the pause menu's fonts are loaded; the rows' labels and values laid out at that width, a row whose text had to be cut logged"
-note = "`cut to fit` is reported, not failed: a row cut there is drawn with \"...\" and logs `settings: text of `<key>` cut to fit: ...`"
+note = "`cut to fit` is reported, not failed: a row cut there is drawn with \"...\" and logs `settings: text of `<key>` cut to fit: ...`. The two-line notes fit the default font again after 24 were shortened (#4612), so the marks of 2026-11-16 were dropped."
 areas = ["settings"]
 paths = ["engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/quality.rs", "lang/"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics" }
@@ -14420,12 +14698,12 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 15
 expect = [
   { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters\)', count = 1, label = "every registered note within 200 characters, no switch in it (at the start)" },
-  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters, two lines\)', count = 1, label = "and two lines at the page's 16:9 width (once the pause menu's fonts are loaded)" , known_failing = "2026-11-16: 49 of #1892's tweak notes run to three lines in the game's raster font, the menus' default (Menu Font Original); within two in the sharp font. Main draws the same notes in the same font" },
+  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters, two lines\)', count = 1, label = "and two lines at the page's 16:9 width (once the pause menu's fonts are loaded)" },
   { re = 'settings: \d+ rows laid out, \d+ cut to fit', count = 1, label = "the rows' labels and values laid out at that width" },
 ]
 forbid = [
   { re = 'settings: note of `\S+` over the budget: \d+ characters', label = "no note over the 200 characters" },
-  { re = 'settings: note of `\S+` over the budget: \d+ lines', label = "no note over two lines", known_failing = "2026-11-16: 49 of #1892's tweak notes run to three lines in the game's raster font, the menus' default (Menu Font Original); within two in the sharp font. Main draws the same notes in the same font" },
+  { re = 'settings: note of `\S+` over the budget: \d+ lines', label = "no note over two lines" },
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
 ]
 
@@ -14818,7 +15096,7 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 131 of 131 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
 
 [[scenario]]
@@ -14849,7 +15127,7 @@ env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 8 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2, Mouse Aim Sensitivity 0\.6, \[Controller\] Stick Aim Sensitivity 1\.5; input device Controller', label = "the stored Invert Y, the two sensitivities, the two vertical sensitivities (#2201) and the two aim sensitivities are taken at the start" },
+  { re = 'controls: 131 of 131 line\(s\) read from .*NVForever\.ini, 8 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2, Mouse Aim Sensitivity 0\.6, \[Controller\] Stick Aim Sensitivity 1\.5; input device Controller', label = "the stored Invert Y, the two sensitivities, the two vertical sensitivities (#2201) and the two aim sensitivities are taken at the start" },
 ]
 
 [[scenario]]
@@ -15051,6 +15329,23 @@ expect = [
   { re = 'crosshair: hidden down the true iron sights', label = "no crosshair down the sights" },
   { re = 'crosshair: shown again', label = "the crosshair is back after aiming" },
 ]
+
+[[scenario]]
+name = "no-crosshair-reloading-only-while-reloading"
+source = "issue #4611 (player report R-UTJBMC55): with the No Crosshair While Reloading tweak on, the crosshair and every activation prompt were hidden from the load on, unarmed: the reticle read `WeaponAnim::reload` (the weapon's reload clip, set for every weapon held) as reloading. Now it reads the weapon's cycle (`Combat::player_reloading`); No Hotkeys While Reloading read the same and now the same"
+note = "the tweak flipped on the settings page at 3.5 s; the 10mm pistol (0000434F) drawn at 16 s, two shots at 19 s, a reload at 21 s (no god mode: it never reloads): after the message boxes the scripts open about 5 to 13 s in, which take the inputs while they show (as in shoot-bottles)"
+areas = ["combat", "ui"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/weapon_wheel.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "3:5", NVF_PLAY_TEST_SETTINGS = "3.5:tweak-hide-crosshair-reloading", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "16:weapon,19:fire,19.4:fire,21:reload" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 28
+expect = [
+  { text = "settings: tweak-hide-crosshair-reloading on", label = "the tweak is switched on" },
+  { text = "crosshair: hidden while reloading", count = 1, label = "the reload hides the crosshair, once" },
+  { text = "crosshair: shown again", label = "it is back after the reload" },
+  { re = 'crosshair: hidden down the true iron sights', count = 0, label = "nothing else hides it: not the weapon held, not the load" },
+]
+order = [["settings: tweak-hide-crosshair-reloading on", "crosshair: hidden while reloading", "crosshair: shown again"]]
 
 [[scenario]]
 name = "aim-reload-lowers-sights"
@@ -15433,12 +15728,12 @@ expect = [
 
 [[scenario]]
 name = "slots"
-source = "docs/spec-notes/slots.md §7: a slot machine at The Tops (0x0016546A in TOPSCasino) activated with 200 Tops chips: its script's ShowSlotMachineMenuParams opens the menu (bets 1 to 75) with the help the first time; the payout list shown and hidden; a bet of 5 made to stop on three oranges pays 160 x 5, then a cherry on the left reel pays 2 x 5, then a losing line; screenshots of the help, the payout list, the reels turning and a result"
+source = "docs/spec-notes/slots.md §7: a slot machine at The Tops (TOPSCasino) activated with 200 Tops chips: its script's ShowSlotMachineMenuParams opens the menu (bets 1 to 75) with the help the first time; the payout list shown and hidden; a bet of 5 made to stop on three oranges pays 160 x 5, then a cherry on the left reel pays 2 x 5, then a losing line; screenshots of the help, the payout list, the reels turning and a result"
 areas = ["slots", "menus"]
 paths = ["crates/fnv-game/src/slots.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvf-play/src/lockpick/help.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,52:reels:1-2-3,52.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_help.png,38.5:slots_payouts.png,41:slots_spin.png,43.5:slots_result.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,42.5:payout,44:payout,44.5:reels:6-6-6,45:spin,51:reels:7-1-2,55.5:spin,63:reels:1-2-3,63.5:spin,70.5:exit", NVF_PLAY_TEST_SHOTS = "40.5:slots_help.png,43.5:slots_payouts.png,46:slots_spin.png,50.1:slots_result.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 61
+run_seconds = 73
 order = [[
   "slots: the player is given 200 chips",
   'slots: open The Tops (0x00144C3F): bets 1 to 75, 200 chips carried, earnings 0 of 10000, reel stops [2, 2, 2, 2, 2, 2, 2] (14 a reel), 7 symbol pictures, model terminals\NV_SlotMachine\NV_SlotMachine-Minigame.NIF; help message shown (first use)',
@@ -15454,6 +15749,147 @@ order = [[
 expect = [
   "slots summary: 1 asked, 1 opened (0 refused); 3 spins, 2 won, 800 chips won, 5 lost; 0 bans",
 ]
+
+[[scenario]]
+name = "slots-seated"
+source = "Slot machines, part A: The Tops' machine has its stool (TopsSlotMachineStool01L) 56 units out in front [observed: the load-order survey]; activated, the player sits on it by the stool's own getting-on clip, the menu opens once seated, each spin plays NVSlotMachineInsertCoin, a loss NVSlotMachineLoose, the jackpot (160 x) the cheer for 3 s on the upper body, and leaving gets the player up by the getting-off clip a moment later; third person for the screenshots"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:6-6-6,50.5:spin,59.5:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_seated_sitting_down.png,44.2:slots_seated_insert_coin.png,48.6:slots_seated_loss.png,55.6:slots_seated_cheer.png,60:slots_seated_end_00.png,61:slots_seated_end_01.png,62.5:slots_seated_end_02.png,63.7:slots_seated_end_03.png,64.5:slots_seated_end_04.png,65.5:slots_seated_getting_up_00.png,66.5:slots_seated_getting_up_01.png,67.5:slots_seated_getting_up_02.png,68.5:slots_seated_up_00.png,70:slots_seated_up_01.png,71.5:slots_seated_up_02.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 74
+order = [[
+  "slots seat: the player sits on stool 0011E62E at machine 0016546A",
+  "furniture: the player uses 0011E62E",
+  "furniture: the player is on 0011E62E",
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots: open The Tops (0x00144C3F)",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Bell BAR Seven: nothing",
+  "slots seat: the player plays Loose",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots seat: celebration 3.00s (160 x)",
+  "slots seat: the player plays Cheer",
+  "slots seat: celebration ended",
+  "slots: closed (the player left)",
+  "slots seat: the menu closed; the player stays on stool 0011E62E a moment",
+  "slots seat: the player gets up from stool 0011E62E",
+  "furniture: the player got off 0011E62E",
+  "slots seat: the player is up",
+]]
+expect = [
+  { re = 'slots seat: \S+specialidle_nvinsertcoin\.kf: [\d.]+s, \d+ upper-body tracks', label = "InsertCoin loads, upper body only" },
+  { re = 'slots seat: \S+specialidle_nvloose\.kf: [\d.]+s, \d+ upper-body tracks', label = "Loose loads" },
+]
+
+[[scenario]]
+name = "slots-standing"
+source = "Slot machines, part A: Gomorrah's machine (the cushion row) has no stool in front [observed: the load-order survey]; activated, the player stands 44 units out in front facing it, a spin plays InsertCoin on the upper body, a two-cherry win (5 x) a short cheer, and leaving lets the player go at once"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_standing_at.png,35.2:slots_standing_insert_coin.png,39.4:slots_standing_cheer.png,46:slots_standing_left.png" }
+args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
+run_seconds = 48
+order = [[
+  { re = 'slots seat: standing at machine 0015EB86 \(.*\), facing 270 deg \(no stool in front\)', label = "standing in front, facing the machine" },
+  "slots: open Gommorah (0x00140521)",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Cherry Cherry Bell: Two cherries pays 5 x 5 = 25 chips",
+  { re = 'slots seat: celebration 1\.3\ds \(5 x\)', label = "a short celebration for a small win" },
+  "slots seat: the player plays Cheer",
+  "slots seat: celebration ended",
+  "slots: closed (the player left)",
+  "slots seat: the player leaves the machine",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-standing-holster"
+source = "Slot machines, part A: at a standing machine (Gomorrah, no stool) the weapon is put away, as sitting does (`furniture::drive_player`): the 10mm pistol is equipped and drawn in third person before the machine is activated; the win's cheer then shows both hands empty. Screenshots: the gun drawn, the cheer"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "28:slots_holster_drawn.png,39.4:slots_holster_cheer.png" }
+args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
+run_seconds = 48
+order = [[
+  "slots seat: the weapon is put away at the machine",
+  { re = 'slots seat: standing at machine 0015EB86 \(.*\), facing 270 deg \(no stool in front\)', label = "standing in front, facing the machine" },
+  "slots: the reels stop on Cherry Cherry Bell: Two cherries pays 5 x 5 = 25 chips",
+  "slots seat: the player plays Cheer",
+  "slots: closed (the player left)",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-seated-holster"
+source = "Slot machines, part A: The Tops' machine with its stool, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Two losing spins, then Exit: a moment on the stool, then the getting-off clip [design]. Screenshots: the gun drawn, seated, after Exit, getting off, up again"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon,26:orbit=150:-10,31:release", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:2-3-4,50.5:spin,56:exit", NVF_PLAY_TEST_SHOTS = "29:slots_seated_holster_drawn.png,36.5:slots_seated_holster_seated.png,56.5:slots_seated_holster_end_00.png,57.5:slots_seated_holster_end_01.png,59:slots_seated_holster_end_02.png,60.2:slots_seated_holster_end_03.png,61:slots_seated_holster_end_04.png,62:slots_seated_holster_getting_up_00.png,63:slots_seated_holster_getting_up_01.png,64:slots_seated_holster_getting_up_02.png,65:slots_seated_holster_up_00.png,66.5:slots_seated_holster_up_01.png,68:slots_seated_holster_up_02.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 70
+order = [[
+  "slots seat: the player sits on stool 0011E62E at machine 0016546A",
+  "furniture: the player is on 0011E62E",
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots seat: the weapon is away (sitting put it away)",
+  "slots seat: the player plays Loose",
+  "slots seat: the player plays Loose",
+  "slots: closed (the player left)",
+  "slots seat: the menu closed; the player stays on stool 0011E62E a moment",
+  { re = 'slots seat: the player gets up from stool 0011E62E', label = "then off the stool" },
+  { re = 'furniture: the player got off 0011E62E', label = "the getting-off clip" },
+  { re = 'slots seat: the player is up', label = "up, the weapon still away" },
+]]
+expect = []
+
+[[scenario]]
+name = "slots-3d"
+source = "Slot machines, part B (engine/nvforever/src/slots_view.rs): the Tops slot machine activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera pans slowly in on the reels and stays there for the pull and the turn, out to third person only for a win, back in after; a pull while the win's sequence plays (48.1 s) is ignored and the next spin waits for it to end; the body out of the close camera's view; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+areas = ["slots", "menus"]
+paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs", "engine/nvf-play/src/slots.rs", "engine/nvf-play/src/slots/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,48.1:spin,50.3:spin,57.5:reels:1-2-3,58.5:spin,65.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_reels.png,38.5:slots3d_payouts.png,40.00:slots3d_clip_00.png,40.25:slots3d_clip_01.png,40.50:slots3d_clip_02.png,40.75:slots3d_clip_03.png,41.00:slots3d_clip_04.png,41.25:slots3d_clip_05.png,41.50:slots3d_clip_06.png,41.75:slots3d_clip_07.png,42.00:slots3d_clip_08.png,42.25:slots3d_clip_09.png,42.50:slots3d_clip_10.png,42.75:slots3d_clip_11.png,43.00:slots3d_clip_12.png,43.25:slots3d_clip_13.png,43.50:slots3d_clip_14.png,43.75:slots3d_clip_15.png,44.00:slots3d_clip_16.png,44.25:slots3d_clip_17.png,44.50:slots3d_clip_18.png,46.65:slots3d_cheer.png,47.85:slots3d_win_line.png,48.25:slots3d_blocked.png,49.05:slots3d_back_01.png,49.45:slots3d_back_02.png,50.05:slots3d_back_03.png,50.9:slots3d_pull2.png,54.93:slots3d_small_00.png,55.53:slots3d_small_win.png,56.13:slots3d_small_01.png,57.73:slots3d_small_03.png,59.5:slots3d_loss_00.png,62.5:slots3d_loss_01.png,63.1:slots3d_loss.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 69
+order = [[
+  "slots: the machine is 0016546A",
+  "slots view: the reel model has 28 faces (radius 7.",
+  "slots view: drums on 0016546A (its own reel nodes; radius 8.",
+  "slots: spin: bet 5, 195 chips left; the reels will stop on Orange Orange Orange",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots: the next spin waits 5.6s for the win's sequence",
+  "slots: spin ignored: the win's sequence has",
+  "slots: spins open again (the win's sequence is over)",
+  "slots: spin: bet 5, 990 chips left; the reels will stop on Cherry Bell BAR",
+  "slots: the reels stop on Cherry Bell BAR: One cherry pays 2 x 5 = 10 chips",
+  "slots: the reels stop on Bell BAR Seven: nothing",
+  "slots: closed (the player left)",
+  "slots view: drums on 0016546A taken away",
+]]
+expect = [
+  "arm found",
+  "faces as the reel model)",
+  "slots view summary: drums built on 1 machines",
+  "slots view: the player's body out of the camera's view",
+  "slots view: the player's body back in the camera's view",
+]
+
+[[scenario]]
+name = "slots-3d-static"
+source = "Slot machines, part B (engine/nvforever/src/slots_view.rs): an Atomic Wrangler slot machine of the static model Slot_Machine02.nif (vWranglerSlot02, has no reel nodes: the drums stand at the vanilla cabinet's reel places; a win of three bells and a loss; screenshots. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+areas = ["slots", "menus"]
+paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00119EC0", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x00119EC0", NVF_PLAY_TEST_SLOTS = "18:chips:200:144C42,36:help,37:bet:5,39.5:reels:1-1-1,40:spin,46:reels:2-3-4,49:spin,55.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_static_reels.png,41.2:slots3d_static_spin.png,44.95:slots3d_static_win.png,50.3:slots3d_static_spin2.png,54.1:slots3d_static_loss.png" }
+args = ["--cell", "FreesideAtomicWrangler", "--play", "--no-voice"]
+run_seconds = 59
+order = [[
+  "slots: the machine is 00119EC0",
+  "slots view: drums on 00119EC0 (the cabinet's reel places (static model)",
+  "slots: the reels stop on Bell Bell Bell: Three bells pays 10 x 5 = 50 chips",
+  "slots: the reels stop on BAR Seven Lemon: nothing",
+  "slots: closed (the player left)",
+]]
 
 [[scenario]]
 name = "blackjack"
@@ -16113,7 +16549,7 @@ run_seconds = 45
 order = [[
   { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Script\); the box says "Fast travel is currently unavailable from this location\."', label = "refused while a script blocks it (sNoFastTravelScriptBlock, FalloutNV.esm's text)" },
   'fast travel: answered "OK"',
-  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: asks "Travel to Primm?" (0x000CDF46)',
   'fast travel: answered "Yes"',
   { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference 0x00169225', label = "the destination is the marker's linked reference" },
   "pipboy: down",
@@ -16166,7 +16602,7 @@ order = [[
   { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Place\)', label = "refused: an interior" },
   'fast travel: answered "OK"',
   { text = "script: test aid calls GetPCCanFastTravel = Num(1.0)", label = "the inverted cell allows it" },
-  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: asks "Travel to Primm?" (0x000CDF46)',
   'fast travel: answered "No"',
 ]]
 
@@ -18194,7 +18630,7 @@ order = [["caravan: bet accepted: ante", "caravan: the player's ante", "caravan:
 name = "caravan"
 source = "docs/spec-notes/caravan.md: ShowCaravanMenu against Ringo with his deck (as his dialogue line) is refused with no cards; given his deck's 30 cards the bet opens with its help, Auto Match and Accept, the deck builder's random deck of 30, then the game plays out by itself (the player's side by the opponent's rules) to a winner, the pot settles and the results close"
 areas = ["caravan", "menus"]
-paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs"]
+paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs", "engine/nvforever/src/caravan_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "17:caravan_bet.png,22.5:caravan_deck.png,33:caravan_game.png" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 130
@@ -18218,8 +18654,47 @@ expect = [
   { re = 'caravan: help box on the bet screen .*, (-?\d+) left of the buttons', range = [20, 1000], label = "and left of the buttons with a gap (#1663)" },
   { re = 'caravan: opponent plays .* on its caravan', label = "the opponent lays numbered cards" },
   { re = 'caravan summary: 2 asked, 1 opened \(1 refused\); 1 games: [01] won, [01] lost', label = "the summary" },
+  { text = "caravan view: the table built", label = "the game is drawn on the 3D table" },
+  { text = "caravan view: the table put away", label = "the 3D table goes with the game" },
 ]
-forbid = [{ text = "move refused", label = "every move the sides choose is legal" }]
+forbid = [
+  { text = "move refused", label = "every move the sides choose is legal" },
+  { text = "caravan view: no card picture", label = "every card's picture is found" },
+]
+
+[[scenario]]
+name = "caravan-pot-drop"
+source = "[design]: the Caravan pot falls onto the table as real objects (engine/nvforever/src/caravan_pot.rs): the notes flutter down first, then the caps and coins drop onto them and heap up, none on its rim, nothing in the planks. As the caravan scenario (pot 108 against Ringo); the pot is laid when play starts (about 23 s) and comes to rest by itself"
+areas = ["caravan"]
+paths = ["engine/nvforever/src/caravan_pot.rs", "engine/nvforever/src/caravan_view.rs", "engine/nvf-play/src/caravan/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "23.6:caravan_pot_small_falling.png,31:caravan_pot_small_settled.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 34
+manual = "caravan_pot_small_*.png: the notes falling flat, then the pot at rest in heaps on its notes, clear of the cards and the screen's words, no cap on its rim"
+order = [[
+  { re = 'caravan view: the pot of 108 on the table as \d+ pieces, falling in', label = "the pot of 108 is laid and falls" },
+  { re = 'caravan view: the pot of 108 settled: ', label = "and comes to rest" },
+]]
+expect = [
+  { re = 'caravan view: the pot of 108 settled: \d+ pieces, \d+ caps and coins resting on others, \d+ pinned, at rest by itself: true, in the planks: 0', label = "at rest by itself, nothing in the planks" },
+]
+
+[[scenario]]
+name = "caravan-pot-drop-large"
+source = "as caravan-pot-drop with a pot of 10434 (Ringo given 5000 caps, the player 20000, the whole bet raised): many notes and Legion coins, the caps and coins heaped on others, every note whole on the screen (0cda73198)"
+areas = ["caravan"]
+paths = ["engine/nvforever/src/caravan_pot.rs", "engine/nvforever/src/caravan_view.rs", "engine/nvf-play/src/caravan/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:104C7D.additem 0000000F 5000;12.3:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:20000,15:cards:15D7A2,16:open:104C7D:15D7A2:1.0,18:help,19:match,20:accept,21:help,22:randomize,23:play,23.5:help", NVF_PLAY_TEST_SHOTS = "24:caravan_pot_large_falling.png,34:caravan_pot_large_settled.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 37
+manual = "caravan_pot_large_*.png: notes fluttering down flat, then heaps of caps and coins on the notes, every note whole on the screen"
+order = [[
+  { re = 'caravan view: the pot of 10434 on the table as \d+ pieces, falling in', label = "the pot of 10434 is laid and falls" },
+  { re = 'caravan view: the pot of 10434 settled: ', label = "and comes to rest" },
+]]
+expect = [
+  { re = 'caravan view: the pot of 10434 settled: \d+ pieces, (?P<n>\d+) caps and coins resting on others, \d+ pinned, at rest by itself: true, in the planks: 0', range = [3, 1000], label = "heaped (some resting on others), at rest by itself, nothing in the planks" },
+]
 
 [[scenario]]
 name = "f5-helios-rows-untouched"
@@ -21189,6 +21664,20 @@ expect = [
   { re = 'speech look: line \S+ over: GoodspringsSettler04Ref has the player [+-][0-5]° off its front', label = "she faces the player by the end of the line" },
   { re = 'ai summary.*GoodspringsSettler04Ref: GSSettler04SleepPackage22x8, (on its way|there)', label = "her package goes on after the lines" },
   { re = 'ai summary.*\b0 unreachable', label = "no walk left unreachable" },
+]
+
+[[scenario]]
+name = "goodbye-greeting-plays-out"
+source = "issue #4683: talking to an actor again while it says its Goodbye greeting at the player does nothing; the line plays to its end and no second line starts [player report: \"New phrase should trigger only after previous phrase has ended\"] (dialogue.md section 5, script.rs talk_after_except)"
+areas = ["dialogue"]
+paths = ["engine/nvf-play/src/script.rs"]
+note = "GoodspringsSettler04Ref says a Goodbye greeting (goodbye-greeting-stops-walker); the second talk 0.4 s after the first lands while she is still saying it"
+env = { NVF_PLAY_TEST_TALK = "20:GoodspringsSettler04Ref=;20.4:GoodspringsSettler04Ref=" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "GoodspringsSettler04Ref", "--hour", "21.9", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'dialogue: \S+ says its greeting \S+ at the player \(a Goodbye line: no conversation\)', count = 1, label = "one greeting said" },
+  { re = 'dialogue: the player talks to \S+, still saying its greeting: it says it to the end', count = 1, label = "the second talk lets the line play out" },
 ]
 
 [[scenario]]
@@ -26712,16 +27201,16 @@ order = [[
 expect = [
   { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden\s*$', label = "the messages, quest notices and subtitles are no longer kept hand-built" },
   "corner message: \"You are now Well Rested!\" for 10 s, icon default",
-  "tiles: QuestReminder banner Quest added: BACK IN THE SADDLE",
+  "tiles: QuestReminder banner New quest: BACK IN THE SADDLE",
   "tiles: QuestReminder 1 objectives: Talk to Sunny Smiles in the Prospector Saloon.",
   "tiles: QuestReminder 2 objectives: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.",
   { re = 'script: print "tiles notices 130 2 470 400"', label = "the copies at the original's observed paths: the text *:1 at x 130 depth 2, the bracket *:0 470 wide, the subtitle text at x 400" },
 ]
-manual = "tiles_hud_notices_banner.png: \"Quest added\" over BACK IN THE SADDLE at the left, \"You are now Well Rested!\" beside its icon and bracket at the top left, drawn once (no hand-built copy under them); tiles_hud_notices_objectives.png: the two objectives with a filled and an open square, the message still at the top left; compare with quest-messages' and corner-messages' frames"
+manual = "tiles_hud_notices_banner.png: \"New quest\" over BACK IN THE SADDLE at the left, \"You are now Well Rested!\" beside its icon and bracket at the top left, drawn once (no hand-built copy under them); tiles_hud_notices_objectives.png: the two objectives with a filled and an open square, the message still at the top left; compare with quest-messages' and corner-messages' frames"
 
 [[scenario]]
 name = "tiles-hud-discovered"
-source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): reputation-box's start with [UI] TileMenus=HUDMainMenu: leaving the start finds Goodsprings, and 'You have discovered' over GOODSPRINGS is drawn from QuestReminder's copies, at the place the owner's screenshot shows it (quest-messages.md); Region_Location gets the same banner's copies, hidden (drawn once) [hypothesis: hud.md §14 maps discoveries to Region_Location]"
+source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): reputation-box's start with [UI] TileMenus=HUDMainMenu: leaving the start finds Goodsprings, and 'Place found' over GOODSPRINGS is drawn from QuestReminder's copies, at the place the owner's screenshot shows it (quest-messages.md); Region_Location gets the same banner's copies, hidden (drawn once) [hypothesis: hud.md §14 maps discoveries to Region_Location]"
 note = "as reputation-box's start, without its reputation steps"
 areas = ["ui", "hud", "quest-messages"]
 paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/quest_messages.rs"]
@@ -26729,11 +27218,11 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--heading", "50", "--size", "1280x720"]
 run_seconds = 10
 expect = [
-  { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found (the hand-built queue)" },
-  { re = 'tiles: QuestReminder banner You have discovered: GOODSPRINGS', label = "the tile HUD draws the same line" },
-  { re = 'tiles: Region_Location banner You have discovered: GOODSPRINGS \(not drawn\)', label = "the tile HUD writes it under Region_Location too, not drawn there" },
+  { re = 'quest message on screen: Place found: GOODSPRINGS', label = "the start's town found (the hand-built queue)" },
+  { re = 'tiles: QuestReminder banner Place found: GOODSPRINGS', label = "the tile HUD draws the same line" },
+  { re = 'tiles: Region_Location banner Place found: GOODSPRINGS \(not drawn\)', label = "the tile HUD writes it under Region_Location too, not drawn there" },
 ]
-manual = "tiles_hud_discovered.png: \"You have discovered\" over GOODSPRINGS at the left, as on reputation-box's frame at 6 s, once"
+manual = "tiles_hud_discovered.png: \"Place found\" over GOODSPRINGS at the left, as on reputation-box's frame at 6 s, once"
 
 [[scenario]]
 name = "tiles-hud-subtitles"
@@ -27056,7 +27545,7 @@ expect = [
   { re = 'tiles: ContainerMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "the menu's tree draws, with its rows" },
   { text = "tile menu blur: ContainerMenu radius 3", min = 1, label = "the world blurs behind the menu drawn from its tiles" },
   { text = "tile menu blur: off", min = 1, label = "and clears when it closes" },
-  { re = 'tiles: ContainerMenu drawn from tiles: "ITEMS" \d+ rows, "[^"]+" \d+ rows, "Wg   \d+/\d+", player selected "10mm Round \(70\)", figures: .*WEIGHT', label = "the pointer's row: the model's rows, headings, weight and unit figures" },
+  { re = 'tiles: ContainerMenu drawn from tiles: "ITEMS" \d+ rows, "[^"]+" \d+ rows, "Weight   \d+/\d+", player selected "10mm Round \(70\)", figures: .*WEIGHT', label = "the pointer's row: the model's rows, headings, weight and unit figures" },
   { text = "tiles: ContainerMenu Hover(Player, 0) on its tiles", count = 1, label = "the pointer onto a row selects it, once; a resting pointer over changed rows does not" },
   { text = "tiles: ContainerMenu Hover(Container, 0) on its tiles", count = 1, label = "a row of the list without the focus takes the pointer" },
   { text = "tiles: ContainerMenu Select(Player, 0) on its tiles", count = 2, label = "a click on the selected row acts on it" },
@@ -27547,7 +28036,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 12
 expect = [
   { re = 'script: print "nvf ray down 1 1[0-9][0-9]"', label = "a cast straight down from 100 above the player meets the ground about 100 below its start" },
-  { re = 'script: print "nvf between 0 90"', label = "the way east: pitch 0, heading 90" },
+  { re = 'script: print "nvf between 0 -90"', label = "the way east: pitch 0, heading -90 [observed: w6_t1_01_angles_between_points]" },
 ]
 
 [[scenario]]
@@ -28013,13 +28502,14 @@ name = "hv-sandstorm-scroll"
 source = "#2450 (docs/spec-notes/activators.md §6.1): the Hidden Valley dust storm (HVSandStormNight, effects/nv/nvsandstormnight.nif) scrolls all 18 of its dust sheets: SpecialIdle's texture scroll names NVSandstorm01:0 only, the other 17 list the same NiTexturingProperty and move with it"
 note = "HVDustStorm forced at the owner's spot in Hidden Valley (-5,-2) at 22:00; the console enables the storm references 0x000E18D7 and 0x000E18D9 (initially disabled, enabled by VHiddenValleyDustStormQuestScript in a playthrough); a frame at 14 s in target/smoke"
 areas = ["activators", "effects"]
-paths = ["engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/material_anim.rs"]
+paths = ["engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-play/src/fade.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "4:000E18D7.enable;000E18D9.enable;4.3:close", NVF_PLAY_TEST_SHOTS = "14:hv_sandstorm.png" }
 args = ["--cell", "HiddenValley", "--pos=-17863,-4814,6498", "--heading", "200", "--play", "--hour", "22", "--weather", "HVDustStorm", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
   { re = 'nvsandstormnight[.]nif: shapes sharing a driven texturing property move their texture with it: NVSandstorm02:0, .*NVSandstorm18:0', label = "the storm's other 17 dust sheets scroll with NVSandstorm01:0" },
   { re = 'test aid: screenshot .*hv_sandstorm[.]png', label = "the frame is saved" },
+  { re = 'fade: 0x000E18D7 in done; [1-9]\d* meshes given their own material anew while it ran, drawn after it', label = "#3919: the storm fades in and its own scrolling material is drawn after the fade, not the one from before it was bound" },
 ]
 
 [[scenario]]
@@ -28415,6 +28905,7 @@ areas = ["ui", "menus", "scripts"]
 paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/tiles/input.rs", "crates/fnv-game/src/game.rs"]
 env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,20:shot,22:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+data_files = ["JustAssortedMods.esp"]
 run_seconds = 32
 expect = [
   "tiles: StartMenu/NOGLOW_BRANCH/main_container: the original's column traits written for MCM",
@@ -28432,6 +28923,7 @@ areas = ["ui", "menus", "scripts", "save"]
 paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-game/src/game.rs"]
 env = { NVFOREVER_HOME = "mcm-load-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "9:14", NVF_PLAY_TEST_PAUSE_MENU = "10:mods,13:back", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:save smoke-mcm;17:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+data_files = ["JustAssortedMods.esp"]
 run_seconds = 20
 expect = [
   { text = "tiles: MCM's window is open on the Mods page", label = "the Mods page ran JAM's MenuMode 1013 block in play, so its timer is at 1 when saved" },
@@ -28447,6 +28939,7 @@ areas = ["ui", "menus", "scripts", "save"]
 paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-game/src/game.rs"]
 env = { NVFOREVER_HOME = "mcm-load-home", NVF_PLAY_TEST_PAUSE = "10:24", NVF_PLAY_TEST_PAUSE_MENU = "11:mods,16:shot,18:back" }
 args = ["--play", "--load", "smoke-mcm", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+data_files = ["JustAssortedMods.esp"]
 run_seconds = 26
 expect = [
   { re = 'load: restored .*smoke-mcm\.nvfsave', label = "the save is loaded" },
@@ -28479,6 +28972,7 @@ areas = ["ui", "menus", "scripts", "save"]
 paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/script.rs", "crates/fnv-game/src/game.rs"]
 env = { NVFOREVER_HOME = "mcm-added-home", NVF_PLAY_TEST_PAUSE = "10:24", NVF_PLAY_TEST_PAUSE_MENU = "11:mods,16:shot,18:back", NVF_PLAY_TEST_CONSOLE = "8:PrintC \"nvf mcm running %g\" (GetQuestRunning MCM);8.5:close" }
 args = ["--play", "--load", "smoke-no-mcm", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+data_files = ["JustAssortedMods.esp"]
 run_seconds = 26
 expect = [
   { re = 'load: restored .*smoke-no-mcm\.nvfsave', label = "the save from before MCM is loaded" },
@@ -28496,6 +28990,7 @@ areas = ["ui", "menus", "scripts"]
 paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/xml.rs", "crates/fnv-ui/src/input.rs", "crates/fnv-game/src/ui_functions.rs"]
 env = { NVF_PLAY_TEST_MOD_LOG = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:30", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,25.5:shot,27:back", NVF_PLAY_TEST_POINTER = "19:338:188,19.5:338:188:click,21:600:190,21.5:600:190:click,23:600:190:click,24.5:900:900" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+data_files = ["JustAssortedMods.esp"]
 run_seconds = 32
 expect = [
   { text = "tiles: clicked StartMenu/MCM/MCM_ModList/Mod1", label = "the pointer clicks Just Mods' line" },
@@ -28519,6 +29014,7 @@ areas = ["scripts", "nvse", "input"]
 paths = ["crates/fnv-game/src/jip_events.rs"]
 env = { NVFOREVER_HOME = "jam-sprint-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set JVSEnabled to 0;4.2:set JVS.iSettingUpdate to 1;4.4:close;12.5:PrintC \"nvf jvs sprint %g enabled %g\" JVS.iSprint JVSEnabled;12.7:close;17:PrintC \"nvf jvs sprint %g enabled %g\" JVS.iSprint JVSEnabled;17.2:close", NVF_PLAY_TEST_KEYS = "10:w:9,11:shift:3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+data_files = ["JustAssortedMods.esp"]
 run_seconds = 20
 expect = [
   { text = "nvf jvs sprint 0 enabled 0", min = 2, label = "with the sprint turned off, Shift starts none (12.5 s) and none is left on (17 s)" },
@@ -28533,6 +29029,7 @@ areas = ["scripts", "nvse", "input"]
 paths = ["crates/fnv-game/src/jip_events.rs"]
 env = { NVFOREVER_HOME = "jam-sprint-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12.5:PrintC \"nvf jvs sprint %g enabled %g\" JVS.iSprint JVSEnabled;12.7:close;17:PrintC \"nvf jvs sprint %g enabled %g\" JVS.iSprint JVSEnabled;17.2:close", NVF_PLAY_TEST_KEYS = "10:w:9,11:shift:3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+data_files = ["JustAssortedMods.esp"]
 run_seconds = 20
 expect = [
   { text = "nvf jvs sprint 1 enabled 1", label = "Shift held while running starts the sprint" },
@@ -32014,17 +32511,17 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-items-hints-home
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
 run_seconds = 26
 expect = [
-  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Mod X\)$', label = "Weapons: Repair, then Mod, nothing else" },
+  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Modify X\)$', label = "Weapons: Repair, then Mod, nothing else" },
   { re = 'pipboy hints: items Apparel: (Repair|Maintain) R\)( \(dim\))?$', label = "Apparel: the repair hint alone" },
   { re = 'pipboy hints: items Aid: Repair R\) \(dim\)$', label = "Aid: Repair alone, dim" },
   { re = 'pipboy hints: items Misc: Repair R\) \(dim\)$', label = "Misc: Repair alone, dim" },
   { re = 'pipboy hints: items Ammo: Repair R\) \(dim\)$', label = "Ammo: Repair alone, dim" },
   { re = 'pipboy hints: items \w+: .*(Enter\)|Right Mouse\)|1-8\))', max = 0, label = "no equip, drop or hotkey hint with the keyboard" },
-  { text = "pipboy hints: mod menu: Mod Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
-  { re = 'pipboy hints: mod menu: Mod Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
-  { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "the pistol's own Mod X) line, bright" },
+  { text = "pipboy hints: mod menu: Modify Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Modify Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Modify X\)(?! \(dim)', label = "the pistol's own Modify X) line, bright" },
 ]
-order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod Enter) (dim), Exit E)"]]
+order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify Enter) (dim), Exit E)"]]
 
 [[scenario]]
 name = "pipboy-items-hints-pad"
@@ -32038,16 +32535,16 @@ run_seconds = 26
 expect = [
   { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller" },
   { text = "hints: Xbox labels", label = "the hints take the Xbox names before the Pip-Boy opens" },
-  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\), Mod LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
+  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\), Modify LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
   { re = 'pipboy hints: items Apparel: (Equip|Unequip) A\)( \(dim\))?, Drop X\)( \(dim\))?, (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\)$', label = "Apparel: the set without Mod" },
   { re = 'pipboy hints: items Aid: Use A\), Drop X\), Repair Y\) \(dim\), Hotkey RB\)$', label = "Aid: Use; Repair dim" },
   { re = 'pipboy hints: items Misc: Equip A\) \(dim\), Drop X\)( \(dim\))?, Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
   { re = 'pipboy hints: items Ammo: Equip A\) \(dim\), Drop X\), Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
-  { text = "pipboy hints: mod menu: Mod A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
-  { re = 'pipboy hints: mod menu: Mod A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
-  { re = 'pipboy items: 10mm Pistol Mod LB\)(?! \(dim)', label = "the pistol's own Mod LB) line, bright" },
+  { text = "pipboy hints: mod menu: Modify A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Modify A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Modify LB\)(?! \(dim)', label = "the pistol's own Modify LB) line, bright" },
 ]
-order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod A) (dim), Exit B)"]]
+order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify A) (dim), Exit B)"]]
 
 [[scenario]]
 name = "pipboy-data-hints"
@@ -32231,14 +32728,14 @@ expect = [
   { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
   { re = 'pipboy data: question box over the tiles \(3 answers\)', min = 1, label = "the question with a marker placed, over the tiles" },
   { text = "pipboy map: custom marker removed", count = 1, label = "the second answer removes it" },
-  { re = 'fast travel: asks "Do you want to travel to Primm\?" \(0x000CDF46\)', count = 1, label = "fast travel asks" },
+  { re = 'fast travel: asks "Travel to Primm\?" \(0x000CDF46\)', count = 1, label = "fast travel asks" },
   { text = 'fast travel: answered "No"', count = 1, label = "and is cancelled" },
   { re = 'fast travel: to Primm .*arrive', count = 0, label = "no travel" },
   { text = "MapMenu drawn by hand", count = 0, label = "no fallback was warned of (one shorter than three passes is not: the frame count below shows those)" },
   { re = 'tiles: MapMenu world map frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared, \d+ by hand as the Pip-Boy came up or went down', count = 1, label = "with the Pip-Boy up no frame of the visit to the World Map was drawn by hand, the question boxes up or not: none after a failed pass, none with nothing prepared (frames as it rises or lowers are counted apart)" },
   { re = 'tiles: MapMenu Button\(.\) on its tiles', count = 0, label = "no tile of the page acted (the boxes were answered by keys here)" },
 ]
-order = [["tiles: MapMenu draws world map from tiles", { re = 'pipboy data: question box over the tiles \(2 answers\)' }, "pipboy map: custom marker placed at", { re = 'pipboy data: question box over the tiles \(3 answers\)' }, "pipboy map: custom marker removed", { re = 'fast travel: asks "Do you want to travel to Primm' }, 'fast travel: answered "No"', { re = 'tiles: MapMenu world map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
+order = [["tiles: MapMenu draws world map from tiles", { re = 'pipboy data: question box over the tiles \(2 answers\)' }, "pipboy map: custom marker placed at", { re = 'pipboy data: question box over the tiles \(3 answers\)' }, "pipboy map: custom marker removed", { re = 'fast travel: asks "Travel to Primm' }, 'fast travel: answered "No"', { re = 'tiles: MapMenu world map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
 
 [[scenario]]
 name = "tiles-data-world-pointer"
@@ -33415,7 +33912,7 @@ expect = [
 order = [[
   { text = "pause menu: open", label = "the pause menu is open" },
   { text = "full screen key: Alt+Enter: full screen on", label = "the first Alt+Enter turns full screen on" },
-  { re = 'window: borderless full screen$', label = "the window goes full screen" },
+  { re = 'window: borderless full screen, \d+x\d+$', label = "the window goes full screen, at the display's surface size" },
   { text = "full screen key: Alt+Enter: full screen off", label = "the second turns it off" },
   { re = 'window: windowed, 1280x800', label = "and the window is a window of its own size again" },
   { text = "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)", label = "the pause menu's test aid resumes it" },
@@ -33734,20 +34231,20 @@ run_seconds = 30
 expect = [
   { text = "test aid: real input Stick(Right) pressed", count = 3, label = "three left-stick pushes right" },
   { text = "test aid: real input Pad(DPadRight) pressed", count = 1, label = "one D-pad right press" },
-  { re = 'vigor tester: Strength \d+, \d+ points remaining \(key\)', count = 4, label = "four Strength changes: the held push is one step" },
+  { re = 'vigor tester: Strength \d+, \d+ points remaining \(key\)', count = 4, label = "four Strength changes: the held push is one step", known_failing = "#3640: the menu key repeat of #1892 repeats a held sideways push, so the held second steps Strength 7 to 10; #3641 makes it one step again" },
 ]
 order = [[
   { re = 'vigor tester: page Strength \(sequence \w+, key\)', label = "RT turns to Strength" },
   { text = "vigor tester: Strength 6, 4 points remaining (key)", label = "the stick right raises Strength" },
   { text = "vigor tester: Strength 7, 3 points remaining (key)", label = "a held push raises it once" },
-  { text = "vigor tester: Strength 6, 4 points remaining (key)", label = "the stick left lowers it" },
+  { text = "vigor tester: Strength 6, 4 points remaining (key)", label = "the stick left lowers it", known_failing = "#3640: the held sideways push repeats (see the count above); #3641 makes it one step again" },
   { text = "vigor tester: Strength 7, 3 points remaining (key)", label = "the D-pad right raises it on the attribute page" },
   { re = 'vigor tester: page Review', label = "the review page" },
   { re = 'vigor tester: row \w+ chosen \(key\)', label = "the stick down chooses a row" },
   { re = 'vigor tester: \w+ \d+, 2 points remaining \(key\)', label = "the stick right raises the chosen row" },
 ]]
 forbid = [
-  { text = "vigor tester: Strength 8", label = "a held push repeating" },
+  { text = "vigor tester: Strength 8", label = "a held push repeating", known_failing = "#3640: the held sideways push repeats (see the count above); #3641 makes it one step again" },
 ]
 
 [[scenario]]
@@ -35450,7 +35947,7 @@ name = "load-phases-goodsprings"
 source = "#2407: players' Goodsprings door and save loads took 20-37 s; a loading screen now logs, and a slow load reports, when each thing it waited for came in, its longest frame and what the game files gave under it (nvf_play::loading::LoadPhases, fnv_vfs::read_stats). Out of Doc Mitchell's house into Goodsprings, the heaviest door of a new game"
 note = "2026-11-15 on the bench (i9-14900K, RTX 4070, SATA SSD, files in the OS cache): the start 2.4 s, the door 2.5 s with 2,106 files (248 MB) read. The cap is the reports' slow-load limit (reports/anomaly.rs SLOW_LOAD_MS), far above it"
 areas = ["loading", "streaming"]
-paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs"]
+paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs", "engine/vendor/bevy_render/src/render_resource/pipeline_cache.rs"]
 env = { NVFOREVER_HOME = "load-phases-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 20
@@ -35461,6 +35958,7 @@ order = [[
 ]]
 expect = [
   { re = 'loading screen down after (?P<n>[\d.]+) s$', range = [0, 20], all = true, label = "the door's load stays under the 20 s slow-load limit" },
+  { re = 'loading screen phases: up .*; (?P<n>\d+) pipelines compiled: [\d.]+ s queued for a thread, [\d.]+ s for the shader cache, [\d.]+ s composing, [\d.]+ s making modules, [\d.]+ s creating', range = [1, 100000], label = "the start's screen says where its pipelines' time went (#2407)" },
 ]
 
 [[scenario]]
@@ -36248,7 +36746,7 @@ expect = [
   { re = 'terrain: first folded material with authored height maps: [1-6] of [1-6] layers', count = 1, label = "the folded materials took the generated height maps" },
   { re = 'pipeline \d+ shader-defs: .*TERRAIN_PARALLAX', label = "a folded main-pass pipeline with the march was asked for" },
   { re = 'test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: 2 sequences of three shots: 9 s \(flip, grazing\), 40 s \(flip, head-on\)', count = 1 },
-  { re = 'terrain parallax ab: spot \(-?\d+, -?\d+, -?\d+\) for the readback, cell \(-?\d+, -?\d+\) quadrant \d: [1-6] folded layers \([1-6] with height maps\), \d+ drawn over them; shifted share (0\.9\d|1\.00)', count = 1, label = "a spot where the march moves almost all of what shows was found near the start" },
+  { re = 'terrain parallax ab: spot \(-?\d+, -?\d+, -?\d+\) for the readback, cell \(-?\d+, -?\d+\) quadrant \d: [1-6] folded layers \([1-6] with height maps, the base too\), \d+ drawn over them; shifted share (0\.9\d|1\.00)', count = 1, label = "a spot where the march moves almost all of what shows was found near the start" },
   { re = 'terrain parallax ab at 9 s: under the centre: the landscape at .* shifted share (0\.[5-9]\d|1\.00)', count = 1, label = "grazing: the view's centre is on ground the march moves" },
   { re = 'terrain parallax ab at 40 s: under the centre: the landscape at .* shifted share (0\.[5-9]\d|1\.00)', count = 1, label = "head-on: likewise" },
   { re = 'terrain parallax ab at 9 s \(flip\): A-B \d+\.\d+, A-C \d+\.\d+, B-C \d+\.\d+ levels over \d+x\d+ px at the centre; B = A moved by \([+-]\d+, [+-]\d+\) px .*; changed$', count = 1, label = "grazing (about 20 degrees): the switch makes a real, stable change that decorrelates the texture at the centre (changed; a fitted translation is logged but not accepted on its own); the direction is not claimed: relief warps the texture" },
@@ -36323,6 +36821,174 @@ forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error" },
 ]
 note = "The same start, spot search and poses as terrain-parallax-ground-pack (round 2, 2026-11-22), not yet checked by a run. The shots are saved as terrain-parallax-ground-pack-off-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png."
+[[scenario]]
+name = "light-shafts-msaa"
+source = "[design] docs/design/graphics-enhanced.md §3.7 (engine/nvforever/src/shafts.wesl `sky_depth_at`): with --graphics-only light-shafts and 4x multisampling (FSR off, so the INI's upscaler does not turn it off) at Goodsprings in the late afternoon, the shafts' pipelines (the source pass reading every sample of the multisampled depth) are made and used without a pipeline or validation error. Whether a silhouette's edge against the sun still leaks into the shafts is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/shafts.wesl", "engine/nvforever/src/shafts.rs"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "17", "--fsr", "off", "--msaa", "4", "--graphics-only", "light-shafts"]
+run_seconds = 20
+expect = [
+  { re = 'graphics: .*sun shafts', label = "the graphics line names the sun shafts" },
+  { re = 'pipeline \d+ ready after \d+ ms: downsample depth multisample', label = "the view is multisampled" },
+  { re = 'pipeline \d+ ready after \d+ ms: shafts_pipeline', count = 4, label = "the shafts' source and composite were made for the start's view and again for the multisampled one (the MULTISAMPLED source)" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the shafts' source shader does not compile)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+
+[[scenario]]
+name = "terrain-layer-alpha"
+source = "[observed by jojokengly, #3486; #3789] docs/spec-notes/world.md \"Landscape layers: the diffuse's alpha\", engine/nvforever/src/terrain.wesl: every landscape diffuse replaced by one flat colour with a checkerboard alpha (the test aid NVF_PLAY_TEST_PBR_GROUND_PACK=alpha, engine/nvf-assets/src/pbr_field/ground.rs), the ground where the layers lie over each other shows no board: the readback (NVF_PLAY_TEST_TERRAIN_PARALLAX_AB, its contrast at the spot it finds) stays the shading's and the painted edges' own. Measured at that spot: 12.6, and 32.4 with a blend by the alpha (the shaders before #3789 on the same pack)"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_weights.wesl",
+  "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha", NVFOREVER_HOME = "terrain-layer-alpha-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-layer-alpha-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:hold:grazing" }
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation"]
+run_seconds = 35
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha', count = 1, label = "the generated diffuses are in (terrain-layer-alpha)" },
+  { re = 'terrain parallax ab at 9 s \(hold\): .*contrast 1?\d\.\d/', count = 1, label = "contrast under 20: 12.6 measured, 32.4 with the alpha in the blend" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "no spot found, or a shot that could not be measured (terrain-layer-alpha)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-layer-alpha)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-layer-alpha)" },
+]
+manual = "Open terrain-layer-alpha-shots/terrain_parallax_ab_9s_a.png: no checkerboard on the ground."
+
+[[scenario]]
+name = "terrain-layer-alpha-parallax"
+source = "[observed by jojokengly, #3486; #3789] docs/spec-notes/world.md \"Landscape layers: the diffuse's alpha\", engine/nvforever/src/terrain.wesl: as terrain-layer-alpha with Terrain parallax and Terrain height blending on, whose weights (parallax_w) are the march's and the drawn blend's. Measured: 19.3, and 48.9 with a blend by the alpha"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_weights.wesl",
+  "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha", NVFOREVER_HOME = "terrain-layer-alpha-parallax-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-layer-alpha-parallax-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:hold:grazing" }
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation,terrain-parallax,terrain-height-blend"]
+run_seconds = 35
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha', count = 1, label = "the generated diffuses are in (terrain-layer-alpha-parallax)" },
+  { re = 'terrain parallax ab at 9 s \(hold\): .*contrast [12]?\d\.\d/', count = 1, label = "contrast under 30: 19.3 measured, 48.9 with the alpha in the weights" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "no spot found, or a shot that could not be measured (terrain-layer-alpha-parallax)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-layer-alpha-parallax)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-layer-alpha-parallax)" },
+]
+manual = "Open terrain-layer-alpha-parallax-shots/terrain_parallax_ab_9s_a.png: no checkerboard on the ground (the height blend's edges are sharp)."
+
+[[scenario]]
+name = "terrain-layer-alpha-separate"
+source = "[observed by jojokengly, #3486; #3789] docs/spec-notes/world.md \"Landscape layers: the diffuse's alpha\", engine/nvf-assets/src/nif_material.wesl TERRAIN_LAYER: as terrain-layer-alpha with every layer drawn on its own (NVF_PLAY_TEST_TERRAIN_LAYERS=blended, as on a GPU without bindless textures), at that scenario's spot and pose. Measured: 12.6, and 32.6 with the shaders before #3789 on the same pack"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl",
+  "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha", NVF_PLAY_TEST_TERRAIN_LAYERS = "blended", NVFOREVER_HOME = "terrain-layer-alpha-separate-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-layer-alpha-separate-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "6:0:-20.7", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "12:hold:view" }
+args = ["--pos=-71552,2892,8454", "--heading", "0", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation"]
+run_seconds = 30
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha', count = 1, label = "the generated diffuses are in (terrain-layer-alpha-separate)" },
+  { re = 'terrain parallax ab at 12 s: under the centre: the landscape .*no folded material', label = "every layer is drawn on its own" },
+  { re = 'terrain parallax ab at 12 s \(hold\): .*contrast 1?\d\.\d/', count = 1, label = "contrast under 20: 12.6 measured, 32.6 with the alpha in the layers' blending" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "a shot that could not be measured (terrain-layer-alpha-separate)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-layer-alpha-separate)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-layer-alpha-separate)" },
+]
+manual = "Open terrain-layer-alpha-separate-shots/terrain_parallax_ab_12s_a.png: no checkerboard on the ground."
+
+[[scenario]]
+name = "terrain-layer-alpha-separate-anti-tiling"
+source = "[observed by jojokengly, #3486; #3789] docs/spec-notes/world.md \"Landscape layers: the diffuse's alpha\", engine/nvf-assets/src/terrain_pbr.wesl terrain_pbr_standard: as terrain-layer-alpha-separate with Terrain anti-tiling on. Measured: 12.6, and 29.8 with the shaders before #3789 on the same pack"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/terrain_pbr.wesl",
+  "engine/nvf-assets/src/terrain_sampling.wesl", "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha", NVF_PLAY_TEST_TERRAIN_LAYERS = "blended", NVFOREVER_HOME = "terrain-layer-alpha-separate-anti-tiling-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-layer-alpha-separate-anti-tiling-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "6:0:-20.7", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "12:hold:view" }
+args = ["--pos=-71552,2892,8454", "--heading", "0", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,no-eye-adaptation,terrain-anti-tiling"]
+run_seconds = 30
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha', count = 1, label = "the generated diffuses are in (terrain-layer-alpha-separate-anti-tiling)" },
+  { re = 'terrain parallax ab at 12 s \(hold\): .*contrast 1?\d\.\d/', count = 1, label = "contrast under 20: 12.6 measured, 29.8 with the alpha in the anti-tiled layers' blending" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "a shot that could not be measured (terrain-layer-alpha-separate-anti-tiling)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-layer-alpha-separate-anti-tiling)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-layer-alpha-separate-anti-tiling)" },
+]
+manual = "Open terrain-layer-alpha-separate-anti-tiling-shots/terrain_parallax_ab_12s_a.png: no checkerboard on the ground."
+
+[[scenario]]
+name = "terrain-alpha-height"
+source = "[design, #3486] engine/nvforever/src/terrain.rs \"Heights from a diffuse's alpha\", docs/spec-notes/pbr-materials.md \"Heights from a ground pack's diffuse alpha\": over generated DXT5 diffuses with a height map in the alpha and no authored sets (the test aid NVF_PLAY_TEST_PBR_GROUND_PACK=alpha-height) Terrain parallax takes the layers' heights from the alphas and the ground at the aid's spot changes with the switch, as with authored heights; switched off the heights are let go and the picture is the first one again"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_parallax_ab.rs",
+  "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/pbr_field/ground.rs", "engine/nvf-assets/src/pbr_field/ground/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "alpha-height", NVFOREVER_HOME = "terrain-alpha-height-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-alpha-height-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:grazing" }
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,terrain-parallax,no-eye-adaptation"]
+run_seconds = 40
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: no sets; a diffuse for each landscape texture with the height map in its alpha', count = 1, label = "the generated alpha-height diffuses are in" },
+  { re = 'terrain: first folded material with heights from diffuse alphas: [0-6] of [0-6] layers( and the base)? \(depth 0\.03\)', count = 1, label = "a folded material took the alphas (the first made may be of a base alone)" },
+  { re = 'terrain parallax ab at 9 s: under the centre: the landscape at .* [1-6] folded layers \([1-6] with height maps, the base too\).* shifted share (0\.[5-9]\d|1\.00)', label = "with the switch on the view's centre is on ground the march moves (alpha heights)" },
+  { re = 'terrain parallax ab at 9 s \(flip\): .*; changed$', count = 1, label = "the switch changes the ground over alpha heights and off again is as before" },
+]
+order = [[
+  { re = 'terrain: heights from diffuse alphas off: [1-9]\d* folded quadrant materials changed', label = "switched off, the materials let go of the alpha heights" },
+  { re = 'terrain: heights from diffuse alphas on: [1-9]\d* folded quadrant materials changed, [1-9]\d* textures', label = "switched on again, they ask for them" },
+]]
+forbid = [
+  { text = "terrain: first folded material with authored height maps", label = "there is no authored set in this run" },
+  { re = 'terrain parallax ab.*FAIL', label = "no spot found, or a shot that could not be measured (terrain-alpha-height)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-alpha-height)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the alpha heights" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-alpha-height)" },
+]
+manual = "Open terrain-alpha-height-shots/terrain_parallax_ab_9s_a.png and _b.png: the ridge grid in relief in b only."
+
+[[scenario]]
+name = "terrain-base-height"
+source = "[design, #3846] engine/nvforever/src/terrain.rs \"Parallax\", docs/spec-notes/pbr-materials.md \"The base marches too\": over generated height sets (NVF_PLAY_TEST_PBR_GROUND_PACK=1) a quadrant without painted layers is drawn by the folded material and its base's height map moves with the Terrain parallax switch, at the aid's spot on such a quadrant (NVF_PLAY_TEST_TERRAIN_PARALLAX_AB, base); off again the picture is the first one"
+areas = ["renderer", "graphics", "terrain", "textures"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_parallax_ab.rs", "engine/nvforever/src/terrain_parallax_ab/",
+]
+env = { NVF_PLAY_TEST_PBR_GROUND_PACK = "1", NVFOREVER_HOME = "terrain-base-height-home", NVF_PLAY_TEST_SHOT_DIR = "terrain-base-height-shots", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERRAIN_PARALLAX_AB = "9:grazing:base" }
+args = ["--pos=-76000,-15400,12000", "--heading", "90", "--play", "--no-voice", "--no-messages", "--no-grass", "--hour", "12", "--size", "1280x720", "--graphics-only", "authored-materials,terrain-parallax,no-eye-adaptation"]
+run_seconds = 38
+timeout = 180
+expect = [
+  { re = 'pbr ground pack: [1-9]\d* height-only sets for the landscape textures', count = 1, label = "the generated ground sets are in (terrain-base-height)" },
+  { re = "terrain: first quadrant without painted layers drawn by the folded material", count = 1, label = "a quadrant of its base alone takes the folded material" },
+  { re = 'terrain parallax ab: spot .* 0 folded layers \(0 with height maps, the base too\), 0 drawn over them; shifted share 1\.00', count = 1, label = "a spot on ground of a base alone, with a height map" },
+  { re = 'terrain parallax ab at 9 s: under the centre: the landscape at .* 0 folded layers \(0 with height maps, the base too\)', count = 1, label = "the view's centre is on that ground" },
+  { re = 'terrain parallax ab at 9 s \(flip\): .*; changed$', count = 1, label = "the switch moves the base's ground, and off again is as before" },
+]
+forbid = [
+  { re = 'terrain parallax ab.*FAIL', label = "no spot found, or a shot that could not be measured (terrain-base-height)" },
+  { text = "pbr ground pack: FAIL", label = "the ground pack was not written (terrain-base-height)" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the base's height" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (terrain-base-height)" },
+]
+manual = "Open terrain-base-height-shots/terrain_parallax_ab_9s_a.png and _b.png: the ridge grid in relief in b only."
 
 [[scenario]]
 name = "volumetric-light"
@@ -36552,20 +37218,28 @@ forbid = [
 
 [[scenario]]
 name = "volumetric-light-night"
-source = "[design, #3032 stage 3] docs/design/volumetric-medium.md (The near grid and the light in the air), engine/nvforever/src/medium_air.rs (gate, day_by_aim) and medium_air_light.rs (day from SkyState::sun_elevation_at(sun_light_hour())): the volumetric-light run at 01:00, where the Sun entity's light is the weather's night light from the opposite direction: the light is wanted, the gate closes with the night reason by the clock that aims the light, and the composite never draws, without a 'not drawn' reason or a shader, pipeline or rendering error"
+source = "[design, #3032 stage 3] docs/design/volumetric-medium.md (The near grid and the light in the air), engine/nvforever/src/medium_air.rs (gate, air_source) and medium_air_light.rs (the source from SkyState::sun_elevation_at(sun_light_hour()) and the climate's moon): the volumetric-light run at 01:00, where the Sun entity's light is the weather's night light from the moon's direction: the light is wanted, the gate opens by the moon, the pipelines compile, the terrain map and the cloud shadow are in use, and the grid pass and the composite draw, without a 'not drawn' reason or a shader, pipeline or rendering error. A climate without a moon (the gate closed) is a unit test's. The look is checked in pictures by hand"
 areas = ["renderer", "graphics", "weather"]
 paths = ["engine/nvforever/src/medium_air*", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/terrain_shadows.rs", "engine/nvforever/src/sun_visibility.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "crates/nvf-settings-layout/src/lib.rs", "engine/nvforever/src/shafts.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "1", "--weather", "NVWastelandClear", "--msaa", "4", "--sun-shadows", "--graphics-only", "terrain-shadows,cloud-shadows,volumetric-light"]
-run_seconds = 20
+run_seconds = 30
+note = "Made the moonlight's check on 2026-11-25 (before it the gate closed at night); run on 2026-11-25 (passed)."
 expect = [
   { text = "volumetric medium: light in the air wanted (the Volumetric light row)", label = "the row asks for the light" },
-  { text = "volumetric medium: light in the air off: night (the direct light is the night light)", label = "the gate closes at night with its reason (held 0.5 s before it is logged)" },
+  { re = 'volumetric medium: light in the air on: grid \d+x\d+x\d+ to \d+ units, lit by the moon, .*, moonlit share (0\.(0[1-9]|[1-9]\d)|1\.00), strength ', label = "the gate opens by the moon, with a share of its light" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_grid_pipeline', label = "the grid pass compiles" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_filter_pipeline', label = "the filter pass compiles" },
+  { re = 'pipeline \d+ ready after \d+ ms: medium_air_compose_pipeline', label = "the composite compiles" },
+  { text = "volumetric medium: light in the air: terrain map in use (", label = "the terrain map is produced for the moon's direction and valid for it" },
+  { text = "volumetric medium: light in the air: cloud shadow in use (", label = "the Cloud shadows image is published at night and read as K" },
+  { text = "volumetric medium: light in the air: grid pass drawn", label = "the grid pass drew by the moon" },
+  { text = "volumetric medium: light in the air: composite drawn (view none, multisampled depth yes)", label = "the moonlight was composed" },
 ]
 forbid = [
-  { text = "volumetric medium: light in the air: composite drawn", label = "the light composed at night (the gate must keep the composite off)" },
-  { text = "volumetric medium: light in the air: grid pass drawn", label = "the grid (and so the filter, which runs only after it) dispatched at night: medium_air_grid.rs grid_dispatched keeps both off while the gate is closed (the filter pass logs no line of its own)" },
-  { text = "volumetric medium: light in the air not drawn", label = "a reason the grid could not be drawn at night" },
+  { text = "volumetric medium: light in the air off: night", label = "the gate closed at night in a climate with a moon" },
+  { text = " units, lit by the sun, ", label = "the sun named as the source at 01:00" },
+  { text = "volumetric medium: light in the air not drawn", label = "a reason the light could not be drawn at night" },
   { text = "pipeline failed", label = "the grid or filter pipeline failed at night" },
   { re = 'pipeline \d+ failed after \d+ ms: medium_air_', label = "a pipeline of the light failed at night" },
   { re = '(?i)validation error|wgpu error', label = "a wgpu validation error with the light at night" },
@@ -36778,6 +37452,34 @@ forbid = [
 ]
 
 [[scenario]]
+name = "tonemap-preset-pick"
+source = "#4690 stage 1, docs/design/tonemapping-presets.md: a preset file in the home's Tonemapping folder is listed on the Graphics row Tonemapping preset; the run starts on Default (Bevy's default grading), and picking the file's preset on the page lays its values on the world camera at once. tonemap-preset-kept starts in the same home"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/tone_presets.rs", "crates/nvf-settings-layout/src/lib.rs", "engine/nvf-play/src/settings.rs"]
+note = "The home's INI may hold an earlier run's pick: Default is picked first (taken only when it is not chosen already), then the test preset, which is then always a change."
+env = { NVFOREVER_HOME = "tonemap-preset-home", NVF_PLAY_TEST_TONE_PRESET = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,12:tonemap-preset=Default,13:tonemap-preset=Smoke Dusk" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--no-voice", "--no-lodgen", "--no-messages"]
+run_seconds = 18
+expect = [
+  { text = "NVF_PLAY_TEST_TONE_PRESET: wrote", count = 1, label = "the test preset is written into the run's home" },
+  { re = 'tonemapping presets: 1 in .*Tonemapping', label = "the folder is read with the preset in it" },
+  { text = "tonemapping presets: Smoke Dusk (exposure +0.50 EV, contrast 1.10, highlights 0.30)", count = 1, label = "the pick lays the preset's values on the world camera" },
+]
+forbid = [{ re = 'tonemapping presets: .* left out: ', label = "a preset file refused" }, { text = "Caught rendering error", label = "a rendering (validation) error" }]
+
+[[scenario]]
+name = "tonemap-preset-kept"
+source = "#4690 stage 1, docs/design/tonemapping-presets.md: a start in tonemap-preset-pick's home reads the saved row and lays the picked preset on the world camera from the first frame"
+note = "runs after tonemap-preset-pick in the same home."
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/tone_presets.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "tonemap-preset-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--no-voice", "--no-lodgen", "--no-messages"]
+run_seconds = 14
+expect = [{ text = "tonemapping presets: Smoke Dusk (exposure +0.50 EV, contrast 1.10, highlights 0.30)", count = 1, label = "the saved pick is the active preset after a restart" }]
+forbid = [{ text = "tonemapping presets: Default", label = "the saved pick not read" }, { text = "Caught rendering error", label = "a rendering (validation) error" }]
+
+[[scenario]]
 name = "occlusion-culling-row-pick"
 source = "#3783, docs/settings-reference.md occlusion-culling: the Graphics row Occlusion culling is off by default and is read once at the start; turning it on in the page keeps this run as it was (off) and writes the next start's choice. occlusion-culling-row starts in the same home"
 areas = ["graphics", "ui"]
@@ -36820,3 +37522,44 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error in the clustering passes" },
 ]
+[[scenario]]
+name = "physical-lighting"
+source = "[design, #3827 part 5] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/lights.rs `physical_patched`, physical_ibl.rs, fog.rs, eye_adapt.rs): with --graphics-only physical-pbr at Goodsprings at noon, the run's switch is on, the physical light loop is installed and the sky's image-based light is made, without a pipeline or rendering error. Whether the look is right is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/physical_ibl.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/eye_adapt.rs"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "physical-pbr"]
+run_seconds = 20
+expect = [
+  { text = "physical PBR: on", count = 1, label = "the run's switch is on" },
+  { text = "lights: physical PBR linear lighting installed", label = "the physical light loop is in place" },
+  { text = "lights: physical PBR, the main view keeps Tony McMapface", count = 1, label = "the main view tonemaps with Tony McMapface, not the clip" },
+  { text = "fog: the game's fog curve installed", label = "the game's fog, not a fog of Physical lighting's own" },
+  { re = 'graphics: .*physical PBR lighting', label = "the graphics line names it" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (a physical patch that does not compile)" },
+  { text = "not as expected (Bevy changed?)", label = "a physical patch's anchors missing" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+note = "Written 2026-11-25 (the split of #3828); first run 2026-11-26 on vanilla data: PASS."
+[[scenario]]
+name = "physical-lighting-volumetric"
+source = "[design, agreed with the volumetric work 2026-11-26] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/sky.rs `physical_cloud_light`, volumetric_clouds.rs `compose_uniform`): started with --graphics-only physical-pbr,volumetric-clouds-high,volumetric-light at Goodsprings at 17:30, the volumetric rows run under Physical lighting: the graphics line names both, the light in the air is wanted, and nothing fails to compile"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/volumetric_clouds.rs", "engine/nvforever/src/volumetric_clouds.wesl", "engine/nvforever/src/sky.rs", "engine/nvforever/src/medium_air_demand.rs", "engine/nvf-assets/src/tone_input.wesl", "crates/nvf-settings-layout/src/lib.rs"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "17.5", "--graphics-only", "physical-pbr,volumetric-clouds-high,volumetric-light"]
+run_seconds = 20
+expect = [
+  { text = "physical PBR: on", count = 1, label = "the run's switch is on" },
+  { re = 'graphics: .*physical PBR lighting', label = "the graphics line names Physical lighting" },
+  { re = 'graphics: .*volumetric clouds', label = "the clouds run under Physical lighting" },
+  { re = 'graphics: .*volumetric light', label = "the light in the air runs under Physical lighting" },
+  { text = "volumetric medium: light in the air wanted (the Volumetric light row)", label = "the row asks for the light" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the clouds' composite with the shared tonemapper input)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."

@@ -680,15 +680,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // The climate for now, unlocked; the page's return is the climate [documented:
-        // "climate:ref"; hypothesis: the one set]. It holds while the player stays in
-        // the worldspace [decision: the page's "Bugs" note, the climate going back after
-        // about 7 seconds, is not followed].
+        // The climate for now, unlocked; does not return the climate set (`retSet != rCl2`,
+        // `setRet=0`) [observed: `w6d2_18_force_set_current_climate_and_isnight`]; returns 0
+        // [hypothesis]. It holds while the player stays in the worldspace [decision: the
+        // page's "Bugs" note, the climate going back after about 7 seconds, is not followed].
         "setcurrentclimate" => {
             let c = form(args, 0).filter(|&c| g.data.sig(g.unclone(c)) == Some(*b"CLMT"));
             g.other.jip12.forced_climate = None;
             g.other.jip12.set_climate = c.zip(g.player_world());
-            reff(c)
+            zero
         }
         // Degrees, 0 north, 90 east, -90 west, ±180 south [documented]; -1 radian in
         // degrees when no script set one [observed: jip12 wind]; the set angle read back
@@ -815,10 +815,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // original and gives -439019037 [observed: jip12 hash], no common 32-bit string
         // hash we tried (FNV-1/1a, djb2, sdbm, ×31, ×131, CRC-32, Adler-32) on the text as written, lower or upper case.
         "getstringhash" => zero,
-        // Created references (FF) only [documented]; the toggle's state, or the state
-        // without an argument.
+        // Created references (FF) only [documented]; returns the previous toggle state
+        // before applying any supplied argument [observed: `w6d2_23_world_state_internal_marker_and_light`].
         "togglepurgeonunload" => {
             let Some(r) = subject.filter(|r| r.is_dynamic()) else { return Some(Ok(zero)) };
+            let was = g.other.jip12.purge.contains(&r);
             if let Some(t) = num(args, 0) {
                 if t != 0.0 {
                     g.other.jip12.purge.insert(r);
@@ -826,16 +827,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     g.other.jip12.purge.remove(&r);
                 }
             }
-            yes(g.other.jip12.purge.contains(&r))
+            yes(was)
         }
-        // The form's marker state, changed when a toggle is given [documented]; the
+        // The form's marker state: 1-arg returns current state, 2-arg updates the state
+        // and returns 0 [documented; observed: `w6d2p4_53_micro_precision_bounds`]; the
         // engine draws the change for references placed from then on (`nvforever::world`).
         "setinternalmarker" => {
             let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
             if let Some(t) = num(args, 1) {
                 g.other.jip12.internal.insert(f, t != 0.0);
+                zero
+            } else {
+                yes(g.internal_marker(f))
             }
-            yes(g.internal_marker(f))
         }
         // ---- the barter menu ----
         "getbartergoldalt" => XVal::Num(g.other.jip12.barter.as_ref().map_or(0.0, |b| f64::from(b.merchant_caps))),

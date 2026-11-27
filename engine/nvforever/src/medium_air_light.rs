@@ -15,7 +15,8 @@
 //!   `brightness / U`, as sky.rs `update_sky` set them this frame (medium_air.rs module doc,
 //!   "What scaled_share's caller passes");
 //! - **the gate** (medium_air.rs `gate`): outdoors, above water, a sun light, a usable fog
-//!   blended in display values, day, a strength above 0, an effective share above 0. Day is
+//!   blended in display values, a source (the sun, or the moon where the climate has one, medium_air.rs
+//!   `air_source`), a strength above 0, an effective share above 0. Day is
 //!   the elevation that aimed the light above 0 (medium_air.rs `day_by_aim`): sky.rs
 //!   `update_sky` aims the `Sun` entity from `sun_direction(climate, sun_light_hour())`, and
 //!   `SkyState::sun_elevation_at(sun_light_hour())` is that direction's elevation (both public
@@ -44,7 +45,7 @@
 //! With the light not wanted nothing runs but the check of the demand, and nothing is logged.
 
 use crate::fly::FlyCam;
-use crate::medium_air::{self, AirGateInput, AirGrid, AirPhase, AirTune, GateLog, NormedPhase, ViewBounds};
+use crate::medium_air::{self, AirGateInput, AirGrid, AirPhase, AirSource, AirTune, GateLog, NormedPhase, ViewBounds};
 #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
 use crate::medium_air::TuneFollower;
 use crate::medium_air_demand::{AirDraws, AirOpen, AirStrengthSetting, AirWanted};
@@ -240,6 +241,10 @@ fn follow_light(
     let tune = followed_tune(state, row, now);
     #[cfg(not(any(test, debug_assertions, feature = "dev-aids")))]
     let tune = slider_tune(state, row);
+    // The sun, the moon or nothing, by the elevation that aimed the light (the module doc), and the
+    // constants the light is drawn with under it.
+    let source = sky.as_ref().map_or(AirSource::None, |sky| medium_air::air_source(sky.sun_elevation_at(sky.sun_light_hour()), sky.climate.has_moon()));
+    let tune = tune.lit_by(source);
     let aspect = match projection {
         Projection::Perspective(p) => p.aspect_ratio,
         _ => 16.0 / 9.0,
@@ -251,15 +256,13 @@ fn follow_light(
     let corner = medium_air::corner_ray_len(clip.x_axis.x, clip.y_axis.y);
     let sun = suns.iter().next();
     let s = light_share(sun, ambient.as_deref());
-    // Day by the elevation that aimed the light (the module doc).
-    let day = sky.as_ref().is_some_and(|sky| medium_air::day_by_aim(sky.sun_elevation_at(sky.sun_light_hour())));
     let input = AirGateInput {
         interior: sky.as_ref().is_none_or(|s| s.interior.is_some()),
         submerged: submerged.is_some_and(|s| s.0),
         sun: sun.is_some(),
         fog: cam.fog,
         display_blend: cam.display_blend,
-        day,
+        source,
         strength: tune.strength,
         share: medium_air::effective_share(s, tune.share),
     };
@@ -269,11 +272,11 @@ fn follow_light(
     let fog = cam.fog;
     let bounds_of = |phase: &NormedPhase| medium_air::on_bounds(&grid, phase, s, &tune, fog, corner);
     let tell = |phase: &NormedPhase, bounds: ViewBounds| {
-        info!("{}", medium_air::on_line_with(&grid, phase, s, &tune, &bounds));
+        info!("{}", medium_air::on_line_with(&grid, phase, s, &tune, source, &bounds));
         Some(Told { tune, bounds, looked: now })
     };
     match state.log.step(answer, now) {
-        Some(Ok(())) => {
+        Some(Ok(_)) => {
             let phase = solved(&mut state.phase, tune.phase());
             state.told = tell(&phase, bounds_of(&phase));
         }
@@ -370,7 +373,7 @@ mod tests {
 
     /// What is drawn for the light alone follows the gate as it settled: on with the gate, kept
     /// while a reason has not held its half second (and through one that comes and goes), gone
-    /// once it has (the strength at 0; the same for night, indoors, under water), back at once,
+    /// once it has (the strength at 0; the same for a night without a moon, indoors, under water), back at once,
     /// and gone when the light is not wanted.
     #[test]
     fn what_is_drawn_for_the_light_follows_the_settled_gate() {
@@ -445,13 +448,93 @@ mod tests {
         assert!(matches!(step(&mut app, 0.1)[..], [(_, true)]), "and made anew in the first open frame");
     }
 
+    /// By night the light is the moon's where the climate has one: the gate stays open and its draws stay
+    /// (the cores' too), with the moon's values; without a moon it closes. MoonlightNVSE.ini's factor is in the
+    /// light's illuminance, so the share takes it there, once, and from nowhere else.
+    #[test]
+    fn by_night_the_air_is_lit_by_the_moon() {
+        use crate::solid_cores::tests as cores;
+        let mut app = cores::app(Some(true));
+        app.insert_resource(AirDraws(false));
+        open_gate(&mut app);
+        let m = cores::add(&mut app, cores::tank());
+        let shape = cores::place(&mut app, &m);
+        app.world_mut().entity_mut(shape).insert(InheritedVisibility::VISIBLE);
+        let step = |app: &mut App| {
+            app.world_mut().resource_mut::<Time<Real>>().advance_by(std::time::Duration::from_secs_f32(0.7));
+            app.update();
+            let mut cams = app.world_mut().query::<&AirCamera>();
+            *cams.single(app.world()).expect("one camera")
+        };
+        let by_day = step(&mut app);
+        assert!(by_day.draws && by_day.share > 0.0);
+        let night = |app: &mut App, moons: u8| {
+            let mut sky = app.world_mut().resource_mut::<crate::sky::SkyState>();
+            sky.hour = 1.0;
+            sky.climate.moons = moons;
+        };
+        night(&mut app, 0x83);
+        for _ in 0..3 {
+            let moonlit = step(&mut app);
+            assert!(moonlit.draws && app.world().resource::<AirOpen>().0 && app.world().resource::<AirDraws>().0);
+            assert_eq!((moonlit.tune, moonlit.share), (AirTune { moon: medium_air::MoonTune::START, ..by_day.tune }.lit_by(AirSource::Moon), by_day.share));
+            assert_eq!(cores::cores(&mut app).len(), 1, "the cores stay");
+        }
+        // The ini's factor: not applied to the share here, but in the illuminance (sky.rs `aim_sun`).
+        app.world_mut().resource_mut::<crate::sky::SkyState>().moonlight = Some(crate::sky::MoonlightConfig { phase_brightness: true, phase_mults: [0.5; 5] });
+        assert_eq!(step(&mut app).share, by_day.share);
+        let mut lights = app.world_mut().query::<&mut DirectionalLight>();
+        lights.single_mut(app.world_mut()).expect("the sun").illuminance *= 1e-6;
+        let dim = step(&mut app).share;
+        assert!(dim > 0.0 && dim < by_day.share, "{dim} against {}", by_day.share);
+        // No moon: closed at once, the draws gone once the reason held.
+        night(&mut app, 0x03);
+        assert!(!step(&mut app).draws && !app.world().resource::<AirOpen>().0);
+        assert!(!step(&mut app).draws && !app.world().resource::<AirDraws>().0);
+        assert_eq!(cores::cores(&mut app).len(), 0);
+        night(&mut app, 0x40);
+        assert!(step(&mut app).draws, "back at once");
+    }
+
+    /// The share over the horizon, from the light as sky.rs aims it: 0 at the horizon itself, where the source
+    /// changes, next to nothing on both sides, and no step in a sweep of a hundredth of a degree; black and
+    /// broken colours give 0.
+    #[test]
+    fn the_share_is_nothing_at_the_horizon_on_both_sides() {
+        let mut world = World::new();
+        world.spawn((DirectionalLight::default(), Transform::IDENTITY));
+        let mut lights = world.query::<(&mut DirectionalLight, &mut Transform)>();
+        let unit = crate::sky::light_unit();
+        let ambient = GlobalAmbientLight { color: Color::linear_rgb(0.6, 0.6, 0.6), brightness: 0.9 * unit, ..default() };
+        let mut share = |degrees: f32| {
+            let e = degrees.to_radians();
+            let (mut light, mut t) = lights.single_mut(&mut world).expect("the light");
+            crate::sky::aim_sun(&mut light, &mut t, Vec3::new(e.cos(), e.sin(), 0.0), Vec3::Z, PI * unit, 1.0);
+            light_share(Some(&*light), Some(&ambient))
+        };
+        assert_eq!(share(0.0), 0.0);
+        assert!(share(0.01) < 0.003 && share(-0.01) < 0.003 && share(0.01) > 0.0 && share(-0.01) > 0.0);
+        let mut last = share(-8.0);
+        for k in -799..=800 {
+            let now = share(k as f32 * 0.01);
+            assert!((now - last).abs() < 0.004, "{k}: {last} to {now}");
+            last = now;
+        }
+        for colour in [Color::BLACK, Color::linear_rgb(f32::NAN, 1.0, 1.0), Color::linear_rgb(f32::INFINITY, 1.0, 1.0)] {
+            let light = DirectionalLight { color: colour, illuminance: PI * unit, ..default() };
+            assert_eq!(light_share(Some(&light), Some(&ambient)), 0.0, "{colour:?}");
+        }
+        let black = GlobalAmbientLight { color: Color::BLACK, brightness: 0.9 * unit, ..default() };
+        assert_eq!(light_share(Some(&DirectionalLight { color: Color::BLACK, illuminance: PI * unit, ..default() }), Some(&black)), 0.0);
+    }
+
     /// Closes the gate (true) or opens it again.
     type Close = fn(&mut App, bool);
     /// What closes the gate and opens it again.
     const CLOSED: [(&str, Close); 3] = [
         ("under water", |app, on| app.world_mut().resource_mut::<crate::underwater::CameraSubmerged>().0 = on),
         ("indoors", |app, on| app.world_mut().resource_mut::<crate::sky::SkyState>().interior = on.then(Default::default)),
-        ("night", |app, on| app.world_mut().resource_mut::<crate::sky::SkyState>().hour = if on { 1.0 } else { 13.0 }),
+        ("night without a moon", |app, on| app.world_mut().resource_mut::<crate::sky::SkyState>().hour = if on { 1.0 } else { 13.0 }),
     ];
 
     /// An open gate: the light wanted, a day sky, a sun, a camera with a fog the light can read.

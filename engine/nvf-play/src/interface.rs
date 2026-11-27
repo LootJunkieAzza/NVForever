@@ -419,8 +419,34 @@ pub fn menu_frame(anchor: Vec2) -> Option<Node> {
 /// [`menu_frame`].
 pub const MENU_SPREAD: f32 = 0.5;
 
-/// The share of the view a spread frame takes (module notes of [`MENU_SPREAD`]).
+std::thread_local! {
+    /// A scope asked for the whole view ([`whole_view`]).
+    static WHOLE_VIEW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While alive, a spread frame on this thread takes the whole view whatever the scale
+/// ([`spread_share`] 1), so a page drawn smaller to fit a narrow view gets all of its room
+/// (the settings page in a portrait view, #3334); dropped, it goes back.
+#[must_use]
+pub struct WholeView(bool);
+
+impl Drop for WholeView {
+    fn drop(&mut self) {
+        WHOLE_VIEW.with(|c| c.set(self.0));
+    }
+}
+
+/// [`WholeView`] from now until it is dropped.
+pub fn whole_view() -> WholeView {
+    WholeView(WHOLE_VIEW.with(|c| c.replace(true)))
+}
+
+/// The share of the view a spread frame takes (module notes of [`MENU_SPREAD`]); all of it
+/// inside a [`whole_view`] scope.
 fn spread_share() -> f32 {
+    if WHOLE_VIEW.with(|c| c.get()) {
+        return 1.0;
+    }
     let s = unit_scale();
     (s * (1.0 + MENU_SPREAD * (1.0 - s))).min(1.0)
 }
@@ -1364,6 +1390,18 @@ impl Pictures {
 /// A picture's own file: its path under the textures folder, in small letters.
 fn own_texture(path: &str) -> String {
     format!("textures\\{}", path.trim().trim_start_matches(['\\', '/']).to_ascii_lowercase())
+}
+
+/// `face` drawn `k` times its size: every glyph's box and spacing scaled (the game's
+/// fonts come in few sizes).
+pub fn scaled_face(face: &Face, k: f32) -> Face {
+    let mut font = face.font.clone();
+    font.size *= k;
+    for g in &mut font.glyphs {
+        (g.width, g.height, g.before, g.after, g.ascent) = (g.width * k, g.height * k, g.before * k, g.after * k, g.ascent * k);
+    }
+    let vector = face.vector.clone().map(|v| VectorFace { em: v.em * k, base: v.base * k, ..v });
+    Face { font, image: face.image.clone(), vector }
 }
 
 #[cfg(test)]
