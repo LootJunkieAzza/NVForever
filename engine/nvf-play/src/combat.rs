@@ -825,9 +825,18 @@ fn crit_gib(c: &Combat, parts: &ActorParts, script: Option<&ScriptState>, critic
 
 /// A hit that may dismember (`crate::dismember`): one that killed the actor, or landed on
 /// its corpse, on a body part. The player is not dismembered.
+#[cfg(test)]
+mod corpse_limb_depletion_tests;
+
 pub(crate) fn dismember_check(target: FormId, part: Option<u8>, w: &WeaponStats, r: &HitResult, by: Option<FormId>, point: V3, dir: V3) -> Option<crate::dismember::Check> {
     let part = part.filter(|&p| p != WEAPON_PART && p != fnv_phys::gore::GORE_PART && p != fnv_phys::actors::WHOLE)?;
     if target == FormId::PLAYER_REF || !(r.died || r.corpse) {
+        return None;
+    }
+    // On a corpse, a limb hit only rolls dismemberment once that limb's condition is
+    // depleted (<= 0), rather than on every stray bullet or extra shotgun pellet
+    // [design; dismemberment.md §4.2].
+    if r.corpse && r.limb.is_some_and(|(_, c)| c > 0.0) {
         return None;
     }
     Some(crate::dismember::Check {

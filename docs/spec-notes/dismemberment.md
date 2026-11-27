@@ -346,7 +346,11 @@ kill 100 % and a torso kill 100 %: the torso part was the error.
 - a hit on a **corpse** ("KillActor can be called on dead actors to dismember limbs"
   [documented: GECK wiki KillActor]; shooting corpses dismembers them, an everyday sight in the
   original). A corpse hit uses the killing hit's odds, its part counted as crippled
-  [hypothesis: not measured].
+  [hypothesis: not measured]. For limb-targeted corpse hits (`HitInfo::limb`), `Game::hit`
+  applies pure limb condition wear (without firing live hit events or stats) and
+  `nvf_play::combat::dismember_check` waits until that limb's condition reaches `<= 0`
+  so stray bullets or extra shotgun pellets do not immediately roll dismemberment on intact
+  corpse limbs, while live killing blows and limb-less corpse blasts stay unchanged [design].
 
 The hit must land on a body part: a projectile's or the player's blow's; since 2026-10-25 a
 blast's, the part the line from the blast's centre to the actor first meets, and an NPC's
