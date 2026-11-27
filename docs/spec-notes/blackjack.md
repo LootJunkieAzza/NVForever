@@ -170,9 +170,10 @@ numeric encoding.
 ## 5. The menu (`menus\black_jack_menu.xml`)
 
 - The information box: as the lockpicking menu's (400 × 175, the bracket of lines, three
-  rows in font 7 at 35, 80, 125) [documented]: "Current Bet:", "Chips:" and "<casino>
-  Earnings:" (the casino's FULL name, "Gommorah Earnings:" at Gomorrah) [observed: the
-  screenshot; the titles are set in code].
+  rows in font 7 at 35, 80, 125) [documented]: the bet, the chips and the casino's
+  winnings, with the casino's FULL name; the titles are set in code. NVForever's titles
+  are its own words, "Your bet:", "Your chips:" and "Won at <casino>:" [design, #4495: in
+  place of the titles read from the original's screen].
 - Six buttons, right-aligned 50 in from the right, under each other [documented], each its
   label and its key [observed: "Hit F)", "Double Down W)", "Split E)", "Switch Hands Q)",
   "Surrender S)", "Stay R)"; keys documented: `_PCButton_F/W/E/Q/S/R`]. While betting the

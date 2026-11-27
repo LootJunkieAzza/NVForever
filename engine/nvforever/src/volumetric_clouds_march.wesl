@@ -558,9 +558,9 @@ fn vc_spread_base(b: f32, v: CloudVolume) -> f32 {
 // [hypothesis] Fair-weather placement sets the horizontal span independently of the type's
 // shallow vertical extent. A level fair-weather base supports the rounded crown.
 // The carrier is cover times a height profile. Signed cellular relief displaces its sides
-// and crown about the mean Perlin-Worley surface. One base read and one three-band cellular
-// read suffice, and unresolved bands converge on zero displacement. The light samples the
-// same carrier at its own footprint.
+// and crown about the mean Perlin-Worley surface. The column also samples a finer band
+// of the base texture at the foot of a mixed deck. The light filters the same field at
+// its own footprint.
 
 // [hypothesis] Surface of four overlapping spherical caps. The farthest a cap can
 // reach on either axis is 0.24 + 0.75 cells, so four vertices suffice even across
@@ -1055,15 +1055,30 @@ fn vc_m2_density(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32, 
     // [hypothesis] A common condensation altitude bounds a shallow turbulent
     // skin. It tapers inward, so the bank stays level when seen side-on.
     let fair_skin = fair * (0.32 + 0.68 * side) * min(0.34 * parent, 1150.0);
-    let skin = storm * (1.0 - w.x) * min(0.16 * parent, 840.0) + fair_skin;
-    if e - r - most + offset >= widest && above >= bed + 0.65 * skin + max(soft, 1.5 * skin) {
+    let storm_skin = storm * (1.0 - w.x) * min(0.25 * parent, 1350.0);
+    let skin = fair_skin + storm_skin;
+    // At zero noise the dry pocket reaches its highest edge. Only above its
+    // water ramp can the whole sample be accepted without a texture read.
+    let edge_lift = 0.12 * storm * storm_skin;
+    if e - r - most + offset >= widest && above >= bed + edge_lift + 0.65 * skin + max(soft, 1.5 * skin) {
         return vec2<f32>(1.0, hs);
     }
     // Filter individual base cells near the foot while retaining broader texture in the deck.
     let base_width = max(lw, mix(1600.0 * (1.0 - max(upper, side)), 240.0, storm));
-    let b = textureSampleLevel(nb, ns, vc_base_coord(pos, yb, v), vc_level(base_width, v.nlevel.x, v.nscale.x, v.nlevel.y)).r;
-    let n = vc_spread_base(b, v);
-    let lower_edge = max(0.0, bed + skin * (0.65 - n));
+    let uv = vc_base_coord(pos, yb, v);
+    let b = textureSampleLevel(nb, ns, uv, vc_level(base_width, v.nlevel.x, v.nscale.x, v.nlevel.y)).r;
+    var n = vc_spread_base(b, v);
+    // Break up the lower face of a mixed deck inside its existing support. Three
+    // whole repeats keep the detail attached as the wind phase wraps.
+    let deck_foot = storm * (1.0 - w.x) * (1.0 - smoothstep(0.30, 0.65, h));
+    if deck_foot > 0.0 {
+        let bend = vec3<f32>(column.deck_relief.y, n - 0.5, column.deck_relief.x);
+        let detail_uv = 3.0 * uv + vec3<f32>(0.41, 0.37, 0.18) + 0.10 * bend;
+        let local = vc_spread_base(textureSampleLevel(nb, ns, detail_uv,
+            vc_level(base_width, v.nlevel.x, 3.0 * v.nscale.x, v.nlevel.y)).r, v);
+        n = clamp(n + deck_foot * 0.90 * (local - 0.5), 0.0, 1.0);
+    }
+    let lower_edge = max(0.0, bed + edge_lift + skin * (0.65 - n));
     // Thin pockets contain less water just above the displaced edge. Keep
     // this local optical contrast under the broad deck, including from below.
     let height_in_bank = above - lower_edge;

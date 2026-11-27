@@ -521,6 +521,8 @@ pub fn keys(
                 if let Some(m) = active.0.as_mut() {
                     if let Err(e) = m.refresh(&mut sim.world) {
                         warn!("pipboy repair: the list: {e:?}");
+                    } else if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                        crate::menu::sync_ysi_model(m, &mut rt.game);
                     }
                 }
             }

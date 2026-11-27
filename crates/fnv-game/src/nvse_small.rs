@@ -284,6 +284,24 @@ impl Game<'_> {
         self.yui_config().is_some_and(|c| c.effective_replace_hotkey_icons())
     }
 
+    /// Whether JSON-defined Pip-Boy inventory categories and subfolders are active
+    /// (`[Sorting and Icons] bEnableCategories`, gated by `bSortingIcons`; off when
+    /// `yUI.ini`/`ySI.ini` are absent so vanilla Misc folders remain unchanged) [design:
+    /// `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_categories_enabled(&mut self) -> bool {
+        self.ysi_active() && self.yui_config().is_some_and(|c| c.effective_enable_categories())
+    }
+
+    /// Resolved Pip-Boy ySI categories/subfolders and tag memberships for this session, or
+    /// `None` when categories are disabled, `yUI.ini`/`ySI.ini` are absent, or no categories
+    /// are defined in `menus/ySI/*.json` [design: `docs/spec-notes/yui-ini.md`].
+    pub fn ysi_categories(&mut self) -> Option<crate::ysi_filename::YsiCategoryIndex> {
+        if !self.ysi_categories_enabled() {
+            return None;
+        }
+        crate::ysi_filename::json_categories(self)
+    }
+
     /// Resolves an item's ySI icon filename for hotkey icon replacement when
     /// `[General] bSortingIcons = 1` and `[Sorting and Icons] bReplaceHotkeyIcons = 1`
     /// (`None` when disabled, when `yUI.ini` is absent, or when the item has no ySI icon)

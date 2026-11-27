@@ -1297,7 +1297,9 @@ pub fn use_hints(
             if !allowed {
                 info!("pipboy stats: {name} not used: activation prevented by script");
                 if let Some(m) = active.0.as_mut().filter(|m| m.mode == crate::menu::model::Mode::Inventory) {
-                    let _ = m.refresh(&mut sim.world);
+                    if m.refresh(&mut sim.world).is_ok() {
+                        crate::menu::sync_ysi_model(m, &mut rt.game);
+                    }
                 }
                 continue;
             }
@@ -1314,6 +1316,8 @@ pub fn use_hints(
         if let Some(m) = active.0.as_mut().filter(|m| m.mode == crate::menu::model::Mode::Inventory) {
             if let Err(e) = m.refresh(&mut sim.world) {
                 warn!("pipboy stats: the inventory's lists: {e}");
+            } else if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                crate::menu::sync_ysi_model(m, &mut rt.game);
             }
         }
     }

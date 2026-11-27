@@ -4745,7 +4745,11 @@ version = "0.8.1"
 name = "nvf-rtgi-live"
 version = "0.8.1"
 dependencies = [
+ "bytemuck",
+ "log",
+ "naga",
  "nvf-rtgi",
+ "wgpu",
 ]
 
 [[package]]
@@ -4813,6 +4817,7 @@ dependencies = [
  "nvf-coop",
  "nvf-dlss-files",
  "nvf-play",
+ "nvf-rtgi",
  "png",
  "rapier3d",
  "rayon",

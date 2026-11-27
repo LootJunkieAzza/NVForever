@@ -90,7 +90,7 @@ mod vec3;
 mod volume;
 
 pub use bvh::{Corners, Ray};
-pub use export::{classified, meet, Export, Near, Sheared, VolumePoint};
+pub use export::{bounces, classified, meet, Bounce, Export, Near, Sheared, VolumePoint};
 pub use failed::{Cancel, Failed, Reason};
 pub use fit::{FitConfig, FitOutcome, Fitted, Met, Population, Solution, Stock};
 pub use floor::{Floor, FloorLimits, Room, EYE};

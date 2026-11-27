@@ -35,12 +35,12 @@
 // Without it both paths above are as they were.
 //
 // TERRAIN_PARALLAX (the Terrain parallax switch, terrain.rs "Parallax", [design, #3322];
-// only for a material that holds an authored height map, and never with TERRAIN_ANTI_TILING,
+// only for a material that holds a height map, and never with TERRAIN_ANTI_TILING,
 // whose taps the march does not share): before the surface is set up, one march over the
 // blended depth, each layer's share (ordered shares of the painted opacity) x its own
-// set's depth x (1 - its height) on one fixed step grid, the base and a layer without a
-// height map adding no
-// depth, moves the texture coordinate; then every texture (the base's and the layers',
+// set's depth x (1 - its height) on one fixed step grid, the base likewise (#3846), one
+// without a height map adding no depth, moves the texture coordinate; then every texture (the
+// base's and the layers',
 // diffuse and normal map) is read at the one moved coordinate with the plain coordinate's
 // gradients (one unturned tap through the anti-tiling helpers, so filtering does not follow
 // the shift's jumps), and the layers are blended with the weights the march used: the
@@ -77,8 +77,8 @@ import bevy_pbr::{
 
 struct TerrainLayers {
     // x: how many layers the material holds (0 to 6); y: bit i set when layer i has a
-    // normal map (without one its normal is the surface's own), and bit 8 + i when layer i
-    // has a height map; z: 1 with the burn map;
+    // normal map (without one its normal is the surface's own), bit 8 + i when layer i
+    // has a height map, and bit 14 when the base has one; z: 1 with the burn map;
     // w: feature bits, bit 0 height blending, bit 1 anti-tiling, bit 2 parallax (the
     // pipeline's TERRAIN_HEIGHT_BLEND, TERRAIN_ANTI_TILING and TERRAIN_PARALLAX decide; this
     // records the material's state).
@@ -93,12 +93,13 @@ struct TerrainLayers {
     // with a height map, so every quadrant marches on one step grid; 0 without one), its
     // most steps, the distances its fade starts and ends at (terrain.rs PARALLAX_FADE).
     parallax: vec4<f32>,
-    // Each layer's own depth (0 without a height map): layers 0 to 3, then 4 and 5.
+    // Each layer's own depth (0 without a height map): layers 0 to 3, then 4 and 5, and the
+    // base's in depths_high.z.
     depths_low: vec4<f32>,
     depths_high: vec4<f32>,
 }
 
-// The extension's index table (indices 50-69 of TerrainLayers' bindless attribute).
+// The extension's index table (indices 50-70 of TerrainLayers' bindless attribute).
 @if(BINDLESS) struct TerrainIndices {
     layers: u32,    // 50
     diffuse0: u32,  // 51
@@ -120,6 +121,7 @@ struct TerrainLayers {
     height3: u32,   // 67
     height4: u32,   // 68
     height5: u32,   // 69
+    height_base: u32, // 70
 }
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<storage> terrain_indices: array<TerrainIndices>;
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(101) var<storage> terrain_layers: array<TerrainLayers>;
@@ -143,6 +145,7 @@ struct TerrainLayers {
 @if(!BINDLESS && TERRAIN_PARALLAX) @group(constants::MATERIAL_BIND_GROUP) @binding(67) var height3: texture_2d<f32>;
 @if(!BINDLESS && TERRAIN_PARALLAX) @group(constants::MATERIAL_BIND_GROUP) @binding(68) var height4: texture_2d<f32>;
 @if(!BINDLESS && TERRAIN_PARALLAX) @group(constants::MATERIAL_BIND_GROUP) @binding(69) var height5: texture_2d<f32>;
+@if(!BINDLESS && TERRAIN_PARALLAX) @group(constants::MATERIAL_BIND_GROUP) @binding(70) var height_base: texture_2d<f32>;
 
 // Scorch (nvf_play grass_fire, docs/design/grass-fire.md): the ground under grass that
 // burns turns black and stays so until its cell unloads. The burn map holds a byte per
@@ -398,14 +401,15 @@ fn layer_normal_grad(k: u32, instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, 
     @if(!BINDLESS) return terrain_layer_values.parallax;
 }
 
-// Each layer's depth over the march's scale (0 for a layer without a height map), so a
+// Each layer's depth over the march's scale, and the base's at index 6 (0 without a height
+// map), so a
 // layer moves the coordinate as far as its own set's depth asks; with the scale the same
 // everywhere, the same layer is marched on the same steps on both sides of a quadrant edge.
-@if(TERRAIN_PARALLAX) fn parallax_scales(instance_index: u32, depth: f32) -> array<f32, 6> {
+@if(TERRAIN_PARALLAX) fn parallax_scales(instance_index: u32, depth: f32) -> array<f32, 7> {
     @if(BINDLESS) let l = terrain_layers[terrain_indices[material_slot(instance_index)].layers];
     @if(!BINDLESS) let l = terrain_layer_values;
     let s = 1.0 / max(depth, 1e-6);
-    return array<f32, 6>(l.depths_low.x * s, l.depths_low.y * s, l.depths_low.z * s, l.depths_low.w * s, l.depths_high.x * s, l.depths_high.y * s);
+    return array<f32, 7>(l.depths_low.x * s, l.depths_low.y * s, l.depths_low.z * s, l.depths_low.w * s, l.depths_high.x * s, l.depths_high.y * s, l.depths_high.z * s);
 }
 
 @if(TERRAIN_PARALLAX) fn parallax_level(size: vec2<u32>, footprint: f32) -> f32 {
@@ -417,7 +421,7 @@ fn layer_normal_grad(k: u32, instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, 
     return textureSampleLevel(t, s, uv, parallax_level(textureDimensions(t, 0), footprint));
 }
 
-// Layer `k`'s height map at `uv`, read with the base texture's sampler. The caller reads
+// Layer `k`'s height map (the base's for 6) at `uv`, read with the base texture's sampler. The caller reads
 // only those its bits name.
 @if(TERRAIN_PARALLAX) fn layer_height(k: u32, instance_index: u32, uv: vec2<f32>, footprint: f32) -> f32 {
     @if(BINDLESS) {
@@ -429,6 +433,7 @@ fn layer_normal_grad(k: u32, instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, 
         if k == 3u { h = i.height3; }
         if k == 4u { h = i.height4; }
         if k == 5u { h = i.height5; }
+        if k == 6u { h = i.height_base; }
         let level = parallax_level(textureDimensions(bindless_textures_2d[h], 0), footprint);
         return textureSampleLevel(bindless_textures_2d[h], bindless_samplers_filtering[material_indices[slot].base_color_sampler], uv, level).r;
     }
@@ -438,17 +443,21 @@ fn layer_normal_grad(k: u32, instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, 
         if k == 3u { return parallax_read(height3, pbr_bindings::base_color_sampler, uv, footprint).r; }
         if k == 4u { return parallax_read(height4, pbr_bindings::base_color_sampler, uv, footprint).r; }
         if k == 5u { return parallax_read(height5, pbr_bindings::base_color_sampler, uv, footprint).r; }
+        if k == 6u { return parallax_read(height_base, pbr_bindings::base_color_sampler, uv, footprint).r; }
         return parallax_read(height0, pbr_bindings::base_color_sampler, uv, footprint).r;
     }
 }
 
 // The march's depth of the blended surface at `uv`, on the march's scale: each of the `n`
-// layers' share (index k + 1) x its scale x (1 - its height map's height). The base and a
-// layer without a height map (scale 0) add none: flat at the surface, so the shift falls to
-// nothing as the layers with height maps fade out, with no jump at their edges or at a
-// quadrant drawn without folded layers (terrain.rs "Parallax").
-@if(TERRAIN_PARALLAX) fn parallax_depth_at(instance_index: u32, uv: vec2<f32>, w: array<f32, 7>, n: u32, scale: array<f32, 6>, footprint: f32) -> f32 {
+// layers' share (index k + 1) and the base's (index 0, its scale at 6, #3846) x its scale x
+// (1 - its height map's height). One without a height map (scale 0) adds none: flat at the
+// surface, so the shift falls to nothing as those with height maps fade out, with no jump at
+// their edges (terrain.rs "Parallax").
+@if(TERRAIN_PARALLAX) fn parallax_depth_at(instance_index: u32, uv: vec2<f32>, w: array<f32, 7>, n: u32, scale: array<f32, 7>, footprint: f32) -> f32 {
     var depth = 0.0;
+    if w[0] > 0.0 && scale[6] > 0.0 {
+        depth += w[0] * scale[6] * (1.0 - layer_height(6u, instance_index, uv, footprint));
+    }
     for (var k = 0u; k < n; k += 1u) {
         if w[k + 1u] > 0.0 && scale[k] > 0.0 {
             depth += w[k + 1u] * scale[k] * (1.0 - layer_height(k, instance_index, uv, footprint));
@@ -473,7 +482,7 @@ const PARALLAX_RELIEF_STEPS: u32 = 4u;
 // interpolation between the last two layers, Tatarchuk's parallax occlusion mapping, I3D
 // 2006) placed a sharp height map's ridge between two layers' guesses, once per layer,
 // instead of at its wall: the stair-stepped, doubled bands of the round-1 pictures. None where the march has
-// nothing to move (no depth, faded out, no layer with both a share and a height map, the
+// nothing to move (no depth, faded out, nothing with both a share and a height map, the
 // plain place already at the surface) and none head-on (the view vector's tangent part is
 // 0). `w`: the base's and the layers' weights worked out at the plain coordinate
 // (fragment()), which the drawn blend uses too. The ray is the view's own (Bevy's
@@ -486,7 +495,7 @@ const PARALLAX_RELIEF_STEPS: u32 = 4u;
         return vec2(0.0);
     }
     let scale = parallax_scales(instance_index, values.x);
-    var relief = false;
+    var relief = w[0] > 0.0 && scale[6] > 0.0;
     for (var k = 0u; k < n; k += 1u) {
         if w[k + 1u] > 0.0 && scale[k] > 0.0 {
             relief = true;

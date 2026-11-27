@@ -93,7 +93,7 @@ pub const CAPTURE_SHADER: &str = "embedded://nvforever/terrain_capture.wesl";
 /// [design] The unlit capture of one landscape draw that is not a folded base: a fallback
 /// or non-bindless base, or a blended layer (terrain_capture.wesl). One diffuse texture,
 /// one sampler, one uniform: its material group fits a GPU without bindless textures,
-/// where [`TerrainMaterial`]'s (six standard and thirteen layer textures) does not.
+/// where [`TerrainMaterial`]'s (six standard and the layers' textures) does not.
 /// Registered in every run behind the blend's gate ([`SurfaceBakePlugin`]), drawn only
 /// while the blend bakes; no prepass, no shadows.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
@@ -211,6 +211,8 @@ fn bake_copy(material: &mut TerrainMaterial) {
     e.parallax = false;
     e.parallax_depths = [0.0; crate::terrain::FOLDED_LAYERS];
     e.alpha_heights = 0;
+    e.height_base = None;
+    e.base_depth = 0.0;
     material.base.fog_enabled = false;
     material.base.normal_map_texture = None;
 }
