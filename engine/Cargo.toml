@@ -88,6 +88,7 @@ bevy_core_pipeline = { path = "vendor/bevy_core_pipeline" }
 bevy_post_process = { path = "vendor/bevy_post_process" }
 bevy_render = { path = "vendor/bevy_render" }
 bevy_shader = { path = "vendor/bevy_shader" }
+bevy_transform = { path = "vendor/bevy_transform" }
 wgpu-hal = { path = "vendor/wgpu-hal" }
 naga = { path = "vendor/naga" }
 

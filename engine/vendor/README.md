@@ -1140,6 +1140,29 @@ takes the pipeline as an `Option` (`None` for the list's builds, which are not c
 again when a shader changes). Tests: `a_module_asked_twice_at_once_is_made_once_and_a_stale_one_is_not_kept`,
 `a_build_dropped_unfinished_wakes_its_waiters`, `shaders_are_found_by_a_path_only_they_have`.
 
+## bevy_transform 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Hierarchy transform propagation (`#4790`, `[design]`). One change in `src/systems.rs`
+(`parallel::propagate_parent_transforms`, `propagation_worker`, `WorkQueue::send_batches` /
+`send_batches_with`), marked `NVForever (#4790)`:
+
+- `WorkQueue::send_batches` returns the number of queued chunks; a single batch runs inline
+  without waking `ComputeTaskPool` workers.
+- Multi-batch propagation caps extra spawned workers to
+  `(sent - 1).min(task_pool.thread_num().saturating_sub(1)).min(4)` instead of always
+  spawning `thread_num() - 1` workers.
+- Idle workers waiting on another busy worker drop the receiver mutex and call
+  `std::thread::yield_now()` after 32 empty spins instead of busy-spinning continuously.
+
+Why: upstream spawns `thread_num() - 1` workers whenever any non-empty batch exists and
+busy-spins idle workers on the shared receiver lock, wasting CPU time across deep character
+skeletons on high-core-count machines. Computed `GlobalTransform` values are unchanged. Both
+upstream license files (`LICENSE-APACHE`, `LICENSE-MIT`) are retained. Drop this patch if
+upstream bounds transform-propagation worker count and empty-queue spinning.
+
+Source: crates.io `bevy_transform` 0.20.1, archive SHA-256
+`ef20be97ccdd905cc3f9b66dbea1108ac6bffb1bb9cf9d0b44acd057d10116e9`.
+
 ## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 
 wgpu's Vulkan backend, for NVIDIA low latency (`VK_NV_low_latency2`,
