@@ -69,7 +69,7 @@ The actor records keep INAM, TPLT and SPLO for these (`ACTOR_SUBS`, data.rs).
 
 | Function | NVForever |
 |---|---|
-| Get/SetIdleLoopTimes `idle getMax` / `idle min max` | IDLE DATA loop_min, loop_max, each clamped to a u8, the max raised to the min [documented; observed: RepairWall02 2/5, and 300 2 reads 255 255] |
+| Get/SetIdleLoopTimes `idle getMax` / `idle min max` | IDLE DATA loop_min, loop_max: negative values wrap modulo 256 as u8 (`-1 -> 255`), values >= 255 clamp to 255, and max is raised to min [documented; observed: RepairWall02 2/5, and 300 2 reads 255 255; observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy, read-only, `w6d13_37_idle_loop_times_and_anim_path_edges` (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`): `lp0(1,2)\|inv(5,5)\|hi(255,255)\|neg(255,255)`; no DLL or source consulted] |
 | Get/SetBodyPartReplacementModel `bpd part [path]` | the part's NAM1; "" without one or without the part; a part the record lacks is not added [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe jip_23_bodypart_repl_missing_part (GetBodyPartReplacementModel/SetBodyPartReplacementModel): 0,0; no DLL or source consulted] |
 | SetBodyPartName `bpd part name` | the part's BPTN, read by GetBodyPartName |
 

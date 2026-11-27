@@ -48,7 +48,14 @@ Each value is four bytes, written as eight hex digits `00KKMMJJ`:
 | QuickLoad | 0043FFFF | F9 | |
 | Grab | 002CFF09 | Z | |
 
-Other `[Controls]` values: `bAlwaysRunByDefault=1`, `bInvertYValues=0`,
+Other `[Controls]` values: `bAlwaysRunByDefault=1` (runtime switch toggled by
+`SetAlwaysRun on [updateRunningFlag]`, which returns `1` and updates `Player.IsRunning`
+immediately only when `updateRunningFlag != 0` [observed: Fallout: New Vegas 1.4.0.525
+(040020D0) + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528, 2026-11-25,
+`GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy,
+read-only, `w6d13_29_sneak_run_alwaysrun_forcesneak_forcerun_and_speeds`
+(`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+`ar(1->0,ret=1/1)|run(1/1/0,rest=1)`; no DLL or source consulted]), `bInvertYValues=0`,
 `fMouseSensitivity=0.0020` (used as radians of turn per mouse count [hypothesis: the
 unit]), `fXenonVertLookSpeed=1200`, `fXenonHorizLookSpeed=1500`, `bGamePadRumble=1`.
 The second hotkey's line is named `Ammo Swap`.
@@ -179,15 +186,17 @@ The state is the script runtime's (`fnv_game::functions::player`,
   then `DisablePlayerControls 1 1 1 1 0 0 1`; stage 55 `DisablePlayerControls 0 1 1 0 0
   0 1` then `EnablePlayerControls 1 0 0 1 1 1 0`; stage 110 `DisablePlayerControls 1 1 1
   1 1 1 1` then `EnablePlayerControls 1 0 0 1 1 1 0`.
-- **Short parameter lists are not understood.** After VCG00 stage 0's two calls the
-  game read fighting off (the `1 1 1 0 1 0 0` above); the runtime, which takes a
-  left-out parameter as 0, has `1 1 0 0 1 0 0` there (`--play --new-game`, 2026-10-10).
-  So `DisablePlayerControls 1 1` seems to turn fighting off too, yet not POV, which the
-  form without parameters turns off [hypothesis: a left-out parameter is not simply 0;
-  the rule is not known, and the save may hold a state from before the scripts]. The
-  runtime is unchanged for `DisablePlayerControls`; `pc_controls` (§5.4) asks the game.
-  In the opening the difference lasts until VCG01 stage 0, three seconds later, which
-  turns fighting off.
+- **Short parameter lists and 0-arg default (settled):** both `DisablePlayerControls`
+  (0 parameters) and `DisablePlayerControls 1 1` (2 parameters) disable `[movement,
+  Pip-Boy, fighting]` and leave `[POV, looking, rollover, sneaking]` enabled (`1110000`),
+  explaining VCG00 stage 0's `1 1 1 0 1 0 0` after `DisablePlayerControls 1 1` + `0 0 0 0 1 0 0`
+  [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9, 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy,
+  read-only, `w6d13_13_disable_enable_player_controls_short_arg_matrix`
+  (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+  `init=0|d0=1110000|d11=1110000|sg=1|e6(m=0,s=0,any=0)|end=0`; no DLL or source consulted].
+  Omitted parameters in `DisablePlayerControls` therefore take the per-slot default
+  `[1, 1, 1, 0, 0, 0, 0]`.
 - **A left-out parameter of `EnablePlayerControls` enables its group** (since
   2026-10-11) [hypothesis]. The opening turns sneaking off (VCG01 stages 0, 55 and 110,
   each with all seven parameters); Doc's farewell line gives back `1 1 0 1 1 1 0`, and

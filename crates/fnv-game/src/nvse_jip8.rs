@@ -6,11 +6,12 @@
 //! GetEffectFlag, GetCellFlag, GetCellWaterForm, GetWaterFormEffect, GetWeaponItemMod…).
 
 use crate::game::{Game, RunCtx};
-use crate::nvse::{field_number, F32, U8};
+use crate::nvse::{field_number, F32};
 use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 use serde_json::Value as Json;
 use std::collections::HashMap;
+
 
 /// What this batch keeps for the session (nothing is saved [hypothesis]; the
 /// SetExcludedCombatActions page says its effect "is reset upon loading a game"
@@ -681,15 +682,26 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             XVal::Num(of_sig(g, form(args, 0), b"IDLE").map_or(0.0, |i| g.num_field8(i, "DATA", path)))
         }
         "setidlelooptimes" => {
-            // Each clamped to a u8, the max raised to the min [observed: jip8, 300 2 reads
-            // 255 255].
-            if let Some(i) = of_sig(g, form(args, 0), b"IDLE") {
-                if let Some(v) = field_number(num(args, 1, f64::NAN), U8.0, U8.1) {
-                    g.set_field8(i, "DATA", "loop_min", XVal::Num(v.trunc()));
+            // Negative values wrap modulo 256 as u8 (-1 -> 255), values >= 255 clamp to
+            // 255, and max is raised to min [observed: jip8, 300 2 -> 255 255; observed:
+            // w6d13_37_idle_loop_times_and_anim_path_edges, inv(5,5)|hi(255,255)|neg(255,255)].
+            let to_u8 = |v: f64| -> Option<f64> {
+                if !v.is_finite() {
+                    return None;
                 }
-                if let Some(v) = field_number(num(args, 2, f64::NAN), U8.0, U8.1) {
+                if v < 0.0 {
+                    Some(f64::from((v.trunc() as i64) as u8))
+                } else {
+                    Some(v.min(255.0).trunc())
+                }
+            };
+            if let Some(i) = of_sig(g, form(args, 0), b"IDLE") {
+                if let Some(v) = to_u8(num(args, 1, f64::NAN)) {
+                    g.set_field8(i, "DATA", "loop_min", XVal::Num(v));
+                }
+                if let Some(v) = to_u8(num(args, 2, f64::NAN)) {
                     let min = g.num_field8(i, "DATA", "loop_min");
-                    g.set_field8(i, "DATA", "loop_max", XVal::Num(v.trunc().max(min)));
+                    g.set_field8(i, "DATA", "loop_max", XVal::Num(v.max(min)));
                 }
             }
             zero

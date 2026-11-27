@@ -62,7 +62,7 @@ button layout [documented: IsControlPressed].
 **GetControl** `GetControl controlCode[, controlType]`: the code bound to a control.
 `controlType` (xNVSE 6.4.6): 0 keyboard scancode (default), 1 mouse scancode, 2
 DirectInput joystick (partly supported), 3 controller button code [documented:
-GetControl]. An unbound control: open.
+GetControl]. Unbound controls and out-of-range/unsupported `controlType` values (such as type `2` on control 27) return `-1` [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy, read-only, `w6d13_15_getcontrol_and_getaltcontrol_full_range_and_oob` (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`): `c0(17,-1,-1)|c4(-1,256,0)|c6(-1,257,1)|c13(33,258,2)|c27(44,t2=-1)|oob(-1,-1,-1,-1)`; no DLL or source consulted].
 
 **GetAltControl** `GetAltControl controlCode`: the mouse button bound to a control
 [documented: GetAltControl]. Unbound: open.
@@ -83,7 +83,15 @@ or DisableControl [documented: IsKeyDisabled, `FOSE.xml`].
 
 **DisableControl** `DisableControl controlCode` (dc) disables whatever key and mouse
 button are bound to a control; **EnableControl** (ec) restores it; with JIP they also
-cover a controller [documented: DisableControl; EnableControl].
+cover a controller [documented: DisableControl; EnableControl]. **IsControlDisabled**
+reads `1` both after `DisableControl c` and after `DisableKey` on a key bound to control
+`c`, returning `0` after `EnableKey` and for out-of-range control codes [observed: Fallout:
+New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, isolated staging copy, read-only,
+`w6d13_16_disable_enable_control_vs_key_cross_interaction`
+(`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+`k0=17|init(0,0)|disC(cd=1,kd=1,dk=1)|enC(0,0)|disK(kd=1,cd=1,dk=1)|enK=0|oob(0,0,0,0)`;
+no DLL or source consulted].
 
 **TapKey** `TapKey scanCode` (tk): fakes a press of that key **for one frame**
 [documented: TapKey]. **TapControl** `TapControl controlCode` (tc): taps whatever is bound
@@ -123,7 +131,13 @@ bits sum to 63487, the "every button" value of the DisableButton page, so the ta
 that page agree [documented: both; the arithmetic is ours]. Trigger codes for the
 Hold/Release/Disable/Enable/IsTrigger functions: **0 left trigger, 1 right trigger**
 [documented: DisableTrigger, "XBox Controller Trigger Codes", pasted by the owner from
-geckwiki.com, 2026-10-25], the same numbers TapTrigger uses.
+geckwiki.com, 2026-10-25], the same numbers TapTrigger uses. Before `SetDeadZoneLS`/`RS`
+is called, `GetDeadZoneLS` defaults to `0.24` and `GetDeadZoneRS` defaults to `0.27`
+[observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN 57.30,
+2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+staging copy, read-only, `w6d13_22_gamepad_controller_buttons_triggers_sticks_deadzones`
+(`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+`dz(0.24->0.35,0.27->0.40)`; no DLL or source consulted].
 
 ## 4. Session tests
 
@@ -131,6 +145,17 @@ geckwiki.com, 2026-10-25], the same numbers TapTrigger uses.
 after each load, and once per script per session, with the CenterOnCell and
 "second call in the same script" rules there [documented: GetGameLoaded;
 GetGameRestarted].
+
+## 4a. `IsControl` bitmask
+
+**IsControl** returns a bitmask: `1` for a game-bound key/button, `2` for a custom
+control set via `SetIsControl`, and `3` (`1 | 2`) when a bound key is also marked as a
+custom control [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9,
+2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+staging copy, read-only, `w6d13_20_iscontrol_setiscontrol_custom_vs_bound_precedence`
+(`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+`unb(0,set=0->2,clr=0->0)|bnd(1,set=0->3,clr=0->1)|m256=1|oob(0,0)`; no DLL or source
+consulted].
 
 ## 5. Open (to observe), collected
 

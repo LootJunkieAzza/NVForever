@@ -16,6 +16,7 @@ impl Game<'_> {
     }
 }
 
+
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
     match args.get(k)? {
         XVal::Ref(0) => None,
@@ -255,12 +256,20 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let n = text(args, 0).to_ascii_lowercase();
             yes(DLLS.contains(&n.as_str()))
         }
-        // `on [ask]`: returns 1; GetAlwaysRun reads the engine's switch, which takes the
-        // ask at its next frame [observed: plugins1].
+        // `on [updateRunningFlag]`: returns 1; when `updateRunningFlag` is non-zero,
+        // also updates the player's running flag immediately [observed:
+        // w6d13_29_sneak_run_alwaysrun_forcesneak_forcerun_and_speeds,
+        // ar(1->0,ret=1/1)|run(1/1/0,rest=1)].
         "setalwaysrun" => {
             let on = num(args, 0, 1.0) != 0.0;
             g.gaps.always_run_request = Some(on);
             g.gaps.always_run = on;
+            if num(args, 1, 0.0) != 0.0 {
+                let mut m = g.motion(FormId::PLAYER_REF);
+                m.run_mode = on;
+                m.running = on;
+                g.set_motion(FormId::PLAYER_REF, m);
+            }
             XVal::Num(1.0)
         }
         "getalwaysrun" => yes(g.gaps.always_run),

@@ -46,6 +46,7 @@ pub struct PlayerTold {
     pub pad: Pad,
 }
 
+
 /// This batch's session state.
 #[derive(Debug, Default)]
 pub struct Jip2State {
@@ -240,7 +241,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         "isstickdisabled" => yes(pad.disabled_sticks[usize::from(num(args, 0, 0.0) != 0.0)]),
-        "getdeadzonels" | "getdeadzoners" => XVal::Num(f64::from(pad.dead_zones[usize::from(name.ends_with("rs"))].unwrap_or(0.0))),
+        // Default stick deadzones before SetDeadZoneLS/RS: LS 0.24, RS 0.27 [observed:
+        // w6d13_22_gamepad_controller_buttons_triggers_sticks_deadzones, dz(0.24->0.35,0.27->0.40)].
+        "getdeadzonels" | "getdeadzoners" => {
+            let rs = name.ends_with("rs");
+            let default = if rs { 0.27_f32 } else { 0.24_f32 };
+            XVal::Num(f64::from(pad.dead_zones[usize::from(rs)].unwrap_or(default)))
+        }
         "setdeadzonels" | "setdeadzoners" => {
             g.jip2.told.pad.dead_zones[usize::from(name.ends_with("rs"))] = Some(num(args, 0, 0.0) as f32);
             zero

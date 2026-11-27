@@ -33,6 +33,7 @@ fn num(v: Option<XVal>) -> XVal {
     }
 }
 
+
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
@@ -142,15 +143,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let items = codes.into_iter().map(|c| XVal::Num(f64::from(c))).collect();
             list(g, items)
         }
-        // [documented: IsControl] 1 when a game control uses the key, 2 for a custom
-        // control (SetIsControl).
+        // [documented: IsControl; observed: w6d13_20_iscontrol_setiscontrol_custom_vs_bound_precedence,
+        // bnd(1,set=0->3,clr=0->1)] bitmask: 1 game-bound, 2 custom control (SetIsControl), 3 both.
         "iscontrol" => {
-            let code = u16::try_from(int(args, 0, -1)).ok();
-            XVal::Num(match code {
-                Some(c) if g.input.is_bound(c) => 1.0,
-                Some(c) if g.other.custom_controls.contains(&c) => 2.0,
-                _ => 0.0,
-            })
+            let bits = u16::try_from(int(args, 0, -1)).ok().map_or(0u8, |c| {
+                u8::from(g.input.is_bound(c)) | (u8::from(g.other.custom_controls.contains(&c)) << 1)
+            });
+            XVal::Num(f64::from(bits))
         }
         // [documented: GetBasePackages; observed: tmpl2 (#1057)] GetNthPackage's list as an
         // array.

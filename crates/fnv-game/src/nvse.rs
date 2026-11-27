@@ -8,6 +8,7 @@ use crate::game::{Game, RunCtx};
 use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 
+
 /// A record field of `form`: a number, a form or a string (`GameData::record_field`),
 /// or what a setter put there this session.
 fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
@@ -1021,7 +1022,9 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
         "getparentcellowner" => XVal::Ref(subject.and_then(|r| g.cell_of(r)).and_then(|c| g.cell_ownership(c)).map_or(0, |o| o.owner.0)),
         "getowningfactionrequiredrank" => XVal::Num(subject.and_then(|r| g.owner_rank(r)).map_or(0.0, f64::from)),
         // `GetBipedModelPath which [form]`: 0 male biped (MODL), 1 female biped (MOD3),
-        // 2 male ground (MOD2), 3 female ground (MOD4) [observed: nvse-misc, leather armor].
+        // 2 male ground (MOD2), 3 female ground (MOD4), 4 male biped icon (ICON)
+        // [observed: nvse-misc, leather armor; observed:
+        // w6d13_44_model_icon_texture_scope_and_biped_paths_all, bm(l0=32,l4=63,...)].
         "getbipedmodelpath" => {
             let f = item(g, 1).unwrap_or(FormId(0));
             let sub = match int_of(args.first(), -1) {
@@ -1029,6 +1032,7 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
                 1 => "MOD3",
                 2 => "MOD2",
                 3 => "MOD4",
+                4 => "ICON",
                 _ => "",
             };
             match field(g, f, sub, "").or_else(|| field(g, f, sub, "model")) {

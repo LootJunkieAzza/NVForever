@@ -60,7 +60,14 @@ format page (§4).
 - **ARMO** [documented: xEdit]: `BMDT` biped flags (bit 0 Head, 1 Hair, 2 Upper Body,
   3 Left Hand, 4 Right Hand, …, 9 Headband, 10 Hat, 11 Eye Glasses, 14 Mask, …) and
   general flags; worn (biped) models `MODL` male and `MOD3` female, ground models `MOD2`
-  and `MOD4`; `DNAM` DR (stored as an integer that xEdit shows divided by 100) and DT.
+  and `MOD4`, and male icon `ICON` (also returned by `GetBipedModelPath 4` matching
+  `GetBipedIconPath 0` [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9
+  + JIP LN 57.30 + JohnnyGuitarNVSE 528, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+  10 official base masters, isolated staging copy, read-only,
+  `w6d13_44_model_icon_texture_scope_and_biped_paths_all`
+  (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+  `bm(l0=32,l4=63,2=[w6d13_g7.nif],1=[w6d13_f3.nif])|bi(l0=63,1=[w6d13_bf.dds],0=[w6d13_bm.dds])`;
+  no DLL or source consulted]); `DNAM` DR (stored as an integer that xEdit shows divided by 100) and DT.
   Leather, Metal, Combat, T-51b and the Field Hand outfit all store DR 0 and DT 6, 12,
   15, 25 and 2 [observed]. `MODS`/`MO2S`/`MO3S` (alternate textures) do not decode with
   schema v1 yet (length-prefixed strings; layer1.md).
@@ -152,7 +159,13 @@ actor meshes`]:
   `PipBoy0n:0`, `PipBoyOnLegate:0`, …) [observed: `armor_pipboy_sleeves`]. In
   `vaultsuitarmor\m\outfitm.nif` `PipBoyOff` (175 vertices) covers the left forearm from
   3 to 18 units below the elbow and the hand's cuff; `PipBoyOn` (111 vertices) leaves
-  out 3 to 15, where the Pip-Boy sits [observed]. Rule: an actor wearing an item in the
+  out 3 to 15, where the Pip-Boy sits [observed]. Rule (`ToggleBipedSlotVisibility` accepts valid biped slots `0..20` and returns `0` for
+  out-of-range slots such as `-1` and `25` [observed: Fallout: New Vegas 1.4.0.525
+  (040020D0) + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528, 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy,
+  read-only, `w6d13_45_equipment_biped_mask_slot_vis_facegen_hair_eyes_refrmodel`
+  (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+  `sv(1,0,1,oob=0/0)`; no DLL or source consulted]): an actor wearing an item in the
   PipBoy biped slot (bit 6) draws the `PipBoyOn…` shapes [owner statement 2026-10-10:
   "we see a sleeve on the arm with a pipboy, it is rendered over the outfit using the
   pipboy on node"; two in-game first-person screenshots: a jumpsuit's blue sleeve from

@@ -13,6 +13,7 @@ use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 use std::collections::HashMap;
 
+
 /// The first form ID of the sounds made for files [engineering choice: high in the 0xFF
 /// range, past any form a session creates].
 pub const PATH_SOUND_BASE: u32 = 0xFFF0_0000;
@@ -395,10 +396,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             XVal::Num(0.0)
         }
-        // SetAutoMove 0/1: the player's Auto Move [documented].
+        // SetAutoMove 0/1: the player's Auto Move [documented]; GetAutoMove observes it
+        // immediately in the same frame [observed:
+        // w6d13_30_movement_flags_moving_turning_air_swim_automove_fall, am(0,r=1,1,0)].
         "setautomove" => {
             let Some(on) = int_arg(args, 0) else { return Some(Ok(yes(false))) };
-            g.other.jg9.auto_move = Some(on != 0);
+            let active = on != 0;
+            g.other.jg9.auto_move = Some(active);
+            g.jip2.told.auto_move = active;
             yes(true)
         }
         // SetPlayerMovementFlags flags: the player moves as the flags say in the next
