@@ -5,7 +5,7 @@ use crate::{game::Game, mod_files};
 use fnv_script::vm::{form_type_code, XVal};
 use fnv_sim::FormId;
 use serde_json::{Map, Value as Json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::OnceLock;
 
 /// Maximum ancestor traversal depth when resolving nested ySI subfolder chains [design].
@@ -59,6 +59,12 @@ pub(crate) struct State {
     // This session's first query freezes its input snapshot, including a load error.
     // Game restore creates a fresh cache; no result is attached to an item or save.
     book: OnceLock<Result<Book, String>>,
+    // Pre-indexed tag rule lookup tables built once per session from `book` and
+    // `g.data.load_order` so Pip-Boy / inventory refreshes avoid scanning thousands of
+    // JSON rules and 255 plugin names per item [design].
+    compiled: OnceLock<CompiledTags>,
+    // Cached Pip-Boy category/subfolder index built once per session [design].
+    categories: OnceLock<Option<YsiCategoryIndex>>,
     // Cached `Data\NVSE\Plugins\yUI.ini` (with `Data\menus\ySI\ySI.ini` overlay) snapshot.
     yui_ini: OnceLock<Option<crate::yui_ini::YuiConfig>>,
 }
@@ -70,6 +76,18 @@ struct Rule {
 struct Book {
     tags: Vec<Rule>,
     icons: Vec<Rule>,
+    /// Pre-resolved winning `(filename, template)` per tag for O(1) icon lookup [design].
+    icons_by_tag: HashMap<String, Result<(String, Option<String>), String>>,
+}
+struct CompiledTags {
+    /// Rules with `formlist == 0` and valid loaded `mod` + hex `form`(s), keyed by resolved FormId.
+    by_explicit_form: HashMap<FormId, Vec<usize>>,
+    /// Non-explicit rules constrained to concrete `formType` integer code(s).
+    by_form_type: HashMap<u16, Vec<usize>>,
+    /// Remaining generic rules (no `formType`, non-integer `formType`, or malformed explicit `form`).
+    any_type: Vec<usize>,
+    /// Lowercased plugin name -> load order index for O(1) mod lookup inside rules.
+    mod_index: HashMap<String, usize>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Match {
@@ -95,7 +113,11 @@ pub(crate) fn set_yui_config(g: &mut Game<'_>, cfg: Option<crate::yui_ini::YuiCo
 /// unmatched, ambiguous, or blocked by an unsupported predicate).
 pub(crate) fn json_tag(g: &Game<'_>, form: FormId) -> Option<String> {
     let book = g.ysi_filename.book.get_or_init(Book::load).as_ref().ok()?;
-    book.resolve_tag(g, form).ok()
+    let compiled = g
+        .ysi_filename
+        .compiled
+        .get_or_init(|| CompiledTags::build(book, &g.data.load_order));
+    compiled.resolve_tag(book, g, form).ok()
 }
 
 /// Resolves the certain winning JSON icon `filename` for a ySI sorting tag using
@@ -120,9 +142,14 @@ pub(crate) fn has_loaded_book(g: &Game<'_>) -> bool {
 /// the session's cached `menus/ySI/*.json` book (`None` when no valid book or no categories
 /// are defined).
 pub(crate) fn json_categories(g: &Game<'_>) -> Option<YsiCategoryIndex> {
-    let book = g.ysi_filename.book.get_or_init(Book::load).as_ref().ok()?;
-    let index = book.build_categories(|raw| resolve_category_name(g, raw));
-    (!index.categories.is_empty()).then_some(index)
+    g.ysi_filename
+        .categories
+        .get_or_init(|| {
+            let book = g.ysi_filename.book.get_or_init(Book::load).as_ref().ok()?;
+            let index = book.build_categories(|raw| resolve_category_name(g, raw));
+            (!index.categories.is_empty()).then_some(index)
+        })
+        .clone()
 }
 
 /// Expands game-string entities like `"&-sKeyring;"` on category names through
@@ -163,6 +190,7 @@ impl Book {
         let mut book = Self {
             tags: Vec::new(),
             icons: Vec::new(),
+            icons_by_tag: HashMap::new(),
         };
         let mut bytes_read = 0usize;
         for name in names {
@@ -216,6 +244,16 @@ impl Book {
                 return Err("ySI filename configuration exceeds the mapped rule bound".into());
             }
         }
+        // Sort tag rules by descending priority so evaluation can stop as soon as a
+        // strictly higher-priority certain match is found [design].
+        book.tags.sort_by_key(|a| std::cmp::Reverse(a.priority));
+        // Pre-index winning icon spec per tag for O(1) `icon_spec` lookups [design].
+        let unique_tags: BTreeSet<&str> = book.icons.iter().map(|r| r.tag.as_str()).collect();
+        let mut icons_by_tag = HashMap::with_capacity(unique_tags.len());
+        for tag in unique_tags {
+            icons_by_tag.insert(tag.to_string(), book.compute_icon_spec(tag));
+        }
+        book.icons_by_tag = icons_by_tag;
         Ok(book)
     }
 
@@ -224,7 +262,10 @@ impl Book {
         let mut tags = BTreeSet::new();
         let mut unknown = None;
         for rule in &self.tags {
-            match rule.matches(g, form) {
+            if best.is_some_and(|p| rule.priority < p) {
+                break;
+            }
+            match rule.matches(g, form, None) {
                 Match::Yes => match best {
                     Some(priority) if priority > rule.priority => {}
                     Some(priority) if priority == rule.priority => {
@@ -242,25 +283,20 @@ impl Book {
                 Match::No => {}
             }
         }
-        let Some(priority) = best else {
-            return Err(
-                "no certain ySI tag; native missing-tag behavior remains unqualified".into(),
-            );
-        };
-        if unknown.is_some_and(|p| p >= priority) {
-            return Err(
-                "an unsupported ySI predicate could change the highest-priority tag".into(),
-            );
-        }
-        if tags.len() != 1 {
-            return Err(
-                "ambiguous ySI tag priority; native tie ordering remains unqualified".into(),
-            );
-        }
-        Ok((*tags.first().expect("one tag")).to_string())
+        finish_tag_resolution(best, &tags, unknown)
     }
 
     fn icon_spec(&self, tag: &str) -> Result<(String, Option<String>), String> {
+        match self.icons_by_tag.get(tag) {
+            Some(res) => res.clone(),
+            None => Err(
+                "missing or ambiguous ySI icon filename; native defaults/ties remain unqualified"
+                    .into(),
+            ),
+        }
+    }
+
+    fn compute_icon_spec(&self, tag: &str) -> Result<(String, Option<String>), String> {
         let priority = self
             .icons
             .iter()
@@ -498,8 +534,176 @@ impl Book {
     }
 }
 
+fn finish_tag_resolution(
+    best: Option<i64>,
+    tags: &BTreeSet<&str>,
+    unknown: Option<i64>,
+) -> Result<String, String> {
+    let Some(priority) = best else {
+        return Err("no certain ySI tag; native missing-tag behavior remains unqualified".into());
+    };
+    if unknown.is_some_and(|p| p >= priority) {
+        return Err("an unsupported ySI predicate could change the highest-priority tag".into());
+    }
+    if tags.len() != 1 {
+        return Err("ambiguous ySI tag priority; native tie ordering remains unqualified".into());
+    }
+    Ok((*tags.first().expect("one tag")).to_string())
+}
+
+impl CompiledTags {
+    fn build(book: &Book, load_order: &[String]) -> Self {
+        let mut mod_index: HashMap<String, usize> = HashMap::with_capacity(load_order.len());
+        for (i, plugin) in load_order.iter().enumerate() {
+            mod_index.entry(plugin.to_ascii_lowercase()).or_insert(i);
+        }
+        let mut by_explicit_form: HashMap<FormId, Vec<usize>> = HashMap::new();
+        let mut by_form_type: HashMap<u16, Vec<usize>> = HashMap::new();
+        let mut any_type: Vec<usize> = Vec::new();
+
+        for (rule_idx, rule) in book.tags.iter().enumerate() {
+            let formlist_mode = match rule.fields.get("formlist") {
+                None => Some(0i64),
+                Some(v) => match v.as_i64() {
+                    Some(n @ 0..=2) => Some(n),
+                    _ => None,
+                },
+            };
+            // Rules referencing an unloaded plugin with a valid `form` selector (modes 0..=2)
+            // always evaluate to `Match::No`; drop them upfront.
+            if let (Some(mode), Some(form_val)) = (formlist_mode, rule.fields.get("form")) {
+                if let Some(mod_name) = rule.fields.get("mod").and_then(Json::as_str) {
+                    let Some(&idx) = mod_index.get(&mod_name.to_ascii_lowercase()) else {
+                        continue;
+                    };
+                    if mode == 0 && idx <= 255 {
+                        let mut parsed = Vec::new();
+                        let mut all_valid = true;
+                        match form_val {
+                            Json::Array(arr) => {
+                                for v in arr {
+                                    if let Some(local) = parse_local_form(v) {
+                                        parsed.push(FormId(((idx as u32) << 24) | local));
+                                    } else {
+                                        all_valid = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            v => {
+                                if let Some(local) = parse_local_form(v) {
+                                    parsed.push(FormId(((idx as u32) << 24) | local));
+                                } else {
+                                    all_valid = false;
+                                }
+                            }
+                        }
+                        if all_valid {
+                            for fid in parsed {
+                                let bucket = by_explicit_form.entry(fid).or_default();
+                                if bucket.last() != Some(&rule_idx) {
+                                    bucket.push(rule_idx);
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Bucket remaining generic rules by concrete `formType` when unambiguous.
+            if let Some(ft_val) = rule.fields.get("formType") {
+                let mut codes = Vec::new();
+                let mut all_int = true;
+                match ft_val {
+                    Json::Array(arr) => {
+                        for v in arr {
+                            if let Some(n) = v.as_i64() {
+                                if let Ok(code) = u16::try_from(n) {
+                                    codes.push(code);
+                                }
+                            } else {
+                                all_int = false;
+                                break;
+                            }
+                        }
+                    }
+                    v => {
+                        if let Some(n) = v.as_i64() {
+                            if let Ok(code) = u16::try_from(n) {
+                                codes.push(code);
+                            }
+                        } else {
+                            all_int = false;
+                        }
+                    }
+                }
+                if all_int {
+                    for code in codes {
+                        let bucket = by_form_type.entry(code).or_default();
+                        if bucket.last() != Some(&rule_idx) {
+                            bucket.push(rule_idx);
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            any_type.push(rule_idx);
+        }
+
+        Self {
+            by_explicit_form,
+            by_form_type,
+            any_type,
+            mod_index,
+        }
+    }
+
+    fn resolve_tag(&self, book: &Book, g: &Game<'_>, form: FormId) -> Result<String, String> {
+        let Some(code) = g.data.sig(form).and_then(|s| form_type_code(&s)) else {
+            return book.resolve_tag(g, form);
+        };
+        let mut best: Option<i64> = None;
+        let mut tags: BTreeSet<&str> = BTreeSet::new();
+        let mut unknown: Option<i64> = None;
+
+        let explicit = self
+            .by_explicit_form
+            .get(&form)
+            .map_or(&[][..], Vec::as_slice);
+        let typed = self.by_form_type.get(&code).map_or(&[][..], Vec::as_slice);
+        for slice in [explicit, typed, self.any_type.as_slice()] {
+            for &idx in slice {
+                let rule = &book.tags[idx];
+                if best.is_some_and(|p| rule.priority < p) {
+                    break;
+                }
+                match rule.matches(g, form, Some(&self.mod_index)) {
+                    Match::Yes => match best {
+                        Some(priority) if priority > rule.priority => {}
+                        Some(priority) if priority == rule.priority => {
+                            tags.insert(rule.tag.as_str());
+                        }
+                        _ => {
+                            best = Some(rule.priority);
+                            tags.clear();
+                            tags.insert(rule.tag.as_str());
+                        }
+                    },
+                    Match::Unknown => {
+                        unknown = Some(unknown.map_or(rule.priority, |p: i64| p.max(rule.priority)));
+                    }
+                    Match::No => {}
+                }
+            }
+        }
+        finish_tag_resolution(best, &tags, unknown)
+    }
+}
+
 impl Rule {
-    fn matches(&self, g: &Game<'_>, item: FormId) -> Match {
+    fn matches(&self, g: &Game<'_>, item: FormId, mod_index: Option<&HashMap<String, usize>>) -> Match {
         let mut answer = Match::Yes;
         let formlist_mode = match self.fields.get("formlist") {
             None => Some(0i64),
@@ -519,8 +723,8 @@ impl Rule {
             let part = match name.as_str() {
                 "tag" | "priority" | "mod" | "formlist" => continue,
                 "form" => match formlist_mode {
-                    Some(0) => self.explicit_form(g, item, value),
-                    Some(1) => self.formlist_member(g, item, value),
+                    Some(0) => self.explicit_form(g, item, value, mod_index),
+                    Some(1) => self.formlist_member(g, item, value, mod_index),
                     Some(2) => crate::ysi_predicates::formlist_mode2(g, item, &self.fields, value),
                     _ => Match::Unknown,
                 },
@@ -597,16 +801,32 @@ impl Rule {
         answer
     }
 
-    fn explicit_form(&self, g: &Game<'_>, item: FormId, value: &Json) -> Match {
+    fn resolve_mod_index(
+        g: &Game<'_>,
+        name: &str,
+        mod_index: Option<&HashMap<String, usize>>,
+    ) -> Option<usize> {
+        if let Some(map) = mod_index {
+            map.get(&name.to_ascii_lowercase()).copied()
+        } else {
+            g.data
+                .load_order
+                .iter()
+                .position(|p| p.eq_ignore_ascii_case(name))
+        }
+    }
+
+    fn explicit_form(
+        &self,
+        g: &Game<'_>,
+        item: FormId,
+        value: &Json,
+        mod_index: Option<&HashMap<String, usize>>,
+    ) -> Match {
         let Some(name) = self.fields.get("mod").and_then(Json::as_str) else {
             return Match::Unknown;
         };
-        let Some(index) = g
-            .data
-            .load_order
-            .iter()
-            .position(|p| p.eq_ignore_ascii_case(name))
-        else {
+        let Some(index) = Self::resolve_mod_index(g, name, mod_index) else {
             return Match::No;
         };
         let matches = |v: &Json| {
@@ -628,16 +848,17 @@ impl Rule {
         }
     }
 
-    fn formlist_member(&self, g: &Game<'_>, item: FormId, value: &Json) -> Match {
+    fn formlist_member(
+        &self,
+        g: &Game<'_>,
+        item: FormId,
+        value: &Json,
+        mod_index: Option<&HashMap<String, usize>>,
+    ) -> Match {
         let Some(name) = self.fields.get("mod").and_then(Json::as_str) else {
             return Match::Unknown;
         };
-        let Some(index) = g
-            .data
-            .load_order
-            .iter()
-            .position(|p| p.eq_ignore_ascii_case(name))
-        else {
+        let Some(index) = Self::resolve_mod_index(g, name, mod_index) else {
             return Match::No;
         };
         let matches = |v: &Json| {
@@ -985,5 +1206,40 @@ mod tests {
         assert_eq!(armor_biped_bit("armorMask"), Some(14));
         assert_eq!(armor_biped_bit("armorMouthObject"), Some(16));
         assert_eq!(armor_biped_bit("armorUnknown"), None);
+    }
+
+    #[test]
+    fn compiled_tags_buckets_explicit_forms_form_types_and_drops_unloaded_mods() {
+        let make_rule = |priority: i64, tag: &str, obj: Json| -> Rule {
+            let mut fields = obj.as_object().cloned().unwrap();
+            fields.insert("priority".into(), Json::from(priority));
+            fields.insert("tag".into(), Json::from(tag));
+            Rule { priority, tag: tag.to_string(), fields }
+        };
+        let mut book = Book {
+            tags: vec![
+                make_rule(500, "(explicit)", serde_json::json!({ "mod": "FalloutNV.esm", "form": ["00001000", "00002000"] })),
+                make_rule(400, "(unloaded)", serde_json::json!({ "mod": "Missing.esp", "form": "00001000" })),
+                make_rule(200, "(weap)", serde_json::json!({ "formType": 40 })),
+                make_rule(100, "(generic)", serde_json::json!({ "name": "Fallback" })),
+            ],
+            icons: vec![
+                make_rule(100, "(weap)", serde_json::json!({ "filename": "low.dds" })),
+                make_rule(300, "(weap)", serde_json::json!({ "filename": "high.dds", "template": "ySIDefault" })),
+            ],
+            icons_by_tag: HashMap::new(),
+        };
+        book.tags.sort_by_key(|a| std::cmp::Reverse(a.priority));
+        book.icons_by_tag.insert("(weap)".into(), book.compute_icon_spec("(weap)"));
+
+        let compiled = CompiledTags::build(&book, &["FalloutNV.esm".into(), "DeadMoney.esm".into()]);
+        assert_eq!(compiled.by_explicit_form.get(&FormId(0x0000_1000)).map(Vec::as_slice), Some(&[0][..]));
+        assert_eq!(compiled.by_explicit_form.get(&FormId(0x0000_2000)).map(Vec::as_slice), Some(&[0][..]));
+        assert_eq!(compiled.by_form_type.get(&40).map(Vec::as_slice), Some(&[2][..]));
+        assert_eq!(compiled.any_type, vec![3]);
+        assert_eq!(compiled.mod_index.get("falloutnv.esm"), Some(&0));
+        assert_eq!(compiled.mod_index.get("deadmoney.esm"), Some(&1));
+        assert_eq!(book.icon_spec("(weap)"), Ok(("high.dds".into(), Some("ySIDefault".into()))));
+        assert!(book.icon_spec("(unknown)").is_err());
     }
 }
