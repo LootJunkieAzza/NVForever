@@ -28259,6 +28259,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "knvse-npc-weapon-replace"
+source = "#1461: an NPC's attack clips come from its kNVSE replacement files (AnimGroupOverride folders, SetActorAnimationPath) where one has the clip's file name (engine/nvforever/src/attack_anims.rs, anim_paths::ActorAnimFiles). Here SetActorAnimationPath names the first-person folder's 2haattack3.kf, a file the base archives hold under the same name as the third-person one, so the shot's clip must be read from it"
+areas = ["scripts", "actors", "combat"]
+paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/anim_paths.rs", "crates/fnv-game/src/nvse_anim.rs", "crates/fnv-game/src/nvse_anim_folders.rs"]
+note = "WeapNVServiceRifle is a 2ha weapon whose attack is Attack3 (2haattack3.kf). The folder form of the same check, run by hand: --data a merged Data holding meshes/AnimGroupOverride/WWPSR (A Blue Moon's WWP Service Rifle, form E9C3B) gives plays meshes/animgroupoverride/wwpsr/_male/2haattack3.kf (backslashed)"
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 600 0;9.5:RingoRef.AddItem WeapNVServiceRifle 1;RingoRef.AddItem Ammo556mm 200;RingoRef.EquipItem WeapNVServiceRifle;10:PrintC \"nvf set %g\", (RingoRef.SetActorAnimationPath 0 1 \"characters\\_1stperson\\2haattack3.kf\");10.5:close;12:RingoRef.StartCombat player;12.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'script: print "nvf set 1"', label = "the file is there: the setter gives 1" },
+  { re = 'attack anims: 00104C7D plays meshes.characters._1stperson.2haattack3[.]kf', label = "Ringo's shots play the replacement of 2haattack3.kf" },
+  { re = 'attack anims: 00104C7D plays meshes.characters._male.2haattack3[.]kf', count = 0, label = "never the folder's own clip while it is replaced" },
+]
+
+[[scenario]]
 name = "knvse-player-sequences"
 source = "kNVSE on the player (docs/design/knvse-anim.md §5): PlayAnimationPath's and ActivateAnim's sequences are requests the player's rigs play beside locomotion (script_sequences.rs, #2395); DeactivateAnim takes each back"
 areas = ["scripts", "player"]
