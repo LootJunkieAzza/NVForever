@@ -1595,8 +1595,12 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         args.pos = Some(format!("{},{},{}", s.feet[0], s.feet[1], s.feet[2] + nvf_play::player::EYE_HEIGHT));
         args.eye_height = 0.0;
         args.heading = s.heading_deg;
+        // The save's pitch unless the command line names one (fos_start.rs).
+        if !std::env::args().any(|a| a == "--pitch" || a.starts_with("--pitch=")) {
+            args.pitch = s.pitch_deg;
+        }
         // The log is not up yet: straight to the output.
-        eprintln!("test aid NVF_PLAY_TEST_START_FOS: start at {:08X}, feet {:?}, heading {:.1}", s.at, s.feet, s.heading_deg);
+        eprintln!("test aid NVF_PLAY_TEST_START_FOS: start at {:08X}, feet {:?}, heading {:.1}, pitch {:.1}", s.at, s.feet, s.heading_deg, args.pitch);
     }
 
     // The main menu stands over a new game, held until New Game is chosen.
