@@ -206,19 +206,32 @@ pub fn row_text(r: &Row) -> String {
     }
 }
 
+/// The caps' word of a half's figure ([`half_figure`]).
+pub fn caps_word() -> &'static str {
+    crate::pipboy::labels::built_in_label("sInventoryCaps")
+}
+
+/// The weight's word of a half's figure ([`half_figure`]).
+pub fn weight_word() -> &'static str {
+    crate::pipboy::labels::built_in_label("sInventoryWeight")
+}
+
 /// The figure at the top right of a half: the caps on either side of a barter, the
-/// player's weight in a container's [observed: "Caps 35877", "Wg 35/165"].
+/// player's weight in a container's. The words are the settings the menu files' headline
+/// cards show (`sInventoryCaps`, `sInventoryWeight`): the load order's text, else
+/// NVForever's own label [design, #4495: in place of the words read from the original's
+/// screen].
 pub fn half_figure(m: &MenuModel, side: Side) -> Option<String> {
     match (m.mode, side, &m.trade) {
         // The player's tweak: the caps after the trade beside those now (our words) [design: docs/design/tweaks.md].
         (Mode::Barter(_), _, Some(t)) if m.barter_caps_change && t.balance != 0 => {
             let now = i64::from(t.purse[side as usize]);
             let after = if side == Side::Player { now + t.paid() } else { now - t.paid() };
-            Some(format!("Caps  {now} (to {after})"))
+            Some(format!("{}  {now} (to {after})", caps_word()))
         }
-        (Mode::Barter(_), _, Some(t)) => Some(format!("Caps  {}", t.purse[side as usize])),
+        (Mode::Barter(_), _, Some(t)) => Some(format!("{}  {}", caps_word(), t.purse[side as usize])),
         (Mode::Container(_), Side::Player, _) => {
-            m.encumbrance.as_ref().ok().map(|e| format!("Wg  {:.0}/{:.0}", e.weight, e.capacity))
+            m.encumbrance.as_ref().ok().map(|e| format!("{}  {:.0}/{:.0}", weight_word(), e.weight, e.capacity))
         }
         _ => None,
     }

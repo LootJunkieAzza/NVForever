@@ -71,6 +71,10 @@ box.
   "VAL" right of the stem and the value right-aligned at the right end, 50.5 units under
   the divider picture's top. A bottle cap shows "--" for its weight and "1" for its
   value. A container (4) and an actor (2) have no third row.
+  NVForever writes its own words in place of the abbreviations read here: the item stats
+  display's settings `sInventoryWeightUpper` and `sInventoryValue`, the load order's text
+  or else NVForever's labels ("WEIGHT", "Value"), as the Pip-Boy's cards do; a figure too
+  long for its room moves right of its word [design, #4495].
 
 The constants of `reticle.rs` are these measurements, corrected once against
 NVForever's own frame at 1280 x 720 so that the letters land on the screenshots'
