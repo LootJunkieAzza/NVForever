@@ -1085,17 +1085,22 @@ pub fn take_cell_work(
 /// assets, and each mark costs the entity one more pipeline lookup].
 const LATE_MESH_FRAMES: [u32; 7] = [2, 4, 8, 16, 32, 64, 128];
 
-/// Entities given a mesh while the upload limit was on, with the frame they got it.
+/// Entities given a newly created mesh while the upload limit was on, with the frame they got it.
 #[derive(Resource, Default)]
 pub struct LateMeshes {
     frame: u32,
     waiting: Vec<(Entity, u32)>,
+    /// Mesh assets added or modified under the upload limit within the last `LATE_MESH_FRAMES`
+    /// window. Entities referencing older `ModelCache` meshes are already resident on the GPU
+    /// and do not need 7 redundant `Mesh3d::set_changed()` re-specialisations [design].
+    fresh_meshes: HashMap<AssetId<Mesh>, u32>,
     /// Marks made, for the exit summary.
     marked: u64,
 }
 
 /// Mark the meshes of new entities changed again over the next frames while the upload
-/// limit is on. Bevy 0.19 never draws an entity whose mesh was not on the GPU yet when it
+/// limit is on, limited to entities whose `Mesh` asset was itself recently added or modified
+/// under the upload limit. Bevy 0.19 never draws an entity whose mesh was not on the GPU yet when it
 /// first chose the entity's pipeline [design: bevy_pbr 0.19.1 `specialize_material_meshes`
 /// skips such an entity without putting it in its pending queue, which it does for a
 /// material not ready; only a change to `Mesh3d` or `MeshMaterial3d` or their assets
@@ -1106,16 +1111,44 @@ pub struct LateMeshes {
 pub fn respecialize_late_meshes(
     mut late: ResMut<LateMeshes>,
     bytes: Option<Res<bevy::render::render_asset::RenderAssetBytesPerFrame>>,
-    mut meshes: ParamSet<(Query<Entity, Added<Mesh3d>>, Query<&mut Mesh3d>)>,
+    mut mesh_events: MessageReader<AssetEvent<Mesh>>,
+    mut meshes: ParamSet<(Query<(Entity, &Mesh3d), Added<Mesh3d>>, Query<&mut Mesh3d>)>,
 ) {
     let late = &mut *late;
     late.frame = late.frame.wrapping_add(1);
-    if bytes.is_some_and(|b| b.max_bytes.is_some()) {
-        let frame = late.frame;
-        late.waiting.extend(meshes.p0().iter().map(|e| (e, frame)));
+    let now = late.frame;
+    let max_age = LATE_MESH_FRAMES[LATE_MESH_FRAMES.len() - 1];
+    let limited = bytes.is_some_and(|b| b.max_bytes.is_some());
+    if limited {
+        for ev in mesh_events.read() {
+            match ev {
+                AssetEvent::Added { id } | AssetEvent::Modified { id } => {
+                    late.fresh_meshes.insert(*id, now);
+                }
+                AssetEvent::Removed { id } => {
+                    late.fresh_meshes.remove(id);
+                }
+                _ => {}
+            }
+        }
+        if !late.fresh_meshes.is_empty() {
+            late.fresh_meshes.retain(|_, &mut at| now.wrapping_sub(at) <= max_age);
+            if !late.fresh_meshes.is_empty() {
+                for (e, mesh) in &meshes.p0() {
+                    if late.fresh_meshes.contains_key(&mesh.id()) {
+                        late.waiting.push((e, now));
+                    }
+                }
+            }
+        }
+    } else {
+        mesh_events.clear();
+        late.fresh_meshes.clear();
+    }
+    if late.waiting.is_empty() {
+        return;
     }
     let mut meshes = meshes.p1();
-    let now = late.frame;
     let mut marked = 0;
     late.waiting.retain(|&(e, at)| {
         let age = now.wrapping_sub(at);
@@ -1124,7 +1157,7 @@ pub fn respecialize_late_meshes(
             m.set_changed();
             marked += 1;
         }
-        age < LATE_MESH_FRAMES[LATE_MESH_FRAMES.len() - 1]
+        age < max_age
     });
     late.marked += marked;
 }
@@ -3036,5 +3069,33 @@ mod blend_census_tests {
         for sig in [*b"MSTT", *b"DOOR", *b"ACTI", *b"TREE", *b"MISC"] {
             assert!(census_of(&world, &placement(false), 0x100, &base(sig), path, &model, false).is_none(), "{}", String::from_utf8_lossy(&sig));
         }
+    }
+
+    #[test]
+    fn respecialize_late_meshes_skips_already_uploaded_cached_meshes() {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_resource::<LateMeshes>()
+            .insert_resource(bevy::render::render_asset::RenderAssetBytesPerFrame { max_bytes: None })
+            .add_systems(Update, respecialize_late_meshes);
+
+        // Add a cached mesh during an unlimited upload frame (loading screen).
+        let cached = app.world_mut().resource_mut::<Assets<Mesh>>().add(Mesh::from(Cuboid::default()));
+        app.update();
+
+        // Switch to limited upload during gameplay.
+        app.world_mut().resource_mut::<bevy::render::render_asset::RenderAssetBytesPerFrame>().max_bytes = Some(24 << 20);
+        // Spawn an entity reusing the already-uploaded cached mesh.
+        app.world_mut().spawn(Mesh3d(cached));
+        // Add a brand-new mesh under the upload limit and spawn an entity for it.
+        let fresh = app.world_mut().resource_mut::<Assets<Mesh>>().add(Mesh::from(Cuboid::default()));
+        app.world_mut().spawn(Mesh3d(fresh));
+
+        for _ in 0..=130 {
+            app.update();
+        }
+        // Only the 1 fresh entity should have been marked 7 times; the cached entity gets 0 marks.
+        assert_eq!(app.world().resource::<LateMeshes>().marked, LATE_MESH_FRAMES.len() as u64);
     }
 }
