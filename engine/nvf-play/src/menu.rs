@@ -182,6 +182,25 @@ impl PromptKeys {
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WheelHoldSet;
 
+/// Named NVForever option `quantity-select-short-keys` (off by default; #3799):
+/// Shift transfers/drops the full stack, Ctrl transfers/drops a single item skipping
+/// `QuantityMenu`, and picking up a weightless stack (`count > 1`) from a container opens
+/// `QuantityMenu` [documented: JIP LN v57.30 `jip_nvse.ini` `bQttSelectShortKeys`; design:
+/// docs/spec-notes/quantity-select-short-keys.md].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct QuantitySelectShortKeys(pub bool);
+
+/// Keep the active menu's `qtt_select_short_keys` flag aligned with the live Gameplay
+/// setting (so toggling it from the pause menu takes effect immediately).
+pub(crate) fn sync_quantity_select_short_keys(setting: Option<Res<QuantitySelectShortKeys>>, mut active: ResMut<ActiveMenu>) {
+    let want = setting.as_deref().is_some_and(|s| s.0);
+    if let Some(m) = active.bypass_change_detection().0.as_mut() {
+        if m.qtt_select_short_keys != want {
+            m.qtt_select_short_keys = want;
+        }
+    }
+}
+
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
@@ -191,6 +210,7 @@ impl Plugin for MenuPlugin {
         normal_services::install(app);
         app.configure_sets(Update, WheelHoldSet.before(MenuSystems)).add_systems(Update, wheel_hold.in_set(WheelHoldSet));
         app.init_resource::<ActiveMenu>()
+            .init_resource::<QuantitySelectShortKeys>()
             .insert_resource(DevKeys::from_env())
             .init_resource::<FreshMenu>()
             .init_resource::<PromptKeys>()
@@ -209,6 +229,7 @@ impl Plugin for MenuPlugin {
                     scripts_open_barter,
                     scripts_open_teammate_containers,
                     open_menus,
+                    sync_quantity_select_short_keys,
                     keep_menu_state,
                     sync_cards,
                     sync_refresh_items_list,
@@ -223,6 +244,19 @@ impl Plugin for MenuPlugin {
             )
             .add_systems(OnEnter(PlayState::Menu), release_cursor)
             .add_systems(OnExit(PlayState::Menu), close_menu);
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "quantity-select-short-keys",
+                group: crate::pause::GROUP_MENUS,
+                label: "Quantity select shortcuts",
+                note: "In inventory, container and barter menus, Shift transfers or drops the whole stack, Ctrl acts on one item, and weightless container stacks open the quantity prompt.",
+                switches: "",
+                get: |w| w.resource::<QuantitySelectShortKeys>().0,
+                set: |w, on| w.resource_mut::<QuantitySelectShortKeys>().0 = on,
+                slider: None,
+            },
+        );
         test_aid::setup(app);
     }
 }
@@ -580,6 +614,7 @@ fn menu_keys(
     let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory && m.quantity.is_none()) else { return };
     let wasd = tweaks.as_ref().is_some_and(|t| t.game.wasd_as_arrow_keys);
     let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
+    let ctrl_single = m.qtt_select_short_keys && keys.any_pressed([ControlLeft, ControlRight]);
     let mut send = |c| {
         out.write(MenuInput(c));
     };
@@ -613,7 +648,7 @@ fn menu_keys(
     }
     let pick: &[KeyCode] = if barter && wasd { &[Enter, NumpadEnter] } else { &[Enter, NumpadEnter, Space] };
     if keys.any_just_pressed(pick.iter().copied()) {
-        send(if shift { Command::Stack } else { Command::One });
+        send(if shift { Command::Stack } else if ctrl_single { Command::OneSingle } else { Command::One });
     }
     match m.mode {
         Mode::Barter(_) if (!wasd && keys.just_pressed(KeyA)) || (wasd && keys.just_pressed(Space)) => send(Command::Accept),
@@ -694,6 +729,7 @@ fn menu_mouse(
     let tiled = tile_menu.is_some_and(|t| t.menu.is_some()) || barter_tiles.is_some_and(|t| t.menu().is_some());
     let hover = !tiled;
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let ctrl_single = m.qtt_select_short_keys && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     // Only a pointer that moves takes the selection: a redrawn row under a resting
     // pointer leaves the keys' choice alone.
     let pointer_moved = moved.read().count() > 0;
@@ -706,9 +742,12 @@ fn menu_mouse(
             PointerState::Pressed if hover && on_it && shift => {
                 out.write(MenuInput(Command::Stack));
             }
+            PointerState::Pressed if hover && on_it && ctrl_single => {
+                out.write(MenuInput(Command::OneSingle));
+            }
             PointerState::Pressed if hover && !on_it => {
                 out.write(MenuInput(Command::Hover(r.0, r.1)));
-                out.write(MenuInput(if shift { Command::Stack } else { Command::One }));
+                out.write(MenuInput(if shift { Command::Stack } else if ctrl_single { Command::OneSingle } else { Command::One }));
             }
             PointerState::Pressed if hover => {
                 out.write(MenuInput(Command::Select(r.0, r.1)));
@@ -923,8 +962,8 @@ fn quantity_mouse(
 
 /// The inventory's Caravan cards follow the player's (`fnv_game::caravan`; kept by the
 /// scripts' game, not in the inventory): the Misc tab's card folder
-/// (`model::Folder::Cards`).
-fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script: Option<Res<crate::script::ScriptState>>) {
+/// (`model::Folder::Cards`, or ySI's Caravan Deck category when `bEnableCategories` is on).
+fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, mut script: Option<ResMut<crate::script::ScriptState>>) {
     let Some(cards) = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.player.caravan.cards) else { return };
     if !active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory && m.cards != *cards) {
         return;
@@ -933,19 +972,28 @@ fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script:
     if let Some(m) = active.0.as_mut() {
         if let Err(e) = m.set_cards(&mut sim.world, cards) {
             warn!("menu: the Caravan cards: {e}");
+        } else if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            sync_ysi_model(m, &mut rt.game);
         }
     }
 }
 
-/// Attach resolved ySI sorting tags and row icons to `m` when ySI is active in `game`,
-/// honoring `yUI.ini` `[Sorting and Icons]` `bSortInventory` and `bAddInventoryIcons`
-/// (zero-cost no-op in vanilla sessions without ySI) [design:
-/// `docs/spec-notes/ysi-filename.md`, `docs/spec-notes/yui-ini.md`].
-fn sync_ysi_model(m: &mut MenuModel, game: &mut fnv_game::Game<'_>) {
+/// Attach resolved ySI sorting tags, row icons, and Pip-Boy category folders to `m` when
+/// ySI is active in `game`, honoring `yUI.ini` `[Sorting and Icons]` `bSortInventory`,
+/// `bAddInventoryIcons`, and `bEnableCategories` (zero-cost no-op in vanilla sessions
+/// without ySI) [design: `docs/spec-notes/ysi-filename.md`, `docs/spec-notes/yui-ini.md`].
+pub(crate) fn sync_ysi_model(m: &mut MenuModel, game: &mut fnv_game::Game<'_>) {
     let sort_by_tag = game.ysi_sort_inventory();
     let add_icons = game.ysi_add_inventory_icons();
+    let categories = if m.mode == Mode::Inventory {
+        game.ysi_categories()
+    } else {
+        None
+    };
+    let has_categories = categories.is_some();
+    m.set_ysi_categories(categories);
     m.ysi_icons = add_icons;
-    if sort_by_tag || add_icons {
+    if sort_by_tag || add_icons || has_categories {
         m.apply_ysi_options(sort_by_tag, add_icons, |item| game.ysi_item_display(item));
     }
 }
@@ -1153,7 +1201,9 @@ fn apply_input(
                     let allowed = crate::script::with_world(rt, &mut sim, |rt| rt.game.pre_activate_inventory_item(FormId::PLAYER_REF, row.item, 0, !row.equipped));
                     if !allowed {
                         info!("menu: {cmd:?}: {} activation prevented by script", row.name);
-                        let _ = m.refresh(&mut sim.world);
+                        if m.refresh(&mut sim.world).is_ok() {
+                            sync_ysi_model(m, &mut rt.game);
+                        }
                         continue;
                     }
                 }
@@ -1187,8 +1237,10 @@ fn apply_input(
             let before = crate::ui_sounds::MenuBefore::of(m);
             let asking = m.quantity.is_some();
             let quantity_before=m.quantity;
+            let folder_before = m.folder;
             let a = m.apply(&mut sim.world, cmd);
             let refreshed_rows = a.changed
+                || m.folder != folder_before
                 || matches!(
                     cmd,
                     Command::Category(..)
@@ -1196,10 +1248,12 @@ fn apply_input(
                         | Command::SetSort(..)
                         | Command::Back
                         | Command::One
+                        | Command::OneSingle
                         | Command::Stack
                         | Command::TakeAll
                         | Command::StoreAll
                         | Command::Drop
+                        | Command::DropSingle
                         | Command::DropStack
                         | Command::Accept
                         | Command::AmountOk
@@ -1229,7 +1283,7 @@ fn apply_input(
             if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
                 sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
             }
-            let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::StoreAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
+            let moves_items = matches!(cmd, Command::One | Command::OneSingle | Command::Stack | Command::TakeAll | Command::StoreAll | Command::Drop | Command::DropSingle | Command::DropStack | Command::Accept | Command::AmountOk);
             if moves_items || a.changed {
                 if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {
                     info!("menu: {cmd:?}: {s}");

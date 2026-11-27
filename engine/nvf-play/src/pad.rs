@@ -1955,4 +1955,46 @@ mod tests {
         assert_eq!(StickDir::Up.amount(v), 0.0);
         assert!((StickDir::Right.amount(v) - 0.3).abs() < 1e-6);
     }
+
+    #[test]
+    fn bundled_gilrs_db_maps_gamesir_3537_100e_on_windows() {
+        let db = include_str!("../../vendor/gilrs/SDL_GameControllerDB/gamecontrollerdb.txt");
+        for guid in ["03000000373500000e10000000000000", "05000000373500000e10000000000000"] {
+            let line = db
+                .lines()
+                .find(|l| l.starts_with(guid) && l.contains("platform:Windows"))
+                .unwrap_or_else(|| panic!("missing Windows mapping for {guid}"));
+            let fields: Vec<&str> = line.split(',').collect();
+            assert_eq!(fields[0], guid);
+            assert_eq!(fields[1], "GameSir Controller");
+            for required in [
+                "a:b0",
+                "b:b1",
+                "x:b3",
+                "y:b4",
+                "leftshoulder:b6",
+                "rightshoulder:b7",
+                "lefttrigger:b8",
+                "righttrigger:b9",
+                "back:b10",
+                "start:b11",
+                "guide:b12",
+                "leftstick:b13",
+                "rightstick:b14",
+                "leftx:a0",
+                "lefty:a1",
+                "rightx:a3",
+                "righty:a4",
+                "dpup:h0.1",
+                "dpright:h0.2",
+                "dpdown:h0.4",
+                "dpleft:h0.8",
+                "platform:Windows",
+            ] {
+                assert!(fields.contains(&required), "{guid} missing {required} in {line}");
+            }
+            // Idle trigger axes a2/a5 must remain unmapped so they cannot drift RightStickY.
+            assert!(!fields.iter().any(|f| f.ends_with(":a2") || f.ends_with(":a5")), "{guid} unexpectedly maps a2/a5: {line}");
+        }
+    }
 }

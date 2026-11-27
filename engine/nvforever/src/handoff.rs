@@ -297,7 +297,7 @@ fn ready_file() -> PathBuf {
 #[allow(clippy::too_many_arguments)]
 pub fn leave(
     (mut asked, mut to_menu, mut refused): (MessageReader<LoadRequest>, MessageReader<nvf_play::pause::MainMenuRequest>, MessageReader<nvf_play::save::LoadRefused>),
-    writes: Res<SaveWrites>,
+    (writes, hold): (Res<SaveWrites>, Option<Res<crate::coop::HoldLeave>>),
     mut handoff: ResMut<Handoff>,
     (mut cover, mut uncover): (MessageWriter<CoverRequest>, MessageWriter<Uncover>),
     #[cfg(not(target_os = "android"))]
@@ -323,6 +323,9 @@ pub fn leave(
         Leaving::No => {}
         Leaving::HandedOver => *h = Leaving::HandedOver,
         Leaving::Asked(r) if writes.busy() => *h = Leaving::Asked(r),
+        // A co-op guest going to the main menu saves its own game first (`crate::coop`;
+        // only a guest in a host's world holds).
+        Leaving::Asked(None) if hold.as_deref().is_some_and(|h| h.holds()) => *h = Leaving::Asked(None),
         Leaving::Asked(r) => {
             cover.write(CoverRequest { to: r.as_ref().and_then(|r| destination_of(r, *location)) });
             *h = Leaving::Covered(r, 0);

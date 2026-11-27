@@ -206,7 +206,7 @@ fn follow(sim: Res<SimState>, phys: Res<PhysState>, script: Res<ScriptState>, mu
 
 
 #[allow(clippy::too_many_arguments)]
-fn sync(
+pub(crate) fn sync(
     mut commands: Commands,
     play: Res<PlayWorld>,
     sim: Res<SimState>,

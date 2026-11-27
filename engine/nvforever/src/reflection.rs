@@ -72,6 +72,9 @@ use fnv_world::cell_of;
 use nvf_play::RefVisual;
 use bevy::camera::primitives::Aabb;
 
+mod clouds;
+pub(crate) use clouds::ReflectedClouds;
+
 /// Render layer of water surfaces: seen by the main camera, not by the reflection camera
 /// (which would otherwise sample the texture it renders into).
 pub const WATER_LAYER: usize = 1;
@@ -109,7 +112,8 @@ pub struct ReflectionPlugin;
 
 impl Plugin for ReflectionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WaterPixels>().init_resource::<WaterProbe>().add_systems(Startup, setup_reflection).add_systems(
+        clouds::install(app);
+        app.init_resource::<WaterPixels>().init_resource::<WaterProbe>().init_resource::<ReflectionGate>().add_systems(Startup, setup_reflection).add_systems(
             PostUpdate,
             (resize_reflection, read_water_pixels, update_reflection)
                 .chain()
@@ -161,9 +165,9 @@ fn setup_reflection(mut commands: Commands, mut images: ResMut<Assets<Image>>, w
         Projection::Perspective(PerspectiveProjection::default()),
         crate::sky::initial_fog(),
         // The world without the water; the player's first-person arms and seen body as
-        // before they had layers of their own; the weather's flat clouds while the volumetric
-        // clouds take their place in the main view (empty otherwise).
-        RenderLayers::from_layers(&[0, crate::sky::ARMS_LAYER, crate::sky::BODY_LAYER, crate::volumetric_clouds::FLAT_CLOUD_LAYER]),
+        // before they had layers of their own. Keep the flat sky until the mirror's
+        // own volume has rendered and the mirror can draw its dome.
+        RenderLayers::from_layers(&[0, crate::sky::ARMS_LAYER, crate::sky::BODY_LAYER, crate::volumetric_clouds::FLAT_CLOUD_LAYER, clouds::MIRROR_CLOUD_LAYER]),
     ));
     commands.insert_resource(Reflection { image });
 }
@@ -394,7 +398,7 @@ fn complete_android_water_pixels(
 
 /// CPU retention is independent of GPU coverage. Track the selected world and height
 /// even while out of view so the grace period never holds an unrelated plane on.
-#[derive(Default)]
+#[derive(Resource, Default)]
 struct ReflectionGate {
     plane: Option<(u32, f32)>,
     last_in_view: Option<f32>,
@@ -609,7 +613,7 @@ fn update_reflection(
     hidden: Option<Res<crate::console_toggles::Hidden>>,
     mut probe: ResMut<WaterProbe>,
     mut pixels: ResMut<WaterPixels>,
-    mut gate: Local<ReflectionGate>,
+    mut gate: ResMut<ReflectionGate>,
 ) {
     let Ok((mut camera, mut t, mut gt, mut proj, mut fog)) = refl.single_mut() else { return };
     let main = main.single().ok().filter(|(camera, ..)| camera.is_active);
@@ -918,6 +922,7 @@ mod tests {
             centre: None,
             waiting: Vec::new(),
             model_overrides: HashMap::new(),
+            coop_areas: Vec::new(),
             travels: 0,
         };
         static NEXT: AtomicUsize = AtomicUsize::new(0);

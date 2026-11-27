@@ -8,7 +8,7 @@
 //! others after them and dim [observed: the owner's screenshots, C:\fnv-private\
 //! repairmenu: four bright rows, then five dim ones; the order within each part is ours,
 //! by name]. An item at full condition is not listed [owner's rule]. At the top right the
-//! vendor's "Repair Skill" and the player's "Caps"; under them "Repair All (total) A)"
+//! vendor's repair skill and the player's caps; under them "Repair All (total) A)"
 //! (dim when the player cannot pay the total) and "Done E)". For the row under the pointer
 //! or the keys: the item's picture, its condition and damage (weapons) or DT (armour) now
 //! and after the repair with the gains between ("+66 %", "+3"), and "Cost: N caps" (dim
@@ -710,11 +710,16 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, presentation:(&View,cra
         .collect();
     commands.spawn((RepairRoot, crate::menu::normal_services::Rendered::new(guard,look.row.scale), Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing())).with_children(|root| {
         root.spawn(node).with_children(|m| {
-            // The headline: "Repair Services", the vendor's skill and the player's caps,
-            // each part closed by a short side fading down [documented].
-            let title = "Repair Services";
+            // The headline: the title, the vendor's skill and the player's caps, each part
+            // closed by a short side fading down [documented]. The words here and on the
+            // buttons are the settings the menu files name (`sRepairServicesTitle`,
+            // `sRepairSkill`, `sInventoryCaps`, `sRepairAllItems`, `sDone`): the load order's
+            // text, else NVForever's own label [design, #4495: in place of the words read
+            // from the original's screen].
+            let word = crate::pipboy::labels::built_in_label;
+            let title = word("sRepairServicesTitle");
             let tw = look.title.width(title);
-            let caps = format!("Caps  {}", v.caps);
+            let caps = format!("{}  {}", word("sInventoryCaps"), v.caps);
             let v2 = (1010.0 - look.row.width(&caps) - 35.0).max(860.0);
             rule(m, 0.0, 0.0, 50.0, LINE);
             rule(m, tw + 90.0, 0.0, (v2 - tw - 90.0).max(0.0), LINE);
@@ -723,7 +728,7 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, presentation:(&View,cra
                 rule(m, x, 0.0, LINE, 40.0);
             }
             text(m, &look.title, title, 70.0, -13.0, bright);
-            right(m, &look.row, &format!("Repair Skill  {}", v.skill), v2 - 15.0, 20.0, bright);
+            right(m, &look.row, &format!("{}  {}", word("sRepairSkill"), v.skill), v2 - 15.0, 20.0, bright);
             right(m, &look.row, &caps, 1005.0, 20.0, bright);
             // The list.
             m.spawn(Node {overflow:Overflow::clip(),..at(ROW_X,LIST_TOP,ROW_WIDTH+30.0,LIST_HEIGHT)}).with_children(|list| {
@@ -800,18 +805,19 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, presentation:(&View,cra
                     }
                 }
             }
-            // The buttons [observed: "Repair All (285)  A)", "Done  E)"].
+            // The buttons: the word, the total in brackets, the key hint [observed: the
+            // order and the total; the words are the settings above].
             // A and E, with a controller X (`repair_services_menu.xml`'s Repair All) and B
             // (Esc) [#1662].
             let hint_at = crate::pad::at_menu(fnv_game::repair::REPAIR_SERVICES_MENU);
             // The player's Repair All Confirmation tweak: asking, the button says so [design:
             // our own words].
             let all = if v.confirming {
-                format!("Repair All ({})? Again to confirm  {}", v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels))
+                format!("{} ({})? Again to confirm  {}", word("sRepairAllItems"), v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels))
             } else {
-                format!("Repair All ({})  {}", v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels))
+                format!("{} ({})  {}", word("sRepairAllItems"), v.total, crate::pad::hint_as(&[KeyCode::KeyA], hint_at, v.labels))
             };
-            let done = format!("Done  {}", crate::pad::hint_as(&[KeyCode::KeyE, KeyCode::Escape], hint_at, v.labels));
+            let done = format!("{}  {}", word("sDone"), crate::pad::hint_as(&[KeyCode::KeyE, KeyCode::Escape], hint_at, v.labels));
             let button_h = (48.0 * look.row.scale).max(48.0);
             for (k, (label, b, on)) in [(all.as_str(), RepairButton::All, v.all_ready), (done.as_str(), RepairButton::Done, true)].into_iter().enumerate() {
                 let w = crate::pad::hint_width(&look.row, label, glyphs);

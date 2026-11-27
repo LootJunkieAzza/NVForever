@@ -112,6 +112,10 @@ impl SimState {
     /// (SetActorFullName, [`fnv_game::Game::script_name`]) comes first: it renames every
     /// reference of the base [documented: GECK wiki SetActorFullName].
     pub fn ref_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
+        // Another player of a co-op game goes by its player's name (none outside co-op).
+        if let Some(n) = game.and_then(|g| g.coop_actors.get(&FormId(form_id))) {
+            return Some(n);
+        }
         let base = self.base_of(form_id)?;
         let shown = self.shown_base(game, base, form_id);
         let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));

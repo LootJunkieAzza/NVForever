@@ -270,6 +270,9 @@ pub struct Graphics {
     /// Twinkling stars, a moon glow and moonlit clouds (night_sky.rs; off in every preset)
     /// [design, #2995].
     pub night_sky_detail: bool,
+    /// Physical PBR lighting (graphics-enhanced.md §3.25; off in both presets, fixed at the
+    /// start: nvf_assets `authored::set_physical_pbr`) [design, #3827].
+    pub physical_pbr: bool,
     /// The sun's light in the air (medium_air_demand.rs; a prototype, off in every preset)
     /// [design, #3032 stage 3].
     pub volumetric_light: bool,
@@ -284,7 +287,7 @@ pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
 /// shadow-filter, full-detail, distant-object and cloud-level choices that are not vanilla's, in the
 /// order of [`Graphics::describe`].
-pub const KEYS: [&str; 32] = [
+pub const KEYS: [&str; 33] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -316,6 +319,7 @@ pub const KEYS: [&str; 32] = [
     "volumetric-light",
     "aerial-perspective",
     "night-sky-detail",
+    "physical-pbr",
     "distant-lights",
 ];
 
@@ -397,6 +401,7 @@ impl Graphics {
             aerial_perspective: false,
             // Off in every preset: an addition of our own [design, #2995].
             night_sky_detail: false,
+            physical_pbr: false,
             // Off in every preset: a prototype of our own [design, #3032 stage 3].
             volumetric_light: false,
         }
@@ -428,6 +433,7 @@ impl Graphics {
             "volumetric-clouds" => &mut self.volumetric_clouds,
             "aerial-perspective" => &mut self.aerial_perspective,
             "night-sky-detail" => &mut self.night_sky_detail,
+            "physical-pbr" => &mut self.physical_pbr,
             AUTHORED_MATERIALS_KEY => &mut self.authored_materials,
             AUTHORED_REFLECTIONS_KEY => &mut self.authored_reflections,
             "distant-lights" => &mut self.distant_lights,
@@ -513,6 +519,7 @@ impl Graphics {
             (self.volumetric_light, "volumetric light"),
             (self.aerial_perspective, "aerial perspective"),
             (self.night_sky_detail, "night sky detail"),
+            (self.physical_pbr, "physical PBR lighting"),
             (self.distant_lights, "distant lights"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
@@ -1085,7 +1092,7 @@ fn apply(
         }
         // FSR already runs its own RCAS sharpening; do not sharpen the picture twice.
         if g.bloom || (g.sharpen && fsr.is_none()) {
-            e.insert(PostEffects::new(g.bloom, g.sharpen && fsr.is_none()));
+            e.insert(PostEffects::new_with_hdr_glow(g.bloom, g.sharpen && fsr.is_none(), nvf_assets::authored::physical_pbr() && g.glow));
         } else {
             e.remove::<PostEffects>();
         }
@@ -1105,12 +1112,13 @@ fn apply(
         // tonemapping (medium.rs, volumetric_clouds.rs), so its row keeps the view HDR whatever
         // the glow and the upscaler say [design, #3032 decision 10]; the light in the air of
         // stage 3 likewise.
-        if temporal || g.volumetric_clouds || crate::hdr::on() || air {
+        // Physical lighting works on linear light up to the tonemapper (§3.25).
+        if temporal || g.volumetric_clouds || crate::hdr::on() || air || nvf_assets::authored::physical_pbr() {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has
         // its own switch.
-        if g.glow && g.eye_adaptation {
+        if (g.glow || nvf_assets::authored::physical_pbr()) && g.eye_adaptation {
             e.insert(crate::eye_adapt::auto_exposure(&eye));
         } else {
             e.remove::<bevy::post_process::auto_exposure::AutoExposure>();
