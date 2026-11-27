@@ -612,13 +612,15 @@ As for the sun visibility, a meshlet view must not get the component.
 
 Another change (the bounce light's volume, #3009, docs/design/rtgi-volume.md), each part marked
 `NVForever RTGI volume`, for nvforever's `rtgi_volume.rs`, built the same way. nvforever inserts
-the component nowhere yet:
+the component only where something asks for a volume, which a developer aid alone does:
 
 - `src/render/mesh_view_bindings.rs`: the render-world view component `NvfRtgiVolumeBindings`
   (a uniform buffer, a filterable float 3D texture and a filtering sampler), the layout key bit
   `MeshPipelineViewLayoutKey::NVF_RTGI_VOLUME` (20) and bindings 47-49 of the mesh view bind
   group, present only for a view with it. The entries are made by the public
-  `nvf_rtgi_layout_entries`, which the tests read.
+  `nvf_rtgi_layout_entries`, which the tests read. Two counters, `NVF_VIEW_BIND_GROUPS` and
+  `NVF_RTGI_VIEW_BIND_GROUPS`, say how many mesh view bind groups `prepare_mesh_view_bind_groups`
+  made and how many of them with those bindings.
 - `src/render/mesh.rs`: `MeshPipelineKey::NVF_RTGI_VOLUME` (bit 30; the packed fields above it
   move up by one more and end at bit 51, still below the base mesh key's bits from 58), set by
   `check_views_need_specialization` from the same component. No shader def follows from it:

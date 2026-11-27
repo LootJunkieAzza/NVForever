@@ -1034,9 +1034,8 @@ below cover them all.
 
 ### `quality`: Quality preset
 
-- On the page: Sets the rows the original's quality presets cover to the game folder's
-  low.ini to VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: those rows
-  match none of them.
+- On the page: Sets the rows the quality presets cover to the game folder's low.ini to
+  VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: none match.
 - In full: Sets the rows the original's quality presets cover to the values of the game
   folder's low.ini, medium.ini, high.ini or VeryHigh.ini: Sun shadows, Shadow filtering,
   Light glow, Mirrored reflections and the object, actor, item, shadow and grass
@@ -1147,9 +1146,8 @@ below cover them all.
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
 ### `light-shadows`: ALC shadows
 
-- On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the
-  shadow distance, so walls stop their light. Performance redraws less often. Costs frame
-  rate. Not in the original.
+- On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows in the
+  shadow distance; Performance redraws less often. Costs frame rate. Not in the original.
 - In full: ALC stands for All Lights Cast; the row was called Lamp shadows until 2026-11-19.
   The INI key `light-shadows`, the switch `--light-shadows` and the log lines starting
   `light shadows:` keep the old name, so saved settings, scripts and the smoke scenarios go
@@ -1199,8 +1197,8 @@ below cover them all.
 
 ### `volumetric-clouds`: Volumetric clouds (experimental)
 
-- On the page: The weather's clouds drawn with depth, lit by the sun: Off, or Performance,
-  Normal or High, each finer and dearer than the last. A prototype. Not in the original.
+- On the page: The weather's clouds drawn with depth and lit by the sun: Off, or
+  Performance, Normal or High. A prototype. Not in the original.
 - In full: The weather's own cloud layers, as Cloud shadows composes them, become a
   layer of cloud with thickness above the world, worked out per pixel: lit by the weather's
   sunlight (by night its night light, from the moon), bright toward the sun, darker
@@ -1286,11 +1284,11 @@ below cover them all.
 ### `volumetric-light`: Volumetric light (experimental)
 
 - On the page: On: sunlight and moonlight show in the air as rays and a glow toward a low
-  sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An
-  addition of NVForever's.
+  sun. An addition of NVForever's.
 - While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
   it draws). A prototype. Outdoors only, by the sun by day and by
-  the moon at night (nothing at night in a climate without one), in the main view only. Off in every preset; not in the original.
+  the moon at night (nothing at night in a climate without one), in the main view only. Best
+  with Cloud shadows and Terrain shadows on. Off in every preset; not in the original.
 - Command-line switches: `--graphics-only`
 - More: docs/design/volumetric-medium.md
 - Registered in `engine/nvforever/src/settings.rs`
@@ -1321,16 +1319,30 @@ below cover them all.
 
 ### `subsurface-scattering`: Subsurface scattering (experimental)
 
-- On the page: On: light passes softly through skin and leaves; eyes get a wet cornea and
-  hair a strand sheen. Needs Physical lighting. Takes effect at the next start. Not in the
-  original.
+- On the page: On: light passes softly through skin; eyes get a wet cornea, hair a strand
+  sheen, outfits a leather, cloth or metal look. Needs Physical lighting. Takes effect at
+  the next start. Not in the original.
 - In full: Skin takes pre-integrated scattering with per-vertex curvature and a warm shadow
   edge, and its diffuse light is blurred on the screen; eyes take a cornea clear coat, iris
   depth and lid occlusion; hair takes a strand BSDF along the texture's painted strands;
-  leaves and grass let light through from behind. Greyed while Physical lighting is off.
+  outfits and armour are shaded as leather, cloth or metal by their texture's path and
+  their normal map's specular mask. Greyed while Physical lighting is off.
   Read at the start. Off by default and in every preset.
 - Command-line switches: `--graphics-only`
 - More: docs/design/graphics-enhanced.md §3.26
+
+### `tonemap-preset`: Tonemapping preset
+
+- On the page: A look laid on the tonemapper: exposure, contrast and highlight roll-off.
+  Default keeps the shipped look. Presets are files in the Tonemapping folder of
+  NVForever's home. Not in the original.
+- In full: Default and the presets found in `<NVForever home>\Tonemapping\` at the start,
+  one TOML file each (docs/design/tonemapping-presets.md has the format). The pick takes
+  effect at once, in either lighting mode and with HDR output, and is kept by its name; a
+  name no longer on disk falls back to Default. The eye adaptation still applies on top.
+  HDR output's calibration stays the display's own.
+- Command-line switches: none
+- More: docs/design/tonemapping-presets.md (#4690)
 ### `bloom`: Bloom
 
 - On the page: On: light brighter than a sunlit white wall (the sun, lamps, windows) glows
@@ -1467,9 +1479,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `authored-materials`: Authored materials
 
-- On the page: On: surfaces whose textures a texture pack gives material maps for
-  (textures\pbr\) are shaded from them. Off: every surface uses the game's own values.
-  Takes effect at the next start.
+- On the page: On: a material pack's maps (textures\pbr\) shade its surfaces. Off: the
+  game's own values. Takes effect at the next start.
 - In full: [design, #2981] A texture pack may give a game texture a set of material maps
   under `textures\pbr\` (occlusion, roughness and metallic in `_orm`, a normal map in `_n`,
   scalars in a `.toml`); the shapes drawn with that texture then take their roughness,
@@ -1490,9 +1501,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `authored-reflections`: Reflections on authored materials
 
-- On the page: On: pack materials reflect the sky outdoors and an approximation of the
-  room and nearby lights indoors. Needs a material pack and Authored materials on.
-  Takes effect at the next start.
+- On the page: On: pack materials reflect the sky outside and nearby lights inside. Needs
+  Authored materials on. Takes effect at the next start.
 - In full: [design, #2981] Surfaces shaded from an authored set reflect a small cube of the
   world camera's surroundings, blurred by their roughness, and the `_orm`'s metallic channel
   takes effect. Outdoors it reflects the sky, ground and a broad glow toward the sun or
@@ -1542,11 +1552,11 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   docs/spec-notes/pbr-materials.md), the ground near the camera shows that relief: one
   march over the layers' heights, blended as the layers are, moves the texture coordinate
   every ground texture is read at, fading out by 2048 units; each layer moves as far as its
-  own set's depth asks. The base texture of a quadrant and layers without a height map
-  count as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
+  own set's depth asks, and so does the base texture of a quadrant (#3846). A base or layer
+  without a height map counts as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
   collision, the mesh terrain blend and the distant landscape keep the plain surface, and
   so do layers drawn on their own (GPUs without bindless textures; a texture repeat that
-  does not divide the cell). A layer whose texture has no set takes the height from its
+  does not divide the cell). A layer or base whose texture has no set takes the height from its
   diffuse's alpha where that is a varying DXT5 alpha, as the ground packs for the original's
   terrain parallax shaders have it (depth 0.03; read only while the switch is on, over some
   frames when it is switched on in a game). Needs
@@ -1577,8 +1587,7 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 ### `occlusion-culling`: Occlusion culling
 
 - On the page: On: hidden objects are skipped before drawing. Helps when the GPU limits
-  the frame rate (high resolutions, dense towns); costs some CPU. Takes effect at the next
-  start.
+  the frame rate; costs some CPU. Takes effect at the next start.
 - In full: [design] Bevy's two-phase GPU occlusion culling on the main camera: meshes
   hidden behind nearer ones (by last frame's depth, then this frame's) are not drawn.
   First-person shapes are never culled. [observed 2026-11-24, 4K DLSS Quality, maxed
@@ -1591,9 +1600,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `smooth-terrain`: Smooth terrain
 
-- On the page: Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 squares
-  per landscape square, or 4 x 4 near you and 2 x 2 further. Drawing and collision share it.
-  Applies at the next start.
+- On the page: Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 per
+  landscape square, or 4 x 4 near and 2 x 2 further. Applies at the next start.
 - In full: [design, #2149, #2676] A list: Off, 2 x 2, 4 x 4 and 4 x 4 near; 4 x 4 by
   default (smoothing on by the maintainer's decision of 2026-11-13; 4 × 4 and the recipe,
   detail, bound 8 units and thresholds 2:6, are the contributor's pick from in-game

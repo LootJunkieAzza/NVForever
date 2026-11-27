@@ -143,6 +143,7 @@ mod light_shadows;
 mod lights;
 mod photo_lights;
 mod physical_ibl;
+mod tone_presets;
 mod limbs;
 mod lips;
 mod memory_budget;
@@ -2056,12 +2057,13 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // Physical lighting's image-based light from the sky (graphics-enhanced.md §3.25); idle
     // without the row.
     .add_plugins(physical_ibl::PhysicalIblPlugin)
+    .add_plugins(tone_presets::TonePresetsPlugin)
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
     // Subsurface scattering (the row, part 6 of #3828's split): skin, eyes, hair, outfits.
     .add_plugins(sss::SssPlugin)
-    // The bounce light volume's shader for the lighting (imported only under its def, which no view gives yet).
+    // The bounce light volume: its shader for the lighting (imported only under its def), its bindings (only on request).
     .add_plugins(rtgi_volume::RtgiVolumePlugin)
     // Shadows of placed lights, the ALC shadows row (off by default).
     .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))

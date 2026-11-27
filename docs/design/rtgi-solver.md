@@ -4,7 +4,8 @@ The plan is a crate that works out the light that an interior's lamps throw back
 surfaces, as a small 3D texture, on the CPU and without Bevy. It is built in parts, each with
 tests on scenes it makes itself. **Built: part 1, the ray scene, part 2, the light gathered at
 points of the air, part 3, the volume, and part 4, the fit of its constants.** Nothing in the game
-calls it yet: there is no setting, no upload and no shader. It ships no data.
+solves anything yet and there is no setting; of the crate the game has the volume and its read alone
+([rtgi-volume](rtgi-volume.md)). It ships no data.
 
 The direction now is a live solve on the GPU from the first frame of a visit, with this solver as its
 reference ([below](#for-another-tracer-the-live-solve)). "The whole" is the earlier plan, for the CPU
@@ -292,8 +293,35 @@ computes:
   a volume's points as the words a kernel reads, made on any thread. What a shader could not compute as
   the solver does is refused there with the reason (corners past 1e5, colours or factors past 1e10, a
   transformed texture coordinate that could pass 1e5 anywhere between the corners, or one as given past 1e30, lights brighter than
-  1e6 together) and stays the CPU solver's. The kernel, the device side and a runner that compares both
-  come in the next slices.
+  1e6 together, a surface's albedo past 2^80 on a channel, a lamp's range above 0 below 1e-6, where a device
+  could overflow or drop a decisive subnormal) and stays the CPU solver's. Beyond that the GPU may treat subnormal
+  values (below f32::MIN_POSITIVE) as zero (WGSL allows it): a lamp's contribution below the smallest normal float,
+  and a spot's direction within about 2^-63 units of its lamp, may then be zero on the GPU where the CPU has a
+  subnormal value. The light differs by less than 1.2e-38 and a lamp or shadow-ray count may differ by such lamps;
+  nothing visible changes.
+- **The kernel and its batches (`nvf-rtgi-live`, second slice).** `kernel.wgsl` gathers a point's rays with
+  ray queries over one bottom level structure of all triangles (those with an alpha test a geometry of their
+  own) and a top level one of it alone, built once for fast tracing, never compacted. Entry points: `solve`
+  (each point's moments and its hits, backs, lamps and shadow rays), `reach` (hits and backs alone, nothing
+  lit), and `replay` and `meetings` (each ray, the triangle test) for checks. It follows the solver's rules:
+  the triangles near a point (its packed list) and those about the structure's nearest hit are decided by the
+  solver's triangle test in the solver's order of roundings, a candidate's alpha by the same correctly rounded
+  weights as the winner's; the direction as the rays go for the structure, the test and the side met, as given
+  for the moments; the lamps' table takes a place rounded onto its far edge as the last cell, its cell from the
+  correctly rounded quotient; a spot's cone from the unit direction from the lamp, none right at it, apart from
+  the floored one that a surface's facing uses. Away from a point the structure's own barycentrics decide an
+  alpha exactly at the cutoff and where a shadow ray ends. `Live` holds a room's points, the light and a
+  batch's uniform; `encode` records one batch, `read_back` returns what the batches wrote. The device and the
+  queue come from outside; nothing of it is in the game yet.
+- **The check.** `cargo run --release -p nvf-rtgi-live --example rtgi-live-check -- [--validation]
+  [--adapter <part of a name>]` builds scenes in code (no game data), runs the kernel and holds it against
+  `nvf_rtgi`: each ray's surface, light (within 5e-4), lamps and shadow rays against `bounces`, each point's
+  counts and moments against their sums and its reach against `classified`, and 100,000 triangle tests against
+  `meet`, bit for bit (0 and -0 held as one, and counted). Where a ray's light may differ by design (a shadow ray
+  that starts in another surface's plane, a limit the structure decides) it is listed ray by ray and bounded by
+  answers the CPU computes on its own, the lamps it sees too. Exit 0 when all pass, 1 on a failure,
+  2 without a Vulkan adapter that has ray queries. One known difference, ray 865 from the edge of two walls near
+  the origin, is pinned exactly and reported as KNOWN with its reason; its point is held to it and nothing else.
 
 Tests hold the seams to the solver on made scenes: a reach by the CPU's counts is `reach()`'s and
 `solve()`'s, `reach()`'s points packed again are `solve()`'s bytes, and the table names the lamps the

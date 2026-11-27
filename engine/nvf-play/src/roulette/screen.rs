@@ -4,10 +4,11 @@
 //! 30 in from the view's edges, as lockpicking's (`crate::lockpick::screen`).
 //!
 //! - The information box: 400 × 150, 10 in from the main rectangle's left and bottom, the
-//!   bracket of lines, four rows in font 7 at 20 in, 35 apart from its top: "Current Bet:",
-//!   "Total Bet:", "Chips:" and "<casino> Earnings:", each value right-aligned 85 short of
-//!   the box's width [documented: `ROM_InfoRect`; observed: the titles, the owner's
-//!   screenshots (2026-10-16)].
+//!   bracket of lines, four rows in font 7 at 20 in, 35 apart from its top: the bet, the
+//!   bets on the table, the chips and the casino's winnings, each value right-aligned 85
+//!   short of the box's width [documented: `ROM_InfoRect`]. The titles, "Your bet:", "On
+//!   the table:", "Your chips:" and "Won at <casino>:", are NVForever's own words
+//!   [design, #4495: in place of the titles read from the original's screen].
 //! - Six buttons right-aligned 50 from the main rectangle's right, under each other: Place
 //!   Bet, Remove Bet, Finish Bet, Decrease Bet, Increase Bet, Exit, each with its key
 //!   [documented: the order, `_PCButton_W/F/S/Q/E/R`; observed: the words]. The file puts
@@ -146,10 +147,10 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
         r.spawn(main).with_children(|m| {
             // The information box.
             let rows = [
-                (tr("Current Bet:").to_string(), s.bet.to_string()),
-                (tr("Total Bet:").into(), s.table.total().to_string()),
-                (tr("Chips:").into(), s.free_chips().to_string()),
-                (trf("{casino} Earnings:", &[("casino", &s.casino_name)]), s.earnings.to_string()),
+                (tr("Your bet:").to_string(), s.bet.to_string()),
+                (tr("On the table:").into(), s.table.total().to_string()),
+                (tr("Your chips:").into(), s.free_chips().to_string()),
+                (trf("Won at {casino}:", &[("casino", &s.casino_name)]), s.earnings.to_string()),
             ];
             let widths: Vec<(f32, f32)> = rows.iter().map(|(t, v)| (c.text_width(FontKind::Menu, t), c.text_width(FontKind::Menu, v))).collect();
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, 16.0, &widths);

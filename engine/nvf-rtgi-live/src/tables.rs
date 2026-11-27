@@ -7,17 +7,17 @@ use std::collections::HashMap;
 /// Words of a material, a texture and a direction.
 const MATERIAL: usize = 16;
 const TEXTURE: usize = 8;
-const DIRECTION: usize = 13;
+pub(crate) const DIRECTION: usize = 13;
 /// Where a direction's parts are in its words: as given (for the moments), as the rays go (still axes 0: for the
 /// tree, the triangle test and the side met), the shear, the axes (two bits each, then a bit each for the still ones)
 /// and the reciprocals.
-const GIVEN: usize = 0;
-const ALONG: usize = 3;
-const SHEAR: usize = 6;
-const AXES: usize = 9;
-const INVERSE: usize = 10;
+pub(crate) const GIVEN: usize = 0;
+pub(crate) const ALONG: usize = 3;
+pub(crate) const SHEAR: usize = 6;
+pub(crate) const AXES: usize = 9;
+pub(crate) const INVERSE: usize = 10;
 /// Words of a point.
-const PLACE: usize = 7;
+pub(crate) const PLACE: usize = 7;
 /// Of the lights' words, before the rows.
 const LIGHTS: usize = 16;
 const NONE: u32 = u32::MAX;
@@ -40,6 +40,21 @@ const RAW: f32 = 1e30;
 const SIDE: usize = 1 << 14;
 /// All lights' display values together are no more, whatever they add or take.
 const BRIGHT: f32 = 1e6;
+/// No surface's albedo (its colour, as linear, times its material's) is more on any channel: times a light sum's
+/// power, at most BRIGHT^2.2 = 1.6e13, it is at most 2e37, below f32's end, so the solver's min(albedo x power, 1)
+/// is no product that overflows on a device.
+const ALBEDO: f64 = 1_208_925_819_614_629_174_706_176.0; // 2^80
+/// No lamp's range that is above 0 is less. Its square is at least 1e-12; a part of d^2 that a device may take as 0
+/// (a square below 2^-126) then changes neither whether d^2 >= range^2 nor whether the attenuation is 0: where every
+/// part of d^2 is below 2^-60, d^2 < 3 x 2^-60 < range^2 on both sides and 1 - d^2 / range^2 is above 1/4; where one
+/// is 2^-60 or more, half a step of any sum with it is at least 2^-85, and a sum below 2^-100, which is all that holds
+/// a part a device would drop, adds nothing to it on either side.
+///
+/// Beyond these bounds the contract is this: the GPU may treat subnormal values (below f32::MIN_POSITIVE) as zero
+/// (WGSL allows it). A lamp's contribution below the smallest normal float, and a spot's direction within about 2^-63
+/// units of its lamp, may then be zero on the GPU where the CPU has a subnormal value: the light differs by less than
+/// 1.2e-38 and a lamp or shadow-ray count may differ by such lamps. Nothing visible changes.
+const LEAST_RANGE: f32 = 1e-6;
 
 /// The scene's part: what does not change while a room is the same.
 #[derive(Clone, Debug, PartialEq)]
@@ -121,6 +136,12 @@ impl Tables {
             }
             if face.colors.iter().any(|c| c[..3].iter().any(|c| !(0.0..=MOST).contains(c))) {
                 return Err(format!("triangle {i}: its colours"));
+            }
+            // The most of a blend of the corners' colours, as linear (an sRGB display value c above 1 is at most
+            // c^2.4 then), times the material's; a texel is at most 1.
+            let linear = |c: f32| if m.display_colors && c > 1.0 { f64::from(c).powf(2.4) } else { f64::from(c.max(1.0)) };
+            if (0..3).any(|k| face.colors.iter().fold(0.0f64, |a, c| a.max(linear(c[k]))) * f64::from(m.base[k]) > ALBEDO) {
+                return Err(format!("triangle {i}: an albedo past 2^80"));
             }
             if m.texture.is_some() && face.uv.as_flattened().iter().all(|c| c.is_finite()) {
                 // The coordinates are blended, then transformed: no blend is past the corners' largest, and each term of
@@ -269,28 +290,28 @@ impl Tables {
     }
 
     /// Three a primitive, in [`Tables::order`].
-    pub fn corners(&self) -> &[[f32; 3]] {
+    pub(crate) fn corners(&self) -> &[[f32; 3]] {
         &self.corners
     }
 
     /// A primitive's material (and whether its texture is read at 0, 0), its row of colours, its normal, its corners'
     /// normals and texture coordinates, and the scene's number of it.
-    pub fn faces(&self) -> &[u32] {
+    pub(crate) fn faces(&self) -> &[u32] {
         &self.faces
     }
 
     /// Materials, then from [`Tables::starts`] on the textures, the rows of colours, the sRGB table and the directions:
     /// as given, as the rays go, the shear, the axes and the still ones, the reciprocals.
-    pub fn data(&self) -> &[u32] {
+    pub(crate) fn data(&self) -> &[u32] {
         &self.data
     }
 
-    pub fn starts(&self) -> [u32; 4] {
+    pub(crate) fn starts(&self) -> [u32; 4] {
         self.at
     }
 
     /// The colour levels' texels, and the alpha tests' four alphas a word.
-    pub fn texels(&self) -> &[u32] {
+    pub(crate) fn texels(&self) -> &[u32] {
         &self.texels
     }
 
@@ -338,6 +359,11 @@ fn light_words(light: &LightState) -> Result<(Vec<u32>, u32), String> {
     let sum = displays.fold(0.0, |s, d| s + d.max_abs());
     if sum.is_nan() || sum > BRIGHT {
         return Err(format!("lights of {sum} together"));
+    }
+    // A range below LEAST_RANGE: of one whose square is 0 the solver divides by it (0 / 0 at the lamp itself, a light
+    // that is no number and a shadow ray); of a small one a device may drop parts of d^2 that decide.
+    if let Some(l) = light.lamps.iter().find(|l| l.range > 0.0 && l.range < LEAST_RANGE) {
+        return Err(format!("a lamp of range {}", l.range));
     }
     let mut out = Vec::with_capacity(LIGHTS + 6 * light.directionals.len() + 16 * light.lamps.len() + grid.start.len() + grid.lamps.len());
     out.extend(words(&light.ambient.0));
@@ -569,6 +595,12 @@ mod tests {
         // The solver's own colour that overflows: black there, refused here.
         let overflow = Material { unlit: true, base: [f32::MAX, 0.5, 0.5, 1.0], ..Material::default() };
         assert!(of(overflow, &|_| ()).is_err() && of(Material::default(), &|m| m.colors = vec![[f32::MAX, 1.0, 1.0, 1.0]; 4]).is_err());
+        // An albedo at 2^80 and past it: a display colour of 2^25 (2^60 at most, as linear) times a factor of 2^20 and
+        // of the float above; a factor alone is refused past 1e10 before.
+        let shown = |f: f32| Material { base: [1.0, 1.0, f, 1.0], display_colors: true, ..Material::default() };
+        let bright = |m: &mut Mesh| m.colors = vec![[1.0, 1.0, 2f32.powi(25), 1.0]; 4];
+        assert_eq!(of(shown(2f32.powi(20)), &bright), Ok(2));
+        assert!(of(shown(2f32.powi(20).next_up()), &bright).is_err());
         // A coordinate too far, read; one that nothing reads.
         assert!(of(cut(), &|m| m.uv0[0][0] = 2e5).is_err() && of(Material { uv: [[1e6, 0.0, 0.0], [0.0, 1.0, 0.0]], ..cut() }, &|m| m.uv0[0][0] = 1.0).is_err());
         assert_eq!(of(Material { texture: None, ..cut() }, &|m| m.uv0[0][0] = 2e5), Ok(0));
@@ -623,7 +655,15 @@ mod tests {
         for lamps in [vec![lamp(2_097_153.0)], vec![Lamp { cone: Some(Cone::new(V3::ZERO, 0.2, 0.4)), ..lamp(0.0) }]] {
             assert!(PackedLight::of(&LightState { lamps, ..light.clone() }).is_err());
         }
-        assert!(PackedLight::of(&LightState { ambient: V3([f32::NAN; 3]), ..light }).is_err());
+        assert!(PackedLight::of(&LightState { ambient: V3([f32::NAN; 3]), ..light.clone() }).is_err());
+        // A range whose square is 0, at the place a ray meets: the solver's light there is no number, and it counts a
+        // shadow ray; refused here. One below 1e-6 too; none at all, or one of 1e-6 and more, is not.
+        let w = made(vec![Material::default()], Vec::new(), |_| ());
+        let at = |range: f32| LightState { lamps: vec![Lamp { range, ..lamp(0.0) }], ..light.clone() };
+        let coincident = LightState { lamps: vec![Lamp { position: V3::new(2.0, 2.0, 0.0), range: 1e-24, ..lamp(0.0) }], ..light.clone() };
+        let b = nvf_rtgi::bounces(&w, &coincident, &[(V3::new(2.0, 2.0, 5.0), V3::new(0.0, 0.0, -1.0))], 0.25, 1, &|| false).unwrap()[0].unwrap();
+        assert!(b.p == V3::new(2.0, 2.0, 0.0) && b.shadow_rays == 1 && PackedLight::of(&coincident).is_err());
+        assert!([1e-24, 2e-19, LEAST_RANGE.next_down()].iter().all(|r| PackedLight::of(&at(*r)).is_err()) && [0.0, -1.0, LEAST_RANGE, 1e-3].iter().all(|r| PackedLight::of(&at(*r)).is_ok()));
     }
 
     /// The points of a solve where its texture has them, with the triangles near them.
