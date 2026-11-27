@@ -275,6 +275,8 @@ pub fn chosen(key: &str, choices: &[Choice], value: &str) -> Option<usize> {
 /// (EnumDisplayDevicesW / EnumDisplaySettingsW, user32): the device names are the ones winit
 /// gives the game, so `monitor=` matches.
 #[cfg(all(windows, feature = "desktop"))]
+// The Win32 calls (#4592): the crate denies unsafe code everywhere else.
+#[allow(unsafe_code)]
 pub fn monitors() -> Vec<Monitor> {
     use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, EnumDisplaySettingsW, DEVMODEW, DISPLAY_DEVICEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE, ENUM_CURRENT_SETTINGS};
     let wide = |w: &[u16]| String::from_utf16_lossy(&w[..w.iter().position(|c| *c == 0).unwrap_or(w.len())]);

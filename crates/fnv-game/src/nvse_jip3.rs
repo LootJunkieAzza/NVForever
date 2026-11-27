@@ -101,7 +101,7 @@ impl Game<'_> {
         for (f, filter) in hs {
             let pass = match (filter, subject) {
                 (None, _) => true,
-                (Some(l), Some(s)) => l == s || crate::functions::list_members(self, l).contains(&s),
+                (Some(l), Some(s)) => l == s || crate::functions::base_of(self, s) == Some(l) || crate::functions::list_members(self, l).contains(&s),
                 (Some(_), None) => false,
             };
             if !pass {
@@ -306,13 +306,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.gaps.jip3.refresh_items_list = true;
             zero
         }
-        // `mode`: 0 god mode (1 while on), 1 the actors' AI (1 while it runs, 0 after
-        // `tai`) [documented: GetDebugModeState; observed: jip3a, 0 then 1 across `tgm`,
-        // 1 then 0 then 1 across `tai`; hypothesis: 2 combat AI, 3 collision, 4 borders
-        // read 0].
+        // `mode`: 0 god mode (1 while on), 1 actors' AI (1 while it runs, 0 after `tai`),
+        // 2 combat AI (1 by default while enabled, matching mode 1), 3 collision (0 by
+        // default), 4 borders (0 by default), out-of-range modes 0 [documented:
+        // GetDebugModeState; observed: jip3a, 0 then 1 across `tgm`, 1 then 0 then 1
+        // across `tai`; observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9
+        // + JIP LN 57.30, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`),
+        // isolated clean-room staging copy (read-only `PrintToConsole` probe; zero writes
+        // to game install or Saves), committed probe
+        // `w6t2_24_jip_fall_time_and_is_in_air_edges`
+        // (`tools/capture/nvse/catalogs/wave6_t2_debug_mode_state.json`):
+        // `PROBE|w6t2_24_jip_fall_time_and_is_in_air_edges|dbg(0,1,1,0,0,0,tgm=1)|fall=0.952,air=0`;
+        // zero DLL, PDB, or third-party source consulted; hypothesis: toggling `tcai`,
+        // `tcl`, or `tb` at runtime is not yet tracked in `Toggles`].
         "getdebugmodestate" => match num(args, 0, -1.0) as i64 {
             0 => yes(g.toggles.god_mode),
             1 => yes(!g.toggles.actors_ai_off),
+            2 => yes(true),
             _ => zero,
         },
         // `xVar yVar zVar [local]`: the reference's Euler angles in degrees; `getLocal=0`
@@ -473,6 +483,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `set|remove function flag [filter]`: JohnnyGuitar's handlers kept here
         // (`Game::jg_event`) [documented: the SetJohnnyOn…EventHandler pages].
+        // `XMarker` (`0x0000_003B`) as wildcard filter is [observed 2026-11-24:
+        // `w6t2p2_09_jg_on_dying_all_filters`] for `JgEvent::Dying` and [hypothesis] for
+        // `JgEvent::CompleteQuest` and `JgEvent::ChallengeComplete`.
         "setjohnnyonrendereventhandler" | "setjohnnyonrenderupdateeventhandler" | "setjohnnyondyingeventhandler" | "setjohnnyoncompletequesteventhandler" | "setjohnnyonchallengecompleteeventhandler" => {
             let ev = match name {
                 "setjohnnyondyingeventhandler" => JgEvent::Dying,
@@ -481,7 +494,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 _ => JgEvent::RenderUpdate,
             };
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let filter = form(args, 3);
+            let filter = form(args, 3).filter(|&id| id != FormId(0x0000_003B));
             g.gaps.jip3.jg_handlers.retain(|(e, h, l)| !(*e == ev && *h == f && *l == filter));
             if num(args, 0, 1.0) != 0.0 {
                 g.gaps.jip3.jg_handlers.push((ev, f, filter));

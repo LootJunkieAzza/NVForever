@@ -116,6 +116,15 @@ fn has_direct_child(ui: &Ui, parent: TileId, name: &str) -> Option<TileId> {
         .find(|&c| ui.is_live(c) && ui.tile(c).name.eq_ignore_ascii_case(name))
 }
 
+fn direct_children(ui: &Ui, parent: TileId, name: &str) -> Vec<TileId> {
+    ui.tile(parent)
+        .children
+        .iter()
+        .copied()
+        .filter(|&c| ui.is_live(c) && ui.tile(c).name.eq_ignore_ascii_case(name))
+        .collect()
+}
+
 fn has_template(ui: &Ui, tile: TileId, name: &str) -> bool {
     ui.tile(tile).templates.iter().any(|t| t.name.eq_ignore_ascii_case(name))
 }
@@ -169,6 +178,63 @@ pub fn publish_for_menu(ui: &mut Ui, files: &dyn Source, root: TileId, class_cod
         return false;
     }
     ui.inject_text(files, &menu_name, &text)
+}
+
+/// Re-align a row's existing `ySIImage/x` after `ui.update()` has evaluated expression-driven
+/// `ListItemText/x` / `_ysi_base_x` and `ySI` spacing traits on freshly created rows [design].
+///
+/// Returns `true` if `ySIImage/x` was changed.
+pub fn sync_row_icon_x(ui: &mut Ui, row_tile: TileId) -> bool {
+    if !ui.is_live(row_tile) {
+        return false;
+    }
+    let Some(icon_tile) = has_direct_child(ui, row_tile, YSI_IMAGE_TILE) else {
+        return false;
+    };
+    let Some(text_tile) = has_direct_child(ui, row_tile, "ListItemText") else {
+        return false;
+    };
+    let root = ui.root_of(row_tile);
+    let ysi_rect = has_direct_child(ui, root, YSI_ROOT_TILE);
+    let ysi_num = |trait_name: &str| {
+        ysi_rect
+            .and_then(|r| ui.tile(r).get(trait_name))
+            .map(fnv_ui::Value::num)
+    };
+    let icon_num = |trait_name: &str| ui.tile(icon_tile).get(trait_name).map(fnv_ui::Value::num);
+
+    let has_icon = !ui
+        .tile(icon_tile)
+        .get(YSI_TEMPLATE_TRAIT)
+        .is_some_and(|v| v.text().eq_ignore_ascii_case(YSI_NO_TAG_TEMPLATE));
+    let blanks_on = ysi_num("_ySIBlanks").is_none_or(|v| v != 0.0);
+    let width = if has_icon || blanks_on {
+        ysi_num("_ySIWidth")
+            .or_else(|| icon_num("width"))
+            .unwrap_or(0.0)
+            .max(0.0)
+    } else {
+        0.0
+    };
+    let space_left = ysi_num("_ySISpaceLeft")
+        .or_else(|| icon_num("user0"))
+        .unwrap_or(0.0);
+
+    let base_x = ui
+        .tile(text_tile)
+        .get(YSI_BASE_X_TRAIT)
+        .or_else(|| ui.tile(text_tile).get("x"))
+        .map_or(0.0, fnv_ui::Value::num);
+    let want_x = if width > 0.0 {
+        base_x + space_left
+    } else {
+        base_x
+    };
+    if ui.tile(icon_tile).get("x").map(fnv_ui::Value::num) == Some(want_x) {
+        return false;
+    }
+    ui.set_trait(icon_tile, "x", fnv_ui::Value::Num(want_x));
+    true
 }
 
 /// Safely instantiate a ySI icon template (such as `ySIDefault` or `ySINoTag`) under
@@ -237,29 +303,37 @@ pub fn apply_row_icon(
         None
     };
 
+    let existing_images = direct_children(ui, row_tile, YSI_IMAGE_TILE);
     let Some(template_name) = chosen_template else {
-        if let Some(existing) = has_direct_child(ui, row_tile, YSI_IMAGE_TILE) {
-            ui.set_trait(existing, "visible", fnv_ui::Value::Num(0.0));
+        for (idx, existing) in existing_images.into_iter().enumerate() {
+            if idx == 0 {
+                ui.set_trait(existing, "visible", fnv_ui::Value::Num(0.0));
+            } else {
+                ui.unload_tile(existing);
+            }
         }
         return false;
     };
 
-    if let Some(existing) = has_direct_child(ui, row_tile, YSI_IMAGE_TILE) {
-        let same_tpl = ui
-            .tile(existing)
-            .get(YSI_TEMPLATE_TRAIT)
-            .is_some_and(|v| v.text().eq_ignore_ascii_case(&template_name));
-        if !same_tpl {
+    let mut kept = None;
+    for existing in existing_images {
+        let same_tpl = kept.is_none()
+            && ui
+                .tile(existing)
+                .get(YSI_TEMPLATE_TRAIT)
+                .is_some_and(|v| v.text().eq_ignore_ascii_case(&template_name));
+        if same_tpl {
+            kept = Some(existing);
+        } else {
             ui.unload_tile(existing);
         }
     }
 
-    let tile = if let Some(existing) = has_direct_child(ui, row_tile, YSI_IMAGE_TILE) {
+    let tile = if let Some(existing) = kept {
         existing
     } else {
-        let row_path = ui.path_of(row_tile);
         let Some(created) =
-            ui.add_code_tile_from_template(files, &row_path, &template_name, Some(YSI_IMAGE_TILE))
+            ui.add_code_tile_from_template_under(files, row_tile, &template_name, Some(YSI_IMAGE_TILE))
         else {
             return false;
         };

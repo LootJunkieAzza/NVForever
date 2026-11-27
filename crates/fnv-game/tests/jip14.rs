@@ -201,6 +201,29 @@ fn nth_effect_functions_share_one_index() {
     assert_eq!(g.effect_list(FormId(ALCH)).iter().map(|e| (e.effect.0, e.magnitude)).collect::<Vec<_>>(), vec![(MGEF1, 20), (MGEF1, 11)]);
 }
 
+/// `SetNthEffectTraitNumeric` preserves negative values on both record and `AddNewEffect`
+/// slots, and `SetNthEffectBase` rejects non-`MGEF` forms [observed:
+/// `w6d2_05_nth_effect_traits_and_base_edges`].
+#[test]
+fn nth_effect_negative_traits_and_mgef_validation() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Negative trait on record slot.
+    q(&mut g, "SetNthEffectTraitNumeric TestDrink 0 0 -5");
+    assert_eq!(n(&mut g, "GetNthEffectTraitNumeric TestDrink 0 0"), -5.0);
+    // Negative trait on AddNewEffect slot.
+    assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 10 5 0 0 1"), 1.0);
+    q(&mut g, "SetNthEffectTraitNumeric TestDrink 1 0 -7");
+    assert_eq!(n(&mut g, "GetNthEffectTraitNumeric TestDrink 1 0"), -7.0);
+    // Out-of-range trait index returns 0.
+    assert_eq!(n(&mut g, "GetNthEffectTraitNumeric TestDrink 0 3"), 0.0);
+    // SetNthEffectBase ignores non-MGEF forms (e.g., STAT or ALCH) on both record and added slots.
+    q(&mut g, "SetNthEffectBase TestDrink 0 TestStatic");
+    q(&mut g, "SetNthEffectBase TestDrink 1 TestDrink");
+    assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 0"), f64::from(MGEF1));
+    assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 1"), f64::from(MGEF2));
+}
+
 /// A projectile's fuse goes with the projectile (#2018).
 #[test]
 fn fuses_go_with_their_projectile() {

@@ -23,15 +23,17 @@ impl Material {
     }
 }
 
-/// What a triangle has beside its corners.
+/// What a triangle has beside its corners, as it is after [`crate::prepare`].
 #[derive(Clone, Copy, Debug)]
-struct Face {
-    material: u32,
-    /// The geometric normal, towards the front side.
-    normal: V3,
-    normals: [[f32; 3]; 3],
-    uv: [[f32; 2]; 3],
-    colors: [[f32; 4]; 3],
+pub struct Face {
+    pub material: u32,
+    /// The geometric normal, unit, towards the front side.
+    pub normal: V3,
+    /// Of the corners, unit.
+    pub normals: [[f32; 3]; 3],
+    /// Those that are not finite are kept, as given.
+    pub uv: [[f32; 2]; 3],
+    pub colors: [[f32; 4]; 3],
 }
 
 /// The most triangles that can be counted at all, and the most threads.
@@ -207,6 +209,16 @@ impl<'a> Hit<'a> {
         self.scene.material(self.tri)
     }
 
+    /// The triangle's number, as in [`crate::Export`].
+    pub fn tri(&self) -> u32 {
+        self.tri
+    }
+
+    /// Of the triangle's corners.
+    pub fn weights(&self) -> [f32; 3] {
+        self.weights
+    }
+
     /// Texture x material x vertex colour, linear, with the alpha of the same lookup.
     pub fn albedo(&self, lookup: Lookup) -> [f32; 4] {
         self.scene.albedo(self.tri, self.weights, lookup)
@@ -307,6 +319,11 @@ impl PreparedScene {
     /// The box about all triangles, when there are any.
     pub fn bounds(&self) -> Option<(V3, V3)> {
         self.bvh.bounds()
+    }
+
+    /// What an [`Export`](crate::Export) is of.
+    pub(crate) fn parts(&self) -> (&Bvh, &[Face], &[Material], &[Option<Sampler>]) {
+        (&self.bvh, &self.faces, &self.materials, &self.textures)
     }
 
     fn material(&self, tri: u32) -> &Material {
