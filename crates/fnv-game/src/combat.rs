@@ -1144,9 +1144,13 @@ impl Game<'_> {
     ///
     /// `None` when the reference has no destruction data or nothing changed hands.
     pub fn damage_object(&mut self, r: FormId, amount: f64) -> Option<DestructionChange> {
+        self.damage_object_inner(r, amount, false)
+    }
+
+    fn damage_object_inner(&mut self, r: FormId, amount: f64, self_damage: bool) -> Option<DestructionChange> {
         let def = base_of(self, r).and_then(|b| self.destruction(b)).cloned()?;
         let e = self.extra.get(&r);
-        if e.is_some_and(|e| e.destroyed) && e.and_then(|e| e.burning).is_none() {
+        if e.is_some_and(|e| e.destroyed) && (!self_damage || e.and_then(|e| e.burning).is_none()) {
             return None;
         }
         let before = crate::functions::objects_destruction_stage(self, r);
@@ -1234,7 +1238,7 @@ impl Game<'_> {
         let burning: Vec<(FormId, f64)> = self.extra.iter().filter_map(|(r, e)| e.burning.map(|d| (*r, d))).collect();
         let mut out = Vec::new();
         for (r, dps) in burning {
-            if let Some(c) = self.damage_object(r, dps * dt) {
+            if let Some(c) = self.damage_object_inner(r, dps * dt, true) {
                 if c.after != c.before {
                     out.push((r, c));
                 }
