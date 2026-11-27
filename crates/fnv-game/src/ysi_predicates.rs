@@ -239,6 +239,10 @@ fn weapon_int_field(g: &Game<'_>, item: FormId, sub: &str, path: &str, value: &J
     }
     match crate::nvse::record_value(g, item, sub, path) {
         Some(XVal::Num(n)) if n.is_finite() => number_set(value, n.trunc() as i64),
+        // `WEAP.VNAM` (`weaponSoundLevel`) is an optional subrecord that defaults to 0 (Loud)
+        // when omitted in base/modded weapon records; treat absent `VNAM` as 0 so weapons
+        // without an explicit `VNAM` subrecord are not poisoned by `Match::Unknown` [design].
+        None if sub == "VNAM" => number_set(value, 0),
         _ => Match::Unknown,
     }
 }
