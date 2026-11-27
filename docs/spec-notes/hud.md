@@ -453,27 +453,27 @@ mouse button, and stayed 8 with nothing pressed).
 (`sneak_nif`); the template `sneak_bracket` (`glow_stealth_metre_seperator.dds`) is a
 bracket like the enemy's. [observed: the owner's four screenshots] The original shows
 neither: only a word in brackets, centred at the top of the view, its line at y 51 from
-the top, in font 7: `[HIDDEN]` and `[DETECTED]` in the HUD's colour, `[CAUTION]` and
-`[DANGER]` in its alternative red. The words are not in `FalloutNV.esm`'s settings
-(they would be the program's defaults); they are written here as the screenshots show
-them.
+the top, in font 7: one of four words, the two calm ones in the HUD's colour, the two
+warnings in its alternative red. The words are not in `FalloutNV.esm`'s settings
+(they would be the program's defaults), so NVForever writes its own [design, #2984]:
+`[UNSEEN]`, `[SPOTTED]`, `[ALERT]` and `[COMBAT]`.
 
 Shown while the player sneaks (`PlayerControl::sneak`), with the rest of the HUD. Which
-word [hypothesis: the meaning players give the words; not documented]: `[DANGER]` when
+word [hypothesis: the meaning players give the words; not documented]: `[COMBAT]` when
 an actor is in Combat with the player as its detected target (an enemy left in an unloaded
-cell, or out of reach, detects the player no more: alert.md §2, #3390); else `[CAUTION]` when an actor in
+cell, or out of reach, detects the player no more: alert.md §2, #3390); else `[ALERT]` when an actor in
 Alert or Lost has the player among its threats or an alarm the player caused
-(`fnv_game::awareness`); else `[DETECTED]` when some actor's latest detection of the
-player is in the detected band (`Game::detection`, value above 0); else `[HIDDEN]`.
+(`fnv_game::awareness`); else `[SPOTTED]` when some actor's latest detection of the
+player is in the detected band (`Game::detection`, value above 0); else `[UNSEEN]`.
 Teammates and actors whose current package is a Follow or Accompany package on the
-player (`Game::with_player`) count for neither `[CAUTION]` nor `[DETECTED]`; their
+player (`Game::with_player`) count for neither `[ALERT]` nor `[SPOTTED]`; their
 detection is still measured and kept for their own AI [observed: owner's playtest
-2026-10-31, #1159: a following companion alone set `[DETECTED]`, which the owner
+2026-10-31, #1159: a following companion alone set `[SPOTTED]`, which the owner
 reports the original does not; hypothesis: the original leaves companions out by the
 same rule, observer-checks.md P3 16]. Other actors, hostile or not, still count
 [hypothesis: a neutral seeing the player is what theft and pickpocketing care about;
 not checked in the original, observer-checks.md P3 16]. An actor with the player that
-is in Combat with the player still gives `[DANGER]` [design].
+is in Combat with the player still gives `[COMBAT]` [design].
 Logged as `hud: sneak [WORD]` on each change. (`fnv_game::detection::Band::meter`
 names the bands HIDDEN, CAUTION, DANGER for the detection log; that older mapping is not
 what the HUD shows.)

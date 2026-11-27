@@ -1,14 +1,15 @@
 //! From a prepared scene, its light and the seeds to a volume.
 
-use crate::failed::{unavailable, Cancel, Failed, Reason};
+use crate::failed::{guarded, unavailable, Cancel, Failed, Reason};
 use crate::floor::Floor;
+use crate::gather::Moments;
 use crate::grid::{tree, Coverage, Grid, Place};
 use crate::light::LightState;
-use crate::reach::GatherConfig;
+use crate::reach::{GatherConfig, EMISSIONS, SPACINGS};
 use crate::trace::PreparedScene;
 use crate::vec3::V3;
-use crate::volume::{allowed, packed};
-use std::collections::BTreeSet;
+use crate::volume::{allowed, packed, Reader, Refused};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// From where a cell is reached.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -168,6 +169,44 @@ impl SolvedVolume {
     }
 }
 
+impl SolvedVolume {
+    /// A volume of points whose light was gathered elsewhere, such as at the places of a [`crate::reach_by`], packed
+    /// as a solve packs the points it reaches: the same places and light are the same box, texture and bytes. What its
+    /// [`crate::Reader`] would refuse is refused. The
+    /// config's spacing, emission, offset and bytes are the volume's. Its counts are of the reached points alone, the
+    /// rest of the box unknown; its stats are none.
+    pub fn of_points(points: &BTreeMap<Place, Moments>, coverage: Coverage, config: &SolveConfig) -> Result<SolvedVolume, Failed> {
+        guarded(|| {
+            let GatherConfig { spacing, emission, .. } = config.gather;
+            if !SPACINGS.contains(&spacing) || !EMISSIONS.contains(&emission) || !config.offset.is_finite() {
+                return unavailable(Reason::Input("volume"));
+            }
+            let Some(first) = points.keys().next() else {
+                return unavailable(Reason::NothingReached { seeds: coverage.seeds });
+            };
+            let (mut low, mut high) = (*first, *first);
+            for at in points.keys() {
+                low = std::array::from_fn(|k| low[k].min(at[k]));
+                high = std::array::from_fn(|k| high[k].max(at[k]));
+            }
+            // A box of every i32 has no u32 side: saturated, it is one too large.
+            let dimensions: [u32; 3] = std::array::from_fn(|k| high[k].abs_diff(low[k]).saturating_add(1));
+            let (atlas, _) = allowed(dimensions, config.atlas_bytes)?;
+            let rgba16f_le = packed(low, dimensions, points.iter(), config.atlas_bytes, &|| false)?;
+            let all: usize = dimensions.iter().map(|d| *d as usize).product();
+            let counts = Counts { points: all, reached: points.len(), unknown: all - points.len(), ..Counts::default() };
+            let origin = low.map(|c| c as f32 * spacing);
+            let out = SolvedVolume { low, origin, spacing, offset: config.offset, emission, dimensions, atlas, rgba16f_le, counts, coverage, stats: Stats::default() };
+            // Light that no solve has, such as a luminance below 0, is what its reader refuses.
+            match Reader::scanned(&out, &|| false, |_| ()) {
+                Ok(_) => Ok(out),
+                Err(Refused::Cancelled) => Err(Failed::Cancelled),
+                Err(Refused::Because(_)) => unavailable(Reason::Input("moments")),
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +216,7 @@ mod tests {
     use crate::reach::{GatherLimits, MOST_RAYS};
     use crate::scene::{Material, SceneInput};
     use crate::trace::tests::{prepared, scene};
+    use crate::volume::tests::volume;
     use crate::volume::{from_half, Reader};
     use crate::{reach, solve};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -394,6 +434,43 @@ mod tests {
         Reader::new(&wide).unwrap();
         let few = GatherConfig { limits: GatherLimits { points: 1000, seeds: 2 }, ..gather() };
         assert_eq!(of(60_000.0, 100.0, SolveConfig { gather: few, census: true, ..game }).unwrap_err(), Failed::Unavailable(Reason::TooManyPoints { limit: 1000 }));
+    }
+
+    /// The light of `reach()`'s points packed again is `solve()`'s texture, byte for byte, in the same box; what may not
+    /// be is refused.
+    #[test]
+    fn points_packed_again() {
+        let (input, light) = furnished();
+        let world = prepared(input, 2);
+        let seeds = [left(), right(), V3::new(-300.0, 60.0, 60.0)];
+        let config = SolveConfig { gather: GatherConfig { rays: 64, emission: 0.25, ..gather() }, offset: 20.0, ..SolveConfig::default() };
+        let v = run(&world, &light, &seeds, &config).unwrap();
+        let reached = reach(&world, &light, &seeds, &config.gather, NEVER).unwrap();
+        let moments: BTreeMap<Place, Moments> = reached.points.iter().map(|(at, p)| (*at, p.moments)).collect();
+        let again = SolvedVolume::of_points(&moments, reached.coverage, &config).unwrap();
+        let shape = |v: &SolvedVolume| (v.low, v.origin, v.spacing, v.offset, v.emission, v.dimensions, v.atlas, v.coverage);
+        assert!(shape(&again) == shape(&v) && again.rgba16f_le == v.rgba16f_le);
+        let n = v.counts;
+        assert_eq!((again.counts, again.stats), (Counts { points: n.points, reached: n.reached, unknown: n.points - n.reached, ..Counts::default() }, Stats::default()));
+        assert!(Reader::new(&again).is_ok() && again.points().unwrap() == v.points().unwrap());
+        let refused = |points: &BTreeMap<Place, Moments>, config: SolveConfig| SolvedVolume::of_points(points, reached.coverage, &config).unwrap_err();
+        assert_eq!(refused(&BTreeMap::new(), config), Failed::Unavailable(Reason::NothingReached { seeds: 3 }));
+        let wrong = [GatherConfig { spacing: 0.0, ..config.gather }, GatherConfig { spacing: f32::NAN, ..config.gather }, GatherConfig { emission: 1.5, ..config.gather }];
+        for gather in wrong {
+            assert_eq!(refused(&moments, SolveConfig { gather, ..config }), Failed::Unavailable(Reason::Input("volume")));
+        }
+        assert_eq!(refused(&moments, SolveConfig { offset: f32::INFINITY, ..config }), Failed::Unavailable(Reason::Input("volume")));
+        assert!(matches!(refused(&moments, SolveConfig { atlas_bytes: 4096, ..config }), Failed::Unavailable(Reason::TooManyBytes { limit: 4096, .. })));
+        let mut bright = moments.clone();
+        bright.insert([0, 1, 1], Moments { c: [V3([1e6; 3]); 4] });
+        assert_eq!(refused(&bright, config), Failed::Unavailable(Reason::OutOfRange { at: [0, 1, 1] }));
+        // A luminance below 0, which the reader refuses; a box wider than a u32.
+        let dark = BTreeMap::from([([0, 0, 0], Moments { c: [V3([-1.0; 3]), V3::ZERO, V3::ZERO, V3::ZERO] })]);
+        assert!(Reader::new(&volume(&([0; 3], [1; 3], dark.clone()))).is_err());
+        assert_eq!(refused(&dark, config), Failed::Unavailable(Reason::Input("moments")));
+        let one = Moments { c: [V3([0.5; 3]), V3::ZERO, V3::ZERO, V3::ZERO] };
+        let wide = BTreeMap::from([([i32::MIN, 0, 0], one), ([i32::MAX, 0, 0], one)]);
+        assert_eq!(refused(&wide, config), Failed::Unavailable(Reason::TooLarge { dimensions: [u32::MAX, 1, 1] }));
     }
 
     /// Before any work, between the pieces of it, and not after its end; a panic of the caller's check is a

@@ -112,6 +112,24 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   bright square. Off: detection is the original's. Not in the original (#2688).
 - Registered in `engine/nvf-play/src/sound_cover.rs`
 
+### `npc-weapon-mods`: NPC weapon mods
+
+- On the page: On: NPCs have a level-scaled chance (10%-60%, +2%/level) for their main weapon to spawn with random weapon mods. Off: NPC weapons have no extra mods, as in the original.
+- In full: Off by default. When on, each non-player NPC (`NPC_`, including leveled `LVLN` picks) rolls once when its main weapon is outfitted for a `Min(60, Max(10, Level * 2))`% chance to attach 1-3 random weapon mods from the weapon's valid `WMI1`-`WMI3` slots, without overwriting already-modded weapons or re-rolling across ticks. Never reads `jip_nvse.ini` (`docs/design/extender-compat.md` §8.4). Follows JIP LN NVSE Plugin `57.30` (`https://www.nexusmods.com/newvegas/mods/58277`) `jip_nvse.ini` `[GamePatches]` `bNPCWeaponMods` (`uWMChancePerLevel=2`, `uWMChanceMin=10`, `uWMChanceMax=60`; no DLL or source consulted): "When enabled, all NPCs will have a chance for their main weapon to include weapon mods. The chance is based on each NPC's level - the higher the level, the greater the chance. The type of mod(s) is selected randomly from the ones available for the particular weapon. Weapons have a chance to include multiple mods, though 2 mods is rare, and a fully-modded weapon is uncommon." NVForever's deterministic per-NPC seed, multi-mod probability curve, and single-roll tracking are NVForever's own (`[design]`, `docs/spec-notes/npc-weapon-mods.md`, #3876).
+- Registered in `engine/nvf-play/src/tweaks.rs`
+
+### `sneak-bounding-box`: Crouch height collision
+
+- On the page: On: crouching shrinks collision height for you and crouching human companions
+  to fit under low spaces, holding sneak if headroom is blocked. Off: fixed standing height.
+- In full: Default Off (vanilla keeps the standing character collider height while sneaking).
+  When On, crouching scales the collision capsule height for the player and crouching human
+  companions so they can move under low clearances, and keeps sneak active if overhead
+  geometry blocks standing back up. Optional NVForever setting following the public
+  `bSneakBoundingBoxFix` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/sneak-bounding-box.md`, #3845).
+- Registered in `engine/nvf-play/src/player.rs`
+
 ## Gameplay › V.A.T.S.
 
 ### `vats-style`: V.A.T.S. style
@@ -301,6 +319,37 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   SystemSave to the system slot, ForceSave as a new save.
 - Registered in `engine/nvf-play/src/save.rs`
 
+## Gameplay › Combat
+
+### `localized-dt-dr`: Localized armor DT/DR
+
+- On the page: On: head hits use only worn head armor DT/DR and body hits only worn body
+  armor; explosions use all worn armor and innate DT/DR still applies. Off: full worn armor
+  everywhere.
+- In full: Default Off (vanilla sums all worn armor DT/DR across head and body slots on
+  every hit). When On, head hits benefit only from worn head-slot armor DT/DR and body hits
+  benefit only from worn body-slot armor DT/DR, while explosions still apply full worn armor
+  and actor innate DT/DR (AV 76/18) still applies everywhere. Optional NVForever setting
+  following the public `bLocalizedDTDR` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/localized-dt-dr.md`, #3843).
+- Registered in `engine/nvf-play/src/combat.rs`
+
+## Gameplay › Menus
+
+### `quantity-select-short-keys`: Quantity select shortcuts
+
+- On the page: In inventory, container and barter menus, Shift transfers or drops the whole
+  stack, Ctrl acts on one item, and weightless container stacks open the quantity prompt.
+- In full: Off by default (unmodded menu behaviour unchanged). On: in Inventory, Container
+  and Barter menus, holding Shift transfers or drops the entire stack and holding Ctrl
+  transfers or drops a single item without opening the quantity prompt (Shift takes
+  precedence if both are held); picking up a stack of more than one weightless item (such
+  as ammo outside Hardcore mode) from a container opens the quantity prompt instead of
+  taking without asking. Optional NVForever setting following the public `bQttSelectShortKeys`
+  behaviour in JIP LN NVSE Plugin v57.30 (`docs/spec-notes/quantity-select-short-keys.md`,
+  #3799).
+- Registered in `engine/nvf-play/src/menu.rs`
+
 ## Gameplay › Bug Reports
 
 ### `send-reports`: Send reports to help fix NVForever
@@ -318,6 +367,16 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   7 days) and drops the ones not sent yet; later reports, this session's too, get a new ID
 - More: docs/design/player-reports.md
 - Registered in `engine/nvforever/src/reports/delete.rs`
+
+## Gameplay › Co-op
+
+### `coop`: Co-op
+
+- On the page: On: the main menu shows Join Lobby and the pause menu a Co-op screen to open
+  a lobby. It stays on while a lobby is open or joined.
+- Off by default; kept in `NVForever.ini` `[Settings]` [design].
+- Greyed while a lobby is open or this game is a guest in one.
+- Registered in `engine/nvf-play/src/lobby.rs`
 
 ## Display › Screen
 
@@ -562,6 +621,13 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   make, as detection counts them. Not in the original.
 - Registered in `engine/nvf-play/src/sneak_gauges.rs`
 
+### `caravan-tips`: Caravan tips
+
+- On the page: On: the Caravan table says what the chosen card does and why a card can't be
+  played, and the menu has a Tips button. Off: only the game's short messages. Not in
+  the original.
+- Registered in `engine/nvf-play/src/caravan.rs`
+
 ### `dynamic-crosshair`: Dynamic crosshair
 
 - On the page: On: with a gun or thrown weapon drawn the crosshair opens with how wide your
@@ -579,6 +645,18 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
 - In full: With Dynamic crosshair on and a gun or thrown weapon drawn. Cross: four bars that
   part with the spread. Arrows: the plain crosshair's two arrows part instead.
 - Registered in `engine/nvf-play/src/reticle.rs`
+
+### `location-load-screens`: Location-specific loading screens
+
+- On the page: On: prefer loading screens matching the destination cell or worldspace over
+  generic screens. Off: mix matching and generic loading screens as in the original.
+- In full: Default Off (vanilla mixes generic loading screens into the same pool as
+  location-specific `LSCR` records). When On, destination-matching location-specific `LSCR`
+  records are always preferred over generic loading screens, falling back to generic screens
+  only when no location-specific screen matches. Optional NVForever setting following the
+  public `bLoadScreenFix` behaviour in JIP LN NVSE Plugin v57.30
+  (`docs/spec-notes/location-load-screens.md`, #3844).
+- Registered in `engine/nvf-play/src/loading.rs`
 
 ### `ui-scale`: HUD scale
 
@@ -956,9 +1034,8 @@ below cover them all.
 
 ### `quality`: Quality preset
 
-- On the page: Sets the rows the original's quality presets cover to the game folder's
-  low.ini to VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: those rows
-  match none of them.
+- On the page: Sets the rows the quality presets cover to the game folder's low.ini to
+  VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: none match.
 - In full: Sets the rows the original's quality presets cover to the values of the game
   folder's low.ini, medium.ini, high.ini or VeryHigh.ini: Sun shadows, Shadow filtering,
   Light glow, Mirrored reflections and the object, actor, item, shadow and grass
@@ -1067,32 +1144,41 @@ below cover them all.
   shadows off too.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
-### `light-shadows`: ALC shadows
+### `light-shadows`: ALCS (experimental)
 
-- On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the
-  shadow distance, so walls stop their light. Performance redraws less often. Costs frame
-  rate. Not in the original.
-- In full: ALC stands for All Lights Cast; the row was called Lamp shadows until 2026-11-19.
-  The INI key `light-shadows`, the switch `--light-shadows` and the log lines starting
-  `light shadows:` keep the old name, so saved settings, scripts and the smoke scenarios go
-  on working. Off (the default), Performance or Quality, as Sun shadows. Every drawn placed
-  light whose light reaches within the sun's shadow distance (the Shadow distance and
-  Longer sun shadows rows) casts, nearest first, up to 32 lights on Quality and 16 on
-  Performance; grass fires' lights and lights a script attached count among them. Muzzle
-  flashes and explosions cast too, apart from them: the nearest whose light reaches within
-  3,000 units (about 43 m) and into view, 2 at once on Quality and 1 on Performance, each
-  drawn in the frame it appears. A light's maps are drawn when it starts casting and then
-  kept; a part of them is drawn again only when something there moved more than about 6 cm,
-  appeared or vanished, all of them once the light itself moved about 11 cm. At most 3 lights redraw in a frame on Quality, 1 on Performance, nearer ones
-  every frame (every 2nd on Performance), farther ones every 2nd (every 4th), so a moving
-  thing's shadow from a lamp can lag a frame. The world and your body cast, the first-person arms
-  do not; what lies within 8 units of a light casts nothing from it, and lamp housings,
-  shades and bulbs cast none from their own light. Quality also gives the shadows soft edges (sharp
-  where a thing touches the surface, softer away from it) and, while TAA, FSR or DLSS is
-  on, small contact shadows where things touch. A point light's maps
-  are 512² with Shadow resolution 2048, 1024² with 4096. Under a loading screen every
-  casting light's maps are drawn before play, those in view first, within 3 seconds. The
-  flashlight casts as before.
+- On the page: ALCS (All Lights Cast Shadows): lamps, fires and spot lights cast shadows
+  in the shadow distance; Performance casts fewer. Costs frame rate. Not in the original.
+- In full: ALCS stands for All Lights Cast Shadows; the row was called ALC shadows until
+  2026-11-24 and Lamp shadows until 2026-11-19. The INI key `light-shadows`, the switch
+  `--light-shadows` and the log lines starting `light shadows:` keep the old name, so saved
+  settings, scripts and the smoke scenarios go on working. Off (the default), Performance
+  or Quality, as Sun shadows. Every drawn placed light whose light reaches within the sun's
+  shadow distance (the Shadow distance and Longer sun shadows rows) casts, nearest first,
+  up to 32 lights on Quality and 16 on Performance; grass fires' lights and lights a script
+  attached count among them. Muzzle flashes and explosions cast too, apart from them: the
+  nearest whose light reaches within 3,000 units (about 43 m) and into view, 2 at once on
+  Quality and 1 on Performance, each drawn in the frame it appears. A light's maps are
+  drawn when it starts casting and then kept; a part of them is drawn again in the frame
+  something there moved more than about 7 mm (a shape, or any joint of an actor), appeared
+  or vanished, all of them once the light itself moved that far. Up to 8 lights redraw in
+  a frame on Quality, 3 on Performance, those that waited longest first, so a moving
+  thing's shadow moves with it. The world and your body cast, the first-person arms do
+  not; what lies within 8 units of a light casts nothing from it, and lamp housings, shades
+  and bulbs cast none from their own light. Quality also gives the point lights' shadows
+  soft edges (sharp where a thing touches the surface, a little softer away from it, by the
+  lamp's size: a candle's or a bare bulb's crisper than a shade's or a chandelier's; never
+  so wide that a shadow loses its shape) and, while TAA,
+  FSR or DLSS is on, small contact shadows where things touch; Performance smooths the
+  edges by a fixed width. A point light's maps are in two sizes on Quality: the 8 lights
+  nearest the camera take 1024², the rest 512²; a light changes size as you move, drawn anew
+  in that frame. On Performance all are 512² (1024² with Shadow resolution 4096). The video
+  memory is logged at the start (`light shadows: … cast`): about 0.7 GB with 28 lights on
+  Quality. Under a loading screen every casting
+  light's maps are drawn before play, those in view first, within 3 seconds. The flashlight
+  casts as before.
+  A lamp's shadow weighs 1.1: where a lamp is blocked in full the place loses that lamp's
+  light and a tenth of it more, off the cell's ambient light and the other lamps there
+  (light_shadows.rs `SHADOW_STRENGTH`).
   The original's placed lights cast none [design].
 - A list kept in the INI by name (`Off`, `Performance`, `Quality`).
 - Command-line switches: `--light-shadows`
@@ -1105,10 +1191,14 @@ below cover them all.
 
 - On the page: Creases, corners and the ground under things darken by how enclosed they are:
   Off, Performance (cheaper, a little grainier) or Quality. Not in the original.
-- In full: Screen-space ambient occlusion from the depth, on the ambient light and the lamps
-  that cast no shadow: Off; Performance (one slice direction a pixel instead of two: half the
-  horizon march, the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4
-  steps a side at half resolution, depth-aware denoise). Quality in the enhanced look.
+- In full: Screen-space ambient occlusion from the depth, on the ambient light, on the lamps
+  that cast no shadow and by half on those that do (the flashlight, the ALC shadows row's
+  lamps), and on the lamps' highlights (a shiny surface no longer glints in a crease as in the
+  open): Off; Performance (one slice direction a pixel instead of two: half the horizon march,
+  the same denoise); or Quality (ground-truth ambient occlusion, 2 slices x 4 steps a side at
+  half resolution, depth-aware denoise). Under TAA, FSR or DLSS its sample pattern moves each
+  frame, so what the denoise leaves on leaves and outlines is averaged away. Quality in the
+  enhanced look.
 - Shown as a list since 2026-11-19; an INI written while it was an on/off switch (`1`/`0`,
   true/false, on/off, yes/no) still loads as Quality or Off.
 - Command-line switches: `--graphics`, `--ambient-occlusion`
@@ -1117,8 +1207,8 @@ below cover them all.
 
 ### `volumetric-clouds`: Volumetric clouds (experimental)
 
-- On the page: The weather's clouds drawn with depth, lit by the sun: Off, or Performance,
-  Normal or High, each finer and dearer than the last. A prototype. Not in the original.
+- On the page: The weather's clouds drawn with depth and lit by the sun: Off, or
+  Performance, Normal or High. A prototype. Not in the original.
 - In full: The weather's own cloud layers, as Cloud shadows composes them, become a
   layer of cloud with thickness above the world, worked out per pixel: lit by the weather's
   sunlight (by night its night light, from the moon), bright toward the sun, darker
@@ -1204,11 +1294,11 @@ below cover them all.
 ### `volumetric-light`: Volumetric light (experimental)
 
 - On the page: On: sunlight and moonlight show in the air as rays and a glow toward a low
-  sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An
-  addition of NVForever's.
+  sun. An addition of NVForever's.
 - While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
   it draws). A prototype. Outdoors only, by the sun by day and by
-  the moon at night (nothing at night in a climate without one), in the main view only. Off in every preset; not in the original.
+  the moon at night (nothing at night in a climate without one), in the main view only. Best
+  with Cloud shadows and Terrain shadows on. Off in every preset; not in the original.
 - Command-line switches: `--graphics-only`
 - More: docs/design/volumetric-medium.md
 - Registered in `engine/nvforever/src/settings.rs`
@@ -1220,6 +1310,35 @@ below cover them all.
 - 0 % to 200 % in steps of 10 %, 100 % by default; greyed while Volumetric light is off.
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `physical-pbr`: Physical lighting (experimental)
+
+- On the page: On: light, sky, fog and exposure follow physical rules instead of the
+  original's display values. Still being tuned. Takes effect at the next start. Not in the
+  original.
+- In full: The world is lit with Oren-Nayar diffuse and Cook-Torrance GGX specular with
+  Schlick Fresnel, lamps fall off with the square of the distance, the sky lights everything
+  as image-based light, the game's fog fades into the physical sky's horizon, the picture
+  tonemaps with Tony McMapface, and exposure and bloom are tuned for linear light. Read at the
+  start: the row changes the next start's lighting. Off by default and in every preset;
+  the original's display-value lighting stays the default look. The volumetric clouds and
+  Volumetric light run with it, lit by the same sun and sky. With a material pack and
+  Reflections on authored materials, the pack's materials keep their reflections and other
+  surfaces take flat ambient light in place of the sky's.
+- Command-line switches: `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.25
+
+### `tonemap-preset`: Tonemapping preset
+
+- On the page: A look laid on the tonemapper: exposure, contrast and highlight roll-off.
+  Default keeps the shipped look. Presets are files in the Tonemapping folder of
+  NVForever's home. Not in the original.
+- In full: Default and the presets found in `<NVForever home>\Tonemapping\` at the start,
+  one TOML file each (docs/design/tonemapping-presets.md has the format). The pick takes
+  effect at once, in either lighting mode and with HDR output, and is kept by its name; a
+  name no longer on disk falls back to Default. The eye adaptation still applies on top.
+  HDR output's calibration stays the display's own.
+- Command-line switches: none
+- More: docs/design/tonemapping-presets.md (#4690)
 ### `bloom`: Bloom
 
 - On the page: On: light brighter than a sunlit white wall (the sun, lamps, windows) glows
@@ -1356,9 +1475,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `authored-materials`: Authored materials
 
-- On the page: On: surfaces whose textures a texture pack gives material maps for
-  (textures\pbr\) are shaded from them. Off: every surface uses the game's own values.
-  Takes effect at the next start.
+- On the page: On: a material pack's maps (textures\pbr\) shade its surfaces. Off: the
+  game's own values. Takes effect at the next start.
 - In full: [design, #2981] A texture pack may give a game texture a set of material maps
   under `textures\pbr\` (occlusion, roughness and metallic in `_orm`, a normal map in `_n`,
   scalars in a `.toml`); the shapes drawn with that texture then take their roughness,
@@ -1379,9 +1497,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `authored-reflections`: Reflections on authored materials
 
-- On the page: On: pack materials reflect the sky outdoors and an approximation of the
-  room and nearby lights indoors. Needs a material pack and Authored materials on.
-  Takes effect at the next start.
+- On the page: On: pack materials reflect the sky outside and nearby lights inside. Needs
+  Authored materials on. Takes effect at the next start.
 - In full: [design, #2981] Surfaces shaded from an authored set reflect a small cube of the
   world camera's surroundings, blurred by their roughness, and the `_orm`'s metallic channel
   takes effect. Outdoors it reflects the sky, ground and a broad glow toward the sun or
@@ -1431,15 +1548,19 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   docs/spec-notes/pbr-materials.md), the ground near the camera shows that relief: one
   march over the layers' heights, blended as the layers are, moves the texture coordinate
   every ground texture is read at, fading out by 2048 units; each layer moves as far as its
-  own set's depth asks. The base texture of a quadrant and layers without a height map
-  count as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
+  own set's depth asks, and so does the base texture of a quadrant (#3846). A base or layer
+  without a height map counts as flat. Not drawn while Terrain anti-tiling is on. The shadows, the depth prepass, the
   collision, the mesh terrain blend and the distant landscape keep the plain surface, and
   so do layers drawn on their own (GPUs without bindless textures; a texture repeat that
-  does not divide the cell). Needs Authored materials: in the game, as this run has it
+  does not divide the cell). A layer or base whose texture has no set takes the height from its
+  diffuse's alpha where that is a varying DXT5 alpha, as the ground packs for the original's
+  terrain parallax shaders have it (depth 0.03; read only while the switch is on, over some
+  frames when it is switched on in a game). Needs
+  Authored materials: in the game, as this run has it
   (greyed until a restart when it was off at the start; still available after turning it
   off for the next start); in the launcher, as saved. The original draws no relief on its
   landscape [observed: the maintainer's run of observer check 268, 2026-11-22, by eye], so this
-  is an enhancement that acts only with an authored ground pack. Off by
+  is an enhancement that acts only with a ground pack. Off by
   default and in both presets until its cost is measured (the maintainer's call); switches
   at once, no restart.
 - Command-line switches: `--graphics-only` (`--graphics-only terrain-parallax`)
@@ -1462,8 +1583,7 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 ### `occlusion-culling`: Occlusion culling
 
 - On the page: On: hidden objects are skipped before drawing. Helps when the GPU limits
-  the frame rate (high resolutions, dense towns); costs some CPU. Takes effect at the next
-  start.
+  the frame rate; costs some CPU. Takes effect at the next start.
 - In full: [design] Bevy's two-phase GPU occlusion culling on the main camera: meshes
   hidden behind nearer ones (by last frame's depth, then this frame's) are not drawn.
   First-person shapes are never culled. [observed 2026-11-24, 4K DLSS Quality, maxed
@@ -1476,9 +1596,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `smooth-terrain`: Smooth terrain
 
-- On the page: Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 squares
-  per landscape square, or 4 x 4 near you and 2 x 2 further. Drawing and collision share it.
-  Applies at the next start.
+- On the page: Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 per
+  landscape square, or 4 x 4 near and 2 x 2 further. Applies at the next start.
 - In full: [design, #2149, #2676] A list: Off, 2 x 2, 4 x 4 and 4 x 4 near; 4 x 4 by
   default (smoothing on by the maintainer's decision of 2026-11-13; 4 × 4 and the recipe,
   detail, bound 8 units and thresholds 2:6, are the contributor's pick from in-game
