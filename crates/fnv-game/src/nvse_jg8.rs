@@ -261,9 +261,9 @@ fn safe(path: &str) -> bool {
     !path.is_empty() && !path.starts_with(['\\', '/']) && !path.contains(':') && !path.split(['\\', '/']).any(|s| s == "..")
 }
 
-/// A file "relative to the Fallout folder" [documented: MD5File, SHA1File,
-/// GetPixelFromBMP]: under `Data\` through NVForever's mod files (loose files and
-/// archives), else the game folder above Data, read only.
+/// A file "relative to the Fallout folder" [documented: GetPixelFromBMP]: under `Data\`
+/// through NVForever's mod files (loose files and archives), else the game folder above
+/// Data, read only.
 fn game_file(path: &str) -> Option<Vec<u8>> {
     if !safe(path) {
         return None;
@@ -271,6 +271,21 @@ fn game_file(path: &str) -> Option<Vec<u8>> {
     let lower = path.to_ascii_lowercase();
     if let Some(rest) = lower.strip_prefix("data\\").or_else(|| lower.strip_prefix("data/")) {
         return crate::mod_files::read_data_file(&path[path.len() - rest.len()..]);
+    }
+    let dir = crate::mod_files::data_dir()?;
+    let p = dir.parent()?.join(path.replace('\\', "/"));
+    std::fs::read(p).ok()
+}
+
+/// A loose file on disk relative to the Fallout folder (never reading inside BSA
+/// archives), matching MD5File and SHA1File [observed: w6d3p2_16].
+fn loose_game_file(path: &str) -> Option<Vec<u8>> {
+    if !safe(path) {
+        return None;
+    }
+    let lower = path.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("data\\").or_else(|| lower.strip_prefix("data/")) {
+        return crate::mod_files::read_loose_data_file(&path[path.len() - rest.len()..]);
     }
     let dir = crate::mod_files::data_dir()?;
     let p = dir.parent()?.join(path.replace('\\', "/"));
@@ -523,9 +538,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             XVal::Num(1.0)
         }
         // ---- files [documented: MD5File, SHA1File; observed: upper-case hex (probe set
-        // jg8); hypothesis: "" for a file that cannot be read].
-        "md5file" => XVal::Str(text(args, 0).and_then(|p| game_file(&p)).map(|b| hex(&md5(&b))).unwrap_or_default()),
-        "sha1file" => XVal::Str(text(args, 0).and_then(|p| game_file(&p)).map(|b| hex(&sha1(&b))).unwrap_or_default()),
+        // jg8), "" for missing or archive-only files
+        // (w6d3p2_16_md5_sha1_bsa_and_sleepwait_state)].
+        "md5file" => XVal::Str(text(args, 0).and_then(|p| loose_game_file(&p)).map(|b| hex(&md5(&b))).unwrap_or_default()),
+        "sha1file" => XVal::Str(text(args, 0).and_then(|p| loose_game_file(&p)).map(|b| hex(&sha1(&b))).unwrap_or_default()),
         // `name`: an archive the game loaded, by its file name in Data, any case
         // [documented: IsBSALoaded; the host lists them, `mod_files::Roots::archives`;
         // observed: a name with `Data\` before it reads 0 (probe set jg8)].
@@ -533,14 +549,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let n = text(args, 0).unwrap_or_default();
             yes(!n.is_empty() && crate::mod_files::archives().iter().any(|a| a.eq_ignore_ascii_case(&n)))
         }
-        // `path`, under Data\Textures [documented: GetTexture…]; 0 without the file
-        // [observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+        // `path`, under Data\Textures [documented: GetTexture…]; 0 without the file or with
+        // a forward-slash `textures/` prefix (`textures\` backslash prefix works)
+        // [observed 2026-11-24/25: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
         // JohnnyGuitarNVSE 528, 10 official base masters, `GSDocMitchellHouse`, committed
-        // probe `w6t2_23_jg_dds_texture_format_and_bounds`
-        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
-        // `dds(w=64,h=64,m=0,fmt=5,miss=0)` confirming DXT5 = 5 and missing file = 0].
-        // GetTextureFormat: 1-5 for DXT1-DXT5 [documented], 0 for another format
-        // [hypothesis].
+        // probes `w6t2_23_jg_dds_texture_format_and_bounds`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`:
+        // `dds(w=64,h=64,m=0,fmt=5,miss=0)`) and `w6d3_12_texture_format_dxt1_dxt3_dxt5_uncomp`].
+        // GetTextureFormat: 1/3/5 for DXT1/DXT3/DXT5 (including pimpboy3billion_n.dds f=5)
+        // and -48 for the probed uncompressed 24-bit DDS [observed: w6d3_12]; 2/4 for
+        // DXT2/DXT4 [documented], generalizing -48 to other zero-FourCC uncompressed DDS
+        // and 0 to other non-zero FourCC formats [hypothesis].
         "gettexturewidth" | "gettextureheight" | "gettexturemipmapcount" | "gettextureformat" => {
             let p = text(args, 0).unwrap_or_default();
             let path = if p.to_ascii_lowercase().starts_with("textures\\") { p } else { format!("textures\\{p}") };
@@ -549,12 +568,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 "gettexturewidth" => f64::from(w),
                 "gettextureheight" => f64::from(ht),
                 "gettexturemipmapcount" => f64::from(mips),
+                // DXT1/3/5 -> 1/3/5 (including pimpboy3billion_n.dds f=5) and probed
+                // uncompressed 24-bit DDS -> -48 [observed: w6d3_12_texture_format_dxt1_dxt3_dxt5_uncomp];
+                // DXT2/4 -> 2/4 [documented]; generalizing -48 to other zero-FourCC
+                // uncompressed DDS and 0 to other non-zero FourCC formats [hypothesis].
                 _ => match &cc {
                     b"DXT1" => 1.0,
                     b"DXT2" => 2.0,
                     b"DXT3" => 3.0,
                     b"DXT4" => 4.0,
                     b"DXT5" => 5.0,
+                    [0, 0, 0, 0] => -48.0,
                     _ => 0.0,
                 },
             }))

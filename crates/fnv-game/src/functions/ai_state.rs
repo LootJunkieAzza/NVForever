@@ -116,7 +116,7 @@ fn doing(g: &mut Game, r: FormId) -> Doing {
     if g.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == r || s.target == Some(r))) {
         return Doing::Talking;
     }
-    if g.awareness.state(r).in_combat() && g.awareness.tactics.flights.contains_key(&r) {
+    if g.awareness.tactics.flights.contains_key(&r) {
         return Doing::Fleeing;
     }
     match g.awareness.state(r) {
@@ -336,3 +336,7 @@ pub fn set_actors_ai(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String>
     g.extra.entry(r).or_default().ai_off = a.num(0)? == 0.0;
     none()
 }
+
+#[cfg(test)]
+#[path = "../w6d8_forceflee_tests.rs"]
+mod w6d8_forceflee_tests;

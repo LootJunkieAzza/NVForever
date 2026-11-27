@@ -637,7 +637,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // below 0 for a moment before the script runs [documented: GetDelayElapsed;
         // observed: jip4 probe set, VDeadSea read 15.6 ms less each frame, VCG01 once < 0].
         "getdelayelapsed" => {
-            let delay = g.quests.get(&f0).and_then(|s| s.delay).or_else(|| g.data.quests.get(&f0).map(|d| d.script_delay())).unwrap_or(0.0);
+            let delay = crate::quest::effective_delay(g.quests.get(&f0).and_then(|s| s.delay), g.data.quests.get(&f0));
             let since = g.quests.get(&f0).map_or(0.0, |s| s.since_run);
             XVal::Num(delay - since)
         }

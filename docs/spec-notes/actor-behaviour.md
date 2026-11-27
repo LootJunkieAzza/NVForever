@@ -331,10 +331,12 @@ output:
 - `PROBE|w4g_05_isactordetected_and_setclass_invalid|detLive(nDet=2,p=0,d=0,a1=0|gd:dP=1,a1P=1,dA1=0,a1D=0,pD=0|killSame:nDet=1,p=0,d=0,a1=0)`
 - `PROBE|w4g_05_isactordetected_and_setclass_invalid|detNext(nDet=1,p=0,d=0,a1=0)`
 
+[observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8p2_42_detection_level_and_dead_detector`: `PROBE|w6d8p2_42_detection_level_and_dead_detector|detAP=0 lvlAP=0 valAP=-100 lvlAB=0 isDetP=0 arr1=-1 dtng1=1 dDet=0 dLvl=0 dVal=-100 dArr=-1`; no DLL, PDB, or third-party source consulted] A dead detector reports `0` for both `GetDetected` and `GetDetectionLevel` (`dDet=0 dLvl=0`), `-100` for JIP `GetDetectionValue` (`dVal=-100`), and `ar_Null` (`-1`) for JIP `GetDetectedActors` (`dArr=-1`).
+
 [design] On actor death (`Game::die`, called by `KillActor` and fatal combat damage),
 NVForever immediately clears detections made by the dead actor. `GetDetectingActors`,
-`GetDetected`, `IsActorDetected`, and sneak-detection queries exclude the dead detector
-on the same tick. This cleanup preserves living observers' cached detections of
+`GetDetected`, `GetDetectionLevel`, `GetDetectionValue`, `GetDetectedActors`, `IsActorDetected`,
+and sneak-detection queries exclude the dead detector on the same tick. This cleanup preserves living observers' cached detections of
 that actor. Explicit null/non-form receivers on `IsActorDetected` log
 `no_reference_call` and return `0` without falling back to `self_ref`, continuing
 script execution. Missing receivers and cold/restored detection caches continue

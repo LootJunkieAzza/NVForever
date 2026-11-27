@@ -213,6 +213,18 @@ pub trait Host {
     fn form_text(&mut self, _form: u32) -> Option<String> {
         None
     }
+    /// A form's name component for `%c`: ammo full (0 / default), short (1), or
+    /// abbreviation (2), or a faction's male rank title at `index` [observed:
+    /// `w6d5p4_format_c_component`].
+    fn format_name_component(&mut self, _form: u32, _index: i32) -> Option<String> {
+        None
+    }
+    /// A form's pronoun for `%ps` (`'s'`), `%po` (`'o'`), or `%pp` (`'p'`):
+    /// male `he`/`him`/`his`, female `she`/`her`/`her`, neuter `it`/`it`/`its`, or `""`
+    /// for null/unknown forms [observed: `w6d5p4_format_pronouns`].
+    fn format_pronoun(&mut self, _form: u32, _kind: char) -> &'static str {
+        ""
+    }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
     /// A script asked whether a plugin is there (IsPluginInstalled, GetPluginVersion,
@@ -2599,14 +2611,15 @@ impl Vm<'_, '_> {
                 // key options print their key with `%k`, #2299].
                 'k' => crate::keys::key_name(next("key")?.num()? as i64).to_string(),
                 'c' => {
-                    next("form")?;
-                    next("index")?;
-                    String::new()
+                    let form = next("form")?.value()?.as_form().unwrap_or(0);
+                    let idx = next("index")?.num()?.trunc() as i32;
+                    self.host.format_name_component(form, idx).unwrap_or_default()
                 }
                 'p' => {
+                    let kind = cs.get(i).copied().map(|ch| ch.to_ascii_lowercase()).unwrap_or('\0');
                     i += 1;
-                    next("form")?;
-                    String::new()
+                    let form = next("form")?.value()?.as_form().unwrap_or(0);
+                    self.host.format_pronoun(form, kind).to_string()
                 }
                 // `%{ … %}`: left out when the value is 0 [documented].
                 '{' => {

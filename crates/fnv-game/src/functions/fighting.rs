@@ -74,21 +74,35 @@ pub fn get_should_attack(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     yes(g.would_attack(r, target))
 }
 
-/// `actor.ForceFlee [cell] [reference]`: the actor assesses the threats and flees from
-/// one if there is one; with none it goes on with its package; a conversation it is in
-/// ends at once [documented: catalogue summary and notes]. The threat is its combat
-/// target, else the first of its foes ([`Game::foes_of`]) [engineering choice]. The
-/// flight is the combat AI's ([`Game::start_flight`]); given a reference, its spot is
-/// that reference's place, flown to as Away [hypothesis: the AI runs there rather than
-/// to a door or cover]; a cell is not used (the AI picks the spot) [engineering choice:
-/// no way to a cell yet]. Whether the actor stops at the spot is the AI's.
+/// `actor.ForceFlee [cell] [reference]`: ends any conversation the actor is in at once
+/// [documented: catalogue summary and notes] and starts fleeing (`IsFleeing == 1`,
+/// `GetCurrentAIProcedure == 16` `FLEE`) even outside combat [observed: 2026-11-25,
+/// Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730),
+/// `w6d8_21_forceflee_and_isfleeing_fleenotcombat`]. The threat is its combat target,
+/// else the first of its foes ([`Game::foes_of`]), else `FormId::PLAYER_REF` when no
+/// combat threat or foe is present [design]. The flight is the combat AI's
+/// ([`Game::start_flight`]); given a reference, its spot is that reference's place,
+/// flown to as Away [hypothesis: the AI runs there rather than to a door or cover]; a
+/// cell is not used (the AI picks the spot) [engineering choice: no way to a cell yet].
+/// Whether the actor stops at the spot is the AI's.
 pub fn force_flee(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if r == FormId::PLAYER_REF {
+        return none();
+    }
     if g.dialogue.as_ref().is_some_and(|d| d.actor == r) {
         g.end_dialogue();
     }
-    let threat = g.awareness.get(r).and_then(|x| x.combat_target().map(|(t, _)| t)).or_else(|| g.foes_of(r).into_iter().next());
-    let Some(from) = threat else { return none() };
+    // Outside combat, ForceFlee still starts fleeing (IsFleeing=1, procedure 16 FLEE)
+    // [observed: 2026-11-25, FNV 1.4.0.525, w6d8_21_forceflee_and_isfleeing_fleenotcombat:
+    // fl0=0 flP=0 aiP=1 prP=11 flF1=1 prF1=16]. Fall back to fleeing away from the player
+    // when no combat threat is listed [design].
+    let from = g
+        .awareness
+        .get(r)
+        .and_then(|x| x.combat_target().map(|(t, _)| t))
+        .or_else(|| g.foes_of(r).into_iter().next())
+        .unwrap_or(FormId::PLAYER_REF);
     let at = position(g, from).unwrap_or_default();
     g.start_flight(r, from, at);
     if let Some(spot) = a.opt_form(1).and_then(|d| position(g, d)) {

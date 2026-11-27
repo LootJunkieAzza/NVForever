@@ -117,10 +117,14 @@ pub fn get_script_variable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 pub fn set_quest_delay(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     let d = a.num(1)?;
-    // A delay of 0 is the INI default, 5 s, not the quest's own DATA delay [documented:
-    // GECK wiki SetQuestDelay, "Setting delay to 0 tells the quest to process at the INI
-    // setting default (5 seconds)"].
-    g.quest(q).delay = Some(if d > 0.0 { d } else { crate::quest::DEFAULT_QUEST_DELAY });
+    // Store the raw finite delay so GetQuestDelay reads back 0.0 and negative values
+    // verbatim while quest timing consumers still fall back to DEFAULT_QUEST_DELAY (5 s)
+    // when delay <= 0 [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
+    // w6d9_08_quest_delay_zero_neg_and_restore: tmr(0.50,2.5=2.50,0=0.00,-1=-1.00)|q0(0.00,0=0.00)|nonQ=0.00,badSt=1].
+    // [design]: ignore non-finite (NaN/inf) delay arguments instead of poisoning QuestState::delay.
+    if d.is_finite() {
+        g.quest(q).delay = Some(d);
+    }
     none()
 }
 
@@ -180,3 +184,7 @@ pub fn complete_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
     }
     none()
 }
+
+#[cfg(test)]
+#[path = "w6d9_setquestdelay_tests.rs"]
+mod w6d9_setquestdelay_tests;

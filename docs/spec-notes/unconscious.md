@@ -9,6 +9,8 @@ on screen).
 
 ## 1. What the data and the documentation say
 
+- **`SetRestrained 1` blocks `StartCombat` and sets `GetLifeState` 5** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_09_set_restrained_lifestate_and_combat`: `PROBE|w6d8_09_set_restrained_lifestate_and_combat|r0=0 ls0=0 r1=1 ls1=5 cmb=0 ai=0 pr=0 r2=0 ls2=0 plrR=1 plrLs=5`; no DLL, PDB, or third-party source consulted]: both NPCs and the Player report `GetLifeState == 5` while restrained, and calling `StartCombat` on a restrained NPC leaves `IsInCombat == 0`.
+
 - **Essential** is an NPC_/CREA ACBS flag [documented: xEdit flag name]; a script sets
   it on a base (SetEssential) or a reference (SetActorRefEssential) [documented:
   catalogue]. KillActor on an essential actor makes it "temporarily unconscious for a

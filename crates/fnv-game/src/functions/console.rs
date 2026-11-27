@@ -132,6 +132,7 @@ pub fn registry() -> &'static [(&'static str, ConsoleImpl)] {
         ("TestRaceSexTerimnal", test_race_sex_terminal),
         ("ClearScreenBlood", clear_screen_blood),
         ("SetDefaultOpen", set_default_open),
+        ("ModScale", mod_scale),
     ]
 }
 
@@ -152,7 +153,7 @@ pub fn unhandled_unused(table_json: &serde_json::Value) -> (Vec<String>, Vec<Str
         if f["family"] != "vanilla" || f["script_calls"].as_u64().unwrap_or(0) > 0 {
             continue;
         }
-        if super::lookup_name(name).is_some() || lookup(name).is_some() || super::player_source::handles(name) || super::refs::handles_source(name) || crate::vats::handles_area_query(name) || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
+        if super::lookup_name(name).is_some() || lookup(name).is_some() || super::player_source::handles(name) || super::refs::handles_source(name) || super::objects::handles_source(name) || crate::vats::handles_area_query(name) || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
             continue;
         }
         let in_console = f["categories"].as_array().into_iter().flatten().any(|c| c == "Console Functions");
@@ -1007,6 +1008,27 @@ pub fn set_default_open(g: &mut Game, ctx: &ConsoleCtx, a: &[String]) -> Result<
     Ok(vec![format!("SetDefaultOpen >> {r} default_open = {}", usize::from(open))])
 }
 
+/// `ref.ModScale delta`: add `delta` to the calling reference's scale, clamped to `[0.5, 2.0]`
+/// [documented: GECK wiki ModScale; observed: `w6d10_06_scale_get_set_modscale_xscl_and_clamps`].
+pub fn mod_scale(g: &mut Game, ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
+    let r = ctx.on.ok_or("ModScale requires a calling reference")?;
+    let [delta_s] = a else { return Err("ModScale expects 1 argument (delta)".into()) };
+    let delta: f64 = delta_s.parse().map_err(|_| format!("ModScale: {delta_s:?} is not a number"))?;
+    let call_ctx = super::Ctx {
+        unit: std::sync::Arc::from("console"),
+        opcode: 0,
+        on: Some(r),
+        self_ref: None,
+        action_ref: None,
+        quest: None,
+        inst: None,
+        in_condition: false,
+    };
+    let arg = [fnv_script::vm::ArgValue::Value(Value::Num(delta))];
+    super::objects::mod_scale(g, &call_ctx, &super::Args(&arg))?;
+    Ok(vec![format!("ModScale >> {r} scale = {:.2}", super::objects::scale_of(g, r))])
+}
+
 /// Decide before calling a host function. Numeric words are literals, and a
 /// string parameter retains the word reader's path/name syntax even when unquoted.
 pub fn call_has_expression(g: &Game, line: &str, func: &str, args: &[String]) -> bool {
@@ -1078,7 +1100,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (33, 76), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (33, 75), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));

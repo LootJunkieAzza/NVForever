@@ -30,8 +30,13 @@ recorded in §5.
 - **Processing interval.** Normally every 5 s (an INI setting). A per-quest Script
   Processing Delay overrides it: 0 means the 5 s default, and a very small value such as
   0.01 effectively means every frame. SetQuestDelay changes it at run time [documented:
-  Quest Data Tab; Quest scripts]. See §5 for how the Default flag behaved in the
-  captures.
+  Quest Data Tab; Quest scripts]. Calling `SetQuestDelay` with `0` or a negative
+  value stores the raw value (`0.0` / `-1.0`) so `GetQuestDelay` reads it back
+  verbatim while quest script execution still falls back to the 5 s default
+  [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`, `w6d9_08_quest_delay_zero_neg_and_restore`:
+  `PROBE|w6d9_08_quest_delay_zero_neg_and_restore|tmr(0.50,2.5=2.50,0=0.00,-1=-1.00)|q0(0.00,0=0.00)|nonQ=0.00,badSt=1`;
+  no DLL, PDB, or third-party source consulted]. See §5 for how the Default flag
+  behaved in the captures.
 - **Priority** decides whose dialogue wins when several quests offer lines; higher wins
   [documented: Quest Data Tab]. Layer 6.
 - **Quest conditions** (QUST-level CTDA) gate all dialogue in the quest. They are

@@ -1,0 +1,75 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-md5-sha1-loose-files-only",
+  "description": "Read-only clean-room probe verifying MD5File and SHA1File return empty string for archive-only files (loose files on disk only).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_md5_sha1_loose_files_only",
+      "title": "Wave 6D-3: MD5File / SHA1File loose files on disk only",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_16_md5_sha1_bsa_and_sleepwait_state",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 48,
+          "functions_tested": [
+            "MD5File",
+            "SHA1File",
+            "IsBSALoaded",
+            "GetSleepWaitMenuState",
+            "TuneRadioRef"
+          ],
+          "claim": "Verify MD5File/SHA1File on missing and BSA-archived file, IsBSALoaded case/prefix/empty, GetSleepWaitMenuState, and TuneRadioRef return.",
+          "expected": "Confirm empty string on missing/BSA-archived file, IsBSALoaded edges, and TuneRadioRef return.",
+          "script_lines": [
+            "string_var sEmpty = \"\"",
+            "string_var sMMiss = MD5File \"Data\\W6D3_NoSuch.txt\"",
+            "string_var sSMiss = SHA1File \"Data\\W6D3_NoSuch.txt\"",
+            "string_var sMArc = MD5File \"Data\\menus\\falloutdict.txt\"",
+            "string_var sSArc = SHA1File \"Data\\menus\\falloutdict.txt\"",
+            "int iBTex = IsBSALoaded \"Fallout - Textures.bsa\"",
+            "int iBLow = IsBSALoaded \"fallout - textures.bsa\"",
+            "int iBPfx = IsBSALoaded \"Data\\Fallout - Textures.bsa\"",
+            "int iBMis = IsBSALoaded \"W6D3_NoSuch.bsa\"",
+            "int iBEmp = IsBSALoaded sEmpty",
+            "int iSw = GetSleepWaitMenuState",
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "ref rRad = GetFormFromMod \"FalloutNV.esm\" \"18774\"",
+            "int iTr = rDr.TuneRadioRef rRad",
+            "PrintToConsole \"PROBE|w6d3p2_16_md5_sha1_bsa_and_sleepwait_state|miss=%g/%g,arc=%g/%g|bsa=%g,%g,%g,%g,%g|sw=%g|tr=%g\" (sv_Length sMMiss) (sv_Length sSMiss) (sv_Length sMArc) (sv_Length sSArc) iBTex iBLow iBPfx iBMis iBEmp iSw iTr"
+          ]
+        }
+      ]
+    }
+  ]
+}

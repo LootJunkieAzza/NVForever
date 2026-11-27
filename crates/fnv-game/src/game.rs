@@ -3249,6 +3249,7 @@ impl<'a> Game<'a> {
                     tracing::info!("quest: {q} stage {stage} completes it; its Next Quest {next} becomes the active quest");
                     self.ui.active_quest = Some(next);
                     self.ui.active_quest_count += 1;
+                    self.refresh_current_objective();
                 }
             }
             if e.flags & STAGE_FAIL != 0 {
@@ -3349,7 +3350,22 @@ impl<'a> Game<'a> {
             let silent = !d1 || self.quest(q).completed;
             self.emit(EventKind::ObjectiveCompleted { quest: q, index, on: c1, silent });
         }
+        self.refresh_current_objective();
         true
+    }
+
+    /// Update `other.last_current_objective` from the active quest's open displayed
+    /// objective whenever quest or objective state changes, retaining the last value
+    /// when no open objective remains [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN
+    /// 57.30, w6d9p2_05_getcurrentobjective_details; hypothesis: lowest-index tie-break
+    /// when multiple objectives are displayed, since `w6d9p2_05` displayed `30` then `10`
+    /// where `10` is both lowest and most-recently-displayed].
+    pub fn refresh_current_objective(&mut self) {
+        if let Some(q) = self.ui.active_quest {
+            if let Some((&i, _)) = self.quest_state(q).objectives.iter().find(|(_, o)| o.displayed && !o.completed) {
+                self.other.last_current_objective = i;
+            }
+        }
     }
 
     // ---- instances and variables -------------------------------------------------
@@ -5032,7 +5048,7 @@ impl<'a> Game<'a> {
                 let script = def.script.filter(|s| data.scripts.contains_key(s))?;
                 let counter = if in_menu { &mut s.since_menu_run } else { &mut s.since_run };
                 *counter += dt;
-                let delay = s.delay.unwrap_or_else(|| def.script_delay());
+                let delay = crate::quest::effective_delay(s.delay, Some(def));
                 (*counter + 1e-9 >= delay).then_some((*q, script))
             })
             .collect();
@@ -8050,6 +8066,93 @@ impl Host for Exec<'_, '_> {
         named(f).or_else(|| crate::functions::base_of(g, f).and_then(named))
     }
 
+    fn format_name_component(&mut self, form: u32, index: i32) -> Option<String> {
+        if form == 0 {
+            return None;
+        }
+        let f = FormId(form);
+        let g = &*self.game;
+        let base = crate::functions::base_of(g, f).unwrap_or(f);
+        let orig = g.unclone(base);
+        match g.data.sig(orig) {
+            Some(s) if &s == b"AMMO" => {
+                let traits = g.ammo_traits(base)?;
+                Some(match index {
+                    1 => traits.short_name.unwrap_or_default(),
+                    2 => traits.abbrev.unwrap_or_default(),
+                    _ => traits.full_name.unwrap_or_default(),
+                })
+            }
+            Some(s) if &s == b"FACT" => {
+                let i = usize::try_from(index).ok()?;
+                if let Some(t) = g.other.ranks.get(&(orig, i, false)) {
+                    return Some(t.clone());
+                }
+                let ranks = g.data.faction_ranks(orig);
+                Some(ranks.get(i).map(|r| r.0.clone()).unwrap_or_default())
+            }
+            _ => None,
+        }
+    }
+
+    fn format_pronoun(&mut self, form: u32, kind: char) -> &'static str {
+        if form == 0 {
+            return "";
+        }
+        let f = FormId(form);
+        let g = &*self.game;
+        let is_npc_and_female = if f == FormId::PLAYER_REF {
+            Some(g.actor_female(f))
+        } else if crate::functions::base_of(g, f).is_some() {
+            // Placed reference: resolve through traits_source so LVLN carriers resolve to
+            // their seeded NPC_ (and CREA/LVLC fall through to neuter) [hypothesis].
+            g.traits_source(f).filter(|(_, def)| &def.sig == b"NPC_").map(|_| g.actor_female(f))
+        } else {
+            // Unplaced base form: check NPC_ directly and read female flag through
+            // face_from_base / base_template_source + acbs_flag so female, cloned, and
+            // templated NPC_ base forms resolve accurately [observed: w6d5p4_format_pronouns;
+            // cloned/templated base inheritance is hypothesis].
+            let orig = g.unclone(f);
+            if g.data.sig(orig) == Some(*b"NPC_") {
+                let src = g
+                    .face_from_base
+                    .get(&f)
+                    .copied()
+                    .unwrap_or_else(|| g.data.base_template_source(orig, |d| d.template_traits));
+                let flag_id = if src == orig { f } else { src };
+                let female = g.data.actors.get(&src).is_some_and(|a| {
+                    &a.sig == b"NPC_"
+                        && g.acbs_flag(flag_id, a, crate::actor_values::acbs::FEMALE, |d| d.female)
+                });
+                Some(female)
+            } else {
+                None
+            }
+        };
+        if let Some(female) = is_npc_and_female {
+            match (kind, female) {
+                ('s', false) => "he",
+                ('o', false) => "him",
+                ('p', false) => "his",
+                ('s', true) => "she",
+                ('o', true) => "her",
+                ('p', true) => "her",
+                _ => "",
+            }
+        } else if crate::functions::base_of(g, f).is_some()
+            || g.data.sig(g.unclone(f)).is_some()
+            || g.world.peek(f).is_some()
+        {
+            match kind {
+                's' | 'o' => "it",
+                'p' => "its",
+                _ => "",
+            }
+        } else {
+            ""
+        }
+    }
+
     fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
         match (var.on, var.var) {
             (_, VarSlot::Global { global }) => {
@@ -8526,6 +8629,11 @@ impl Host for Exec<'_, '_> {
             let source_ctx = Ctx { unit: self.unit.shared_key().clone(), opcode: 0, on: None, self_ref: self.ctx.self_ref,
                 action_ref: self.ctx.action_ref, quest: self.ctx.quest, inst: None, in_condition: false };
             return functions::refs::call_source(self.game, &source_ctx, on, name, args);
+        }
+        if functions::objects::handles_source(name) {
+            let source_ctx = Ctx { unit: self.unit.shared_key().clone(), opcode: 0, on: None, self_ref: self.ctx.self_ref,
+                action_ref: self.ctx.action_ref, quest: self.ctx.quest, inst: None, in_condition: false };
+            return functions::objects::call_source(self.game, &source_ctx, on, name, args);
         }
         let on = on.and_then(|v| v.as_form()).map(FormId);
         let ctx = self.ctx;

@@ -1632,9 +1632,10 @@ fn swap_texture_keeps_the_last_texture_per_shape() {
     assert_eq!(g.texture_swaps.by_ref[&card], vec![("pipboycard01:0".to_string(), r"textures\clutter\rorchachtest\inkblot01.dds".to_string())]);
 }
 
-/// PlayMagicShaderVisuals / StopMagicShaderVisuals: one play per (reference, shader), a
-/// second call starting it over; a duration kept; no calling reference plays it on the
-/// player; Stop takes it away (docs/spec-notes/effect-shaders.md §3).
+/// PlayMagicShaderVisuals / StopMagicShaderVisuals: repeated non-hologram calls stack
+/// distinct plays in start order; a duration is kept per play; no calling reference
+/// plays it on the player; Stop takes matching plays away
+/// (docs/spec-notes/effect-shaders.md §3).
 #[test]
 fn magic_shader_visuals_play_and_stop() {
     let f = fixture();
@@ -1644,10 +1645,12 @@ fn magic_shader_visuals_play_and_stop() {
     call(&mut g, 0x1123, Some(ADULT_REF), &[r(SHADER), n(5.0)]);
     call(&mut g, 0x1123, None, &[r(SHADER)]);
     let plays = &g.script_looks.shaders;
-    assert_eq!(plays.len(), 2);
-    assert_eq!((plays[0].on, plays[0].duration), (FormId(ADULT_REF), Some(5.0)));
-    assert_eq!((plays[1].on, plays[1].duration), (FormId::PLAYER_REF, None));
+    assert_eq!(plays.len(), 3);
+    assert_eq!((plays[0].on, plays[0].duration), (FormId(ADULT_REF), None));
+    assert_eq!((plays[1].on, plays[1].duration), (FormId(ADULT_REF), Some(5.0)));
+    assert_eq!((plays[2].on, plays[2].duration), (FormId::PLAYER_REF, None));
     assert!(plays[1].serial > plays[0].serial);
+    assert!(plays[2].serial > plays[1].serial);
     call(&mut g, 0x1125, Some(ADULT_REF), &[r(SHADER)]);
     assert_eq!(g.script_looks.shaders.len(), 1);
     let serial = g.script_looks.shaders[0].serial;

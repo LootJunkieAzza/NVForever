@@ -321,9 +321,9 @@ fn combat_groups_targets_and_the_wish_to_attack() {
     // ForceFlee: from its combat target.
     ask(&mut g, GUARD_REF, FORCE_FLEE, &[]);
     assert_eq!(g.awareness.tactics.flights.get(&GUARD_REF).map(|f| f.from), Some(FormId::PLAYER_REF));
-    // No threat, no flight.
+    // Outside combat, ForceFlee still enters flight (observed: w6d8_21_forceflee_and_isfleeing_fleenotcombat).
     ask(&mut g, RAIDER_REF, FORCE_FLEE, &[]);
-    assert!(!g.awareness.tactics.flights.contains_key(&RAIDER_REF));
+    assert_eq!(g.awareness.tactics.flights.get(&RAIDER_REF).map(|f| f.from), Some(FormId::PLAYER_REF));
 }
 
 #[test]

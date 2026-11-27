@@ -215,6 +215,12 @@ fn files_and_headers() {
     dds[28..32].copy_from_slice(&10u32.to_le_bytes());
     dds[84..88].copy_from_slice(b"DXT5");
     assert_eq!(dds_header(&dds), Some((512, 256, 10, *b"DXT5")));
+    // Uncompressed DDS header parses with FourCC [0,0,0,0] [documented: dds.md §1].
+    let mut uncomp = vec![0u8; 128];
+    uncomp[..4].copy_from_slice(b"DDS ");
+    uncomp[12..16].copy_from_slice(&8u32.to_le_bytes());
+    uncomp[16..20].copy_from_slice(&2u32.to_le_bytes());
+    assert_eq!(dds_header(&uncomp), Some((2, 8, 0, [0, 0, 0, 0])));
     // A 2x2 24-bit bitmap, bottom-up rows padded to 8 bytes: top-left red, bottom-right blue.
     let mut bmp = vec![0u8; 54];
     bmp[..2].copy_from_slice(b"BM");

@@ -1033,6 +1033,7 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
         Given::ActiveQuest { quest: name } => {
             let q = quest(g, name)?;
             g.ui.active_quest = Some(q);
+            g.refresh_current_objective();
         }
         Given::Reputation { rep: name, fame, infamy } => {
             let r = rep(g, name)?;

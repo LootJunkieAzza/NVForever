@@ -306,17 +306,19 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             refs(g, targets)
         }
         // The actors it detects: the detection rounds' pairs in the Detected band, as
-        // GetDetected [documented; hypothesis: the same test].
+        // GetDetected [documented; observed: w6d8p2_42_detection_level_and_dead_detector,
+        // dead detector returns ar_Null (-1)].
         "getdetectedactors" => {
-            let Some(r) = subject else { return Some(Ok(XVal::Array(0))) };
+            let Some(r) = subject.filter(|&r| !g.is_dead(r)) else { return Some(Ok(XVal::Array(0))) };
             let seen: Vec<FormId> = g.detection.pairs.iter().filter(|(&(d, t), (x, _))| d == r && t != r && x.band == crate::detection::Band::Detected).map(|(&(_, t), _)| t).collect();
             refs(g, seen)
         }
         // The latest detection value of the target by the calling actor, a whole number
-        // [documented: int]; -100 for a pair not measured [documented: the value a left
-        // cell sets; hypothesis: the same for one never measured].
+        // [documented: int]; -100 for a pair not measured or a dead detector [documented:
+        // the value a left cell sets; observed: jip_33_detection_value_unmeasured and
+        // w6d8p2_42_detection_level_and_dead_detector (dVal=-100)].
         "getdetectionvalue" => {
-            let (Some(r), Some(t)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(-100.0))) };
+            let (Some(r), Some(t)) = (subject.filter(|&r| !g.is_dead(r)), form(args, 0)) else { return Some(Ok(XVal::Num(-100.0))) };
             XVal::Num(g.detection.get(r, t).map_or(-100.0, |d| d.value.round()))
         }
         // `[value] [asModifier]`: none or 0 gives the detection back to the rules
@@ -687,3 +689,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d8_dead_detector_tests.rs"]
+mod w6d8_dead_detector_tests;
