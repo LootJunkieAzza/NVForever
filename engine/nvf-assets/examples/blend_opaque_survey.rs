@@ -42,7 +42,7 @@ fn main() {
     for path in &models {
         let Some(bytes) = data.read(path) else { continue };
         files += 1;
-        for s in blend_opaque_survey(&bytes, &data.schema, &opaque) {
+        for s in blend_opaque_survey(&bytes, &data.schema, opaque) {
             blended += 1;
             if s.drawn_opaque {
                 taken += 1;
