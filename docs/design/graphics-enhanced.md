@@ -711,7 +711,23 @@ its own set of the sun's cascades (Bevy's renderer needs them for every view the
 emptying their caster lists was tried and saved 0.12 ms of shadow-pass GPU time and nothing of
 the frame, so the reflected world keeps its shadows.
 
-### 3.8.2 Water caustics and river flow (`water-effects`)
+### 3.8.2 Enhanced water effects (`water-effects`)
+
+[design] A nonexplosive missile crossing the surface can also disturb the reflected and
+refracted image. Each crossing starts a short pair of expanding crests at its timed
+entry point. The water material keeps up to eight recent crossings. The weapon's impact
+set still supplies its splash model and sound. Explosive projectiles make a heavier
+entry. A qualifying near-surface blast keeps the authored water column and drives a
+broader surface wave scaled by its radius and depth. A light crest and dark trough
+help the leading wave remain visible as the plume falls and the bright splash
+clears. The existing blast rules resolve damage, force and sound.
+Smoke scenarios: `water-shot-rings` and `water-blast-waves`.
+
+[design, #2988] Shoreline wash uses the undistorted bed depth to
+soften wind waves and vary sparse patches of wash over time. The wash uses world
+coordinates for breakup and fades on steep receivers and toward distant water.
+Its shallow-depth gate leaves deep water and placed pools out of this effect. The vanilla preset keeps
+the switch off.
 
 [design, #2674] Graphics > Water offers this switch on its own. The enhanced look enables
 it. From above the surface, the water shader reconstructs the position of the opaque
