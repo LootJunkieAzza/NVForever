@@ -63,6 +63,20 @@ pub enum KeySound<'a> {
     Foley { armor: bool, gait: Gait },
 }
 
+/// Read one `ScriptLine: <command>` text key (kNVSE animation text-key script
+/// dispatch, case-insensitive prefix); `None` for any other key or an empty command
+/// [documented: kNVSE README / GECK wiki NiTextKeyExtraData; observed: B42Inject
+/// `.kf` files use both `ScriptLine:` and `scriptLine:`].
+pub fn parse_script_line(key: &str) -> Option<&str> {
+    let key = key.trim();
+    let (head, rest) = key.split_once(':')?;
+    if !head.trim().eq_ignore_ascii_case("scriptline") {
+        return None;
+    }
+    let cmd = rest.trim();
+    (!cmd.is_empty()).then_some(cmd)
+}
+
 /// Read one text key; `None` for keys that ask for no sound.
 pub fn parse(key: &str) -> Option<KeySound<'_>> {
     let key = key.trim();
@@ -533,5 +547,19 @@ mod tests {
         assert!(foley_for(&heavy, false, Gait::Run).is_none());
         assert_eq!(worn_foley(vec![vec![], cloth.clone(), heavy.clone()]), heavy);
         assert_eq!(worn_foley(vec![cloth.clone()]), cloth);
+    }
+
+    #[test]
+    fn parse_script_line_handles_case_and_whitespace() {
+        assert_eq!(
+            parse_script_line(r#"ScriptLine: Goo1.AuxVarSetStr "*_InjMP" "B42Inject\Stimpak01.nif""#),
+            Some(r#"Goo1.AuxVarSetStr "*_InjMP" "B42Inject\Stimpak01.nif""#)
+        );
+        assert_eq!(parse_script_line("scriptLine: Player.Say Hit"), Some("Player.Say Hit"));
+        assert_eq!(parse_script_line("  SCRIPTLINE :  imod MoonshineIS  "), Some("imod MoonshineIS"));
+        assert_eq!(parse_script_line("ScriptLine:   "), None);
+        assert_eq!(parse_script_line("Sound: NPCHumanEatingFoodChewy"), None);
+        assert_eq!(parse_script_line("BlendIn:1"), None);
+        assert_eq!(parse_script_line("start"), None);
     }
 }
