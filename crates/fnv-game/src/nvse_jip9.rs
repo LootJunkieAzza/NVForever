@@ -132,16 +132,19 @@ fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
 
+
 /// A toggle's argument: `Some(on)` when given.
 fn toggle(args: &[XVal]) -> Option<bool> {
     num(args, 0).map(|x| x != 0.0)
 }
 
-/// The axis an argument names: `X` 0, `Y` 1.
+/// The axis an argument names: `X` (case-insensitive) -> 0, any other string -> 1
+/// [observed: w6d13_11_hud_cursor_setcursorpos_xml_and_mouse_camera_toggles,
+/// off(640.0,360.0->640.0,z=360.0)].
 fn axis(v: Option<&XVal>) -> Option<usize> {
     match v? {
         XVal::Str(s) if s.eq_ignore_ascii_case("x") => Some(0),
-        XVal::Str(s) if s.eq_ignore_ascii_case("y") => Some(1),
+        XVal::Str(_) => Some(1),
         _ => None,
     }
 }

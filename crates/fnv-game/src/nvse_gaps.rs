@@ -9,6 +9,7 @@ use fnv_sim::FormId;
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+
 /// Number of JIP LN weapon sound slots (`0..=13`: `SNAM` 0/1, `XNAM`, `NAM7`, `TNAM`,
 /// `NAM6`, `UNAM`, `NAM9`, `NAM8`, `WMS1` 0/1, `WMS2`, `YNAM`, `ZNAM`)
 /// [documented: GECK wiki GetWeaponSound / SetWeaponSound].
@@ -1753,8 +1754,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.emit(crate::trace::EventKind::NoteShown { text, icon, seconds });
             zero
         }
-        // [observed: gaps2, off at the start; on at once, off from the next frame]
+        // [observed: gaps2, off at the start; on at once, off from the next frame;
+        // observed: w6d13_09_menumode_active_menu_paused_button_and_pipboy_light,
+        // returns previous light state lgt(0,0,1,1)]
         "togglepipboylight" => {
+            let was = g.pipboy_light();
             match args.first() {
                 Some(XVal::Num(x)) if *x != 0.0 => {
                     g.gaps.pipboy_light = true;
@@ -1763,7 +1767,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 Some(XVal::Num(_)) if g.gaps.pipboy_light && g.gaps.light_off_at.is_none() => g.gaps.light_off_at = Some(g.time),
                 _ => {}
             }
-            yes(g.pipboy_light())
+            yes(was)
         }
         // `slot [toggle]`: the slot's visibility, 1 shown [observed: gaps3, slot 2 reads 1].
         "togglebipedslotvisibility" => {

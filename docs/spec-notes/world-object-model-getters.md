@@ -28,7 +28,12 @@ and `misc(orig=Clutter\Junk\NukaColaCap.NIF|cl1=w4g_pre_misc.nif|postSrc=w4g_pos
 no DLL or source consulted] `TempCloneForm` performs a copy-at-creation snapshot of
 `MODL` paths for `STAT` and `MISC`: clones inherit pre-clone `SetModelPath` edits and
 stay isolated from post-clone `SetModelPath` edits to the source form (and edits to a
-clone stay isolated from the source). NVForever snapshots `MODL/` overrides onto the
+clone stay isolated from the source). `SetModelPath` returns `1` when it updates a form's `MODL` path [observed: Fallout: New
+Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528,
+2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+staging copy, read-only, `w6d13_44_model_icon_texture_scope_and_biped_paths_all`
+(`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+`mod(r=1,l0=28,[w6d13_m1.nif])`; no DLL or source consulted]. NVForever snapshots `MODL/` overrides onto the
 clone at `TempCloneForm` creation (`Game::snapshot_model_path`) and reads only the
 form's own `MODL/` override before falling back to the authored record's `MODL` field.
 [hypothesis] Applying the same creation-time `MODL/` snapshot isolation across other

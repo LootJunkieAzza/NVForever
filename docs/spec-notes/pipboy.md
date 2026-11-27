@@ -2072,7 +2072,13 @@ At the listener: another tab `UIPipBoyTab` (`fx\ui\pipboy\ui_pipboy_tab.wav`); a
 page (the device's buttons, F1–F3) `UIPipBoyMode` (`ui_pipboy_mode.wav`); the pointer
 onto another tab of the tab line `UIMenuFocus` (`fx\ui\menu\ui_menu_focus.wav`), that
 tab then boxed without a fill [hypothesis: the look]; the ITEMS rows sound as before
-(`UIPipBoyScroll`, the same file); the Pip-Boy light (`crate::flashlight`)
+(`UIPipBoyScroll`, the same file); the Pip-Boy light (`crate::flashlight`, queried/toggled by `TogglePipBoyLight` which
+returns the light state prior to applying an explicit toggle [observed: Fallout: New
+Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528,
+2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+staging copy, read-only, `w6d13_09_menumode_active_menu_paused_button_and_pipboy_light`
+(`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+`lgt(0,0,1,1)`; no DLL or source consulted])
 `UIPipBoyLightOn` / `UIPipBoyLightOff`; while up, a static crackle `UIPipBoyStatic` (the
 folder `fx\ui\pipboy\static\`, a file at random) 0.5–2 s after it is up and then every
 4–10 s [hypothesis: how often the original plays them is not captured]. Coming up and

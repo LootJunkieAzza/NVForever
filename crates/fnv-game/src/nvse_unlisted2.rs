@@ -27,6 +27,7 @@ pub const NEUTRAL: &[&str] = &[
     "suptest", "erdtestfunc", "lunettecmd", "refaddrxdata", "nullargs", "knvsereset", "dumptileinfochilds", "supwritetolog",
 ];
 
+
 /// What these commands keep for the session.
 #[derive(Debug, Default)]
 pub struct Unlisted2State {
@@ -318,9 +319,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getcurrentdialogue" | "setdismemberedlimbvelocity" | "spawntempparticle" | "getswitchnodeindex" | "setweapadditionalfloat"
         | "setweapadditionalflag" | "setondamagecalcflag" | "addperkentry" | "istemporaryreference" | "getlevelupmenuunspentpoints"
         | "setlevelupmenupoints" | "getnoequipshowoff" | "setnoequipshowoff" | "getliveeffectbasetrait" | "setliveeffectmagnitudemodifier"
-        | "showingoffdisable" | "showingoffenable" | "messageexaltshowoff" | "setfactioncombatreactiontemp" | "getniftypebyid"
+        | "showingoffdisable" | "showingoffenable" | "setfactioncombatreactiontemp" | "getniftypebyid"
         | "supgetconditionvarfloat" | "hudbargetpos" | "getcalculatedposframe" | "getnifblocktranslationtovars" | "topicreplacetopicinfo"
         | "getpackedplayerfov" | "jglegacyworldtoscreen" | "setblocktransform" | "setdialogresponseoverridevalues" => XVal::Num(0.0),
+        "messageexaltshowoff" => {
+            // Returns 0 and increments the queued corner message count [observed:
+            // w6d13_10_corner_messages_queue_clear_and_message_traits, q(0,1,2,so=0:3,clr=0)].
+            g.count_corner_message();
+            XVal::Num(0.0)
+        }
         // ---- batch 5: JIP (§9) ----
         // `race which`: 0 the race's older race (ONAM), 1 its younger (YNAM); a script's
         // SetRaceAgeRace first [observed: rest5.raceagerace.*, Caucasian 0 CaucasianOld,

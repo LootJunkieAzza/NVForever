@@ -82,8 +82,13 @@ shift to its place.
 hidden in First person"), 0 when hidden by HudBarShowBar, 1 visible. [hypothesis] Hidden
 both ways answers 0; every condition (0, 21-27) gives -1; the answer is read at the call,
 so -1 from the moment a condition hides the bar (while it still vanishes) and 1 from the
-moment none does (while it still appears). Elements 0, 1, 3 answer their own
-HudBarSetVisible.
+moment none does (while it still appears). Elements 0, 1, 2, 3 answer their own visibility, defaulting at creation to Meter (0) = 1,
+Frame (1) = 1, Text (2) = 0, ImageEx (3) = 1 [observed: Fallout: New Vegas 1.4.0.525
+(040020D0) + xNVSE 6.4.9 + JIP LN 57.30 + SUP NVSE Plugin 855, 2026-11-25, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, isolated staging copy, read-only,
+`w6d13_07_sup_hudbar_element_defaults_traits_and_getpos`
+(`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+`cr=1|ex=1->0|bars=3|vis(1,1,0,1,all=0)`; no DLL or source consulted].
 
 ## 5. Saved
 
