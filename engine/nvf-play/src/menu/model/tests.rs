@@ -1746,3 +1746,199 @@ fn ammo_the_weapon_cannot_fire_is_dim() {
     mark_dim(&mut rows, None);
     assert_eq!(dims(&rows), [false, false, false, false]);
 }
+
+/// #3799: `quantity-select-short-keys` (off by default) leaves vanilla Inventory,
+/// Container, and Barter transfers/drops unchanged when off; when enabled, Shift skips
+/// `QuantityMenu` for the whole stack, Ctrl skips `QuantityMenu` for a single item, and
+/// weightless container stacks (`count > 1`) open `QuantityMenu`.
+#[test]
+fn quantity_select_short_keys_container_barter_inventory_and_weightless_pickup() {
+    use crate::tiles::container_menu::row_commands_with;
+
+    // 1. Default OFF: vanilla container transfer & weightless pickup unchanged.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let start_bullets = count(&mut w, 0x14, BULLETS);
+    if start_bullets > 0 {
+        w.remove_item(PLAYER, FormId(BULLETS), start_bullets).unwrap();
+    }
+    w.add_item(FormId(BOX_REF), FormId(BULLETS), 3).unwrap();
+    w.add_item(FormId(BOX_REF), FormId(CAN), 10).unwrap();
+    w.add_item(PLAYER, FormId(CAN), 12).unwrap();
+
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    assert!(!m.qtt_select_short_keys, "option must default to false");
+    m.focus = Side::Container;
+    let ammo_idx = m.list(Side::Container).rows.iter().position(|r| r.item == FormId(BULLETS)).unwrap();
+    m.selected[Side::Container as usize] = ammo_idx;
+    // Off: 3 non-hardcore weightless ammo (<= ASK_QUANTITY_ABOVE) takes 1 without opening QuantityMenu.
+    let a = m.apply(&mut w, Command::One);
+    assert!(a.changed);
+    assert!(m.quantity.is_none(), "vanilla off must not open quantity prompt for 3 weightless ammo");
+    assert_eq!(count(&mut w, 0x14, BULLETS), 1);
+    assert_eq!(count(&mut w, BOX_REF, BULLETS), 2);
+
+    // 2. Enabled ON: weightless container pickup (`count > 1`) opens QuantityMenu.
+    m.qtt_select_short_keys = true;
+    let ammo_idx = m.list(Side::Container).rows.iter().position(|r| r.item == FormId(BULLETS)).unwrap();
+    m.selected[Side::Container as usize] = ammo_idx;
+    let a = m.apply(&mut w, Command::One);
+    assert!(!a.changed);
+    let q = m.quantity.expect("enabled option opens quantity prompt for 2 weightless ammo in container");
+    assert_eq!((q.max, q.amount, q.side), (2, 2, Side::Container));
+    // Cancel the prompt, then test Ctrl (OneSingle) and Shift (Stack) bypass QuantityMenu.
+    m.apply(&mut w, Command::AmountCancel);
+    assert!(m.quantity.is_none());
+    let a = m.apply(&mut w, Command::OneSingle);
+    assert!(a.changed);
+    assert!(m.quantity.is_none(), "Ctrl single-item shortcut skips quantity prompt");
+    assert_eq!(count(&mut w, 0x14, BULLETS), 2);
+    assert_eq!(count(&mut w, BOX_REF, BULLETS), 1);
+    // Single remaining weightless ammo (count == 1) does NOT open quantity prompt.
+    let ammo_idx = m.list(Side::Container).rows.iter().position(|r| r.item == FormId(BULLETS)).unwrap();
+    m.selected[Side::Container as usize] = ammo_idx;
+    let a = m.apply(&mut w, Command::One);
+    assert!(a.changed);
+    assert!(m.quantity.is_none(), "count == 1 weightless item takes directly without prompt");
+    assert_eq!(count(&mut w, 0x14, BULLETS), 3);
+
+    // Storing a weightless stack from player -> container does NOT trigger container-pickup rule.
+    m.focus = Side::Player;
+    let p_ammo_idx = m.list(Side::Player).rows.iter().position(|r| r.item == FormId(BULLETS)).unwrap();
+    m.selected[Side::Player as usize] = p_ammo_idx;
+    let a = m.apply(&mut w, Command::One);
+    assert!(a.changed);
+    assert!(m.quantity.is_none(), "storing 3 weightless ammo into container keeps ASK_QUANTITY_ABOVE");
+    assert_eq!(count(&mut w, BOX_REF, BULLETS), 1);
+
+    // Hardcore mode gives ammo weight: 3 hardcore ammo in container does NOT open quantity prompt.
+    w.set_hardcore(true);
+    w.add_item(FormId(BOX_REF), FormId(BULLETS), 2).unwrap();
+    m.refresh(&mut w).unwrap();
+    m.focus = Side::Container;
+    let ammo_idx = m.list(Side::Container).rows.iter().position(|r| r.item == FormId(BULLETS)).unwrap();
+    m.selected[Side::Container as usize] = ammo_idx;
+    let a = m.apply(&mut w, Command::One);
+    assert!(a.changed);
+    assert!(m.quantity.is_none(), "hardcore ammo has weight (0.1) so stack of 3 keeps ASK_QUANTITY_ABOVE");
+
+    // Weighted large stack (> ASK_QUANTITY_ABOVE): One asks, OneSingle takes 1, Stack takes all.
+    w.set_hardcore(false);
+    m.refresh(&mut w).unwrap();
+    let can_idx = m.list(Side::Container).rows.iter().position(|r| r.item == FormId(CAN)).unwrap();
+    m.selected[Side::Container as usize] = can_idx;
+    let before_box_cans = count(&mut w, BOX_REF, CAN);
+    assert!(before_box_cans > ASK_QUANTITY_ABOVE);
+    m.apply(&mut w, Command::One);
+    assert!(m.quantity.is_some(), "plain One opens QuantityMenu on large stack");
+    m.apply(&mut w, Command::AmountCancel);
+    let a = m.apply(&mut w, Command::OneSingle);
+    assert!(a.changed && m.quantity.is_none(), "Ctrl OneSingle transfers 1 without prompt");
+    assert_eq!(count(&mut w, BOX_REF, CAN), before_box_cans - 1);
+    let a = m.apply(&mut w, Command::Stack);
+    assert!(a.changed && m.quantity.is_none(), "Shift Stack transfers remaining stack without prompt");
+    assert_eq!(count(&mut w, BOX_REF, CAN), 0);
+
+    // 3. Barter: One asks on large stack, OneSingle offers 1, Stack offers whole stack.
+    let mut wb = World::new(&f.forms, &f.refs, SimConfig::default());
+    wb.add_item(PLAYER, FormId(CAN), 12).unwrap();
+    let mut b = barter(&mut wb);
+    b.qtt_select_short_keys = true;
+    b.focus = Side::Player;
+    let b_can = b.list(Side::Player).rows.iter().position(|r| r.item == FormId(CAN)).unwrap();
+    b.selected[Side::Player as usize] = b_can;
+    b.apply(&mut wb, Command::One);
+    assert!(b.quantity.is_some(), "plain barter One opens QuantityMenu on stack of 12");
+    b.apply(&mut wb, Command::AmountCancel);
+    let a = b.apply(&mut wb, Command::OneSingle);
+    assert!(a.changed && b.quantity.is_none(), "barter Ctrl OneSingle offers 1 without prompt");
+    assert_eq!(b.trade.as_ref().unwrap().offered[Side::Player as usize].get(&(FormId(CAN), None, 0)).copied(), Some(1));
+    let b_can = b.list(Side::Player).rows.iter().position(|r| r.item == FormId(CAN) && !r.bartered).unwrap();
+    b.selected[Side::Player as usize] = b_can;
+    let a = b.apply(&mut wb, Command::Stack);
+    assert!(a.changed && b.quantity.is_none(), "barter Shift Stack offers remaining 11 without prompt");
+    assert_eq!(b.trade.as_ref().unwrap().offered[Side::Player as usize].get(&(FormId(CAN), None, 0)).copied(), Some(12));
+
+    // 4. Inventory: Drop asks on large stack, DropSingle drops 1, DropStack drops rest.
+    let mut wi = World::new(&f.forms, &f.refs, SimConfig::default());
+    wi.add_item(PLAYER, FormId(CAN), 10).unwrap();
+    let mut inv = MenuModel::open_inventory(&mut wi).unwrap();
+    inv.qtt_select_short_keys = true;
+    inv.apply(&mut wi, Command::SetCategory(Side::Player, Category::Misc));
+    let i_can = inv.list(Side::Player).rows.iter().position(|r| r.item == FormId(CAN)).unwrap();
+    inv.selected[Side::Player as usize] = i_can;
+    inv.apply(&mut wi, Command::Drop);
+    assert!(inv.quantity.is_some(), "plain Drop opens QuantityMenu on stack of 10");
+    inv.apply(&mut wi, Command::AmountCancel);
+    let a = inv.apply(&mut wi, Command::DropSingle);
+    assert!(a.changed && inv.quantity.is_none(), "Ctrl DropSingle drops 1 without prompt");
+    assert_eq!(count(&mut wi, 0x14, CAN), 9);
+    let a = inv.apply(&mut wi, Command::DropStack);
+    assert!(a.changed && inv.quantity.is_none(), "Shift DropStack drops remaining 9 without prompt");
+    assert_eq!(count(&mut wi, 0x14, CAN), 0);
+
+    // 5. Tiled row_commands_with: Shift takes precedence over Ctrl; off keeps vanilla Select/One.
+    assert_eq!(row_commands_with(Side::Container, 2, true, false, false), vec![Command::Select(Side::Container, 2)]);
+    assert_eq!(row_commands_with(Side::Container, 2, true, false, true), vec![Command::OneSingle]);
+    assert_eq!(row_commands_with(Side::Container, 2, true, true, false), vec![Command::Stack]);
+    assert_eq!(row_commands_with(Side::Container, 2, true, true, true), vec![Command::Stack]);
+    assert_eq!(row_commands_with(Side::Container, 2, false, false, false), vec![Command::Hover(Side::Container, 2), Command::One]);
+    assert_eq!(row_commands_with(Side::Container, 2, false, false, true), vec![Command::Hover(Side::Container, 2), Command::OneSingle]);
+    assert_eq!(row_commands_with(Side::Container, 2, false, true, true), vec![Command::Hover(Side::Container, 2), Command::Stack]);
+}
+
+#[test]
+fn quantity_select_short_keys_setting_defaults_off_syncs_and_round_trips_ini() {
+    use crate::menu::{sync_quantity_select_short_keys, ActiveMenu, MenuPlugin, QuantitySelectShortKeys};
+    use crate::PlayState;
+    use bevy::app::PostStartup;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::MinimalPlugins;
+
+    let dir = std::env::temp_dir().join(format!("nvf-qtt-short-keys-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("NVForever.ini");
+
+    let make_app = |ini_path: &std::path::Path| {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .init_state::<PlayState>()
+            .insert_resource(crate::settings::SettingsFile(Some(ini_path.to_path_buf())))
+            .init_resource::<crate::settings::GivenSwitches>()
+            .add_plugins(MenuPlugin)
+            .add_systems(PostStartup, crate::settings::apply_stored);
+        app.world_mut().run_schedule(PostStartup);
+        app
+    };
+
+    // 1. Fresh start with no INI: defaults to off, within note budget.
+    let mut app = make_app(&path);
+    assert!(!app.world().resource::<QuantitySelectShortKeys>().0, "must default to off");
+    let idx = app.world().resource::<crate::settings::Settings>().index("quantity-select-short-keys").expect("setting registered");
+    let row = &app.world().resource::<crate::settings::Settings>().list()[idx];
+    assert_eq!(crate::settings::note_over_budget(row.note), None, "note must fit within 200-char budget");
+
+    // Live sync propagates to an open MenuModel when flipped on.
+    app.world_mut().resource_mut::<ActiveMenu>().0 = Some(MenuModel::empty(Mode::Inventory, "Inv".into()));
+    assert_eq!(crate::settings::flip(app.world_mut(), idx), Some(true));
+    app.world_mut().run_system_once(sync_quantity_select_short_keys).unwrap();
+    assert!(app.world().resource::<QuantitySelectShortKeys>().0);
+    assert!(app.world().resource::<ActiveMenu>().0.as_ref().unwrap().qtt_select_short_keys);
+    let ini = std::fs::read_to_string(&path).unwrap();
+    assert!(ini.contains("quantity-select-short-keys=1"), "persisted to NVForever.ini: {ini}");
+
+    // 2. Next start loads the persisted ON value from NVForever.ini.
+    let mut reloaded = make_app(&path);
+    assert!(reloaded.world().resource::<QuantitySelectShortKeys>().0, "restored from NVForever.ini");
+
+    // 3. Flipping back off writes 0 and restores off on next start.
+    let idx2 = reloaded.world().resource::<crate::settings::Settings>().index("quantity-select-short-keys").unwrap();
+    assert_eq!(crate::settings::flip(reloaded.world_mut(), idx2), Some(false));
+    let ini_off = std::fs::read_to_string(&path).unwrap();
+    assert!(ini_off.contains("quantity-select-short-keys=0"), "off persisted: {ini_off}");
+    let reloaded_off = make_app(&path);
+    assert!(!reloaded_off.world().resource::<QuantitySelectShortKeys>().0, "off restored from NVForever.ini");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

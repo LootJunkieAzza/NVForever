@@ -239,8 +239,11 @@ fn search_word() -> &'static str {
 }
 /// The names' head, on the columns' heads' line [design, #2933: sixth look].
 const ITEM: &str = "ITEM";
-const WG: &str = "WG";
-const VAL: &str = "VAL";
+/// The weight and value columns' heads: NVForever's own words (WT, an English abbreviation the
+/// original does not show, to keep the box inside the HUD with every column) [design, #4495:
+/// in place of the abbreviations read from the original's screen].
+const WG: &str = "WT";
+const VAL: &str = "VALUE";
 const PER_WG: &str = "V/W";
 const CHANCE: &str = "CHANCE";
 
@@ -351,7 +354,7 @@ pub enum Which {
 pub enum Ink {
     /// The HUD colour, full.
     Hud,
-    /// The columns' heads (ITEM, WG …): the HUD colour at 50% [design, #2933: sixth
+    /// The columns' heads (ITEM, WT …): the HUD colour at 50% [design, #2933: sixth
     /// look, "not that visible"].
     Head,
     /// The HUD colour, dim.
