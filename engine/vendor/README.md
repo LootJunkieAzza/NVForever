@@ -1239,6 +1239,25 @@ offered; `nvf_hdr_changed` compares the asked-for output with the configured for
 frame, and a change reconfigures the surface at once (no restart). Test aid
 `NVF_PLAY_TEST_SDR_SURFACE=1`: the surface counts as offering no `Rgba16Float`.
 
+MeshAllocator in-place reuse and dense index cache (`#4792`, `[design]`), marked
+`NVForever (#4792)` in `src/mesh/allocator.rs` and `src/slab_allocator.rs`:
+
+- `SlabAllocator::try_reuse_in_place` / `allocate_or_reuse` and
+  `MeshAllocator::free_meshes_except_extracted` reuse an existing resident general-slab
+  slice in place when a re-extracted mesh's layout, slot count, and padding match,
+  overwriting the existing GPU buffer range instead of freeing and reallocating slab slots
+  every frame.
+- `MeshAllocator` maintains dense `Vec`-backed lookup tables (`dense_cache` indexed by
+  `AssetId::Index` slot with generation check, and `dense_buffers` indexed by `SlabId`),
+  refreshed on allocation, slab-growth displacement, and deallocation so
+  `mesh_vertex_slice`, `mesh_index_slice`, `mesh_metadata_slice`,
+  `mesh_morph_target_slice`, and `mesh_slabs` avoid repeated `HashMap` probes on the render
+  thread. `AssetId::Uuid` and out-of-range indices fall back to upstream's `HashMap` path.
+- Unit test `dense_index_cache_matches_slab_allocations_across_alloc_reextract_and_free`
+  covers allocation, re-extraction with dropped index/metadata buffers, generation mismatch,
+  and deallocation. Drop this patch if upstream adopts in-place slab reuse and dense
+  allocator lookups.
+
 ## bevy_shader 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 The shader cache, for composed shaders kept between runs (perf/pipeline-cache, 2026-11-19).

@@ -454,6 +454,31 @@ where
         );
     }
 
+    /// NVForever (#4792) [design]: reuses an existing general-slab allocation in place when its layout, slot count,
+    /// and padding are unchanged; otherwise frees any previous allocation and allocates
+    /// fresh space.
+    pub fn allocate_or_reuse(
+        &mut self,
+        key: &I::Key,
+        data_byte_len: u64,
+        layout: I::Layout,
+        settings: &SlabAllocatorSettings,
+    ) {
+        if self
+            .allocator
+            .try_reuse_in_place(key, data_byte_len, &layout, settings)
+        {
+            return;
+        }
+        self.allocate(key, data_byte_len, layout, settings);
+    }
+
+    /// Frees any existing allocation for `key` within this allocation stage.
+    pub fn free(&mut self, key: &I::Key) {
+        self.allocator
+            .free_existing_allocation(key, &mut self.empty_slabs);
+    }
+
     /// Allocates an object into its own dedicated slab.
     ///
     /// As with [`Self::allocate`], a live allocation under the same key is freed
@@ -569,6 +594,20 @@ where
     phantom: PhantomData<I>,
 }
 
+impl<'a, I> SlabAllocationBufferSlice<'a, I>
+where
+    I: SlabItem,
+{
+    #[inline]
+    pub(crate) fn new(buffer: &'a Buffer, range: Range<u32>) -> Self {
+        Self {
+            buffer,
+            range,
+            phantom: PhantomData,
+        }
+    }
+}
+
 /// Holds information about a slab that's scheduled to be allocated or
 /// reallocated.
 #[derive(Default)]
@@ -659,6 +698,48 @@ where
             allocator: self,
             empty_slabs: HashSet::default(),
         }
+    }
+
+    /// Attempts to reuse an existing resident general-slab allocation for `key` in place
+    /// when `layout`, slot count, and padding match exactly, moving it into
+    /// `pending_allocations` so [`Self::copy_element_data`] overwrites the GPU buffer
+    /// range directly without freeing/reallocating slab slots.
+    fn try_reuse_in_place(
+        &mut self,
+        key: &I::Key,
+        data_byte_len: u64,
+        layout: &I::Layout,
+        settings: &SlabAllocatorSettings,
+    ) -> bool {
+        let data_element_count = data_byte_len.div_ceil(layout.size()) as u32;
+        let data_slot_count = data_element_count.div_ceil(layout.elements_per_slot());
+        let padding = data_slot_count * layout.elements_per_slot() - data_element_count;
+        if data_slot_count as u64 * layout.slot_size()
+            >= settings.large_threshold.min(settings.max_slab_size)
+        {
+            return false;
+        }
+        let Some(&slab_id) = self.key_to_slab.get(key) else {
+            return false;
+        };
+        let Some(Slab::General(general_slab)) = self.slabs.get_mut(&slab_id) else {
+            return false;
+        };
+        if general_slab.buffer.is_none() || general_slab.element_layout != *layout {
+            return false;
+        }
+        let matches = general_slab
+            .resident_allocations
+            .get(key)
+            .is_some_and(|a| a.slot_count == data_slot_count && a.padding == padding);
+        if !matches {
+            return false;
+        }
+        if let Some(alloc) = general_slab.resident_allocations.remove(key) {
+            general_slab.pending_allocations.insert(key.clone(), alloc);
+            return true;
+        }
+        false
     }
 
     /// Allocates space for data with the given byte size and layout in the
