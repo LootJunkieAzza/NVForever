@@ -138,6 +138,7 @@ pub struct NvfSunVisibilityBindings {
     pub uniform: Buffer,
     pub cloud_texture: TextureView,
     pub terrain_texture: TextureView,
+    pub screen_texture: TextureView,
     pub sampler: Sampler,
     pub light_near: TextureView,
     pub light_far: TextureView,
@@ -359,6 +360,7 @@ pub fn nvf_sun_visibility_layout_entries(
         texture_2d(TextureSampleType::Float { filterable: false }),
     ));
     out.push((42, sampler(SamplerBindingType::Filtering)));
+    out.push((50, texture_2d(TextureSampleType::Float { filterable: true })));
     if layout_key.contains(MeshPipelineViewLayoutKey::NVF_CLOUD_VOLUME) {
         // The light volume's near and far front sets (R16Float arrays, filterable).
         out.push((
@@ -1105,6 +1107,7 @@ pub fn prepare_mesh_view_bind_groups(
                     (40, &sun.cloud_texture),
                     (41, &sun.terrain_texture),
                     (42, &sun.sampler),
+                    (50, &sun.screen_texture),
                 ));
                 // Bindings 45-46 only in the layout that has them (the weather-only one
                 // leaves them out).

@@ -32,7 +32,7 @@ use bevy::shader::Shader;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub mod hook;
-pub(crate) use hook::hook_patched;
+pub(crate) use hook::{hook_patched, physical_hook_patched};
 
 /// ssao_lighting.wesl, imported by the patched `apply_pbr_lighting` as
 /// `nvforever::ssao_lighting`.
@@ -138,7 +138,8 @@ pub fn specular_visibility(g: f32, n_dot_v: f32, roughness: f32, weight: f32) ->
 pub struct AmbientOcclusionLightingUniform {
     /// Exponent, debug view (1 on), fade end (game units), distance tolerance.
     pub params: Vec4,
-    /// Strength, the lamps' weight (0..1), the multi-bounce fit (1 on); w unused.
+    /// Strength, the lamps' weight (0..1), the multi-bounce fit (1 on), and 1 when physical
+    /// PBR macro sky-visibility (.b) and sun contact shadows (.a) are packed in `nvf_ao_texture`.
     pub extra: Vec4,
     /// The share of the lamps' factor on lamps whose shadow is looked up ([`SHADOWED_LAMPS`]),
     /// the weight of the factor on the lamps' highlights ([`HIGHLIGHTS`]); z, w unused.
@@ -156,6 +157,12 @@ impl AmbientOcclusionLightingUniform {
             extra: Vec4::new(strength, lamps.clamp(0.0, 1.0), if multibounce { 1.0 } else { 0.0 }, 0.0),
             more: Vec4::new(shadowed_lamps(), highlights(), 0.0, 0.0),
         }
+    }
+
+    /// Enable physical PBR `.b` (macro sky-visibility) and `.a` (sun contact shadow) channels.
+    pub fn with_physical(mut self, physical: bool) -> Self {
+        self.extra.w = if physical { 1.0 } else { 0.0 };
+        self
     }
 }
 
@@ -389,6 +396,50 @@ mod tests {
         assert_eq!(functions.matches("if ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u\n                && (view_bindings::clustered_lights.data[light_id].flags &\n                    mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {").count(), 1, "the spot loop's");
     }
 
+    /// Physical PBR (`NVF_PHYSICAL_PBR=1`): `physical_patched`, `sun_visibility::hook_patched`,
+    /// and `physical_hook_patched` succeed and resolve cleanly across all combinations of
+    /// `NVF_AMBIENT_OCCLUSION`, `NVF_SUN_VISIBILITY`, and `ENVIRONMENT_MAP`, keeping
+    /// directional lights untouched.
+    #[test]
+    fn physical_hook_resolves_with_and_without_the_def() {
+        let physical = crate::lights::physical_patched(&vendored("pbr_functions.wesl")).expect("physical patch applies");
+        let sun = crate::sun_visibility::hook_patched(&physical).expect("sun hook applies");
+        let hooked = physical_hook_patched(&sun).expect("physical ambient occlusion hook applies");
+        assert!(balanced(&hooked));
+        for (_, text, _) in PHYSICAL_HOOK_EDITS {
+            assert!(balanced(text), "{text}");
+        }
+        for env_map in [false, true] {
+            for on in [false, true] {
+                for sun_on in [false, true] {
+                    // Resolve AO/sun before ENVIRONMENT_MAP because single-pass `resolve_known`
+                    // skips scanning inside kept `{ ... }` blocks.
+                    let r1 = resolve_known(&hooked, &[("NVF_AMBIENT_OCCLUSION", on), ("NVF_SUN_VISIBILITY", sun_on)]);
+                    let r = resolve_known(&r1, &[("ENVIRONMENT_MAP", env_map)]);
+                    let case = format!("physical ambient occlusion {on}, sun {sun_on}, env_map {env_map}");
+                    assert!(!code(&r).contains("NVF_AMBIENT_OCCLUSION"), "{case}: every condition resolved");
+                    assert!(balanced(&r), "{case}");
+                    let lighting = block_after(&r, "fn nvf_apply_pbr_lighting(");
+                    assert!(!lighting.contains("\nfn "), "{case}: the lighting function ends where it should");
+                    assert_eq!(lighting.matches("let nvf_ambient_lin = ").count(), usize::from(!env_map), "{case}: fallback ambient when !ENVIRONMENT_MAP");
+                    assert_eq!(lighting.matches("let nvf_ibl_diff_ao = ").count(), usize::from(env_map), "{case}: IBL diffuse AO when ENVIRONMENT_MAP");
+                    assert_eq!(lighting.matches("let nvf_ibl_spec_ao = ").count(), usize::from(env_map), "{case}: IBL specular AO when ENVIRONMENT_MAP");
+                    assert_eq!(lighting.matches("nvf_physical_occlusion(in.frag_coord.xy, -view_z)").count(), usize::from(on), "{case}");
+                    assert_eq!(lighting.matches("let nvf_ao_lamps = nvf_ao_multibounce(nvf_lamp_visibility(nvf_ao_ambient), diffuse_color);").count(), usize::from(on), "{case}");
+                    assert_eq!(lighting.matches("select(nvf_ao_lamps, vec3(1.0), !nvf_display").count(), if on { 2 } else { 0 }, "{case}");
+                    let directional = block_after(lighting, "for (var i: u32 = 0u; i < n_directional_lights; i = i + 1u) {");
+                    assert!(!directional.contains("nvf_ao_lamps"), "{case}: the directional lights keep their light");
+                    assert_eq!(directional.matches("if (i == 0u && nvf_display) { shadow *= nvf_sun_contact; }").count(), usize::from(on), "{case}: sun contact shadow inside directional loop");
+                    if !on {
+                        let want1 = resolve_known(&sun, &[("NVF_SUN_VISIBILITY", sun_on)]);
+                        let want = resolve_known(&want1, &[("ENVIRONMENT_MAP", env_map)]);
+                        assert_eq!(code_lines(&r), code_lines(&want), "{case}");
+                    }
+                }
+            }
+        }
+    }
+
     /// The WESL's bindings are the vendored layout's (mesh_view_bindings.rs 43-44, nobody
     /// else's in group 0), and its uniform the Rust struct, field for field.
     #[test]
@@ -432,7 +483,7 @@ mod tests {
         naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::default())
             .validate(&module)
             .unwrap_or_else(|e| panic!("{e:?}"));
-        for f in ["nvf_ambient_visibility", "nvf_ao_debug", "nvf_lamp_visibility"] {
+        for f in ["nvf_ambient_visibility", "nvf_ao_debug", "nvf_lamp_visibility", "nvf_physical_occlusion"] {
             assert!(module.functions.iter().any(|(_, func)| func.name.as_deref() == Some(f)), "{f}");
         }
     }

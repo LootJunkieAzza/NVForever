@@ -86,6 +86,8 @@ const READER_SHADER: Handle<Shader> = uuid_handle!("8d4e6a1f-3b72-4c09-a5e8-61f2
 /// What darkens the sun's direct light; producers write it, everything else reads it.
 #[derive(Resource, Clone, Default, Debug, PartialEq)]
 pub struct SunVisibility {
+    /// The extended cascade still needs the fade when the other visibility effects are off.
+    pub cascade_fade: bool,
     /// Cloud shadows (#2670) are switched on: the views take the cloud variant and keep it
     /// whether or not `cloud` is set (module notes).
     pub cloud_enabled: bool,
@@ -98,6 +100,11 @@ pub struct SunVisibility {
     /// Terrain shadows (#2671): T, while the producer has a published map; `None` with
     /// `terrain_enabled` packs a neutral terrain (T = 1, Vsolid = C).
     pub terrain: Option<TerrainVisibility>,
+    /// The screen's sun contact shadows (sun_contact_shadows.rs) are switched on: the views
+    /// take the screen variant and keep it whether or not the pass could draw this frame.
+    pub screen_enabled: bool,
+    /// Their strength, 0..1 (sun_contact_shadows.rs `STRENGTH`); 0 with nothing drawn.
+    pub screen_strength: f32,
     /// The debug view (`NVF_PLAY_DEBUG_SUN_VISIBILITY`).
     pub debug: DebugMode,
     /// Where the cloud shadows come from (#3032 stage 2i M2; cloud_shadows.rs
@@ -158,7 +165,7 @@ impl SunVisibility {
     /// Whether the plumbing is on: a feature is switched on or set, or a debug view is
     /// asked for (a debug view alone shows V = C, the cascade shadow).
     pub fn active(&self) -> bool {
-        self.cloud_on() || self.terrain_on() || self.debug != DebugMode::Off
+        self.cascade_fade || self.cloud_on() || self.terrain_on() || self.screen_on() || self.debug != DebugMode::Off
     }
 
     /// Whether the views take the cloud variant (`NVF_CLOUD_VISIBILITY`): Cloud shadows is
@@ -173,9 +180,15 @@ impl SunVisibility {
         self.terrain_enabled || self.terrain.is_some()
     }
 
+    /// Whether the views take the screen variant: the sun contact shadows are switched on
+    /// (the mask's bit 4 says whether the pass has a picture this frame).
+    pub fn screen_on(&self) -> bool {
+        self.screen_enabled
+    }
+
     /// The switches the log line names.
-    fn mask(&self) -> (bool, bool, DebugMode) {
-        (self.cloud_on(), self.terrain_on(), self.debug)
+    fn mask(&self) -> (bool, bool, bool, DebugMode) {
+        (self.cloud_on(), self.terrain_on(), self.screen_on(), self.debug)
     }
 }
 
@@ -338,6 +351,8 @@ pub struct SunVisibilityUniform {
     pub terrain_uv: Vec4,
     pub terrain: Vec4,
     pub mode: UVec4,
+    /// x: the screen contact shadows' strength (0..1); y, z, w: unused.
+    pub screen: Vec4,
     /// The cloud from the light volume: x its strength, y and z the low-sun band (as `cloud.zw`).
     pub volume: Vec4,
     /// The light volume's fronts (light_volume_reader.wesl `LightVolumeWindow`).
@@ -347,6 +362,9 @@ pub struct SunVisibilityUniform {
 /// Feature bits of `mode.x`: a valid image is published (not merely switched on).
 pub const MASK_CLOUD: u32 = 1;
 pub const MASK_TERRAIN: u32 = 2;
+/// The sun contact shadows' pass has a picture for this frame (sun_contact_shadows.rs points
+/// the view's binding at its texture in `PrepareResources`; see [`SunVisibilityUniform::pack`]).
+pub const MASK_SCREEN: u32 = 64;
 /// The cloud shadow from the light volume where it has data (#3032 stage 2i M2), and with it the
 /// volume alone (no weather's layers where it has none: `CloudSource::Volume`).
 pub const MASK_CLOUD_VOLUME: u32 = 4;
@@ -546,6 +564,12 @@ impl SunVisibilityUniform {
             u.terrain = Vec4::new(0.0, 0.0, t.texel, t.side as f32);
             mask |= MASK_TERRAIN;
         }
+        // The screen's contact shadows keep their bit while on: the pass always writes its
+        // texture (or clears it to 1 where it cannot draw), so a sample is never undefined.
+        if v.screen_on() {
+            u.screen = Vec4::new(v.screen_strength.clamp(0.0, 1.0), 0.0, 0.0, 0.0);
+            mask |= MASK_SCREEN;
+        }
         u.mode = UVec4::new(mask, v.debug as u32, 0, 0);
         u
     }
@@ -604,12 +628,20 @@ impl Plugin for SunVisibilityPlugin {
         }
         app.init_resource::<SunVisibility>()
             .add_systems(Startup, debug_aids)
+            .add_systems(Update, follow_cascade_fade)
             .add_systems(PostUpdate, (log_mask.run_if(resource_changed::<SunVisibility>), mark_targets.run_if(marking_needed)).chain());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app.init_resource::<SunVisibilityGpu>().init_resource::<CloudVolumeFrame>().add_systems(ExtractSchedule, extract_sun_visibility).add_systems(
             Render,
             prepare_sun_visibility.in_set(CloudShadowsDecided).in_set(RenderSystems::PrepareResourcesFlush).after(crate::volumetric_clouds_lightvol::gpu::publish_light_volume_reader),
         );
+    }
+}
+
+fn follow_cascade_fade(graphics: Option<Res<crate::graphics::Graphics>>, mut vis: ResMut<SunVisibility>) {
+    let enabled = graphics.as_ref().is_some_and(|g| g.fine_shadows);
+    if vis.cascade_fade != enabled {
+        vis.cascade_fade = enabled;
     }
 }
 
@@ -632,11 +664,11 @@ fn debug_aids(mut vis: ResMut<SunVisibility>, mut images: ResMut<Assets<Image>>)
 }
 
 /// One line whenever the switches change.
-fn log_mask(vis: Res<SunVisibility>, mut last: Local<Option<(bool, bool, DebugMode)>>) {
+fn log_mask(vis: Res<SunVisibility>, mut last: Local<Option<(bool, bool, bool, DebugMode)>>) {
     let mask = vis.mask();
-    if last.unwrap_or((false, false, DebugMode::Off)) != mask {
+    if last.unwrap_or((false, false, false, DebugMode::Off)) != mask {
         let on = |b: bool| if b { "on" } else { "off" };
-        info!("sun visibility: cloud {} terrain {} debug {}", on(mask.0), on(mask.1), mask.2.name());
+        info!("sun visibility: cloud {} terrain {} screen {} debug {}", on(mask.0), on(mask.1), on(mask.2), mask.3.name());
     }
     *last = Some(mask);
 }
@@ -702,7 +734,7 @@ pub const CLOUD_VOLUME_ROOM_MARGIN: u32 = 4;
 /// texture every 3D camera has (24, nvf-assets nif_material.rs), the sun visibility's cloud and
 /// terrain maps (40, 41), the light volume's arrays (45, 46), the ambient occlusion (44) and,
 /// on a device without binding arrays, [`REFLECTION_CUBE_TEXTURES`].
-pub const FULLEST_VIEW_TEXTURES: u32 = 10 + REFLECTION_CUBE_TEXTURES;
+pub const FULLEST_VIEW_TEXTURES: u32 = 11 + REFLECTION_CUBE_TEXTURES;
 /// A view's reflection cube (nvf-assets reflection_cube.rs: Bevy's `ENVIRONMENT_MAP`) without
 /// binding arrays: the diffuse and the specular cube (bevy_pbr environment_map.rs
 /// `get_bind_group_layout_entries`; with them they are arrays, counted against another limit).
@@ -1124,6 +1156,9 @@ fn extract_sun_visibility(
                 uniform: buffer.clone(),
                 cloud_texture: fallback.d2.texture_view.clone(),
                 terrain_texture: parts.terrain_fallback.clone(),
+                // The screen's contact shadows point it at their own texture in
+                // `PrepareResources` (sun_contact_shadows.rs); white lets all light through.
+                screen_texture: fallback.d2.texture_view.clone(),
                 sampler: parts.sampler.clone(),
                 light_near: light.clone(),
                 light_far: light.clone(),
@@ -1255,7 +1290,7 @@ pub const HOOK_EDITS: [(&str, &str, Place); 6] = [
     (
         "import bevy_render::maths::{E, powsafe};\n",
         "// NVForever sun visibility (nvforever sun_visibility.rs).
-@if(NVF_SUN_VISIBILITY) import nvforever::sun_visibility::{nvf_sun_visibility, nvf_sun_visibility_parts, nvf_sun_debug_value, nvf_sun_debug_mode};
+@if(NVF_SUN_VISIBILITY) import nvforever::sun_visibility::{nvf_sun_visibility, nvf_sun_visibility_parts, nvf_sun_debug_value, nvf_sun_debug_mode, nvf_screen_visibility, nvf_cascade_visibility};
 ",
         Place::After,
     ),
@@ -1273,11 +1308,18 @@ pub const HOOK_EDITS: [(&str, &str, Place); 6] = [
         "        // NVForever sun visibility (nvforever sun_visibility.rs): the outdoor sun's shadow
         // becomes V = K * Vsolid, outside the shadow-receiver condition, so that receivers
         // and non-receivers (leaves, tree cards, water) alike take the clouds and terrain.
+        // The screen's own contact shadows scale it too (sun_contact_shadows.rs).
         @if(NVF_SUN_VISIBILITY)
         if ((*light).flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT) != 0u {
-            let nvf_parts = nvf_sun_visibility_parts(in.world_position.xyz, (*light).direction_to_light, shadow, view_z);
+            let nvf_cascade = nvf_cascade_visibility(shadow, view_z, i);
+            let nvf_parts = nvf_sun_visibility_parts(in.world_position.xyz, (*light).direction_to_light, nvf_cascade, view_z);
             nvf_sun_debug = nvf_sun_debug_value(nvf_parts);
             shadow = nvf_parts.w;
+            @if(!NVF_WATER) {
+                let nvf_viewport = view_bindings::view.main_pass_viewport;
+                let nvf_uv = (in.frag_coord.xy - nvf_viewport.xy) / max(nvf_viewport.zw, vec2<f32>(1.0));
+                shadow *= nvf_screen_visibility(nvf_uv);
+            }
         }
 ",
         Place::Before,
@@ -1287,7 +1329,12 @@ pub const HOOK_EDITS: [(&str, &str, Place); 6] = [
         "        // NVForever sun visibility: the transmitted lobe takes it too.
         @if(NVF_SUN_VISIBILITY)
         if ((*light).flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT) != 0u {
-            transmitted_shadow = nvf_sun_visibility(diffuse_transmissive_lobe_world_position.xyz, (*light).direction_to_light, transmitted_shadow, view_z);
+            transmitted_shadow = nvf_sun_visibility(diffuse_transmissive_lobe_world_position.xyz, (*light).direction_to_light, nvf_cascade_visibility(transmitted_shadow, view_z, i), view_z);
+            @if(!NVF_WATER) {
+                let nvf_viewport = view_bindings::view.main_pass_viewport;
+                let nvf_uv = (in.frag_coord.xy - nvf_viewport.xy) / max(nvf_viewport.zw, vec2<f32>(1.0));
+                transmitted_shadow *= nvf_screen_visibility(nvf_uv);
+            }
         }
 ",
         Place::Before,
@@ -1550,7 +1597,7 @@ pub(crate) mod tests {
 
     #[test]
     fn uniform_packing() {
-        assert_eq!(SunVisibilityUniform::min_size().get(), 176, "eleven vec4s, as sun_visibility.wesl's struct (the light volume's five among them)");
+        assert_eq!(SunVisibilityUniform::min_size().get(), 192, "twelve vec4s including screen shadows");
         let image = Handle::<Image>::default();
         let v = SunVisibility {
             cloud: Some(CloudVisibility { image: image.clone(), uv_scale: Vec2::new(0.5, 0.25), uv_offset: Vec2::new(3.0, 4.0), plane_height: 9_000.0, strength: 1.5 }),
@@ -1564,9 +1611,10 @@ pub(crate) mod tests {
         assert_eq!(u.terrain_uv, Vec4::new(2.0, 2.0, -1.0, 1.0));
         assert_eq!(u.terrain, Vec4::new(0.0, 0.0, 256.0, 512.0), "xy unused");
         assert_eq!(u.mode, UVec4::new(MASK_CLOUD | MASK_TERRAIN, 2, 0, 0));
+        assert_eq!(u.screen, Vec4::ZERO, "off");
         // The WGSL struct names the same fields in the same order.
         let wesl = include_str!("sun_visibility.wesl");
-        let fields: Vec<usize> = ["cloud_uv: vec4<f32>", "cloud: vec4<f32>", "terrain_uv: vec4<f32>", "terrain: vec4<f32>", "mode: vec4<u32>", "volume: vec4<f32>", "light_volume: LightVolumeWindow"]
+        let fields: Vec<usize> = ["cloud_uv: vec4<f32>", "cloud: vec4<f32>", "terrain_uv: vec4<f32>", "terrain: vec4<f32>", "mode: vec4<u32>", "screen: vec4<f32>", "volume: vec4<f32>", "light_volume: LightVolumeWindow"]
             .iter()
             .map(|f| wesl.find(f).unwrap_or_else(|| panic!("{f}")))
             .collect();
@@ -1580,6 +1628,7 @@ pub(crate) mod tests {
             "@group(0) @binding(42) var nvf_sun_visibility_sampler: sampler",
             "@group(0) @binding(45) var nvf_light_near: texture_2d_array<f32>",
             "@group(0) @binding(46) var nvf_light_far: texture_2d_array<f32>",
+            "@group(0) @binding(50) var nvf_screen_texture: texture_2d<f32>",
         ] {
             assert!(wesl.contains(b), "{b}");
         }
@@ -1607,7 +1656,7 @@ pub(crate) mod tests {
         assert!(!wesl.contains("textureSampleLevel(nvf_terrain_texture") && !wesl.contains("textureSample(nvf_terrain_texture"));
         assert_eq!(TERRAIN_FORMAT, crate::terrain_shadows::OUTPUT_FORMAT, "the stand-in has the producer's format");
         // Eleven vec4s on the CPU too.
-        assert_eq!(std::mem::size_of::<SunVisibilityUniform>(), 176);
+        assert_eq!(std::mem::size_of::<SunVisibilityUniform>(), 192);
     }
 
     /// Switched on with nothing published: the plumbing is on and the views take the cloud
@@ -1618,7 +1667,7 @@ pub(crate) mod tests {
     fn switched_on_without_a_cloud_is_neutral() {
         let on = SunVisibility { cloud_enabled: true, ..default() };
         assert!(on.active() && on.cloud_on());
-        assert_eq!(on.mask(), (true, false, DebugMode::Off), "the log names the switch");
+        assert_eq!(on.mask(), (true, false, false, DebugMode::Off), "the log names the switch");
         let u = SunVisibilityUniform::pack(&on);
         assert_eq!(u.cloud, NEUTRAL_CLOUD);
         assert_eq!(u.cloud.y, 0.0, "strength 0");
@@ -1736,16 +1785,16 @@ pub(crate) mod tests {
         // 24 with the arrays, 28 with the margin.
         let others = [nif, standard + 2, standard, sky];
         let material = most_textures((folded, false), &others);
-        assert_eq!((FULLEST_VIEW_TEXTURES, material), (12, 12));
+        assert_eq!((FULLEST_VIEW_TEXTURES, material), (13, 12));
         assert!(!CloudVolumeRoom::new(16, FULLEST_VIEW_TEXTURES, material, false).fits, "WebGPU's default 16");
-        assert!(!CloudVolumeRoom::new(27, FULLEST_VIEW_TEXTURES, material, false).fits, "one short of the margin");
-        assert!(CloudVolumeRoom::new(28, FULLEST_VIEW_TEXTURES, material, false).fits);
-        assert!(CloudVolumeRoom::new(26, FULLEST_VIEW_TEXTURES - REFLECTION_CUBE_TEXTURES, material, false).fits, "the cube takes two of them");
+        assert!(!CloudVolumeRoom::new(28, FULLEST_VIEW_TEXTURES, material, false).fits, "one short of the margin");
+        assert!(CloudVolumeRoom::new(29, FULLEST_VIEW_TEXTURES, material, false).fits);
+        assert!(CloudVolumeRoom::new(27, FULLEST_VIEW_TEXTURES - REFLECTION_CUBE_TEXTURES, material, false).fits, "the cube takes two of them");
         // Bindless, the cubes in binding arrays: 20 with the arrays, 24 with the margin. A bindless
         // terrain counts with what it keeps outside them.
         assert_eq!((most_textures((0, true), &[0, 0, 0, sky]), most_textures((folded, true), &others)), (10, 27));
         let view = FULLEST_VIEW_TEXTURES - REFLECTION_CUBE_TEXTURES;
-        assert!(!CloudVolumeRoom::new(23, view, sky, true).fits && CloudVolumeRoom::new(24, view, sky, true).fits);
+        assert!(!CloudVolumeRoom::new(24, view, sky, true).fits && CloudVolumeRoom::new(25, view, sky, true).fits);
         assert!(CloudVolumeRoom::new(1 << 20, FULLEST_VIEW_TEXTURES, 27, false).fits, "a desktop adapter's limit");
         // The views that take the arrays are HDR, so none tonemaps in the shader; the cube is
         // counted with the others.
@@ -1784,9 +1833,9 @@ pub(crate) mod tests {
         let volume = MeshPipelineViewLayoutKey::NVF_CLOUD_VOLUME;
         assert_eq!(bindings(MeshPipelineViewLayoutKey::empty()), Vec::<u32>::new());
         assert_eq!(bindings(volume), Vec::<u32>::new(), "the volume bit alone adds nothing");
-        assert_eq!(bindings(sun), [39, 40, 41, 42]);
-        assert_eq!(bindings(sun | volume), [39, 40, 41, 42, 45, 46]);
-        assert_eq!((textures(sun), textures(sun | volume)), (2, 4));
+        assert_eq!(bindings(sun), [39, 40, 41, 42, 50]);
+        assert_eq!(bindings(sun | volume), [39, 40, 41, 42, 50, 45, 46]);
+        assert_eq!((textures(sun), textures(sun | volume)), (3, 5));
         let from = |k: MeshPipelineKey| MeshPipelineViewLayoutKey::from(k);
         assert!(from(MeshPipelineKey::NVF_SUN_VISIBILITY | MeshPipelineKey::NVF_CLOUD_VOLUME_VISIBILITY).contains(sun | volume));
         assert!(!from(MeshPipelineKey::NVF_SUN_VISIBILITY).contains(volume));
@@ -2173,7 +2222,7 @@ pub(crate) mod tests {
                     continue;
                 }
                 let at = |s: &str| r.find(s).unwrap_or_else(|| panic!("{case}: {s} missing"));
-                assert!(at("import nvforever::sun_visibility::{nvf_sun_visibility, nvf_sun_visibility_parts, nvf_sun_debug_value, nvf_sun_debug_mode};") < at("fn nvf_apply_pbr_lighting("));
+                assert!(at("import nvforever::sun_visibility::{nvf_sun_visibility, nvf_sun_visibility_parts, nvf_sun_debug_value, nvf_sun_debug_mode, nvf_screen_visibility, nvf_cascade_visibility};") < at("fn nvf_apply_pbr_lighting("));
                 let wesl = include_str!("sun_visibility.wesl");
                 for f in ["fn nvf_sun_visibility(", "fn nvf_sun_visibility_parts(", "fn nvf_sun_debug_value(", "fn nvf_sun_debug_mode("] {
                     assert!(wesl.contains(f), "sun_visibility.wesl has {f}");
@@ -2365,17 +2414,18 @@ pub(crate) mod tests {
     }
 
     /// sun_visibility.wesl `source` for the shader defs (cloud, terrain, cloud volume) as one
-    /// module: every condition resolved ([`resolve_known`]) and its one import, the light volume's
-    /// shared reader (#3032 stage 2i M2, only with `NVF_CLOUD_VOLUME`), linked by putting that
-    /// module's text in its place (it declares nothing the sun visibility declares).
+    /// module: every condition resolved ([`resolve_known`]), the conditional light-volume reader
+    /// linked in, and the Bevy lights binding replaced with a minimal standalone test stub.
     pub(crate) fn sun_variant(source: &str, (cloud, terrain, volume): (bool, bool, bool)) -> String {
         const IMPORT: &str = "import nvforever::light_volume_reader::{LightVolumeWindow, lvr_optical_depth};";
         let reader = include_str!("light_volume_reader.wesl").replace("\r\n", "\n");
         let known = [("NVF_CLOUD_VISIBILITY", cloud), ("NVF_TERRAIN_VISIBILITY", terrain), ("NVF_CLOUD_VOLUME", volume)];
         let resolved = resolve_known(source, &known);
         assert!(!code(&resolved).contains("@if("), "{cloud} {terrain} {volume}: every condition resolved");
-        assert_eq!(resolved.lines().filter(|l| l.trim_start().starts_with("import ")).count(), usize::from(volume), "{cloud} {terrain} {volume}: the reader's import only with the volume");
-        resolved.lines().map(|l| if l.trim() == IMPORT { reader.clone() } else { l.to_string() }).collect::<Vec<_>>().join("\n")
+        assert_eq!(resolved.lines().filter(|l| l.trim_start().starts_with("import ")).count(), 1 + usize::from(volume), "{cloud} {terrain} {volume}: the lights and conditional reader imports");
+        const LIGHTS_IMPORT: &str = "import bevy_pbr::render::mesh_view_bindings::lights;";
+        const LIGHTS_STUB: &str = "struct TestCascade { far_bound: f32, }\nstruct TestDirectionalLight { num_cascades: u32, cascades: array<TestCascade, 4>, }\nstruct TestLights { directional_lights: array<TestDirectionalLight, 10>, }\nvar<private> lights: TestLights;";
+        resolved.lines().map(|l| if l.trim() == IMPORT { reader.clone() } else if l.trim() == LIGHTS_IMPORT { LIGHTS_STUB.to_string() } else { l.to_string() }).collect::<Vec<_>>().join("\n")
     }
 
     /// sun_visibility.wesl in each of its eight variants (cloud, terrain, cloud volume on or off;
@@ -2386,7 +2436,7 @@ pub(crate) mod tests {
     fn shader_variants_are_valid_wgsl() {
         use wgpu::naga;
         let source = include_str!("sun_visibility.wesl").replace("\r\n", "\n");
-        assert_eq!(source.lines().filter(|l| l.contains("import ") && !l.trim_start().starts_with("//")).count(), 1, "the one import");
+        assert_eq!(source.lines().filter(|l| l.contains("import ") && !l.trim_start().starts_with("//")).count(), 2, "the lights and light-volume imports");
         for cloud in [false, true] {
             for terrain in [false, true] {
                 for volume in [false, true] {
@@ -2640,7 +2690,7 @@ pub(crate) mod tests {
     fn switched_on_without_a_map_is_neutral() {
         let on = SunVisibility { terrain_enabled: true, ..default() };
         assert!(on.active() && on.terrain_on() && !on.cloud_on());
-        assert_eq!(on.mask(), (false, true, DebugMode::Off), "the log names the switch");
+        assert_eq!(on.mask(), (false, true, false, DebugMode::Off), "the log names the switch");
         let u = SunVisibilityUniform::pack(&on);
         assert_eq!((u.terrain_uv, u.terrain, u.mode.x & MASK_TERRAIN), (Vec4::ZERO, Vec4::ZERO, 0));
         let map = TestMap::from_output(vec![Vec4::ZERO; 4], 2);

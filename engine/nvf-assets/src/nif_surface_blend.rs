@@ -499,6 +499,8 @@ pub struct NifSurfaceBlendColour {
     /// How that height atlas is packed (the publication's [`HeightLayout`]); no binding,
     /// it reaches the shader through the key ([`NifSurfaceBlendKey`], [`blend_shader_defs`]).
     pub mesh_terrain_layout: HeightLayout,
+    pub skin: bool,
+    pub foliage: bool,
 }
 
 #[derive(Clone, Default, ShaderType)]
@@ -558,6 +560,11 @@ impl From<&NifSurfaceBlendColour> for NifSurfaceBlendKey {
             soft: s.soft.x > 0.0,
             // HDR output, as in the ordinary type's key (a live switch prepares both again).
             hdr: crate::nif_material::hdr_output(),
+            skin: s.skin,
+            foliage: s.foliage,
+            eye: false,
+            // Hair is never blended into the landscape.
+            hair: false,
         }, s.mesh_terrain_layout)
     }
 }
@@ -705,6 +712,8 @@ impl NifSurfaceBlendColour {
             mesh_terrain_colour: Some(colour),
             mesh_terrain_height: Some(height.0),
             mesh_terrain_layout: height.1,
+            skin: source.skin,
+            foliage: source.foliage,
         }
     }
 }

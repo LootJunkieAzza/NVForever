@@ -96,6 +96,9 @@ struct TerrainLayers {
     // Each layer's own depth (0 without a height map): layers 0 to 3, then 4 and 5.
     depths_low: vec4<f32>,
     depths_high: vec4<f32>,
+    // x: the march's height multiplier (terrain.rs `ParallaxTuning`, the F11 window's
+    // Parallax tab: 1 draws each set's depth as authored, 0 flattens); y, z, w: unused.
+    boost: vec4<f32>,
 }
 
 // The extension's index table (indices 50-69 of TerrainLayers' bindless attribute).
@@ -398,13 +401,21 @@ fn layer_normal_grad(k: u32, instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, 
     @if(!BINDLESS) return terrain_layer_values.parallax;
 }
 
+// x: the march's height multiplier, y: its self-shadowing's strength (terrain.rs
+// `ParallaxTuning`), z, w: unused.
+@if(TERRAIN_PARALLAX) fn parallax_boost(instance_index: u32) -> vec4<f32> {
+    @if(BINDLESS) return terrain_layers[terrain_indices[material_slot(instance_index)].layers].boost;
+    @if(!BINDLESS) return terrain_layer_values.boost;
+}
+
 // Each layer's depth over the march's scale (0 for a layer without a height map), so a
 // layer moves the coordinate as far as its own set's depth asks; with the scale the same
 // everywhere, the same layer is marched on the same steps on both sides of a quadrant edge.
 @if(TERRAIN_PARALLAX) fn parallax_scales(instance_index: u32, depth: f32) -> array<f32, 6> {
     @if(BINDLESS) let l = terrain_layers[terrain_indices[material_slot(instance_index)].layers];
     @if(!BINDLESS) let l = terrain_layer_values;
-    let s = 1.0 / max(depth, 1e-6);
+    // The height multiplier of the F11 window's Parallax tab (terrain.rs `ParallaxTuning`).
+    let s = l.boost.x / max(depth, 1e-6);
     return array<f32, 6>(l.depths_low.x * s, l.depths_low.y * s, l.depths_low.z * s, l.depths_low.w * s, l.depths_high.x * s, l.depths_high.y * s);
 }
 
@@ -447,11 +458,17 @@ fn layer_normal_grad(k: u32, instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, 
 // layer without a height map (scale 0) add none: flat at the surface, so the shift falls to
 // nothing as the layers with height maps fade out, with no jump at their edges or at a
 // quadrant drawn without folded layers (terrain.rs "Parallax").
-@if(TERRAIN_PARALLAX) fn parallax_depth_at(instance_index: u32, uv: vec2<f32>, w: array<f32, 7>, n: u32, scale: array<f32, 6>, footprint: f32) -> f32 {
+// A layer takes part in the march only from this share of the pixel's paint (ScreenSpaceShaders'
+// terrain POM keeps `weights > 0.05f` too): with a height map on nearly every ground
+// texture, counting every faint layer read a height map per layer per step and the terrain's
+// cost tripled; the faint ones move the coordinate by a fraction of a texel anyway.
+const PARALLAX_MIN_SHARE: f32 = 0.05;
+
+@if(TERRAIN_PARALLAX) fn parallax_depth_at(instance_index: u32, uv: vec2<f32>, n: u32, contribution: array<f32, 6>, footprint: f32) -> f32 {
     var depth = 0.0;
     for (var k = 0u; k < n; k += 1u) {
-        if w[k + 1u] > 0.0 && scale[k] > 0.0 {
-            depth += w[k + 1u] * scale[k] * (1.0 - layer_height(k, instance_index, uv, footprint));
+        if contribution[k] > 0.0 {
+            depth += contribution[k] * (1.0 - layer_height(k, instance_index, uv, footprint));
         }
     }
     return depth;
@@ -487,8 +504,10 @@ const PARALLAX_RELIEF_STEPS: u32 = 4u;
     }
     let scale = parallax_scales(instance_index, values.x);
     var relief = false;
+    var contribution = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     for (var k = 0u; k < n; k += 1u) {
-        if w[k + 1u] > 0.0 && scale[k] > 0.0 {
+        if w[k + 1u] >= PARALLAX_MIN_SHARE && scale[k] > 0.0 {
+            contribution[k] = w[k + 1u] * scale[k];
             relief = true;
         }
     }
@@ -508,14 +527,14 @@ const PARALLAX_RELIEF_STEPS: u32 = 4u;
     var delta = values.x * fade * layer_depth * Vt.xy * vec2(1.0, -1.0) / max(steepness, PARALLAX_GRAZING);
     var shift = vec2(0.0);
     var current = 0.0;
-    var depth = parallax_depth_at(instance_index, uv, w, n, scale, footprint);
+    var depth = parallax_depth_at(instance_index, uv, n, contribution, footprint);
     if depth <= 0.0 {
         return vec2(0.0);
     }
     for (var i = 0; depth > current && i <= i32(layer_count); i += 1) {
         current += layer_depth;
         shift += delta;
-        depth = parallax_depth_at(instance_index, uv + shift, w, n, scale, footprint);
+        depth = parallax_depth_at(instance_index, uv + shift, n, contribution, footprint);
     }
     // Relief: halve the last layer's step PARALLAX_RELIEF_STEPS times, moving forward while
     // the ray is still above the surface and back once below it, so the coordinate ends
@@ -526,7 +545,7 @@ const PARALLAX_RELIEF_STEPS: u32 = 4u;
     shift -= delta;
     current -= step_depth;
     for (var i = 0u; i < PARALLAX_RELIEF_STEPS; i += 1u) {
-        depth = parallax_depth_at(instance_index, uv + shift, w, n, scale, footprint);
+        depth = parallax_depth_at(instance_index, uv + shift, n, contribution, footprint);
         delta *= 0.5;
         step_depth *= 0.5;
         if depth > current {
@@ -895,20 +914,50 @@ fn fragment(
     }
     pbr_input.material.base_color.a = 1.0;
 
+    // Parallax self-shadowing, as ScreenSpaceShaders does it for the terrain (`sload.h`:
+    // `base.rgb *= lerp(1, saturate((height + 0.15) * 2), ao)`): the marched surface's own
+    // height darkens it, so a pit or a groove reads as shaded [documented: the mod's
+    // `sload.h` of UPDATE 24; the strength is the F11 window's Parallax AO].
+    @if(TERRAIN_PARALLAX && VERTEX_UVS_A && VERTEX_TANGENTS) {
+        let parallax_ao_uv = (standard_material(in.instance_index).uv_transform * vec3(in.uv, 1.0)).xy;
+        // Only the layer that paints the pixel most and has a height map, one read: the
+        // first build read every layer, which with a height map on nearly every texture
+        // tripled the ground's cost, and the blend of several layers' heights is what the
+        // march's own depth already is.
+        let parallax_ao_scales = parallax_scales(in.instance_index, parallax_values(in.instance_index).x);
+        var parallax_ao_best = 0.0;
+        var parallax_ao_layer = 6u;
+        for (var k = 0u; k < parallax_n; k += 1u) {
+            if parallax_w[k + 1u] > parallax_ao_best && parallax_ao_scales[k] > 0.0 {
+                parallax_ao_best = parallax_w[k + 1u];
+                parallax_ao_layer = k;
+            }
+        }
+        // Only as far as that layer paints the pixel: a layer under a nearly opaque one
+        // does not shade it.
+        let parallax_ao_strength = parallax_boost(in.instance_index).y * saturate(parallax_ao_best);
+        if parallax_ao_layer < 6u && parallax_ao_strength > 0.0 {
+            let parallax_ao_level = layer_height(parallax_ao_layer, in.instance_index, parallax_ao_uv, parallax_footprint);
+            let parallax_ao_shade = mix(1.0, saturate((parallax_ao_level + 0.15) * 2.0), parallax_ao_strength);
+            pbr_input.material.base_color = vec4<f32>(pbr_input.material.base_color.rgb * parallax_ao_shade, pbr_input.material.base_color.a);
+        }
+    }
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
-    // Bevy's ambient specular out again, as in nif_material.wesl (the game's ambient light
-    // is a flat colour; highlights come from lights).
-    let m = pbr_input.material;
-    let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
-    let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
-    let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
-    let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
-    var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
-    if lights.ambient_color.a < 0.0 {
-        ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+    // Bevy's ambient specular out again in display-value mode, as in nif_material.wesl
+    // (the game's ambient light is a flat colour; highlights come from lights).
+    @if(!NVF_PHYSICAL_PBR) {
+        let m = pbr_input.material;
+        let F0 = calculate_F0(m.base_color.rgb, m.metallic, m.reflectance);
+        let NdotV = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+        let spec = EnvBRDFApprox(F0, F_AB(m.perceptual_roughness, NdotV));
+        let spec_occlusion = saturate(dot(F0, vec3(50.0 * 0.33)));
+        var ambient_spec = spec * spec_occlusion * lights.ambient_color.rgb * pbr_input.diffuse_occlusion;
+        if lights.ambient_color.a < 0.0 {
+            ambient_spec *= pow(max(lights.ambient_color.rgb * view.exposure, vec3(1e-6)), vec3(1.2));
+        }
+        out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
     }
-    out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
     }

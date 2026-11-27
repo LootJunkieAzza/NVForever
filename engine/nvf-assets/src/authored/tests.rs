@@ -502,7 +502,16 @@ fn a_mount_has_sets_only_with_the_setting_on_and_an_active_set() {
     std::fs::write(heights.join("textures/pbr/walls/stone_p.dds"), legacy(b"BC4U", 4, 4, &[0; 8])).unwrap();
     let data = GameData::new(Arc::new(fnv_vfs::Vfs::open(&heights, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
     assert!(mount_has_sets_when(&data, true), "height-only sets count");
+    // Reflections ask for a set with an `_orm`: a height-only one leaves the game's own
+    // material and reflects nothing (the environment map's gate).
+    assert!(!mount_has_authored_sets(&data), "a height-only set is no authored set");
     let _ = std::fs::remove_dir_all(&heights);
+    let authored = std::env::temp_dir().join(format!("nvf-authored-orm-{}", std::process::id()));
+    std::fs::create_dir_all(authored.join("textures/pbr/walls")).unwrap();
+    std::fs::write(authored.join("textures/pbr/walls/stone_orm.dds"), legacy(b"DXT1", 4, 4, &[0; 8])).unwrap();
+    let data = GameData::new(Arc::new(fnv_vfs::Vfs::open(&authored, &[]).unwrap()), Arc::new(fnv_nif::Schema::default()));
+    assert!(mount_has_authored_sets(&data), "a set with an _orm is one");
+    let _ = std::fs::remove_dir_all(&authored);
 }
 
 /// The swap rule with height maps (#2981 stage 4): authored with `_p` → height only → none

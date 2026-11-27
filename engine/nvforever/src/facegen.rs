@@ -328,7 +328,9 @@ impl FaceGenCache {
     /// found to be one only here (by the race's skin texture) goes back to the game's look.
     pub fn tinted(&mut self, materials: &mut Assets<NifMaterial>, material: &Handle<NifMaterial>, offset: &Handle<Image>) -> Option<Handle<NifMaterial>> {
         let mut m = materials.get(material)?.clone();
-        nvf_assets::authored::make_legacy(&mut m);
+        if !nvf_assets::authored::allow_skin_authored() {
+            nvf_assets::authored::make_legacy(&mut m);
+        }
         m.extension.facegen_offset = Some(offset.clone());
         self.shapes_tinted += 1;
         Some(materials.add(m))

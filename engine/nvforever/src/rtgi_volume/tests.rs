@@ -283,6 +283,7 @@ fn which_surfaces_read() {
             anti_tiling: on(10),
             soft: on(11),
             hdr: on(12),
+            skin: false, foliage: false, eye: false, hair: false,
         };
         let may = !(0..6).any(on);
         for n in 0..8 {

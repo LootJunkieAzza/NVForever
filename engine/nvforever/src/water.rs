@@ -92,6 +92,7 @@ impl Plugin for WaterPlugin {
             .init_resource::<WaterCache>()
             .init_resource::<DistantWater>()
             .init_resource::<WaterRemaps>()
+            .insert_resource(WaterTuning::load())
             .add_plugins(crate::underwater::UnderwaterFogPlugin);
         add_update_systems(app);
     }
@@ -107,8 +108,24 @@ pub(crate) fn add_update_systems(app: &mut App) {
             update_water_sky.after(crate::sky::update_sky).after(crate::world::stream).after(distant_water),
             // After the LOD chose its chunks this frame (the water covers them).
             distant_water.after(crate::world::stream).after(crate::lod::update_lod),
+            // The F11 window's Water tab: every water material takes its factors.
+            sync_tuning,
         ),
     );
+}
+
+/// Give every water material the F11 window's Water tab's factors, and keep them in
+/// `water.ini`. Runs every frame: water streamed in after the first one is built from the
+/// material defaults, so a one-shot sync left the settings on whatever pond existed at
+/// startup (the owner's pond, 2026-11-25, kept the defaults while the Water tab showed his
+/// values). `set_tuning` compares per material, so an unchanged frame is a few vec4
+/// compares.
+fn sync_tuning(tuning: Res<WaterTuning>, cache: Res<WaterCache>, mut materials: ResMut<Assets<WaterMaterial>>, mut last: Local<Option<WaterTuning>>) {
+    cache.set_tuning(&mut materials, tuning.uniform(), tuning.uniform2(), tuning.uniform3());
+    if last.as_ref() != Some(&*tuning) {
+        *last = Some(*tuning);
+        tuning.save();
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, ShaderType)]
@@ -134,6 +151,17 @@ pub struct WaterParams {
     pub seen_plane: Vec4,
     /// Direction toward the outdoor sun (Bevy axes) and daylight strength.
     pub water_sun: Vec4,
+    /// The F11 window's Water tab (ScreenSpaceShaders' water factors): x the sky
+    /// reflection's share, y the scene's (screen-space and mirrored), z the reflection's
+    /// vibrance, w the march's steps.
+    pub tuning: Vec4,
+    /// The Water tab's second row (the mod's `ssfx_water` and `ssfx_water_setup1`): x the
+    /// reflection's blur, y its blur pattern, z the wave distortion of the reflection, w the
+    /// wave parallax's height.
+    pub tuning2: Vec4,
+    /// The screen-space reflection's own row: x its intensity, y the ray's length in game
+    /// units, z the thickness's scale, w unused.
+    pub tuning3: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -194,6 +222,18 @@ impl Material for WaterMaterial {
         // bed's (and within the lighting's distance tolerance of shallow water), so it does
         // not read them (ssao_lighting.rs).
         nvf_assets::ambient_occlusion_opt_out(descriptor);
+        // The sun's screen contact shadows (sun_contact_shadows.rs) are the opaque world's:
+        // the water body is lit through `apply_pbr_lighting` too, and the factor darkened the
+        // water's own surface as if it were a receiver (the owner's pond, 2026-11-25). The
+        // hook in `pbr_functions` skips it under this def.
+        // `NVF_DEBUG_WATER_SSR=1` (development): tint what the screen-space march finds magenta,
+// so a pond that shows no object reflection says whether the march hits at all.
+        if let Some(f) = descriptor.fragment.as_mut() {
+            f.shader_defs.push("NVF_WATER".into());
+            if std::env::var_os("NVF_DEBUG_WATER_SSR").is_some() {
+                f.shader_defs.push("NVF_DEBUG_WATER_SSR".into());
+            }
+        }
         Ok(())
     }
 }
@@ -252,7 +292,174 @@ impl WaterCache {
             }
         }
     }
+
+    /// Tell every water material the F11 window's Water tab's factors
+    /// ([`WaterParams::tuning`], [`WaterParams::tuning2`] and [`WaterParams::tuning3`]).
+    pub fn set_tuning(&self, materials: &mut Assets<WaterMaterial>, tuning: Vec4, tuning2: Vec4, tuning3: Vec4) {
+        for h in self.materials.values() {
+            if materials
+                .get(h)
+                .is_some_and(|m| m.params.tuning != tuning || m.params.tuning2 != tuning2 || m.params.tuning3 != tuning3)
+            {
+                if let Some(mut m) = materials.get_mut(h) {
+                    m.params.tuning = tuning;
+                    m.params.tuning2 = tuning2;
+                    m.params.tuning3 = tuning3;
+                }
+            }
+        }
+    }
 }
+
+/// The water's reflection factors, the F11 window's Water tab (ScreenSpaceShaders' water:
+/// `G_SSR_WATER_SKY_REFLECTION`, `G_SSR_WATER_MAP_REFLECTION`, `G_SSR_WATER_VIBRANCE`), kept
+/// in `water.ini` in the engine home.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct WaterTuning {
+    /// The sky reflection's share, 0..2 (1: as the weather's sky is).
+    pub sky: f32,
+    /// The scene's (screen-space and mirrored) reflection's share, 0..2.
+    pub map: f32,
+    /// The reflection's vibrance, 0..1.
+    pub vibrance: f32,
+    /// The screen-space march's profile, 0..4: 8, 16, 24, 32 or 64 steps
+    /// (ScreenSpaceShaders' `q_steps`).
+    pub quality: u32,
+    /// The reflection's blur, 0..1 (the mod's `blur`).
+    pub blur: f32,
+    /// How much of the reflection stays sharp in patches, 0..1 (the mod's `blur_pattern`).
+    pub pattern: f32,
+    /// The wave distortion of the reflection, 0..2 (the mod's `distortion`).
+    pub distortion: f32,
+    /// The wave parallax's height, 0..2 (the mod's `parallax_height`).
+    pub parallax: f32,
+    /// The screen-space reflection's intensity, 0..2: the reflected share's weight.
+    pub intensity: f32,
+    /// The screen-space march's ray length, in metres (the mod's water ray is 150).
+    pub distance: f32,
+    /// The march's thickness tolerance, 0.25..4: how deep the depth's surface may be to
+    /// count as a hit.
+    pub thickness: f32,
+}
+
+impl Default for WaterTuning {
+    fn default() -> Self {
+        Self {
+            sky: 0.45,
+            map: 0.95,
+            vibrance: 0.2,
+            quality: 0,
+            blur: 0.0,
+            pattern: 1.0,
+            distortion: 1.42,
+            parallax: 0.0,
+            intensity: 1.0,
+            distance: 390.0,
+            thickness: 2.1,
+        }
+    }
+}
+
+/// Game units in a metre: the water shader's world and the game's coordinates (150 m of
+/// the mod's ray is 6,000 units here).
+pub const UNITS_PER_METRE: f32 = 40.0;
+
+/// The screen-space march's steps by profile (ScreenSpaceShaders' `q_steps`:
+/// 8, 16, 24, 32 and 64).
+pub const WATER_QUALITY_STEPS: [u32; 5] = [8, 16, 24, 32, 64];
+
+/// The profile's name, as the F11 window shows it.
+pub fn water_quality_name(quality: u32) -> &'static str {
+    match quality {
+        0 => "Low (8 steps)",
+        1 => "Medium (16)",
+        2 => "High (24)",
+        3 => "Very high (32)",
+        _ => "Ultra (64)",
+    }
+}
+
+/// Where [`WaterTuning`] lives (the engine home, beside `nr-settings.ini`).
+pub const WATER_TUNING_FILE: &str = "water.ini";
+
+impl WaterTuning {
+    pub fn load() -> Self {
+        let mut t = Self::default();
+        let Some(home) = fnv_install::EngineHome::user() else { return t };
+        let Ok(text) = std::fs::read_to_string(home.root.join(WATER_TUNING_FILE)) else { return t };
+        for line in text.lines() {
+            let Some((k, v)) = line.split_once('=') else { continue };
+            let v = v.trim();
+            match k.trim() {
+                "sky" => t.sky = v.parse().unwrap_or(t.sky),
+                "map" => t.map = v.parse().unwrap_or(t.map),
+                "vibrance" => t.vibrance = v.parse().unwrap_or(t.vibrance),
+                "quality" => t.quality = v.parse().unwrap_or(t.quality),
+                "blur" => t.blur = v.parse().unwrap_or(t.blur),
+                "pattern" => t.pattern = v.parse().unwrap_or(t.pattern),
+                "distortion" => t.distortion = v.parse().unwrap_or(t.distortion),
+                "parallax" => t.parallax = v.parse().unwrap_or(t.parallax),
+                "ssr-intensity" => t.intensity = v.parse().unwrap_or(t.intensity),
+                "ssr-distance" => t.distance = v.parse().unwrap_or(t.distance),
+                "ssr-thickness" => t.thickness = v.parse().unwrap_or(t.thickness),
+                _ => {}
+            }
+        }
+        t.held()
+    }
+
+    pub fn held(mut self) -> Self {
+        self.sky = self.sky.clamp(0.0, 2.0);
+        self.map = self.map.clamp(0.0, 2.0);
+        self.vibrance = self.vibrance.clamp(0.0, 1.0);
+        self.quality = self.quality.min(4);
+        self.blur = self.blur.clamp(0.0, 1.0);
+        self.pattern = self.pattern.clamp(0.0, 1.0);
+        self.distortion = self.distortion.clamp(0.0, 2.0);
+        self.parallax = self.parallax.clamp(0.0, 2.0);
+        self.intensity = self.intensity.clamp(0.0, 2.0);
+        self.distance = self.distance.clamp(20.0, 500.0);
+        self.thickness = self.thickness.clamp(0.25, 4.0);
+        self
+    }
+
+    /// The uniform's field ([`WaterParams::tuning`]): the factors and the march's steps.
+    pub fn uniform(&self) -> Vec4 {
+        Vec4::new(self.sky, self.map, self.vibrance, WATER_QUALITY_STEPS[self.quality.min(4) as usize] as f32)
+    }
+
+    /// The uniform's second field ([`WaterParams::tuning2`]).
+    pub fn uniform2(&self) -> Vec4 {
+        Vec4::new(self.blur, self.pattern, self.distortion, self.parallax)
+    }
+
+    /// The uniform's third field ([`WaterParams::tuning3`]).
+    pub fn uniform3(&self) -> Vec4 {
+        Vec4::new(self.intensity, self.distance * UNITS_PER_METRE, self.thickness, 0.0)
+    }
+
+    pub fn save(&self) {
+        let Some(home) = fnv_install::EngineHome::user() else { return };
+        let _ = std::fs::write(
+            home.root.join(WATER_TUNING_FILE),
+            format!(
+                "sky={}\nmap={}\nvibrance={}\nquality={}\nblur={}\npattern={}\ndistortion={}\nparallax={}\nssr-intensity={}\nssr-distance={}\nssr-thickness={}\n",
+                self.sky,
+                self.map,
+                self.vibrance,
+                self.quality,
+                self.blur,
+                self.pattern,
+                self.distortion,
+                self.parallax,
+                self.intensity,
+                self.distance,
+                self.thickness
+            ),
+        );
+    }
+}
+
 
 /// The game's RemapWaterType remaps (old water type → new), copied each frame they change.
 #[derive(Resource, Default, PartialEq)]
@@ -335,6 +542,21 @@ pub fn water_material(world: &WorldData, wid: u32, reflects: bool, placed: bool,
     }
     if placed {
         params.above_fog.w = 1.0;
+    }
+    // `NVF_PLAY_DEBUG_WATER=1`: what the type reflects and how strongly, once per set of
+    // key values (the water of a pond that shows no reflection is then named).
+    if std::env::var_os("NVF_PLAY_DEBUG_WATER").is_some() {
+        info!(
+            "water type {:08X} (placed {placed}, reflects {reflects}): reflective {} reflectivity {:.2} fresnel {:.2} shininess {:.1}, reflection {:?}, shallow {:?}, deep {:?}",
+            key.0,
+            params.reflection.w > 0.5,
+            params.surface.x,
+            params.surface.y,
+            params.surface.z,
+            params.reflection.truncate(),
+            params.shallow.truncate(),
+            params.deep.truncate()
+        );
     }
     let wind_layers = params.layers;
     let current_layers = current_layers(wind_layers, direction.velocity());
@@ -645,6 +867,7 @@ fn linear(c: [u8; 3]) -> Vec3 {
 
 /// Shader parameters for a water type (sky colours are filled in by [`update_water_sky`]).
 pub fn water_params(w: &Water) -> WaterParams {
+    let tuning = WaterTuning::default();
     let layer = |l: &fnv_world::sky::NoiseLayer| {
         // Layer UV scale in game units per texture repeat; 0 (as in the masters) falls
         // back to the record's noise normals UV scale [hypothesis].
@@ -669,6 +892,9 @@ pub fn water_params(w: &Water) -> WaterParams {
         edge: w.edge_falloff().map_or(Vec4::ZERO, |(a, b)| Vec4::new(a, b, 1.0, 0.0)),
         seen_plane: Vec4::ZERO,
         water_sun: Vec4::ZERO,
+        tuning: tuning.uniform(),
+        tuning2: tuning.uniform2(),
+        tuning3: tuning.uniform3(),
     }
 }
 

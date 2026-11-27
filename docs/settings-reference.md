@@ -1106,8 +1106,8 @@ below cover them all.
 
 ### `fine-shadows`: Longer sun shadows
 
-- On the page: On: the sun's shadows reach half as far again as the shadow distance. Costs a
-  little frame rate.
+- On the page: On: the last sun shadow cascade reaches three times the base shadow
+  distance. The nearer cascades keep their bounds, and the last fades toward its edge.
 - Command-line switches: `--shadow-distance`, `--graphics`
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
@@ -1145,6 +1145,55 @@ below cover them all.
   shadows off too.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
+
+### `sun-contact-shadows`: Sun contact shadows (experimental)
+
+- On the page: On: grass, kerbs and low objects cast short shadows on the ground the sun's
+  own shadows miss. Still being tuned. Not in the original.
+- In full: A pass at half or full render resolution reads the depth prepass and traces towards
+  the sun. Upward surfaces use a longer ground profile. At a distance the ray extends farther
+  while keeping some steps close to each receiver for thin grass and other small blockers.
+  Nearby blockers above the receiver plane add a short contact around the base of vegetation.
+  A separate 12-step profile extends the screen-space shadows of trees and buildings
+  into the distance. It fades in as local contact shadows fade out and declines before
+  its own range ends.
+  A depth-aware blur and reprojected history soften the result. The blur decreases as
+  the world-space size of a shadow texel grows, retaining narrow grass shadows at a
+  distance. History with a conflicting shadow value loses weight there, even when the
+  receiver depth still matches (wind and newly exposed ground). It scales the outdoor sun's
+  direct light through the sun visibility factor (docs/design/sun-visibility.md). It adds what the sun's shadow maps cannot
+  resolve — grass blades, kerbs, a crate's foot on the ground — and it is the only sun
+  shadow where the cascades end or are coarse. A screen-space effect: a caster whose gap to
+  the receiver lies off the screen casts nothing, and a surface seen at a grazing angle can
+  shade itself. The first-person arms and weapon are left out (their depth is squeezed into
+  the nearest 1/64 of the range, so neither they nor the world behind them can be placed
+  from the depth; the sun's shadows on them are the shade light's), and so are the views
+  drawn with multisampling (the pass needs a single-sampled depth prepass). Ambient light,
+  lamps and fog are left alone, and the shadow maps' own shadows are untouched: this only
+  darkens the sun where the maps leave it lit. Experimental: off by default and in every
+  preset; its strength, length and thickness are not tuned yet. Switching it rebuilds the
+  world's material pipelines (Continue waits for them). Test aids: `NVF_SUN_CONTACT=<0..1>`
+  and `NVF_SUN_CONTACT_MARCH=<steps>,<thickness>,<length>`. The F11 window's Shadows tab
+  holds the switch and the march's Strength, Length, Thickness, Bias, Steps, Contact range
+  (up to 12,000 game units), Distant range (42,000 by default, 0 off), resolution, Softness and History live
+  (`sun-shadows.ini`).
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/sun-visibility.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `grass-shadows`: Grass shadows
+
+- On the page: On: nearby grass and small tufts cast soft sun shadows across the ground,
+  lengthening at dawn and dusk. Costs some frame rate. Needs sun shadows. Not in the
+  original.
+- In full: Enables sun shadow casting on grass chunks within the near shadow cascade
+  (~1,500 game units) with a core-thickened shadow prepass so clumps cast cohesive, smooth
+  shadows that sway with the wind and lengthen at dawn and dusk while outer tips stay
+  wispy. Off in both presets; takes effect immediately when toggled. Needs sun shadows.
+  Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `light-shadows`: ALC shadows
 
 - On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the
@@ -1346,6 +1395,49 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `physical-pbr`: Physical PBR lighting
+
+- On the page: On: linear Oren-Nayar diffuse, Cook-Torrance specular, sky IBL and
+  Beer-Lambert fog instead of the original's display lighting. Takes effect at the next
+  start.
+- In full: Replaces the display-value lighting bypass with linear OpenPBR Energy-Conserving
+  Oren-Nayar diffuse, full Cook-Torrance GGX specular with reciprocal dielectric coupling,
+  procedural sky/ground/interior cubemap IBL, windowed inverse-square lamp falloff, linear
+  Beer-Lambert fog, and Tony McMapface tonemapping. Off in both presets; can also be
+  overridden per run via `NVF_PHYSICAL_PBR=1` / `0`. Read once at the start, so a change
+  applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `subsurface-scattering`: Subsurface scattering
+
+- On the page: On: pre-integrated skin shading with warm backlit translucency on characters
+  and two-sided light transmission on foliage. Takes effect at the next start.
+- In full: Enables Penner pre-integrated skin diffusion, dual-lobe sebum specular, and
+  shadow-map backlit transmittance on actor skin and FaceGen heads, plus energy-conserving
+  two-sided backlit translucency on grass, tree foliage, and plant meshes. With Physical
+  PBR on and no multisampling, skin's diffuse light from every source (sun, lamps, sky,
+  ambient) is instead blurred across the skin after the opaque pass by the skin diffusion
+  profile (screen-space scattering, `engine/nvforever/src/sss/screen.rs`; `NVF_SSSS=0`
+  keeps the pre-integrated shading). Off in both
+  presets; can also be overridden per run via `NVF_SSS=1` / `0`. Read once at the start,
+  so a change applies at the next start. Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `ssgi`: Screen-space global illumination
+
+- On the page: On: sunlit surfaces, neon signs and lamps bounce one hop of indirect colour
+  and light onto nearby walls, ceilings and ground on the screen. Off in both presets. Not
+  in the original.
+- In full: Traces a half-resolution screen-space horizon march from the camera's depth and
+  lit HDR buffer with a two-stage bilateral plane- and roughness-aware denoiser, adding one
+  bounce of diffuse indirect irradiance from nearby sunlit terrain, walls, and glowing neon
+  or embers. Off in both presets; takes effect immediately when toggled and can also be
+  overridden per run via `NVF_SSGI=1` / `0` / `debug`. Not in the original.
+- Command-line switches: `--graphics-only`
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Graphics › Water
 
 ### `water-reflections`: Screen-space reflections
@@ -1527,7 +1619,9 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
   landscape [observed: the maintainer's run of observer check 268, 2026-11-22, by eye], so this
   is an enhancement that acts only with a ground pack. Off by
   default and in both presets until its cost is measured (the maintainer's call); switches
-  at once, no restart.
+  at once, no restart. The F11 window's Parallax tab holds the switch and a Height
+  multiplier on every set's depth (1 as the pack's `.toml` asks, 0 flat; `parallax.ini`
+  keeps it).
 - Command-line switches: `--graphics-only` (`--graphics-only terrain-parallax`)
 - More: docs/spec-notes/pbr-materials.md "Terrain layers: parallax"
 - Registered in `engine/nvforever/src/settings.rs`

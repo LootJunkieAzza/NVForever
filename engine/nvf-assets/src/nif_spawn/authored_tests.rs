@@ -292,6 +292,8 @@ fn a_height_only_set_adds_its_height_map_to_the_game_material_only() {
         let mut stripped = m.clone();
         Parallax::default().put(&mut stripped.base);
         stripped.extension.height_overlay = false;
+        assert_eq!(stripped.extension.parallax_height.as_ref(), Some(&h), "the runtime parallax tuning retains the authored height map");
+        stripped.extension.parallax_height = None;
         assert_eq!(drawn(&stripped), drawn(&no_set), "{props:?}: the height map is the only difference");
     }
 }
