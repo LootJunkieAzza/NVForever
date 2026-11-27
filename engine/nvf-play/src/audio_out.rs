@@ -338,33 +338,77 @@ impl Source for Gain {
     }
 }
 
+/// Samples pulled per `guarded` panic-boundary call inside [`GuardedSource`]: amortises
+/// `catch_unwind` + thread-local guard overhead 256x without crossing rodio span
+/// boundaries [design].
+const GUARD_CHUNK: usize = 256;
+
 /// A playing sound that ends, instead of taking the audio output thread down with it, when
 /// its decoder panics on a broken part of its file (nvf_assets::guard); every sound
 /// played goes through one. A sample that is not a number (a garbled float file, a gain
 /// from a broken place) is silence, so it cannot spread through the mix and the reverb.
 struct GuardedSource<S> {
     inner: S,
+    buf: [rodio::Sample; GUARD_CHUNK],
+    pos: usize,
+    len: usize,
     dead: bool,
 }
 
 impl<S: Source> GuardedSource<S> {
     fn new(inner: S) -> Self {
-        GuardedSource { inner, dead: false }
+        GuardedSource { inner, buf: [0.0; GUARD_CHUNK], pos: 0, len: 0, dead: false }
     }
 }
 
 impl<S: Source> Iterator for GuardedSource<S> {
     type Item = rodio::Sample;
 
+    #[inline]
     fn next(&mut self) -> Option<rodio::Sample> {
+        if self.pos < self.len {
+            let s = self.buf[self.pos];
+            self.pos += 1;
+            return Some(s);
+        }
         if self.dead {
             return None;
         }
-        match nvf_assets::guard::guarded(|| Ok(self.inner.next())) {
-            Ok(s) => s.map(|x| if x.is_finite() { x } else { 0.0 }),
+        let inner = &mut self.inner;
+        let buf = &mut self.buf;
+        match nvf_assets::guard::guarded(|| {
+            let limit = match inner.current_span_len() {
+                Some(0) => 1,
+                Some(n) => n.min(GUARD_CHUNK),
+                None => GUARD_CHUNK,
+            };
+            let mut n = 0;
+            while n < limit {
+                match inner.next() {
+                    Some(x) => {
+                        buf[n] = if x.is_finite() { x } else { 0.0 };
+                        n += 1;
+                    }
+                    None => break,
+                }
+            }
+            Ok(n)
+        }) {
+            Ok(0) => {
+                self.pos = 0;
+                self.len = 0;
+                None
+            }
+            Ok(n) => {
+                self.pos = 1;
+                self.len = n;
+                Some(self.buf[0])
+            }
             Err(e) => {
                 warn!("audio output: a sound's file broke while playing ({e}); it stops");
                 self.dead = true;
+                self.pos = 0;
+                self.len = 0;
                 None
             }
         }
@@ -376,7 +420,8 @@ impl<S: Source> Source for GuardedSource<S> {
         if self.dead {
             Some(0)
         } else {
-            self.inner.current_span_len()
+            let buffered = self.len - self.pos;
+            self.inner.current_span_len().map(|rem| buffered.saturating_add(rem))
         }
     }
     fn channels(&self) -> rodio::ChannelCount {
@@ -389,6 +434,8 @@ impl<S: Source> Source for GuardedSource<S> {
         self.inner.total_duration()
     }
     fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
+        self.pos = 0;
+        self.len = 0;
         self.inner.try_seek(pos)
     }
 }
@@ -1853,5 +1900,56 @@ mod tests {
         v.set(SoundCategory::Radio, 1.5);
         v.set_master(-1.0);
         assert_eq!((v.get(SoundCategory::Radio), v.master(), v.gain(SoundCategory::Radio)), (1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn guarded_source_chunks_samples_sanitizes_non_finite_and_stops_on_panic() {
+        struct SpanSource {
+            samples: Vec<f32>,
+            pos: usize,
+            panic_at: Option<usize>,
+        }
+        impl Iterator for SpanSource {
+            type Item = rodio::Sample;
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.panic_at == Some(self.pos) {
+                    panic!("synthetic decoder panic");
+                }
+                let v = *self.samples.get(self.pos)?;
+                self.pos += 1;
+                Some(v)
+            }
+        }
+        impl Source for SpanSource {
+            fn current_span_len(&self) -> Option<usize> {
+                Some(self.samples.len().saturating_sub(self.pos))
+            }
+            fn channels(&self) -> rodio::ChannelCount {
+                std::num::NonZero::new(1).unwrap()
+            }
+            fn sample_rate(&self) -> rodio::SampleRate {
+                std::num::NonZero::new(48_000).unwrap()
+            }
+            fn total_duration(&self) -> Option<Duration> {
+                None
+            }
+        }
+
+        let mut samples = vec![0.5f32; GUARD_CHUNK + 10];
+        samples[3] = f32::NAN;
+        samples[GUARD_CHUNK + 1] = f32::INFINITY;
+        let mut g = GuardedSource::new(SpanSource { samples, pos: 0, panic_at: None });
+        assert_eq!(g.current_span_len(), Some(GUARD_CHUNK + 10));
+        assert_eq!(g.next(), Some(0.5));
+        assert_eq!(g.current_span_len(), Some(GUARD_CHUNK + 9));
+        let rest: Vec<f32> = g.collect();
+        assert_eq!(rest.len(), GUARD_CHUNK + 9);
+        assert_eq!(rest[2], 0.0, "NaN sanitized to 0.0");
+        assert_eq!(rest[GUARD_CHUNK], 0.0, "INFINITY sanitized to 0.0");
+
+        let mut panicking = GuardedSource::new(SpanSource { samples: vec![0.25; 10], pos: 0, panic_at: Some(0) });
+        assert_eq!(panicking.next(), None);
+        assert_eq!(panicking.current_span_len(), Some(0));
+        assert_eq!(panicking.next(), None);
     }
 }
