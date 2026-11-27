@@ -2414,17 +2414,18 @@ pub(crate) mod tests {
     }
 
     /// sun_visibility.wesl `source` for the shader defs (cloud, terrain, cloud volume) as one
-    /// module: every condition resolved ([`resolve_known`]) and its one import, the light volume's
-    /// shared reader (#3032 stage 2i M2, only with `NVF_CLOUD_VOLUME`), linked by putting that
-    /// module's text in its place (it declares nothing the sun visibility declares).
+    /// module: every condition resolved ([`resolve_known`]), the conditional light-volume reader
+    /// linked in, and the Bevy lights binding replaced with a minimal standalone test stub.
     pub(crate) fn sun_variant(source: &str, (cloud, terrain, volume): (bool, bool, bool)) -> String {
         const IMPORT: &str = "import nvforever::light_volume_reader::{LightVolumeWindow, lvr_optical_depth};";
         let reader = include_str!("light_volume_reader.wesl").replace("\r\n", "\n");
         let known = [("NVF_CLOUD_VISIBILITY", cloud), ("NVF_TERRAIN_VISIBILITY", terrain), ("NVF_CLOUD_VOLUME", volume)];
         let resolved = resolve_known(source, &known);
         assert!(!code(&resolved).contains("@if("), "{cloud} {terrain} {volume}: every condition resolved");
-        assert_eq!(resolved.lines().filter(|l| l.trim_start().starts_with("import ")).count(), usize::from(volume), "{cloud} {terrain} {volume}: the reader's import only with the volume");
-        resolved.lines().map(|l| if l.trim() == IMPORT { reader.clone() } else { l.to_string() }).collect::<Vec<_>>().join("\n")
+        assert_eq!(resolved.lines().filter(|l| l.trim_start().starts_with("import ")).count(), 1 + usize::from(volume), "{cloud} {terrain} {volume}: the lights and conditional reader imports");
+        const LIGHTS_IMPORT: &str = "import bevy_pbr::render::mesh_view_bindings::lights;";
+        const LIGHTS_STUB: &str = "struct TestCascade { far_bound: f32, }\nstruct TestDirectionalLight { num_cascades: u32, cascades: array<TestCascade, 4>, }\nstruct TestLights { directional_lights: array<TestDirectionalLight, 10>, }\nvar<private> lights: TestLights;";
+        resolved.lines().map(|l| if l.trim() == IMPORT { reader.clone() } else if l.trim() == LIGHTS_IMPORT { LIGHTS_STUB.to_string() } else { l.to_string() }).collect::<Vec<_>>().join("\n")
     }
 
     /// sun_visibility.wesl in each of its eight variants (cloud, terrain, cloud volume on or off;
@@ -2435,7 +2436,7 @@ pub(crate) mod tests {
     fn shader_variants_are_valid_wgsl() {
         use wgpu::naga;
         let source = include_str!("sun_visibility.wesl").replace("\r\n", "\n");
-        assert_eq!(source.lines().filter(|l| l.contains("import ") && !l.trim_start().starts_with("//")).count(), 1, "the one import");
+        assert_eq!(source.lines().filter(|l| l.contains("import ") && !l.trim_start().starts_with("//")).count(), 2, "the lights and light-volume imports");
         for cloud in [false, true] {
             for terrain in [false, true] {
                 for volume in [false, true] {
