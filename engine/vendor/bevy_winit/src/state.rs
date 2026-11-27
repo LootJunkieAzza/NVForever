@@ -212,6 +212,12 @@ impl ApplicationHandler<WinitUserEvent> for WinitAppRunnerState {
     ) {
         self.window_event_received = true;
 
+        // NVForever: a process that ignores this machine's keyboard and mouse
+        // (`hardware_input`) drops them here, before anything sees them.
+        if crate::hardware_input::drops(&event) {
+            return;
+        }
+
         #[cfg_attr(
             not(target_os = "windows"),
             expect(unused_mut, reason = "only needs to be mut on windows for now")
@@ -469,6 +475,10 @@ impl ApplicationHandler<WinitUserEvent> for WinitAppRunnerState {
         self.device_event_received = true;
 
         if let DeviceEvent::MouseMotion { delta: (x, y) } = event {
+            // NVForever: see `hardware_input`.
+            if crate::hardware_input::drops_motion() {
+                return;
+            }
             let delta = Vec2::new(x as f32, y as f32);
             self.bevy_window_events.send(MouseMotion { delta });
         }

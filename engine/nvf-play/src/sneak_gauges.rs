@@ -148,9 +148,16 @@ struct Segment {
     k: usize,
 }
 
-fn spawn(mut commands: Commands, root: Query<(), With<GaugeRoot>>) {
+fn spawn(mut commands: Commands, root: Query<Entity, With<GaugeRoot>>, mut rebuild: crate::interface::HudRebuild) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): made again at it from the next frame.
+    if rebuild.stale() {
+        for e in &root {
+            commands.entity(e).try_despawn();
+        }
+        return;
+    }
     if !root.is_empty() {
         return;
     }

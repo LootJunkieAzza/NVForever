@@ -99,6 +99,7 @@ pub mod knockouts;
 pub mod loading;
 pub mod loading_look;
 pub mod lobby;
+pub mod split_screen;
 pub mod main_menu;
 pub mod menu_scale;
 pub mod menu_readability;

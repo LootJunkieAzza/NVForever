@@ -5981,6 +5981,14 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     }
 }
 
+/// Back to the world unless a resume already waits (the Co-op screen's split screen
+/// button, `crate::lobby`, as the pause menu's own entries go).
+pub(crate) fn resume_game(world: &mut World) {
+    if !world.resource::<crate::graphics_resume::GraphicsResume>().pending() {
+        request_resume(world);
+    }
+}
+
 /// Both Continue/Esc and the timed aid request the same release [design: this file].
 fn request_resume(world: &mut World) {
     let now = world.resource::<Time<Real>>().elapsed_secs_f64();

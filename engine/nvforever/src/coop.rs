@@ -21,6 +21,13 @@
 //! (`nvf_play::combat::RemoteHit`), so the NPC reacts once, in the one world, and every
 //! game sees it.
 //!
+//! **Split screen's lobby** (`crate::split`): the one lobby this part can open is for this PC
+//! only ([`Coop::host_local`]): a [`nvf_coop::seam::loopback::Udp`] on 127.0.0.1, no router
+//! port and no firewall prompt, whose secret goes to player 2's game, which joins it
+//! ([`Coop::start_joining`], from `--split-p2`'s session file) as a guest like any other:
+//! the host's checks of every guest message apply to it unchanged. A load's restart that
+//! had to take another port is followed ([`Coop::follow_host`]).
+//!
 //! **The other players in the host's world.** On the host each guest is also an actor of
 //! the world ([`stand_ins`]): a reference created from the player's record, its AI off,
 //! that the network puts where the guest is (disabled while the guest is elsewhere, lost
@@ -129,14 +136,15 @@ use fnv_sim::FormId;
 use nvf_assets::actor::ActorParts;
 use nvf_assets::model::ModelCtx;
 use nvf_coop::guard::FormCheck;
-use nvf_coop::net::{self, attack, flag, npc_flag, Event, HitView, LimbView, Link, NpcState, Place, PlayerState};
+use nvf_coop::net::{self, attack, flag, npc_flag, Event, HitView, LimbView, Link, NpcState, Place, PlayerState, Session};
+use nvf_coop::seam::{loopback, SharedSecret, Transport};
 use nvf_play::combat::{ActorHit, CombatStats, RelayedHit, RemoteHit};
 use nvf_play::coop_mates::{Mate, SocialMates};
 use nvf_play::loading::{Loading, TravelRequest};
 use nvf_play::lobby::{CoopSwitch, Hosting, Joining, LobbyRequest, LobbyState};
 use nvf_play::lockpick::{LockOpened, OpenedBy};
 use nvf_play::player::Player;
-use nvf_play::sfx::{PlaySound, Sfx};
+use nvf_play::sfx::{Ear, PlaySound, SecondListener, Sfx};
 use nvf_play::{Location, PlayState, RefVisual, Travel};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -213,6 +221,9 @@ pub struct CoopPlugin(pub Config);
 pub(crate) struct Coop {
     /// None while no lobby is open or joined.
     link: Option<Link>,
+    /// The loopback port and secret of the lobby this game opened for split screen's player 2
+    /// ([`Coop::host_local`]).
+    local: Option<(u16, u64)>,
     name: String,
     peers: BTreeMap<u8, Peer>,
     /// The host's newest state (guests only).
@@ -328,6 +339,7 @@ impl Coop {
     fn new(name: String) -> Coop {
         Coop {
             link: None,
+            local: None,
             name,
             peers: BTreeMap::new(),
             host: None,
@@ -447,7 +459,7 @@ impl Plugin for CoopPlugin {
             .add_systems(Update, scene::slide_spot.in_set(nvf_play::PlaySet::Physics).before(nvf_play::control::place_camera))
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends)
-            .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .add_systems(Update, (stand_ins, second_listener, draw, scene::hide_players_in_scene, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
 }
 
@@ -666,8 +678,41 @@ impl Coop {
         self.note = Some(NO_TRANSPORT.to_string());
     }
 
+    /// Open a lobby on this PC's loopback only, for split screen's player 2: its port and
+    /// secret (`secret`, or a new one, as a load's restart keeps the one it had). No router
+    /// port is asked for and nothing off this PC can reach it ([`loopback::Udp`]).
+    pub(crate) fn host_local(&mut self, secret: Option<SharedSecret>) -> Result<(u16, u64), String> {
+        if self.link.is_some() {
+            // The lobby is open already.
+            return self.local.ok_or_else(|| "a lobby is open already".to_string());
+        }
+        let secret = match secret {
+            Some(s) => s,
+            None => SharedSecret::random().map_err(|e| e.to_string())?,
+        };
+        let transport = loopback::Udp::host(0).map_err(|e| format!("no loopback port: {e}"))?;
+        let port = transport.local_addr().map_err(|e| e.to_string())?.port();
+        let link = Link::new(Session::host_on(Box::new(transport), Box::new(secret))).map_err(|e| format!("no network thread: {e}"))?;
+        self.link = Some(link);
+        self.local = Some((port, secret.value()));
+        info!("co-op: hosting for this PC only (127.0.0.1:{port}, split screen): no router port, no firewall prompt");
+        Ok((port, secret.value()))
+    }
+
+    /// Whether this game hosts a lobby for this PC only ([`Coop::host_local`]).
+    pub(crate) fn local_only(&self) -> bool {
+        self.is_host() && self.local.is_some()
+    }
+
+    /// A guest whose host's game came back from a load's restart on another loopback port:
+    /// it asks there at once, keeping its place. True when the host moved.
+    pub(crate) fn follow_host(&self, at: std::net::SocketAddr) -> bool {
+        self.link.as_ref().is_some_and(|l| !l.is_host() && at.ip().is_loopback() && l.move_host(at))
+    }
+
     fn stop_hosting(&mut self) {
         // Dropping the link says goodbye to the guests.
+        self.local = None;
         self.link = None;
         self.hello_drops = (0, 0.0);
         self.state_logged.clear();
@@ -676,16 +721,34 @@ impl Coop {
         self.forget_peers();
     }
 
-    /// Join the lobby `at` names: no transport is plugged in here, so none opens.
-    fn start_joining(&mut self, _at: &str) {
-        warn!("co-op: no network transport in this build: cannot join");
-        self.fail(NO_TRANSPORT);
+    /// Join the lobby `at` names. Only a lobby on this PC's loopback can be joined here
+    /// (`127.0.0.1:<port>#<secret>`, split screen's, [`crate::split::parse_join`]); no
+    /// other transport is plugged in, so any other code says so.
+    fn start_joining(&mut self, at: &str) {
+        let Some((addr, secret)) = crate::split::parse_join(at) else {
+            warn!("co-op: no network transport in this build: cannot join");
+            self.fail(NO_TRANSPORT);
+            return;
+        };
+        let (Some(secret), Ok(transport)) = (SharedSecret::new(secret), loopback::Udp::guest()) else {
+            self.fail("No loopback port to join from.");
+            return;
+        };
+        match Link::new(Session::join_on(Box::new(transport), Box::new(secret), &[addr], 0, &self.name, net::new_token())) {
+            Ok(link) => {
+                info!("co-op: joining the lobby on this PC at {addr} (split screen)");
+                self.link = Some(link);
+                self.joining = Joining::Finding;
+                self.finding_since = None;
+            }
+            Err(e) => self.fail(&format!("No network thread: {e}")),
+        }
     }
 
-    /// A join that did not happen: what the join screen says, logged too.
+    /// A join that did not happen: what the join screen says (in the chosen language where it has a line), logged too.
     fn fail(&mut self, why: &str) {
         info!("co-op: not joined: {why}");
-        self.joining = Joining::Failed(why.to_string());
+        self.joining = Joining::Failed(fnv_util::words::tr_str(why).to_string());
     }
 
     fn stop_joining(&mut self) {
@@ -763,7 +826,7 @@ fn host_forms(mut coop: ResMut<Coop>, sim: Option<Res<nvf_play::sim::SimState>>)
 }
 
 /// The lobby screens' asks, and what they show.
-fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<LobbyRequest>, mut state: ResMut<LobbyState>, switch: Res<CoopSwitch>) {
+fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<LobbyRequest>, mut state: ResMut<LobbyState>, switch: Res<CoopSwitch>, split: Option<Res<nvf_play::split_screen::SplitScreen>>) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
     for ask in asks.read() {
@@ -822,7 +885,7 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest() });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), split: split.is_some_and(|s| s.on) });
 }
 
 fn label(id: u8, name: &str) -> String {
@@ -1688,7 +1751,7 @@ fn draw(
     mut holds: Query<&mut WeaponHold>,
     dressed: Query<(Option<&PuppetEquipment>, Has<Puppet>)>,
     (mut fighters, mut attacks, main_menu, mut shots): (ResMut<Fighters>, MessageWriter<PlayAttack>, Option<Res<nvf_play::main_menu::MainMenu>>, MessageWriter<PuppetShot>),
-    (sfx, listener, mut sounds, lying, seats): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>, Query<(Has<crate::furniture::SitOn>, Has<crate::furniture::OnFurniture>, Has<crate::furniture::GetUp>)>),
+    (sfx, listener, mut sounds, lying, seats, second): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>, Query<(Has<crate::furniture::SitOn>, Has<crate::furniture::OnFurniture>, Has<crate::furniture::GetUp>)>, Option<Res<SecondListener>>),
 ) {
     let (Ok(world_root), Some(loc)) = (root.single(), loc) else { return };
     if at_main_menu(main_menu.as_deref()) {
@@ -1797,7 +1860,7 @@ fn draw(
         }
         if let Some(weapon) = act(&mut commands, e, reference, p, newest, now, actor_world.as_deref(), &mut actors, &mut holds, &dressed, &mut fighters, &mut attacks) {
             shots.write(PuppetShot { shooter: FormId(reference), weapon });
-            if let Some(s) = shot_sound(sfx.as_deref(), listener.as_deref(), weapon, feet) {
+            if let Some(s) = shot_sound(sfx.as_deref(), listener.as_deref(), second.as_deref(), weapon, feet) {
                 debug!("co-op: {} fires {weapon}: sound {}", label(id, &p.name), s.sound);
                 sounds.write(s);
             }
@@ -1805,6 +1868,41 @@ fn draw(
     }
 }
 
+
+/// Split screen's player 1 (the host; nvforever `split.rs` sets `NVF_SPLIT_P1=1` and
+/// inserts `SecondListener`): player 2, the guest, hears from its stand-in's place in
+/// this world, as [`stand_ins`] puts it (the peer's feet, `DELAY` behind), while it is in
+/// the host's place, in touch and not at the main menu; its game plays only interface
+/// sounds, so this game plays the world's for it (`nvf_play::sfx::SecondListener`).
+/// Without the resource, or without `NVF_SPLIT_P1=1` (solo, online co-op): nothing.
+fn second_listener(time: Res<Time>, coop: Res<Coop>, loc: Option<Res<Location>>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>, second: Option<ResMut<SecondListener>>) {
+    let Some(mut second) = second else { return };
+    let ear = if split_p1() && !at_main_menu(main_menu.as_deref()) { split_ear(&coop, loc.as_deref(), time.elapsed_secs()) } else { None };
+    second.set_if_neq(SecondListener(ear));
+}
+
+/// Whether this game is split screen's player 1 (`NVF_SPLIT_P1=1`, set by `split.rs`).
+fn split_p1() -> bool {
+    crate::split::is_p1()
+}
+
+/// Where player 2 hears from ([`second_listener`]): its player in this place (named as
+/// `split.rs` names it), else the first other player in this place.
+fn split_ear(coop: &Coop, loc: Option<&Location>, now: f32) -> Option<Ear> {
+    coop.link.as_ref()?;
+    let here = place_of(loc?);
+    let here_now = |p: &Peer| p.pose(now - DELAY).filter(|(place, ..)| *place == here);
+    let live = || coop.peers.values().filter(|p| !p.lost);
+    live().filter(|p| p.name == crate::split::P2_NAME).find_map(here_now).or_else(|| live().find_map(here_now)).map(|(_, feet, yaw, _)| ear_at(feet, yaw))
+}
+
+/// Where a player standing at `feet` facing `yaw` (the compass heading it sends, its
+/// `Player::heading`) hears from: the standing eye height above its feet
+/// (`nvf_play::player::EYE_HEIGHT`) [design: a crouching or downed player 2 is heard
+/// for as standing].
+fn ear_at(feet: [f32; 3], yaw: f32) -> Ear {
+    Ear { eye: [feet[0], feet[1], feet[2] + nvf_play::player::EYE_HEIGHT], heading: yaw }
+}
 
 /// The host: each other player as an actor of this world (module notes), made when it
 /// is first seen, put where it is each frame, and enabled only while it is here, in
@@ -2324,7 +2422,7 @@ fn follow_npcs(
     (mut attacks, mut hits, mut fired, combat, mut changed): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>, MessageWriter<nvf_play::combat::ShotFired>, Option<Res<nvf_play::combat::Combat>>, MessageWriter<nvf_play::RefChanged>),
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     mut told: Local<usize>,
-    (sfx, listener, mut sounds, mut sim, loc): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>),
+    (sfx, listener, mut sounds, mut sim, loc, second): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>, Option<Res<SecondListener>>),
     solo: Option<Res<nvf_play::save::SoloBase>>,
     mut knocked: Local<HashSet<u32>>,
     mut streamed_since: Local<Option<f32>>,
@@ -2588,7 +2686,7 @@ fn follow_npcs(
             let melee = is_melee(actor_world.as_deref(), weapon);
             attacks.write(PlayAttack { actor: r, weapon, melee, sights: sights && !melee, kind: Move::Attack, power: None, swing: melee.then(SwingPick::default) });
             // Its shot, heard as the host's NPC's is there (no shot is fired here).
-            if let Some(snd) = weapon.filter(|_| !melee).and_then(|w| shot_sound(sfx.as_deref(), listener.as_deref(), w, s.feet)) {
+            if let Some(snd) = weapon.filter(|_| !melee).and_then(|w| shot_sound(sfx.as_deref(), listener.as_deref(), second.as_deref(), w, s.feet)) {
                 sounds.write(snd);
             }
             // And its muzzle flash at its gun's muzzle (`shot_fx`: Boone's shot
@@ -2651,15 +2749,13 @@ fn follow_npcs(
 /// A shot of `weapon` fired by someone standing at `feet`, heard here: its 3D shoot sound,
 /// or its distant one beyond the 3D sound's reach, as `nvf_play::combat` plays an NPC's
 /// (a puppet's gun mods are not known: the plain sound).
-fn shot_sound(sfx: Option<&Sfx>, listener: Option<&Player>, weapon: FormId, feet: [f32; 3]) -> Option<PlaySound> {
+fn shot_sound(sfx: Option<&Sfx>, listener: Option<&Player>, second: Option<&SecondListener>, weapon: FormId, feet: [f32; 3]) -> Option<PlaySound> {
     let sfx = sfx?;
     let shoot = sfx.forms.weapons.get(&weapon)?.shoot_sounds(false);
     let near_max = shoot.near.and_then(|n| sfx.forms.sounds.get(&n)).map_or(0.0, |n| n.max_distance);
     let at = [feet[0], feet[1], feet[2] + GUN_HEIGHT];
-    let distance = listener.map_or(0.0, |p| {
-        let e = p.eye();
-        ((e[0] - at[0]).powi(2) + (e[1] - at[1]).powi(2) + (e[2] - at[2]).powi(2)).sqrt()
-    });
+    // From the nearer listener (split screen's player 2 too).
+    let distance = listener.map_or(0.0, |p| nvf_play::sfx::heard_distance(p.eye(), second, at));
     let (sound, _) = shoot.heard_at(distance, near_max);
     Some(PlaySound { sound: sound?, at: Some(at) })
 }
@@ -3505,6 +3601,43 @@ fn state_line(id: u8, s: &PlayerState) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Split screen's lobby is on this PC's loopback: a guest that has its secret is let in
+    /// as an ordinary guest, one that has another is not, and an address off this PC is no
+    /// join here at all (no router port is opened, no other transport is plugged in).
+    #[test]
+    fn a_lobby_for_this_pc_admits_the_guest_with_its_secret_and_no_other() {
+        let mut host = Coop::new("Host".into());
+        let (port, secret) = host.host_local(None).expect("a loopback lobby");
+        assert!(host.is_host() && host.local_only());
+        assert_eq!(host.host_local(None), Ok((port, secret)), "asked again: the same lobby");
+        let waits = |coop: &Coop, secs: u64| {
+            for _ in 0..secs * 100 {
+                if coop.link.as_ref().is_some_and(|l| l.id().is_some()) {
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            false
+        };
+        let mut guest = Coop::new(crate::split::P2_NAME.into());
+        guest.start_joining(&crate::split::join_text(port, secret));
+        assert_eq!(guest.joining, Joining::Finding);
+        assert!(waits(&guest, 5), "the guest with the secret is welcomed");
+        assert!(guest.is_guest() && !guest.local_only());
+        // Another secret: not let in.
+        let mut stranger = Coop::new("Stranger".into());
+        stranger.start_joining(&crate::split::join_text(port, secret.wrapping_add(1).max(1)));
+        assert!(!waits(&stranger, 1), "a guest without the lobby's secret is never welcomed");
+        // Not this PC: no join, and nothing opened.
+        let mut off = Coop::new("Elsewhere".into());
+        off.start_joining("192.168.1.2:47960#ff");
+        assert_eq!(off.joining, Joining::Failed(NO_TRANSPORT.to_string()));
+        assert!(off.link.is_none());
+        // Closing the lobby ends the local lobby.
+        host.stop_hosting();
+        assert!(!host.local_only() && host.link.is_none());
+    }
+
     use super::*;
 
     /// With no transport plugged in, hosting opens nothing and joining says why.

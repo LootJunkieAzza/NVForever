@@ -525,6 +525,10 @@ fn third_line(level_up: bool) -> (f32, f32) {
     }
 }
 
+/// What [`draw`] reads besides the meter's pieces: the fills, the meter's roots, and the
+/// HUD's note of the scale its pieces were made at.
+type DrawParts<'w, 's> = (Query<'w, 's, &'static mut BackgroundColor, With<FadedFill>>, Query<'w, 's, Entity, With<MeterRoot>>, crate::interface::HudRebuild<'w, 's>);
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
@@ -541,10 +545,19 @@ fn draw(
     mut pointer: Query<&mut Node, With<Pointer>>,
     mut pictures: Query<&mut ImageNode, With<Faded>>,
     mut words: Query<&mut TextColor, With<Faded>>,
-    mut fills: Query<&mut BackgroundColor, With<FadedFill>>,
+    (mut fills, roots, mut rebuild): DrawParts,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): the meter is made again at it.
+    if rebuild.stale() {
+        for e in &roots {
+            commands.entity(e).try_despawn();
+        }
+        *kit = None;
+        *shown_texts = None;
+        return;
+    }
     let on = view.shown && meter.show.is_some();
     if kit.is_none() {
         if !on {

@@ -407,6 +407,7 @@ mod shared_table_tests {
         ("sky-clock", "World"),
         ("resolution", "Display"),
         ("borderless", "Display"),
+        ("split-layout", "Display"),
         ("hdr-output", "Display"),
         ("monitor", "Display"),
         ("first-person-body", "Display"),

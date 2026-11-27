@@ -54,6 +54,12 @@
 //! settings page) is on; off, which is the default, it is not shown and takes no room in the
 //! column (`Entry::shown`), so a single-player game's menu is the one it was [design]. Test
 //! aid entry: `join`.
+//!
+//! **Split screen** (`crate::split_screen`): Split Screen, shown with Join Lobby, loads the
+//! newest save as Continue does, straight into split screen [design]. In player 2's game
+//! ([`crate::split_screen::PlayerTwo`]) the menu is only black: no pictures, logo, music or
+//! entries, under the Load Game page, which lists player 2's one save, the character it continues as
+//! (nvforever `split.rs`).
 
 use crate::interface::{bc_supported, face, plain_font, set_line, u, Face};
 use crate::start_menu::{color, entry_base, highlight_colors, Shade, FONT, ITEM, LINE, RIGHT};
@@ -99,11 +105,14 @@ pub enum Entry {
     Settings,
     /// Co-op: the join screen, `crate::lobby`; shown only while the Co-op switch is on.
     JoinLobby,
+    /// Split screen: the newest save, loaded with split screen on (`crate::split_screen`);
+    /// shown only while the Co-op switch is on.
+    Split,
     Quit,
 }
 
 impl Entry {
-    pub const ALL: [Entry; 6] = [Entry::Continue, Entry::New, Entry::Load, Entry::Settings, Entry::JoinLobby, Entry::Quit];
+    pub const ALL: [Entry; 7] = [Entry::Continue, Entry::New, Entry::Load, Entry::Settings, Entry::JoinLobby, Entry::Split, Entry::Quit];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -111,6 +120,7 @@ impl Entry {
             Entry::New => "New Game",
             Entry::Load => "Load Game",
             Entry::JoinLobby => "Join Lobby",
+            Entry::Split => crate::split_screen::MAIN_MENU_LABEL,
             Entry::Settings => "Settings",
             Entry::Quit => "Quit",
         }
@@ -122,20 +132,22 @@ impl Entry {
             Entry::New => "new",
             Entry::Load => "load",
             Entry::JoinLobby => "join",
+            Entry::Split => "split",
             Entry::Settings => "settings",
             Entry::Quit => "quit",
         }
     }
 
-    /// Whether the column shows it with the Co-op switch `coop`: Join Lobby only while the
-    /// switch is on, so a single-player game's column has nothing of co-op [design].
+    /// Whether the column shows it with the Co-op switch `coop`: Join Lobby and Split Screen
+    /// only while the switch is on, so a single-player game's column has nothing of co-op
+    /// [design].
     pub fn shown(self, coop: bool) -> bool {
-        self != Entry::JoinLobby || coop
+        !matches!(self, Entry::JoinLobby | Entry::Split) || coop
     }
 
     /// Whether it can be taken with `saves` saves in the folder and the Co-op switch `coop`.
     pub fn enabled(self, saves: usize, coop: bool) -> bool {
-        self.shown(coop) && (!matches!(self, Entry::Continue | Entry::Load) || saves > 0)
+        self.shown(coop) && (!matches!(self, Entry::Continue | Entry::Load | Entry::Split) || saves > 0)
     }
 }
 
@@ -306,6 +318,7 @@ fn open_at_start(
     mut menu_font: Option<ResMut<crate::pause::MenuFont>>,
     mut fonts: Option<ResMut<Assets<bevy::text::Font>>>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    bare: Option<Res<crate::split_screen::PlayerTwo>>,
 ) {
     if start.is_none() {
         return;
@@ -314,6 +327,15 @@ fn open_at_start(
     let list = cfg.dir.as_deref().map(fnv_save::list).unwrap_or_default();
     menu.saves = list.len();
     menu.newest = list.first().map(|(p, _)| p.clone());
+    // Player 2's game in split screen: a black screen, under the Load Game page.
+    if bare.is_some() {
+        menu.open = true;
+        paused.0 = true;
+        next.set(PlayState::Menu);
+        commands.spawn((MenuRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::BLACK), GlobalZIndex(100)));
+        info!("main menu: open (player 2's: black, no entries)");
+        return;
+    }
     // The screens flagged Displays In Main Menu (docs/spec-notes/loading-screens.md §5).
     let screens = fnv_world::loadscreen::load_screens(play.0.lo, play.0.schema);
     let mut slides = fnv_world::loadscreen::main_menu_pictures(&screens);
@@ -619,6 +641,18 @@ fn relabel(
     *seen = Some(now);
 }
 
+/// What [`choose`] reads and keeps besides its menu: the tweaks, whether the auto aid ran,
+/// the Co-op screen, split screen's ask, the save a Split Screen load goes on, and player 2's
+/// mark.
+type ChooseParts<'w, 's> = (
+    Option<Res<'w, crate::tweaks::TweakSettings>>,
+    Local<'s, bool>,
+    Option<ResMut<'w, crate::lobby::LobbyScreen>>,
+    Option<ResMut<'w, crate::split_screen::SplitScreen>>,
+    Local<'s, Option<std::path::PathBuf>>,
+    Option<Res<'w, crate::split_screen::PlayerTwo>>,
+);
+
 #[allow(clippy::too_many_arguments)]
 fn choose(
     keys: crate::pad::ActionButtons<KeyCode>,
@@ -636,11 +670,19 @@ fn choose(
     roots: Query<Entity, With<MenuRoot>>,
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
-    (tweaks, mut auto_done, mut lobby): (Option<Res<crate::tweaks::TweakSettings>>, Local<bool>, Option<ResMut<crate::lobby::LobbyScreen>>),
+    (tweaks, mut auto_done, mut lobby, mut split, mut split_load, bare): ChooseParts,
 ) {
     let keys = keys.snapshot();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
-    if !menu.open {
+    // The Split Screen entry's load, a frame after it set `on_load`, so the load's restart
+    // (`crate::handoff`) is sure to carry split screen [engineering choice].
+    if let Some(p) = split_load.take() {
+        info!("main menu: split screen: continue from {}", p.display());
+        loads.write(crate::save::LoadRequest { path: p });
+        return;
+    }
+    // Player 2's black menu has no entries: the Load Game page is all of it.
+    if !menu.open || bare.is_some() {
         return;
     }
     // The lobby screen over it takes the keys (`crate::lobby`).
@@ -649,6 +691,13 @@ fn choose(
     }
     // The frame a pause page goes away is not this menu's: its click or key was that page's.
     let came_back = last_page.replace(*page).is_some_and(|p| p != Page::Main);
+    // Back on the column with split screen still asked for a load: none.
+    if came_back && *page == Page::Main {
+        if let Some(s) = split.as_mut().filter(|s| s.on_load) {
+            s.on_load = false;
+            info!("main menu: split screen not started");
+        }
+    }
     let now = time.elapsed_secs();
     let mut acts = Vec::new();
     while aid.0.first().is_some_and(|(t, _)| *t <= now) {
@@ -742,6 +791,15 @@ fn choose(
         Entry::JoinLobby => match lobby.as_mut() {
             Some(l) => l.open(crate::lobby::Mode::Join),
             None => warn!("main menu: co-op is not in this build"),
+        },
+        Entry::Split => match (split.as_mut(), menu.newest.clone()) {
+            (Some(s), Some(p)) => {
+                s.on_load = true;
+                *split_load = Some(p);
+                info!("main menu: split screen with the newest save");
+            }
+            (Some(_), None) => warn!("main menu: split screen: no save to load"),
+            (None, _) => warn!("main menu: split screen is not in this build"),
         },
         Entry::Settings => request.0 = Some(Page::Settings { selected: None }),
         Entry::Quit => {
@@ -1011,38 +1069,44 @@ mod tests {
         assert!(Entry::New.enabled(0, false) && Entry::Continue.enabled(1, false));
         // New Game (1) down: Load is greyed, so Settings (3); up from New: round to Quit.
         assert_eq!(step(1, 1, 0, false), 3);
-        assert_eq!(step(1, -1, 0, false), 5);
+        assert_eq!(step(1, -1, 0, false), 6);
         assert_eq!(step(1, -1, 2, false), 0);
-        assert_eq!(step(5, 1, 0, false), 1);
+        assert_eq!(step(6, 1, 0, false), 1);
+        // Co-op on: Split Screen loads a save, so it is skipped with Load while there is none.
+        assert!(!Entry::Split.enabled(0, true) && Entry::Split.enabled(1, true));
+        assert_eq!(step(4, 1, 0, true), 6);
+        assert_eq!(step(4, 1, 1, true), 5);
     }
 
-    /// Co-op off (the default): Join Lobby is not shown, takes no room in the column and is
-    /// skipped; the column is what a game without co-op has, Settings at index 3. On, Join
-    /// Lobby stands after Settings and can be taken.
+    /// Co-op off (the default): Join Lobby and Split Screen are not shown, take no room in
+    /// the column and are skipped; the column is what a game without co-op has, Settings at
+    /// index 3. On, they stand after Settings and can be taken.
     #[test]
     fn join_lobby_is_not_shown_while_co_op_is_off() {
         assert!(!MainMenu::default().coop, "off by default");
         assert!(!Entry::JoinLobby.shown(false) && Entry::JoinLobby.shown(true));
-        assert_eq!(shown_count(false), Entry::ALL.len() - 1);
+        assert!(!Entry::Split.shown(false) && Entry::Split.shown(true));
+        assert_eq!(shown_count(false), Entry::ALL.len() - 2);
         assert_eq!(shown_count(true), Entry::ALL.len());
         assert_eq!(Entry::ALL[3], Entry::Settings);
-        // Quit takes Join Lobby's place while it is hidden.
-        assert_eq!(slot(5, false), 4);
-        assert_eq!(slot(5, true), 5);
+        // Quit takes Join Lobby's and Split Screen's places while they are hidden.
+        assert_eq!(slot(6, false), 4);
+        assert_eq!(slot(6, true), 6);
         for saves in [0, 3] {
-            assert!(!Entry::JoinLobby.enabled(saves, false));
+            assert!(!Entry::JoinLobby.enabled(saves, false) && !Entry::Split.enabled(saves, false));
         }
         assert!(Entry::JoinLobby.enabled(0, true));
         // Off: Settings (3) down skips Join Lobby to Quit; on, Join Lobby is next.
-        assert_eq!(step(3, 1, 3, false), 5);
-        assert_eq!(step(5, -1, 3, false), 3);
+        assert_eq!(step(3, 1, 3, false), 6);
+        assert_eq!(step(6, -1, 3, false), 3);
         assert_eq!(step(3, 1, 3, true), 4);
         let off = MainMenu { saves: 3, ..default() }.column();
-        assert_eq!(off.len(), Entry::ALL.len() - 1);
+        assert_eq!(off.len(), Entry::ALL.len() - 2);
         assert_eq!(off[3], ("Settings", true));
-        assert!(!off.iter().any(|c| c.0 == "Join Lobby"), "Join Lobby is not drawn with co-op off");
+        assert!(!off.iter().any(|c| c.0 == "Join Lobby" || c.0 == crate::split_screen::MAIN_MENU_LABEL), "nothing of co-op is drawn with it off");
         let on = MainMenu { saves: 3, coop: true, ..default() }.column();
         assert_eq!(on[4], ("Join Lobby", true));
+        assert_eq!(on[5], (crate::split_screen::MAIN_MENU_LABEL, true));
     }
 
     #[test]

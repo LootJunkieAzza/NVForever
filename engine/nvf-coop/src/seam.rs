@@ -3,8 +3,10 @@
 //! A [`Transport`] sends a datagram to an address and hands back the next one waiting,
 //! without blocking. The session ([`crate::net`]) knows its peers by [`SocketAddr`] and
 //! nothing else of how the bytes travel, so a real transport (an encrypted one, one that
-//! crosses routers) plugs in under it unchanged. No real transport is in this part: the
-//! tests carry packets in memory ([`memory`]) or over loopback UDP ([`loopback`]).
+//! crosses routers) plugs in under it unchanged. The one real transport here is
+//! [`loopback::Udp`], which never leaves this PC (split screen's player 2 joins player 1's
+//! game over it, nvforever `split.rs`); the tests also carry packets in memory ([`memory`]).
+//! The internet transport goes on top of this seam.
 //!
 //! Who may join is the other half of the seam: an [`Admission`] ([`SharedSecret`] for
 //! now), which an authenticated transport replaces.
@@ -100,33 +102,37 @@ impl Admission for SharedSecret {
     }
 }
 
-/// An in-memory transport for tests: endpoints on one [`memory::Hub`] reach each other
-/// by address through channels, with no socket and nothing lost.
-#[cfg(test)]
-pub(crate) mod loopback {
+/// UDP on this PC's loopback and nowhere else: a socket bound to 127.0.0.1 that refuses to
+/// send to any other address, so it opens no router port, asks for no firewall exception
+/// and cannot be reached from another PC (split screen, nvforever `split.rs`).
+pub mod loopback {
     use super::Transport;
     use std::io::ErrorKind;
     use std::net::{SocketAddr, UdpSocket};
 
-    /// A non-blocking UDP socket on this PC's loopback, for tests only.
-    pub(crate) struct Udp(UdpSocket);
+    /// A non-blocking UDP socket on this PC's loopback.
+    pub struct Udp(UdpSocket);
 
     impl Udp {
         /// A socket on `127.0.0.1:port` (0 picks a free one).
-        pub(crate) fn host(port: u16) -> std::io::Result<Self> {
+        pub fn host(port: u16) -> std::io::Result<Self> {
             let sock = UdpSocket::bind(SocketAddr::from(([127, 0, 0, 1], port)))?;
             sock.set_nonblocking(true)?;
             Ok(Self(sock))
         }
 
         /// A socket on a free loopback port.
-        pub(crate) fn guest() -> std::io::Result<Self> {
+        pub fn guest() -> std::io::Result<Self> {
             Self::host(0)
         }
     }
 
     impl Transport for Udp {
         fn send_to(&self, bytes: &[u8], to: SocketAddr) -> std::io::Result<usize> {
+            // Never off this PC, whatever address a peer or a caller names.
+            if !to.ip().is_loopback() {
+                return Err(std::io::Error::new(ErrorKind::PermissionDenied, "the loopback transport sends to this PC only"));
+            }
             self.0.send_to(bytes, to)
         }
 
@@ -149,6 +155,8 @@ pub(crate) mod loopback {
     }
 }
 
+/// An in-memory transport for tests: endpoints on one [`memory::Hub`] reach each other
+/// by address through channels, with no socket and nothing lost.
 #[cfg(test)]
 pub(crate) mod memory {
     use super::Transport;
@@ -271,5 +279,19 @@ mod tests {
         }
         let (n, _) = got.expect("the datagram arrives");
         assert_eq!(&buf[..n], b"hi");
+    }
+
+    /// The loopback transport binds 127.0.0.1 and sends to this PC only: no router port, no
+    /// firewall prompt, no packet to another PC whatever address a peer names.
+    #[test]
+    fn the_loopback_transport_never_leaves_this_pc() {
+        let host = Udp::host(0).unwrap();
+        assert!(host.local_addr().unwrap().ip().is_loopback());
+        for off in ["192.168.1.5:47960", "10.0.0.2:1", "8.8.8.8:53", "[2001:db8::1]:47960"] {
+            let to: SocketAddr = off.parse().unwrap();
+            let e = host.send_to(b"x", to).expect_err(off);
+            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{off}");
+        }
+        assert!(host.send_to(b"x", "127.0.0.1:9".parse().unwrap()).is_ok());
     }
 }

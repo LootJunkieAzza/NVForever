@@ -100,6 +100,8 @@ pub struct LobbyState {
     pub joining: Joining,
     /// This game is a guest in another player's lobby.
     pub guest: bool,
+    /// Split screen is on in this game (`crate::split_screen::SplitScreen::on`).
+    pub split: bool,
 }
 
 /// The Co-op switch (see the module notes): off by default; its row of the settings page
@@ -178,6 +180,11 @@ pub struct LobbyScreen {
     coop: bool,
     /// The Co-op switch's button was taken: turned over by [`input`].
     coop_ask: bool,
+    /// Split screen's entry while the Co-op switch is on (`crate::split_screen::SplitScreen::entry`):
+    /// whether it is on (End Split Screen) or off (Add Player 2); `None`: no entry.
+    split: Option<bool>,
+    /// Split screen asked for by its button: started or ended by [`input`].
+    split_ask: Option<bool>,
 }
 
 impl LobbyScreen {
@@ -223,6 +230,8 @@ enum Act {
     Back,
     /// The Co-op switch.
     Coop,
+    /// Split screen: Add Player 2, or End Split Screen while it is on (`crate::split_screen`).
+    Split,
 }
 
 pub struct LobbyPlugin;
@@ -260,9 +269,10 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
         Some(Mode::Host) if !screen.coop && coop_held(state).is_none() => vec![Act::Coop, Act::Back],
         Some(Mode::Host) => {
             let switch = coop_held(state).is_none().then_some(Act::Coop);
+            let split = screen.split.map(|_| Act::Split);
             match state.hosting {
-                Hosting::Off => switch.into_iter().chain([Act::Create, Act::Back]).collect(),
-                Hosting::Open { .. } => vec![Act::Close, Act::Back],
+                Hosting::Off => switch.into_iter().chain([Act::Create]).chain(split).chain([Act::Back]).collect(),
+                Hosting::Open { .. } => [Act::Close].into_iter().chain(split).chain([Act::Back]).collect(),
             }
         }
         Some(Mode::Join) => match &state.joining {
@@ -278,6 +288,8 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
 fn coop_held(state: &LobbyState) -> Option<&'static str> {
     if state.guest {
         Some("leave the lobby to turn it off")
+    } else if state.split {
+        Some("end split screen to turn it off")
     } else if state.hosting != Hosting::Off {
         Some("close the lobby to turn it off")
     } else {
@@ -303,6 +315,7 @@ fn input(
     buttons: Query<(&PointerState, &Act), Changed<PointerState>>,
     mut asks: MessageWriter<LobbyRequest>,
     mut switch: ResMut<CoopSwitch>,
+    mut split: Option<ResMut<crate::split_screen::SplitScreen>>,
 ) {
     screen.frame = frames.map_or(screen.frame.wrapping_add(1), |f| f.0);
     // The switch turned over last frame.
@@ -311,6 +324,21 @@ fn input(
     }
     if screen.coop != switch.on {
         screen.coop = switch.on;
+    }
+    // Split screen's button, asked for last frame: it starts or ends with the game going on
+    // (nvforever `split.rs`), and the screen closes for the game.
+    if let Some(start) = screen.split_ask.take() {
+        if let Some(s) = split.as_mut() {
+            info!("lobby: {}", if start { crate::split_screen::ADD_LABEL } else { crate::split_screen::END_LABEL });
+            s.ask = Some(start);
+            screen.close();
+            commands.queue(crate::pause::resume_game);
+        }
+    }
+    // Split screen is offered while the switch is on, and shown as it stands.
+    let entry = if switch.on { crate::split_screen::SplitScreen::entry(split.as_deref()) } else { None };
+    if screen.split != entry {
+        screen.split = entry;
     }
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
     let now = real.elapsed_secs();
@@ -356,6 +384,8 @@ fn input(
                     Some(Act::Create)
                 }
                 "close" => Some(Act::Close),
+                // Split screen's button (Add Player 2, or End Split Screen while it is on).
+                "split" => Some(Act::Split),
                 "leave" => Some(Act::Leave),
                 "back" => Some(Act::Back),
                 other => {
@@ -442,6 +472,10 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
             Some(why) => info!("lobby: co-op stays on: {why}"),
             None => screen.coop_ask = true,
         },
+        Act::Split => match screen.split {
+            Some(on) => screen.split_ask = Some(!on),
+            None => info!("lobby: split screen cannot start here"),
+        },
         Act::Join => {
             let code = screen.typed.trim().to_string();
             if !code.is_empty() {
@@ -497,14 +531,14 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
         None => {}
         Some(Mode::Host) if state.guest => {
             v.push(Title(TITLE.into()));
-            v.push(Line(format!("{} ({})", coop_label(true), coop_held(state).unwrap_or_default()), Shade::Dim));
+            v.push(Line(format!("{} ({})", coop_label(true), fnv_util::words::tr(coop_held(state).unwrap_or_default())), Shade::Dim));
             in_lobby(&mut v, state);
         }
         Some(Mode::Host) => {
             v.push(Title(TITLE.into()));
             let held = coop_held(state);
             match held {
-                Some(why) => v.push(Line(format!("{} ({why})", coop_label(true)), Shade::Dim)),
+                Some(why) => v.push(Line(format!("{} ({})", coop_label(true), fnv_util::words::tr(why)), Shade::Dim)),
                 None => v.push(Button(Act::Coop, coop_label(screen.coop))),
             }
             match &state.hosting {
@@ -515,6 +549,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                 Hosting::Off => {
                     v.push(Line("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.".into(), Shade::Bright));
                     v.push(Button(Act::Create, "Create Lobby".into()));
+                    split_piece(&mut v, screen);
                 }
                 Hosting::Open { code, note } => {
                     v.push(Line("Lobby code:".into(), Shade::Dim));
@@ -525,6 +560,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     }
                     players(&mut v, state);
                     v.push(Button(Act::Close, "Close Lobby".into()));
+                    split_piece(&mut v, screen);
                 }
             }
         }
@@ -548,6 +584,22 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
         v.push(Button(Act::Back, "Back".into()));
     }
     v
+}
+
+/// Split screen's button: Add Player 2, or End Split Screen while it is on.
+fn split_label(on: bool) -> &'static str {
+    if on {
+        crate::split_screen::END_LABEL
+    } else {
+        crate::split_screen::ADD_LABEL
+    }
+}
+
+/// Split screen's button where the screen has one.
+fn split_piece(v: &mut Vec<Piece>, screen: &LobbyScreen) {
+    if let Some(on) = screen.split {
+        v.push(Piece::Button(Act::Split, fnv_util::words::tr(split_label(on)).into()));
+    }
 }
 
 /// A guest's view of the lobby it is in: whose it is, who is there, and Leave Lobby.
@@ -694,6 +746,44 @@ mod tests {
         let p = pieces(&screen, &state);
         assert!(p.contains(&Piece::Button(Act::Coop, "Co-op: On".into())));
         assert!(!p.iter().any(|x| matches!(x, Piece::Off(_))));
+    }
+
+    /// Split screen's button is on the Co-op screen once the switch is on: Add Player 2, or
+    /// End Split Screen while it is on, and while it is on the switch cannot be turned off.
+    /// With the switch off the screen has nothing of split screen.
+    #[test]
+    fn the_co_op_screen_offers_add_player_2_and_end_split_screen() {
+        let mut screen = opened(Mode::Host);
+        let state = LobbyState::default();
+        // Off: the switch and Back only, whatever split screen's own state is.
+        screen.coop = false;
+        screen.split = None;
+        assert_eq!(acts(&screen, &state), vec![Act::Coop, Act::Back]);
+        assert!(!pieces(&screen, &state).iter().any(|x| matches!(x, Piece::Button(Act::Split, _))));
+        // On: Add Player 2 after the lobby's button.
+        screen.coop = true;
+        screen.split = Some(false);
+        assert_eq!(acts(&screen, &state), vec![Act::Coop, Act::Create, Act::Split, Act::Back]);
+        assert!(pieces(&screen, &state).contains(&Piece::Button(Act::Split, "Add Player 2".into())));
+        // Split screen on: End Split Screen, and the switch is held.
+        screen.split = Some(true);
+        let on = LobbyState { split: true, ..default() };
+        assert!(pieces(&screen, &on).contains(&Piece::Button(Act::Split, "End Split Screen".into())));
+        assert!(!acts(&screen, &on).contains(&Act::Coop), "the switch cannot be turned off while split screen is on");
+        assert_eq!(coop_held(&on), Some("end split screen to turn it off"));
+        // The button asks for the other state.
+        let mut app = App::new();
+        app.add_message::<LobbyRequest>();
+        let mut s = LobbyScreen::default();
+        s.open(Mode::Host);
+        s.split = Some(false);
+        let mut writer_state = bevy::ecs::system::SystemState::<MessageWriter<LobbyRequest>>::new(app.world_mut());
+        let mut w = writer_state.get_mut(app.world_mut()).expect("a writer");
+        take(&mut s, &LobbyState::default(), Act::Split, &mut w);
+        assert_eq!(s.split_ask, Some(true), "Add Player 2 asks for split screen on");
+        s.split = Some(true);
+        take(&mut s, &LobbyState::default(), Act::Split, &mut w);
+        assert_eq!(s.split_ask, Some(false), "End Split Screen asks for it off");
     }
 
     /// The switch cannot go off while a lobby is open or this game is a guest: its row

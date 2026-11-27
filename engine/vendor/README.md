@@ -27,6 +27,15 @@ In `bevy_winit/src/winit_windows.rs`, `attempt_grab` is a no-op returning
 desktop cursor-grab API and winit otherwise logs `Unable to ungrab cursor` and
 `Could not set cursor grab mode` during initial `CursorOptions` sync.
 
+Second change (split screen), `src/hardware_input.rs` and two early returns in
+`src/state.rs` (`window_event`, `device_event`): `hardware_input::set_ignored(true)` makes
+the event loop drop this machine's keyboard, mouse, touch, gesture and text-input window
+events and raw mouse motion before they become Bevy messages (counted, `dropped()`).
+Split screen's player 2 game (nvforever `split.rs`, module notes, Focus) turns it on: this
+PC's keyboard and mouse are player 1's, whichever window has the focus, while input an
+app writes as messages itself (test aids) still arrives. Off by default; nothing else
+changes.
+
 Source: crates.io `bevy_winit` 0.20.1, archive SHA-256
 `397c685e6ab6d4d87b89fb4ce11993c223d0e3c7b34c415cb4b9f69f213d85b6`.
 

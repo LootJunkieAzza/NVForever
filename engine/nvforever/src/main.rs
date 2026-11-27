@@ -98,6 +98,7 @@ mod dismember;
 mod distant_lights;
 mod knockouts;
 mod coop;
+mod split;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -877,6 +878,15 @@ struct Args {
     /// pixels (a new run taking over a load keeps the old window's place, handoff.rs).
     #[arg(long, value_parser = |s: &str| handoff::parse_at(s).ok_or("expected X,Y"))]
     window_at: Option<IVec2>,
+    /// Split screen (split.rs): once in the world, host a lobby for this PC only, take the
+    /// top half of the screen and start player 2's game on the bottom half. A load restarts
+    /// it with the same (handoff). Needs the Co-op switch, which this turns on for the run.
+    #[arg(long, requires = "play", conflicts_with = "split_p2")]
+    split: bool,
+    /// Split screen: this game is player 2's, started by player 1's (`--split`); the
+    /// session folder in player 1's home.
+    #[arg(long, requires = "play")]
+    split_p2: Option<std::path::PathBuf>,
     /// Maximise the window once it is shown.
     #[arg(long)]
     window_maximized: bool,
@@ -1172,7 +1182,10 @@ static COMMAND_LINE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new
 
 /// This run's arguments after the program name, as acted on (`COMMAND_LINE`).
 fn command_line() -> Vec<String> {
-    COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec())
+    let mut line = COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec());
+    // Split screen turned on or off since the start goes with a load's new run (split.rs).
+    split::with_split_arg(&mut line);
+    line
 }
 
 /// Bevy's task pools. Test aid `NVF_PLAY_TEST_ASYNC_THREADS=<n>` sets the async compute
@@ -1849,6 +1862,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     };
     let nav_state = if trips.is_empty() && !args.show_navmesh && residents.is_none() {
         None
+    } else if args.split_p2.is_some() && trips.is_empty() && !args.show_navmesh {
+        // Split screen's player 2: a co-op guest whose actors the host walks (nav.rs).
+        Some(nav::NavState::without_graph())
     } else {
         match nav::NavState::build(&world, &trips, args.npc_speed, args.npc_ledges, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
             Ok(n) => Some(n),
@@ -2015,6 +2031,15 @@ fn run_with_args(line: Vec<String>) -> AppExit {
                     bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0)
                 },
                 position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
+                // Player 2's window in split screen never takes the focus (split.rs) ...
+                focused: args.split_p2.is_none(),
+                // ... and is borderless from the start: a frame taken off later shows the
+                // window again, which on Windows activates it [documented: winit 0.30
+                // `WindowFlags::apply_diff`, `SW_SHOW` after the first `SW_SHOWNOACTIVATE`].
+                decorations: args.split_p2.is_none(),
+                // ... and has no taskbar button of its own: the two halves are one game on
+                // the taskbar, player 1's [design].
+                skip_taskbar: args.split_p2.is_some(),
                 // Taking over a load: shown once its loading screen is up (handoff.rs).
                 visible: args.handoff.is_none(),
                 // Measuring frame times: not held to the display's refresh.
@@ -2363,7 +2388,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             // Co-op: idle until a lobby is opened or joined.
-            app.add_plugins(coop::CoopPlugin(coop::Config { host: None, join: None, name: "Courier".to_string() }));
+            // Split screen's player 2 joins the lobby player 1's game opened for this PC.
+            let p2_join = args.split_p2.as_deref().and_then(split::p2_join).map(|(at, secret)| split::join_text(at.port(), secret));
+            let coop_name = if args.split_p2.is_some() { split::P2_NAME.to_string() } else { "Courier".to_string() };
+            app.add_plugins(coop::CoopPlugin(coop::Config { host: None, join: p2_join, name: coop_name }));
+            app.add_plugins(split::SplitPlugin(split::SplitArgs { start: args.split, p2: args.split_p2.clone() }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).

@@ -52,6 +52,8 @@ pub use cursor_position::{CursorPositionReadiness, CursorPositionRequest, Cursor
 #[cfg(feature = "cursor-test-support")]
 pub use cursor_position::CursorPositionTestBackend;
 #[forbid(unsafe_code)]
+pub mod hardware_input;
+#[forbid(unsafe_code)]
 mod state;
 #[forbid(unsafe_code)]
 mod system;

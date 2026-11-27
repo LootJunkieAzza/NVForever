@@ -181,7 +181,8 @@ row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficult
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
 (Detail and Distance, after `mesh-terrain-blend`; read at the next start), and #3843's
-`localized-dt-dr` (Gameplay › Combat). The
+`localized-dt-dr` (Gameplay › Combat), and split screen's `split-layout` (Display › Screen, after
+`borderless`; greyed while Co-op is off). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
 [observed: #1953], hence Interface there.
 

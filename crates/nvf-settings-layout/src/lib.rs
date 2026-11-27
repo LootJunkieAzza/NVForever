@@ -169,7 +169,7 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Menus"), &["quantity-select-short-keys"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
     section("Gameplay", Some("Co-op"), &["coop"]),
-    section("Display", Some("Screen"), &["monitor", "resolution", "hdr-output", "borderless"]),
+    section("Display", Some("Screen"), &["monitor", "resolution", "hdr-output", "borderless", "split-layout"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
     section("Display", Some("Upscaling and Anti-Aliasing"), &["upscaler", "upscaler-quality", "dlss-model", "fsr-library", "anti-aliasing", "sharpen"]),
     section("Display", Some("Frame Generation and Latency"), &["frame-generation", "frame-generation-frames", "latency-reduction"]),
@@ -1019,6 +1019,7 @@ pub const SECTIONS: &[Section] = &[
 /// reads it; a row of a missing module is passed over.
 pub const NEEDS: &[(&str, &str, &str)] = &[
     ("dialogue-recentre", "dialogue-look", "Needs Turn to Each Other."),
+    ("split-layout", "coop", "Needs Co-op."),
     ("volume-music", "music", "Needs Play Music."),
     ("volume-voice", "voice", "Needs Dialogue Voice."),
     ("crosshair-style", "dynamic-crosshair", "Needs Dynamic Crosshair."),

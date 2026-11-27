@@ -90,7 +90,7 @@ use crate::music::Space;
 use crate::pause::Paused;
 use crate::player::Player;
 use crate::script::{with_world, ScriptState};
-use crate::sfx::{distance_gain, static_gain, Panned, Sfx, SfxSettings, SoundAt};
+use crate::sfx::{heard_distance, heard_gain, static_gain, Panned, SecondListener, Sfx, SfxSettings, SoundAt};
 use crate::sim::SimState;
 use crate::voice::VoiceState;
 use crate::{Location, PlayState, PlayWorld};
@@ -552,10 +552,6 @@ fn template(places: &RadioPlaces, sfx: &Sfx, station: u32, receiver_base: Option
     found.cloned().unwrap_or(Sound { min_distance: DEFAULT_MIN, max_distance: DEFAULT_MAX, ..Sound::default() })
 }
 
-fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
-    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
-}
-
 fn name(places: &RadioPlaces, station: u32) -> String {
     places.forms.stations.get(&station).and_then(|s| s.edid.clone()).unwrap_or_else(|| format!("{station:08X}"))
 }
@@ -788,8 +784,9 @@ fn play(
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
     // The sinks held with the radios: not those fading out after a stop (audio_out).
     (sinks, mut placed): (Query<&AudioSink, (With<RadioEntity>, Without<Retiring>)>, Query<&mut SoundAt, With<RadioEntity>>),
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (tweaks, second): (Option<Res<crate::tweaks::TweakSettings>>, Option<Res<SecondListener>>),
 ) {
+    let second = second.as_deref();
     // The player's tweak turns the radio down in a conversation [design: docs/design/tweaks.md].
     let talk = if *state.get() == PlayState::Dialogue { tweaks.as_ref().map_or(1.0, |t| t.dialogue_radio_volume) } else { 1.0 };
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
@@ -898,7 +895,8 @@ fn play(
     let receivers = if settings.play && table.is_none() { places.receivers.get(&space).map_or(&[][..], Vec::as_slice) } else { &[] };
     for r in receivers {
         let t = template(&places, &sfx, r.station, Some(r.base));
-        let d = distance(r.position, eye);
+        // The nearer listener's distance (split screen's player 2 too).
+        let d = heard_distance(eye, second, r.position);
         let playing = radio.playing.contains_key(&r.ref_id);
         if d >= t.max_distance * if playing { LEAVE } else { 1.0 } {
             continue;
@@ -915,7 +913,7 @@ fn play(
         if !on || !sim.world.is_enabled(id).unwrap_or(!r.initially_disabled) || !places.station_ref.contains_key(&r.station) {
             continue;
         }
-        heard.push((r.ref_id, r.station, distance_gain(&t, d), false, Some(r.position)));
+        heard.push((r.ref_id, r.station, heard_gain(&t, eye, second, r.position), false, Some(r.position)));
     }
     if settings.play && table.is_none() {
         for (&actor, &station_ref) in &rt.game.radio.npc_radios {
@@ -927,14 +925,14 @@ fn play(
                 _ => false,
             };
             let t = template(&places, &sfx, base, None);
-            let d = distance(s.pos, eye);
+            let d = heard_distance(eye, second, s.pos);
             if !here || !s.enabled() || d >= t.max_distance {
                 continue;
             }
             if radio.npc_heard.insert(actor.0) {
                 info!("radio: {actor} plays {} (SetNPCRadio)", name(&places, base));
             }
-            heard.push((actor.0, base, distance_gain(&t, d), false, Some(s.pos)));
+            heard.push((actor.0, base, heard_gain(&t, eye, second, s.pos), false, Some(s.pos)));
         }
         if let (Some((_, base)), Some(share)) = (pip_station, pip_share) {
             heard.push((PIPBOY, base, 1.0 - share, true, None));
@@ -1136,7 +1134,7 @@ fn play(
         let entity = match w.at {
             // Panned where the receiver or actor is (`crate::sfx`).
             Some(at) => {
-                let at = SoundAt::new(at, Some(&player));
+                let at = SoundAt::new(at, Some(&player), second);
                 let handle = panned.add(Panned::new(sound, at.pan.clone()));
                 commands.spawn((AudioPlayer::<Panned<RadioSound>>(handle), PlaybackSettings::DESPAWN, at, RadioEntity, SoundCategory::Radio)).id()
             }
