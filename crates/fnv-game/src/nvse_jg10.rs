@@ -312,7 +312,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 },
                 None => return Some(Ok(zero)),
             };
-            if sig(g, key.1) != Some(*b"WEAP") {
+            if sig(g, key.1) != Some(*b"WEAP") || !g.poisonable(key.1) {
                 return Some(Ok(zero));
             }
             match form(args, 0) {
@@ -371,10 +371,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             zero
         }
-        // `visible`: 0 hides the scope, 1 shows it [documented].
+        // `visible`: 0 hides the scope, 1 shows it [documented]; `ToggleWeaponScopeUIModel 0`
+        // returns 1 [observed: w6d3p2_42_jg10_scope_ui_highlight_path_remap_ui: sc=0,0,1,0];
+        // returning 1 for `visible != 0` (1) or an omitted argument is [hypothesis].
         "toggleweaponscopeuimodel" => {
             g.other.jg10.scope_visible = Some(num(args, 0, 0.0) != 0.0);
-            zero
+            XVal::Num(1.0)
         }
         // Hides the scope and takes its picture away [documented].
         "clearweaponscopeuimodel" => {
@@ -382,17 +384,25 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.other.jg10.scope_visible = Some(false);
             zero
         }
-        // `weapon`: its scope model path (MOD3) goes; 1 when it had one [documented:
-        // "isSuccess"; hypothesis: a weapon without one fails].
+        // `weapon`: clears MOD3 on scoped weapons (including TempCloneForm); returns 1
+        // for a scoped weapon even on repeated removal, and 0 for unscoped or non-WEAP
+        // forms [documented: RemoveScopeModelPath; observed: w6d3p2_24:
+        // snLen=29,rm=1/1,aft=0,rest=29|p10=[],rm=0,aft=0,rmE=0|bad=0|cl=29,1,0,29].
+        // Determining scoped-weapon eligibility via `has_scope_flag || has_authored_mod3`
+        // (DNAM flags1 HasScope bit 1<<2 or non-empty authored base MOD3) [hypothesis/design].
         "removescopemodelpath" => {
-            let Some(w) = form(args, 0).filter(|&w| sig(g, w) == Some(*b"WEAP")) else { return Some(Ok(zero)) };
-            let had = ["", "model"].iter().any(|p| matches!(crate::nvse::record_value(g, w, "MOD3", p), Some(XVal::Str(s)) if !s.is_empty()));
-            if had {
+            let Some(w) = form(args, 0).filter(|&w| g.data.sig(g.unclone(w)) == Some(*b"WEAP")) else { return Some(Ok(zero)) };
+            let orig = g.unclone(w);
+            // [hypothesis/design]: accept either DNAM HasScope flag or non-empty authored MOD3.
+            let has_scope_flag = matches!(crate::nvse::record_value(g, w, "DNAM", "flags1"), Some(XVal::Num(x)) if (x as u64) & (1 << 2) != 0);
+            let has_authored_mod3 = ["", "model"].iter().any(|p| matches!(g.data.record_field(orig, "MOD3", p), Some(serde_json::Value::String(s)) if !s.is_empty()));
+            let scoped = has_scope_flag || has_authored_mod3;
+            if scoped {
                 for p in ["", "model"] {
                     g.field_overrides.insert((w, format!("MOD3/{p}")), XVal::Str(String::new()));
                 }
             }
-            yes(had)
+            yes(scoped)
         }
         // ---- FaceGen ----
         // `base type n`: the base's nth value of the list (FACEGEN) [documented: the
@@ -441,12 +451,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.field_overrides.insert((b, format!("{sub}/{i}")), XVal::Num(v));
             XVal::Num(1.0)
         }
-        // The reference's face drawn again [documented].
+        // The reference's face drawn again [documented]; returns 1 on an actor
+        // [observed: w6d3_41_jg10_facegen_cross_npc_and_aliasing: rf=1]; returning 0 on
+        // bare or non-actor calls is [hypothesis].
         "facegenrefreshappearance" => {
             if let Some(a) = subject.filter(|&a| is_actor(g, a)) {
                 g.appearance_changes.push(crate::appearance::AppearanceChange { actor: a, reset: false });
+                XVal::Num(1.0)
+            } else {
+                zero
             }
-            zero
         }
         // ---- VATS highlights ----
         // `[part]` 0–15 on the calling actor, one actor at a time; none (or 15) is

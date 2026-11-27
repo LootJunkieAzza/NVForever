@@ -200,3 +200,4 @@ mod preactivation_events;
 mod preactivation_mutation;
 mod stewie_945_960_970_qualification;
 mod worldspace_climate_imagespace;
+mod w6d_johnnyguitar_parity;

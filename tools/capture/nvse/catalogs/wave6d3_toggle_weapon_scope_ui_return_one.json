@@ -1,0 +1,95 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-toggle-weapon-scope-ui-return-one",
+  "description": "Read-only clean-room probe verifying ToggleWeaponScopeUIModel returns 1 and confirming surrounding JG10 UI/highlight/path returns.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_toggle_weapon_scope_ui_return_one",
+      "title": "Wave 6D-3: ToggleWeaponScopeUIModel returns 1",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_42_jg10_scope_ui_highlight_path_remap_ui",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg10.md",
+          "spec_line": 28,
+          "functions_tested": [
+            "SetWeaponScopeUIModel",
+            "ToggleWeaponScopeUIModel",
+            "ClearWeaponScopeUIModel",
+            "HighlightBodyPartAlt",
+            "DeactivateAllHighlightsAlt",
+            "RemoveHighlightedRef",
+            "PathToPoint",
+            "PathToRef",
+            "RemapLand",
+            "EjectCasing",
+            "UpdateCrosshairPrompt",
+            "UpdateRepairMenu"
+          ],
+          "claim": "Verify JG10 return values & subject validation for scope UI, highlights, pathing, RemapLand, EjectCasing, and UI refreshes.",
+          "expected": "Confirm return values across all 12 JG10 commands.",
+          "script_lines": [
+            "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rDr = GetFormFromMod \"FalloutNV.esm\" \"103E37\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rWnv = GetFormFromMod \"FalloutNV.esm\" \"DA726\"",
+            "string_var sEmpty = \"\"",
+            "int iSw1 = SetWeaponScopeUIModel \"interface\\HUD\\mildotscope.NIF\"",
+            "int iSw2 = SetWeaponScopeUIModel sEmpty rSn",
+            "int iTw0 = ToggleWeaponScopeUIModel 0",
+            "int iCw0 = ClearWeaponScopeUIModel",
+            "int iHl0 = rDoc.HighlightBodyPartAlt 0",
+            "int iHl15 = rDoc.HighlightBodyPartAlt 15",
+            "int iHlOob = rDoc.HighlightBodyPartAlt 16",
+            "int iHlDr = rDr.HighlightBodyPartAlt 0",
+            "int iHlRem = rDoc.RemoveHighlightedRef",
+            "int iHlAll = DeactivateAllHighlightsAlt",
+            "float fDx = rDoc.GetPos X",
+            "float fDy = rDoc.GetPos Y",
+            "float fDz = rDoc.GetPos Z",
+            "int iPpAct = rDoc.PathToPoint fDx fDy fDz 10 0",
+            "int iPpDr = rDr.PathToPoint fDx fDy fDz 10 0",
+            "int iPrBad = rDoc.PathToRef rSt 10 0",
+            "int iPrDr = rDr.PathToRef rDoc 10 0",
+            "int iRmBad = RemapLand 0 rWnv 0 0",
+            "int iEjDr = rDr.EjectCasing",
+            "int iUcp = UpdateCrosshairPrompt",
+            "int iUrm = UpdateRepairMenu",
+            "PrintToConsole \"PROBE|w6d3p2_42_jg10_scope_ui_highlight_path_remap_ui|sc=%g,%g,%g,%g|hl=%g,%g,%g,%g,%g,%g|pth=%g,%g,%g,%g|rm=%g|ej=%g|ui=%g,%g\" iSw1 iSw2 iTw0 iCw0 iHl0 iHl15 iHlOob iHlDr iHlRem iHlAll iPpAct iPpDr iPrBad iPrDr iRmBad iEjDr iUcp iUrm"
+          ]
+        }
+      ]
+    }
+  ]
+}

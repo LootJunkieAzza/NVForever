@@ -1,0 +1,79 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-jg9-sound-path-and-fade-returns",
+  "description": "Read-only clean-room probe verifying StopSoundFile, PlaySound3DFromPath bare, and PlaySoundFade SOUN validation return values.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_jg9_sound_path_and_fade_returns",
+      "title": "Wave 6D-3: JG9 StopSoundFile / PlaySound3DFromPath / PlaySoundFade returns",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_39_jg9_sound_paths_fade_and_3d",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg9.md",
+          "spec_line": 37,
+          "functions_tested": [
+            "PlaySoundFile",
+            "StopSoundFile",
+            "PlaySoundFromPath",
+            "PlaySound3DFromPath",
+            "StopSoundFromPath",
+            "StopSound3DFromPath",
+            "PlaySoundFade",
+            "StopSoundLooping"
+          ],
+          "claim": "Verify batch-9 sound-by-path & fade return values on real vanilla WAV (Data\\sound\\fx\\ui\\popup\\ui_popup_questupdate.wav), missing file, directory prefix (gl_AWR_Main.txt:92), bare PlaySound3DFromPath, and PlaySoundFade/StopSoundLooping (SD-15).",
+          "expected": "Resolve ext-jg9.md:36-43 hypotheses: StopSoundFile return while playing vs idle, PlaySound3DFromPath bare vs on ref, StopSound3DFromPath return, PlaySoundFade non-SOUN, and StopSoundLooping return.",
+          "script_lines": [
+            "ref rSnd = GetFormFromMod \"FalloutNV.esm\" \"174325\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "int pfOk = PlaySoundFile \"Data\\sound\\fx\\ui\\popup\\ui_popup_questupdate.wav\"",
+            "int sf1 = StopSoundFile",
+            "int sf2 = StopSoundFile",
+            "int ppOk = PlaySoundFromPath \"Data\\sound\\fx\\ui\\popup\\ui_popup_questupdate.wav\" 0.1 0 1 0",
+            "int spOk = StopSoundFromPath \"Data\\sound\\fx\\ui\\popup\\ui_popup_questupdate.wav\" 0",
+            "int p3dOk = Player.PlaySound3DFromPath \"Data\\sound\\fx\\ui\\popup\\ui_popup_questupdate.wav\" 0 0 0",
+            "int p3dMiss = Player.PlaySound3DFromPath \"Data\\sound\\fx\\ui\\w6d3_missing.wav\" 0 0 0",
+            "int p3dBare = PlaySound3DFromPath \"Data\\sound\\fx\\ui\\popup\\ui_popup_questupdate.wav\" 0 0 0",
+            "int s3dPfx = Player.StopSound3DFromPath \"Data\\sound\\fx\\ui\\\" 0",
+            "int fdOk = Player.PlaySoundFade rSnd 0.1",
+            "int fdBad = Player.PlaySoundFade rSt 0.1",
+            "int slOk = StopSoundLooping rSnd",
+            "int slBad = StopSoundLooping rSt",
+            "PrintToConsole \"PROBE|w6d3_39_jg9_sound_paths_fade_and_3d|file=%g,st=%g/%g|path=%g/%g|3d=%g,%g,bare=%g,sPfx=%g|fade=%g/%g|loop=%g/%g\" pfOk sf1 sf2 ppOk spOk p3dOk p3dMiss p3dBare s3dPfx fdOk fdBad slOk slBad"
+          ]
+        }
+      ]
+    }
+  ]
+}

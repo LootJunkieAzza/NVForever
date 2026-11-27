@@ -1,0 +1,82 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-ar-shuffle-empty-arnull",
+  "description": "Read-only clean-room probe verifying Ar_Shuffle returns ar_Null (ar_Size -1) on empty arrays and preserves elements on 1- and 5-element arrays.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_ar_shuffle_empty_arnull",
+      "title": "Wave 6D-3: Ar_Shuffle empty array returns ar_Null",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p5_15_ar_shuffle_var_one_empty",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 52,
+          "functions_tested": [
+            "Ar_Shuffle"
+          ],
+          "claim": "Verify Ar_Shuffle on variable array (resolving ext-jg8.md:83-90), size/sum preservation, source non-mutation, single-element, and empty array.",
+          "expected": "Confirm Ar_Shuffle returns new array of same size/sum, source intact, single=77, empty=0.",
+          "script_lines": [
+            "array_var aSrc = ar_List 10 20 30 40 50",
+            "array_var aSh = Ar_Shuffle aSrc",
+            "int iCntSh = ar_Size aSh",
+            "float fSum = 0",
+            "if iCntSh == 5",
+            "  let fSum := aSh[0] + aSh[1] + aSh[2] + aSh[3] + aSh[4]",
+            "endif",
+            "float fS0 = aSrc[0]",
+            "float fS4 = aSrc[4]",
+            "int iSrcOk = 0",
+            "if fS0 == 10",
+            "  if fS4 == 50",
+            "    let iSrcOk := 1",
+            "  endif",
+            "endif",
+            "array_var aOne = ar_List 77",
+            "array_var aOneSh = Ar_Shuffle aOne",
+            "int iCnt1 = ar_Size aOneSh",
+            "float fOne = -1",
+            "if iCnt1 == 1",
+            "  let fOne := aOneSh[0]",
+            "endif",
+            "array_var aEmp = ar_Construct \"array\"",
+            "array_var aEmpSh = Ar_Shuffle aEmp",
+            "int iCntE = ar_Size aEmpSh",
+            "PrintToConsole \"PROBE|w6d3p5_15_ar_shuffle_var_one_empty|n=%g,sum=%.0f,srcOk=%g|one=%g(%.0f)|emp=%g\" iCntSh fSum iSrcOk iCnt1 fOne iCntE"
+          ]
+        }
+      ]
+    }
+  ]
+}

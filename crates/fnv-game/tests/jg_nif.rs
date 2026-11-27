@@ -120,7 +120,9 @@ fn particles_properties_and_switches() {
     assert_eq!(n(&mut g, "PlayerREF.GetNiPSysModifierValue \"Glass\" 14"), 0.0);
     g.scene.take_edits();
     assert_eq!(n(&mut g, "PlayerREF.SetParticleEmitterSpawnRate \"ParticleEmitter\" 1000"), 1.0);
-    assert_eq!(n(&mut g, "PlayerREF.SetNiPSysModifierValue \"ParticleEmitter\" 14 5"), 1.0);
+    // SetNiPSysModifierValue mutates the live value and returns 0 [observed: w6d3_05].
+    assert_eq!(n(&mut g, "PlayerREF.SetNiPSysModifierValue \"ParticleEmitter\" 14 5"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetNiPSysModifierValue \"ParticleEmitter\" 14"), 5.0);
     assert_eq!(n(&mut g, "PlayerREF.SetNiPSysModifierValue \"Nothing\" 14 5"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.GetParticleEmitterSpawnRate \"ParticleEmitter\""), 1000.0);
     let edits = g.scene.take_edits();
@@ -149,7 +151,12 @@ fn particles_properties_and_switches() {
     q(&mut g, "PlayerREF.Update3DAlt 1");
     assert_eq!(g.take_appearance_changes().len(), 1);
     assert_eq!(n(&mut g, "PlayerREF.UpdateScenegraph 0"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.UpdateScenegraph -1"), 0.0);
+    assert_eq!(n(&mut g, "UpdateScenegraph 0"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.Update3DAlt 0"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.Update3DAlt 32"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.Update3DAlt -1"), 1.0);
+    assert_eq!(n(&mut g, "Update3DAlt 32"), 1.0);
     // Standing (nothing told): Idle (0) in slot 0, nothing in slot 4.
     assert_eq!(n(&mut g, "PlayerREF.GetSequenceAnimGroup 0"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.GetSequenceAnimGroup 4"), -1.0);

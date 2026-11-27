@@ -243,8 +243,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.play_faded(id, None, system, 0.0);
             yes(true)
         }
-        // StopSoundFile: what PlaySoundFile plays [documented].
-        "stopsoundfile" => yes(g.stop_paths(0.0, |p| p.file)),
+        // StopSoundFile: stops what PlaySoundFile plays and returns 1 even when idle
+        // [documented; observed: w6d3_39_jg9_sound_paths_fade_and_3d: st=1/1].
+        "stopsoundfile" => {
+            g.stop_paths(0.0, |p| p.file);
+            yes(true)
+        }
         // PlaySoundFromPath path [fadeTime] [isVoice] [systemSound] [shouldLoop]
         // [documented]. isVoice plays it as any script sound (see docs/spec-notes/ext-jg9.md §1).
         // 1 for any path, a missing file too [observed: the original, 2026-11-10].
@@ -255,10 +259,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.play_faded(id, None, num(args, 3, 0.0) != 0.0, num(args, 1, 0.0));
             yes(true)
         }
-        // ref.PlaySound3DFromPath path [fadeTime] [isVoice] [shouldLoop] [documented]; 1
-        // as PlaySoundFromPath [hypothesis].
+        // ref.PlaySound3DFromPath path [fadeTime] [isVoice] [shouldLoop] [documented];
+        // returns 1 even on bare calls without a calling reference [observed: w6d3_39: bare=1];
+        // playing nothing on bare calls while still returning 1 is [hypothesis].
         "playsound3dfrompath" => {
-            let Some(at) = subject else { return Some(Ok(yes(false))) };
+            let Some(at) = subject else { return Some(Ok(yes(true))) };
             let Some(p) = text(args, 0).as_deref().and_then(data_path).filter(|p| crate::mod_files::exists(p)) else { return Some(Ok(yes(true))) };
             let looping = num(args, 3, 0.0) != 0.0;
             let Some(id) = g.path_sound(&p, Some(at), looping, false) else { return Some(Ok(yes(true))) };
@@ -266,15 +271,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             yes(true)
         }
         // StopSoundFromPath path [fadeTime]: "all instances" of the file [documented].
-        // 0, with the file just played [observed: the original, 2026-11-10; hypothesis:
-        // it returns nothing]; the 3D one alike [hypothesis].
+        // 0, with the file just played [observed: the original, 2026-11-10; w6d3_39: path=1/0;
+        // hypothesis: it returns nothing].
         "stopsoundfrompath" => {
             if let Some(p) = text(args, 0).as_deref().and_then(data_path) {
                 g.stop_paths(num(args, 1, 0.0), |s| s.path == p);
             }
             yes(false)
         }
-        // ref.StopSound3DFromPath path [fadeTime]: those from that source [documented].
+        // ref.StopSound3DFromPath path [fadeTime]: those from that source [documented];
+        // returns 0 on directory prefix `"Data\sound\fx\ui\"` [observed: w6d3_39: sPfx=0];
+        // returning 0 on other paths is [hypothesis].
         "stopsound3dfrompath" => {
             if let (Some(at), Some(p)) = (subject, text(args, 0).as_deref().and_then(data_path)) {
                 g.stop_paths(num(args, 1, 0.0), |s| s.path == p && s.at == Some(at));
@@ -282,9 +289,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             yes(false)
         }
         // ref.PlaySoundFade sound fadeTime: at the calling reference, the player without
-        // one [documented].
+        // one [documented]; rejects non-SOUN forms returning 0 [observed: w6d3_39: fade=1/0];
+        // resolving TempCloneForm sound records via `g.unclone(s)` is [design].
         "playsoundfade" => {
-            let Some(sound) = form(args, 0) else { return Some(Ok(yes(false))) };
+            let Some(sound) = form(args, 0).filter(|&s| g.data.sig(g.unclone(s)) == Some(*b"SOUN")) else { return Some(Ok(yes(false))) };
             let at = subject.unwrap_or(FormId::PLAYER_REF);
             g.play_faded(sound, Some(at), false, num(args, 1, 0.0));
             yes(true)
@@ -351,7 +359,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // as the engine's music picked it.
         "audiomarkergetcurrent" | "amkgetcur" => XVal::Ref(g.other.jg9.current_marker.map_or(0, |r| r.0)),
         // ref.AudioMarkerGetProperty (AMKGetProp) n: 0 radius, 1 layer 2 trigger %, 2
-        // layer 3 trigger % [documented]; the triggers as stored, fractions (see docs/spec-notes/ext-jg9.md §4).
+        // layer 3 trigger % [documented]; layer 2/3 triggers read back as stored fractions
+        // (0.33, 0.67) [observed: w6d3p2_38: p=2500.0,0.33,0.67,1.0]; OOB returns 0 here
+        // while original read 1.0 for property 3 [design: follow-up].
         "audiomarkergetproperty" | "amkgetprop" => {
             let m = subject.and_then(|r| g.marker_values(r));
             XVal::Num(match (m, int_arg(args, 0)) {
@@ -362,16 +372,19 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             })
         }
         // ref.AudioMarkerSetController (AMKSetCtrl) controller [documented]: an ALOC, for
-        // the session; the engine's music picks from it.
+        // the session; the engine's music picks from it. Returns 0 even on success while
+        // applying the edit [observed: w6d3p2_38: sc=0(eq=1)].
         "audiomarkersetcontroller" | "amksetctrl" => {
             let (Some(r), Some(c)) = (subject, form(args, 0)) else { return Some(Ok(yes(false))) };
             let Some(mut m) = g.marker_values(r) else { return Some(Ok(yes(false))) };
             m.controller = Some(c);
             g.other.jg9.marker_edits.insert(r, m);
             g.other.jg9.markers_changed = true;
-            yes(true)
+            yes(false)
         }
-        // ref.AudioMarkerSetProperty (AMKSetProp) n value [documented].
+        // ref.AudioMarkerSetProperty (AMKSetProp) n value [documented]; returns 0 on
+        // property 0 and OOB property 3 while applying property 0 [observed: w6d3p2_38:
+        // sp=0->1234.5,oob=0]; returning 0 for properties 1 and 2 [hypothesis].
         "audiomarkersetproperty" | "amksetprop" => {
             let Some(r) = subject else { return Some(Ok(yes(false))) };
             let Some(mut m) = g.marker_values(r) else { return Some(Ok(yes(false))) };
@@ -384,7 +397,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             g.other.jg9.marker_edits.insert(r, m);
             g.other.jg9.markers_changed = true;
-            yes(true)
+            yes(false)
         }
         // actor.Jump: the actor jumps [documented], the engine's jump: the player's
         // Jump key, a person's ledge hop (taken standing on the ground).
@@ -407,18 +420,24 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // the movement keys would; the turn, swim, fly, fall and slide flags are the
         // engine's own].
         "setplayermovementflags" => {
+            // `SetPlayerMovementFlags 0` returns 1 [observed: w6d3_40_jg9_engine_values_and_moves:
+            // mv=1/1,1,1]; returning 1 for non-zero flags and 0 for negative or missing arguments
+            // is [hypothesis].
             let Some(f) = int_arg(args, 0).filter(|f| *f >= 0) else { return Some(Ok(XVal::Num(0.0))) };
             g.other.jg9.move_flags = Some(f as u32);
-            XVal::Num(0.0)
+            XVal::Num(1.0)
         }
-        // ref.SetVelEx x y z: the three axes of SetVel at once [documented], units/s.
+        // ref.SetVelEx x y z: the three axes of SetVel at once [documented], units/s;
+        // `rDoc.SetVelEx 0 0 0` returns 1 [observed: w6d3_40_jg9_engine_values_and_moves:
+        // mv=1/1,1,1]; returning 1 for non-zero velocities and 0 on bare calls without a
+        // calling reference is [hypothesis].
         "setvelex" => {
             let Some(r) = subject else { return Some(Ok(XVal::Num(0.0))) };
             let v = [num(args, 0, 0.0) as f32, num(args, 1, 0.0) as f32, num(args, 2, 0.0) as f32];
             if v.iter().all(|x| x.is_finite()) && g.other.jg9.velocities.len() < 256 {
                 g.other.jg9.velocities.push((r, v));
             }
-            XVal::Num(0.0)
+            XVal::Num(1.0)
         }
         // ref.GetLinearVelocity node xOut yOut zOut: "in units of 0.1 Meter/sec, or 7
         // game Units/sec" [documented]: the reference's velocity as GetActorVelocity
@@ -473,13 +492,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 None => outputs(g, 0.0, &[]),
             }
         }
-        // ref.GetPlayerCamFOV 0/1/2: the world FOV, the first person's, or the one the
-        // camera uses now [documented], as GetCameraFOV reads them.
+        // ref.GetPlayerCamFOV 0/1/2: 0 world FOV, 1 first-person FOV, 2 active camera FOV
+        // [documented]; 1P `Player.GetPlayerCamFOV 3` returns 55.0 [observed:
+        // w6d3_40_jg9_engine_values_and_moves: o3=55.0]; generalizing to active camera FOV in
+        // 3P and for all other OOB, negative, or omitted arguments is [hypothesis].
         "getplayercamfov" => {
             let which = match int_arg(args, 0) {
+                Some(0) => 0.0,
                 Some(1) => 1.0,
-                Some(2) => f64::from(u8::from(!g.other.jg9.third_person)),
-                _ => 0.0,
+                _ => f64::from(u8::from(!g.other.jg9.third_person)),
             };
             match crate::nvse_small::call(g, &crate::game::RunCtx::default(), "getcamerafov", None, &[XVal::Num(which)]) {
                 Some(Ok(v)) => v,

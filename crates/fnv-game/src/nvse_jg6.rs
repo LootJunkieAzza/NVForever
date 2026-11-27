@@ -108,8 +108,17 @@ pub fn activation_prompt(g: &Game, r: FormId) -> Option<String> {
 /// The temporary effects GetTempEffects lists for `a`, in its order (indices into
 /// `g.effects`).
 fn temp_effects(g: &Game, a: FormId) -> Vec<usize> {
-    g.effects.iter().enumerate().filter(|(_, e)| e.target == a && !e.permanent && e.duration > 0.0).map(|(i, _)| i).collect()
+    g.effects
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.target == a && !e.permanent && !e.inactive && e.duration > 0.0 && e.effect != crate::aid::USAGE_MONITOR)
+        .map(|(i, _)| i)
+        .collect()
 }
+
+#[cfg(test)]
+#[path = "w6d12_mod_temp_time_tests.rs"]
+mod w6d12_mod_temp_time_tests;
 
 /// The JohnnyGuitar batch-6 functions; `None` for any other name.
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
@@ -251,6 +260,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             match (k >= 0.0 && k.fract() == 0.0).then(|| list.get(k as usize)).flatten() {
                 Some(&i) => {
                     g.effects[i].elapsed -= num(args, 1, 0.0);
+                    if g.effects[i].elapsed >= g.effects[i].duration {
+                        let id = g.effects[i].id;
+                        g.dispel(a, None, |e| e.id == id);
+                    }
                     XVal::Num(1.0)
                 }
                 None => zero,
@@ -285,13 +298,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // IsCellVisited; hypothesis: every cell loaded around the player counts, kept in
         // `FormChanges::visited_cells`].
         "iscellvisited" => yes(form(args, 0).is_some_and(|c| g.forms.visited_cells.contains(&c))),
-        // `cell`: -1 not visited or the player is in it, 1 expired (ResetInterior, or left
-        // for iHoursToRespawnCell game hours and not in a zone that never resets), 0
-        // otherwise [documented: IsCellExpired; the timing: `crate::respawn`].
-        "iscellexpired" => match form(args, 0).and_then(|c| g.cell_expired(c)) {
-            None => XVal::Num(-1.0),
-            Some(e) => yes(e),
-        },
+        // `cell`: 0 for null or non-CELL forms; for a CELL, -1 not visited or the player
+        // is in it, 1 expired (ResetInterior, or left for iHoursToRespawnCell game hours
+        // and not in a zone that never resets), 0 otherwise [documented: IsCellExpired;
+        // observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE
+        // 57.30 (5730) + JohnnyGuitarNVSE 528 + SUP NVSE Plugin 855, 2026-11-25,
+        // `w6d10_44_near_cells_near_markers_and_cell_visited_expired`: `exp(-1,-1,0,0)`].
+        "iscellexpired" => {
+            let Some(c) = form(args, 0).filter(|&c| g.data.sig(c) == Some(*b"CELL") || g.data.cells.contains_key(&c)) else {
+                return Some(Ok(zero));
+            };
+            match g.cell_expired(c) {
+                None => XVal::Num(-1.0),
+                Some(e) => yes(e),
+            }
+        }
         // `template [cell]`: the cell SetLightingTemplateCell gave the lighting template,
         // 0 before [documented: Get/SetLightingTemplateCell; hypothesis: a lighting
         // template record names no cell (LGTM holds DATA and DALC only), so the link is
@@ -405,7 +426,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // The effect shaders scripts play on the reference [documented:
         // GetPlayingEffectShaders], in the order they started.
         "getplayingeffectshaders" => {
-            let Some(r) = subject else { return Some(Ok(zero)) };
+            // Bare call without subject returns an empty array (ar_Size == 0) [observed: w6d3p2_35].
+            let Some(r) = subject else { return Some(Ok(list(g, Vec::new()))) };
             let out = g.script_looks.shaders.iter().filter(|p| p.on == r).map(|p| XVal::Ref(p.shader.0)).collect();
             list(g, out)
         }
@@ -532,3 +554,7 @@ fn moon_climate(g: &Game) -> Option<FormId> {
                 .find(|&c| g.data.sig(g.unclone(c)) == Some(*b"CLMT"))
         })
 }
+
+#[cfg(test)]
+#[path = "w6d10_iscellexpired_tests.rs"]
+mod w6d10_iscellexpired_tests;

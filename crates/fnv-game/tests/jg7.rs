@@ -108,10 +108,15 @@ fn switches() {
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), -5.0);
     q(&mut g, "SetViewmodelClipDistance 0");
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), 0.0);
-    // [observed: GetNiLODLevel -1 before any SetNiLODLevel, jg7 diagnostics].
+    // [observed: GetNiLODLevel -1 before any SetNiLODLevel, jg7 diagnostics;
+    // w6d3p2_22a: float variable 1.5 truncates to 1].
     assert_eq!(n(&mut g, "GetNiLODLevel"), -1.0);
     q(&mut g, "SetNiLODLevel 2");
     assert_eq!(n(&mut g, "GetNiLODLevel"), 2.0);
+    q(&mut g, "float fLod\nlet fLod := 1.5\nSetNiLODLevel fLod");
+    assert_eq!(n(&mut g, "GetNiLODLevel"), 1.0);
+    q(&mut g, "SetNiLODLevel -1");
+    assert_eq!(n(&mut g, "GetNiLODLevel"), -1.0);
     // [documented: Get/SetYieldTimer].
     assert_eq!(n(&mut g, "GetYieldTimer"), 0.0);
     q(&mut g, "SetYieldTimer 5");
@@ -153,8 +158,13 @@ fn interface_settings() {
     assert_eq!(g.ui_update_sound(2), None);
     q(&mut g, "PushUIQuestToTop TestQuest");
     assert_eq!(g.top_ui_quest(), Some(fnv_sim::FormId(QUST)));
-    q(&mut g, "ToggleNthPipboyLight 1 1");
+    // [observed: w6d3p2_22b: pl=1,0 for buttons 0 and 3; buttons 1, 2, < 0, and
+    // non-integer indices: hypothesis].
+    assert_eq!(n(&mut g, "ToggleNthPipboyLight 0 1"), 1.0);
+    assert_eq!(n(&mut g, "ToggleNthPipboyLight 0 0"), 1.0);
+    assert_eq!(n(&mut g, "ToggleNthPipboyLight 1 1"), 1.0);
     assert_eq!(g.other.jg7.pipboy_lights, [false, true, false]);
+    assert_eq!(n(&mut g, "ToggleNthPipboyLight 3 1"), 0.0);
     // [documented: QueueCinematicText's priority 2 clears the queue].
     q(&mut g, "QueueCinematicText \"A\" \"a\"");
     q(&mut g, "QueueCinematicText \"B\" \"b\" \"\" 1");

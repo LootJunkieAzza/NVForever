@@ -58,10 +58,15 @@ enum Trait {
 /// 2026-11-24, GSDocMitchellHouse (0x00103DF9), 10 official base masters,
 /// w4d_30_jg_efsh_47_to_52 (tools/capture/nvse/catalogs/wave4d_extenders.json):
 /// get(47=1.43523e+07,48=8.84712e+06,49=9.07549e+06,50=1,51=1,52=1)|set(49:1->1.12233e+06,51:1->0.5,52:1->0.25);
-/// no DLL or source consulted]. Traits 53-60 map to colour key 1-3 times, initial speed
-/// along normal range, initial rotation/range, and rotation speed/range (see
-/// docs/spec-notes/ext-jg3.md). Traits `< 0` and `> 60` return 0 [design: safe out-of-range
-/// guard; -1 also observed returning 0 on getter in jg3 and jg_03].
+/// no DLL or source consulted]. Getter traits 53 (`color_key_1_time`), 54
+/// (`color_key_2_time`), 55 (`color_key_3_time`), 56 (`initial_speed_along_normal_range`),
+/// 57 (`initial_rotation_deg`), and 60 (`rotation_speed_deg_range`) read the corresponding
+/// EFSH DATA fields [observed: w6d3p3_28_efsh_53_to_60_and_color_clamp:
+/// t=0.1,0.5,0.9,20,0,1500]; unprobed getter traits 58 (`initial_rotation_deg_range`) and
+/// 59 (`rotation_speed_deg`) as well as `SetEffectShaderTraitNumeric` on traits 53..=60
+/// [hypothesis: continuing sequential EFSH DATA fields in schemas/fnv/effects.json].
+/// Traits `< 0` and `> 60` return 0 [design: safe out-of-range guard; -1 also observed
+/// returning 0 on getter in jg3 and jg_03].
 fn efsh_trait(id: i64) -> Option<Trait> {
     match id {
         4 => return Some(Trait::Colour("fill_color")),
@@ -191,11 +196,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     XVal::Num(1.0)
                 }
                 (Trait::Field(path, _), false) => XVal::Num(number(field(g, s, "DATA", path))),
-                // A colour set as one number reads back as given [observed: jg3
-                // efsh.set.nuke.4, 255 read 255]; kept to the three channels' 24 bits
-                // (see docs/spec-notes/ext-jg3.md).
+                // Trait 4 (`fill_color`) masks to the low 24 bits (wrapping modulo
+                // 0x100_0000: 16777216 -> 0, -5 -> 16777211) [observed: w6d3p3_28:
+                // cHi=0,cNeg=16777211]; generalizing 24-bit wrap to sibling colour traits
+                // 14, 47, 48, 49 [hypothesis].
                 (Trait::Colour(path), true) => {
-                    g.field_overrides.insert((s, format!("DATA/{path}")), XVal::Num(v.trunc().clamp(0.0, f64::from(0xFF_FFFF))));
+                    let wrapped = ((v.trunc() as i64 as u32) & 0xFF_FFFF) as f64;
+                    g.field_overrides.insert((s, format!("DATA/{path}")), XVal::Num(wrapped));
                     XVal::Num(1.0)
                 }
                 (Trait::Colour(path), false) => match g.field_overrides.get(&(s, format!("DATA/{path}"))) {
@@ -375,10 +382,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     }
                 }
                 _ => {
-                    // The flags are kept whole, not only the page's two bits [observed: jg3
-                    // term.setflags.east.0.7 read 7, term.setflags.v34.4.6 read 6]; a byte, as
-                    // ANAM is [hypothesis].
-                    g.other.terminal_items.entry((t, i)).or_default().flags = Some((num(args, 2, 0.0) as i64).clamp(0, 255) as u8);
+                    // The flags are stored as the low 8 bits (masked & 0xFF, not clamped:
+                    // 300 -> 44) [observed: jg3 term.setflags.east.0.7 read 7; 2026-11-25,
+                    // FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
+                    // w6d9_26_terminal_menu_items_add_remove_text_note_flags: fl(7=7,300=44)].
+                    g.other.terminal_items.entry((t, i)).or_default().flags = Some((num(args, 2, 0.0) as i64 & 0xFF) as u8);
                 }
             }
             zero
@@ -396,3 +404,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let _ = (ctx, subject);
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_terminal_flags_mask_tests.rs"]
+mod w6d9_terminal_flags_mask_tests;

@@ -230,7 +230,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 Some(k) if v.is_finite() => g.scene.set_particle(r, &text(args, 0), k, v as f32),
                 _ => false,
             };
-            XVal::Num(f64::from(u8::from(ok)))
+            // SetNiPSysModifierValue returns 0 even on success while mutating;
+            // SetParticleEmitterSpawnRate returns 1 on success and 0 on missing
+            // [observed: `w6d3_05_psys_modifier_and_emitter_spawn_rate`].
+            if name == "setnipsysmodifiervalue" {
+                zero
+            } else {
+                XVal::Num(f64::from(u8::from(ok)))
+            }
         }
         // ---- a shape's alpha and stencil properties: `block item [pc]`, item 0 the flags,
         // 1 the threshold; 0 the flags, 1 the reference, 2 the mask (see
@@ -313,19 +320,28 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(code.map_or(-1.0, f64::from))
         }
         // The engine updates every drawn node each frame, so there is nothing to bring up
-        // to date [decision]. 1 on a reference [observed: jgnif.refresh], 0 without one
-        // [hypothesis].
-        "updatescenegraph" => XVal::Num(f64::from(u8::from(on.is_some()))),
+        // to date [decision]. Returns 1 for probed types 0/1/2 on a reference and bare
+        // UpdateScenegraph 0, and 0 for UpdateScenegraph -1 on a reference
+        // [observed: w6d3_07]; generalizing to unprobed type > 2 returning 1 and bare
+        // UpdateScenegraph < 0 returning 0 is [hypothesis].
+        "updatescenegraph" => XVal::Num(f64::from(u8::from(num(args, 0, 0.0) >= 0.0))),
         // `flags`: 1 the model, 2 the skin, 4 the head, 8 the face drawn again (an NPC's
         // through the appearance changes the engine draws, `crate::appearance`); 16 scale,
         // 32 lights and 64 position the engine takes each frame [documented: the flag
-        // table; decision: those need no request].
+        // table; decision: those need no request]. Returns 0 for flags == 0 on a reference
+        // and 1 for probed non-zero flags (16/32/64/-1 on a reference and bare 32)
+        // [observed: w6d3_07]; bare Update3DAlt 0 returning 0 and other unprobed non-zero
+        // flags returning 1 are [hypothesis].
         "update3dalt" => {
-            let Some(r) = on else { return Some(Ok(zero)) };
-            if num(args, 0, 0.0) as i64 & 0xF != 0 {
-                g.appearance_changes.push(crate::appearance::AppearanceChange { actor: r, reset: false });
+            let flags = num(args, 0, 0.0) as i64;
+            if flags == 0 {
+                return Some(Ok(zero));
             }
-            // 1 [observed: jgnif.refresh, flags 32 on the player].
+            if let Some(r) = on {
+                if flags & 0xF != 0 {
+                    g.appearance_changes.push(crate::appearance::AppearanceChange { actor: r, reset: false });
+                }
+            }
             XVal::Num(1.0)
         }
         // ---- the camera
