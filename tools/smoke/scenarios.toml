@@ -3840,7 +3840,7 @@ order = [[
   "settings: anti-aliasing TAA",
   "settings: ambient-occlusion Quality",
   "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
-  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: on main (2026-11-27, this machine alone) the TAA and Quality AO change leaves 15 pipelines pending at the 15 s cap" },
+  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: fails on the first run of a new build: an unattended run keeps no pipeline cache and the driver's is cold, so the start's pipelines outlast the loading screen's 15 s cap on the 2-thread compile pool and the TAA and AO pipelines queue behind them (16 pending at the cap); a second run passes (4.75 s, pending 0)" },
   { re = 'pause menu: resume$' },
 ]]
 expect = [
@@ -3848,7 +3848,7 @@ expect = [
   { re = 'pause menu: resume$', count = 1, label = "one actual release" },
 ]
 forbid = [
-  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on main" },
+  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on the first run of a new build (cold pipeline caches)" },
   { text = "Caught rendering error", label = "a rendering validation error" },
   { text = "failed and will not be tried again", label = "a failed pipeline" },
   { text = "and no longer waited for", label = "a pipeline over its retry cap" },
