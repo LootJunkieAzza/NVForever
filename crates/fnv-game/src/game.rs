@@ -3145,15 +3145,18 @@ impl<'a> Game<'a> {
             s.running = true;
             s.since_run = 0.0;
             s.since_menu_run = 0.0;
-            // Its script's clock starts again: GetSecondsPassed in the first run after the
-            // start is 0, not the time since the run before it stopped [hypothesis: a
-            // stopped quest's script does not run, so that time is not "since it last
-            // ran"; #3465: VMS49's helper quest 0x00168A86, stopped since an earlier event,
-            // was started with a 20 s time-out that ran out on its first run, and Veronica
-            // dropped her confront-the-elder package 0.2 s after the trigger gave it].
+            // Its script's clock starts again at the start: GetSecondsPassed in the first
+            // run after it is the time since StartQuest, not the time since the run before
+            // it stopped [observed: VMS40Timer's first run came about 3.9 s after
+            // StartQuest with a drop of 3.95 s, layer5-captures.md §5.4; #3465: VMS49's
+            // helper quest 0x00168A86, stopped since an earlier event, was started with a
+            // 20 s time-out that ran out on its first run]. Not 0 either: Lucky 38's pod
+            // timer (L38TimerQuest, 15 s at the quest delay of 5 s) then took a run more
+            // than its time (#4851).
             if let Some(inst) = self.instances.get_mut(&InstKey::Quest { quest: q }) {
-                if let Some(last) = inst.run_last.take() {
-                    tracing::info!("quest: {q} started again; its script's GetSecondsPassed counts from its next run, not from its last run at {last:.2} s");
+                let now = functions::clock_now(self.time);
+                if let Some(last) = inst.run_last.replace(now) {
+                    tracing::info!("quest: {q} started again; its script's GetSecondsPassed counts from the start at {now:.2} s, not from its last run at {last:.2} s");
                 }
                 (inst.run_prev, inst.page_last, inst.page_prev) = (None, None, None);
             }
