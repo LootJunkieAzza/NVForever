@@ -1411,7 +1411,7 @@ pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_KEY: &str = "volumetric-light-strengt
 
 /// The Volumetric light row's note: what it does and what it looks best with (its rays are
 /// cut by the Cloud shadows image and the Terrain shadows map, medium_air_grid.rs) [design].
-pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight and moonlight show in the air as rays and a glow toward a low sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An addition of NVForever's.";
+pub(crate) const VOLUMETRIC_LIGHT_NOTE: &str = "On: sunlight and moonlight show in the air as rays and a glow toward a low sun. An addition of NVForever's.";
 
 /// The strength slider's note [design].
 pub(crate) const VOLUMETRIC_LIGHT_STRENGTH_NOTE: &str = "How strongly the light in the air brightens lit air and darkens shaded air: 100% is the look as tuned, 0% none.";
@@ -1460,7 +1460,7 @@ pub(crate) const PARALLAX_RESTART: &str = "After a restart (Authored Materials)"
 
 /// The Authored materials row's note (#2981): it takes effect at the next start, as the run's
 /// state is fixed before the first material (main.rs).
-pub(crate) const AUTHORED_MATERIALS_NOTE: &str = "On: surfaces whose textures a texture pack gives material maps for (textures\\pbr\\) are shaded from them. Off: every surface uses the game's own values. Takes effect at the next start.";
+pub(crate) const AUTHORED_MATERIALS_NOTE: &str = "On: a material pack's maps (textures\\pbr\\) shade its surfaces. Off: the game's own values. Takes effect at the next start.";
 
 /// The command-line switches the Authored materials row weighs against the INI at the start
 /// (`authored_after_ini`).
@@ -1496,7 +1496,7 @@ pub(crate) fn physical_pbr_after_ini(command_line: bool, given: Option<&nvf_play
 
 /// The Reflections on authored materials row's note (#2981 reflections): it needs a pack and
 /// Authored materials, and takes effect at the next start (main.rs).
-pub(crate) const AUTHORED_REFLECTIONS_NOTE: &str = "On: pack materials reflect the sky outdoors and an approximation of the room and nearby lights indoors. Needs a material pack and Authored materials on. Takes effect at the next start.";
+pub(crate) const AUTHORED_REFLECTIONS_NOTE: &str = "On: pack materials reflect the sky outside and nearby lights inside. Needs Authored materials on. Takes effect at the next start.";
 
 /// The run's Reflections on authored materials state (#2981 reflections), decided before the
 /// first NIF pipeline by [`authored_after_ini`]'s rule: the command line's
@@ -1541,7 +1541,7 @@ fn take_ao(world: &mut World, text: &str) -> bool {
 
 /// The Volumetric clouds row's key and note (volumetric_clouds.rs `CloudLevel`).
 const CLOUDS_KEY: &str = "volumetric-clouds";
-const CLOUDS_NOTE: &str = "The weather's clouds drawn with depth, lit by the sun: Off, or Performance, Normal or High, each finer and dearer than the last. A prototype. Not in the original.";
+const CLOUDS_NOTE: &str = "The weather's clouds drawn with depth and lit by the sun: Off, or Performance, Normal or High. A prototype. Not in the original.";
 
 /// The Volumetric clouds row's choice now: Off, or the level the clouds are drawn at.
 fn clouds_chosen(world: &World) -> String {
@@ -1851,7 +1851,7 @@ fn take_shadow_resolution(w: &mut World, text: &str) -> bool {
 
 /// The ALC shadows row's note (light_shadows.rs; ALC: All Lights Cast, the user-visible
 /// name since 2026-11-19, once Lamp shadows; the INI key stays `light-shadows`).
-const LIGHT_SHADOWS_NOTE: &str = "ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the shadow distance, so walls stop their light. Performance redraws less often. Costs frame rate. Not in the original.";
+const LIGHT_SHADOWS_NOTE: &str = "ALC (All Lights Cast): lamps, fires and spot lights cast shadows in the shadow distance; Performance redraws less often. Costs frame rate. Not in the original.";
 
 fn light_shadows_chosen(w: &World) -> String {
     let choice = w.get_resource::<crate::light_shadows::LightShadows>().map_or(0, |l| l.choice);

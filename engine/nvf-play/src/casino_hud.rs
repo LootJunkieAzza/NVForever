@@ -531,7 +531,7 @@ mod tests {
     fn big_numbers_widen_the_box_and_keep_clear_of_titles() {
         // Short rows: the file's column and width.
         assert_eq!(info_fit(400.0, 20.0, 340.0, 16.0, &[(120.0, 40.0), (200.0, 60.0)]), (340.0, 400.0));
-        // "Atomic Wrangler Earnings:" and a seven-digit sum.
+        // "Won at Atomic Wrangler:" and a seven-digit sum.
         let (column, w) = info_fit(400.0, 20.0, 340.0, 16.0, &[(120.0, 40.0), (300.0, 140.0)]);
         assert_eq!(column, 20.0 + 300.0 + 16.0 + 140.0);
         assert_eq!(w - column, 60.0, "the margin past the values stays");
