@@ -1301,3 +1301,141 @@ fn grab_triggers_theft_respects_min_value_and_stack_count() {
     assert!(g.grab_triggers_theft(FormId(VAL5), 2));
     assert!(g.grab_triggers_theft(FormId(VAL15), 1));
 }
+
+#[test]
+fn stimpak_whole_body_limb_restore_share_is_one_tenth() {
+    assert!((fnv_game::aid::PARTS_LIMB_SHARE - 0.1).abs() < 1e-12);
+}
+
+#[test]
+fn dispelling_temp_health_buff_at_low_hp_floors_living_actor_at_one_hp() {
+    const HP_BUFF_MGEF: u32 = 0x8F0;
+    const HP_BUFF_ALCH: u32 = 0x8F1;
+    let m = mgef(HP_BUFF_MGEF, "BuffHP", 2, 0, 16); // Flags: 2 Recover, Archetype: 0 Value Modifier, AV 16 = Health
+    let a = alch(HP_BUFF_ALCH, "HpBuff", 0, 0, 0.0, vec![effect(HP_BUFF_MGEF, 60, 240, 16)]);
+    let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let bytes = [
+        tes4(),
+        top(b"NPC_", &player),
+        top(b"MGEF", &m),
+        top(b"ALCH", &a),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "HpFloor.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p_fn = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p_fn).unwrap()).unwrap();
+    let table = FunctionTable::load(&p_fn).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let mut g = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig::default());
+    let base_hp = actor_value(&mut g, P, HEALTH).unwrap();
+    g.ingest(P, FormId(HP_BUFF_ALCH));
+    let buffed_hp = actor_value(&mut g, P, HEALTH).unwrap();
+    assert!((buffed_hp - (base_hp + 60.0)).abs() < 1e-6);
+    add_actor_value_damage(&mut g, P, HEALTH, buffed_hp - 20.0);
+    assert!((actor_value(&mut g, P, HEALTH).unwrap() - 20.0).abs() < 1e-6);
+    g.dispel(P, None, |e| e.source == FormId(HP_BUFF_ALCH));
+    assert!(!g.is_dead(P));
+    assert!((actor_value(&mut g, P, HEALTH).unwrap() - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn chemist_doubles_stimpak_equip_type_duration_in_hardcore() {
+    const STIM11: u32 = 0x8E0;
+    const FOOD12: u32 = 0x8E1;
+    let alch_etyp = |fid: u32, edid: &str, etyp: i32, flags: u8, effects: Vec<Vec<fnv_esm::raw::Subrecord>>| {
+        let enit = [u32s(&[1]), vec![flags, 0, 0, 0], u32s(&[0]), f32b(0.0), u32s(&[0])].concat();
+        let mut subs = vec![sub(b"EDID", z(edid)), sub(b"ETYP", etyp.to_le_bytes().to_vec()), sub(b"DATA", f32b(0.0)), sub(b"ENIT", enit)];
+        subs.extend(effects.into_iter().flatten());
+        record(b"ALCH", 0, fid, &subs)
+    };
+    let mgefs = mgef(RESTORE_HEALTH, "RestoreHealth", 0, 0, 16);
+    let alchs = [
+        alch_etyp(STIM11, "Stim11", 11, 4, vec![effect(RESTORE_HEALTH, 5, 6, 16)]),
+        alch_etyp(FOOD12, "Food12", 12, 2, vec![effect(RESTORE_HEALTH, 2, 15, 16)]),
+    ]
+    .concat();
+    let perks = perk(CHEMIST, "Chemist", 25, 3, 2.0);
+    let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let bytes = [
+        tes4(),
+        top(b"NPC_", &player),
+        top(b"PERK", &perks),
+        top(b"MGEF", &mgefs),
+        top(b"ALCH", &alchs),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "ChemistStim.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p_fn = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p_fn).unwrap()).unwrap();
+    let table = FunctionTable::load(&p_fn).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let mut g = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig::default());
+    let s0 = g.ingest(P, FormId(STIM11)).effects[0];
+    assert_eq!(g.effects.iter().find(|e| e.id == s0).unwrap().duration, 6.0);
+    g.dispel(P, None, |_| true);
+    g.player.perks.insert(FormId(CHEMIST), 1);
+    let s1 = g.ingest(P, FormId(STIM11)).effects[0];
+    assert_eq!(g.effects.iter().find(|e| e.id == s1).unwrap().duration, 12.0, "Chemist doubles ETYP 11 Stimpak");
+    let f1 = g.ingest(P, FormId(FOOD12)).effects[0];
+    assert_eq!(g.effects.iter().find(|e| e.id == f1).unwrap().duration, 15.0, "Chemist does not double ETYP 12 Food");
+}
+
+#[test]
+fn growing_avs_damage_restore_and_aid_keep_base_value_unchanged() {
+    let f = fixture();
+    let mut g = game(&f);
+    let run_num = |g: &mut Game, src: &str| -> f64 {
+        match g.run_query(&format!("Begin Function {{ }}\n{src}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap() {
+            fnv_script::vm::XVal::Num(v) => v,
+            other => panic!("expected num, got {other:?}"),
+        }
+    };
+    run_num(&mut g, "Player.SetAV RadiationRads 100\nPlayer.DamageAV RadiationRads 25\nSetFunctionValue 0");
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetBaseAV RadiationRads)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetPermAV RadiationRads)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetAV RadiationRads)"), 125.0);
+    run_num(&mut g, "Player.RestoreAV RadiationRads 10\nSetFunctionValue 0");
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetBaseAV RadiationRads)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetAV RadiationRads)"), 115.0);
+    run_num(&mut g, "Player.SetAV Dehydration 100\nPlayer.DamageAV Dehydration 20\nSetFunctionValue 0");
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetBaseAV Dehydration)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetAV Dehydration)"), 120.0);
+    run_num(&mut g, "Player.ModAV Dehydration 30\nSetFunctionValue 0");
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetBaseAV Dehydration)"), 100.0);
+    assert_eq!(run_num(&mut g, "SetFunctionValue (Player.GetAV Dehydration)"), 150.0);
+}
+
+#[test]
+fn set_hardcore_stage_threshold_applies_live_to_need_stages() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.set_hardcore(true);
+    let run_q = |g: &mut Game, src: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{src}\nEnd\n"), fnv_game::game::RunCtx::default()).unwrap();
+    };
+    run_q(&mut g, "Player.SetAV Dehydration 60");
+    g.frames(1);
+    assert!(!g.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.spells.contains(&FormId(THIRST1))));
+    run_q(&mut g, "SetHardcoreStageThreshold Water1 50");
+    assert!(
+        g.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.spells.contains(&FormId(THIRST1))),
+        "lowering Water1 threshold to 50 activates Dehydration200 at Dehydration 60"
+    );
+    run_q(&mut g, "SetHardcoreStageThreshold Water1 200");
+    assert!(
+        !g.extra.get(&FormId::PLAYER_REF).is_some_and(|e| e.spells.contains(&FormId(THIRST1))),
+        "restoring Water1 threshold to 200 clears Dehydration200 at Dehydration 60"
+    );
+}

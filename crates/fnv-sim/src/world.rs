@@ -1075,7 +1075,9 @@ impl<'a> World<'a> {
             .enumerate()
             .filter_map(|(o, &i)| {
                 let it = self.resolve_item(i)?;
-                (it.kind == ItemKind::Armor).then(|| {
+                // Skip 0%-condition broken armor during NPC auto-outfitting/review
+                // [observed 2026-11-25: w6d7_33_npc_auto_outfit_and_additem_review_equipment].
+                (it.kind == ItemKind::Armor && inv.condition_in_use(i).is_some_and(|c| c > 0.0)).then(|| {
                     (
                         o,
                         i,
@@ -1779,10 +1781,20 @@ impl<'a> World<'a> {
     /// As [`World::equip`], equipping (or using) one of the units `at` names: a menu
     /// row's. Its checks are [`World::equip_check`]'s.
     pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Pick) -> Result<Equip, SimError> {
+        self.equip_at_inner(actor, item, at, false)
+    }
+
+    /// Scripted `EquipItem`: allows equipping a 0%-condition broken weapon [observed
+    /// 2026-11-25: w6d7p2_28_equip_pa_broken_unowned_settled, brk(s=2,eq=1)].
+    pub fn equip_scripted(&mut self, actor: FormId, item: FormId) -> Result<Equip, SimError> {
+        self.equip_at_inner(actor, item, Pick::ANY, true)
+    }
+
+    fn equip_at_inner(&mut self, actor: FormId, item: FormId, at: Pick, allow_broken: bool) -> Result<Equip, SimError> {
         let _ = self.resolve_item(item).ok_or(SimError::NotAnItem(item))?;
         // Materialise the actor first; the checks read its state.
         self.inventory(actor)?;
-        let consumed = self.equip_check(actor, item, at)?;
+        let consumed = self.equip_check_inner(actor, item, at, allow_broken)?;
         if consumed {
             let inv = self.inventory(actor)?;
             return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
@@ -1814,6 +1826,10 @@ impl<'a> World<'a> {
     /// these checks itself, so a menu's hint reading them (#1896) agrees with the action.
     /// Only a materialised actor is read ([`World::peek`]); `equip_at` materialises it.
     pub fn equip_check(&self, actor: FormId, item: FormId, at: Pick) -> Result<bool, SimError> {
+        self.equip_check_inner(actor, item, at, false)
+    }
+
+    fn equip_check_inner(&self, actor: FormId, item: FormId, at: Pick, allow_broken: bool) -> Result<bool, SimError> {
         let it = self.resolve_item(item).ok_or(SimError::NotAnItem(item))?;
         let state = self.refs.get(&actor).ok_or(SimError::UnknownRef(actor))?;
         if state.deleted() {
@@ -1829,11 +1845,16 @@ impl<'a> World<'a> {
         if !matches!(it.kind, ItemKind::Weapon | ItemKind::Armor) {
             return Err(SimError::NotEquippable(item));
         }
+        // Armour with a zero biped slots mask (e.g. SetEquipmentSlotsMask 0) cannot be
+        // equipped [observed 2026-11-25: w6d7p2_31_set_equipment_slots_mask_settled].
+        if it.kind == ItemKind::Armor && self.effective_slots(item).unwrap_or(0) == 0 {
+            return Err(SimError::NotEquippable(item));
+        }
         // A live unit (a planted explosive, `Extra::live`) is not the actor's to equip.
         if inv.free_count(item) == 0 {
             return Err(SimError::NotCarried { actor, item });
         }
-        if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) && !(actor == FormId::PLAYER_REF && self.player_equips_broken) {
+        if !allow_broken && it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) && !(actor == FormId::PLAYER_REF && self.player_equips_broken) {
             return Err(SimError::Broken(item));
         }
         if self.effective_power_armor(item) && actor == FormId::PLAYER_REF && !self.power_armor_training && !inv.is_equipped(item) {

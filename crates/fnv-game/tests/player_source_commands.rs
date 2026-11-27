@@ -206,8 +206,11 @@ fn bad_arguments_and_unknown_nonzero_receivers_do_not_mutate_player_state() {
     assert_eq!(admitted.player_level(), g.player_level() + 1.0);
     let level = g.player_level();
     let strength = functions::actor_value_parts(&mut g, FormId::PLAYER_REF, av::STRENGTH).unwrap();
+    // Valid non-SPECIAL actor values succeed as a no-op without mutating state [observed: w6d5_26].
+    let repair_before = functions::actor_value_parts(&mut g, FormId::PLAYER_REF, av::REPAIR).unwrap();
+    success(&mut g, "ModPCAttribute Repair 1");
+    assert_eq!(functions::actor_value_parts(&mut g, FormId::PLAYER_REF, av::REPAIR).unwrap(), repair_before);
     for (body, reason) in [
-        ("ModPCAttribute Repair 1", "ModPCAttribute requires a SPECIAL attribute"),
         ("ModPCAttribute NoSuchAttribute 1", "no actor value named \"NoSuchAttribute\""),
         ("ModPCAttribute Strength \"bad\"", "parameter 2 is missing"),
         // Player resolves to reference 0x14; this fixture names its base, not the reference.

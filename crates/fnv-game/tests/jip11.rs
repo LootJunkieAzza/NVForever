@@ -210,6 +210,13 @@ fn equipped_items_and_armour() {
     assert_eq!(n(&mut g, "MarkRef.GetArmourPenetrated"), 1.0);
     g.note_armour_hit(FormId(MARK), 4.0, 5.0);
     assert_eq!(n(&mut g, "MarkRef.GetArmourPenetrated"), 0.0);
+    // Hits clamped to the 20% floor (DT=18 on raw=22, or pure DR>=81%) are not penetrated.
+    g.note_armour_hit(FormId(MARK), 22.0, 17.0);
+    assert_eq!(n(&mut g, "MarkRef.GetArmourPenetrated"), 1.0);
+    g.note_armour_hit(FormId(MARK), 22.0, 18.0);
+    assert_eq!(n(&mut g, "MarkRef.GetArmourPenetrated"), 0.0);
+    g.note_armour_penetrated(FormId(MARK), false);
+    assert_eq!(n(&mut g, "MarkRef.GetArmourPenetrated"), 0.0);
 }
 
 #[test]

@@ -80,7 +80,7 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   while it lasts, and takes it back when it ends (Buffout's Strength +2 for 240 s).
   - Exception: an Ability (SPEL type 4) given to the **player** whose effect has **no
     conditions** puts it in the **permanent pool** [documented: ActorValue, "used for
-    example by the Life Giver perk"]. RemoveSpell takes it back [hypothesis].
+    example by the Life Giver perk"]. RemoveSpell takes it back [hypothesis]. `AddSpell` and `AddSpellNS` return `1` when newly added, `0` when already present or given a non-`SPEL` form (`MISC`, `ENCH`, `ALCH`) without aborting, and `RemoveSpell` returns `1` for a valid `SPEL` even on a repeated call [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_01_addspell_addspellns_removespell_returns_and_pools` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `add(1,0,is=1)|rem(1,1,is=1)|ns(1,0,is=1,r=1)|hp0(200,200,200)|hp1(200,200,200)|hp2(200,200,200)|bad(m=10,e=10,a=10)`; no DLL or source consulted] (NVForever returns `0` for `ENCH`/`ALCH` while retaining `magic_item`'s error on non-magic forms [design]).
   - A negative temporary modifier does not take S.P.E.C.I.A.L. or a skill below 0; the
     magnitude is cut when the effect starts and not updated afterwards [documented:
     ActorValue]. The code gives back exactly what it took.
@@ -130,9 +130,11 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   "Increase …"/"Restore …" without the flag, "Reduce …"/"Damage …" with it].
 - **Values that grow** — Rad Level (rads), Dehydration, Hunger, Sleep Deprivation — go the
   other way: a "Damage" effect raises them and a "Restore" effect lowers them, never below
-  0 [hypothesis: RadAway's effect is "Restore Rads", Nuka-Cola's "Damage Rads"; the GECK
-  wiki's GetRadiationLevel reads the player's rads with GetAV]. The change goes to the
-  value's base, where SetActorValue would put it [hypothesis].
+  0 [observed 2026-11-25: `w6d7_22_growing_avs_pool_and_aid_mutations` below; earlier
+  hypothesis from RadAway's "Restore Rads", Nuka-Cola's "Damage Rads", and the GECK
+  wiki's GetRadiationLevel reading GetAV]. The change goes to the damage pool (`av_damage`),
+  leaving `GetBaseActorValue` and `GetPermanentActorValue` unchanged [observed 2026-11-25:
+  `w6d7_22` below; supersedes the earlier hypothesis that the change went to the base value].
 - **God mode** (`tgm`, ToggleGodMode): an effect that damages the player (a negative
   change to the damage pool, or a need or rads raised) does nothing [hypothesis fitting
   the original: Beer's and Nuka-Cola's Dehydration +20 / +10, held on `IsHardcore == 1`
@@ -142,7 +144,7 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   can increase dehydration" (§11).
 - **Value And Parts** ("Restore Health & Conditions", the normal Stimpak and Super
   Stimpak) restores the value by the whole amount and each limb condition by
-  `fnv_game::aid::PARTS_LIMB_SHARE` (1/6) of it [design: owner's request 2026-10-23, "a
+  `fnv_game::aid::PARTS_LIMB_SHARE` (1/10 = `0.1`) of it [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_12_stimpak_superstimpak_drbag_limb_restore` in `tools/capture/nvse/catalogs/wave6d7_stimpak_limb_share.json`: `nhStim(dHp=69.00,dHd=6.90,dLg=6.90)`; replacing earlier design placeholder 1/6 from owner's request 2026-10-23, "a
   small amount of limb health across all limbs"; the share is in no record or setting of
   FalloutNV.esm, so the number stands until the formula is found]. Used on one limb from
   the Pip-Boy's CND page (pipboy.md §5.1, `Game::ingest_on`), that limb gets the whole
@@ -411,10 +413,12 @@ Rules (`crates/fnv-game/src/perks.rs`) [hypothesis unless said]:
 - The owner tab's conditions are evaluated with the owner as subject; an entry with
   conditions on another tab is not applied (no aid entry point of the masters has any).
 - Modify Positive Chem Duration lengthens the beneficial effects (neither Hostile nor
-  Detrimental) with a duration of an item whose equip type is Chems, not the usage
-  monitor [hypothesis: Chemist's "any chems you take last twice as long"; the wiki says
-  "any ingestible"]. The Stealth Boy's equip type is Chems [observed], so Chemist doubles
-  it here.
+  Detrimental) with a duration of an item whose equip type is Chems (`ETYP 10`) or
+  Stimpak (`ETYP 11`), not Food/Alcohol or the usage monitor [observed 2026-11-25:
+  `w6d7p2_14_chemist_durations_fixed` below; supersedes the earlier hypothesis that only
+  `ETYP 10` applied from Chemist's "any chems you take last twice as long", while the
+  wiki says "any ingestible"]. The Stealth Boy's equip type is Chems [observed], so
+  Chemist doubles it here.
 - Modify Radiation Consumed multiplies the rads an ingestible's effects give, any
   ingestible [documented: "Modifies the radiation from ingestibles"].
 - The other entry points are read where their systems are (combat, VATS, locks, weight,
@@ -635,3 +639,15 @@ An aid item's EFFECTS card (pipboy.md §5) is what using it would do to the play
   owner's screenshot, its record's instant effect 30, which fits a Medicine potency near
   1.33].
 - Without the scripts' game the record's effects are listed as before (no conditions).
+
+### Expiring/dispelling temporary `+Health` buffs at low HP (`w6d7p2_17`)
+- **Living-actor `1.0` HP floor** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p2_17_buffout_low_hp_and_dispel_settled` in `tools/capture/nvse/catalogs/wave6d7_buffout_hp_floor.json`]: dispelling `Buffout` (`+60` temp HP) from a `100`-base-HP actor damaged down to `20.0` HP leaves the actor alive at `1.0` HP rather than `-40.0` (`PROBE|w6d7p2_17_buffout_low_hp_and_dispel_settled|bufLow(hp=160.0->20.0->1.0,dead=0)|wd(0->0)|da(tgh=1,per=6.0->6.0)|rmEnch(s=1,per=6.0)`).
+
+### `Chemist` equip-type gating (`w6d7p2_14`)
+- **Chems (ETYP 10) and Stimpak (ETYP 11)** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p2_14_chemist_durations_fixed` in `tools/capture/nvse/catalogs/wave6d7_chemist_stimpak.json`]: `Chemist` (`MODIFY_POSITIVE_CHEM_DURATION`, `x2`) doubles `Buffout` (`240.0 -> 480.0`), `StealthBoy` (`120.0 -> 240.0`), and Hardcore `Stimpak` (`6.0 -> 12.0`), while leaving `Beer` (Alcohol, `240.0 -> 240.0`) and `BrahminSteak` (Food, `15.0 -> 15.0`) unchanged (`PROBE|w6d7p2_14_chemist_durations_fixed|buf(240.0->480.0)|beer(240.0->240.0)|steak(15.0->15.0)|sb(120.0->240.0)|hcStim(6.0->12.0)`).
+
+### Growing AVs pool placement (`w6d7_22`)
+- **Damage pool leaves `GetBaseAV` and `GetPermanentAV` unchanged** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_22_growing_avs_pool_and_aid_mutations` in `tools/capture/nvse/catalogs/wave6d7_growing_avs_pool.json`]: `DamageAV`, `RestoreAV`, and aid mutations on `RadiationRads` and `Dehydration` leave `GetBaseAV` and `GetPermanentAV` unchanged at `100.0` while moving the current value via the damage pool, whereas `ModAV Dehydration 30` raises the current value to `150.0` while keeping `GetBaseAV = 100.0` (`PROBE|w6d7_22_growing_avs_pool_and_aid_mutations|radDmg(b=100.0,p=100.0,c=125.0,m0=0.0,m2=0.0)|radRest(b=100.0,c=115.0)|radWat(b=100.0,c=120.0)|dehDmg(b=100.0,c=120.0,m2=0.0)|dehMod(b=100.0,c=150.0)`).
+
+### Live `SetHardcoreStageThreshold` evaluation (`w6d7_25`)
+- **Live threshold override** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_25_hardcore_stage_threshold_and_tracking_live` in `tools/capture/nvse/catalogs/wave6d7_hardcore_stage_threshold.json`]: lowering `Water1` (`0x00161901`) from `200` to `50` with `SetHardcoreStageThreshold` caused `Dehydration200` (`0x0015FA1C`) to activate at `Dehydration = 60` (`PROBE|w6d7_25_hardcore_stage_threshold_and_tracking_live|thr(200->50,spAt60=1)|trk(0->1,spAt250=1)`). Both `Game::update_need_stages` and `Game::actor_radiation_stage` read `Game::stage_threshold`, and `SetHardcoreStageThreshold` refreshes `update_need_stages` immediately.

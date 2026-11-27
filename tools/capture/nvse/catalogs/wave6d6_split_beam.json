@@ -1,0 +1,194 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_split_beam",
+  "description": "Wave 6D-6 read-only probe verifying Split Beam +30% damage multiplier on Laser Rifle (unmodded vs Split Beam vs Focus Optics + Split Beam).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "JohnnyGuitarNVSE": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d6_split_beam",
+      "title": "Split Beam +30% weapon damage multiplier",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p4_23b_split_beam_slot1",
+          "bucket": "weapon_mods",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/weapon-mods.md",
+          "spec_line": 106,
+          "functions_tested": [
+            "GetInvRefsForItem",
+            "SetWeaponRefModFlags",
+            "GetCalculatedWeaponDamage",
+            "GetCalculatedWeaponDPS",
+            "FireWeapon",
+            "GetWeaponItemModValue1",
+            "GetWeaponItemModValue2"
+          ],
+          "claim": "SD-08: Measure Laser Rifle Slot 1 Split Beam (flag 1, effect 12) vs unmodded (0), Focus Optics (4), and Both (5) via invref calc dmg/DPS and live FireWeapon hits.",
+          "expected": "Determine exact Split Beam damage bonus (+30% vs none) and projectile count.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*p423_t\" rT",
+            "Player.AuxVarSetFlt \"*p423_n\" 0",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 0",
+            "rT.SetAV DamageResist 0",
+            "rT.SetRestrained 1",
+            "rT.SetPos X (Player.GetPos X)",
+            "rT.SetPos Y ((Player.GetPos Y) + 80)",
+            "rT.SetPos Z (Player.GetPos Z)",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_p423_cb.gek\"",
+            "Player.AuxVarSetRef \"*p423_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+            "ref rMfc = GetFormFromMod \"FalloutNV.esm\" \"4485\"",
+            "Player.AuxVarSetFlt \"*p423_v1a\" (GetWeaponItemModValue1 1 rLas)",
+            "Player.AuxVarSetFlt \"*p423_v1b\" (GetWeaponItemModValue2 1 rLas)",
+            "Player.AuxVarSetFlt \"*p423_ew\" (Player.GetBaseAV EnergyWeapons)",
+            "Player.AuxVarSetFlt \"*p423_cc\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV EnergyWeapons 100",
+            "Player.SetAV CritChance 0",
+            "Player.RemoveItem rLas 99 1",
+            "Player.AddItemHealthPercent rLas 1 1.0",
+            "Player.AddItem rMfc 100 1",
+            "array_var aR = Player.GetInvRefsForItem rLas",
+            "ref rI = aR[0]",
+            "rI.SetWeaponRefModFlags 0",
+            "Player.AuxVarSetFlt \"*p423_c0\" (rI.GetCalculatedWeaponDamage)",
+            "Player.AuxVarSetFlt \"*p423_p0\" (rI.GetCalculatedWeaponDPS)",
+            "rI.SetWeaponRefModFlags 1",
+            "Player.AuxVarSetFlt \"*p423_c1\" (rI.GetCalculatedWeaponDamage)",
+            "Player.AuxVarSetFlt \"*p423_p1\" (rI.GetCalculatedWeaponDPS)",
+            "rI.SetWeaponRefModFlags 4",
+            "Player.AuxVarSetFlt \"*p423_c4\" (rI.GetCalculatedWeaponDamage)",
+            "rI.SetWeaponRefModFlags 5",
+            "Player.AuxVarSetFlt \"*p423_c5\" (rI.GetCalculatedWeaponDamage)",
+            "rI.SetWeaponRefModFlags 0",
+            "Player.EquipItem rLas 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_p423_cb.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*p423_n\" ((Player.AuxVarGetFlt \"*p423_n\") + 1)",
+              "Player.AuxVarSetFlt \"*p423_hd\" (rTgt.GetHitHealthDamage)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_m0",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p423_t\"",
+                "rT.RestoreAV Health 10000",
+                "Player.AuxVarSetFlt \"*p423_n\" 0",
+                "Player.SetEquippedWeaponModFlags 0",
+                "Player.FireWeapon (GetFormFromMod \"FalloutNV.esm\" \"4336\")"
+              ]
+            },
+            {
+              "suffix": "s2_m1",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p423_t\"",
+                "Player.AuxVarSetFlt \"*p423_h0\" (Player.AuxVarGetFlt \"*p423_hd\")",
+                "Player.AuxVarSetFlt \"*p423_n0\" (Player.AuxVarGetFlt \"*p423_n\")",
+                "Player.AuxVarSetFlt \"*p423_d0\" (10000 - (rT.GetAV Health))",
+                "rT.RestoreAV Health 10000",
+                "Player.AuxVarSetFlt \"*p423_n\" 0",
+                "Player.SetEquippedWeaponModFlags 1",
+                "Player.FireWeapon (GetFormFromMod \"FalloutNV.esm\" \"4336\")"
+              ]
+            },
+            {
+              "suffix": "s3_m5",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p423_t\"",
+                "Player.AuxVarSetFlt \"*p423_h1\" (Player.AuxVarGetFlt \"*p423_hd\")",
+                "Player.AuxVarSetFlt \"*p423_n1\" (Player.AuxVarGetFlt \"*p423_n\")",
+                "Player.AuxVarSetFlt \"*p423_d1\" (10000 - (rT.GetAV Health))",
+                "rT.RestoreAV Health 10000",
+                "Player.AuxVarSetFlt \"*p423_n\" 0",
+                "Player.SetEquippedWeaponModFlags 5",
+                "Player.FireWeapon (GetFormFromMod \"FalloutNV.esm\" \"4336\")"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p423_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*p423_cb\"",
+                "float fH5 = Player.AuxVarGetFlt \"*p423_hd\"",
+                "int iN5 = Player.AuxVarGetFlt \"*p423_n\"",
+                "float fD5 = 10000 - (rT.GetAV Health)",
+                "float fV1a = Player.AuxVarGetFlt \"*p423_v1a\"",
+                "float fV1b = Player.AuxVarGetFlt \"*p423_v1b\"",
+                "float fC0 = Player.AuxVarGetFlt \"*p423_c0\"",
+                "float fP0 = Player.AuxVarGetFlt \"*p423_p0\"",
+                "float fC1 = Player.AuxVarGetFlt \"*p423_c1\"",
+                "float fP1 = Player.AuxVarGetFlt \"*p423_p1\"",
+                "float fC4 = Player.AuxVarGetFlt \"*p423_c4\"",
+                "float fC5 = Player.AuxVarGetFlt \"*p423_c5\"",
+                "float fH0 = Player.AuxVarGetFlt \"*p423_h0\"",
+                "int iN0 = Player.AuxVarGetFlt \"*p423_n0\"",
+                "float fD0 = Player.AuxVarGetFlt \"*p423_d0\"",
+                "float fH1 = Player.AuxVarGetFlt \"*p423_h1\"",
+                "int iN1 = Player.AuxVarGetFlt \"*p423_n1\"",
+                "float fD1 = Player.AuxVarGetFlt \"*p423_d1\"",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "Player.UnequipItem rLas 0 1",
+                "Player.RemoveItem rLas 1 1",
+                "Player.RemoveItem (GetFormFromMod \"FalloutNV.esm\" \"4485\") 100 1",
+                "Player.SetAV EnergyWeapons (Player.AuxVarGetFlt \"*p423_ew\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*p423_cc\")",
+                "string_var svC = sv_Construct \"v1=(%.2f,%.2f)|calc(0=%.2f/%.2f,1=%.2f/%.2f,4=%.2f,5=%.2f)\" fV1a fV1b fC0 fP0 fC1 fP1 fC4 fC5",
+                "PrintToConsole \"PROBE|w6d6p4_23b_split_beam_slot1|%z|m0(h=%.2f,n=%g,d=%.2f)|m1(h=%.2f,n=%g,d=%.2f)|m5(h=%.2f,n=%g,d=%.2f)\" svC fH0 iN0 fD0 fH1 iN1 fD1 fH5 iN5 fD5"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

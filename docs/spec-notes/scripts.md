@@ -823,7 +823,11 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   Get/SetScale, GetLockLevel, GetInCellParam, GetContainer, SetMinimalUse,
   Set/IsInCriticalStage, Set/GetBroadcastState, SetTalkingActivatorActor); inventories
   (RemoveAllTypedItems, AddItemHealthPercent, Mod/SetWeaponHealthPerc, IsWeaponInList,
-  IsWeaponSkillType, ResetInventory, GetContainerInventoryCount, SetItemValue,
+  IsWeaponSkillType, ResetInventory, GetContainerInventoryCount (counts distinct
+  non-zero item entries like `GetNumItems`, not summed stack quantities
+  [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`, `w6d9_32_container_invcount_numitems_invobj_and_allitems`:
+  `PROBE|w6d9_32_container_invcount_numitems_invobj_and_allitems|0(cic=0,num=0)|1(cic=3,num=3)|ord(0000000F,00015169,0000434F,o3=0,neg=0)|arr(all=3,w40=1,a47=1,refs=3)`;
+  no DLL, PDB, or third-party source consulted]), SetItemValue,
   SetQuestObject); magic (AddSpell, RemoveSpell, CastImmediateOnSelf, Dispel,
   DispelAllSpells, IsSpellTarget, HasMagicEffect, ScriptEffectElapsedSeconds); actors
   and factions (IsChild, GetIsCreatureType, SetEssential, SetActorRefEssential,

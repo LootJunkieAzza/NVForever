@@ -1,0 +1,124 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_zero_slot_armor",
+  "description": "Wave 6D-7 read-only console probe for SetEquipmentSlotsMask live slot reassignment and zero-slot refusal.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184"
+  },
+  "batches": [
+    {
+      "id": "w6d7_zero_slot_armor",
+      "title": "Wave 6D-7: Zero-slot armor is unequippable",
+      "extender": "JIP LN NVSE / ShowOffNVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ShowOffNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7p2_31_set_equipment_slots_mask_settled",
+          "bucket": "equipment_slots",
+          "extender": "JIP LN NVSE / ShowOffNVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 341,
+          "functions_tested": [
+            "GetEquipmentSlotsMask",
+            "SetEquipmentSlotsMask",
+            "EquipItem",
+            "GetEquipped",
+            "GetEquippedObject",
+            "GetOccupiedEquipSlots"
+          ],
+          "claim": "SD-12: Settled test of SetEquipmentSlotsMask moving Leather Armor 0x4 -> 0x80 (Ring) so Leather & Combat Armor co-equip, and setting mask to 0.",
+          "expected": "Record co-equip state, GetEquippedObject 7/2, and 0-slot equip behavior.",
+          "script_lines": [
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+            "Player.AuxVarSetFlt \"*w6d7p231_orig\" (GetEquipmentSlotsMask rLth)",
+            "Player.AddItem rLth 1 1",
+            "Player.AddItem rCmb 1 1",
+            "SetEquipmentSlotsMask 128 rLth",
+            "Player.EquipItem rLth 0 1",
+            "Player.EquipItem rCmb 0 1"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "s1_zero",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "Player.AuxVarSetFlt \"*w6d7p231_m80\" (GetEquipmentSlotsMask rLth)",
+                "Player.AuxVarSetFlt \"*w6d7p231_bL\" (Player.GetEquipped rLth)",
+                "Player.AuxVarSetFlt \"*w6d7p231_bC\" (Player.GetEquipped rCmb)",
+                "Player.AuxVarSetFlt \"*w6d7p231_s7\" ((Player.GetEquippedObject 7) == rLth)",
+                "Player.AuxVarSetFlt \"*w6d7p231_s2\" ((Player.GetEquippedObject 2) == rCmb)",
+                "Player.AuxVarSetFlt \"*w6d7p231_occ80\" (Player.GetOccupiedEquipSlots)",
+                "Player.UnequipItem rLth 0 1",
+                "Player.UnequipItem rCmb 0 1",
+                "SetEquipmentSlotsMask 0 rLth",
+                "Player.EquipItem rLth 0 1"
+              ]
+            },
+            {
+              "suffix": "s2_report",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "int iM0 = GetEquipmentSlotsMask rLth",
+                "int iEq0 = Player.GetEquipped rLth",
+                "int iOcc0 = Player.GetOccupiedEquipSlots",
+                "int iOrig = Player.AuxVarGetFlt \"*w6d7p231_orig\"",
+                "int iM80 = Player.AuxVarGetFlt \"*w6d7p231_m80\"",
+                "int iBL = Player.AuxVarGetFlt \"*w6d7p231_bL\"",
+                "int iBC = Player.AuxVarGetFlt \"*w6d7p231_bC\"",
+                "int iS7 = Player.AuxVarGetFlt \"*w6d7p231_s7\"",
+                "int iS2 = Player.AuxVarGetFlt \"*w6d7p231_s2\"",
+                "int iOcc80 = Player.AuxVarGetFlt \"*w6d7p231_occ80\"",
+                "Player.UnequipItem rLth 0 1",
+                "SetEquipmentSlotsMask iOrig rLth",
+                "Player.RemoveItem rLth 1 1",
+                "Player.RemoveItem rCmb 1 1",
+                "Player.AuxVarErase \"*w6d7p231_orig\"",
+                "Player.AuxVarErase \"*w6d7p231_m80\"",
+                "Player.AuxVarErase \"*w6d7p231_bL\"",
+                "Player.AuxVarErase \"*w6d7p231_bC\"",
+                "Player.AuxVarErase \"*w6d7p231_s7\"",
+                "Player.AuxVarErase \"*w6d7p231_s2\"",
+                "Player.AuxVarErase \"*w6d7p231_occ80\"",
+                "string_var sOut = sv_Construct \"PROBE|w6d7p2_31_set_equipment_slots_mask_settled|orig=%g|m80=%g(l=%g,c=%g,s7=%g,s2=%g,occ=%g)|m0=%g(eq=%g,occ=%g)\" iOrig iM80 iBL iBC iS7 iS2 iOcc80 iM0 iEq0 iOcc0",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

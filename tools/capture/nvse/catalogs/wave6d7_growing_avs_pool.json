@@ -1,0 +1,97 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_growing_avs_pool",
+  "description": "Wave 6D-7 read-only console probe for RadiationRads and Dehydration DamageAV/RestoreAV/aid/ModAV pool placement.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_growing_avs_pool",
+      "title": "Wave 6D-7: Growing AVs mutate damage pool without altering base",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_22_growing_avs_pool_and_aid_mutations",
+          "bucket": "needs_growing_avs",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/aid-items.md",
+          "spec_line": 275,
+          "functions_tested": [
+            "GetBaseAV",
+            "GetPermAV",
+            "GetAV",
+            "GetActorValueModifier",
+            "DamageAV",
+            "RestoreAV",
+            "ModAV",
+            "EquipItem",
+            "SetHardcore"
+          ],
+          "claim": "SD-08: Verify which AV pool (Base vs Perm vs Damage) DamageAV, RestoreAV, ModAV, and Aid items mutate for RadiationRads, Dehydration, Hunger, and SleepDeprevation.",
+          "expected": "Record Base/Perm/Cur/Mod0/Mod1/Mod2 on RadiationRads and Dehydration after DamageAV, RestoreAV, ModAV, and WaterUnpurified.",
+          "script_lines": [
+            "ref rWat = GetFormFromMod \"FalloutNV.esm\" \"151A4\"",
+            "int iHc0 = IsHardcore",
+            "float fRad0 = Player.GetAV RadiationRads",
+            "float fDeh0 = Player.GetAV Dehydration",
+            "SetHardcore 1",
+            "Player.SetAV RadiationRads 100",
+            "Player.DamageAV RadiationRads 25",
+            "float fRB1 = Player.GetBaseAV RadiationRads",
+            "float fRP1 = Player.GetPermAV RadiationRads",
+            "float fRC1 = Player.GetAV RadiationRads",
+            "float fRM0 = Player.GetActorValueModifier RadiationRads 0",
+            "float fRM2 = Player.GetActorValueModifier RadiationRads 2",
+            "Player.RestoreAV RadiationRads 10",
+            "float fRB2 = Player.GetBaseAV RadiationRads",
+            "float fRC2 = Player.GetAV RadiationRads",
+            "Player.AddItem rWat 1 1",
+            "Player.EquipItem rWat 0 1",
+            "float fRB3 = Player.GetBaseAV RadiationRads",
+            "float fRC3 = Player.GetAV RadiationRads",
+            "Player.SetAV Dehydration 100",
+            "Player.DamageAV Dehydration 20",
+            "float fDB1 = Player.GetBaseAV Dehydration",
+            "float fDC1 = Player.GetAV Dehydration",
+            "float fDM2 = Player.GetActorValueModifier Dehydration 2",
+            "Player.ModAV Dehydration 30",
+            "float fDB2 = Player.GetBaseAV Dehydration",
+            "float fDC2 = Player.GetAV Dehydration",
+            "Player.SetAV RadiationRads fRad0",
+            "Player.SetAV Dehydration fDeh0",
+            "SetHardcore iHc0",
+            "string_var sOut = sv_Construct \"PROBE|w6d7_22_growing_avs_pool_and_aid_mutations|radDmg(b=%.1f,p=%.1f,c=%.1f,m0=%.1f,m2=%.1f)|radRest(b=%.1f,c=%.1f)|radWat(b=%.1f,c=%.1f)\" fRB1 fRP1 fRC1 fRM0 fRM2 fRB2 fRC2 fRB3 fRC3",
+            "let sOut += sv_Construct \"|dehDmg(b=%.1f,c=%.1f,m2=%.1f)|dehMod(b=%.1f,c=%.1f)\" fDB1 fDC1 fDM2 fDB2 fDC2",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        }
+      ]
+    }
+  ]
+}

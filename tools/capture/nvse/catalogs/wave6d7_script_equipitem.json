@@ -1,0 +1,268 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_script_equipitem",
+  "description": "Wave 6D-7 read-only console probes for scripted EquipItem non-aborting refusals and broken weapon equip.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_script_equipitem",
+      "title": "Wave 6D-7: Scripted EquipItem non-aborting refusal and broken weapon equip",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7p2_28_equip_pa_broken_unowned_settled",
+          "bucket": "equipment_slots",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actors.md",
+          "spec_line": 330,
+          "functions_tested": [
+            "EquipItem",
+            "GetEquipped",
+            "SetPCCanUsePowerArmor",
+            "GetPCCanUsePowerArmor",
+            "AddItemHealthPercent",
+            "GetItemCount"
+          ],
+          "claim": "SD-10 (P0 abort vs bypass): Settled abort-safe test of scripted EquipItem on Power Armor without training, 0%-health weapon, and uncarried armor.",
+          "expected": "Record UDF survival sentinel, GetEquipped, and GetItemCount after waiting 2 ticks for each equip.",
+          "script_lines": [
+            "ref rPa = GetFormFromMod \"FalloutNV.esm\" \"14E13\"",
+            "ref rFnPa = CompileScript \"nvseprobe_s_w6d7p2_28_pa.gek\"",
+            "Player.AuxVarSetFlt \"*w6d7p228_pa0\" (GetPCCanUsePowerArmor)",
+            "SetPCCanUsePowerArmor 0",
+            "Player.AddItem rPa 1 1",
+            "Call rFnPa rPa"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "s1_pa1_and_brk",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rPa = GetFormFromMod \"FalloutNV.esm\" \"14E13\"",
+                "ref rWep = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rFnBk = CompileScript \"nvseprobe_s_w6d7p2_28_brk.gek\"",
+                "Player.AuxVarSetFlt \"*w6d7p228_paEq0\" (Player.GetEquipped rPa)",
+                "SetPCCanUsePowerArmor 1",
+                "Player.EquipItem rPa 0 1",
+                "int iWPre = Player.GetItemCount rWep",
+                "if iWPre > 0",
+                "  Player.RemoveItem rWep iWPre 1",
+                "endif",
+                "Player.AddItemHealthPercent rWep 1 0.0 1",
+                "Call rFnBk rWep"
+              ]
+            },
+            {
+              "suffix": "s2_unown",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rPa = GetFormFromMod \"FalloutNV.esm\" \"14E13\"",
+                "ref rWep = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "ref rFnUn = CompileScript \"nvseprobe_s_w6d7p2_28_uno.gek\"",
+                "Player.AuxVarSetFlt \"*w6d7p228_paEq1\" (Player.GetEquipped rPa)",
+                "Player.AuxVarSetFlt \"*w6d7p228_bkEq\" (Player.GetEquipped rWep)",
+                "Player.UnequipItem rPa 0 1",
+                "Player.RemoveItem rPa 1 1",
+                "Player.UnequipItem rWep 0 1",
+                "Player.RemoveItem rWep 1 1",
+                "int iCPre = Player.GetItemCount rCmb",
+                "if iCPre > 0",
+                "  Player.RemoveItem rCmb iCPre 1",
+                "endif",
+                "Call rFnUn rCmb"
+              ]
+            },
+            {
+              "suffix": "s3_report",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "int iPaS = Player.AuxVarGetFlt \"*w6d7p228_paS\"",
+                "int iPaEq0 = Player.AuxVarGetFlt \"*w6d7p228_paEq0\"",
+                "int iPaEq1 = Player.AuxVarGetFlt \"*w6d7p228_paEq1\"",
+                "int iBkS = Player.AuxVarGetFlt \"*w6d7p228_bkS\"",
+                "int iBkEq = Player.AuxVarGetFlt \"*w6d7p228_bkEq\"",
+                "int iUnS = Player.AuxVarGetFlt \"*w6d7p228_unS\"",
+                "int iUnEq = Player.GetEquipped rCmb",
+                "int iUnCnt = Player.GetItemCount rCmb",
+                "if iUnCnt > 0",
+                "  Player.UnequipItem rCmb 0 1",
+                "  Player.RemoveItem rCmb iUnCnt 1",
+                "endif",
+                "SetPCCanUsePowerArmor (Player.AuxVarGetFlt \"*w6d7p228_pa0\")",
+                "Player.AuxVarErase \"*w6d7p228_pa0\"",
+                "Player.AuxVarErase \"*w6d7p228_paS\"",
+                "Player.AuxVarErase \"*w6d7p228_paEq0\"",
+                "Player.AuxVarErase \"*w6d7p228_paEq1\"",
+                "Player.AuxVarErase \"*w6d7p228_bkS\"",
+                "Player.AuxVarErase \"*w6d7p228_bkEq\"",
+                "Player.AuxVarErase \"*w6d7p228_unS\"",
+                "string_var sOut = sv_Construct \"PROBE|w6d7p2_28_equip_pa_broken_unowned_settled|pa(s=%g,eq0=%g,eq1=%g)|brk(s=%g,eq=%g)|unown(s=%g,eq=%g,cnt=%g)\" iPaS iPaEq0 iPaEq1 iBkS iBkEq iUnS iUnEq iUnCnt",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ],
+          "helper_scripts": {
+            "nvseprobe_s_w6d7p2_28_pa.gek": [
+              "begin Function { ref rItem }",
+              "Player.AuxVarSetFlt \"*w6d7p228_paS\" 1",
+              "Player.EquipItem rItem 0 1",
+              "Player.AuxVarSetFlt \"*w6d7p228_paS\" 2"
+            ],
+            "nvseprobe_s_w6d7p2_28_brk.gek": [
+              "begin Function { ref rItem }",
+              "Player.AuxVarSetFlt \"*w6d7p228_bkS\" 1",
+              "Player.EquipItem rItem 0 1",
+              "Player.AuxVarSetFlt \"*w6d7p228_bkS\" 2"
+            ],
+            "nvseprobe_s_w6d7p2_28_uno.gek": [
+              "begin Function { ref rItem }",
+              "Player.AuxVarSetFlt \"*w6d7p228_unS\" 1",
+              "Player.EquipItem rItem 0 1",
+              "Player.AuxVarSetFlt \"*w6d7p228_unS\" 2"
+            ]
+          }
+        },
+        {
+          "id": "w6d7p2_29_equip_locks_settled",
+          "bucket": "equipment_slots",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-get-no-unequip.md",
+          "spec_line": 15,
+          "functions_tested": [
+            "EquipItem",
+            "UnequipItem",
+            "EquipItemAlt",
+            "UnequipItemAlt",
+            "GetEquippedItemRef",
+            "GetNoUnequip",
+            "SetNoUnequip",
+            "GetEquipped"
+          ],
+          "claim": "SD-10: Settled test of EquipItem noUnequip=1, GetNoUnequip/SetNoUnequip on GetEquippedItemRef 2, competing EquipItem on locked slot, UnequipItem noEquip=1, and EquipItemAlt/UnequipItemAlt.",
+          "expected": "Record GetNoUnequip before/after SetNoUnequip 0, competing EquipItem result, and EquipItemAlt lock behavior.",
+          "script_lines": [
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+            "Player.AddItem rLth 1 1",
+            "Player.AddItem rCmb 1 1",
+            "Player.EquipItem rLth 1 1"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "s1_try_ov",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "ref rFnOv = CompileScript \"nvseprobe_s_w6d7p2_29_ov.gek\"",
+                "ref rEqL = Player.GetEquippedItemRef 2",
+                "int iNu0 = -1",
+                "if IsFormValid rEqL",
+                "  let iNu0 := rEqL.GetNoUnequip",
+                "endif",
+                "Player.AuxVarSetFlt \"*w6d7p229_nu0\" iNu0",
+                "Call rFnOv rCmb"
+              ]
+            },
+            {
+              "suffix": "s2_unlock_and_alt",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "Player.AuxVarSetFlt \"*w6d7p229_lOv\" (Player.GetEquipped rLth)",
+                "Player.AuxVarSetFlt \"*w6d7p229_cOv\" (Player.GetEquipped rCmb)",
+                "ref rEqL = Player.GetEquippedItemRef 2",
+                "if IsFormValid rEqL",
+                "  rEqL.SetNoUnequip 0",
+                "  Player.AuxVarSetFlt \"*w6d7p229_nu1\" (rEqL.GetNoUnequip)",
+                "else",
+                "  Player.AuxVarSetFlt \"*w6d7p229_nu1\" -1",
+                "endif",
+                "Player.UnequipItem rLth 1 1",
+                "Player.EquipItemAlt rCmb 1 1"
+              ]
+            },
+            {
+              "suffix": "s3_report",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+                "ref rCmb = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+                "int iCmbAlt = Player.GetEquipped rCmb",
+                "ref rEqC = Player.GetEquippedItemRef 2",
+                "int iNuC = -1",
+                "if IsFormValid rEqC",
+                "  let iNuC := rEqC.GetNoUnequip",
+                "  rEqC.SetNoUnequip 0",
+                "endif",
+                "Player.UnequipItemAlt rCmb 0 1",
+                "Player.UnequipItem rLth 0 1",
+                "Player.RemoveItem rLth 1 1",
+                "Player.RemoveItem rCmb 1 1",
+                "int iNu0 = Player.AuxVarGetFlt \"*w6d7p229_nu0\"",
+                "int iNu1 = Player.AuxVarGetFlt \"*w6d7p229_nu1\"",
+                "int iOvS = Player.AuxVarGetFlt \"*w6d7p229_ovS\"",
+                "int iLOv = Player.AuxVarGetFlt \"*w6d7p229_lOv\"",
+                "int iCOv = Player.AuxVarGetFlt \"*w6d7p229_cOv\"",
+                "Player.AuxVarErase \"*w6d7p229_nu0\"",
+                "Player.AuxVarErase \"*w6d7p229_nu1\"",
+                "Player.AuxVarErase \"*w6d7p229_ovS\"",
+                "Player.AuxVarErase \"*w6d7p229_lOv\"",
+                "Player.AuxVarErase \"*w6d7p229_cOv\"",
+                "string_var sOut = sv_Construct \"PROBE|w6d7p2_29_equip_locks_settled|nu(%g->%g)|ov(s=%g,l=%g,c=%g)|alt(eq=%g,nu=%g)\" iNu0 iNu1 iOvS iLOv iCOv iCmbAlt iNuC",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ],
+          "helper_scripts": {
+            "nvseprobe_s_w6d7p2_29_ov.gek": [
+              "begin Function { ref rItem }",
+              "Player.AuxVarSetFlt \"*w6d7p229_ovS\" 1",
+              "Player.EquipItem rItem 0 1",
+              "Player.AuxVarSetFlt \"*w6d7p229_ovS\" 2"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

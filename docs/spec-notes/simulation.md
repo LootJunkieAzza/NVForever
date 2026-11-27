@@ -1179,3 +1179,6 @@ position); a cell's worldspace is `RefTable::world_of`. Not a scenario.
   `from_world`, `from_cell`, `from_cell_name` (EDID, else `"x,y"`), `pos`, `to_door`,
   `to_world`, `to_cell`, `to_cell_name`, `to_pos`, `to_rot` (XTEL), `back` (the
   destination door's XTEL points back), `lock` (`{level, key}` or null).
+
+### NPC equipment review skips broken armor (`w6d7_33`)
+- **Broken `0%`-condition armor ignored** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_33_npc_auto_outfit_and_additem_review_equipment` in `tools/capture/nvse/catalogs/wave6d7_npc_broken_armor.json`]: an NPC upgrades from Leather Armor to Metal Armor when Metal Armor is added, but keeps intact Metal Armor rather than equipping higher-DT `0%`-condition Combat Armor (`PROBE|w6d7_33_npc_auto_outfit_and_additem_review_equipment|lth=1|met=1|afterBrkCmb(m=1,c=0,s2=1)|wep10(eq=0,s5=0)`).

@@ -220,6 +220,10 @@ pub struct WeaponStats {
     /// "Scope from Mod" weapon is there.
     #[serde(skip)]
     pub zoom_mod_on: bool,
+    /// Damage multiplier from an attached `Split Beam` mod (`Some(1.3)` when active,
+    /// `None` = 1.0) [observed: w6d6p4_23b_split_beam_slot1]. Not part of any report.
+    #[serde(skip)]
+    pub split_beam_mult: Option<f32>,
 }
 
 /// AMMO.
@@ -384,6 +388,7 @@ impl WeaponStats {
                 }
                 Some("Split Beam") => {
                     w.projectile_count = (w.projectile_count.max(1) as i64 + a.round() as i64).max(1) as u32;
+                    w.split_beam_mult = Some(w.split_beam_mult.unwrap_or(1.0) * 1.3);
                     if b != 0.0 {
                         w.min_spread *= b;
                     }
@@ -1161,6 +1166,7 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         scope_nif: first(d, b"MOD3").and_then(text),
         scope_effect: cx.fid("EFSD", first(d, b"EFSD")),
         zoom_mod_on: false,
+        split_beam_mult: None,
     }
 }
 

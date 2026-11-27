@@ -399,12 +399,16 @@ fn damage_actor_value_past_zero_kills_the_player_unless_in_god_mode() {
     assert_eq!(ask(&mut g, FormId::PLAYER_REF, GET_DEAD, &[]), 1.0);
 }
 
+/// Scripted DamageAV Health kills SetGhost 1 actors, while weapon/spell hits stay
+/// immune via `is_immune` [observed 2026-11-25: w6d7_42].
 #[test]
-fn damage_actor_value_does_not_kill_a_ghost() {
+fn damage_actor_value_kills_a_ghost_while_hits_stay_immune() {
     const SET_GHOST: u16 = 0x10EC;
     let f = fixture();
     let mut g = game(&f);
     ask(&mut g, BOXER_REF, SET_GHOST, &[num(1.0)]);
-    ask(&mut g, BOXER_REF, DAMAGE_ACTOR_VALUE, &[av(HEALTH), num(9999.0)]);
-    assert!(!g.is_dead(BOXER_REF));
+    assert!(g.is_ghost(BOXER_REF));
+    assert!(g.is_immune(BOXER_REF), "ghost remains immune to weapon/effect hits");
+    ask(&mut g, BOXER_REF, DAMAGE_ACTOR_VALUE, &[av(HEALTH), num(500.0)]);
+    assert!(g.is_dead(BOXER_REF), "scripted DamageAV Health kills a ghosted actor");
 }

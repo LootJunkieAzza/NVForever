@@ -254,11 +254,20 @@ pub fn apply_function(function: u8, number: f64, value: f64) -> Option<f64> {
 /// stages' scripts say "triggered by Intense Training perk rank 1" for the effect of rank
 /// 0, docs/spec-notes/levelup.md §8]. The rank the player has now.
 pub fn gain_rank(g: &mut Game, perk: FormId) -> u8 {
-    let rank = {
+    let max_ranks = g.perk_def(perk).map_or(1, |p| p.ranks.max(1));
+    let (before, rank) = {
         let r = g.player.perks.entry(perk).or_default();
-        *r = r.saturating_add(1);
-        *r
+        let before = *r;
+        if before == 0 {
+            g.player.perk_order.retain(|&p| p != perk);
+            g.player.perk_order.push(perk);
+        }
+        *r = r.saturating_add(1).min(max_ranks);
+        (before, *r)
     };
+    if rank == before {
+        return rank;
+    }
     let data = g.data;
     let stages: Vec<(FormId, u8)> = data
         .perks
@@ -492,7 +501,17 @@ impl Game<'_> {
                 found.push((perk, e.clone()));
             }
         }
-        found.sort_by_key(|(p, e)| (e.priority, *p));
+        // Equal-priority entries execute in LIFO (reverse AddPerk) order
+        // [observed: w6d6_13_perk_mod_ep34_set_add_mul_order].
+        let order = &self.player.perk_order;
+        found.sort_by_key(|(p, e)| {
+            let pos = if actor == FormId::PLAYER_REF {
+                order.iter().rposition(|x| x == p).map_or(usize::MAX, |i| order.len() - 1 - i)
+            } else {
+                usize::MAX
+            };
+            (e.priority, pos, *p)
+        });
         found
     }
 

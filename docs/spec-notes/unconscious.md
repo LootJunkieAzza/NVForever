@@ -97,9 +97,15 @@ on screen).
    Health stays where the damage left it, with no floor of 1, and an essential actor still
    gets up at half its maximum [design].
    The death has no killer: no XP, karma, murder or challenge, and OnDeath's killer is 0
-   [hypothesis]. A ghost, a child or an Invulnerable creature does not die of it, as of a
-   hit [hypothesis], nor a player in god mode, nor an actor whose record gives no Health
-   (no DATA, so its Health is only a stand-in of 1) [design]. While a hit is being applied
+   [hypothesis]. A child does not die of scripted `DamageAV Health`, whereas a `SetGhost 1`
+   actor does [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` +
+   `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`),
+   isolated clean-room staging, committed probe
+   `w6d7_42_ghost_child_invulnerable_and_damageav_lethal` in
+   `tools/capture/nvse/catalogs/wave6d7_ghost_damageav_lethal.json`:
+   `dmg0(d=1,hp=0.0,dNeg=1)|ghost(g=1,d=1,hp=-400.0)|chdD=0|essD=0`]. An Invulnerable creature
+   is also spared [hypothesis], as are a player in god mode and an actor whose record gives no
+   Health (no DATA, so its Health is only a stand-in of 1) [design]. While a hit is being applied
    the hit decides: DamageAV in an OnHit script (the gloves' `DamageAV Health 10`, §1) or
    in the ScriptEffectStart of an effect the hit brings leaves the death to the hit, which
    credits its attacker [design]. A lasting effect's later script ticks and a Paralyzing
@@ -171,7 +177,11 @@ on screen).
    it (§3); further hits still land (health damage on a fatigue knockout; an essential
    stays at 1).
 8. **Scripts**: GetKnockedState is −1 for a fatigue knockout, 1 for an essential one or
-   SetUnconscious [hypothesis for SetUnconscious, kept from before], else 0; GetUnconscious
+   paralysis, and **0** for `SetUnconscious 1` alone (which sets `GetUnconscious == 1`,
+   `GetLifeState == 3`, clears `GetDetected`, and is cleared by `ResurrectActor 0`)
+   [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_10_set_unconscious_knocked_lifestate_resurrect`:
+   `PROBE|w6d8_10_set_unconscious_knocked_lifestate_resurrect|u0=0 k0=0 l0=0 u1=1 k1=0 l1=3 d1=0 u2=1 k2=0 l2=3 d2=0 u3=0 k3=0 l3=0 u4=0`;
+   no DLL, PDB, or third-party source consulted]; GetUnconscious
    reads only SetUnconscious; GetDead is 0 for a knocked-out essential; IsFacingUp and
    IsLeftUp read the side the engine saw the body come to rest on (§4), 1 before that
    [hypothesis]. ResurrectActor ends a knockout as well. GetOwnerLastTarget is the actor

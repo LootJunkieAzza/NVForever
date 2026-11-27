@@ -1,0 +1,119 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_hardcore_stage_threshold",
+  "description": "Wave 6D-7 read-only console probe for live SetHardcoreStageThreshold evaluation.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_hardcore_stage_threshold",
+      "title": "Wave 6D-7: SetHardcoreStageThreshold live need-stage threshold",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_25_hardcore_stage_threshold_and_tracking_live",
+          "bucket": "needs_hardcore",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/aid-items.md",
+          "spec_line": 365,
+          "functions_tested": [
+            "GetHardcoreStageThreshold",
+            "SetHardcoreStageThreshold",
+            "ToggleHardcoreTracking",
+            "GetHardcoreTracking",
+            "IsSpellTarget",
+            "SetHardcore"
+          ],
+          "claim": "SD-01 (P0 unwired writers): Test whether SetHardcoreStageThreshold Water1 (161901) to 50 triggers Dehydration200 (15FA1C) live at Dehydration=60, and whether ToggleHardcoreTracking 0 suppresses stage updates.",
+          "expected": "Confirm SetHardcoreStageThreshold takes effect live on needs stage evaluation and ToggleHardcoreTracking controls live tracking.",
+          "script_lines": [
+            "ref rW1 = GetFormFromMod \"FalloutNV.esm\" \"161901\"",
+            "int iHc0 = IsHardcore",
+            "int iThr0 = GetHardcoreStageThreshold rW1",
+            "int iTrk0 = GetHardcoreTracking",
+            "Player.AuxVarSetFlt \"*w6d725_hc\" iHc0",
+            "Player.AuxVarSetFlt \"*w6d725_thr0\" iThr0",
+            "Player.AuxVarSetFlt \"*w6d725_trk0\" iTrk0",
+            "Player.AuxVarSetFlt \"*w6d725_d0\" (Player.GetAV Dehydration)",
+            "SetHardcore 1",
+            "Player.SetAV Dehydration 0",
+            "SetHardcoreStageThreshold rW1 50",
+            "Player.AuxVarSetFlt \"*w6d725_thr1\" (GetHardcoreStageThreshold rW1)",
+            "Player.SetAV Dehydration 60"
+          ],
+          "wait_ticks_after": 4,
+          "extra_steps": [
+            {
+              "suffix": "s1_trkoff",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rW1 = GetFormFromMod \"FalloutNV.esm\" \"161901\"",
+                "ref rD2 = GetFormFromMod \"FalloutNV.esm\" \"15FA1C\"",
+                "Player.AuxVarSetFlt \"*w6d725_spAt60\" (Player.IsSpellTarget rD2)",
+                "Player.SetAV Dehydration 0",
+                "SetHardcoreStageThreshold rW1 200",
+                "ToggleHardcoreTracking 0",
+                "Player.AuxVarSetFlt \"*w6d725_trkOff\" (GetHardcoreTracking)",
+                "Player.SetAV Dehydration 250"
+              ]
+            },
+            {
+              "suffix": "s2_report",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rW1 = GetFormFromMod \"FalloutNV.esm\" \"161901\"",
+                "ref rD2 = GetFormFromMod \"FalloutNV.esm\" \"15FA1C\"",
+                "int iSpTrkOff = Player.IsSpellTarget rD2",
+                "int iThr0 = Player.AuxVarGetFlt \"*w6d725_thr0\"",
+                "int iThr1 = Player.AuxVarGetFlt \"*w6d725_thr1\"",
+                "int iSp60 = Player.AuxVarGetFlt \"*w6d725_spAt60\"",
+                "int iTrk0 = Player.AuxVarGetFlt \"*w6d725_trk0\"",
+                "int iTrkOff = Player.AuxVarGetFlt \"*w6d725_trkOff\"",
+                "int iHc0 = Player.AuxVarGetFlt \"*w6d725_hc\"",
+                "SetHardcoreStageThreshold rW1 iThr0",
+                "ToggleHardcoreTracking iTrk0",
+                "Player.SetAV Dehydration (Player.AuxVarGetFlt \"*w6d725_d0\")",
+                "SetHardcore iHc0",
+                "Player.AuxVarErase \"*w6d725_hc\"",
+                "Player.AuxVarErase \"*w6d725_thr0\"",
+                "Player.AuxVarErase \"*w6d725_thr1\"",
+                "Player.AuxVarErase \"*w6d725_trk0\"",
+                "Player.AuxVarErase \"*w6d725_trkOff\"",
+                "Player.AuxVarErase \"*w6d725_d0\"",
+                "Player.AuxVarErase \"*w6d725_spAt60\"",
+                "string_var sOut = sv_Construct \"PROBE|w6d7_25_hardcore_stage_threshold_and_tracking_live|thr(%g->%g,spAt60=%g)|trk(%g->%g,spAt250=%g)\" iThr0 iThr1 iSp60 iTrk0 iTrkOff iSpTrkOff",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

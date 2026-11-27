@@ -1,0 +1,104 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_addperk_rank_cap",
+  "description": "Wave 6D-6 read-only probe verifying Player.AddPerk caps rank at PERK DATA.ranks.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_addperk_rank_cap",
+      "title": "Player AddPerk rank cap at DATA.ranks",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p2_14_multirank_and_addperk_cap",
+          "bucket": "perk_entry_points",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/perk-entry-points.md",
+          "spec_line": 36,
+          "functions_tested": [
+            "GetPerkModifier",
+            "AddPerk",
+            "RemovePerk",
+            "GetPerkRank",
+            "HasPerk"
+          ],
+          "claim": "SD-05 & SD-06: Verify multi-rank perks replace vs stack, and verify AddPerk rank overflow cap on Player vs placed NPC.",
+          "expected": "Record GetPerkModifier across ranks 1..3 and GetPerkRank/HasPerk after repeated AddPerk past DATA.ranks.",
+          "script_lines": [
+            "ref rDem = GetFormFromMod \"FalloutNV.esm\" \"31DAB\"",
+            "ref rTgh = GetFormFromMod \"FalloutNV.esm\" \"31DE0\"",
+            "ref rSl = GetFormFromMod \"FalloutNV.esm\" \"15EADD\"",
+            "ref rBm = GetFormFromMod \"FalloutNV.esm\" \"94EBA\"",
+            "ref rGrn = GetFormFromMod \"FalloutNV.esm\" \"4330\"",
+            "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+            "Player.AddPerk rDem",
+            "float fD1 = Player.GetPerkModifier 0 100 rGrn",
+            "Player.AddPerk rDem",
+            "float fD2 = Player.GetPerkModifier 0 100 rGrn",
+            "Player.AddPerk rDem",
+            "float fD3 = Player.GetPerkModifier 0 100 rGrn",
+            "Player.AddPerk rDem",
+            "int iDemRk = Player.GetPerkRank rDem",
+            "Player.AddPerk rTgh",
+            "float fT1 = Player.GetPerkModifier 56 0",
+            "Player.AddPerk rTgh",
+            "float fT2 = Player.GetPerkModifier 56 0",
+            "Player.AddPerk rTgh",
+            "Player.AddPerk rTgh",
+            "int iTghRk = Player.GetPerkRank rTgh",
+            "Player.AddPerk rSl",
+            "float fS1 = Player.GetPerkModifier 1 10 rLas",
+            "Player.AddPerk rSl",
+            "float fS2 = Player.GetPerkModifier 1 10 rLas",
+            "Player.AddPerk rBm",
+            "Player.AddPerk rBm",
+            "Player.AddPerk rBm",
+            "int iBmRk = Player.GetPerkRank rBm",
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 100 0",
+            "rNpc.SetRestrained 1",
+            "rNpc.AddPerk rTgh",
+            "rNpc.AddPerk rTgh",
+            "rNpc.AddPerk rTgh",
+            "int iNpcHas = rNpc.HasPerk rTgh",
+            "int iNpcRk = rNpc.GetPerkRank rTgh",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "Player.RemovePerk rDem",
+            "Player.RemovePerk rTgh",
+            "Player.RemovePerk rSl",
+            "Player.RemovePerk rBm",
+            "PrintToConsole \"PROBE|w6d6p2_14_multirank_and_addperk_cap|dem=%.1f,%.1f,%.1f(rk=%g)|tgh=%.1f,%.1f(rk=%g)|sl=%.1f,%.1f|bmRk=%g|npc(has=%g,rk=%g)\" fD1 fD2 fD3 iDemRk fT1 fT2 iTghRk fS1 fS2 iBmRk iNpcHas iNpcRk"
+          ]
+        }
+      ]
+    }
+  ]
+}

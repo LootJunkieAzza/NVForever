@@ -302,3 +302,20 @@ fn set_radius_and_radiation_extra_data_drive_all_consumers_and_session_transfer(
     same_run.tick();
     assert_eq!(same_run.radiation().level, 0.0);
 }
+
+#[test]
+fn npc_radiation_writes_to_av_damage_not_base() {
+    let f = fixture();
+    let mut g = game(&f, 1600.0, 0.0);
+    g.world.get(FormId(BYSTANDER_REF)).unwrap();
+    set_actor_value_current(&mut g, FormId(BYSTANDER_REF), RAD_LEVEL, 0.0).unwrap();
+    set_actor_value_current(&mut g, FormId(BYSTANDER_REF), RAD_RESIST, 0.0).unwrap();
+    g.awareness.actors.insert(FormId(BYSTANDER_REF), Default::default());
+    g.tweaks.character_radiation = true;
+    run_stmt(&mut g, "RadMarkerRef.SetRadius 1000");
+    g.tick();
+    assert!((actor_value(&mut g, FormId(BYSTANDER_REF), RAD_LEVEL).unwrap() - 3.0).abs() < 1e-6);
+    assert_eq!(eval_num(&mut g, "BystanderRef.GetBaseAV RadiationRads"), 0.0);
+    let dam = g.extra.get(&FormId(BYSTANDER_REF)).and_then(|e| e.av_damage.get(&RAD_LEVEL)).copied().unwrap_or(0.0);
+    assert!((dam - 3.0).abs() < 1e-6, "NPC radiation writes to av_damage, got {dam}");
+}

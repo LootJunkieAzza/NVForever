@@ -832,6 +832,10 @@ pub struct PlayerState {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub perks: BTreeMap<FormId, u8>,
+    /// Insertion order of owned player perks for LIFO equal-priority tie-breaking
+    /// [observed: w6d6_13_perk_mod_ep34_set_add_mul_order].
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub perk_order: Vec<FormId>,
     /// Perks given to the player's teammates (AddPerk with forTeammates).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub teammate_perks: BTreeSet<FormId>,

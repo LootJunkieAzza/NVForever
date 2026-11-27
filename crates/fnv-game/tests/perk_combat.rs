@@ -438,3 +438,91 @@ fn set_nth_perk_entry_value1_changes_the_entry_points_value() {
     assert!((speed(&mut g) - 1.5).abs() < 1e-6, "{}", speed(&mut g));
     assert_eq!(run(&mut g, "SetFunctionValue (GetNthPerkEntryValue1 TravelLight 0)"), fnv_script::vm::XVal::Num(1.5));
 }
+
+#[test]
+fn player_add_perk_caps_at_data_ranks() {
+    let f = fixture();
+    let mut g = game(&f);
+    // BloodyMess has 1 rank, Toughness has 2 ranks [observed: w6d6p2_14_multirank_and_addperk_cap].
+    for _ in 0..4 {
+        perks::gain_rank(&mut g, FormId(BLOODY));
+        perks::gain_rank(&mut g, FormId(TOUGHNESS));
+    }
+    assert_eq!(g.player.perks.get(&FormId(BLOODY)).copied(), Some(1));
+    assert_eq!(g.player.perks.get(&FormId(TOUGHNESS)).copied(), Some(2));
+}
+
+#[test]
+fn equal_priority_perk_entries_execute_in_lifo_add_order() {
+    let f = fixture();
+    let mut g = game(&f);
+    let mk_perk = |name: &str, function: u8, value: f32| fnv_game::data::PerkDef {
+        name: name.into(),
+        playable: true,
+        min_level: 1,
+        ranks: 1,
+        entries: vec![fnv_game::data::PerkEntry {
+            effect: fnv_game::data::PerkEffect::EntryPoint(EntryPointDef {
+                point: perks::CALCULATE_GUN_SPREAD,
+                function,
+                value: Some(value),
+                param_type: Some(1),
+                conditions: Some(vec![]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let (p_set, p_add, p_mul) = (FormId(0x7A0), FormId(0x7A1), FormId(0x7A2));
+    g.lu3.perk_edits.insert(p_set, mk_perk("SteadyTest", perks::SET_VALUE, 0.0));
+    g.lu3.perk_edits.insert(p_add, mk_perk("PenaltyTest", perks::ADD_VALUE, 1.0));
+    g.lu3.perk_edits.insert(p_mul, mk_perk("FastShotTest", perks::MULTIPLY_VALUE, 1.2));
+    // Add Penalty then Steady: LIFO runs Steady (Set 0) then Penalty (Add 1) => 1.0.
+    perks::gain_rank(&mut g, p_add);
+    perks::gain_rank(&mut g, p_set);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 1.0).abs() < 1e-6);
+    // Reverse add order (Steady then Penalty): LIFO runs Penalty (11) then Steady (Set 0) => 0.0.
+    g.player.perks.clear();
+    g.player.perk_order.clear();
+    perks::gain_rank(&mut g, p_set);
+    perks::gain_rank(&mut g, p_add);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 0.0).abs() < 1e-6);
+    // Add Penalty then FastShot: LIFO runs FastShot (10*1.2=12) then Penalty (+1) => 13.0.
+    g.player.perks.clear();
+    g.player.perk_order.clear();
+    perks::gain_rank(&mut g, p_add);
+    perks::gain_rank(&mut g, p_mul);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 13.0).abs() < 1e-6);
+
+    // Cross-writer sync: RemoveAllPerks clears perk_order alongside player.perks so
+    // re-adding in the opposite order does not inherit stale LIFO positions.
+    g.run_query("Begin Function { }\nPlayerREF.RemoveAllPerks\nEnd\n", Default::default()).unwrap();
+    assert!(g.player.perks.is_empty());
+    assert!(g.player.perk_order.is_empty());
+    perks::gain_rank(&mut g, p_set);
+    perks::gain_rank(&mut g, p_add);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 0.0).abs() < 1e-6);
+
+    // Cross-writer sync: TraitSheet::apply pushes newly chosen traits and removes dropped
+    // traits from perk_order.
+    g.run_query("Begin Function { }\nPlayerREF.RemoveAllPerks\nEnd\n", Default::default()).unwrap();
+    let mut sheet = fnv_game::chargen::TraitSheet {
+        traits: vec![p_add, p_set],
+        chosen: [p_add].into_iter().collect(),
+        max: 2,
+        free: None,
+    };
+    sheet.apply(&mut g);
+    assert_eq!(g.player.perk_order, vec![p_add]);
+    // Choosing p_set second pushes it after p_add -> LIFO runs p_set (0) then p_add (+1) => 1.0.
+    sheet.chosen.insert(p_set);
+    sheet.apply(&mut g);
+    assert_eq!(g.player.perk_order, vec![p_add, p_set]);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 1.0).abs() < 1e-6);
+    // Dropping p_set removes it from both perks and perk_order -> only p_add (+1) => 11.0.
+    sheet.chosen.remove(&p_set);
+    sheet.apply(&mut g);
+    assert_eq!(g.player.perk_order, vec![p_add]);
+    assert!((g.entry_point(P, perks::CALCULATE_GUN_SPREAD, 10.0).0 - 11.0).abs() < 1e-6);
+}

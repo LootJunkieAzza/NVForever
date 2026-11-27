@@ -261,12 +261,13 @@ fn a_creature_has_attributes_and_its_combat_skill() {
     for (i, want) in [8.0, 7.0, 6.0, 2.0, 3.0, 4.0, 5.0].into_iter().enumerate() {
         assert_eq!(get(&mut g, CREA_REF, av::STRENGTH + i as u16), want);
     }
-    for c in [av::BIG_GUNS, av::ENERGY_WEAPONS, av::EXPLOSIVES, av::MELEE_WEAPONS, av::GUNS] {
+    for c in [av::BIG_GUNS, av::ENERGY_WEAPONS, av::EXPLOSIVES, av::MELEE_WEAPONS, av::GUNS, av::UNARMED] {
         assert_eq!(get(&mut g, CREA_REF, c), 65.0);
     }
     assert_eq!(get(&mut g, CREA_REF, av::SNEAK), 40.0);
-    // No field: the formula. Barter from Charisma 2 and Luck 5: 2 + 4 + ⌈2.5⌉.
-    assert_eq!(get(&mut g, CREA_REF, av::BARTER), 9.0);
+    // Non-combat, non-stealth creature skills read 0.0 [observed: w6d7p2_05b].
+    assert_eq!(get(&mut g, CREA_REF, av::BARTER), 0.0);
+    assert_eq!(get(&mut g, CREA_REF, av::SCIENCE), 0.0);
     assert_eq!(get(&mut g, CREA_REF, av::HEALTH), 120.0);
     assert_eq!(get(&mut g, CREA_REF, av::FATIGUE), 80.0);
     assert_eq!(get(&mut g, CREA_REF, av::SPEED_MULTIPLIER), 150.0);
@@ -524,4 +525,24 @@ fn speed_mult_scales_the_players_speed() {
     // Never below standing still.
     call(&mut g, MOD, PLAYER, &[code(av::SPEED_MULTIPLIER), n(-500.0)]);
     assert_eq!(g.move_speed_mult(p), 0.0);
+}
+
+#[test]
+fn heal_rate_follows_endurance_bonus_gmsts() {
+    let f = fixture();
+    let mut g = game(&f);
+    for (end, want) in [(1.0, 0.0), (5.0, 0.0), (6.0, 5.0), (7.0, 5.0), (8.0, 5.0), (9.0, 10.0), (10.0, 10.0)] {
+        call(&mut g, SET, PLAYER, &[code(av::ENDURANCE), n(end)]);
+        assert_eq!(get(&mut g, PLAYER, av::HEAL_RATE), want, "Endurance {end}");
+    }
+}
+
+#[test]
+fn melee_damage_floors_odd_strength_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    for (str_v, want) in [(1.0, 0.0), (2.0, 1.0), (3.0, 1.0), (5.0, 2.0), (6.0, 3.0), (7.0, 3.0), (9.0, 4.0), (10.0, 5.0)] {
+        call(&mut g, SET, PLAYER, &[code(av::STRENGTH), n(str_v)]);
+        assert_eq!(get(&mut g, PLAYER, av::MELEE_DAMAGE), want, "Strength {str_v}");
+    }
 }

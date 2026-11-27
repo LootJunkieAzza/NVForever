@@ -473,3 +473,11 @@ for each effect, and how it fits a long description.
   `Game::weapon_model_changes` / `Game::weapon_model_stamp` (§8) [design]. Engine playback
   consumption over `WeaponFx` and inventory pickup/putdown audio is documented in
   `docs/spec-notes/weapon-sound-bridge.md`.
+
+### `Split Beam` +30% damage bonus [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, Hard difficulty (`0.75x`), isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p4_23b_split_beam_slot1` (`tools/capture/nvse/catalogs/wave6d6_split_beam.json`)]: Attaching `Split Beam` (slot 1, `+2` projectiles -> 3 beams) multiplies weapon damage by `1.30` after additive `Increase Weapon Damage` (`Focus Optics +3`): `GetCalculatedWeaponDamage` scales `22.00 -> 28.60` (`+30%`) and `25.00 -> 32.50` (`(22+3)*1.30`), while live `FireWeapon` hits deal `3 x 7.15 = 21.45` (`28.60 * 0.75`) and `3 x 8.125 = 24.38` (`32.50 * 0.75`); `GetCalculatedWeaponDPS` stays `67.80`:
+
+```text
+PROBE|w6d6p4_23b_split_beam_slot1|v1=(2.00,0.00)|calc(0=22.00/67.80,1=28.60/67.80,4=25.00,5=32.50)|m0(h=16.50,n=1,d=16.50)|m1(h=7.15,n=3,d=21.45)|m5(h=8.12,n=3,d=24.38)
+```
