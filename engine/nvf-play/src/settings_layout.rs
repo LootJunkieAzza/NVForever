@@ -335,7 +335,7 @@ mod shared_table_tests {
     /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row;
     /// #2991's volumetric clouds row; #3348's HDR output row; #3783's occlusion culling row;
     /// #3032's volumetric light row and its strength; #3843's localized armor DT/DR row; the
-    /// casino screens' Caravan tips row), by the group it registers with.
+    /// casino screens' poker tables and Caravan tips rows), by the group it registers with.
     pub(super) const KNOWN: &[(&str, &str)] = &[
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
@@ -347,6 +347,7 @@ mod shared_table_tests {
         ("sprint", "Gameplay"),
         ("animation-smoothing", "Gameplay"),
         ("sound-cover", "Gameplay"),
+        ("poker-tables", "Gameplay"),
         ("caravan-tips", "Gameplay"),
         ("npc-weapon-mods", "Gameplay"),
         ("quantity-select-short-keys", "Gameplay"),
@@ -732,7 +733,7 @@ mod shared_table_tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..16], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..17], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "poker-tables", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
         assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
         assert_eq!(
@@ -759,6 +760,7 @@ mod shared_table_tests {
         assert_eq!(at("terrain-shadows"), "Graphics > Shadows", "after Cloud shadows (#2671)");
         assert_eq!(at("light-shadows"), "Graphics > Shadows", "after Terrain shadows (light_shadows.rs)");
         assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
+        assert_eq!(at("poker-tables"), "Gameplay > Game");
         assert_eq!(at("caravan-tips"), "Display > Interface");
         assert_eq!(at("localized-dt-dr"), "Gameplay > Combat", "#3843");
         assert_eq!(at("location-load-screens"), "Display > Interface", "#3844");
@@ -788,7 +790,7 @@ mod shared_table_tests {
         let l = resolve_layout(&list);
         let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
         let g = lines(&list, &l, "Gameplay", closed);
-        assert_eq!(g[..15], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
+        assert_eq!(g[..16], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "poker-tables", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
         let p = l.placement_of(list.iter().position(|s| s.key == "vats-style").unwrap()).unwrap();
         assert_eq!(l.shown_count(&p, |_| true), 3);
         assert_eq!(l.shown_count(&p, |i| i != LayoutItem::Setting(list.iter().position(|s| s.key == "vats-slowdown").unwrap())), 2);
@@ -1107,7 +1109,7 @@ mod android_profile_tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..16], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..17], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "poker-tables", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
         assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
         assert_eq!(
@@ -1138,7 +1140,7 @@ mod android_profile_tests {
         let l = resolve_layout(&list);
         let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
         let g = lines(&list, &l, "Gameplay", closed);
-        assert_eq!(g[..15], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
+        assert_eq!(g[..16], ["[Game]", "difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "poker-tables", "npc-weapon-mods", "sneak-bounding-box", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
         let p = l.placement_of(list.iter().position(|s| s.key == "vats-style").unwrap()).unwrap();
         assert_eq!(l.shown_count(&p, |_| true), 3);
         assert_eq!(l.shown_count(&p, |i| i != LayoutItem::Setting(list.iter().position(|s| s.key == "vats-slowdown").unwrap())), 2);

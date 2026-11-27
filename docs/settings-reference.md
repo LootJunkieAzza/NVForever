@@ -112,6 +112,12 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   bright square. Off: detection is the original's. Not in the original (#2688).
 - Registered in `engine/nvf-play/src/sound_cover.rs`
 
+### `poker-tables`: Poker tables
+
+- On the page: On: a few of the Strip casinos' blackjack tables become poker tables. Off:
+  every table plays blackjack, as in the original.
+- Registered in `engine/nvf-play/src/poker_tables.rs`
+
 ### `npc-weapon-mods`: NPC weapon mods
 
 - On the page: On: NPCs have a level-scaled chance (10%-60%, +2%/level) for their main weapon to spawn with random weapon mods. Off: NPC weapons have no extra mods, as in the original.

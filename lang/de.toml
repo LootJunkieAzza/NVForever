@@ -743,6 +743,11 @@ name = "Deutsch"
 "Tips Off" = "Tipps aus"
 "Caravan tips" = "Caravan-Tipps"
 "On: the Caravan table says what the chosen card does and why a card can't be played, and the menu has a Tips button. Off: only the game's short messages. Not in the original." = "An: Der Caravan-Tisch sagt, was die gewählte Karte bewirkt und warum eine Karte nicht gespielt werden kann, und das Menü hat eine Tipps-Taste. Aus: nur die kurzen Meldungen des Spiels. Nicht im Original."
+# [design; engine/nvf-play/src/poker_tables.rs, reticle.rs] The Poker tables row and the crosshair's words at a poker table: NVForever's own words (not in the original).
+"Poker tables" = "Pokertische"
+"On: a few of the Strip casinos' blackjack tables become poker tables. Off: every table plays blackjack, as in the original." = "An: Einige der Blackjack-Tische in den Casinos am Strip werden zu Pokertischen. Aus: An jedem Tisch wird Blackjack gespielt, wie im Original."
+"Poker Table" = "Pokertisch"
+"Play Poker" = "Poker spielen"
 # [design; engine/nvf-play/src/caravan/guide.rs] The Caravan guide's lines: NVForever's own words. {card} is a card's name, {suit} a suit, {track} a caravan's name from the install.
 "Ace" = "Ass"
 "Jack" = "Bube"

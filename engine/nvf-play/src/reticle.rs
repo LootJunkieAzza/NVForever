@@ -149,6 +149,10 @@ pub fn set_stack_figures(on: bool) {
 
 /// The XATO Activation Prompt of reference `form_id`, else of its base (an ACTI).
 pub fn activation_prompt(sim: &SimState, form_id: u32) -> Option<String> {
+    // NVForever's poker tables are blackjack tables in the plugins (`crate::poker_tables`).
+    if crate::poker_tables::is_poker_table(sim, fnv_sim::FormId(form_id)) {
+        return Some(crate::poker_tables::prompt().into());
+    }
     let own = sim.refs.get(fnv_sim::FormId(form_id)).and_then(|r| r.prompt.clone());
     own.or_else(|| sim.base_of(form_id).and_then(|b| sim.forms.get(b)).and_then(|b| b.prompt.clone()))
 }
@@ -166,7 +170,10 @@ impl Prompt {
     }
 
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
-        let (mut action, name) = outcome::prompt(&t.name, &t.action);
+        let (mut action, mut name) = outcome::prompt(&t.name, &t.action);
+        if crate::poker_tables::is_poker_table(sim, fnv_sim::FormId(t.form_id)) {
+            name = crate::poker_tables::name().into();
+        }
         // Session changes share the script reader's authority; XATO below still wins
         // (docs/spec-notes/string-settings.md).
         if matches!(t.action, Action::Talk) {

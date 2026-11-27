@@ -7,7 +7,7 @@
 //! units [design: sized as a real table, about 2.3 × 1.2, at one unit a centimetre's
 //! worth — the scene is alone, so only its proportions matter].
 //!
-//! At a poker table in the world (`Session::table_ref`) the oval
+//! At a poker table in the world (`nvf_play::poker_tables`, `Session::table_ref`) the oval
 //! lies on that table instead: scaled to its length, turned so the player's seat is on the
 //! player's side, on its top; the world's table stays as its base. It is drawn with the
 //! world, seen by the game's own camera (`roulette_view::TableCamera`), a lamp over it;
@@ -90,7 +90,79 @@ pub struct PokerViewPlugin;
 
 impl Plugin for PokerViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, show.after(nvf_play::PlaySet::Ui).before(nvf_play::PlaySet::Sync));
+        app.add_systems(Update, (show, dress).chain().after(nvf_play::PlaySet::Ui).before(nvf_play::PlaySet::Sync));
+    }
+}
+
+/// A poker table drawn in the world in its blackjack table's place.
+struct Dressed {
+    holder: Entity,
+}
+
+/// The poker tables in the world (`nvf_play::poker_tables::swapped`): while the world draws
+/// one's blackjack table, that is hidden and the poker table is drawn in its place (its
+/// collision stays the blackjack table's); while its menu is open there, the menu's own
+/// table stands in for it. With the `poker-tables` setting off
+/// (`nvf_play::poker_tables::on`) none is: one dressed is taken down and its blackjack
+/// table shown again.
+#[allow(clippy::too_many_arguments)]
+fn dress(
+    mut commands: Commands,
+    mut models: ModelCtx,
+    screen: Res<PokerScreen>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
+    play: Option<Res<nvf_play::PlayWorld>>,
+    world_root: Query<Entity, With<crate::world::WorldRoot>>,
+    refs: Query<(Entity, &nvf_play::RefVisual)>,
+    mut visibility: Query<&mut Visibility>,
+    mut dressed: Local<HashMap<u32, Dressed>>,
+    mut frame: Local<u32>,
+) {
+    let (Some(sim), Some(play), Ok(root)) = (sim.as_deref(), play.as_deref(), world_root.single()) else { return };
+    *frame = frame.wrapping_add(1);
+    let on = nvf_play::poker_tables::on();
+    if !on && dressed.is_empty() {
+        return;
+    }
+    let open_at = screen.0.as_ref().and_then(|s| s.table_ref).map(|t| t.0);
+    for (r, casino) in nvf_play::poker_tables::swapped(sim).iter().copied() {
+        let drawn: Vec<Entity> = if (*frame).is_multiple_of(20) || !dressed.contains_key(&r) { refs.iter().filter(|(_, v)| v.0 == r).map(|(e, _)| e).collect() } else { Vec::new() };
+        if (*frame).is_multiple_of(20) || !dressed.contains_key(&r) {
+            if !on || drawn.is_empty() || !sim.present(r) {
+                if let Some(d) = dressed.remove(&r) {
+                    commands.entity(d.holder).despawn();
+                }
+                if !on {
+                    for e in &drawn {
+                        if let Ok(mut v) = visibility.get_mut(*e) {
+                            v.set_if_neq(Visibility::Inherited);
+                        }
+                    }
+                }
+                continue;
+            }
+            // The world's blackjack table out of sight (it may be drawn again by streaming).
+            for e in &drawn {
+                if let Ok(mut v) = visibility.get_mut(*e) {
+                    v.set_if_neq(Visibility::Hidden);
+                }
+            }
+        }
+        if let std::collections::hash_map::Entry::Vacant(e) = dressed.entry(r) {
+            let Some(a) = table_place(sim, play, &mut models, fnv_sim::FormId(r)) else { continue };
+            let (Some(felt), Some(rail)) = (material(&mut models, casino.felt(), Color::WHITE, AlphaMode::Opaque), material(&mut models, RAIL_TEXTURE, Color::WHITE, AlphaMode::Opaque)) else { continue };
+            let ink = models.materials.add(nif_material(StandardMaterial { base_color: Color::srgba(0.93, 0.85, 0.55, 0.35), unlit: true, alpha_mode: AlphaMode::Blend, ..default() }));
+            let holder = commands.spawn((Name::new("Poker table (in the world)"), Transform::from_matrix(Mat4::from(a)), Visibility::Inherited, ChildOf(root))).id();
+            body(&mut commands, &mut models, (holder, &RenderLayers::layer(0)), casino, felt, rail, ink);
+            info!("poker view: {} poker table {r:#010X} drawn in its blackjack table's place ({} entities hidden)", casino.title(), drawn.len());
+            e.insert(Dressed { holder });
+        }
+        if let Some(d) = dressed.get(&r) {
+            let want = if open_at == Some(r) { Visibility::Hidden } else { Visibility::Inherited };
+            if let Ok(mut v) = visibility.get_mut(d.holder) {
+                v.set_if_neq(want);
+            }
+        }
     }
 }
 
