@@ -1036,6 +1036,7 @@ pub struct ActorAnimCost {
 type ActorAnimParts = (
     Entity,
     Option<&'static GlobalTransform>,
+    Option<&'static crate::limbs::ActorRig>,
     &'static mut Locomotion,
     &'static mut BlendPlayer,
     Option<&'static mut crate::weapons::WeaponHold>,
@@ -1052,22 +1053,37 @@ type ActorAnimParts = (
 /// Actors posed in one task of [`drive`] on the compute pool.
 const DRIVE_CHUNK: usize = 8;
 
-/// Squared distance thresholds (game units²) for staggered skeletal pose sampling of
-/// distant or behind-camera non-combat NPCs [design]. Clocks and layers always step every
-/// frame; only bone sampling & transform writes are decimated beyond these distances.
-const LOD_HALF_DIST_SQ: f32 = 1200.0 * 1200.0;
-const LOD_QUARTER_DIST_SQ: f32 = 2200.0 * 2200.0;
+/// Reference distance thresholds (game units, at default 75° horizontal FOV) for staggered
+/// skeletal pose sampling of distant or behind-camera non-combat NPCs [design]. Forward
+/// thresholds scale with current camera FOV so zoomed/scoped views keep distant targets at
+/// full animation rate. Clocks and layers always step every frame; only bone sampling &
+/// transform writes are decimated beyond these thresholds.
+const LOD_HALF_DIST: f32 = 1200.0;
+const LOD_QUARTER_DIST: f32 = 2200.0;
 const LOD_BEHIND_DIST_SQ: f32 = 400.0 * 400.0;
 
+/// Angular magnification scale `tan(ref_vfov / 2) / tan(vfov / 2)` relative to the default
+/// 75° horizontal camera FOV [design]. Returns `1.0` at default FOV, `> 1.0` when zoomed
+/// in (e.g. through a rifle scope, pushing LOD thresholds further out), and `< 1.0` at
+/// wider FOVs (clamped below at `0.25`).
+fn lod_fov_scale(vfov: f32) -> f32 {
+    let ref_vfov = nvf_play::free_cam::vertical_fov(75.0);
+    let clamped = vfov.clamp(1.0_f32.to_radians(), 150.0_f32.to_radians());
+    ((ref_vfov * 0.5).tan() / (clamped * 0.5).tan()).max(0.25)
+}
+
 /// Sampling stride (1 = every frame, 2 = half rate, 4 = quarter rate) for an actor at
-/// displacement `delta` from the camera facing `cam_fwd` [design].
-fn lod_stride(delta: Vec3, cam_fwd: Vec3) -> u64 {
+/// displacement `delta` from the camera facing `cam_fwd` with magnification `fov_scale`
+/// ([`lod_fov_scale`]) [design].
+fn lod_stride(delta: Vec3, cam_fwd: Vec3, fov_scale: f32) -> u64 {
     let dist_sq = delta.length_squared();
-    if dist_sq > LOD_QUARTER_DIST_SQ
+    let half_sq = (LOD_HALF_DIST * fov_scale).powi(2);
+    let quarter_sq = (LOD_QUARTER_DIST * fov_scale).powi(2);
+    if dist_sq > quarter_sq
         || (dist_sq > LOD_BEHIND_DIST_SQ && delta.dot(cam_fwd) < -0.25 * dist_sq.sqrt())
     {
         4
-    } else if dist_sq > LOD_HALF_DIST_SQ {
+    } else if dist_sq > half_sq {
         2
     } else {
         1
@@ -1076,27 +1092,34 @@ fn lod_stride(delta: Vec3, cam_fwd: Vec3) -> u64 {
 
 /// Whether bone sampling for a living, standing actor may be skipped this frame under
 /// distance/off-camera LOD [design]. Never skips an actor's initial pose, nor actors that
-/// are flinching, speaking a talk clip, or executing a combat attack.
+/// are flinching, speaking a talk clip, or in combat (`Alert`, `Combat`, `Lost`, or playing
+/// an attack).
 #[allow(clippy::too_many_arguments)]
 fn should_skip_lod_sample(
     sampled_once: bool,
     flinching: bool,
     talking: bool,
-    attacking: bool,
-    cam_pose: Option<(Vec3, Vec3)>,
+    in_combat: bool,
+    cam_pose: Option<(Vec3, Vec3, f32)>,
     actor_pos: Option<Vec3>,
     cur_frame: u64,
     entity_index: u64,
 ) -> bool {
-    if !sampled_once || flinching || talking || attacking {
+    if !sampled_once || flinching || talking || in_combat {
         return false;
     }
-    let (Some((cam_pos, cam_fwd)), Some(pos)) = (cam_pose, actor_pos) else {
+    let (Some((cam_pos, cam_fwd, fov_scale)), Some(pos)) = (cam_pose, actor_pos) else {
         return false;
     };
-    let stride = lod_stride(pos - cam_pos, cam_fwd);
+    let stride = lod_stride(pos - cam_pos, cam_fwd, fov_scale);
     stride > 1 && !cur_frame.wrapping_add(entity_index).is_multiple_of(stride)
 }
+
+/// Main camera and optional 3D scope lens camera queries for [`drive`].
+type LodCamQueries<'w, 's> = (
+    Query<'w, 's, (&'static GlobalTransform, Option<&'static Projection>), (With<crate::fly::FlyCam>, Without<crate::scope_view::LensCamera>)>,
+    Query<'w, 's, (&'static Camera, &'static Projection), (With<crate::scope_view::LensCamera>, Without<crate::fly::FlyCam>)>,
+);
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
 /// (`weapons.rs`) and the idles it plays (`idles.rs`) layered on top.
@@ -1109,25 +1132,52 @@ pub fn drive(
     time: Res<Time>,
     mut actors: Query<ActorAnimParts>,
     mut transforms: Query<&mut Transform>,
-    cam: Query<&GlobalTransform, With<crate::fly::FlyCam>>,
+    (cam, lens): LodCamQueries<'_, '_>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
     mut cost: ResMut<ActorAnimCost>,
     mut frame: Local<u64>,
 ) {
     let t0 = std::time::Instant::now();
     *frame = frame.wrapping_add(1);
     let cur_frame = *frame;
-    let cam_pose = cam.iter().next().map(|g| (g.translation(), Vec3::from(g.forward())));
+    let ref_vfov = nvf_play::free_cam::vertical_fov(75.0);
+    let lens_vfov = lens
+        .iter()
+        .filter(|(c, _)| c.is_active)
+        .filter_map(|(_, p)| match p {
+            Projection::Perspective(pp) => Some(pp.fov),
+            _ => None,
+        })
+        .reduce(f32::min);
+    let cam_pose = cam.iter().next().map(|(g, proj)| {
+        let main_vfov = proj
+            .and_then(|p| match p {
+                Projection::Perspective(pp) => Some(pp.fov),
+                _ => None,
+            })
+            .unwrap_or(ref_vfov);
+        let eff_vfov = lens_vfov.map_or(main_vfov, |lv| main_vfov.min(lv));
+        (g.translation(), Vec3::from(g.forward()), lod_fov_scale(eff_vfov))
+    });
     let (dt, now) = (time.delta_secs(), time.elapsed_secs());
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let mut items: Vec<_> = actors.iter_mut().collect();
     // A dead actor's pose stands only while nothing else wrote its bones
     // (`BlendPlayer::pose_held`): asked here, before anything is written.
-    let written: Vec<bool> = items.iter().map(|it| it.5.is_some() && it.3.written_since(&mut transforms)).collect();
-    let mut jobs: Vec<(_, bool)> = items.iter_mut().zip(written).collect();
-    let one_chunk = |chunk: &mut [(&mut ActorAnimItem, bool)]| {
+    let flags: Vec<(bool, bool)> = items
+        .iter()
+        .map(|it| {
+            let written = it.6.is_some() && it.4.written_since(&mut transforms);
+            let in_combat = it.2.is_some_and(|r| game.is_some_and(|g| g.awareness.state(fnv_sim::FormId(r.reference)).in_combat()));
+            (written, in_combat)
+        })
+        .collect();
+    let mut jobs: Vec<(_, (bool, bool))> = items.iter_mut().zip(flags).collect();
+    let one_chunk = |chunk: &mut [(&mut ActorAnimItem, (bool, bool))]| {
         let mut c = ActorAnimCost::default();
         let (mut scratch, mut out) = (Vec::new(), Vec::new());
-        for (item, written) in chunk.iter_mut() {
-            drive_one(item, *written, dt, now, cur_frame, cam_pose, &mut scratch, &mut out, &mut c);
+        for (item, (written, in_combat)) in chunk.iter_mut() {
+            drive_one(item, *written, *in_combat, dt, now, cur_frame, cam_pose, &mut scratch, &mut out, &mut c);
         }
         (c, out)
     };
@@ -1157,15 +1207,16 @@ type ActorAnimItem<'w, 's> = bevy::ecs::query::QueryItem<'w, 's, ActorAnimParts>
 fn drive_one(
     item: &mut ActorAnimItem<'_, '_>,
     written: bool,
+    in_combat: bool,
     dt: f32,
     now: f32,
     cur_frame: u64,
-    cam_pose: Option<(Vec3, Vec3)>,
+    cam_pose: Option<(Vec3, Vec3, f32)>,
     scratch: &mut Vec<(usize, Transform)>,
     out: &mut Vec<(Entity, Transform)>,
     cost: &mut ActorAnimCost,
 ) {
-    let (entity, global, lo, player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) = item;
+    let (entity, global, _rig, lo, player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) = item;
     let (entity, global, flinch, seated, idle, name, talk) = (*entity, *global, *flinch, *seated, *idle, *name, *talk);
     // Set below for a standing actor's idle only.
     player.over_movement = 0;
@@ -1327,7 +1378,7 @@ fn drive_one(
         lo.sampled_once,
         flinch.is_some(),
         talk.is_some(),
-        pose.as_deref().is_some_and(|p| p.attack.is_some()),
+        in_combat || lo.alerted || pose.as_deref().is_some_and(|p| p.attack.is_some()),
         cam_pose,
         global.map(GlobalTransform::translation),
         cur_frame,
