@@ -37589,6 +37589,7 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error in the clustering passes" },
 ]
+
 [[scenario]]
 name = "physical-lighting"
 source = "[design, #3827 part 5] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/lights.rs `physical_patched`, physical_ibl.rs, fog.rs, eye_adapt.rs): with --graphics-only physical-pbr at Goodsprings at noon, the run's switch is on, the physical light loop is installed and the sky's image-based light is made, without a pipeline or rendering error. Whether the look is right is checked in pictures by hand"
@@ -37630,3 +37631,14 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
+[[scenario]]
+name = "dawn-leaves-night-before-sunrise"
+source = "[hypothesis, fitted] docs/spec-notes/world.md §6 'Night key beyond sunrise and sunset' (#2916): the night key lies a third of the transition before sunrise begins (5:20 for the Mojave's 6:00-8:00), so at 06:00 the grade is already part of the way to the sunrise adapter (saturation under the night's and the day's 1.10), as the original's picture under Lake Mead is at 06:00 (observer job o35_uw_dawn)"
+areas = ["renderer", "sky"]
+paths = ["crates/fnv-world/src/sky.rs", "crates/fnv-world/src/imagespace.rs"]
+args = ["--explore", "--cell", "28,16", "--pos=116992,66816,2420", "--heading", "0", "--pitch", "0", "--hour", "6", "--weather", "NVWastelandClear"]
+run_seconds = 14
+expect = [
+  { re = 'sky: 06:0\d  climate NVDefaultClimate  weather NVWastelandClear .*grade: saturation 1\.0[0-5]', label = "at 06:00 the grade is well on to the sunrise's (1.01 here; the old keys gave 1.09-1.10 at 06:02)" },
+]
+forbid = ["Caught rendering error"]
