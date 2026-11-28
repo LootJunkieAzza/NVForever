@@ -1339,8 +1339,17 @@ impl<'a> Gen<'a> {
             }
             Kw::Break | Kw::Continue => {
                 if self.loops == 0 {
-                    self.diag("outside_a_loop", true, if matches!(kw, Kw::Break) { "break" } else { "continue" });
-                    return;
+                    let word = if matches!(kw, Kw::Break) { "break" } else { "continue" };
+                    if self.unknown_calls {
+                        // Mod sources compiled at runtime (e.g. LumenTimeOfDayPlayAnims.gek)
+                        // occasionally write top-level `continue` where `return` was meant:
+                        // warn and emit the opcode so the VM leaves the block instead of
+                        // aborting compilation [hypothesis]. Strict compilation keeps the error.
+                        self.diag("outside_a_loop", false, word);
+                    } else {
+                        self.diag("outside_a_loop", true, word);
+                        return;
+                    }
                 }
                 self.emit(None, if matches!(kw, Kw::Break) { op::X_BREAK } else { op::X_CONTINUE }, &[]);
             }

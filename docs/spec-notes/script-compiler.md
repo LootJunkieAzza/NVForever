@@ -376,7 +376,10 @@ expression parser), `vm.rs` (`xeval`).
   round counts against the run's step budget (100,000 statements), so a loop that never
   ends stops the script [decision; what the original does is to be observed, B4]. A
   `loop` without its `while`, `break` or `continue` outside a loop, and a block ending
-  inside a loop are compile errors [hypothesis: as the editor refuses them, G2].
+  inside a loop are compile errors [hypothesis: as the editor refuses them, G2]. In mod
+  sources compiled at runtime (`Seed::unknown_calls`, e.g. `CompileScript`), a top-level
+  `break` or `continue` warns and still emits its opcode so the VM leaves the block as
+  `return` does [hypothesis].
 
 **NVForever's own byte forms.** The extender's own byte encodings are not known here
 (extender-compat.md §5.2), and none is needed: the compiler writes the extended statements
