@@ -45,15 +45,23 @@ ran.
     (`Player` `0x00000014` when placed on the player; `0` when there is no source actor
     [observed: showoff1]).
 - `GetExplosionHitDamage` read 100 inside the handler; after `SetExplosionHitDamage 5` the
-  player lost 5 Health [observed]. Both are unusable outside the event [documented]; outside
-  it NVForever reads 0 and ignores a set.
+  player lost 5 Health [observed]. Both are unusable outside the event [documented].
+  Inside a `ShowOff:OnExplosionHit` handler, `GetExplosionHitDamage` reads pre-armor damage
+  (`100.0` even with `DT = 50`, where the player loses `75.0` Health, and
+  `SetExplosionHitDamage 30` yields `9.0` Health loss after armor DT), with `rad=192.0`
+  and `srcP=0`, while outside the handler `GetExplosionHitDamage` returns **`-1.0`**
+  [observed: 2026-11-24, Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  `tools/capture/nvse/catalogs/wave6d1_get_explosion_hit_damage_outside.json` probe
+  `w6d1_18_on_explosion_hit_armor_dt`:
+  `PROBE|w6d1_18_on_explosion_hit_armor_dt|dt50(dmg=100.0,loss=75.0)|set30(dmg=100.0,loss=9.0)|rad=192.0,srcP=0,out=-1.0`;
+  no binary, DLL, PDB, or third-party source consulted]. Outside the handler, NVForever
+  ignores `SetExplosionHitDamage` [documented: unusable outside the event; design: no-op].
 - NVForever asks for the damage in the engine's blast loop (`Game::explosion_hit_with_context`,
   passing the live `expl_ref` as calling reference and `cause.map(|c| c.actor).or(source)` as
   the source actor argument, including the caller ref forwarded by `PlaceAtMe` via
   `CombatRequest::Explode { source }` without fabricating a weapon `Cause`), before armour is
-  taken off, and deals what the handlers leave
-  [hypothesis: whether the original's value is before or after armour is not measured; the
-  player in nvfairport took exactly the set value].
+  taken off, and deals what the handlers leave, matching the observed pre-armor DT behavior.
 
 ## 3. SetOnAuxTimerStopHandler
 
@@ -144,7 +152,7 @@ lab `L5.ext.showoff2`): 49 of 50 rows match.
 | GetEquippedWeapon | the equipped weapon's base, Fists (000001F4) when none [documented] |
 | IsEquippedWeaponMelee, IsEquippedWeaponRanged, IsWeaponMelee `[weapon]` | melee is a weapon type (DNAM animation type) of 2 or below [documented: "type is <= 2"]; with no weapon, melee 1 and ranged 0 [documented] |
 | GetItemCanHaveHealth `[item]` | a weapon or armor [documented] |
-| IsLimbCrippled `[limb] [threshold]`, GetCrippledLimbsAsBitMask `[threshold]`, GetNumCrippledLimbs `[threshold]` | a limb's condition at or below the threshold (0); limbs head 0 … brain 6, bits head 1 … brain 64; -1 or none any limb [documented; observed: DamageAV 200 on the left leg gives 16, 1, 1] |
+| IsLimbCrippled `[limb] [threshold]`, GetCrippledLimbsAsBitMask `[threshold]`, GetNumCrippledLimbs `[threshold]` | a limb's condition at or below the threshold (0); limbs head 0 … brain 6, bits head 1 … brain 64; -1 or none any limb, while out-of-range limb indices including `7` and `-2` return `0` [documented; observed: DamageAV 200 on the left leg gives 16, 1, 1; 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE Plugin 184 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_39_showoff_limb_crippled_bitmask_count_and_thresholds` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `init(m=0,c=0,any=0)\|bits(1,2,4,8,16,32,64)\|hd(i0=1,any=1,o7=0,m2=0,dmg=100)\|thr(t24=0,t25=1,t26=1,m50=3,c50=2)`; no DLL or source consulted] |
 | GetActorValueDamage (GetAVDamage) `av` | the damage, no more than the value had [observed: DamageAV 200 on a limb of 100 reads 100] |
 | GetActorValueName (GetAVName) `code` | the script name: 1 Confidence, 25 PerceptionCondition, 76 DamageThreshold, no spaces [observed]. The game compiles the code only in parentheses, as the page's example has it |
 | GetAmmoName `[type] [ammo]`, SetAmmoName `name [type] [ammo]` | 0 FULL, 1 ONAM (the short name), 2 QNAM (the abbreviation) [documented: the page; xEdit AMMO]; a name the record lacks reads "<no name>" [observed: 10mm's abbreviation] |

@@ -1082,7 +1082,7 @@ fn register_graphics(app: &mut App) {
         Setting {
             key: "light-shadows",
             group: GROUP_GRAPHICS,
-            label: "ALC shadows",
+            label: "ALCS (experimental)",
             note: LIGHT_SHADOWS_NOTE,
             switches: "--light-shadows",
             get: |_| false,
@@ -1350,8 +1350,8 @@ fn register_graphics(app: &mut App) {
         ),
         (
             "water-effects",
-            "Water caustics and river flow",
-            "Sunlight shifts across shallow beds. Deeper water looks murkier from shore and underwater. Selected rivers drift downstream.",
+            "Enhanced water effects",
+            "Sunlight shifts across shallow beds. Deeper water looks murkier. Selected rivers flow, shorelines lap, and shots and blasts disturb the surface.",
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().water_effects,
             |w, on| w.resource_mut::<Graphics>().water_effects = on,
@@ -1849,9 +1849,10 @@ fn take_shadow_resolution(w: &mut World, text: &str) -> bool {
     }
 }
 
-/// The ALC shadows row's note (light_shadows.rs; ALC: All Lights Cast, the user-visible
+/// The ALCS (experimental) row's note (light_shadows.rs; ALCS: All Lights Cast Shadows; the
+/// row was ALC shadows until 2026-11-24 and Lamp shadows until 2026-11-19; the user-visible
 /// name since 2026-11-19, once Lamp shadows; the INI key stays `light-shadows`).
-const LIGHT_SHADOWS_NOTE: &str = "ALC (All Lights Cast): lamps, fires and spot lights cast shadows in the shadow distance; Performance redraws less often. Costs frame rate. Not in the original.";
+const LIGHT_SHADOWS_NOTE: &str = "ALCS (All Lights Cast Shadows): lamps, fires and spot lights cast shadows in the shadow distance; Performance casts fewer. Costs frame rate. Not in the original.";
 
 fn light_shadows_chosen(w: &World) -> String {
     let choice = w.get_resource::<crate::light_shadows::LightShadows>().map_or(0, |l| l.choice);

@@ -37,7 +37,10 @@ fn every_world_material_compiles_with_physical_pbr() {
         ),
         ("nvforever/terrain.wesl", &["NVF_PHYSICAL_PBR"][..]),
         ("nvforever/grass.wesl", &[][..]),
+        // Canopy shading (part 3b of #3828's split).
+        ("nvforever/grass.wesl", &["NVF_PHYSICAL_PBR", "NVF_CANOPY", "VERTEX_UVS_B", "VERTEX_COLORS"][..]),
         ("nvforever/tree.wesl", &["TREE_LEAVES"][..]),
+        ("nvforever/tree.wesl", &["TREE_LEAVES", "NVF_PHYSICAL_PBR", "NVF_CANOPY", "VERTEX_UVS_B", "VERTEX_COLORS"][..]),
         ("nvforever/tree.wesl", &["TREE_LEAVES", "NVF_CROWN_SHADOW"][..]),
         ("bevy_pbr/render/pbr.wesl", &[][..]),
     ] {

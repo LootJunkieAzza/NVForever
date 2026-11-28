@@ -3619,8 +3619,10 @@ pub fn drive(
     let starting = screen.as_deref().is_some_and(|l| l.starting());
     let all = res.all;
     // Who staggers (a hit reaction playing) stands until it ends.
-    res.core.on_furniture = seated.iter().map(|v| v.0).collect();
-    res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
+    res.core.on_furniture.clear();
+    res.core.on_furniture.extend(seated.iter().map(|v| v.0));
+    res.core.staggering.clear();
+    res.core.staggering.extend(flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0));
     // So does a creature drawing its stance (#2686), from the frame before.
     let drawing: HashSet<u32> = stances.iter().filter(|(_, s)| s.holds_in_place()).map(|(v, _)| v.0).collect();
     for id in drawing.difference(&res.core.drawing) {
@@ -3756,13 +3758,13 @@ pub fn drive(
     if nav.travellers.is_empty() {
         nav.lead = core.list.first().and_then(|r| core.ai.agents.get(&r.actor)).map(|a| Lead { space: a.walker.space, feet: a.walker.feet, heading: a.walker.heading });
     }
-    let on_furniture: HashSet<u32> = seated.iter().map(|v| v.0).collect();
+    // Reuse `core.on_furniture` already populated from `seated` above instead of allocating a duplicate HashSet [design].
     // Above 60 fps a frame gets the same share of itself (stream_pace.rs).
     let mut budget = pace.count(SPAWNS_PER_FRAME);
     let _span = info_span!("ai::draw_and_place").entered();
     for r in core.list.iter_mut().filter(|r| r.joined && !r.failed) {
         // Furniture: sit once drawn; get up before leaving.
-        let on = on_furniture.contains(&r.actor.0);
+        let on = core.on_furniture.contains(&r.actor.0);
         let entity = r.root.filter(|_| r.spawned);
         let wants = r.wants;
         let restart = std::mem::take(&mut r.restart);

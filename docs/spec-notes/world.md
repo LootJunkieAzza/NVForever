@@ -1372,7 +1372,8 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
     fades from sunset to night roughly linearly in display values from about 19:05 to
     20:35 [observed], later than the renderer's night key at sunset end (20:00). Not
     changed: moving the night key or blending in display values changes every weather
-    colour and needs its own check.
+    colour and needs its own check. (Moved on 2026-11-27, to 40 minutes after sunset end:
+    "Night key beyond sunrise and sunset".)
   - *Light on surfaces* [observed, offline fit: game frames with the grade undone (the
     renderer's grade at that hour) against ambient-only and sun-only renders without
     tonemapper, grade or shadows, 160 × 90, 28 frames 07:36-20:06]: a lighting sum in
@@ -1676,9 +1677,46 @@ Code: `engine/nvforever/src/underwater.rs` (`fog_bytes`, `DEEP_AT`).
 - **Left**: (a) looking up from just below the surface the original shows the sky and
   clouds faintly, near the water's colour ((67, 70, 47) at the top of the Pitt frame);
   ours shows the sky brightly ((128, 133, 116)): the sky is not fogged by the camera's
-  fog. (b) At 06:00 and 20:00 ours is still on the night's grade ((34, 44, 40)) where
-  the original is part of the way to the day's. (c) Whether 1,000 is the water's under
-  fog near or a constant: both waters measured store −1,000.
+  fog. (b) Settled below ("Night key beyond sunrise and sunset"). (c) Whether 1,000 is
+  the water's under fog near or a constant: both waters measured store −1,000.
+
+### Night key beyond sunrise and sunset (#2916, 2026-11-27)
+
+Code: `crates/fnv-world/src/sky.rs` `time_keys`, `NIGHT_KEY_BEYOND`.
+
+- **The original** [observed: observer job o35_uw_dawn, the Lake Mead spot above (cell
+  (28, 16), feet 300 below the 2,600 surface), NVWastelandClear forced, mean display colour
+  of the whole 1280×720 frame, the clock 0.04 h past each hour; NVDefaultClimate's TNAM:
+  sunrise 6:00-8:00, sunset 18:00-20:00 (36, 48, 108, 120 in tens of minutes)]:
+
+  | Hour | 04:30-05:00 | 05:30 | 06:00 | 06:30 | 07:00 | 07:30 | 08:00 |
+  |---|---|---|---|---|---|---|---|
+  | Under water | 32, 42, 37 | 32, 42, 36 | 41, 48, 34 | 48, 52, 33 | 54, 59, 34 | 60, 66, 35 | 67, 76, 34 |
+  | Sky, 45° up above the surface | 5, 6, 11 | 9, 10, 17 | 66, 60, 77 | 101, 86, 110 | 117, 103, 123 | 121, 112, 119 | 128, 124, 122 |
+
+  | Hour | 18:00 | 18:30 | 19:00 | 19:30 | 20:00 | 20:30 | 21:00 |
+  |---|---|---|---|---|---|---|---|
+  | Under water | 66, 75, 34 | 58, 62, 28 | 48, 48, 24 | 43, 44, 22 | 39, 43, 28 | 32, 42, 37 | 32, 42, 37 |
+  | Sky | 128, 124, 121 | 128, 113, 112 | 123, 100, 101 | 108, 85, 88 | 59, 51, 59 | 7, 8, 14 | 6, 7, 13 |
+
+  The under-water red rises evenly from about 5:20 to 8:00 and falls back to night by
+  20:30. The dusk sky series further up ("West sky at dusk") ends near 20:35 too.
+- **As built** [hypothesis, fitted]: the night key lies a third of the transition's length
+  outside it, 40 minutes for the Mojave's two hours: night until 5:20, the sunrise
+  colours at 7:00, day from 8:00; day until 18:00, the sunset colours at 19:00, night from
+  20:40. It moves every keyed colour and adapter (weather colours, the grade, the sun
+  dimmer's blend), not only the water's. Before, night held until 6:00 and came back at
+  20:00.
+- **Ours, the same spot** (explorer camera 180 units down, where the original's eye was;
+  ours reads about +5 per channel at night and at noon alike, from the camera depth):
+  05:00 (37, 47, 42), 05:30 (39, 48, 41), 06:00 (46, 53, 39), 06:30 (51, 56, 38),
+  07:00 (56, 60, 39), 07:30 (64, 69, 39), 08:00 (72, 81, 38); 18:00 (71, 79, 38),
+  18:30 (61, 65, 32), 19:00 (50, 49, 25), 19:30 (48, 49, 28), 20:00 (44, 48, 33),
+  20:30 (39, 47, 39), 21:00 (37, 47, 42). With the 5 taken off, every hour is within 4 of
+  the original. Before the change 06:00 and 20:00 were both full night.
+- Not checked: other climates' transitions (the third is fitted to 2-hour ones only), the
+  sky colours by the hour against the table above, and the parity lab's
+  `L3.frame.goodsprings_dusk` frame (19:06).
 
 ### Sunlight Dimmer (Old World Blues comparison F1, 2026-10-23)
 
