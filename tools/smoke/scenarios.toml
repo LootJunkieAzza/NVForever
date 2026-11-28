@@ -24297,7 +24297,7 @@ name = "mq-that-lucky-old-sun"
 kind = "tool"
 source = "headless walkthrough crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json: That Lucky Old Sun (VMS03): Haggerty (5), Fantastic (10), terminals, generator, tower console, Fantastic thanked (completed)"
 areas = ["quests", "scripts", "dialogue"]
-paths = ["crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+paths = ["crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json"]]
 expect = [
   { json = "observations.?label=milestone: VMS03 5.running", equals = true, label = "that-lucky-old-sun, milestone: VMS03 5: running = true" },
@@ -24308,6 +24308,8 @@ expect = [
   { json = "observations.?label=final: VMS03 10.done.10", equals = true, label = "that-lucky-old-sun, final: VMS03 10: done.10 = true" },
   { json = "observations.?label=final: VMS03 10.objective.20.displayed", equals = true, label = "that-lucky-old-sun, final: VMS03 10: objective.20.displayed = true" },
   { json = "observations.?label=final: VMS03 10.objective.30.displayed", equals = true, label = "that-lucky-old-sun, final: VMS03 10: objective.30.displayed = true" },
+  { json = "observations.?label=fantastic goodbye.info", equals = "0x000E360D", label = "that-lucky-old-sun: saying goodbye, Fantastic says his password line (GOODBYE 0x000E360D, observer check 46, #1113)" },
+  { json = "observations.?label=west password.value", equals = 1.0, label = "that-lucky-old-sun: the player has the west terminal's password note (its AddNote names no reference; check 46)" },
   { json = "observations.?label=final: VMS03 completed.completed", equals = true, label = "that-lucky-old-sun, final: VMS03 completed: completed = true" },
   { json = "observations.?label=final: VMS03 completed.objective.80.completed", equals = true, label = "that-lucky-old-sun, final: VMS03 completed: objective.80.completed = true" },
   { json = "steps.*.error", count = 0, label = "that-lucky-old-sun: no step fails" },
