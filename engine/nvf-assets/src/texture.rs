@@ -1188,6 +1188,10 @@ pub enum SolidTexels {
     /// Of the texels a lower cut would take (`nif_spawn::SOLID_CORE_CUT`), all but a quarter at
     /// most are solid: the rest are the edges of what is solid (a border, a filtered seam).
     Mostly,
+    /// [`SolidTexels::Mostly`], and nine tenths of all its texels are solid: a surface to the eye
+    /// with little that is see-through (the Goodsprings water tank's: 96 %). Its shapes without
+    /// an environment map have their core at all times, not for the light in the air alone (#4290) [engineering choice].
+    Whole,
 }
 
 impl SolidTexels {
@@ -1196,14 +1200,15 @@ impl SolidTexels {
         match self {
             SolidTexels::None => None,
             SolidTexels::Some => Some(crate::nif_spawn::SOLID_CORE_CUT_THIN),
-            SolidTexels::Mostly => Some(crate::nif_spawn::SOLID_CORE_CUT),
+            SolidTexels::Mostly | SolidTexels::Whole => Some(crate::nif_spawn::SOLID_CORE_CUT),
         }
     }
 
-    /// From how many texels the lower cut would take and how many of them are solid.
-    fn of(taken: usize, solid: usize) -> SolidTexels {
+    /// From how many texels there are, how many the lower cut would take and how many are solid.
+    fn of(all: usize, taken: usize, solid: usize) -> SolidTexels {
         match solid {
             0 => SolidTexels::None,
+            n if n * 10 >= all * 9 => SolidTexels::Whole,
             n if n * 4 >= taken * 3 => SolidTexels::Mostly,
             _ => SolidTexels::Some,
         }
@@ -1221,8 +1226,9 @@ pub fn alpha_solidity(bytes: &[u8]) -> Option<SolidTexels> {
     let top = *dds.levels.first()?.first()?;
     let (w, h) = (dds.header.width as usize, dds.header.height as usize);
     let least = (crate::nif_spawn::SOLID_CORE_CUT * 255.0).ceil() as u8;
-    let (mut taken, mut solid) = (0usize, 0usize);
+    let (mut all, mut taken, mut solid) = (0usize, 0usize, 0usize);
     let mut count = |a: u8| {
+        all += 1;
         taken += usize::from(a >= least);
         solid += usize::from(a >= SOLID_ALPHA);
     };
@@ -1249,7 +1255,7 @@ pub fn alpha_solidity(bytes: &[u8]) -> Option<SolidTexels> {
         | Format::Bc5U | Format::Bc5S | Format::Bc4U | Format::Bc4S => return Some(SolidTexels::Mostly),
         Format::Bc7 => return Some(SolidTexels::Some),
     }
-    Some(SolidTexels::of(taken, solid))
+    Some(SolidTexels::of(all, taken, solid))
 }
 
 /// A texture's top-level alpha, one byte per texel, rows from the top.
@@ -1393,7 +1399,7 @@ impl WorkerTextures {
 
     /// Whether the texture at a NIF texture path is solid ([`alpha_solidity`]), how far;
     /// false for a file that is missing or does not parse. Reads the file: call it on a task
-    /// (nvforever `solid_cores.rs` does, and only while cores are wanted). Read once per
+    /// (nvforever `solid_cores.rs` does). Read once per
     /// file and remembered, as [`Self::alpha_is_mask`].
     pub fn solid_texels(&self, raw_path: &str, data: &GameData) -> SolidTexels {
         let path = resolved_path(raw_path, |p| data.vfs.exists(p));
@@ -1749,8 +1755,13 @@ mod tests {
         // A solid texel: alpha 250 or more, in any block; DXT1's clear texels are 0.
         use super::SolidTexels;
         let solidity = |blocks: &[u8], w: u32| super::alpha_solidity(&dds(b"DXT5", w, 4, blocks));
-        assert_eq!(solidity(&dxt5_block(255), 4), Some(SolidTexels::Mostly));
-        assert_eq!(solidity(&dxt5_block(250), 4), Some(SolidTexels::Mostly));
+        assert_eq!(solidity(&dxt5_block(255), 4), Some(SolidTexels::Whole));
+        assert_eq!(solidity(&dxt5_block(250), 4), Some(SolidTexels::Whole));
+        // Nine tenths of all the texels: 9 blocks of 10, not 8, clear ones counted.
+        let of_ten = |solid: usize| [vec![dxt5_block(255); solid], vec![dxt5_block(0); 10 - solid]].concat().concat();
+        assert_eq!(solidity(&of_ten(9), 40), Some(SolidTexels::Whole));
+        assert_eq!(solidity(&of_ten(8), 40), Some(SolidTexels::Mostly));
+        assert_eq!(SolidTexels::Whole.cut(), SolidTexels::Mostly.cut());
         assert_eq!(solidity(&dxt5_block(249), 4), Some(SolidTexels::None));
         // Clear texels do not count against it; a pane's do, though one texel is solid.
         assert_eq!(solidity(&[dxt5_block(0), dxt5_block(255)].concat(), 8), Some(SolidTexels::Mostly));

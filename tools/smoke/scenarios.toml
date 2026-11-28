@@ -37179,7 +37179,7 @@ forbid = [
 
 [[scenario]]
 name = "volumetric-light-solid-cores"
-source = "[design, #3032 stage 3] docs/design/volumetric-medium.md (Solid cores of blended shapes), engine/nvforever/src/solid_cores.rs, engine/nvf-assets/src/nif_spawn.rs (solid_core_rules, solid_core) and texture.rs (alpha_solidity): the light in the air by its row, by the Goodsprings water tank (reference 00106B5E at -68245,591,8183 [documented: FalloutNV.esm REFR DATA], about 1,540 units off at heading 176; nv_watertank.nif, NiAlphaProperty flags 4333: blend on, no test) at 07:00 under NVWastelandHazy: the loaded cells' blended shapes with solid texels get their core draws, so they are in the depth the composite reads, and the light is composed, without a shader, pipeline or rendering error. With the light off there is none: volumetric-light-off. Smoke cannot read the depth at a pixel: that the tank is solid in it is checked by hand in pictures of the light alone (NVF_PLAY_DEBUG_SOLID_CORES=off for the pair)"
+source = "[design, #3032 stage 3] docs/design/volumetric-medium.md (Solid cores of blended shapes), engine/nvforever/src/solid_cores.rs, engine/nvf-assets/src/nif_spawn.rs (solid_core_rules, solid_core) and texture.rs (alpha_solidity): the light in the air by its row, by the Goodsprings water tank (reference 00106B5E at -68245,591,8183 [documented: FalloutNV.esm REFR DATA], about 1,540 units off at heading 176; nv_watertank.nif, NiAlphaProperty flags 4333: blend on, no test) at 07:00 under NVWastelandHazy: the loaded cells' blended shapes with solid texels get their core draws, so they are in the depth the composite reads, and the light is composed, without a shader, pipeline or rendering error. With the light off there is none but those of nearly whole textures (solid-shapes-tank): volumetric-light-off. Smoke cannot read the depth at a pixel: that the tank is solid in it is checked by hand in pictures of the light alone (NVF_PLAY_DEBUG_SOLID_CORES=off for the pair)"
 areas = ["renderer", "graphics", "models"]
 paths = ["engine/nvforever/src/solid_cores.rs", "engine/nvforever/src/medium_air_compose*", "engine/nvforever/src/medium_air_demand.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_material*", "engine/nvf-assets/src/nif_prepass.wesl"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_LOOK = "1:176:0" }
@@ -37204,7 +37204,7 @@ forbid = [
 
 [[scenario]]
 name = "volumetric-light-solid-cores-tank"
-source = "[design, #3032 stage 3] volumetric-light-solid-cores with the aid that names the tank's own cores: docs/design/volumetric-medium.md (Solid cores of blended shapes), engine/nvforever/src/solid_cores.rs, engine/nvf-assets/src/nif_spawn.rs (solid_core_rules, solid_core) and texture.rs (alpha_solidity): the light in the air by its row, by the Goodsprings water tank (reference 00106B5E at -68245,591,8183 [documented: FalloutNV.esm REFR DATA], about 1,540 units off at heading 176; nv_watertank.nif, NiAlphaProperty flags 4333: blend on, no test) at 07:00 under NVWastelandHazy: the loaded cells' blended shapes with solid texels get their core draws, so they are in the depth the composite reads, and the light is composed, without a shader, pipeline or rendering error. With the light off there is none: volumetric-light-off. Smoke cannot read the depth at a pixel: that the tank is solid in it is checked by hand in pictures of the light alone (NVF_PLAY_DEBUG_SOLID_CORES=off for the pair)"
+source = "[design, #3032 stage 3] volumetric-light-solid-cores with the aid that names the tank's own cores: docs/design/volumetric-medium.md (Solid cores of blended shapes), engine/nvforever/src/solid_cores.rs, engine/nvf-assets/src/nif_spawn.rs (solid_core_rules, solid_core) and texture.rs (alpha_solidity): the light in the air by its row, by the Goodsprings water tank (reference 00106B5E at -68245,591,8183 [documented: FalloutNV.esm REFR DATA], about 1,540 units off at heading 176; nv_watertank.nif, NiAlphaProperty flags 4333: blend on, no test) at 07:00 under NVWastelandHazy: the loaded cells' blended shapes with solid texels get their core draws, so they are in the depth the composite reads, and the light is composed, without a shader, pipeline or rendering error. With the light off there is none but those of nearly whole textures (solid-shapes-tank): volumetric-light-off. Smoke cannot read the depth at a pixel: that the tank is solid in it is checked by hand in pictures of the light alone (NVF_PLAY_DEBUG_SOLID_CORES=off for the pair)"
 areas = ["renderer", "graphics", "models"]
 paths = ["engine/nvforever/src/solid_cores.rs", "engine/nvforever/src/medium_air_compose*", "engine/nvforever/src/medium_air_demand.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_material*", "engine/nvf-assets/src/nif_prepass.wesl"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_LOOK = "1:176:0", NVF_PLAY_DEBUG_SOLID_CORES = "ref:00106B5E" }
@@ -37370,12 +37370,32 @@ expect = [
   { text = "test aid NVF_PLAY_TEST_PIPELINE_LOG: each pipeline logged", label = "the pipeline log is on, so an asked pipeline of the light would show" },
 ]
 forbid = [
-  { text = "solid cores:", label = "off means off: no solid core is made, and no line of them (solid_cores.rs)" },
+  { text = "solid cores:", label = "off means off: no line of the light's solid cores (solid_cores.rs; those always drawn log 'solid shapes:', #4290; that none of the light's is drawn is unit-tested)" },
   { text = "light in the air", label = "off means off: no line of the light at all" },
   { re = 'pipeline \d+ asked: medium_air_', label = "off means off: no pipeline of the light is asked for" },
   { re = '(?i)validation error|wgpu error', label = "a wgpu validation error" },
   { text = "Caught rendering error", label = "a rendering (validation) error" },
   { text = "panicked", label = "a panic" },
+]
+
+[[scenario]]
+name = "solid-shapes-tank"
+source = "[observed for the look, design for the means; #4290] docs/spec-notes/nif.md (Solid shapes that blend), engine/nvforever/src/solid_cores.rs, engine/nvf-assets/src/texture.rs (SolidTexels::Whole): with the light in the air off the Goodsprings water tank (reference 00106B5E, nv_watertank.nif, flags 4333) has its solid core, so its end hides the hatch (the count line does not name the tank: the frame tells), without a shader, pipeline or rendering error. Smoke cannot read which surface won a pixel: the frame is for the eye"
+areas = ["renderer", "models"]
+paths = ["engine/nvforever/src/solid_cores.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "1:180:12", NVF_PLAY_TEST_SHOTS = "14:solid_shapes_tank.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68245,1900,8230", "--hour", "12", "--weather", "NVWastelandClear", "--msaa", "4", "--graphics", "vanilla"]
+run_seconds = 18
+manual = "solid_shapes_tank.png: the tank's end from below; the hatch on top shows only above the tank's outline, not in front of it"
+expect = [
+  { re = 'solid shapes: [1-9]\d* \(draws of [1-9]\d* materials whose texture is nearly all solid\)', label = "the tank's kind has its core with the light off" },
+]
+forbid = [
+  { text = "solid cores:", label = "no line of the light's cores" },
+  { re = '(?i)validation error|wgpu error', label = "a wgpu validation error with the solid shapes" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the solid shapes" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good with the solid shapes" },
+  { text = "panicked", label = "a panic with the solid shapes" },
 ]
 
 [[scenario]]

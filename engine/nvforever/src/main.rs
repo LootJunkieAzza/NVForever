@@ -2081,7 +2081,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, volumetric_clouds::VolumetricCloudsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
     // The volumetric medium's light in the air (#3032 stage 3; off unless its row or its debug aid asks).
     .add_plugins((medium_air_grid::MediumAirPlugin, medium_air_light::AirLightPlugin))
-    // Its solid cores of blended shapes (only while the light is drawn).
+    // Its solid cores of blended shapes (most only while the light is drawn).
     .add_plugins(solid_cores::SolidCoresPlugin)
     // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
     // Physical lighting's image-based light from the sky (graphics-enhanced.md §3.25); idle
