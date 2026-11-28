@@ -352,12 +352,30 @@ struct GuardedSource<S> {
     buf: [rodio::Sample; GUARD_CHUNK],
     pos: usize,
     len: usize,
+    /// Format of the span currently held in `buf[pos..len]`, preserved until the buffer
+    /// drains so mid-stream format changes on `inner` do not leak into the previous span.
+    buf_channels: rodio::ChannelCount,
+    buf_sample_rate: rodio::SampleRate,
+    /// True when the chunk in `buf` reached the end of `inner`'s current span (or EOF),
+    /// so `current_span_len` must report `Some(len - pos)` instead of adding the next span.
+    span_ended: bool,
     dead: bool,
 }
 
 impl<S: Source> GuardedSource<S> {
     fn new(inner: S) -> Self {
-        GuardedSource { inner, buf: [0.0; GUARD_CHUNK], pos: 0, len: 0, dead: false }
+        let buf_channels = inner.channels();
+        let buf_sample_rate = inner.sample_rate();
+        GuardedSource {
+            inner,
+            buf: [0.0; GUARD_CHUNK],
+            pos: 0,
+            len: 0,
+            buf_channels,
+            buf_sample_rate,
+            span_ended: false,
+            dead: false,
+        }
     }
 }
 
@@ -377,31 +395,43 @@ impl<S: Source> Iterator for GuardedSource<S> {
         let inner = &mut self.inner;
         let buf = &mut self.buf;
         match nvf_assets::guard::guarded(|| {
-            let limit = match inner.current_span_len() {
+            let span_before = inner.current_span_len();
+            let channels = inner.channels();
+            let sample_rate = inner.sample_rate();
+            let limit = match span_before {
                 Some(0) => 1,
                 Some(n) => n.min(GUARD_CHUNK),
                 None => GUARD_CHUNK,
             };
             let mut n = 0;
+            let mut eof = false;
             while n < limit {
                 match inner.next() {
                     Some(x) => {
                         buf[n] = if x.is_finite() { x } else { 0.0 };
                         n += 1;
                     }
-                    None => break,
+                    None => {
+                        eof = true;
+                        break;
+                    }
                 }
             }
-            Ok(n)
+            let span_ended = eof || span_before.is_some_and(|s| s > 0 && n >= s);
+            Ok((n, channels, sample_rate, span_ended))
         }) {
-            Ok(0) => {
+            Ok((0, _, _, _)) => {
                 self.pos = 0;
                 self.len = 0;
+                self.span_ended = false;
                 None
             }
-            Ok(n) => {
+            Ok((n, channels, sample_rate, span_ended)) => {
                 self.pos = 1;
                 self.len = n;
+                self.buf_channels = channels;
+                self.buf_sample_rate = sample_rate;
+                self.span_ended = span_ended;
                 Some(self.buf[0])
             }
             Err(e) => {
@@ -409,6 +439,7 @@ impl<S: Source> Iterator for GuardedSource<S> {
                 self.dead = true;
                 self.pos = 0;
                 self.len = 0;
+                self.span_ended = false;
                 None
             }
         }
@@ -421,14 +452,26 @@ impl<S: Source> Source for GuardedSource<S> {
             Some(0)
         } else {
             let buffered = self.len - self.pos;
-            self.inner.current_span_len().map(|rem| buffered.saturating_add(rem))
+            if buffered > 0 && self.span_ended {
+                Some(buffered)
+            } else {
+                self.inner.current_span_len().map(|rem| buffered.saturating_add(rem))
+            }
         }
     }
     fn channels(&self) -> rodio::ChannelCount {
-        self.inner.channels()
+        if self.pos < self.len {
+            self.buf_channels
+        } else {
+            self.inner.channels()
+        }
     }
     fn sample_rate(&self) -> rodio::SampleRate {
-        self.inner.sample_rate()
+        if self.pos < self.len {
+            self.buf_sample_rate
+        } else {
+            self.inner.sample_rate()
+        }
     }
     fn total_duration(&self) -> Option<Duration> {
         self.inner.total_duration()
@@ -436,6 +479,7 @@ impl<S: Source> Source for GuardedSource<S> {
     fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
         self.pos = 0;
         self.len = 0;
+        self.span_ended = false;
         self.inner.try_seek(pos)
     }
 }
@@ -1951,5 +1995,108 @@ mod tests {
         assert_eq!(panicking.next(), None);
         assert_eq!(panicking.current_span_len(), Some(0));
         assert_eq!(panicking.next(), None);
+    }
+
+    #[test]
+    fn guarded_source_preserves_span_boundary_and_format_until_buffer_drains() {
+        // Multi-span decoder whose channels and sample_rate change immediately once the
+        // last sample of span 0 is pulled from `inner`.
+        struct MultiSpanSource {
+            spans: Vec<(u16, u32, Vec<f32>)>,
+            span_idx: usize,
+            sample_idx: usize,
+        }
+        impl MultiSpanSource {
+            fn current(&self) -> &(u16, u32, Vec<f32>) {
+                &self.spans[self.span_idx.min(self.spans.len() - 1)]
+            }
+        }
+        impl Iterator for MultiSpanSource {
+            type Item = rodio::Sample;
+            fn next(&mut self) -> Option<Self::Item> {
+                while self.span_idx < self.spans.len() {
+                    let samples = &self.spans[self.span_idx].2;
+                    if self.sample_idx < samples.len() {
+                        let v = samples[self.sample_idx];
+                        self.sample_idx += 1;
+                        if self.sample_idx == samples.len() && self.span_idx + 1 < self.spans.len() {
+                            self.span_idx += 1;
+                            self.sample_idx = 0;
+                        }
+                        return Some(v);
+                    }
+                    self.span_idx += 1;
+                    self.sample_idx = 0;
+                }
+                None
+            }
+        }
+        impl Source for MultiSpanSource {
+            fn current_span_len(&self) -> Option<usize> {
+                if self.span_idx >= self.spans.len() {
+                    Some(0)
+                } else {
+                    Some(self.spans[self.span_idx].2.len().saturating_sub(self.sample_idx))
+                }
+            }
+            fn channels(&self) -> rodio::ChannelCount {
+                std::num::NonZero::new(self.current().0).unwrap()
+            }
+            fn sample_rate(&self) -> rodio::SampleRate {
+                std::num::NonZero::new(self.current().1).unwrap()
+            }
+            fn total_duration(&self) -> Option<Duration> {
+                None
+            }
+        }
+
+        // Case 1: short span (< GUARD_CHUNK) followed by a different-format span.
+        let mut g = GuardedSource::new(MultiSpanSource {
+            spans: vec![
+                (1, 22_050, vec![0.1, 0.2, 0.3, 0.4, 0.5]),
+                (2, 48_000, vec![0.6, 0.7, 0.8, 0.9]),
+            ],
+            span_idx: 0,
+            sample_idx: 0,
+        });
+        assert_eq!((g.current_span_len(), g.channels().get(), g.sample_rate().get()), (Some(5), 1, 22_050));
+        for rem_after in (1..=4).rev() {
+            assert!(g.next().is_some());
+            assert_eq!(
+                (g.current_span_len(), g.channels().get(), g.sample_rate().get()),
+                (Some(rem_after), 1, 22_050),
+                "span 0 must keep its own remaining length and format while buffered"
+            );
+        }
+        // Draining the last sample of span 0 exposes span 1's length and format.
+        assert_eq!(g.next(), Some(0.5));
+        assert_eq!((g.current_span_len(), g.channels().get(), g.sample_rate().get()), (Some(4), 2, 48_000));
+        for rem_after in (0..=3).rev() {
+            assert!(g.next().is_some());
+            assert_eq!((g.current_span_len(), g.channels().get(), g.sample_rate().get()), (Some(rem_after), 2, 48_000));
+        }
+        assert_eq!(g.next(), None);
+
+        // Case 2: span longer than GUARD_CHUNK (256 + 5) transitioning to a second span.
+        let span0_len = GUARD_CHUNK + 5;
+        let mut g2 = GuardedSource::new(MultiSpanSource {
+            spans: vec![
+                (1, 22_050, vec![0.25; span0_len]),
+                (2, 44_100, vec![0.75; 7]),
+            ],
+            span_idx: 0,
+            sample_idx: 0,
+        });
+        for i in 0..span0_len {
+            assert_eq!(g2.next(), Some(0.25));
+            let rem = span0_len - 1 - i;
+            if rem > 0 {
+                assert_eq!((g2.current_span_len(), g2.channels().get(), g2.sample_rate().get()), (Some(rem), 1, 22_050));
+            } else {
+                assert_eq!((g2.current_span_len(), g2.channels().get(), g2.sample_rate().get()), (Some(7), 2, 44_100));
+            }
+        }
+        let rest: Vec<f32> = g2.collect();
+        assert_eq!(rest, vec![0.75; 7]);
     }
 }
