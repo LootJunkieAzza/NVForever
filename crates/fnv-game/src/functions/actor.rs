@@ -514,7 +514,7 @@ pub fn restore_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 }
 
 /// Move a value that grows (rads, needs) by `by`, never below 0.
-fn shift_growing(g: &mut Game, r: FormId, code: u16, by: f64) -> Result<(), String> {
+pub(crate) fn shift_growing(g: &mut Game, r: FormId, code: u16, by: f64) -> Result<(), String> {
     let now = actor_value(g, r, code)?;
     let to = (now + by).max(0.0);
     shift_base(g, r, code, to - now)
