@@ -1977,6 +1977,11 @@ name = "简体中文"
 "Tips Off" = "提示：关"
 "Caravan tips" = "Caravan 提示"
 "On: the Caravan table says what the chosen card does and why a card can't be played, and the menu has a Tips button. Off: only the game's short messages. Not in the original." = "开：Caravan 牌桌会说明所选卡牌的作用，以及某张卡牌为何不能打出，菜单里也有“提示”按钮。关：只显示游戏的简短消息。原版没有此功能。"
+# [design; engine/nvf-play/src/poker_tables.rs, reticle.rs] The Poker tables row and the crosshair's words at a poker table: NVForever's own words (not in the original).
+"Poker tables" = "扑克桌"
+"On: a few of the Strip casinos' blackjack tables become poker tables. Off: every table plays blackjack, as in the original." = "开：大道上赌场的几张二十一点桌变为扑克桌。关：所有牌桌都玩二十一点，与原版一致。"
+"Poker Table" = "扑克桌"
+"Play Poker" = "玩扑克"
 # [design; engine/nvf-play/src/caravan/guide.rs] The Caravan guide's lines: NVForever's own words. {card} is a card's name, {suit} a suit, {track} a caravan's name from the install.
 "Ace" = "A"
 "Jack" = "J"

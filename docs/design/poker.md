@@ -119,6 +119,19 @@ read off the pictures by eye [observed]; the code names the rectangles.
   `raise:<to>`, `allin`, `fold`, `auto` (the player's seat is played by the opponents'
   rules from then on), `next` (deal the next hand at once), `exit`. At exit, when the
   table was opened: "poker summary: …".
-- Not built: opening it from a table in a casino (no placed table in the game is a poker
-  table), a controller's buttons, the sounds of the player's own moves (cards dealt, chips
+- Not built: opening it from a table in a casino unless the `poker-tables` setting is on (§7;
+  no placed table in the game is a poker table), a controller's buttons, the sounds of the player's own moves (cards dealt, chips
   bet), chips of the casino instead of caps.
+
+## 7. Poker tables in the world (nvf-play `poker_tables.rs`)
+
+[design] The original has no poker table, so NVForever can turn a few of the Strip
+casinos' placed blackjack tables into poker tables: two of the Ultra-Luxe's six, one of
+Gomorrah's four and one of the Tops' three. They are picked by rule, not by FormID (`poker_tables::swapped`): the placed references to each casino's `BlackjackTable*` base object, the ones lying furthest toward one side (the Ultra-Luxe's two northmost, Gomorrah's westmost, the Tops' southmost) [design].
+
+- Off by default: the setting `poker-tables` (Gameplay > Game, "Poker tables") turns the
+  swap on. Off, every table is the original's blackjack table.
+- On, a swapped table's script still asks for blackjack (ShowBlackJackMenuParams) and the
+  engine opens poker at its casino instead; the crosshair names it "Poker Table" with
+  "Play Poker", and nvforever `poker_view.rs` draws a poker table over its blackjack
+  felt (its collision stays the blackjack table's).

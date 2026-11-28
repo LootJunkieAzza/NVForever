@@ -411,13 +411,22 @@ fn run_aid(
 }
 
 /// The menus scripts asked for (ShowBlackJackMenuParams), opened while playing.
-fn scripts_open(script: Option<ResMut<ScriptState>>, state: Res<State<PlayState>>, mut open: MessageWriter<OpenBlackjack>) {
+/// A poker table's (`crate::poker_tables`: a blackjack table's script) opens poker.
+fn scripts_open(script: Option<ResMut<ScriptState>>, state: Res<State<PlayState>>, mut open: MessageWriter<OpenBlackjack>, mut poker: MessageWriter<crate::poker::OpenPoker>, sim: Option<Res<SimState>>) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     if rt.game.blackjack_requests.is_empty() || *state.get() != PlayState::Playing {
         return;
     }
     if let Some(r) = rt.game.blackjack_requests.pop() {
-        open.write(OpenBlackjack(r));
+        match r.table.zip(sim.as_deref()).and_then(|(t, sim)| crate::poker_tables::casino_of(sim, t)) {
+            Some(casino) => {
+                info!("blackjack: {:?} is a poker table: poker at {}", r.table, casino.title());
+                poker.write(crate::poker::OpenPoker { casino, table: r.table });
+            }
+            None => {
+                open.write(OpenBlackjack(r));
+            }
+        }
     }
     rt.game.blackjack_requests.clear();
 }
@@ -833,7 +842,7 @@ fn won(outcomes: &[(Outcome, u32)]) -> Option<bool> {
 
 /// The highlight of a hand won.
 fn win_flourish(natural: bool) -> Flourish {
-    let text = if natural { tr("BLACKJACK") } else { tr("YOU WIN THE HAND") };
+    let text = if natural { "BLACKJACK" } else { "YOU WIN THE HAND" };
     Flourish { kind: Highlight::HandWon, text: text.into() }
 }
 
