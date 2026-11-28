@@ -519,6 +519,9 @@ pub struct Locomotion {
     /// as on main). A person waits for that fade's end: setting off would drop the old
     /// set's pose still showing (half crouched, say) in one frame [design, #3670].
     pub set_off_across_sets: bool,
+    /// Set true after this actor's bones have been sampled at least once so distance/off-screen
+    /// animation LOD never skips an actor's initial bind/idle pose [design].
+    sampled_once: bool,
 }
 
 /// [design, #2352] The creature set's pose-only idle below movement, stance, aim,
@@ -574,7 +577,7 @@ impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
         let mut blend = Blend::new(Move::Idle, phase);
         blend.set_off_at_once = true;
-        Locomotion { stand: set.clone(), set, blend, prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0, baseless_logged: false, bed_fade: false, set_off_across_sets: false }
+        Locomotion { stand: set.clone(), set, blend, prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0, baseless_logged: false, bed_fade: false, set_off_across_sets: false, sampled_once: false }
     }
 
     /// The standing set now (kNVSE's SetActorAnimationPath swaps it, anim_paths.rs).
@@ -1031,6 +1034,9 @@ pub struct ActorAnimCost {
 
 /// What [`drive`] reads and writes of an actor.
 type ActorAnimParts = (
+    Entity,
+    Option<&'static GlobalTransform>,
+    Option<&'static crate::limbs::ActorRig>,
     &'static mut Locomotion,
     &'static mut BlendPlayer,
     Option<&'static mut crate::weapons::WeaponHold>,
@@ -1047,6 +1053,74 @@ type ActorAnimParts = (
 /// Actors posed in one task of [`drive`] on the compute pool.
 const DRIVE_CHUNK: usize = 8;
 
+/// Reference distance thresholds (game units, at default 75° horizontal FOV) for staggered
+/// skeletal pose sampling of distant or behind-camera non-combat NPCs [design]. Forward
+/// thresholds scale with current camera FOV so zoomed/scoped views keep distant targets at
+/// full animation rate. Clocks and layers always step every frame; only bone sampling &
+/// transform writes are decimated beyond these thresholds.
+const LOD_HALF_DIST: f32 = 1200.0;
+const LOD_QUARTER_DIST: f32 = 2200.0;
+const LOD_BEHIND_DIST_SQ: f32 = 400.0 * 400.0;
+
+/// Angular magnification scale `tan(ref_vfov / 2) / tan(vfov / 2)` relative to the default
+/// 75° horizontal camera FOV [design]. Returns `1.0` at default FOV, `> 1.0` when zoomed
+/// in (e.g. through a rifle scope, pushing LOD thresholds further out), and `< 1.0` at
+/// wider FOVs (clamped below at `0.25`).
+fn lod_fov_scale(vfov: f32) -> f32 {
+    let ref_vfov = nvf_play::free_cam::vertical_fov(75.0);
+    let clamped = vfov.clamp(1.0_f32.to_radians(), 150.0_f32.to_radians());
+    ((ref_vfov * 0.5).tan() / (clamped * 0.5).tan()).max(0.25)
+}
+
+/// Sampling stride (1 = every frame, 2 = half rate, 4 = quarter rate) for an actor at
+/// displacement `delta` from the camera facing `cam_fwd` with magnification `fov_scale`
+/// ([`lod_fov_scale`]) [design].
+fn lod_stride(delta: Vec3, cam_fwd: Vec3, fov_scale: f32) -> u64 {
+    let dist_sq = delta.length_squared();
+    let half_sq = (LOD_HALF_DIST * fov_scale).powi(2);
+    let quarter_sq = (LOD_QUARTER_DIST * fov_scale).powi(2);
+    if dist_sq > quarter_sq
+        || (dist_sq > LOD_BEHIND_DIST_SQ && delta.dot(cam_fwd) < -0.25 * dist_sq.sqrt())
+    {
+        4
+    } else if dist_sq > half_sq {
+        2
+    } else {
+        1
+    }
+}
+
+/// Whether bone sampling for a living, standing actor may be skipped this frame under
+/// distance/off-camera LOD [design]. Never skips an actor's initial pose, nor actors that
+/// are flinching, speaking a talk clip, or in combat (`Alert`, `Combat`, `Lost`, or playing
+/// an attack).
+#[allow(clippy::too_many_arguments)]
+fn should_skip_lod_sample(
+    sampled_once: bool,
+    flinching: bool,
+    talking: bool,
+    in_combat: bool,
+    cam_pose: Option<(Vec3, Vec3, f32)>,
+    actor_pos: Option<Vec3>,
+    cur_frame: u64,
+    entity_index: u64,
+) -> bool {
+    if !sampled_once || flinching || talking || in_combat {
+        return false;
+    }
+    let (Some((cam_pos, cam_fwd, fov_scale)), Some(pos)) = (cam_pose, actor_pos) else {
+        return false;
+    };
+    let stride = lod_stride(pos - cam_pos, cam_fwd, fov_scale);
+    stride > 1 && !cur_frame.wrapping_add(entity_index).is_multiple_of(stride)
+}
+
+/// Main camera and optional 3D scope lens camera queries for [`drive`].
+type LodCamQueries<'w, 's> = (
+    Query<'w, 's, (&'static GlobalTransform, Option<&'static Projection>), (With<crate::fly::FlyCam>, Without<crate::scope_view::LensCamera>)>,
+    Query<'w, 's, (&'static Camera, &'static Projection), (With<crate::scope_view::LensCamera>, Without<crate::fly::FlyCam>)>,
+);
+
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
 /// (`weapons.rs`) and the idles it plays (`idles.rs`) layered on top.
 ///
@@ -1058,20 +1132,52 @@ pub fn drive(
     time: Res<Time>,
     mut actors: Query<ActorAnimParts>,
     mut transforms: Query<&mut Transform>,
+    (cam, lens): LodCamQueries<'_, '_>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
     mut cost: ResMut<ActorAnimCost>,
+    mut frame: Local<u64>,
 ) {
     let t0 = std::time::Instant::now();
+    *frame = frame.wrapping_add(1);
+    let cur_frame = *frame;
+    let ref_vfov = nvf_play::free_cam::vertical_fov(75.0);
+    let lens_vfov = lens
+        .iter()
+        .filter(|(c, _)| c.is_active)
+        .filter_map(|(_, p)| match p {
+            Projection::Perspective(pp) => Some(pp.fov),
+            _ => None,
+        })
+        .reduce(f32::min);
+    let cam_pose = cam.iter().next().map(|(g, proj)| {
+        let main_vfov = proj
+            .and_then(|p| match p {
+                Projection::Perspective(pp) => Some(pp.fov),
+                _ => None,
+            })
+            .unwrap_or(ref_vfov);
+        let eff_vfov = lens_vfov.map_or(main_vfov, |lv| main_vfov.min(lv));
+        (g.translation(), Vec3::from(g.forward()), lod_fov_scale(eff_vfov))
+    });
     let (dt, now) = (time.delta_secs(), time.elapsed_secs());
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let mut items: Vec<_> = actors.iter_mut().collect();
     // A dead actor's pose stands only while nothing else wrote its bones
     // (`BlendPlayer::pose_held`): asked here, before anything is written.
-    let written: Vec<bool> = items.iter().map(|it| it.3.is_some() && it.1.written_since(&mut transforms)).collect();
-    let mut jobs: Vec<(_, bool)> = items.iter_mut().zip(written).collect();
-    let one_chunk = |chunk: &mut [(&mut ActorAnimItem, bool)]| {
+    let flags: Vec<(bool, bool)> = items
+        .iter()
+        .map(|it| {
+            let written = it.6.is_some() && it.4.written_since(&mut transforms);
+            let in_combat = it.2.is_some_and(|r| game.is_some_and(|g| g.awareness.state(fnv_sim::FormId(r.reference)).in_combat()));
+            (written, in_combat)
+        })
+        .collect();
+    let mut jobs: Vec<(_, (bool, bool))> = items.iter_mut().zip(flags).collect();
+    let one_chunk = |chunk: &mut [(&mut ActorAnimItem, (bool, bool))]| {
         let mut c = ActorAnimCost::default();
         let (mut scratch, mut out) = (Vec::new(), Vec::new());
-        for (item, written) in chunk.iter_mut() {
-            drive_one(item, *written, dt, now, &mut scratch, &mut out, &mut c);
+        for (item, (written, in_combat)) in chunk.iter_mut() {
+            drive_one(item, *written, *in_combat, dt, now, cur_frame, cam_pose, &mut scratch, &mut out, &mut c);
         }
         (c, out)
     };
@@ -1097,9 +1203,21 @@ type ActorAnimItem<'w, 's> = bevy::ecs::query::QueryItem<'w, 's, ActorAnimParts>
 /// One actor of [`drive`]: its clips chosen and blended and its bones sampled into
 /// `out` (written by the caller); `written` is [`BlendPlayer::written_since`] for a dead
 /// one. Only the actor's own components are touched.
-fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32, scratch: &mut Vec<(usize, Transform)>, out: &mut Vec<(Entity, Transform)>, cost: &mut ActorAnimCost) {
-    let (lo, player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) = item;
-    let (flinch, seated, idle, name, talk) = (*flinch, *seated, *idle, *name, *talk);
+#[allow(clippy::too_many_arguments)]
+fn drive_one(
+    item: &mut ActorAnimItem<'_, '_>,
+    written: bool,
+    in_combat: bool,
+    dt: f32,
+    now: f32,
+    cur_frame: u64,
+    cam_pose: Option<(Vec3, Vec3, f32)>,
+    scratch: &mut Vec<(usize, Transform)>,
+    out: &mut Vec<(Entity, Transform)>,
+    cost: &mut ActorAnimCost,
+) {
+    let (entity, global, _rig, lo, player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) = item;
+    let (entity, global, flinch, seated, idle, name, talk) = (*entity, *global, *flinch, *seated, *idle, *name, *talk);
     // Set below for a standing actor's idle only.
     player.over_movement = 0;
     player.pose_only = None;
@@ -1253,8 +1371,24 @@ fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32,
     let layers = player.layers.iter().flatten().count() as u64 + u64::from(under);
     cost.layer_frames += layers;
     cost.blend_frames += u64::from(layers > 1);
-    cost.tracks += player.sample_into(scratch, out) as u64;
-    cost.actor_frames += 1;
+    // Distance / behind-camera animation LOD: clocks & layers stepped above, so audio and
+    // gameplay timing stay exact, while distant or off-screen non-combat NPCs decimate
+    // bone sampling & transform writes to cut Transform propagation and hitvol churn [design].
+    let skip_sample = should_skip_lod_sample(
+        lo.sampled_once,
+        flinch.is_some(),
+        talk.is_some(),
+        in_combat || lo.alerted || pose.as_deref().is_some_and(|p| p.attack.is_some()),
+        cam_pose,
+        global.map(GlobalTransform::translation),
+        cur_frame,
+        entity.index().index() as u64,
+    );
+    if !skip_sample {
+        lo.sampled_once = true;
+        cost.tracks += player.sample_into(scratch, out) as u64;
+        cost.actor_frames += 1;
+    }
 }
 
 impl ActorAnimCost {
@@ -2338,3 +2472,7 @@ mod tests {
         assert!(!replaced.clips.contains_key(&Move::Backward));
     }
 }
+
+#[cfg(test)]
+#[path = "locomotion_lod_tests.rs"]
+mod lod_tests;
