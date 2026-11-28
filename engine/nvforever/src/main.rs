@@ -42,6 +42,7 @@ mod fos_start;
 mod reports;
 mod native_crash;
 mod exit_watch;
+mod run_end;
 #[cfg(target_os = "linux")]
 mod native_crash_unix;
 mod camera_overlay;
