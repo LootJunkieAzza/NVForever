@@ -127,7 +127,7 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   #3679): `op(kw=10555,kwc=10558)|kw1(cmp=0,ret=-9)|kw2(cmp=1,ret=0)|kwc1(cmp=0,ret=-9)|kwc2(cmp=0,ret=-9)`
   — original JIP LN 57.30 compiles only 2-arg `HasKeyword form "keyword"` and refuses
   1-arg `ref.HasKeyword "keyword"`; no DLL or source consulted] and one-argument
-  `this.HasKeyWord "..."` [design: kNVSE JSON condition compatibility extension]; a
+  `this.HasKeyWord "..."` strictly inside kNVSE JSON condition evaluation (`AnimFolders::evaluating_condition`; regular scripts still require the 2-arg form) [design: kNVSE JSON condition compatibility extension]; a
   condition that fails to compile or run counts as false and is logged once).
   - Prior recorded [decision: the original checks a condition when the animation starts,
     or continually with `pollCondition` (hypothesis); a quarter second covers both closely

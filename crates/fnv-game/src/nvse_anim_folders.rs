@@ -151,6 +151,10 @@ pub struct AnimFolders {
     /// Stable `chances.txt` picks per actor, retained until the actor's equipped weapon,
     /// weapon mods, or matching entry set changes [design]. Not saved.
     picks: HashMap<FormId, CachedActorPicks>,
+    /// True strictly while evaluating a kNVSE `AnimGroupOverride` JSON condition so the
+    /// `[design]` 1-arg `ref.HasKeyword "keyword"` compatibility form is scoped to kNVSE
+    /// JSON conditions and never accepted in ordinary scripts (`nvse_jip2.rs`) [design].
+    pub(crate) evaluating_condition: bool,
 }
 
 impl Default for AnimFolders {
@@ -169,6 +173,7 @@ impl AnimFolders {
             warned: HashSet::new(),
             rng: ChaCha8Rng::seed_from_u64(seed ^ CHANCES_RNG_MIX),
             picks: HashMap::new(),
+            evaluating_condition: false,
         }
     }
 }
@@ -718,7 +723,11 @@ impl Game<'_> {
             return false;
         }
         if let Some(c) = &e.condition {
-            match self.evaluate_on(c, Some(a)) {
+            let prev = self.anim_folders.evaluating_condition;
+            self.anim_folders.evaluating_condition = true;
+            let result = self.evaluate_on(c, Some(a));
+            self.anim_folders.evaluating_condition = prev;
+            match result {
                 Ok(true) => {}
                 Ok(false) => return false,
                 Err(err) => {

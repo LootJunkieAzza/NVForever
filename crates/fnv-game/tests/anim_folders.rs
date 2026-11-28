@@ -321,12 +321,16 @@ fn polled_folder_conditions_poll_only_polled_entries_and_keep_non_polled_on_15_f
         ["AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf"],
         "cached non-polled Gun entry stays active without re-evaluation"
     );
-    // Reference-syntax `PlayerREF.HasKeyword "OwnedKnvseTag"` [design: kNVSE JSON condition
-    // compatibility extension; original JIP LN 57.30 compiles only 2-arg `HasKeyword form "kw"`
-    // per w4d_05_haskeyword_1arg_ref] reads the same keyword.
+    // Ordinary scripts follow observed JIP LN 57.30 (`w4d_05_haskeyword_1arg_ref`):
+    // 2-arg `HasKeyword form "keyword"` succeeds, while 1-arg `PlayerREF.HasKeyword "..."`
+    // is NOT accepted outside kNVSE JSON condition evaluation.
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (HasKeyword PlayerREF \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
+        fnv_script::vm::XVal::Num(1.0)
+    );
     assert_eq!(
         g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.HasKeyword \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
-        fnv_script::vm::XVal::Num(1.0)
+        fnv_script::vm::XVal::Num(0.0)
     );
 
     // Frame 3 (non-15th): set TestFlag = 2 (satisfies polled Polled, priority 2) while
@@ -382,6 +386,51 @@ fn polled_folder_conditions_poll_only_polled_entries_and_keep_non_polled_on_15_f
     assert!(
         g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Gun\\Flag")),
         "deactivating a non-polled entry must also wait for the 15-frame cadence"
+    );
+}
+
+/// 1-arg `this.HasKeyword "..."` is accepted strictly during kNVSE JSON condition
+/// evaluation and rejected (`0.0`) in regular scripts (`w4d_05_haskeyword_1arg_ref`).
+#[test]
+fn one_arg_has_keyword_is_limited_to_knvse_json_conditions() {
+    files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig::default());
+    g.player_entered(Some(FormId(ROOM)));
+    g.tick();
+    let order = g.anim_folders.entries.len();
+    g.anim_folders.entries.push(fnv_game::nvse_anim_folders::FolderEntry {
+        forms: Vec::new(),
+        folder: "OneArgKw".into(),
+        condition: Some("this.HasKeyword \"OwnedKnvseTag\"".into()),
+        poll_condition: true,
+        priority: 3,
+        order,
+        third: vec!["AnimGroupOverride\\OneArgKw\\_Male\\Locomotion\\mtforward.kf".into()],
+        first: Vec::new(),
+        third_weighted: Vec::new(),
+        first_weighted: Vec::new(),
+        third_mods: Vec::new(),
+        first_mods: Vec::new(),
+    });
+    g.refresh_anim_folders();
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("OneArgKw")));
+
+    q(&mut g, "AssignKeyword Player \"OwnedKnvseTag\"");
+    g.tick();
+    assert!(
+        g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("OneArgKw")),
+        "1-arg this.HasKeyword must evaluate inside kNVSE JSON conditions"
+    );
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (HasKeyword PlayerREF \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
+        fnv_script::vm::XVal::Num(1.0)
+    );
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.HasKeyword \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
+        fnv_script::vm::XVal::Num(0.0),
+        "ordinary scripts must not accept 1-arg ref.HasKeyword"
     );
 }
 
