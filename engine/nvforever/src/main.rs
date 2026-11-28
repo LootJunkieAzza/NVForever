@@ -1922,6 +1922,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             Some(graphics::FrameTimes { every, cycle })
         }
     };
+    // A handoff's new run: the old run ends before this one's GPU device opens
+    // (handoff.rs).
+    if let Some(file) = args.handoff.as_deref() {
+        handoff::before_gpu(file);
+    }
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
@@ -2677,15 +2682,20 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         console_toggles::register(&mut app);
         app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate), handoff::hold_restore.after(handoff::reveal)));
         handoff::add_end_now(&mut app);
+        // A load's new run lowers the old window's cover (handoff/cover.rs).
+        app.add_systems(Last, handoff::lower_cover);
         if let Some(why) = load_failed {
             app.insert_resource(handoff::LoadFailed(why)).add_systems(Update, handoff::tell_load_failed);
         }
         if let Some(file) = args.handoff.clone() {
+            if let Some(old) = handoff::OldRun::open(&file) {
+                app.insert_resource(old);
+            }
             match &handoff_marked {
                 Some(Err(e)) => warn!("handoff: started as the new run, but cannot tell the old run so ({}: {e}); it ends after {} s", handoff::started_marker(&file).display(), handoff::JOIN_WAIT_SECS),
                 _ => info!("handoff: started as the new run (ready file {})", file.display()),
             }
-            app.insert_resource(handoff::Hidden::new(file, args.window_maximized));
+            app.insert_resource(handoff::Hidden::new(file, args.window_maximized)).add_systems(First, handoff::watch_old_run).add_systems(Startup, handoff::log_before_gpu);
             // The save waits from the first frame, not only once `hold_restore` has run:
             // the first frame's Update takes seconds (7.2 s observed), long enough for the
             // script data to come in during it, and `run_scripts` took it, putting the
