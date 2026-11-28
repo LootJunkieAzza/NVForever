@@ -178,11 +178,23 @@ pub fn lowpass_coefficient(g: f32, hz: f32, rate: f32) -> f32 {
     ((b - disc.sqrt()) / (1.0 - g2)).clamp(0.0, 0.9999)
 }
 
+/// Flush subnormal floats (below -400 dB) to zero so decaying reverb tails never hit
+/// x86 denormal microcode stalls [design].
+#[inline(always)]
+fn ftz(x: f32) -> f32 {
+    if x.abs() < 1e-20 {
+        0.0
+    } else {
+        x
+    }
+}
+
 struct Comb {
     buf: Vec<f32>,
     at: usize,
     feedback: f32,
     damp: f32,
+    one_minus_damp: f32,
     store: f32,
     input_gain: f32,
 }
@@ -195,14 +207,17 @@ impl Comb {
         let hf_feedback = 10f32.powf(-3.0 * len as f32 / (t60 * preset.decay_hf_ratio.clamp(0.05, 1.0) * rate));
         let damp = lowpass_coefficient(hf_feedback / feedback, preset.hf_reference, rate);
         let input_gain = ((1.0 - feedback * feedback) / count as f32).sqrt();
-        Comb { buf: vec![0.0; len], at: 0, feedback, damp, store: 0.0, input_gain }
+        Comb { buf: vec![0.0; len], at: 0, feedback, damp, one_minus_damp: 1.0 - damp, store: 0.0, input_gain }
     }
 
+    #[inline(always)]
     fn run(&mut self, x: f32) -> f32 {
-        let out = self.buf[self.at];
-        self.store = out * (1.0 - self.damp) + self.store * self.damp;
-        self.buf[self.at] = x * self.input_gain + self.store * self.feedback;
-        self.at = (self.at + 1) % self.buf.len();
+        let at = self.at;
+        let out = self.buf[at];
+        self.store = ftz(out * self.one_minus_damp + self.store * self.damp);
+        self.buf[at] = ftz(x * self.input_gain + self.store * self.feedback);
+        let next = at + 1;
+        self.at = if next < self.buf.len() { next } else { 0 };
         out
     }
 }
@@ -214,11 +229,14 @@ struct Allpass {
 }
 
 impl Allpass {
+    #[inline(always)]
     fn run(&mut self, x: f32) -> f32 {
-        let delayed = self.buf[self.at];
-        let v = x + self.gain * delayed;
-        self.buf[self.at] = v;
-        self.at = (self.at + 1) % self.buf.len();
+        let at = self.at;
+        let delayed = self.buf[at];
+        let v = ftz(x + self.gain * delayed);
+        self.buf[at] = v;
+        let next = at + 1;
+        self.at = if next < self.buf.len() { next } else { 0 };
         delayed - self.gain * v
     }
 }
@@ -234,9 +252,10 @@ pub struct Reverb {
     early_gain: f32,
     late_gain: f32,
     hf_a: f32,
+    one_minus_hf_a: f32,
     hf_store: f32,
-    combs: [Vec<Comb>; 2],
-    allpasses: [Vec<Allpass>; 2],
+    combs: [[Comb; 8]; 2],
+    allpasses: [[Allpass; 4]; 2],
     /// Frames of tail still to play once the input has ended.
     tail: usize,
     rate: f32,
@@ -299,22 +318,25 @@ impl Reverb {
         let late_delay = ((preset.reflections_delay + preset.reverb_delay) * r).round() as usize;
         let density = 0.5 + 0.5 * (preset.density / 100.0).clamp(0.0, 1.0);
         let combs = [0, SPREAD].map(|spread| {
-            COMBS.iter().map(|&n| Comb::new((((n + spread) as f32) * scale * density).round() as usize, preset, r, COMBS.len())).collect()
+            std::array::from_fn(|i| Comb::new((((COMBS[i] + spread) as f32) * scale * density).round() as usize, preset, r, COMBS.len()))
         });
         let ap_gain = ALLPASS_GAIN * (preset.diffusion / 100.0).clamp(0.0, 1.0);
         let allpasses = [0, SPREAD].map(|spread| {
-            ALLPASSES.iter().map(|&n| Allpass { buf: vec![0.0; ((((n + spread) as f32) * scale).round() as usize).max(1)], at: 0, gain: ap_gain }).collect()
+            std::array::from_fn(|i| Allpass { buf: vec![0.0; ((((ALLPASSES[i] + spread) as f32) * scale).round() as usize).max(1)], at: 0, gain: ap_gain })
         });
         let room = gain_of_mb(preset.room);
         let tail = ((preset.reflections_delay + preset.reverb_delay + preset.decay_time).min(MAX_TAIL) * r) as usize;
+        let line_len = late_delay.max(early_delay) + 1;
+        let hf_a = lowpass_coefficient(gain_of_mb(preset.room_hf), preset.hf_reference, r);
         Reverb {
-            line: vec![0.0; late_delay.max(early_delay) + 1],
+            line: vec![0.0; line_len],
             at: 0,
-            early_delay,
-            late_delay,
+            early_delay: early_delay.min(line_len - 1),
+            late_delay: late_delay.min(line_len - 1),
             early_gain: room * gain_of_mb(preset.reflections),
             late_gain: room * gain_of_mb(preset.reverb),
-            hf_a: lowpass_coefficient(gain_of_mb(preset.room_hf), preset.hf_reference, r),
+            hf_a,
+            one_minus_hf_a: 1.0 - hf_a,
             hf_store: 0.0,
             combs,
             allpasses,
@@ -336,17 +358,23 @@ impl Reverb {
 
     /// The reflected sound only, for one frame of mono input.
     fn wet(&mut self, x: f32) -> (f32, f32) {
-        self.hf_store = x * (1.0 - self.hf_a) + self.hf_store * self.hf_a;
+        self.hf_store = ftz(x * self.one_minus_hf_a + self.hf_store * self.hf_a);
         let n = self.line.len();
-        self.line[self.at] = self.hf_store;
-        let tap = |d: usize| self.line[(self.at + n - d.min(n - 1)) % n];
-        let early = tap(self.early_delay) * self.early_gain;
-        let late_in = tap(self.late_delay) * self.late_gain;
-        self.at = (self.at + 1) % n;
+        let at = self.at;
+        self.line[at] = self.hf_store;
+        let early_idx = if at >= self.early_delay { at - self.early_delay } else { at + n - self.early_delay };
+        let late_idx = if at >= self.late_delay { at - self.late_delay } else { at + n - self.late_delay };
+        let early = self.line[early_idx] * self.early_gain;
+        let late_in = self.line[late_idx] * self.late_gain;
+        let next = at + 1;
+        self.at = if next < n { next } else { 0 };
         let mut out = [0.0f32; 2];
         for (ear, o) in out.iter_mut().enumerate() {
-            let mut s: f32 = self.combs[ear].iter_mut().map(|c| c.run(late_in)).sum();
-            for a in self.allpasses[ear].iter_mut() {
+            let mut s = 0.0f32;
+            for c in &mut self.combs[ear] {
+                s += c.run(late_in);
+            }
+            for a in &mut self.allpasses[ear] {
                 s = a.run(s);
             }
             *o = early + s;
@@ -592,5 +620,14 @@ mod tests {
         };
         let (long, short) = (left_after("Auditorium", 0.4), left_after("Small Room", 0.4));
         assert!(long > 10.0 * short, "{long} vs {short}");
+    }
+
+    #[test]
+    fn ftz_flushes_subnormals_without_altering_audible_samples() {
+        assert_eq!(ftz(0.0), 0.0);
+        assert_eq!(ftz(1e-30), 0.0);
+        assert_eq!(ftz(-1e-30), 0.0);
+        assert_eq!(ftz(1e-10), 1e-10);
+        assert_eq!(ftz(-0.25), -0.25);
     }
 }
