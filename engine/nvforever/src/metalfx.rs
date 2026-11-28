@@ -9,18 +9,21 @@
 //! encoded into a command buffer of its own (a wgpu encoder's raw `MTLCommandBuffer`, as the
 //! FidelityFX API path does with Vulkan), spliced in between the frame's commands
 //! (`RenderContext::add_command_buffer`). wgpu-hal's Metal textures are hazard-tracked, so Metal
-//! orders the scaler's reads and writes against wgpu's own passes.
+//! orders the scaler's reads and writes against wgpu's own passes [observed: clean under Metal API
+//! validation, `MTL_DEBUG_LAYER=1`].
 //!
 //! - **Temporal** (`MTLFXTemporalScaler`): colour (HDR, Rgba16Float), depth (Depth32Float,
 //!   reversed), motion (Rg16Float, current → previous, scaled to render pixels like FSR's),
-//!   jitter in render pixels, reset on the preparation's history cuts.
+//!   jitter in render pixels, reset on the preparation's history cuts [documented: Apple's
+//!   MTLFXTemporalScaler reference; the jitter's sign observed: FSR's value as it is matches
+//!   native at a still pose, the opposite doubles edges].
 //! - **Spatial** (`MTLFXSpatialScaler`): colour only, HDR processing; the jitter is turned off
-//!   for it (`upscaler/prep.rs`), as it has no history to undo it with.
+//!   for it (`upscaler/prep.rs`), as it has no history to undo it with [design].
 //!
 //! The colour and motion are drawn into the top-left render rectangle of display-sized
 //! targets. The colour is copied into a render-sized texture first; the motion (Bevy's prepass
 //! texture has no `COPY_SRC`) is given as it is, its content size set by
-//! `inputContentWidth/Height`.
+//! `inputContentWidth/Height` [observed: accepted by Metal API validation].
 
 #![cfg(target_os = "macos")]
 
@@ -119,7 +122,7 @@ impl Scaler {
                     desc.setInputHeight(render.y as usize);
                     desc.setOutputWidth(output.x as usize);
                     desc.setOutputHeight(output.y as usize);
-                    // FSR's preparation gives no exposure texture either; MetalFX computes one.
+                    // FSR's preparation gives no exposure texture either; MetalFX computes one [design].
                     desc.setAutoExposureEnabled(true);
                     Raw::Temporal(desc.newTemporalScalerWithDevice(&mtl).ok_or("newTemporalScalerWithDevice returned nil")?)
                 }

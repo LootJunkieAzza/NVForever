@@ -22,7 +22,7 @@ impl FsrPass {
         // The audited, bundled SPIR-V is the only source accepted here. Vulkan's
         // native path preserves the coherent storage-image semantics used by SPD.
         // Metal also reports PASSTHROUGH_SHADERS, but
-        // only for MSL; there the SPIR-V goes through naga's SPIR-V front end instead.
+        // only for MSL [observed: a SPIR-V-only passthrough module fails to be made on Metal]; there the SPIR-V goes through naga's SPIR-V front end instead.
         let shader_module = if device.features().contains(wgpu::Features::PASSTHROUGH_SHADERS)
             && device.adapter_info().backend == wgpu::Backend::Vulkan
         {
@@ -52,7 +52,8 @@ impl FsrPass {
             };
             let desc = wgpu::ShaderModuleDescriptor { label: Some(kind.label()), source: wgpu::ShaderSource::SpirV(words) };
             if crate::resources::unchecked_shaders() {
-                // SAFETY: AMD's audited FSR shaders, as Vulkan runs them (passthrough, no checks).
+                // SAFETY: the vendored FSR shaders, run as Vulkan's passthrough runs them (no runtime
+                // checks) [design].
                 unsafe { device.create_shader_module_trusted(desc, wgpu::ShaderRuntimeChecks::unchecked()) }
             } else {
                 device.create_shader_module(desc)

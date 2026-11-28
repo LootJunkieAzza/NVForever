@@ -1116,7 +1116,8 @@ fn apply(
             e.remove::<AmbientOcclusion>();
         }
         // FSR already runs its own RCAS sharpening; do not sharpen the picture twice. MetalFX
-        // sharpens nothing, so the separate pass runs for it as it does natively.
+        // has no sharpening of its own here, so the separate pass runs for it as it does natively
+        // [design].
         let post_sharpen = g.sharpen && upscaler.fsr().is_none();
         if g.bloom || post_sharpen {
             e.insert(PostEffects::new_with_hdr_glow(g.bloom, post_sharpen, nvf_assets::authored::physical_pbr() && g.glow));

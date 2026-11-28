@@ -485,7 +485,8 @@ impl TypedGlobalVariable<'_> {
         );
         // A coherent storage image (SPIR-V `Coherent`,
         // HLSL `globallycoherent`) keeps its writes visible to other threadgroups of the same
-        // dispatch: MSL 3.2's `memory_coherence_device` texture template argument.
+        // dispatch: MSL 3.2's `memory_coherence_device` texture template argument [documented: Metal
+        // Shading Language Specification 3.2, textures' memory coherence].
         if var.space == crate::AddressSpace::Handle
             && var.memory_decorations.contains(crate::MemoryDecorations::COHERENT)
             && ty.ends_with('>')
