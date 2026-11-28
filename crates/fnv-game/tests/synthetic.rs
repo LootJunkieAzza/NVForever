@@ -2816,9 +2816,9 @@ fn weapon_out_and_weapon_animation_type() {
     // Nothing equipped: Hand to Hand.
     assert_eq!(ask(&mut g, GET_WEAPON_ANIM_TYPE), 1.0);
     // The record's 14 types (0 Hand to Hand … 13 Thrown) as the function numbers them:
-    // both pistols 4, the ballistic and energy rifles 5, Thrown the catch-all.
+    // both pistols 4, the ballistic and energy rifles 5, Thrown shares 9 with Grenade.
     let codes: Vec<i64> = (0..=13).map(weapon_anim_code).collect();
-    assert_eq!(codes, [1, 2, 3, 4, 4, 5, 6, 5, 7, 8, 9, 10, 11, 0]);
+    assert_eq!(codes, [1, 2, 3, 4, 4, 5, 6, 5, 7, 8, 9, 10, 11, 9]);
     assert_eq!(weapon_anim_code(99), 0);
 }
 

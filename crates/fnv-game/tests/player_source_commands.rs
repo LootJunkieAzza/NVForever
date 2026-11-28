@@ -320,14 +320,14 @@ fn set_and_get_pc_expelled_track_membership_ctda_persistence_and_guards() {
     assert_eq!(success(&mut g, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(1.0));
     assert_eq!(success(&mut g, "SetFunctionValue (player.GetFactionRank ExpelledFaction)"), XVal::Num(2.0));
 
-    // Valid explicit receiver still acts on the player, expels membership, and leaves neighbor untouched.
+    // Valid explicit receiver still acts on the player, preserves faction rank/membership, and leaves neighbor untouched.
     success(&mut g, "ProgressionNeighborRef.SetPCExpelled ExpelledFaction 1");
     assert_eq!(success(&mut g, "SetFunctionValue (GetPCExpelled ExpelledFaction)"), XVal::Num(1.0));
     assert_eq!(success(&mut g, "SetFunctionValue (GetPCExpelled OtherFaction)"), XVal::Num(0.0));
     assert_eq!(g.eval_conditions(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "expelled")[0].value, 1.0);
     assert!(g.conditions_pass(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "expelled pass"));
-    assert_eq!(success(&mut g, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(0.0));
-    assert_eq!(success(&mut g, "SetFunctionValue (player.GetFactionRank ExpelledFaction)"), XVal::Num(-1.0));
+    assert_eq!(success(&mut g, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(1.0));
+    assert_eq!(success(&mut g, "SetFunctionValue (player.GetFactionRank ExpelledFaction)"), XVal::Num(2.0));
     assert_eq!(success(&mut g, "SetFunctionValue (ProgressionNeighborRef.GetFactionRank ExpelledFaction)"), XVal::Num(1.0));
     assert_eq!(success(&mut g, "SetFunctionValue (GetPCEnemyOfFaction ExpelledFaction)"), XVal::Num(0.0));
     assert_eq!(success(&mut g, "SetFunctionValue (GetPCEnemyOfFaction OtherFaction)"), XVal::Num(1.0));
@@ -339,11 +339,12 @@ fn set_and_get_pc_expelled_track_membership_ctda_persistence_and_guards() {
     assert_eq!(success(&mut restored, "SetFunctionValue (GetPCExpelled ExpelledFaction)"), XVal::Num(1.0));
     assert_eq!(restored.eval_conditions(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "restored")[0].value, 1.0);
 
-    // Clearing the flag via ref expression clears GetPCExpelled without re-adding faction membership.
+    // Clearing the flag via ref expression clears GetPCExpelled while retaining faction rank/membership.
     success(&mut restored, "ref rFac\nlet rFac := ExpelledFaction\nSetPCExpelled (rFac) 0");
     assert_eq!(success(&mut restored, "SetFunctionValue (GetPCExpelled ExpelledFaction)"), XVal::Num(0.0));
     assert_eq!(restored.eval_conditions(std::slice::from_ref(&c_expelled), Some(FormId::PLAYER_REF), None, "cleared")[0].value, 0.0);
-    assert_eq!(success(&mut restored, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(0.0));
+    assert_eq!(success(&mut restored, "SetFunctionValue (player.GetInFaction ExpelledFaction)"), XVal::Num(1.0));
+    assert_eq!(success(&mut restored, "SetFunctionValue (player.GetFactionRank ExpelledFaction)"), XVal::Num(2.0));
 
     // Explicit null receiver still targets the player and continues execution.
     assert_eq!(

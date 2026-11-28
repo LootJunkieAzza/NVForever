@@ -1,0 +1,144 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_setlevel_pc_mult",
+  "description": "Wave 6D-7 read-only console probes for SetLevel PC-relative thousandths multiplier and min/max clamping.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_setlevel_pc_mult",
+      "title": "Wave 6D-7: SetLevel PC-relative thousandths multiplier",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_11_setlevel_npc_bounds_and_faction_rank_edges",
+          "bucket": "actor_values_factions",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actors.md",
+          "spec_line": 250,
+          "functions_tested": [
+            "SetLevel",
+            "GetLevel",
+            "AddToFaction",
+            "SetFactionRank",
+            "GetFactionRank",
+            "GetBaseFactionRank",
+            "GetFactionRankDifference",
+            "RemoveFac"
+          ],
+          "claim": "SD-20: Test SetLevel with 0/1/50/100 and levelToPCFlag=1 (min/max clamps), plus negative AddToFaction/SetFactionRank (-2, -1, 0, 3), GetBaseFactionRank, GetFactionRankDifference, and RemoveFac.",
+          "expected": "Pin SetLevel clamping/scaling and negative faction rank semantics on spawned Wastelander.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"104C6E\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 120 0",
+            "int iLv0 = rNpc.GetLevel",
+            "rNpc.SetLevel 0 0",
+            "int iLvZ = rNpc.GetLevel",
+            "rNpc.SetLevel 50 0",
+            "int iLv50 = rNpc.GetLevel",
+            "rNpc.SetLevel 1000 1 5 20",
+            "int iLvPc = rNpc.GetLevel",
+            "int iFr0 = rNpc.GetFactionRank rFac",
+            "rNpc.AddToFaction rFac -2",
+            "int iFrN2 = rNpc.GetFactionRank rFac",
+            "rNpc.SetFactionRank rFac -1",
+            "int iFrN1 = rNpc.GetFactionRank rFac",
+            "rNpc.SetFactionRank rFac 0",
+            "int iFrZ = rNpc.GetFactionRank rFac",
+            "rNpc.SetFactionRank rFac 3",
+            "int iFr3 = rNpc.GetFactionRank rFac",
+            "int iBFr = rNpc.GetBaseFactionRank rFac",
+            "int iDiff = rNpc.GetFactionRankDifference rFac Player",
+            "rNpc.RemoveFac rFac",
+            "int iFrRm = rNpc.GetFactionRank rFac",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "string_var sOut = sv_Construct \"PROBE|w6d7_11_setlevel_npc_bounds_and_faction_rank_edges|lvl(init=%g,z=%g,50=%g,pc=%g)\" iLv0 iLvZ iLv50 iLvPc",
+            "let sOut += sv_Construct \"|fac(init=%g,aN2=%g,sN1=%g,s0=%g,s3=%g,base=%g,diff=%g,rm=%g)\" iFr0 iFrN2 iFrN1 iFrZ iFr3 iBFr iDiff iFrRm",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        },
+        {
+          "id": "w6d7p2_11b_setlevel_pct_and_faction_rank_diff",
+          "bucket": "actor_values_factions",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actors.md",
+          "spec_line": 250,
+          "functions_tested": [
+            "SetLevel",
+            "GetLevel",
+            "AddToFaction",
+            "SetFactionRank",
+            "GetFactionRankDifference",
+            "RemoveFac"
+          ],
+          "claim": "SD-20: Pin SetLevel levelToPCFlag=1 multiplier scaling (500/1000/2000 at PC level 10) and GetFactionRankDifference when both actors are in the faction vs one not in faction.",
+          "expected": "Confirm exact SetLevel PC-level scaling formula and GetFactionRankDifference signed difference.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"104C6E\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 120 0",
+            "int iPcLv0 = Player.GetLevel",
+            "Player.SetLevel 10",
+            "rNpc.SetLevel 500 1 1 50",
+            "int iL500 = rNpc.GetLevel",
+            "rNpc.SetLevel 1000 1 1 50",
+            "int iL1000 = rNpc.GetLevel",
+            "rNpc.SetLevel 2000 1 1 50",
+            "int iL2000 = rNpc.GetLevel",
+            "rNpc.SetLevel 1000 1 15 50",
+            "int iLMin = rNpc.GetLevel",
+            "rNpc.SetLevel 2000 1 1 12",
+            "int iLMax = rNpc.GetLevel",
+            "Player.SetLevel iPcLv0",
+            "rNpc.SetFactionRank rFac 3",
+            "int iDiffOut = rNpc.GetFactionRankDifference rFac Player",
+            "Player.AddToFaction rFac 1",
+            "int iDiffIn = rNpc.GetFactionRankDifference rFac Player",
+            "int iDiffRev = Player.GetFactionRankDifference rFac rNpc",
+            "Player.RemoveFac rFac",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "string_var sOut = sv_Construct \"PROBE|w6d7p2_11b_setlevel_pct_and_faction_rank_diff|pc10(500=%g,1000=%g,2000=%g,min15=%g,max12=%g)|diff(out=%g,in=%g,rev=%g)\" iL500 iL1000 iL2000 iLMin iLMax iDiffOut iDiffIn iDiffRev",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        }
+      ]
+    }
+  ]
+}

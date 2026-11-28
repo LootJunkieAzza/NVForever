@@ -1,0 +1,139 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_friend_disposition",
+  "description": "Wave 6D-7 read-only console probes for HasFriendDisposition threshold sweep (0..75).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d7_friend_disposition",
+      "title": "Wave 6D-7: HasFriendDisposition threshold is 50",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7_44_appearance_agerace_sexchange_and_disposition",
+          "bucket": "appearance_disposition",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/factions.md",
+          "spec_line": 278,
+          "functions_tested": [
+            "AgeRace",
+            "SexChange",
+            "SameSex",
+            "GetRaceName",
+            "GetDisposition",
+            "SetDisposition",
+            "HasFriendDisposition"
+          ],
+          "claim": "SD-19: Test AgeRace, SexChange (no-arg toggle and Female/Male token), SameSex, GetRaceName, and sweep SetDisposition 65/69/70/71/75 against HasFriendDisposition to pin FRIEND_DISPOSITION.",
+          "expected": "Record SexChange toggle & explicit sex, SameSex, GetRaceName, and exact HasFriendDisposition cutoff.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rA = Player.PlaceAtMe rBase 1 120 0",
+            "ref rB = Player.PlaceAtMe rBase 1 150 0",
+            "string_var sRace0 = GetRaceName rBase",
+            "int iSs0 = rA.SameSex rB",
+            "rA.SexChange",
+            "int iSs1 = rA.SameSex rB",
+            "rA.SexChange Male",
+            "int iSs2 = rA.SameSex rB",
+            "rA.AgeRace 10",
+            "rA.SetDisposition Player 65",
+            "int iF65 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 69",
+            "int iF69 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 70",
+            "int iF70 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 71",
+            "int iF71 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 75",
+            "int iF75 = rA.HasFriendDisposition",
+            "int iDisp75 = rA.GetDisposition Player",
+            "rA.Disable",
+            "rA.MarkForDelete",
+            "rB.Disable",
+            "rB.MarkForDelete",
+            "string_var sOut = sv_Construct \"PROBE|w6d7_44_appearance_agerace_sexchange_and_disposition|race=%z|ss(%g->%g->%g)|fd(65=%g,69=%g,70=%g,71=%g,75=%g,d=%g)\" sRace0 iSs0 iSs1 iSs2 iF65 iF69 iF70 iF71 iF75 iDisp75",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        },
+        {
+          "id": "w6d7p3_44b_friend_disposition_sweep",
+          "bucket": "appearance_disposition",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/factions.md",
+          "spec_line": 278,
+          "functions_tested": [
+            "SetDisposition",
+            "GetDisposition",
+            "HasFriendDisposition"
+          ],
+          "claim": "SD-19: Sweep SetDisposition across 0, 25, 34, 35, 49, 50, 59, 60, 64, 65 against HasFriendDisposition to pin exact threshold.",
+          "expected": "Find exact disposition cutoff where HasFriendDisposition transitions from 0 to 1.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rA = Player.PlaceAtMe rBase 1 120 0",
+            "rA.SetDisposition Player 0",
+            "int iF0 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 25",
+            "int iF25 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 34",
+            "int iF34 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 35",
+            "int iF35 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 49",
+            "int iF49 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 50",
+            "int iF50 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 59",
+            "int iF59 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 60",
+            "int iF60 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 64",
+            "int iF64 = rA.HasFriendDisposition",
+            "rA.SetDisposition Player 65",
+            "int iF65 = rA.HasFriendDisposition",
+            "rA.Disable",
+            "rA.MarkForDelete",
+            "string_var sOut = sv_Construct \"PROBE|w6d7p3_44b_friend_disposition_sweep|fd(0=%g,25=%g,34=%g,35=%g,49=%g,50=%g,59=%g,60=%g,64=%g,65=%g)\" iF0 iF25 iF34 iF35 iF49 iF50 iF59 iF60 iF64 iF65",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        }
+      ]
+    }
+  ]
+}

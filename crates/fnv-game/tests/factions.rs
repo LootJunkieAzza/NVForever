@@ -331,8 +331,11 @@ fn a_shared_ally_faction_wins_over_an_enemy_one() {
     assert_eq!(call(&mut g, GET_FACTION_RELATION, BANDIT_REF, &[form(WATCHMAN_REF)]), 2.0);
     assert_eq!(call(&mut g, GET_FACTION_RELATION, WATCHMAN_REF, &[form(BANDIT_REF)]), 2.0);
     assert!(!g.would_attack(bandit, watchman) && !g.would_attack(watchman, bandit));
-    // A friend pair wins as well, and before an ally one (see crates/fnv-game/src/functions/actor.rs, `faction_relation`).
+    // Ally (2) outranks Friend (3) when both are present (observed: w6d8_26 alFr=2, w6d8p2_26 frAl=2);
+    // Friend (3) still wins over Enemy (1) when no Ally pair exists.
     g.forms.faction_reactions.entry(FormId(RAIDERS)).or_default().insert(FormId(IDLERS), 3);
+    assert_eq!(call(&mut g, GET_FACTION_RELATION, BANDIT_REF, &[form(WATCHMAN_REF)]), 2.0);
+    g.forms.faction_reactions.entry(FormId(IDLERS)).or_default().insert(FormId(IDLERS), 0);
     assert_eq!(call(&mut g, GET_FACTION_RELATION, BANDIT_REF, &[form(WATCHMAN_REF)]), 3.0);
     // The player's crime enemies still come first.
     g.forms.faction_reactions.entry(FormId(RAIDERS)).or_default().insert(FormId(PLAYER_FACTION), 2);

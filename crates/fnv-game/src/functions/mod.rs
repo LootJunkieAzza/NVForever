@@ -491,7 +491,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x1003, "SetEssential", Impl(actor::set_essential)),
             (0x1273, "SetActorRefEssential", Impl(actor::set_actor_ref_essential)),
             (0x1162, "IsEssential", Impl(actor::is_essential)),
-            (0x1272, "IsActorRefEssential", Impl(actor::is_essential)),
+            (0x1272, "IsActorRefEssential", Impl(actor::is_actor_ref_essential)),
             (0x111C, "SetActorFullName", Impl(actor::set_actor_full_name)),
             (0x1199, "IsKiller", Impl(actor::is_killer)),
             (0x11C2, "GetFactionRelation", Impl(actor::get_faction_relation)),

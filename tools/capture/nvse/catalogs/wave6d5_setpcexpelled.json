@@ -1,0 +1,116 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_setpcexpelled",
+  "description": "Wave 6D-5 read-only probe verifying SetPCExpelled rank preservation, explicit receivers, and non-FACT rejection.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d5_setpcexpelled",
+      "title": "SetPCExpelled rank preservation and receiver edges",
+      "extender": "xNVSE / JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d5_24_player_source_setpcexpelled_edges",
+          "bucket": "player_source_commands",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/player-source-commands.md",
+          "spec_line": 53,
+          "functions_tested": [
+            "SetPCExpelled",
+            "GetPCExpelled",
+            "SetFactionRank",
+            "GetFactionRank",
+            "GetInFaction",
+            "PrintToConsole"
+          ],
+          "claim": "SD-10: Verify SetPCExpelled/GetPCExpelled with explicit non-player/door/null receivers, rank-drop interaction when player is a faction member (rank 2 -> expel -> unexpel), and non-FACT / null faction arguments.",
+          "expected": "NVForever player_source.rs allows explicit null/valid receivers on SetPCExpelled [hypothesis], drops faction rank to -1 on expulsion without restoring on flag=0, and rejects non-FACT forms.",
+          "script_lines": [
+            "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"104C6E\"",
+            "int rk0 = Player.GetFactionRank rFac",
+            "int ex0 = GetPCExpelled rFac",
+            "Player.SetFactionRank rFac 2",
+            "int rkSet = Player.GetFactionRank rFac",
+            "int inSet = Player.GetInFaction rFac",
+            "SetPCExpelled rFac 1",
+            "int ex1 = GetPCExpelled rFac",
+            "int rkExp = Player.GetFactionRank rFac",
+            "int inExp = Player.GetInFaction rFac",
+            "SetPCExpelled rFac 0",
+            "int ex2 = GetPCExpelled rFac",
+            "int rkClr = Player.GetFactionRank rFac",
+            "Player.AuxVarSetFlt \"*w6d5_24_doc\" 0",
+            "Player.AuxVarSetFlt \"*w6d5_24_door\" 0",
+            "Player.AuxVarSetFlt \"*w6d5_24_null\" 0",
+            "Player.AuxVarSetFlt \"*w6d5_24_badf\" 0",
+            "Call (CompileScript \"w6d5_24_doc.gek\")",
+            "int exDoc = GetPCExpelled rFac",
+            "Call (CompileScript \"w6d5_24_door.gek\")",
+            "int exDoor = GetPCExpelled rFac",
+            "Call (CompileScript \"w6d5_24_null.gek\")",
+            "int exNull = GetPCExpelled rFac",
+            "Call (CompileScript \"w6d5_24_badf.gek\")",
+            "SetPCExpelled rFac ex0",
+            "Player.SetFactionRank rFac rk0",
+            "PrintToConsole \"PROBE|w6d5_24_player_source_setpcexpelled_edges|mem(rk=%g->%g->%g->%g,in=%g->%g,ex=%g->%g->%g)|rcvr(doc=%g:%g,door=%g:%g,null=%g:%g)|badF=%g\" rk0 rkSet rkExp rkClr inSet inExp ex0 ex1 ex2 (Player.AuxVarGetFlt \"*w6d5_24_doc\") exDoc (Player.AuxVarGetFlt \"*w6d5_24_door\") exDoor (Player.AuxVarGetFlt \"*w6d5_24_null\") exNull (Player.AuxVarGetFlt \"*w6d5_24_badf\")"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_24_doc.gek": [
+              "ref rDocRef = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+              "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"104C6E\"",
+              "rDocRef.SetPCExpelled rFac 1",
+              "Player.AuxVarSetFlt \"*w6d5_24_doc\" 1"
+            ],
+            "w6d5_24_door.gek": [
+              "ref rDoor = GetFormFromMod \"FalloutNV.esm\" \"103E61\"",
+              "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"104C6E\"",
+              "rDoor.SetPCExpelled rFac 0",
+              "Player.AuxVarSetFlt \"*w6d5_24_door\" 1"
+            ],
+            "w6d5_24_null.gek": [
+              "ref rNull = 0",
+              "ref rFac = GetFormFromMod \"FalloutNV.esm\" \"104C6E\"",
+              "rNull.SetPCExpelled rFac 1",
+              "Player.AuxVarSetFlt \"*w6d5_24_null\" 1"
+            ],
+            "w6d5_24_badf.gek": [
+              "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+              "SetPCExpelled rStim 1",
+              "int iG = GetPCExpelled rStim",
+              "Player.AuxVarSetFlt \"*w6d5_24_badf\" (10 + iG)"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

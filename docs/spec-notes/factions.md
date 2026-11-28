@@ -14,6 +14,8 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
 
 ## 1. Records
 
+- **Negative ranks in `SetFactionRank`** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_27_faction_rank_bounds_mod_remove_samefaction`: `PROBE|w6d8_27_faction_rank_bounds_mod_remove_samefaction|same0=1 samePc=0 non0=-1 modNon=1 rk3=3 rkNeg=-5 inNeg=0 gsAll=0 sameAft=1`; no DLL, PDB, or third-party source consulted]: `SetFactionRank rF1 -5` preserves the negative signed rank (`rkNeg=-5`) when read back with `GetFactionRank` while `GetInFaction` returns `0` (`inNeg=0`).
+
 - NPC_ and CREA `SNAM`: one per faction, the faction and a rank [documented: xEdit;
   schema `gameplay.json`].
 - ACBS template flags, one bit per group of data the template supplies: 1 Traits,
@@ -132,7 +134,7 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
 - `GetFactionRelation` for actors in several factions: any Friend or Ally reaction of
   the first actor's factions towards the second's wins over an Enemy pair, since Allies and Friends "cannot
   attack each other under any circumstances" [documented: wiki
-  GetFactionCombatReaction]; Friend before Ally stays a [hypothesis]. The data is built
+  GetFactionCombatReaction]; **Ally (2) outranks Friend (3)** regardless of faction order [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_26_multifaction_precedence_and_disguise_override` (`PROBE|w6d8_26_multifaction_precedence_and_disguise_override|enAl=2 enFr=3 alFr=2 pcFlag=1 pcEnFr=1 pcEnAl=2 pcEnOnly=1 pcClr=0`) and `w6d8p2_26_multifaction_swap_order` (`PROBE|w6d8p2_26_multifaction_swap_order|frAl=2 frPcEn=3 alPcEn=2 sameAlPcEn=1`); no DLL, PDB, or third-party source consulted]. The data is built
   for this rule [observed, FalloutNV.esm]: FortVulpesInculta is in VCaesarsLegionFaction
   (which names itself an Ally) and in ArmorNCRFactionNVEnemy (which VCaesarsLegionFaction
   names an Enemy), and he lives among the Legion in the original (#2560, owner); he and
@@ -274,3 +276,6 @@ checks passed ([run](https://github.com/LootJunkieAzza/NVForever/actions/runs/44
 These results qualify that source tree; the identical-fixture baseline outcomes and
 native/installed-mod checks remain **UNRUN**. Ignored checks receive no execution
 credit. Earlier failure history remains recorded in PR #2888.
+
+### `HasFriendDisposition` threshold (`w6d7_44`, `w6d7p3_44b`)
+- **Threshold is `50`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probes `w6d7_44_appearance_agerace_sexchange_and_disposition` and `w6d7p3_44b_friend_disposition_sweep` in `tools/capture/nvse/catalogs/wave6d7_friend_disposition.json`]: `HasFriendDisposition` returns `0` at dispositions `0..=49` and `1` at `50..=75` (`PROBE|w6d7p3_44b_friend_disposition_sweep|fd(0=0,25=0,34=0,35=0,49=0,50=1,59=1,60=1,64=1,65=1)` and `PROBE|w6d7_44_appearance_agerace_sexchange_and_disposition|race=Asian|ss(1->1->1)|fd(65=1,69=1,70=1,71=1,75=1,d=75)`), replacing the earlier `70` `[hypothesis]`.
