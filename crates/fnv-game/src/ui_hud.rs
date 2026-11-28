@@ -114,16 +114,16 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
             ("AmmoTypeLabel", right - 236.0, 883.0, 1.0),
             ("CNDArrows", right - 253.0, 886.0, 1.0),
         ] {
-            if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{name}")) {
+            if let Some(tile) = ui.find_child_path(root, name) {
                 ui.set_trait(tile, "x", Value::Num(x));
                 ui.set_trait(tile, "y", Value::Num(y + down(anchor)));
             }
         }
-        if let Some(tile) = ui.find_tile("HUDMainMenu/Subtitles") {
+        if let Some(tile) = ui.find_child_path(root, "Subtitles") {
             ui.set_trait(tile, "x", Value::Num(middle - 400.0));
         }
     }
-    if let Some(tile) = ui.find_tile("HUDMainMenu/CNDArrows") {
+    if let Some(tile) = ui.find_child_path(root, "CNDArrows") {
         ui.set_trait(tile, "height", Value::Num(20.0)); // [observed: hud.md §14].
     }
     // A piece's visible keeps its value whether or not the piece shows: SneakMeter,
@@ -157,7 +157,7 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
         ("AmmoTypeLabel", 1.0, true),
         ("CNDArrows", 1.0, true),
     ] {
-        if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{name}")) {
+        if let Some(tile) = ui.find_child_path(root, name) {
             let on = shown.root && (!corner || shown.corners);
             ui.set_trait(tile, "visible", Value::Num(if on { value } else { 0.0 }));
         }
@@ -171,7 +171,7 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
         ("RadiationMeter/radiation_pointer", shown.radiation),
         ("RadiationMeter/radiation_bracket", shown.radiation),
     ] {
-        if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{path}")) {
+        if let Some(tile) = ui.find_child_path(root, path) {
             ui.set_trait(tile, "alpha", Value::Num(if on { 255.0 } else { 0.0 }));
         }
     }
@@ -189,8 +189,8 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
         ("Info/justify_center_hotrect/button_text", texts.prompt_verb.as_deref()),
     ] {
         if let Some(value) = value {
-            if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{path}")) {
-                ui.set_trait(tile, "string", Value::Str(value.to_string()));
+            if let Some(tile) = ui.find_child_path(root, path) {
+                ui.set_trait_str(tile, "string", value);
             }
         }
     }
@@ -198,12 +198,14 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     // SetUIString on one lasts until the HUD's own word changes [observed: the jip-probes
     // set gaps1, "NVF one" then "NVF 2" read back in later steps, "H20" only after the
     // probe wrote it; hypothesis: written on change, the stage changes not yet probed].
-    for (name, word) in ["Dehydration", "Hunger", "Sleep", "Rads", "LMBs"].iter().zip(&texts.needs) {
-        if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/HardcoreMode/{name}")) {
-            ui.write_changed(tile, "string", Value::Str(word.clone()));
+    if let Some(hc) = ui.find_child_path(root, "HardcoreMode") {
+        for (name, word) in ["Dehydration", "Hunger", "Sleep", "Rads", "LMBs"].iter().zip(&texts.needs) {
+            if let Some(tile) = ui.find_child_path(hc, name) {
+                ui.write_changed(tile, "string", Value::Str(word.clone()));
+            }
         }
     }
-    copies::write(ui, shown, texts);
+    copies::write_under(ui, root, shown, texts);
 }
 
 /// Measures a text: font number (0 when absent) and string to its width in interface

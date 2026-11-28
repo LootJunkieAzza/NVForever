@@ -3,6 +3,7 @@
 //! linear data only (dds.md §6).
 
 mod filtering;
+pub mod levels;
 
 use crate::data::GameData;
 use bevy::asset::RenderAssetUsages;
@@ -972,6 +973,20 @@ impl TextureCache {
                 self.map.insert((path, usage), Some(h.clone()));
                 self.generation += 1;
                 return Some(h);
+            }
+            drop(entries);
+            // Negative-cache hit from a worker thread: skip repeating archive scans on the
+            // main thread for a texture already proven missing or undecodable [design].
+            let mut failed = self.workers.failed.lock().expect("worker textures");
+            if let Some(err) = failed.get_mut(&(path.clone(), usage)) {
+                let err = err.take();
+                drop(failed);
+                if let Some(e) = err {
+                    texture_failed(&mut self.failures, &path, &e);
+                }
+                self.map.insert((path, usage), None);
+                self.generation += 1;
+                return None;
             }
         }
         let bc = formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
@@ -2466,5 +2481,23 @@ mod dx10_tests {
         let height = load4(TextureUsage::Linear).unwrap();
         assert_eq!(height.1, TextureFormat::Bc4RUnorm);
         assert!(height.2);
+    }
+
+    #[test]
+    fn load_key_reuses_worker_negative_cache_without_rereading_archive() {
+        let owned = bc5_tests::OwnedData::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::<Image>::default();
+        let provider = images.get_handle_provider();
+        let path = "textures\\old.dds".to_string();
+        let key = (path.clone(), TextureUsage::Color);
+        // Simulate a worker having already proven `(path, Color)` invalid/missing.
+        assert!(cache.workers.load_once(key.clone(), &provider, |_| Err("worker missing".into())).is_none());
+        let gen_before = cache.generation;
+        // Even though `old.dds` exists in `owned.data`, `load_key` short-circuits via `workers.failed`.
+        assert!(cache.load_key(path.clone(), TextureUsage::Color, false, &owned.data, &mut images, None).is_none());
+        assert_eq!(cache.generation, gen_before + 1);
+        assert_eq!(cache.map.get(&key), Some(&None));
+        assert_eq!(cache.failures.len(), 1);
     }
 }

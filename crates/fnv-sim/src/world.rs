@@ -665,6 +665,12 @@ pub struct World<'a> {
     /// of being unable to disable references that have an Enable Parent"; hypothesis: until
     /// SetEnableParent changes their parent]. Not saved.
     own_enable: std::collections::BTreeSet<FormId>,
+    /// Monotonic identity for this `World` instance, used by caches that track incremental
+    /// reference mutations against `World::refs`.
+    instance_id: u64,
+    /// References inserted into, removed from, or mutably borrowed via `World::refs` since
+    /// the last [`World::take_touched_refs`].
+    touched_refs: std::collections::BTreeSet<FormId>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
     /// Co-op replication: the references whose state was reached for writing
@@ -715,10 +721,23 @@ impl<'a> World<'a> {
             zone_session: ZoneSession::default(),
             enable_parent_edits: BTreeMap::new(),
             own_enable: std::collections::BTreeSet::new(),
+            instance_id: serial,
+            touched_refs: std::collections::BTreeSet::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
             touched: None,
         }
+    }
+
+    /// Unique monotonic ID of this `World` instance.
+    pub fn instance_id(&self) -> u64 {
+        self.instance_id
+    }
+
+    /// Drain references inserted into, removed from, or mutably borrowed in `World::refs`
+    /// since the last call.
+    pub fn take_touched_refs(&mut self) -> std::collections::BTreeSet<FormId> {
+        std::mem::take(&mut self.touched_refs)
     }
 
     /// Keep (or stop keeping) the references whose state is reached for writing, for a
@@ -902,6 +921,7 @@ impl<'a> World<'a> {
                 self.presence_serial += 1;
             }
         }
+        self.touched_refs.insert(id);
         Ok(self.refs.get_mut(&id).expect("inserted above"))
     }
 
@@ -1696,6 +1716,7 @@ impl<'a> World<'a> {
             self.next_dynamic += 1;
             self.presence_serial += 1;
             self.touch(id);
+            self.touched_refs.insert(id);
             self.refs.insert(
                 id,
                 RefState {
@@ -2286,6 +2307,7 @@ impl<'a> World<'a> {
                 t.insert(*id);
             }
             self.refs.remove(id);
+            self.touched_refs.insert(*id);
             self.presence_serial += 1;
             // Made anew: its level is fixed again when the cell is entered.
             self.ref_levels.remove(id);
@@ -2485,6 +2507,7 @@ impl<'a> World<'a> {
         let outfitted = self.equip_default(base, &mut inventory);
         self.presence_serial += 1;
         self.touch(id);
+        self.touched_refs.insert(id);
         self.refs.insert(
             id,
             RefState {
