@@ -203,10 +203,12 @@ docs/spec-notes/crime-karma.md); the player's reputation does not.
   walls), the actor abandons that unreachable alarm (`Game::abandon_unreachable_alert`) and
   suppresses re-raising `Cause::Noticed` for that target for `Timers::alarm` seconds so it
   can return to `Normal` and carry out its package; actually detecting the target
-  (`Band::Detected`) clears the suppression immediately and enters `Combat`. A `Search::Waiting`
-  actor waiting for `settle_awareness` stays waiting for the same alarm owner rather than
-  restarting `SearchLook`. Moving an actor to another space (`Ai::relocate` / `MoveTo`)
-  clears stale alarms from the previous space (`Game::clear_stale_space_alarms`).
+  (`Band::Detected`) clears the suppression immediately and enters `Combat`. A `State::Lost`
+  actor in `Search::Waiting` stays waiting for its party on the same alarm owner, while a
+  `State::Alert` actor whose reachable `Cause::Noticed` alarm is still actively refreshed
+  starts a fresh search after finishing one. Moving an actor to another space
+  (`Ai::relocate` / `MoveTo`) clears stale alarms from the previous space
+  (`Game::clear_stale_space_alarms`).
 - **Combat**: it closes in to where it can attack and faces its target; the attacks are
   the combat AI's (docs/design/combat-ai.md). Cover and fleeing were built later (combat-ai.md §12.2, §12.6). A target
   it no longer detects (behind a rise, say) it keeps closing in on, whatever the

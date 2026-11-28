@@ -558,10 +558,12 @@ impl Ai {
         let centre_for = |feet: [f32; 3]| if alarm.cause == Cause::Noticed { midway(feet, alarm.at) } else { alarm.at };
         let feet = a.walker.feet;
         match a.search {
-            // [design, #3031] Keep waiting for `settle_awareness` (or a Lost party) on
-            // the alarm owner just finished, instead of restarting `search_at` every
-            // frame and looping `SearchLook` indefinitely.
-            Some(Search::Waiting { owner }) if owner == alarm.owner => {}
+            // [design, #2010, #3031] Keep waiting for a Lost party on the alarm owner
+            // just finished instead of restarting `search_at`. In `State::Alert`, an
+            // abandoned or dropped alarm leaves `search_alarm()` empty until
+            // `settle_awareness`, whereas a freshly refreshed reachable `Cause::Noticed`
+            // alarm intentionally falls through and starts a new search.
+            Some(Search::Waiting { owner }) if state == State::Lost && owner == alarm.owner => {}
             // [design, #2010] Point progress belongs to one alarm owner, even when
             // a replacement alarm is within RECENTRE of the previous one.
             Some(Search::Going { owner, to, since, centre, alarm: was, points }) if owner == alarm.owner => {
@@ -579,8 +581,10 @@ impl Ai {
                     let moved = goal::dist(was, alarm.at) > RECENTRE;
                     if moved && walked {
                         // The alarm moved (the hostile was noticed elsewhere): search there.
+                        // Reset `walked` so if the moved spot is unreachable, this search
+                        // still counts points and abandons instead of looping (#3031).
                         let c = centre_for(feet);
-                        self.search_at(game, nav, actor, c, c, alarm.at, 0, true, alarm.owner);
+                        self.search_at(game, nav, actor, c, c, alarm.at, 0, false, alarm.owner);
                     } else {
                         // On round its share; each complete search counts. For an
                         // unreachable search (`!walked`), keep advancing `points` even if

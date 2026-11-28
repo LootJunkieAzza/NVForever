@@ -7295,3 +7295,78 @@ fn relocate_to_another_space_clears_stale_alarms_and_starts_package_walk() {
     s.run(20.0);
     assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) <= 36.0, "package walk ran from MoveTo spot: {:?}", s.feet(R_TRAVEL));
 }
+
+#[test]
+fn reachable_then_unreachable_moving_alarm_abandons_instead_of_looping() {
+    // #3031 review regression: an actor that walked to a reachable search point (`walked = true`)
+    // and whose target then moves somewhere unreachable (> RECENTRE) must restart with
+    // `walked = false` so the unreachable search completes and abandons instead of looping forever.
+    use fnv_game::detection::{Band, Detection};
+    use fnv_game::use_weapon::Source;
+
+    let f = fixture();
+    let mut s = sim(&f, &[R_SHOOTER]);
+    let actor = FormId(R_SHOOTER);
+    s.game.awareness.forced.insert((actor, FormId::PLAYER_REF));
+    let noticed = Detection { value: -10.0, band: Band::Noticed, ..Detection::default() };
+
+    // Step 1: reachable alarm on cell A's navmesh so the actor walks there (`walked = true`).
+    for _ in 0..30 {
+        s.game.observe_threat(actor, FormId::PLAYER_REF, &noticed, [250.0, 250.0, 0.0]);
+        s.game.settle_awareness();
+        s.run(0.5);
+        if matches!(s.ai.agents[&actor].search, Some(fnv_ai::alert::Search::Looking { walked: true, .. })) {
+            break;
+        }
+    }
+    assert!(
+        matches!(s.ai.agents[&actor].search, Some(fnv_ai::alert::Search::Looking { walked: true, .. })),
+        "actor reached first search point with walked = true: {:?}",
+        s.ai.agents[&actor].search
+    );
+
+    // Step 2: target moves to a patrolling unreachable spot (> RECENTRE every tick).
+    let mut patrol = 0.0f32;
+    for _ in 0..100 {
+        patrol += 100.0;
+        let far_unreachable = [9000.0 + (patrol % 400.0), 9000.0, 2000.0];
+        s.game.observe_threat(actor, FormId::PLAYER_REF, &noticed, far_unreachable);
+        s.game.settle_awareness();
+        s.run(0.5);
+        if s.game.awareness.state(actor) == State::Normal && s.game.active_weapon_use(actor).is_some_and(|w| w.in_place) {
+            break;
+        }
+    }
+    assert_eq!(s.game.awareness.state(actor), State::Normal, "abandoned after target became unreachable");
+    let w = s.game.active_weapon_use(actor).expect("Use Weapon package resumed");
+    assert_eq!(w.source, Source::Package(FormId(P_SHOOT)));
+    assert!(w.in_place);
+}
+
+#[test]
+fn reachable_alert_search_restarts_when_noticed_alarm_stays_active() {
+    // #3031 review regression: when a reachable State::Alert search finishes while the
+    // hostile is still actively noticed (so `searched_once` retains the fresh `Cause::Noticed`
+    // alarm), the actor must start a new search rather than freezing in `Search::Waiting`.
+    use fnv_game::detection::{Band, Detection};
+
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    let actor = FormId(R_RADIUS);
+    s.game.awareness.forced.insert((actor, FormId::PLAYER_REF));
+    let noticed = Detection { value: -10.0, band: Band::Noticed, ..Detection::default() };
+
+    for _ in 0..100 {
+        s.game.observe_threat(actor, FormId::PLAYER_REF, &noticed, [250.0, 250.0, 0.0]);
+        s.game.settle_awareness();
+        s.run(0.5);
+        let looks = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+        if looks >= 4 {
+            break;
+        }
+    }
+    let looks = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+    assert!(looks >= 4, "finished reachable Alert search must restart while noticed alarm stays active; got {looks} looks");
+    assert_eq!(s.game.awareness.state(actor), State::Alert);
+    assert!(!matches!(s.ai.agents[&actor].search, Some(fnv_ai::alert::Search::Waiting { .. })));
+}
