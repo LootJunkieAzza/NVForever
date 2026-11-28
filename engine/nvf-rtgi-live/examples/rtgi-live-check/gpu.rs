@@ -24,9 +24,11 @@ pub enum Refused {
     Failed(String),
 }
 
+pub const FIXTURE_TARGETS: [Target; 4] = [Target::Moments, Target::Reach, Target::Replay, Target::Meetings];
+
 pub struct Gpu {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
     info: wgpu::AdapterInfo,
     kernels: Vec<(Target, Arc<Kernel>)>,
     /// Errors nothing captured, and a lost device.
@@ -34,8 +36,8 @@ pub struct Gpu {
 }
 
 impl Gpu {
-    /// The Vulkan adapter whose name holds `name` and that traces rays, a discrete one first; its four kernels.
-    pub fn open(name: &str, validate: bool) -> Result<Gpu, Refused> {
+    /// The Vulkan adapter whose name holds `name` and that traces rays, a discrete one first.
+    pub fn open(name: &str, validate: bool, targets: &[Target]) -> Result<Gpu, Refused> {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         desc.backends = wgpu::Backends::VULKAN;
         desc.flags = if validate { wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION } else { wgpu::InstanceFlags::empty() };
@@ -83,7 +85,7 @@ impl Gpu {
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| uncaptured(e.to_string())));
         device.set_device_lost_callback(move |why, text| lost(format!("{why:?} {text}")));
         let mut kernels = Vec::new();
-        for target in [Target::Moments, Target::Reach, Target::Replay, Target::Meetings] {
+        for &target in targets {
             kernels.push((target, Arc::new(Kernel::new(&device, target).map_err(Refused::Failed)?)));
         }
         Ok(Gpu { device, queue, info, kernels, errors })
@@ -110,15 +112,23 @@ impl Gpu {
         Ok(Arc::new(room))
     }
 
-    /// All batches of the target's kernel in one submit, and what they wrote.
-    pub fn run(&self, target: Target, room: &Arc<Room>, points: &Points, light: &LightState, config: &Config) -> Result<Vec<u8>, String> {
+    pub fn live(&self, target: Target, room: &Arc<Room>, points: &Points, light: &LightState, config: &Config) -> Result<Live, String> {
         let kernel = self.kernels.iter().find(|k| k.0 == target).ok_or("no such kernel")?.1.clone();
-        let live = Live::new(&self.device, kernel, room.clone(), points, light, config)?;
+        Live::new(&self.device, kernel, room.clone(), points, light, config)
+    }
+
+    pub fn submit(&self, live: &Live) -> Result<(), String> {
         scoped(&self.device, "a round", || {
             let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("rtgi_live_check") });
             (0..live.batches()).for_each(|batch| live.encode(&mut encoder, batch, None));
             self.queue.submit([encoder.finish()]);
-        })?;
+        })
+    }
+
+    /// All batches of the target's kernel in one submit, and what they wrote.
+    pub fn run(&self, target: Target, room: &Arc<Room>, points: &Points, light: &LightState, config: &Config) -> Result<Vec<u8>, String> {
+        let live = self.live(target, room, points, light, config)?;
+        self.submit(&live)?;
         let bytes = read_back(&self.device, &self.queue, live.out())?;
         self.sound()?;
         Ok(bytes)
