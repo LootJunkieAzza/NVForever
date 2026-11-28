@@ -4,6 +4,10 @@ use core::{any::Any, fmt::Debug, time::Duration};
 use crate::vulkan::{semaphore_list::SemaphoreType, DeviceShared};
 
 pub(super) use native::*;
+pub use native::{
+    map_acquire_next_image_error, map_present_error, wait_and_reset_acquire_fence,
+    MAX_ACQUIRE_FENCE_WAITS,
+};
 
 mod native;
 
