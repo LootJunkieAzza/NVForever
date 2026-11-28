@@ -444,6 +444,17 @@ fn layout_entries(
             // Point Shadow Texture Array Linear Sampler
             #[cfg(feature = "experimental_pbr_pcss")]
             (4, sampler(SamplerBindingType::Filtering)),
+            // NVForever ALCS far maps: the far point shadow texture array (light.rs
+            // `HoldLightShadowMaps::far_slots`), with binding 2's samplers.
+            #[cfg(all(
+                not(target_abi = "sim"),
+                any(
+                    not(feature = "webgl"),
+                    not(target_arch = "wasm32"),
+                    feature = "webgpu"
+                )
+            ))]
+            (50, texture_cube_array(TextureSampleType::Depth)),
             // Directional Shadow Texture Array
             (
                 5,
@@ -965,6 +976,16 @@ pub fn prepare_mesh_view_bind_groups(
                 (3, &shadow_samplers.point_light_comparison_sampler),
                 #[cfg(feature = "experimental_pbr_pcss")]
                 (4, &shadow_samplers.point_light_linear_sampler),
+                // NVForever ALCS far maps.
+                #[cfg(all(
+                    not(target_abi = "sim"),
+                    any(
+                        not(feature = "webgl"),
+                        not(target_arch = "wasm32"),
+                        feature = "webgpu"
+                    )
+                ))]
+                (50, &shadow_bindings.nvf_point_light_far_depth_texture_view),
                 (5, &shadow_bindings.directional_light_depth_texture_view),
                 (6, &shadow_samplers.directional_light_comparison_sampler),
                 #[cfg(feature = "experimental_pbr_pcss")]

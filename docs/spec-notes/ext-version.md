@@ -271,8 +271,7 @@ gate numbers and the function/key names they call are kept] The "Mods gated" col
 open (`3`) semantics in `nvse_jip2.rs`. [design] Reporting `960` is an engine design
 choice (the engine is not the plugin and has no version of its own; requires owner
 approval per #3665); `970` (#3184) remains unpromoted until its full step verification
-lands; `GetPipBoyMode` opening/closing animation transition modes `1`/`2`/`4`/`5` are not
-built, `bAutoReadNotes` is skipped (requires Book Menu Restored), and unrepresented
+lands; `nvf-play` syncs `GetPipBoyMode` opening (`2`, `Phase::Raising`) and closing (`4`, `Phase::Lowering`) via `Game::ui.pipboy_mode` (while animation sub-phases `1`/`5` remain not built and headless `fnv-game` retains the `3`/`0` fallback), `bAutoReadNotes` is skipped (requires Book Menu Restored), and unrepresented
 switches (`bScaleCriticalDamage`, `bWeightlessItems`) retain INI fallback. [hypothesis]
 Live-game execution of the third-party Pip-Boy UI Tweaks and Quality of Life ESPless mod
 files against retail game data remains separate acceptance testing beyond the synthetic

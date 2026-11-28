@@ -684,7 +684,7 @@ mod tests {
         assert_eq!(offer(&bare, &forms, &WeaponStats::default(), GUN, Some(1.0), 0, true), None);
     }
 
-    /// The menu's two hints (#1896): "Modify Enter)" over "Exit E)", the Mod hint dim on the
+    /// The menu's two hints (#1896): "Modify [Enter]" over "Exit [E]", the Mod hint dim on the
     /// weapon's own row and bright on a mod; with a controller A and B.
     #[test]
     fn the_menu_shows_its_mod_and_exit_hints() {
@@ -693,13 +693,13 @@ mod tests {
         let groups = vec![(GUN, on, 1), (MAGS, Extra::default(), 1)];
         let mut s = Session { offer: offer(&groups, &forms, &pistol(), GUN, Some(1.0), 0, true).unwrap(), first: 0, selected: 0 };
         let shown = |s: &Session| menu_hints(s).iter().map(|h| (h.text(), h.dim)).collect::<Vec<_>>();
-        assert_eq!(shown(&s), [("Modify Enter)".to_string(), true), ("Exit E)".to_string(), false)]);
+        assert_eq!(shown(&s), [("Modify [Enter]".to_string(), true), ("Exit [E]".to_string(), false)]);
         s.selected = 1;
-        assert_eq!(shown(&s), [("Modify Enter)".to_string(), false), ("Exit E)".to_string(), false)]);
+        assert_eq!(shown(&s), [("Modify [Enter]".to_string(), false), ("Exit [E]".to_string(), false)]);
         crate::pad::set_labels(crate::pad::Labels::Xbox);
         let keys: Vec<String> = menu_hints(&s).iter().map(|h| h.key.clone()).collect();
         crate::pad::set_labels(crate::pad::Labels::Keys);
-        assert_eq!(keys, ["A)", "B)"]);
+        assert_eq!(keys, ["[A]", "[B]"]);
     }
 
     #[test]

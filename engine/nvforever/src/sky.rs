@@ -2237,25 +2237,50 @@ pub fn sun_casters_over_slice(
     mut suns: Query<(&mut bevy::camera::visibility::CascadesVisibleEntities, &bevy::light::Cascades, &CascadeShadowConfig, &GlobalTransform), With<Sun>>,
     views: Query<(&GlobalTransform, &Projection)>,
     casters: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
+    share: Option<Res<crate::shadow_rate::MirrorShadowShare>>,
+    hold: Option<Res<bevy::pbr::HoldDirectionalShadowMaps>>,
 ) {
+    let shared_mirror = share.as_ref().and_then(|s| s.0).map(|(_, mirror)| mirror);
+    let held_mask = hold.as_ref().map_or(0, |h| h.0);
     for (mut visible, cascades, config, light) in &mut suns {
         let light_from_world = Mat3::from_quat(light.rotation()).transpose();
+        let lx = light_from_world.row(0);
+        let ly = light_from_world.row(1);
         let near_bounds = std::iter::once(config.minimum_distance).chain(config.bounds.iter().map(|b| b * (1.0 - config.overlap_proportion)));
         let bounds: Vec<(f32, f32)> = near_bounds.zip(config.bounds.iter().copied()).collect();
         for (view, lists) in visible.entities.iter_mut() {
+            // `shadow_rate::share_mirror_casters` runs right after this system and replaces
+            // the shared mirror's caster lists with the main camera's lists [design].
+            if shared_mirror == Some(*view) {
+                continue;
+            }
             let (Ok((at, projection)), Some(cs)) = (views.get(*view), cascades.cascades.get(view)) else { continue };
             let world_from_view = at.affine();
-            for ((list, c), (near, far)) in lists.iter_mut().zip(cs).zip(&bounds) {
-                let outline = hull(projection.get_frustum_corners(-near, -far).map(|p| (light_from_world * Vec3::from(world_from_view.transform_point3a(p))).truncate()));
+            for (cascade_idx, ((list, c), (near, far))) in lists.iter_mut().zip(cs).zip(&bounds).enumerate() {
+                // Held cascades are not redrawn this frame (`HoldDirectionalShadowMaps`) [design].
+                if cascade_idx < 32 && (held_mask & (1u32 << cascade_idx)) != 0 {
+                    continue;
+                }
+                let outline = hull(projection.get_frustum_corners(-near, -far).map(|p| {
+                    let wp = Vec3::from(world_from_view.transform_point3a(p));
+                    Vec2::new(lx.dot(wp), ly.dot(wp))
+                }));
+                let edges = outline_edges(&outline);
                 let margin = SLICE_MARGIN_TEXELS * c.texel_size;
                 list.entities.retain(|e| {
                     let Ok((aabb, at)) = casters.get(*e) else { return true };
                     let place = at.affine();
-                    let centre = (light_from_world * Vec3::from(place.transform_point3a(aabb.center))).truncate();
-                    let m = light_from_world * Mat3::from(place.matrix3);
+                    let world_c = Vec3::from(place.transform_point3a(aabb.center));
+                    let centre = Vec2::new(lx.dot(world_c), ly.dot(world_c));
+                    let c0 = Vec3::from(place.matrix3.x_axis);
+                    let c1 = Vec3::from(place.matrix3.y_axis);
+                    let c2 = Vec3::from(place.matrix3.z_axis);
                     let half = Vec3::from(aabb.half_extents);
-                    let reach = Vec2::new(m.row(0).abs().dot(half), m.row(1).abs().dot(half));
-                    overlaps(&outline, centre, reach + margin)
+                    let reach = Vec2::new(
+                        Vec3::new(lx.dot(c0), lx.dot(c1), lx.dot(c2)).abs().dot(half) + margin,
+                        Vec3::new(ly.dot(c0), ly.dot(c1), ly.dot(c2)).abs().dot(half) + margin,
+                    );
+                    overlaps_edges(&edges, centre, reach)
                 });
             }
         }
@@ -2265,6 +2290,26 @@ pub fn sun_casters_over_slice(
 /// How far past a slice's outline a caster still counts, in the cascade's shadow-map
 /// texels [engineering choice: wider than the shadow filter's reach, a few texels].
 const SLICE_MARGIN_TEXELS: f32 = 8.0;
+
+/// Precomputed outward unit normal, its absolute value, and support offset `n · a` for
+/// each edge of a convex hull so per-caster overlap tests avoid `sqrt` and division [design].
+fn outline_edges(outline: &[Vec2]) -> Vec<(Vec2, Vec2, f32)> {
+    (0..outline.len())
+        .map(|i| {
+            let (a, b) = (outline[i], outline[(i + 1) % outline.len()]);
+            let n = (-(b - a).perp()).normalize_or_zero();
+            (n, n.abs(), n.dot(a))
+        })
+        .collect()
+}
+
+fn overlaps_edges(edges: &[(Vec2, Vec2, f32)], centre: Vec2, reach: Vec2) -> bool {
+    edges.iter().all(|&(n, n_abs, limit)| n.dot(centre) - n_abs.dot(reach) <= limit)
+}
+
+#[cfg(test)]
+#[path = "sky_slice_culling_tests.rs"]
+mod sky_slice_culling_tests;
 
 /// The convex hull of `points`, counter-clockwise (monotone chain).
 fn hull<const N: usize>(mut points: [Vec2; N]) -> Vec<Vec2> {
@@ -2287,13 +2332,9 @@ fn hull<const N: usize>(mut points: [Vec2; N]) -> Vec<Vec2> {
 /// Whether the rectangle `centre` ± `reach` overlaps the convex polygon `outline`
 /// (counter-clockwise): separated only along one of the outline's edges (the rectangle's
 /// own axes are the cascade's square, which Bevy has tested already).
+#[cfg_attr(not(test), allow(dead_code))]
 fn overlaps(outline: &[Vec2], centre: Vec2, reach: Vec2) -> bool {
-    (0..outline.len()).all(|i| {
-        let (a, b) = (outline[i], outline[(i + 1) % outline.len()]);
-        let out = -(b - a).perp();
-        let n = out.normalize_or_zero();
-        n.dot(centre - a) - n.abs().dot(reach) <= 0.0
-    })
+    overlaps_edges(&outline_edges(outline), centre, reach)
 }
 
 /// Whether the sun casts shadows with its shadows switched `on` and a shadow distance of

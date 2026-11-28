@@ -3,6 +3,11 @@
 //! other players drawn, and the host's world shared with its guests. `--host <port>` and
 //! `--join <code>` do the same from the command line.
 //!
+//! **Shared progress** (`progress`, `story`; docs/design/coop-shared-progress.md): quest
+//! rewards, stage offers, kill credit, saves and the host's quest, level and story go
+//! between the games as `nvf_coop::progress` items on the reliable stream, checked on the
+//! host by the rules it registers with its link (`host_progress_rules`) and its world (`host_forms`).
+//!
 //! **Off by default.** Nothing here opens a socket until the Co-op switch is on and a
 //! lobby is created or joined [design]; this part opens none (below).
 //! Without a link every system here returns at once, so single player is as it was.
@@ -145,10 +150,12 @@ mod areas;
 pub(crate) mod checks;
 mod far_combat;
 mod leave;
+mod progress;
 mod rejoin;
 mod replication;
 mod revive;
 mod scene;
+mod story;
 mod syncing;
 
 pub use leave::HoldLeave;
@@ -227,6 +234,8 @@ pub(crate) struct Coop {
     finding_since: Option<f32>,
     /// The host's checks were given the load order and the world's rules.
     forms_set: bool,
+    /// The host's checks on shared progress are on its link ([`host_progress_rules`]).
+    rules_set: bool,
     /// When each player's state was last logged.
     state_logged: BTreeMap<u8, f32>,
     /// The host's Hellos turned away for the secret, as of the last look, and when.
@@ -322,6 +331,10 @@ pub(crate) struct Coop {
     /// The host's checks of what guests send against its world ([`checks`]): what each
     /// refused, counted, and the guests' drops and forced resends it keeps count of.
     checks: checks::HostChecks,
+    /// Shared progress's state on this side (`progress`).
+    progress: progress::Shared,
+    /// The host's story for the guests (`story`).
+    story: story::Shared,
 }
 
 impl Coop {
@@ -338,6 +351,7 @@ impl Coop {
             joining: Joining::Idle,
             finding_since: None,
             forms_set: false,
+            rules_set: false,
             state_logged: BTreeMap::new(),
             hello_drops: (0, 0.0),
             npcs: HashMap::new(),
@@ -382,6 +396,8 @@ impl Coop {
             parting: false,
             scene: Default::default(),
             checks: Default::default(),
+            progress: Default::default(),
+            story: Default::default(),
         }
     }
 }
@@ -406,6 +422,7 @@ impl Plugin for CoopPlugin {
         app.insert_resource(coop)
             .init_resource::<HoldLeave>()
             .add_message::<PuppetShot>()
+            .add_plugins(nvf_play::coop_progress::CoopProgressPlugin)
             .add_systems(
                 PostStartup,
                 (move |mut s: ResMut<CoopSwitch>| {
@@ -418,6 +435,7 @@ impl Plugin for CoopPlugin {
             .add_systems(
                 Update,
                 (
+                    host_progress_rules,
                     host_forms,
                     replication::frame_clock,
                     lobby,
@@ -447,7 +465,8 @@ impl Plugin for CoopPlugin {
             .add_systems(Update, scene::slide_spot.in_set(nvf_play::PlaySet::Physics).before(nvf_play::control::place_camera))
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends)
-            .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test))
+            .add_systems(Update, (progress::progress, story::share_story).chain().after(take_events));
     }
 }
 
@@ -669,11 +688,15 @@ impl Coop {
     fn stop_hosting(&mut self) {
         // Dropping the link says goodbye to the guests.
         self.link = None;
+        self.forms_set = false;
+        self.rules_set = false;
         self.hello_drops = (0, 0.0);
         self.state_logged.clear();
         self.code = None;
         self.note = None;
         self.forget_peers();
+        self.progress.reset();
+        self.story = Default::default();
     }
 
     /// Join the lobby `at` names: no transport is plugged in here, so none opens.
@@ -695,6 +718,8 @@ impl Coop {
         self.host = None;
         self.host_lost = false;
         self.forget_peers();
+        self.progress.reset();
+        self.story = Default::default();
     }
 
     /// The other players are gone from this game: every body of theirs is taken away on
@@ -754,6 +779,7 @@ fn host_forms(mut coop: ResMut<Coop>, sim: Option<Res<nvf_play::sim::SimState>>)
     }
     let Some(sim) = sim else { return };
     let check: Arc<dyn FormCheck> = Arc::new(HostForms { forms: sim.forms, refs: sim.refs });
+    let coop = &mut *coop;
     if let Some(link) = &coop.link {
         link.set_forms(Some(check));
         nvf_coop::world::add_world_rules(&mut |kind, rule| link.add_rule(kind, rule));
@@ -762,8 +788,33 @@ fn host_forms(mut coop: ResMut<Coop>, sim: Option<Res<nvf_play::sim::SimState>>)
     }
 }
 
+/// The host's checks on what guests send of shared progress, added as soon as the lobby's
+/// link is there: not after the world loads, so no guest item passes unchecked meanwhile
+/// (a kind with no rule is let through). Made again for each lobby the host opens
+/// ([`Coop::stop_hosting`] forgets them).
+fn host_progress_rules(mut coop: ResMut<Coop>) {
+    if coop.rules_set || !coop.is_host() {
+        return;
+    }
+    let coop = &mut *coop;
+    if let Some(link) = &coop.link {
+        coop.progress.checks.set_lines(fnv_game::coop_questlines::LINES.len());
+        for (kind, rule) in coop.progress.checks.rules() {
+            link.add_rule(kind, rule);
+        }
+        coop.rules_set = true;
+    }
+}
+
 /// The lobby screens' asks, and what they show.
-fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<LobbyRequest>, mut state: ResMut<LobbyState>, switch: Res<CoopSwitch>) {
+fn lobby(
+    time: Res<Time<Real>>,
+    mut coop: ResMut<Coop>,
+    mut asks: MessageReader<LobbyRequest>,
+    mut state: ResMut<LobbyState>,
+    switch: Res<CoopSwitch>,
+    (progress, script): (Option<Res<nvf_play::coop_progress::CoopProgress>>, Option<Res<nvf_play::script::ScriptState>>),
+) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
     for ask in asks.read() {
@@ -788,6 +839,8 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
                 coop.stop_joining();
                 coop.start_joining(code);
             }
+            // A guest's quest sync choices: `nvf_play::coop_progress` keeps them.
+            LobbyRequest::QuestSync(_) | LobbyRequest::SitOut { .. } => {}
             LobbyRequest::Cancel => {
                 if coop.joining == Joining::Finding {
                     coop.stop_joining();
@@ -814,15 +867,44 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
     };
     let mut players = Vec::new();
     if coop.link.is_some() {
-        players.push(if coop.is_host() { format!("{} (host, you)", coop.name) } else { format!("{} (you)", coop.name) });
+        // Who shares quest progress and the questlines each sits out
+        // (docs/design/coop-quest-sync.md §5): a guest knows its own, the host every guest's.
+        let own_sat_out = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(0, |rt| rt.game.player.quest_sync.mask());
+        let sharing = |id: Option<u8>| -> String {
+            let Some(p) = progress.as_deref() else { return String::new() };
+            let (on, sat_out) = match id {
+                None => (p.joint_on, own_sat_out),
+                Some(id) => (p.joint_peers.get(&id).map(|(_, on)| *on), p.joint_sat_out.get(&id).copied().unwrap_or(0)),
+            };
+            sharing_label(on, sat_out)
+        };
+        players.push(if coop.is_host() { format!("{}{}", coop.name, tr(" (host, you)")) } else { format!("{}{}{}", coop.name, tr(" (you)"), sharing(None)) });
         for (&id, p) in &coop.peers {
             let n = label(id, &p.name);
             // The host is player 0: marked on a guest's list.
-            let n = if id == 0 && coop.is_guest() && n != "The host" { format!("{n} (host)") } else { n };
-            players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
+            let n = if id == 0 && coop.is_guest() && n != tr("The host") { format!("{n}{}", tr(" (host)")) } else { n };
+            let n = if coop.is_host() { format!("{n}{}", sharing(Some(id))) } else { n };
+            players.push(if p.lost { format!("{n}{}", tr(" (reconnecting)")) } else { n });
         }
     }
     state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest() });
+}
+
+/// A player's quest sharing on the lobby list (docs/design/coop-quest-sync.md §5): sharing,
+/// and the questlines sat out (two by name, then how many more, so six players' lines stay
+/// on the screen); not sharing; or nothing before it chose [design: our own words].
+fn sharing_label(on: Option<bool>, sat_out: u64) -> String {
+    match on {
+        None => String::new(),
+        Some(false) => tr(" (not sharing quests)").into(),
+        Some(true) if sat_out == 0 => tr(" (sharing quests)").into(),
+        Some(true) => {
+            let names = fnv_game::coop_questlines::names(sat_out);
+            let shown = names.iter().take(2).map(|n| tr(n)).collect::<Vec<_>>().join(", ");
+            let more = if names.len() > 2 { format!(" +{}", names.len() - 2) } else { String::new() };
+            trf(" (sharing quests, sitting out {names})", &[("names", &format!("{shown}{more}"))])
+        }
+    }
 }
 
 fn label(id: u8, name: &str) -> String {
@@ -1402,6 +1484,7 @@ fn take_events(
                 }
                 coop.state_logged.remove(&id);
                 coop.checks.forget(id);
+                coop.progress.checks.left(id);
                 if id == 0 {
                     coop.host = None;
                 }
@@ -1603,7 +1686,16 @@ fn take_events(
                 }
             }
             // For `replication::replicate`.
-            e @ (Event::Reliable { .. } | Event::RelReset { .. } | Event::Actors { .. }) => coop.repl.inbox.push(e),
+            // Shared progress (`progress`).
+            Event::Reliable { id, item } if nvf_coop::progress::is_progress_item(&item) => coop.progress.heard.push((id, item)),
+            // For `replication::replicate`; a stream started again also sends the host's
+            // progress views again from the start.
+            e @ (Event::Reliable { .. } | Event::RelReset { .. } | Event::Actors { .. }) => {
+                if matches!(e, Event::RelReset { .. }) {
+                    coop.progress.views.again();
+                }
+                coop.repl.inbox.push(e)
+            }
         }
     }
     note_bad(coop);
@@ -3507,6 +3599,20 @@ fn state_line(id: u8, s: &PlayerState) -> String {
 mod tests {
     use super::*;
 
+    /// The lobby list's quest sharing (docs/design/coop-quest-sync.md §5): the host sees
+    /// which questlines each guest sits out.
+    #[test]
+    fn the_lobby_list_names_the_questlines_a_player_sits_out() {
+        use fnv_game::coop_questlines::{bit, index};
+        let line = |k: &str| bit(index(k).unwrap());
+        assert_eq!(sharing_label(None, 0), "");
+        assert_eq!(sharing_label(Some(false), line("house")), " (not sharing quests)");
+        assert_eq!(sharing_label(Some(true), 0), " (sharing quests)");
+        assert_eq!(sharing_label(Some(true), line("house")), " (sharing quests, sitting out Mr. House)");
+        assert_eq!(sharing_label(Some(true), line("house") | line("ncr")), " (sharing quests, sitting out Mr. House, NCR)");
+        assert_eq!(sharing_label(Some(true), line("house") | line("ncr") | line("legion") | line("cass")), " (sharing quests, sitting out Mr. House, NCR +2)");
+    }
+
     /// With no transport plugged in, hosting opens nothing and joining says why.
     #[test]
     fn hosting_and_joining_without_a_transport_say_so() {
@@ -3520,6 +3626,46 @@ mod tests {
         let coop = app.world().resource::<Coop>();
         assert!(coop.link.is_none());
         assert_eq!(coop.joining, Joining::Failed(NO_TRANSPORT.to_string()));
+    }
+
+    struct NoTransport;
+    impl nvf_coop::seam::Transport for NoTransport {
+        fn send_to(&self, bytes: &[u8], _to: std::net::SocketAddr) -> std::io::Result<usize> {
+            Ok(bytes.len())
+        }
+        fn recv_from(&mut self, _buf: &mut [u8]) -> std::io::Result<Option<(usize, std::net::SocketAddr)>> {
+            Ok(None)
+        }
+        fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+            Ok("127.0.0.1:1".parse().unwrap())
+        }
+    }
+
+    /// A host's progress rules go on its link at once, with no world loaded, and again for
+    /// the next lobby it opens.
+    #[test]
+    fn a_hosts_progress_rules_go_on_with_its_link_and_again_for_a_second_lobby() {
+        let mut app = App::new();
+        app.add_plugins(CoopPlugin(Config { host: None, join: None, name: "Courier".into() }));
+        let run = |app: &mut App| {
+            use bevy::ecs::system::RunSystemOnce;
+            app.world_mut().run_system_once(host_progress_rules).unwrap();
+        };
+        let host = |app: &mut App| {
+            let session = net::Session::host_on(Box::new(NoTransport), Box::new(nvf_coop::seam::SharedSecret::new(7).unwrap()));
+            app.world_mut().resource_mut::<Coop>().link = Some(Link::new(session).unwrap());
+        };
+        run(&mut app);
+        assert!(!app.world().resource::<Coop>().rules_set, "no link, no rules");
+        host(&mut app);
+        run(&mut app);
+        assert!(app.world().resource::<Coop>().rules_set, "the rules are on before any world is loaded");
+        assert!(!app.world().resource::<Coop>().forms_set, "the forms check still waits for the world");
+        app.world_mut().resource_mut::<Coop>().stop_hosting();
+        assert!(!app.world().resource::<Coop>().rules_set && !app.world().resource::<Coop>().forms_set);
+        host(&mut app);
+        run(&mut app);
+        assert!(app.world().resource::<Coop>().rules_set, "the second lobby has its rules too");
     }
 
     #[test]
