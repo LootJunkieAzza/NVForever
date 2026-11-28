@@ -110,9 +110,13 @@ impl ModelCache {
             let Some(model) = model else { continue };
             // The marks of the variants follow the path (`model_key`).
             let path = key.split_once('|').map_or(key.as_str(), |(path, _)| path);
-            let shapes = model.shapes.iter().map(|s| (s.mesh.id(), s.block, s.name.as_deref().unwrap_or_default()));
-            let rig = model.rig.iter().flat_map(|r| &r.shapes).map(|s| (s.mesh.id(), s.block, s.look.0.as_str()));
-            for (id, block, name) in shapes.chain(rig).filter(|(id, ..)| wanted.contains(id)) {
+            let shapes = model.shapes.iter().map(|s| (s.mesh.id(), s.block, s.name.as_deref().unwrap_or_default(), model.merged_meshes.contains(&s.mesh.id())));
+            let rig = model.rig.iter().flat_map(|r| &r.shapes).map(|s| (s.mesh.id(), s.block, s.look.0.as_str(), false));
+            for (id, block, name, merged) in shapes.chain(rig).filter(|(id, ..)| wanted.contains(id)) {
+                if merged {
+                    out.insert(id, None);
+                    continue;
+                }
                 let same = |s: &MeshSource| s.path == path && s.block == block && s.name == name;
                 match out.get_mut(&id) {
                     Some(held) if held.as_ref().is_some_and(same) => {}
@@ -172,6 +176,42 @@ mod tests {
         let wanted = HashSet::from([twice.id(), torn.id(), made().id()]);
         let source = MeshSource { path: a.into(), block: 4, name: "Wall:0".into() };
         let expected = HashMap::from([(twice.id(), Some(source)), (torn.id(), None)]);
+        assert_eq!(cache.sources(&wanted), expected);
+    }
+
+    #[test]
+    fn merged_multi_block_shape_reports_none_source_while_unmerged_keeps_block() {
+        let mut meshes = Assets::<Mesh>::default();
+        let unmerged = meshes.add(Mesh::from(Cuboid::default()));
+        let merged = meshes.add(Mesh::from(Cuboid::default()));
+        let shape = |mesh: &Handle<Mesh>, block, name: Option<&str>| PreparedShape {
+            mesh: mesh.clone(),
+            material: Handle::default(),
+            transform: default(),
+            name: name.map(str::to_string),
+            ancestors: Vec::new(),
+            node: None,
+            own: default(),
+            cpu: None,
+            segments: Vec::new(),
+            external_emittance: false,
+            look: crate::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+            missing_diffuse: None,
+            block,
+        };
+        let mut prepared = PreparedModel {
+            shapes: vec![shape(&unmerged, 7, Some("Pillar:0")), shape(&merged, 12, None)],
+            ..default()
+        };
+        prepared.merged_meshes.insert(merged.id());
+        let mut cache = ModelCache::default();
+        let path = r"meshes\static_hall.nif";
+        cache.map.insert(path.into(), Some(Arc::new(prepared)));
+        let wanted = HashSet::from([unmerged.id(), merged.id()]);
+        let expected = HashMap::from([
+            (unmerged.id(), Some(MeshSource { path: path.into(), block: 7, name: "Pillar:0".into() })),
+            (merged.id(), None),
+        ]);
         assert_eq!(cache.sources(&wanted), expected);
     }
 }

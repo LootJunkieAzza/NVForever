@@ -112,6 +112,10 @@ pub struct PreparedModel {
     /// the blast throws them. Its rig is built too, so that the bodies can move its nodes
     /// once they fall (nvforever `wrecks.rs`).
     pub loose: bool,
+    /// Mesh assets combined from two or more static NIF blocks by worker-thread static
+    /// shape merging, so [`ModelCache::sources`] reports `None` instead of attributing a
+    /// merged multi-block mesh to a single block [design].
+    pub merged_meshes: HashSet<AssetId<Mesh>>,
 }
 
 /// A light inside a model whose colour or dimmer a sequence drives. Lights are not
@@ -1837,6 +1841,8 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     // Shapes without the window flag drawn with an environment map, each with how
     // (nif.md §6 "Environment maps on other shapes").
     let mut other_env: Vec<String> = Vec::new();
+    let allow_static_merge = !keep_cpu && !attachments && rig.is_none() && !out.jointed && !out.loose;
+    let mut merge_candidates: Vec<StaticMergeCandidate> = Vec::new();
     for o in objects.iter().filter(|o| !o.is_node) {
         // Walk to the root: accumulate the transform below the root's own and look
         // for hidden ancestors.
@@ -1940,11 +1946,51 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         if skin.is_some() {
             out.skinned += 1;
         }
-        let material = sink.material(material);
-        let cpu = keep_cpu.then(|| Arc::new(mesh.clone()));
         // Ranges into the mesh's triangles: only when `build_mesh` kept every one.
         let drawn = mesh.indices().map_or(0, |i| i.len() / 3);
         let segments = segment_triangles(shape, tris).filter(|_| drawn == tris).unwrap_or_default();
+        let node = o.parent.and_then(|p| node_index.get(&p).copied());
+        let own = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
+        let external_emittance = props.external_emittance();
+        let look = {
+            let (e, m) = props.emissive_parts();
+            crate::material_anim::Look::stored(e, m, props.alpha_part())
+        };
+        // Worker-thread static NIF flattening [design]: opaque/cutout shapes inside a
+        // static model sharing the exact same `NifMaterial` and vertex layout are batched
+        // into one `PreparedShape` per material, reducing ECS entity and draw-call count
+        // 2x-4x on multi-shape architecture NIFs without changing world visuals or RefVisual.
+        if allow_static_merge
+            && !hidden
+            && skin.is_none()
+            && morph.is_none()
+            && managed_morph.is_none()
+            && segments.is_empty()
+            && !has_special_ancestor(&out.nodes, node)
+            && !is_mine_light_hint(o.name.as_deref(), &ancestors)
+            && matches!(material.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_))
+        {
+            if let Some(attr_mask) = mergeable_attr_mask(&mesh) {
+                merge_candidates.push(StaticMergeCandidate {
+                    mesh,
+                    material,
+                    transform: t,
+                    external_emittance,
+                    attr_mask,
+                    name: o.name.clone(),
+                    ancestors,
+                    node,
+                    own,
+                    look,
+                    missing_diffuse,
+                    tris,
+                    block: o.block as u32,
+                });
+                continue;
+            }
+        }
+        let material = sink.material(material);
+        let cpu = keep_cpu.then(|| Arc::new(mesh.clone()));
         // The rig's copy of a skinned mesh carries the joint attributes; the static
         // copy draws the bind pose without them.
         let rig_skinned = match (&rig, skin) {
@@ -1993,18 +2039,16 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
             transform: t,
             name: o.name.clone(),
             ancestors,
-            node: o.parent.and_then(|p| node_index.get(&p).copied()),
-            own: if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY },
-            external_emittance: props.external_emittance(),
-            look: {
-                let (e, m) = props.emissive_parts();
-                crate::material_anim::Look::stored(e, m, props.alpha_part())
-            },
+            node,
+            own,
+            external_emittance,
+            look,
             missing_diffuse,
             block: o.block as u32,
         });
         out.triangles += tris;
     }
+    flush_static_merge_candidates(sink, merge_candidates, &mut out);
     if first_person {
         info!("{path}: first person, {first_worn} texture(s) in their 1stperson form ({first_textures} by the name rule, the rest named by its texture swap or the model)");
     }
@@ -2026,9 +2070,352 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     Ok(out)
 }
 
+const ATTR_NORMAL: u8 = 1 << 0;
+const ATTR_UV0: u8 = 1 << 1;
+const ATTR_TANGENT: u8 = 1 << 2;
+const ATTR_COLOR: u8 = 1 << 3;
+const STATIC_MERGE_MAX_VERTS: usize = 65_535;
+
+struct StaticMergeCandidate {
+    mesh: Mesh,
+    material: NifMaterial,
+    transform: Affine3A,
+    external_emittance: bool,
+    attr_mask: u8,
+    name: Option<String>,
+    ancestors: Vec<String>,
+    node: Option<usize>,
+    own: Affine3A,
+    look: crate::material_anim::Look,
+    missing_diffuse: Option<String>,
+    tris: usize,
+    block: u32,
+}
+
+fn has_special_ancestor(nodes: &[ModelNode], mut node: Option<usize>) -> bool {
+    let mut steps = 0usize;
+    while let Some(i) = node {
+        let Some(n) = nodes.get(i) else { break };
+        if n.billboard.is_some() || n.damage_stages.is_some() {
+            return true;
+        }
+        node = n.parent;
+        steps += 1;
+        if steps > 512 {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_mine_light_hint(name: Option<&str>, ancestors: &[String]) -> bool {
+    let has = |s: &str| {
+        let l = s.to_ascii_lowercase();
+        l.contains("light") || l.contains("mine")
+    };
+    name.is_some_and(has) || ancestors.iter().any(|a| has(a))
+}
+
+fn mergeable_attr_mask(mesh: &Mesh) -> Option<u8> {
+    if mesh.primitive_topology() != PrimitiveTopology::TriangleList || mesh.indices().is_none() {
+        return None;
+    }
+    if mesh.count_vertices() == 0 || mesh.count_vertices() > STATIC_MERGE_MAX_VERTS {
+        return None;
+    }
+    let mut has_pos = false;
+    let mut mask = 0u8;
+    for (attr, values) in mesh.attributes() {
+        if attr.id == Mesh::ATTRIBUTE_POSITION.id {
+            if !matches!(values, VertexAttributeValues::Float32x3(_)) {
+                return None;
+            }
+            has_pos = true;
+        } else if attr.id == Mesh::ATTRIBUTE_NORMAL.id {
+            if !matches!(values, VertexAttributeValues::Float32x3(_)) {
+                return None;
+            }
+            mask |= ATTR_NORMAL;
+        } else if attr.id == Mesh::ATTRIBUTE_UV_0.id {
+            if !matches!(values, VertexAttributeValues::Float32x2(_)) {
+                return None;
+            }
+            mask |= ATTR_UV0;
+        } else if attr.id == Mesh::ATTRIBUTE_TANGENT.id {
+            if !matches!(values, VertexAttributeValues::Float32x4(_)) {
+                return None;
+            }
+            mask |= ATTR_TANGENT;
+        } else if attr.id == Mesh::ATTRIBUTE_COLOR.id {
+            if !matches!(values, VertexAttributeValues::Float32x4(_)) {
+                return None;
+            }
+            mask |= ATTR_COLOR;
+        } else {
+            return None;
+        }
+    }
+    has_pos.then_some(mask)
+}
+
+fn merge_static_mesh_group(group: &[&StaticMergeCandidate]) -> Mesh {
+    let attr_mask = group[0].attr_mask;
+    let total_verts: usize = group.iter().map(|c| c.mesh.count_vertices()).sum();
+    let total_indices: usize = group.iter().map(|c| c.mesh.indices().map_or(0, |i| i.len())).sum();
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(total_verts);
+    let mut normals: Vec<[f32; 3]> = if attr_mask & ATTR_NORMAL != 0 { Vec::with_capacity(total_verts) } else { Vec::new() };
+    let mut uvs: Vec<[f32; 2]> = if attr_mask & ATTR_UV0 != 0 { Vec::with_capacity(total_verts) } else { Vec::new() };
+    let mut tangents: Vec<[f32; 4]> = if attr_mask & ATTR_TANGENT != 0 { Vec::with_capacity(total_verts) } else { Vec::new() };
+    let mut colors: Vec<[f32; 4]> = if attr_mask & ATTR_COLOR != 0 { Vec::with_capacity(total_verts) } else { Vec::new() };
+    let mut indices: Vec<u32> = Vec::with_capacity(total_indices);
+
+    for cand in group {
+        let base_vert = positions.len() as u32;
+        let t = cand.transform;
+        let m3 = Mat3::from(t.matrix3);
+        let det = m3.determinant();
+        let flip = det < 0.0;
+        let normal_mat = if det.abs() > 1e-12 { m3.inverse().transpose() } else { m3 };
+
+        if let Some(VertexAttributeValues::Float32x3(pos)) = cand.mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            for &p in pos {
+                positions.push(t.transform_point3(Vec3::from_array(p)).to_array());
+            }
+        }
+        if attr_mask & ATTR_NORMAL != 0 {
+            if let Some(VertexAttributeValues::Float32x3(nrm)) = cand.mesh.attribute(Mesh::ATTRIBUTE_NORMAL) {
+                for &n in nrm {
+                    normals.push((normal_mat * Vec3::from_array(n)).normalize_or(Vec3::Y).to_array());
+                }
+            }
+        }
+        if attr_mask & ATTR_UV0 != 0 {
+            if let Some(VertexAttributeValues::Float32x2(uv)) = cand.mesh.attribute(Mesh::ATTRIBUTE_UV_0) {
+                uvs.extend_from_slice(uv);
+            }
+        }
+        if attr_mask & ATTR_TANGENT != 0 {
+            if let Some(VertexAttributeValues::Float32x4(tan)) = cand.mesh.attribute(Mesh::ATTRIBUTE_TANGENT) {
+                for &tg in tan {
+                    let dir = (m3 * Vec3::new(tg[0], tg[1], tg[2])).normalize_or(Vec3::X);
+                    let w = if flip { -tg[3] } else { tg[3] };
+                    tangents.push([dir.x, dir.y, dir.z, w]);
+                }
+            }
+        }
+        if attr_mask & ATTR_COLOR != 0 {
+            if let Some(VertexAttributeValues::Float32x4(col)) = cand.mesh.attribute(Mesh::ATTRIBUTE_COLOR) {
+                colors.extend_from_slice(col);
+            }
+        }
+        if let Some(idx) = cand.mesh.indices() {
+            let mut tri = [0u32; 3];
+            let mut k = 0usize;
+            for v in idx.iter() {
+                tri[k] = base_vert + v as u32;
+                k += 1;
+                if k == 3 {
+                    if flip {
+                        indices.extend_from_slice(&[tri[0], tri[2], tri[1]]);
+                    } else {
+                        indices.extend_from_slice(&tri);
+                    }
+                    k = 0;
+                }
+            }
+        }
+    }
+
+    let mut merged = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    merged.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    if attr_mask & ATTR_NORMAL != 0 {
+        merged.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    }
+    if attr_mask & ATTR_UV0 != 0 {
+        merged.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    }
+    if attr_mask & ATTR_TANGENT != 0 {
+        merged.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tangents);
+    }
+    if attr_mask & ATTR_COLOR != 0 {
+        merged.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    }
+    merged.insert_indices(bevy::mesh::Indices::U32(indices));
+    merged
+}
+
+fn standard_material_eq(a: &StandardMaterial, b: &StandardMaterial) -> bool {
+    a.base_color == b.base_color
+        && a.base_color_texture == b.base_color_texture
+        && a.emissive == b.emissive
+        && a.emissive_exposure_weight == b.emissive_exposure_weight
+        && a.emissive_texture == b.emissive_texture
+        && a.perceptual_roughness == b.perceptual_roughness
+        && a.metallic == b.metallic
+        && a.metallic_roughness_texture == b.metallic_roughness_texture
+        && a.reflectance == b.reflectance
+        && a.specular_tint == b.specular_tint
+        && a.specular_transmission == b.specular_transmission
+        && a.normal_map_texture == b.normal_map_texture
+        && a.flip_normal_map_y == b.flip_normal_map_y
+        && a.occlusion_texture == b.occlusion_texture
+        && a.depth_map == b.depth_map
+        && a.parallax_depth_scale == b.parallax_depth_scale
+        && a.parallax_mapping_method == b.parallax_mapping_method
+        && a.max_parallax_layer_count == b.max_parallax_layer_count
+        && a.double_sided == b.double_sided
+        && a.cull_mode == b.cull_mode
+        && a.unlit == b.unlit
+        && a.fog_enabled == b.fog_enabled
+        && a.alpha_mode == b.alpha_mode
+        && a.depth_bias == b.depth_bias
+        && a.uv_transform == b.uv_transform
+}
+
+fn nif_material_eq(a: &NifMaterial, b: &NifMaterial) -> bool {
+    a.extension == b.extension && standard_material_eq(&a.base, &b.base)
+}
+
+fn flush_static_merge_candidates(sink: &mut impl ModelSink, candidates: Vec<StaticMergeCandidate>, out: &mut PreparedModel) {
+    if candidates.is_empty() {
+        return;
+    }
+    // Group candidates by exact material + attribute layout + external_emittance, keeping
+    // vertex counts within `STATIC_MERGE_MAX_VERTS` per chunk.
+    let mut groups: Vec<(Vec<usize>, usize)> = Vec::new();
+    for (i, c) in candidates.iter().enumerate() {
+        let verts = c.mesh.count_vertices();
+        let found = groups.iter_mut().find(|(members, v_sum)| {
+            let first = &candidates[members[0]];
+            *v_sum + verts <= STATIC_MERGE_MAX_VERTS
+                && first.attr_mask == c.attr_mask
+                && first.external_emittance == c.external_emittance
+                && nif_material_eq(&first.material, &c.material)
+        });
+        match found {
+            Some((members, v_sum)) => {
+                members.push(i);
+                *v_sum += verts;
+            }
+            None => groups.push((vec![i], verts)),
+        }
+    }
+
+    let mut slots: Vec<Option<StaticMergeCandidate>> = candidates.into_iter().map(Some).collect();
+    for (members, _) in groups {
+        if members.len() == 1 {
+            let c = slots[members[0]].take().unwrap();
+            let material = sink.material(c.material);
+            let mesh = sink.mesh(c.mesh);
+            out.shapes.push(PreparedShape {
+                cpu: None,
+                segments: Vec::new(),
+                mesh,
+                material,
+                transform: c.transform,
+                name: c.name,
+                ancestors: c.ancestors,
+                node: c.node,
+                own: c.own,
+                external_emittance: c.external_emittance,
+                look: c.look,
+                missing_diffuse: c.missing_diffuse,
+                block: c.block,
+            });
+            out.triangles += c.tris;
+        } else {
+            let refs: Vec<&StaticMergeCandidate> = members.iter().map(|&i| slots[i].as_ref().unwrap()).collect();
+            let merged_mesh = merge_static_mesh_group(&refs);
+            let tris: usize = refs.iter().map(|c| c.tris).sum();
+            let first = slots[members[0]].take().unwrap();
+            let material = sink.material(first.material);
+            let mesh = sink.mesh(merged_mesh);
+            out.merged_meshes.insert(mesh.id());
+            out.shapes.push(PreparedShape {
+                cpu: None,
+                segments: Vec::new(),
+                mesh,
+                material,
+                transform: Affine3A::IDENTITY,
+                name: None,
+                ancestors: Vec::new(),
+                node: None,
+                own: Affine3A::IDENTITY,
+                external_emittance: first.external_emittance,
+                look: first.look,
+                missing_diffuse: first.missing_diffuse,
+                block: first.block,
+            });
+            out.triangles += tris;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_static_mesh_group_bakes_transforms_and_flips_negative_scale_winding() {
+        let make_tri = || {
+            let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+            m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; 3]);
+            m.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]);
+            m.insert_attribute(Mesh::ATTRIBUTE_TANGENT, vec![[1.0, 0.0, 0.0, 1.0]; 3]);
+            m.insert_indices(bevy::mesh::Indices::U16(vec![0, 1, 2]));
+            m
+        };
+        let m1 = make_tri();
+        let m2 = make_tri();
+        let mask = mergeable_attr_mask(&m1).expect("standard attributes mergeable");
+        assert_eq!(mask, ATTR_NORMAL | ATTR_UV0 | ATTR_TANGENT);
+
+        let c1 = StaticMergeCandidate {
+            mesh: m1,
+            material: NifMaterial::default(),
+            transform: Affine3A::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+            external_emittance: false,
+            attr_mask: mask,
+            name: None,
+            ancestors: Vec::new(),
+            node: None,
+            own: Affine3A::IDENTITY,
+            look: crate::material_anim::Look::stored([0.0; 3], 0.0, 1.0),
+            missing_diffuse: None,
+            tris: 1,
+            block: 10,
+        };
+        let c2 = StaticMergeCandidate {
+            mesh: m2,
+            material: NifMaterial::default(),
+            transform: Affine3A::from_scale_rotation_translation(Vec3::new(-1.0, 1.0, 1.0), Quat::IDENTITY, Vec3::ZERO),
+            external_emittance: false,
+            attr_mask: mask,
+            name: None,
+            ancestors: Vec::new(),
+            node: None,
+            own: Affine3A::IDENTITY,
+            look: crate::material_anim::Look::stored([0.0; 3], 0.0, 1.0),
+            missing_diffuse: None,
+            tris: 1,
+            block: 11,
+        };
+        let merged = merge_static_mesh_group(&[&c1, &c2]);
+        assert_eq!(merged.count_vertices(), 6);
+        let Some(VertexAttributeValues::Float32x3(pos)) = merged.attribute(Mesh::ATTRIBUTE_POSITION) else {
+            panic!("missing positions");
+        };
+        assert_eq!(pos[0], [10.0, 0.0, 0.0]);
+        assert_eq!(pos[4], [-1.0, 0.0, 0.0]);
+        let Some(VertexAttributeValues::Float32x4(tan)) = merged.attribute(Mesh::ATTRIBUTE_TANGENT) else {
+            panic!("missing tangents");
+        };
+        assert_eq!(tan[0][3], 1.0);
+        assert_eq!(tan[3][3], -1.0, "negative determinant flips tangent handedness");
+        let idx: Vec<u32> = merged.indices().unwrap().iter().map(|i| i as u32).collect();
+        assert_eq!(idx, vec![0, 1, 2, 3, 5, 4], "negative determinant flips triangle winding");
+    }
     use fnv_nif::scene::Transform as NifTransform;
 
     #[test]

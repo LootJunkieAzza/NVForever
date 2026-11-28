@@ -515,7 +515,7 @@ pub(crate) fn rtgi_volume_opt_out(descriptor: &mut RenderPipelineDescriptor) {
 /// materials change every frame, more of them at night; with the smaller slabs the render
 /// graph took 30-40 % less time and the material writes about half, on two-lap tours with
 /// the owner's settings (docs/design/streaming-hitches.md §3.1) [observed 2026-10-28].
-#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone, PartialEq)]
 #[data(50, NifSurfaceUniform, binding_array(101))]
 #[bindless(limit(512), index_table(range(50..57), binding(100)))]
 #[bind_group_data(NifSurfaceKey)]
