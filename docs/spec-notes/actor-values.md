@@ -155,7 +155,22 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
   of a creature with a weapon; not for its unarmed attack].
 - "Stealth Skill" is its Sneak [hypothesis from the field name; every creature of
   FalloutNV.esm has 50, observed]. "Magic Skill" (50 everywhere) is not used.
-- The other skills come from the formula and the creature's attributes [hypothesis].
+- Earlier hypothesis: the other skills came from the formula and the creature's attributes
+  [hypothesis — superseded by the 2026-11-25 live probe below].
+- **Unarmed also reads Combat Skill (contradicting the wiki note above) and non-combat,
+  non-stealth skills return `0.0`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525
+  (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters,
+  `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probes
+  `w6d7_04_npc_and_creature_skills_offsets_and_ai_avs` and
+  `w6d7p2_05b_healrate_all_end_and_melee_dmg_odd_str` in
+  `tools/capture/nvse/catalogs/wave6d7_creature_skills.json`]:
+  - On `CrRadroach` (`combat_skill = 25`), `Unarmed` reads `25.0` alongside `Guns` and
+    `MeleeWeapons` (`cre(gun=25.0,mel=25.0,una=25.0->25.0/30.0,ai=0/1)`), contradicting
+    the Stats Tab - Creatures note that Combat Skill is not used for Unarmed.
+  - On `CrRadroach` (`Luck = 1`, where `derived_skill` would be `>= 3`), `Science` reads
+    `0.0` alongside `Sneak = 0.0` (`cre(e=3,l=1,g=25.0,u=25.0,snk=0.0,sci=0.0)`),
+    showing non-combat, non-stealth creature skills return `0.0` rather than
+    `derived_skill`.
 
 ### 3.4 The player
 
@@ -171,9 +186,9 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 | 12 | Action Points | `fAVDActionPointsBase` (65) + `fAVDActionPointsMult` (3) × Agility | names [documented: Settings]; values [observed: masters]; the form [hypothesis] |
 | 13 | Carry Weight | `fAVDCarryWeightsBase` (150) + `fAVDCarryWeightMult` (10) × Strength | [observed in game: 200 at Strength 5, 160 at Strength 1, simulation.md §3] |
 | 14 | Critical Chance | `fAVDCritLuckBase` (0) + `fAVDCritLuckMult` (1) × Luck | [documented: Critical Hit Chance Formula] |
-| 15 | Heal Rate | 0 | [hypothesis]; the masters hold `fAVDHealRateEndurance6Bonus` to `…10Bonus` (5, 5, 5, 10, 10) [observed], unread |
+| 15 | Heal Rate | 0 for Endurance <= 5; `fAVDHealRateEndurance6Bonus`..`10Bonus` (5, 5, 5, 10, 10) for Endurance 6..10 | [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p3_05c_healrate_and_meleedmg_clean` in `tools/capture/nvse/catalogs/wave6d7_healrate_gmsts.json`: `hr(5..10=0.0,5.0,5.0,5.0,10.0,10.0)`] |
 | 16 | Health | the maximum health of combat-rules.md §9 | as there |
-| 17 | Melee Damage | `fAVDMeleeDamageStrengthMult` (0.5) × (`fAVDMeleeDamageStrengthOffset` (0) + Strength) | [documented: Weapon Damage Formula] |
+| 17 | Melee Damage | `floor(fAVDMeleeDamageStrengthMult (0.5) × (fAVDMeleeDamageStrengthOffset (0) + Strength))` | [documented: Weapon Damage Formula; observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_05_derived_stats_damaged_special_and_heal_rate` in `tools/capture/nvse/catalogs/wave6d7_melee_damage_floor.json`: `md(3.0->d=1.0,m=4.0,t=4.0,rT=16.0)`] |
 | 56 | Unarmed Damage | `fAVDUnarmedDamageBase` (0.5) + `fAVDUnarmedDamageMult` (0.05) × Unarmed | [documented: Weapon Damage Formula] |
 | 19 | Poison Resistance | (Endurance − 1) × 5 | "derived from Endurance" [documented: Stats Tab - NPC]; the figures [documented: the Fallout Wiki's derived statistics table, END × 5 − 5; no setting in the masters] |
 | 20 | Rad Resistance | (Endurance − 1) × 2 | as Poison Resistance (the table: END × 2 − 2) |
@@ -283,3 +298,11 @@ between portable source behavior and unmeasured native behavior are recorded in
 [player source commands](player-source-commands.md). Portable controls passed for c4
 in hosted composite `23388a32d`; revision-specific results are recorded in PR #2772.
 No additional original-game observation is claimed.
+
+### `GetArmorRating` armor condition scaling and `DamageResist` AV [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p3_10b_armor_rating_dr1000` (`tools/capture/nvse/catalogs/wave6d6_getarmorrating_condition_dr.json`)]: With `SetArmorAR 1000` (`10%` DR), `GetArmorRating` matches `GetAV DamageResist` across full condition (`10.00`), `ModAV DamageResist 15` (`25.00`), and `25%` armor condition (`8.00`; NVForever rounds `10 * armor_condition_mult(0.25) = 7.5` to `8.0`, `[hypothesis]` at other intermediate condition points):
+
+```text
+PROBE|w6d6p3_10b_armor_rating_dr1000|getAR=1000.0|100(ar=10.00,dr=10.00)|+mod15(ar=25.00,dr=25.00)|25(ar=8.00,dr=8.00)
+```

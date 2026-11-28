@@ -133,12 +133,7 @@ impl Game<'_> {
 
     /// Raise (or, negative, lower) a need of the player, never below 0.
     pub(crate) fn shift_need(&mut self, code: u16, by: f64) {
-        let p = FormId::PLAYER_REF;
-        let now = fa::actor_value(self, p, code).unwrap_or(0.0);
-        let to = (now + by).max(0.0);
-        if to != now {
-            let _ = fa::shift_base(self, p, code, to - now);
-        }
+        let _ = fa::shift_growing(self, FormId::PLAYER_REF, code, by);
     }
 
     /// One frame of game-mode time for the player's needs and stages.
@@ -235,6 +230,12 @@ impl Game<'_> {
         d
     }
 
+    /// Live threshold for a radiation or Hardcore need stage: `SetHardcoreStageThreshold`
+    /// override when present, else the authored stage threshold.
+    pub(crate) fn stage_threshold(&self, stage: FormId, authored: u32) -> u32 {
+        self.jip2.stage_thresholds.get(&stage).copied().unwrap_or(authored)
+    }
+
     /// The player gets the effect of the stage each need (and rads) has reached, and
     /// loses that of a stage left.
     pub(crate) fn update_need_stages(&mut self) {
@@ -248,7 +249,7 @@ impl Game<'_> {
             let Some(stages) = data.need_stages.get(&code) else { continue };
             let held = self.player.need_stages.get(&code).copied();
             let value = fa::actor_value(self, p, code).unwrap_or(0.0);
-            let want = if code == RAD_LEVEL || hardcore { stages.iter().rev().find(|s| value >= s.threshold as f64) } else { None };
+            let want = if code == RAD_LEVEL || hardcore { stages.iter().rev().find(|s| value >= self.stage_threshold(s.stage, s.threshold) as f64) } else { None };
             if want.map(|s| s.stage) == held {
                 continue;
             }

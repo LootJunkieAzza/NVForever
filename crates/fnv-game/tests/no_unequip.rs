@@ -147,3 +147,31 @@ fn get_no_unequip_tracks_set_no_unequip_equip_flag_unequip_and_saves() {
     );
     assert_eq!(eval(&mut restored, inv_check), XVal::Num(0.0));
 }
+
+#[test]
+fn scripted_equip_item_refusals_do_not_abort_and_broken_weapon_equips() {
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig { strict: true, ..Default::default() });
+    // Uncarried item: script continues without aborting and item is not added or equipped.
+    assert_eq!(
+        eval(&mut g, "int s\nlet s := 1\nplayer.EquipItem TestPistol 0 1\nlet s := 2\nSetFunctionValue s"),
+        XVal::Num(2.0),
+    );
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, PISTOL).unwrap(), 0);
+    // Locked slot: script continues without aborting and locked item stays equipped.
+    eval(&mut g, "player.AddItem TestPistol 1\nplayer.AddItem TestRifle 1\nplayer.EquipItem TestPistol 1 1");
+    assert_eq!(
+        eval(&mut g, "int s\nlet s := 1\nplayer.EquipItem TestRifle 0 1\nlet s := 2\nSetFunctionValue s"),
+        XVal::Num(2.0),
+    );
+    assert!(g.world.peek(FormId::PLAYER_REF).unwrap().inventory.as_ref().unwrap().is_equipped(PISTOL));
+    assert!(!g.world.peek(FormId::PLAYER_REF).unwrap().inventory.as_ref().unwrap().is_equipped(RIFLE));
+    // 0%-health broken weapon: scripted EquipItem equips it without aborting.
+    eval(&mut g, "player.UnequipItem TestPistol 0 1\nplayer.RemoveItem TestRifle 1");
+    g.world.add_item_at_condition(FormId::PLAYER_REF, RIFLE, 1, Some(0.0)).unwrap();
+    assert_eq!(
+        eval(&mut g, "int s\nlet s := 1\nplayer.EquipItem TestRifle 0 1\nlet s := 2\nSetFunctionValue s"),
+        XVal::Num(2.0),
+    );
+    assert!(g.world.peek(FormId::PLAYER_REF).unwrap().inventory.as_ref().unwrap().is_equipped(RIFLE));
+}

@@ -429,13 +429,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // [documented: AddSpellNS] AddSpell without its message.
+        // [documented: AddSpellNS] AddSpell without its message; forwards AddSpell's
+        // return value (1 when newly added, 0 when already present or non-SPEL).
         "addspellns" => {
             let (Some(a), Some(s)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
-            if let Err(e) = crate::functions::console::call_words(g, Some(a), "AddSpell", &[format!("{:08X}", s.0)], "AddSpellNS") {
-                return Some(Err(e));
+            match crate::functions::console::call_words(g, Some(a), "AddSpell", &[format!("{:08X}", s.0)], "AddSpellNS") {
+                Ok(called) => match called.value {
+                    fnv_script::vm::Value::Num(n) => XVal::Num(n),
+                    fnv_script::vm::Value::Ref(r) => XVal::Ref(r),
+                },
+                Err(e) => return Some(Err(e)),
             }
-            zero
         }
         // [documented: EndVATScam] exits VATS mode and queues a one-shot camera/mode exit
         // request for the engine (`Game::end_vats_cam`, `Game::take_end_vats_cam_request`).

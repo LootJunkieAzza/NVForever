@@ -1862,3 +1862,47 @@ fn ammo_use_zero_spends_no_round_and_never_reloads() {
         assert_eq!(c.magazine, magazine);
     }
 }
+
+#[test]
+fn armour_penetrated_tracks_the_20_percent_floor_for_both_dt_and_pure_dr() {
+    let mut w = WeaponStats { base_damage: 22, projectile_count: 1, ..Default::default() };
+    w.skill = Some("Guns".into());
+    let a = Attacker { skill: 100.0, ..Default::default() };
+    // DT=17: 22-17=5 > 4.4 (penetrated); DT=18: 22-18=4 < 4.4 (clamped to floor).
+    let d17 = hit(&w, 1, &a, &Target { dt: 17.0, ..Default::default() }, &[], HitPart::default(), 0.99);
+    let d18 = hit(&w, 1, &a, &Target { dt: 18.0, ..Default::default() }, &[], HitPart::default(), 0.99);
+    assert!(d17.armour_penetrated && (d17.dealt - 5.0).abs() < 1e-4);
+    assert!(!d18.armour_penetrated && (d18.dealt - 4.4).abs() < 1e-4);
+    // Pure DR=79%: 22*0.21=4.62 > 4.4 (penetrated); DR=81% & DR=85%: clamped to floor 4.4.
+    let dr79 = hit(&w, 1, &a, &Target { dr: 79.0, ..Default::default() }, &[], HitPart::default(), 0.99);
+    let dr81 = hit(&w, 1, &a, &Target { dr: 81.0, ..Default::default() }, &[], HitPart::default(), 0.99);
+    let dr85 = hit(&w, 1, &a, &Target { dr: 85.0, ..Default::default() }, &[], HitPart::default(), 0.99);
+    assert!(dr79.armour_penetrated && (dr79.dealt - 4.62).abs() < 1e-3);
+    assert!(!dr81.armour_penetrated && (dr81.dealt - 4.4).abs() < 1e-4);
+    assert!(!dr85.armour_penetrated && (dr85.dealt - 4.4).abs() < 1e-4);
+}
+
+#[test]
+fn split_beam_applies_30_percent_damage_bonus_after_additive_damage_mods() {
+    use fnv_combat::data::WeaponMod;
+    let base = WeaponStats {
+        base_damage: 22,
+        projectile_count: 1,
+        skill: Some("EnergyWeapons".into()),
+        mods: vec![
+            WeaponMod { slot: 1, item: None, effect: Some("Split Beam".into()), value_a: 2.0, value_b: 0.0 },
+            WeaponMod { slot: 3, item: None, effect: Some("Increase Weapon Damage".into()), value_a: 3.0, value_b: 0.0 },
+        ],
+        ..Default::default()
+    };
+    let a = Attacker { skill: 100.0, ..Default::default() };
+    let split = base.modded(1);
+    assert_eq!(split.projectile_count, 3);
+    let d_split = hit(&split, split.projectile_count, &a, &Target::default(), &[], HitPart::default(), 0.99);
+    // 22 * 1.3 / 3 = 9.5333 per beam (28.60 total across 3 beams).
+    assert!((d_split.dealt * 3.0 - 28.6).abs() < 1e-3);
+    let both = base.modded(5);
+    let d_both = hit(&both, both.projectile_count, &a, &Target::default(), &[], HitPart::default(), 0.99);
+    // (22 + 3) * 1.3 / 3 = 10.8333 per beam (32.50 total across 3 beams).
+    assert!((d_both.dealt * 3.0 - 32.5).abs() < 1e-3);
+}

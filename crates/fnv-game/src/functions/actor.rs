@@ -179,7 +179,7 @@ fn set_damage_untold(g: &mut Game, actor: FormId, code: u16, d: f64) {
         return;
     }
     let e = g.extra.entry(actor).or_default();
-    if d > 0.0 {
+    if d > 0.0 || (crate::aid::grows(code) && d != 0.0) {
         e.av_damage.insert(code, d);
     } else {
         e.av_damage.remove(&code);
@@ -240,7 +240,12 @@ pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String
     if actor == FormId::PLAYER_REF && code == crate::actor_values::XP {
         return Ok(g.player.xp);
     }
-    Ok(permanent(g, actor, code)? + temporary(g, actor, code) - damage(g, actor, code))
+    let dam = damage(g, actor, code);
+    Ok(if crate::aid::grows(code) {
+        permanent(g, actor, code)? + temporary(g, actor, code) + dam
+    } else {
+        permanent(g, actor, code)? + temporary(g, actor, code) - dam
+    })
 }
 
 /// The current value within the range the game calculates with (S.P.E.C.I.A.L. 1–10,
@@ -513,11 +518,21 @@ pub fn restore_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
     none()
 }
 
-/// Move a value that grows (rads, needs) by `by`, never below 0.
+/// Move a value that grows (rads, needs) by `by` inside its damage pool, never below 0,
+/// leaving GetBaseActorValue and GetPermanentActorValue unchanged [observed 2026-11-25:
+/// w6d7_22_growing_avs_pool_and_aid_mutations].
 pub(crate) fn shift_growing(g: &mut Game, r: FormId, code: u16, by: f64) -> Result<(), String> {
+    if code == crate::aid::RAD_LEVEL && by > 0.0 && god_spares(g, r, code) {
+        return Ok(());
+    }
     let now = actor_value(g, r, code)?;
     let to = (now + by).max(0.0);
-    shift_base(g, r, code, to - now)
+    let delta = to - now;
+    if delta != 0.0 {
+        let next = damage(g, r, code) + delta;
+        set_damage(g, r, code, next);
+    }
+    Ok(())
 }
 
 pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

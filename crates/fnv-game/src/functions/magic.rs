@@ -25,6 +25,9 @@ fn magic_item(g: &Game, a: &Args) -> Result<fnv_sim::FormId, String> {
 pub fn add_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let s = magic_item(g, a)?;
+    if g.data.sig(g.unclone(s)) != Some(*b"SPEL") {
+        return yes(false);
+    }
     g.sync_actor_effects(r);
     if let Some(x) = g.extra.get_mut(&r) {
         x.dispelled.retain(|&d| d != s);
@@ -33,11 +36,11 @@ pub fn add_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         g.coop_story.record_spell(s, true);
         tracing::info!("co-op story: {} gave the player spell {}", ctx.unit, g.data.name(s));
     }
-    g.add_spell(r, s);
+    let added = g.add_spell(r, s);
     // An ability added to an actor out of the loaded area waits for it, and a listed one
     // a Dispel took off comes back (`crate::abilities`) [hypothesis].
     g.sync_actor_effects(r);
-    none()
+    yes(added)
 }
 
 /// `actor.RemoveSpell spell`: the spell is removed with its active effects (their
@@ -54,6 +57,7 @@ pub fn add_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn remove_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let s = a.form(0)?;
+    let is_spel = g.data.sig(g.unclone(s)) == Some(*b"SPEL");
     g.sync_actor_effects(r);
     if r == FormId::PLAYER_REF && g.story_counts(ctx) && g.extra.get(&r).is_some_and(|x| x.spells.contains(&s)) {
         g.coop_story.record_spell(s, false);
@@ -64,7 +68,7 @@ pub fn remove_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
         e.dispelled.retain(|&x| x != s);
     }
     g.dispel(r, ctx.inst, |e| e.source == s && e.worn.is_none());
-    none()
+    yes(is_spel)
 }
 
 /// `ref.CastImmediateOnSelf spell`: the spell's effects apply to the caller at once,
@@ -137,6 +141,10 @@ pub fn is_spell_target(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     g.sync_actor_effects(r);
     yes(g.effects.iter().any(|e| e.target == r && e.source == s))
 }
+
+#[cfg(test)]
+#[path = "w6d12_addspell_return_tests.rs"]
+mod w6d12_addspell_return_tests;
 
 /// 1 while an effect with the given base effect is on the reference [documented:
 /// catalogue summary], one whose conditions fail included [observed: capture

@@ -1,0 +1,334 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_armour_penetrated_floor",
+  "description": "Wave 6D-6 read-only probes verifying pure DR>80% hits the 20% damage floor and GetArmourPenetrated tracks the exact 20% floor threshold.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_armour_penetrated_floor",
+      "title": "Pure DR 85% floor and GetArmourPenetrated threshold",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_02_pure_dr_85_floor_and_armour_penetrated",
+          "bucket": "combat_damage_armour",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/damage-armour.md",
+          "spec_line": 64,
+          "functions_tested": [
+            "FireWeapon",
+            "SetOnHitEventHandler",
+            "GetHitHealthDamage",
+            "GetArmourPenetrated"
+          ],
+          "claim": "SD-12: Test pure DR=85% with DT=0 (does 20% floor apply to pure DR?) and GetArmourPenetrated at DT=0, DT=10, DT=22 (raw==dt), and DT=50 (raw<dt).",
+          "expected": "Record hDmg and GetArmourPenetrated across (DT=0,DR=85), (DT=0,DR=0), (DT=10,DR=0), (DT=22,DR=0), (DT=50,DR=0).",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*w6d602_t\" rT",
+            "Player.AuxVarSetFlt \"*w6d602_n\" 0",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 0",
+            "rT.SetAV DamageResist 85",
+            "rT.SetRestrained 1",
+            "float fPx = Player.GetPos X",
+            "float fPy = Player.GetPos Y",
+            "float fPz = Player.GetPos Z",
+            "rT.SetPos X fPx",
+            "rT.SetPos Y (fPy + 85)",
+            "rT.SetPos Z fPz",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_w6d6_02.gek\"",
+            "Player.AuxVarSetRef \"*w6d602_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "Player.AuxVarSetFlt \"*w6d602_g\" (Player.GetBaseAV Guns)",
+            "Player.AuxVarSetFlt \"*w6d602_c\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItem rA10 50 1",
+            "Player.EquipItem r10 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_w6d6_02.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*w6d602_n\" ((Player.AuxVarGetFlt \"*w6d602_n\") + 1)",
+              "Player.AuxVarSetFlt \"*w6d602_hd\" (rTgt.GetHitHealthDamage)",
+              "Player.AuxVarSetFlt \"*w6d602_bd\" (rTgt.GetHitBaseWeaponDamage)",
+              "Player.AuxVarSetFlt \"*w6d602_ld\" (rTgt.GetHitLimbDamage)",
+              "Player.AuxVarSetFlt \"*w6d602_fd\" (rTgt.GetHitFatigueDamage)",
+              "Player.AuxVarSetFlt \"*w6d602_loc\" (rTgt.GetHitLocation)",
+              "Player.AuxVarSetFlt \"*w6d602_ap\" (rTgt.GetArmourPenetrated)",
+              "Player.AuxVarSetFlt \"*w6d602_f1\" (rTgt.GetHitExtendedFlag 1)",
+              "Player.AuxVarSetFlt \"*w6d602_f2\" (rTgt.GetHitExtendedFlag 2)",
+              "Player.AuxVarSetFlt \"*w6d602_f8\" (rTgt.GetHitExtendedFlag 8)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_dr85",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s2_dt0",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d602_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*w6d602_h85\" (Player.AuxVarGetFlt \"*w6d602_hd\")",
+                "Player.AuxVarSetFlt \"*w6d602_a85\" (Player.AuxVarGetFlt \"*w6d602_ap\")",
+                "rT.SetAV DamageResist 0",
+                "rT.SetAV DamageThreshold 0",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s3_dt10",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d602_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*w6d602_h0\" (Player.AuxVarGetFlt \"*w6d602_hd\")",
+                "Player.AuxVarSetFlt \"*w6d602_a0\" (Player.AuxVarGetFlt \"*w6d602_ap\")",
+                "rT.SetAV DamageThreshold 10",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s4_dt22",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d602_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*w6d602_h10\" (Player.AuxVarGetFlt \"*w6d602_hd\")",
+                "Player.AuxVarSetFlt \"*w6d602_a10\" (Player.AuxVarGetFlt \"*w6d602_ap\")",
+                "rT.SetAV DamageThreshold 22",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s5_dt50",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d602_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*w6d602_h22\" (Player.AuxVarGetFlt \"*w6d602_hd\")",
+                "Player.AuxVarSetFlt \"*w6d602_a22\" (Player.AuxVarGetFlt \"*w6d602_ap\")",
+                "rT.SetAV DamageThreshold 50",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*w6d602_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*w6d602_cb\"",
+                "float fH85 = Player.AuxVarGetFlt \"*w6d602_h85\"",
+                "int iA85 = Player.AuxVarGetFlt \"*w6d602_a85\"",
+                "float fH0 = Player.AuxVarGetFlt \"*w6d602_h0\"",
+                "int iA0 = Player.AuxVarGetFlt \"*w6d602_a0\"",
+                "float fH10 = Player.AuxVarGetFlt \"*w6d602_h10\"",
+                "int iA10 = Player.AuxVarGetFlt \"*w6d602_a10\"",
+                "float fH22 = Player.AuxVarGetFlt \"*w6d602_h22\"",
+                "int iA22 = Player.AuxVarGetFlt \"*w6d602_a22\"",
+                "float fH50 = Player.AuxVarGetFlt \"*w6d602_hd\"",
+                "int iA50 = Player.AuxVarGetFlt \"*w6d602_ap\"",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.RemoveItem rA10 50 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*w6d602_g\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*w6d602_c\")",
+                "PrintToConsole \"PROBE|w6d6_02_pure_dr_85_floor_and_armour_penetrated|dr85=%.3f(ap=%g)|dt0=%.3f(ap=%g)|dt10=%.3f(ap=%g)|dt22=%.3f(ap=%g)|dt50=%.3f(ap=%g)\" fH85 iA85 fH0 iA0 fH10 iA10 fH22 iA22 fH50 iA50"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p2_02_ap_floor_threshold",
+          "bucket": "combat_damage_armour",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/damage-armour.md",
+          "spec_line": 64,
+          "functions_tested": [
+            "FireWeapon",
+            "SetOnHitEventHandler",
+            "GetHitHealthDamage",
+            "GetArmourPenetrated"
+          ],
+          "claim": "Measure GetArmourPenetrated right across the 20% damage floor (base=22: DT=17 vs DT=18, DR=79 vs DR=81).",
+          "expected": "Confirm whether GetArmourPenetrated==1 iff through > 0.2*before.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*p202_t\" rT",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 17",
+            "rT.SetAV DamageResist 0",
+            "rT.SetRestrained 1",
+            "rT.SetPos X (Player.GetPos X)",
+            "rT.SetPos Y ((Player.GetPos Y) + 85)",
+            "rT.SetPos Z (Player.GetPos Z)",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_p202_cb.gek\"",
+            "Player.AuxVarSetRef \"*p202_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "Player.AuxVarSetFlt \"*p202_g\" (Player.GetBaseAV Guns)",
+            "Player.AuxVarSetFlt \"*p202_c\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV Guns 100",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItem rA10 20 1",
+            "Player.EquipItem r10 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_p202_cb.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*p202_n\" ((Player.AuxVarGetFlt \"*p202_n\") + 1)",
+              "Player.AuxVarSetFlt \"*p202_hd\" (rTgt.GetHitHealthDamage)",
+              "Player.AuxVarSetFlt \"*p202_bd\" (rTgt.GetHitBaseWeaponDamage)",
+              "Player.AuxVarSetFlt \"*p202_ld\" (rTgt.GetHitLimbDamage)",
+              "Player.AuxVarSetFlt \"*p202_fd\" (rTgt.GetHitFatigueDamage)",
+              "Player.AuxVarSetFlt \"*p202_loc\" (rTgt.GetHitLocation)",
+              "Player.AuxVarSetFlt \"*p202_ap\" (rTgt.GetArmourPenetrated)",
+              "Player.AuxVarSetFlt \"*p202_hf1\" (rTgt.GetHitExtendedFlag 1)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_dt17",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s2_dt18",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p202_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*p202_h1\" (Player.AuxVarGetFlt \"*p202_hd\")",
+                "Player.AuxVarSetFlt \"*p202_a1\" (Player.AuxVarGetFlt \"*p202_ap\")",
+                "rT.SetAV DamageThreshold 18",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s3_dr79",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p202_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*p202_h2\" (Player.AuxVarGetFlt \"*p202_hd\")",
+                "Player.AuxVarSetFlt \"*p202_a2\" (Player.AuxVarGetFlt \"*p202_ap\")",
+                "rT.SetAV DamageThreshold 0",
+                "rT.SetAV DamageResist 79",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s4_dr81",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p202_t\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.AuxVarSetFlt \"*p202_h3\" (Player.AuxVarGetFlt \"*p202_hd\")",
+                "Player.AuxVarSetFlt \"*p202_a3\" (Player.AuxVarGetFlt \"*p202_ap\")",
+                "rT.SetAV DamageResist 81",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p202_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*p202_cb\"",
+                "float fH1 = Player.AuxVarGetFlt \"*p202_h1\"",
+                "int iA1 = Player.AuxVarGetFlt \"*p202_a1\"",
+                "float fH2 = Player.AuxVarGetFlt \"*p202_h2\"",
+                "int iA2 = Player.AuxVarGetFlt \"*p202_a2\"",
+                "float fH3 = Player.AuxVarGetFlt \"*p202_h3\"",
+                "int iA3 = Player.AuxVarGetFlt \"*p202_a3\"",
+                "float fH4 = Player.AuxVarGetFlt \"*p202_hd\"",
+                "int iA4 = Player.AuxVarGetFlt \"*p202_ap\"",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.RemoveItem rA10 20 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*p202_g\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*p202_c\")",
+                "PrintToConsole \"PROBE|w6d6p2_02_ap_floor_threshold|dt17=%.3f(ap=%g)|dt18=%.3f(ap=%g)|dr79=%.3f(ap=%g)|dr81=%.3f(ap=%g)\" fH1 iA1 fH2 iA2 fH3 iA3 fH4 iA4"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -71,8 +71,15 @@ fn fixture() -> Fixture {
     spel_subs.extend(effect_subs(MOD_DT, 15, 76));
     let spel = record(b"SPEL", 0, ABIL_DT.0, &spel_subs);
 
-    let armo = |id: FormId, edid: &str, eitm: Option<FormId>, with_dest: bool| {
-        let mut subs = vec![sub(b"EDID", z(edid)), sub(b"DATA", [0u32.to_le_bytes().to_vec(), 10u32.to_le_bytes().to_vec(), 1.0f32.to_le_bytes().to_vec()].concat())];
+    let armo = |id: FormId, edid: &str, slots: u32, eitm: Option<FormId>, with_dest: bool| {
+        let mut bmdt = Vec::with_capacity(8);
+        bmdt.extend(slots.to_le_bytes());
+        bmdt.extend([0u8; 4]);
+        let mut subs = vec![
+            sub(b"EDID", z(edid)),
+            sub(b"BMDT", bmdt),
+            sub(b"DATA", [0u32.to_le_bytes().to_vec(), 10u32.to_le_bytes().to_vec(), 1.0f32.to_le_bytes().to_vec()].concat()),
+        ];
         if let Some(e) = eitm {
             subs.push(sub(b"EITM", e.0.to_le_bytes().to_vec()));
         }
@@ -119,9 +126,11 @@ fn fixture() -> Fixture {
         top(
             b"ARMO",
             &[
-                armo(HAT_ENCH, "HatEnch", Some(ENCH_APPAREL), false),
-                armo(HAT_PLAIN, "HatPlain", None, false),
-                armo(HAT_PLAIN_DEST, "HatPlainDest", None, true),
+                // Distinct non-zero biped slots (Hat, Eyeglasses, Necklace) so all three
+                // synthetic pieces are legally equippable at once under vanilla slot rules.
+                armo(HAT_ENCH, "HatEnch", 1 << 10, Some(ENCH_APPAREL), false),
+                armo(HAT_PLAIN, "HatPlain", 1 << 11, None, false),
+                armo(HAT_PLAIN_DEST, "HatPlainDest", 1 << 12, None, true),
             ]
             .concat(),
         ),

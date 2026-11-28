@@ -1,0 +1,109 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_getarmorrating_condition_dr",
+  "description": "Wave 6D-6 read-only probe verifying GetArmorRating scales worn DR by armor condition and includes DamageResist AV modifiers.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_getarmorrating_condition_dr",
+      "title": "GetArmorRating condition scaling and DamageResist AV",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p3_10b_armor_rating_dr1000",
+          "bucket": "combat_armour_nerve",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 185,
+          "functions_tested": [
+            "GetArmorRating",
+            "SetArmorAR",
+            "GetArmorAR",
+            "GetAV",
+            "ModAV"
+          ],
+          "claim": "SD-11: Test GetArmorRating with SetArmorAR 1000 (10.00 DR) at 100% vs 25% armor condition, plus non-armor ModAV DamageResist 15.",
+          "expected": "Verify whether GetArmorRating includes armor condition and non-armor DamageResist.",
+          "script_lines": [
+            "ref rArm = GetFormFromMod \"FalloutNV.esm\" \"20420\"",
+            "ref rCl = TempCloneForm rArm",
+            "SetArmorAR 1000 rCl",
+            "Player.AuxVarSetRef \"*p310_cl\" rCl",
+            "Player.AuxVarSetFlt \"*p310_gar\" (GetArmorAR rCl)",
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rNpc = Player.PlaceAtMe rBase 1 100 0",
+            "rNpc.SetRestrained 1",
+            "Player.AuxVarSetRef \"*p310_npc\" rNpc",
+            "rNpc.AddItemHealthPercent rCl 1 1.0",
+            "rNpc.EquipItem rCl 0 1"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s1_100",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rNpc = Player.AuxVarGetRef \"*p310_npc\"",
+                "ref rCl = Player.AuxVarGetRef \"*p310_cl\"",
+                "Player.AuxVarSetFlt \"*p310_ar100\" (rNpc.GetArmorRating)",
+                "Player.AuxVarSetFlt \"*p310_dr100\" (rNpc.GetAV DamageResist)",
+                "rNpc.ModAV DamageResist 15",
+                "Player.AuxVarSetFlt \"*p310_arMod\" (rNpc.GetArmorRating)",
+                "Player.AuxVarSetFlt \"*p310_drMod\" (rNpc.GetAV DamageResist)",
+                "rNpc.ModAV DamageResist -15",
+                "rNpc.UnequipItem rCl 0 1",
+                "rNpc.RemoveItem rCl 1 1",
+                "rNpc.AddItemHealthPercent rCl 1 0.25",
+                "rNpc.EquipItem rCl 0 1"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rNpc = Player.AuxVarGetRef \"*p310_npc\"",
+                "float fGar = Player.AuxVarGetFlt \"*p310_gar\"",
+                "float fAr100 = Player.AuxVarGetFlt \"*p310_ar100\"",
+                "float fDr100 = Player.AuxVarGetFlt \"*p310_dr100\"",
+                "float fArMod = Player.AuxVarGetFlt \"*p310_arMod\"",
+                "float fDrMod = Player.AuxVarGetFlt \"*p310_drMod\"",
+                "float fAr25 = rNpc.GetArmorRating",
+                "float fDr25 = rNpc.GetAV DamageResist",
+                "rNpc.Disable",
+                "rNpc.MarkForDelete",
+                "PrintToConsole \"PROBE|w6d6p3_10b_armor_rating_dr1000|getAR=%.1f|100(ar=%.2f,dr=%.2f)|+mod15(ar=%.2f,dr=%.2f)|25(ar=%.2f,dr=%.2f)\" fGar fAr100 fDr100 fArMod fDrMod fAr25 fDr25"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

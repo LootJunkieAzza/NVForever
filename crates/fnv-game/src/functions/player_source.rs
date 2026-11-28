@@ -66,13 +66,13 @@ pub(crate) fn call(g: &mut Game, ctx: &Ctx, receiver: Option<Value>, name: &str,
             }
             "modpcattribute" => {
                 let code = actor::av_code(g, a.str(0)?)?;
-                if !crate::actor_values::SPECIALS.contains(&code) {
-                    return Err("ModPCAttribute requires a SPECIAL attribute".into());
-                }
-                // Integer admission matches the documented signature; use the same
-                // base writer as the attribute sheet so pools and carry state agree.
+                // Integer admission matches the documented signature; valid non-SPECIAL
+                // actor values compile, continue without error, and do not mutate state
+                // [observed: `w6d5_26_player_source_modpcattribute_edges`, Health 200->200].
                 let delta = a.int(1)?;
-                if !crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the attribute {} (points are moved on the attributes page)", actor::AV_NAMES[code as usize])) {
+                if crate::actor_values::SPECIALS.contains(&code)
+                    && !crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the attribute {} (points are moved on the attributes page)", actor::AV_NAMES[code as usize]))
+                {
                     actor::shift_base(g, FormId::PLAYER_REF, code, f64::from(delta))?;
                 }
             }

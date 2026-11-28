@@ -416,11 +416,12 @@ fn weapon_target(g: &mut Game, subject: Option<FormId>, args: &[XVal]) -> (FormI
 /// (matching `fnv_combat::data::WeaponStats::modded`): additive base damage bonus
 /// (`Increase Weapon Damage`, 1) and multiplicative attack-rate factor (`Increase Rate of
 /// Fire`, 8).
-fn weapon_mod_bonuses(g: &Game, w: FormId, mods: u8) -> (f64, f64) {
+fn weapon_mod_bonuses(g: &Game, w: FormId, mods: u8) -> (f64, f64, f64) {
     let mut damage_bonus = 0.0;
     let mut rate_mult = 1.0;
+    let mut split_mult = 1.0;
     if mods == 0 {
-        return (damage_bonus, rate_mult);
+        return (damage_bonus, rate_mult, split_mult);
     }
     for slot in 1u8..=3 {
         if mods & (1 << (slot - 1)) == 0 {
@@ -432,10 +433,12 @@ fn weapon_mod_bonuses(g: &Game, w: FormId, mods: u8) -> (f64, f64) {
             Some(XVal::Num(n)) if n as i64 == 1 => damage_bonus += val,
             Some(XVal::Str(s)) if s == "Increase Rate of Fire" => rate_mult *= (1.0 + val).max(0.0),
             Some(XVal::Num(n)) if n as i64 == 8 => rate_mult *= (1.0 + val).max(0.0),
+            Some(XVal::Str(s)) if s == "Split Beam" => split_mult *= 1.3,
+            Some(XVal::Num(n)) if n as i64 == 12 => split_mult *= 1.3,
             _ => {}
         }
     }
-    (damage_bonus, rate_mult)
+    (damage_bonus, rate_mult, split_mult)
 }
 
 /// A weapon's damage by JohnnyGuitar's rules: the base damage (plus attached `Increase
@@ -449,7 +452,7 @@ fn weapon_mod_bonuses(g: &Game, w: FormId, mods: u8) -> (f64, f64) {
 /// and attached weapon mods].
 fn weapon_damage(g: &mut Game, actor: FormId, w: FormId, condition: Option<f32>, mods: u8) -> (f64, f64) {
     use crate::actor_values::{MELEE_DAMAGE, MELEE_WEAPONS, UNARMED, UNARMED_DAMAGE};
-    let (mod_damage, _) = weapon_mod_bonuses(g, w, mods);
+    let (mod_damage, _, split_mult) = weapon_mod_bonuses(g, w, mods);
     let mut damage = crate::nvse::record_value(g, w, "DATA", "base_damage").and_then(|v| v.num().ok()).unwrap_or(0.0) + mod_damage;
     if let Some(c) = condition {
         if !g.tweaks.no_condition_damage_penalty {
@@ -465,7 +468,7 @@ fn weapon_damage(g: &mut Game, actor: FormId, w: FormId, condition: Option<f32>,
     let hit = match skill_code {
         Some(MELEE_WEAPONS) => scaled + crate::functions::actor::actor_value(g, actor, MELEE_DAMAGE).unwrap_or(0.0),
         Some(UNARMED) => damage + crate::functions::actor::actor_value(g, actor, UNARMED_DAMAGE).unwrap_or(0.0),
-        _ => scaled,
+        _ => scaled * split_mult,
     };
     (scaled, hit)
 }
@@ -936,7 +939,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Critical Chance and does not change with the skill; fists 0].
         "getcalculatedweapondps" => {
             let (a, w, cond, mods) = weapon_target(g, subject, args);
-            let (_, rate_mult) = weapon_mod_bonuses(g, w, mods);
+            let (_, rate_mult, _) = weapon_mod_bonuses(g, w, mods);
             let shots = json_num(g.data.record_field(w, "DNAM", "attack_shots_per_sec")) * rate_mult;
             let chance = crate::functions::actor::actor_value(g, a, crate::actor_values::CRITICAL_CHANCE).unwrap_or(0.0).max(0.0) / 100.0;
             let crit = crate::nvse::record_value(g, w, "CRDT", "critical_damage").and_then(|v| v.num().ok()).unwrap_or(0.0)

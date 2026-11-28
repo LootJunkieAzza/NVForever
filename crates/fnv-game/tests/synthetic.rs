@@ -2693,6 +2693,7 @@ fn dismembered_parts_are_kept_and_read_by_scripts() {
     assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[1.0])), 1.0);
     assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[3.0])), 0.0);
     assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[0.0, 10.0])), 1.0);
+    assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[10.0, 0.0])), 0.0, "reversed range returns 0 [observed: w6d6_41]");
     assert_eq!(g.limbs_gone(npc), vec![(1, true), (13, false)]);
     // KillActor's limb on a dead actor asks the engine, which knows its body parts.
     g.combat_requests.clear();

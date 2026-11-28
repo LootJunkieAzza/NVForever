@@ -346,3 +346,6 @@ or source consulted].
 Rigging, and already-equipped Power Armor training checks) re-evaluates immediately
 without re-equipping or reloading the cell remains uncaptured; overrides retain the
 module's session-only lifetime.
+
+### Zero biped slots mask (`w6d7p2_31`)
+- **`SetEquipmentSlotsMask 0` makes armor unequippable** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7p2_31_set_equipment_slots_mask_settled` in `tools/capture/nvse/catalogs/wave6d7_zero_slot_armor.json`]: clearing an `ARMO`'s biped slots mask to `0` prevents equipping it (`m0=0(eq=0,occ=72)`), while moving it to another non-zero slot (`128`, slot 7) allows equipping alongside an UpperBody armor (`PROBE|w6d7p2_31_set_equipment_slots_mask_settled|orig=4|m80=128(l=1,c=1,s7=1,s2=1,occ=204)|m0=0(eq=0,occ=72)`).

@@ -42,11 +42,11 @@ pub const LIMB_CONDITIONS: std::ops::RangeInclusive<u16> = 25..=31;
 
 /// The share of a Value And Parts restore (the Stimpak's "Restore Health & Conditions")
 /// that each limb gets when the item is used on the whole body: Health gets the whole
-/// amount, each limb this share of it [design: owner's request 2026-10-23, "a small
-/// amount of limb health across all limbs"; the share is not in the data (no setting in
-/// FalloutNV.esm names it), so this number stands until the formula is found]. Used on
-/// one limb from the Pip-Boy (`Mods::limb`), that limb gets the whole amount.
-pub const PARTS_LIMB_SHARE: f64 = 1.0 / 6.0;
+/// amount, each limb this share of it (`0.1`, 10% of Health restored) [observed
+/// 2026-11-25: w6d7_12_stimpak_superstimpak_drbag_limb_restore, nhStim(dHp=69.00,
+/// dHd=6.90, dLg=6.90)]. Used on one limb from the Pip-Boy (`Mods::limb`), that
+/// limb gets the whole amount.
+pub const PARTS_LIMB_SHARE: f64 = 0.1;
 
 /// Health a second that one point of a regeneration's magnitude gives back
 /// ([`regenerates`]: Rad Child's 2, 4, 6 and 8 at the stages of radiation sickness, Solar
@@ -220,8 +220,11 @@ pub fn addiction_chance(def: &IngestibleDef, usage: Option<f64>, threshold: f64)
     }
 }
 
-/// ETYP "Chems" [documented: xEdit EquipType; GECK wiki Equip Type].
+/// ETYP "Chems" and "Stimpak" [documented: xEdit EquipType; GECK wiki Equip Type;
+/// observed 2026-11-25: w6d7p2_14_chemist_durations_fixed, Chemist doubles both
+/// Chems (Buffout, StealthBoy) and Stimpak (Hardcore Stimpak 6->12 s), not Food/Alcohol].
 pub const EQUIP_CHEMS: i64 = 10;
+pub const EQUIP_STIMPAK: i64 = 11;
 
 /// What changes an ingestible's effects for one use (aid-items.md §4, §10).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -229,7 +232,8 @@ pub struct Mods {
     /// Multiplies the beneficial Value Modifier magnitudes (Medicine and Food potency).
     pub potency: f64,
     /// Multiplies the durations of the beneficial effects that have one, the usage
-    /// monitor's excepted (perks' "Modify Positive Chem Duration", chems only).
+    /// monitor's excepted (perks' "Modify Positive Chem Duration", Chems ETYP 10 and
+    /// Stimpak ETYP 11).
     pub duration: f64,
     /// Multiplies the rads an effect gives (perks' "Modify Radiation Consumed").
     pub rads: f64,
@@ -353,7 +357,7 @@ impl Game<'_> {
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
-        let duration = if def.equip_type == EQUIP_CHEMS { self.entry_point(actor, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0).0 } else { 1.0 };
+        let duration = if matches!(def.equip_type, EQUIP_CHEMS | EQUIP_STIMPAK) { self.entry_point(actor, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0).0 } else { 1.0 };
         let health = self.entry_point(actor, crate::perks::MODIFY_RECOVERED_HEALTH, 1.0).0;
         let mods = Mods { potency, duration, health, ..Mods::default() };
         let mut out: Vec<(u16, f64)> = Vec::new();
@@ -421,9 +425,9 @@ impl Game<'_> {
             perks.extend(by.iter().map(|a| (a.perk, point)));
             v
         };
-        // Chemist and the like lengthen chems only [hypothesis: the perk's "any chems you
-        // take"; the GECK wiki's entry point says "any ingestible"].
-        let duration = if def.equip_type == EQUIP_CHEMS { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
+        // Chemist lengthens Chems (ETYP 10) and Stimpak (ETYP 11), not Food/Alcohol
+        // [observed 2026-11-25: w6d7p2_14_chemist_durations_fixed].
+        let duration = if matches!(def.equip_type, EQUIP_CHEMS | EQUIP_STIMPAK) { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
         let rads = perk(self, crate::perks::MODIFY_RADIATION_CONSUMED, 1.0);
         let health = perk(self, crate::perks::MODIFY_RECOVERED_HEALTH, 1.0);
         let mods = Mods { potency, duration, rads, health, limb, ..Mods::default() };
@@ -536,9 +540,7 @@ impl Game<'_> {
             // Health damage can kill (a burn, a poison; hit-effects.md §4).
             self.effect_health_damage(actor, -amount, caster);
         } else if grows(code) {
-            let now = fa::actor_value(self, actor, code).unwrap_or(0.0);
-            let to = (now - amount).max(0.0);
-            let _ = fa::shift_base(self, actor, code, to - now);
+            let _ = fa::shift_growing(self, actor, code, -amount);
         } else if amount >= 0.0 {
             if parts && LIMB_CONDITIONS.contains(&code) && limb.is_some() {
                 for (l, a) in parts_restore(code, amount, limb) {
@@ -590,10 +592,20 @@ impl Game<'_> {
 
     fn release_modifier(&mut self, target: FormId, c: &mut ValueChange) {
         if c.applied != 0.0 {
+            let was_hp_buff = c.code == crate::actor_values::HEALTH && c.applied > 0.0 && !self.is_dead(target);
             if c.permanent_pool {
                 let _ = fa::add_modifier(self, target, c.code, -c.applied);
             } else {
                 fa::add_temporary(self, target, c.code, -c.applied);
+            }
+            // Removing a temporary +Health buff floors a living actor at 1.0 HP
+            // [observed 2026-11-25: w6d7p2_17_buffout_low_hp_and_dispel_settled,
+            // bufLow(hp=160.0->20.0->1.0,dead=0)].
+            if was_hp_buff {
+                let hp = fa::actor_value(self, target, crate::actor_values::HEALTH).unwrap_or(0.0);
+                if hp < 1.0 {
+                    fa::restore(self, target, crate::actor_values::HEALTH, 1.0 - hp);
+                }
             }
         }
         c.applied = 0.0;

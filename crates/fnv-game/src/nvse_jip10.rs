@@ -322,6 +322,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                     g.player.teammate_perks.clear();
                 } else {
                     let all: Vec<FormId> = g.player.perks.keys().copied().collect();
+                    g.player.perk_order.clear();
                     for p in all {
                         if g.player.perks.remove(&p).is_some() {
                             g.perk_event(p, false, 0, 0);

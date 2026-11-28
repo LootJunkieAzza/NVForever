@@ -100,6 +100,7 @@ pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if a.num_or(1, 0.0) != 0.0 {
         g.player.teammate_perks.remove(&perk);
     } else if let Some(before) = g.player.perks.remove(&perk) {
+        g.player.perk_order.retain(|&p| p != perk);
         if g.story_counts(ctx) {
             g.coop_story.record_perk(perk, before);
             tracing::info!("co-op story: {} took perk {} from the player", ctx.unit, g.data.name(perk));

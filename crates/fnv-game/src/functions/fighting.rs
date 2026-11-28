@@ -109,8 +109,10 @@ pub fn get_concussed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
 /// `actor.GetKnockedState`: −1 knocked out by fatigue, 0 normal, 1 knocked out
 /// (unconscious essentials, paralysis, negative fatigue), 2 knocked down [documented:
 /// GECK wiki GetKnockedState]. Here −1 for a fatigue knockout, 1 for an essential one
-/// (`crate::unconscious`), a paralysis [documented] and SetUnconscious [hypothesis for
-/// SetUnconscious], 2 for an explosion's knockdown, else 0. An actor PushActorAway laid down reads 0 until it is
+/// (`crate::unconscious`) or paralysis [documented], 2 for an explosion's knockdown, else 0.
+/// `SetUnconscious 1` alone reads 0 (`GetUnconscious == 1`, `GetLifeState == 3`) [observed:
+/// 2026-11-25, FNV 1.4.0.525, `w6d8_10_set_unconscious_knocked_lifestate_resurrect`:
+/// `u1=1 k1=0 l1=3 d1=0 u2=1 k2=0 l2=3 d2=0 u3=0 k3=0 l3=0 u4=0`]. An actor PushActorAway laid down reads 0 until it is
 /// up, also when it is knocked out meanwhile [documented: the page's notes]. Getting up
 /// reads 0 [observed: an essential RingoRef knocked out by KillActor read 1 for 10 s and 0
 /// from the sample his get-up began, AI observer campaign `functions_round` 2026-10-19,
@@ -127,11 +129,14 @@ pub fn get_knocked_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, St
             Cause::KnockedDown => 2.0,
             Cause::Pushed => 0.0,
         },
-        None if g.extra.get(&r).is_some_and(|e| e.unconscious) => 1.0,
         None => 0.0,
     };
     Ok(Value::Num(state))
 }
+
+#[cfg(test)]
+#[path = "../w6d8_unconscious_knocked_tests.rs"]
+mod w6d8_unconscious_knocked_tests;
 
 /// `source.PushActorAway target force`: knocks the target down and throws it away from
 /// the source with the force (towards it when negative; straight up without a source); no
@@ -147,16 +152,15 @@ pub fn push_actor_away(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 /// The GetCauseofDeath code of a death by a weapon of WEAP DNAM animation type
 /// `record_type`, or by a hit with no weapon (`None`, a creature's attack or fists).
-/// [documented: catalogue notes, the codes −1 none, 0 explosion, 2 gun, 3 blunt weapon, 4
-/// hand to hand, 5 object impact, 6 poison, 7 radiation; code 1 is not on the page.]
-/// Which weapon types give which code is [hypothesis]: hand to hand (0) and no weapon
-/// 4; melee (1, 2) 3, the page naming no blade; pistols, rifles and Handle (3–8) 2; the
-/// launcher, grenades and mines (9–12) 0; thrown weapons (13) 5.
+/// Ranged guns (3..=8: 10mm Pistol, Varmint Rifle, Sniper Rifle, Laser Rifle) return `1`
+/// [observed: w6d6_42_live_kill_dismember_no_dismember_and_bm, w6d6p2_44_cause_of_death_and_beanbag,
+/// w6d6p3_44b_cause_of_death_gun_expl_killactor]. Hand-to-hand/melee/explosive/thrown mappings
+/// remain [hypothesis] pending dedicated live kills.
 pub fn cause_code(record_type: Option<i64>) -> i32 {
     match record_type {
         None | Some(0) => 4,
         Some(1 | 2) => 3,
-        Some(3..=8) => 2,
+        Some(3..=8) => 1,
         Some(9..=12) => 0,
         Some(13) => 5,
         Some(_) => -1,
@@ -192,8 +196,11 @@ pub fn is_limb_gone(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     let r = ctx.subject()?;
     let first = a.int(0)?;
     let last = a.int(1).unwrap_or(first);
-    let (lo, hi) = (first.min(last), first.max(last));
-    yes(g.extra.get(&r).is_some_and(|e| e.limbs_gone.range(lo..=hi).next().is_some()))
+    // Reversed ranges (first > last) return 0 [observed: w6d6_41_kill_actor_limb_gone_and_cause_of_death].
+    if first > last {
+        return yes(false);
+    }
+    yes(g.extra.get(&r).is_some_and(|e| e.limbs_gone.range(first..=last).next().is_some()))
 }
 
 /// `actor.GetKillingBlowLimb`: the location of the hit that killed the actor, −1 while it
@@ -207,22 +214,33 @@ pub fn get_killing_blow_limb(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
     Ok(Value::Num(g.extra.get(&r).and_then(|e| e.killing_hit).map_or(-1, |h| h.location) as f64))
 }
 
-/// `actor.GetArmorRating`: the total damage resistance of the armour the actor has
-/// equipped [documented: catalogue summary]: the sum of the equipped ARMO's DNAM DR
-/// (stored × 100, [documented: xEdit wbDiv(100)]), rounded down [hypothesis: an
-/// integer, as the page's return type]. New Vegas armour protects by its DT, and most
+/// `actor.GetArmorRating`: the total damage resistance of the actor's equipped armour
+/// (each equipped ARMO's DNAM DR, stored × 100 [documented: xEdit wbDiv(100)], scaled by
+/// [`Game::armor_condition_mult`]) plus the `DamageResist` actor value, matching
+/// `GetAV DamageResist` (`10 -> 25 -> 8` across full condition, `ModAV DamageResist 15`,
+/// and 25 % condition) [observed: w6d6p3_10b_armor_rating_dr1000; hypothesis: `.round()`
+/// at other intermediate condition points]. New Vegas armour protects by its DT, and most
 /// armour has DR 0 [observed: `fnvtool esm decode`]; the one shipped use scales the
-/// target's rating by 0.15 (FalloutNV.esm `SCPT 0x0011D9EF`) [observed]. Equipped is the
-/// world's equipped flags; the condition of the armour is not counted [hypothesis].
+/// target's rating by 0.15 (FalloutNV.esm `SCPT 0x0011D9EF`) [observed]. Read-only:
+/// inspects already-materialized inventory without mutating `World`.
 pub fn get_armor_rating(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let equipped = g.world.get(r).ok().and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
-    let dr: f32 = equipped
+    // Scale worn armor DR by condition and include DamageResist AV modifiers
+    // [observed: w6d6p3_10b_armor_rating_dr1000].
+    let worn: Vec<(FormId, f32)> = g
+        .world
+        .get(r)
+        .ok()
+        .and_then(|s| s.inventory.as_ref())
+        .map(|inv| inv.equipped().into_iter().map(|i| (i, inv.condition_in_use(i).unwrap_or(1.0))).collect())
+        .unwrap_or_default();
+    let armor_dr: f64 = worn
         .into_iter()
-        .filter(|&i| g.world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor))
-        .filter_map(|i| g.world.effective_armor_dr(i))
+        .filter(|&(i, _)| g.world.resolve_item(i).is_some_and(|it| it.kind == ItemKind::Armor))
+        .filter_map(|(i, cond)| g.world.effective_armor_dr(i).map(|v| f64::from(v) * g.armor_condition_mult(cond)))
         .sum();
-    Ok(Value::Num(dr.floor() as f64))
+    let av_dr = super::actor::actor_value(g, r, crate::actor_values::DAMAGE_RESISTANCE).unwrap_or(0.0);
+    Ok(Value::Num((armor_dr + av_dr).round()))
 }
 
 /// `ref.FireWeapon weapon`: the reference fires one shot of the weapon straight ahead;

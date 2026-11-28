@@ -38,6 +38,7 @@ fn authored_world()->SimState {
         let mut base=test_world::item_base(ARMOR.0+i);
         base.name=Some(format!("Repairable armor {i:02}"));
         if let BaseData::Item(item)=&mut base.data {item.kind=ItemKind::Armor;
+            item.slots=Some(fnv_game::detection::UPPER_BODY);
             item.health=Some(100);item.value=Some(100);item.armor_dt=Some(5.0);}
         bases.push(base);
     }

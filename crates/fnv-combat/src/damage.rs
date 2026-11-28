@@ -272,6 +272,9 @@ pub struct Damage {
     pub dr: f32,
     /// Health damage dealt.
     pub dealt: f32,
+    /// Whether post-DT/DR damage exceeded the 20% armour floor (JIP `GetArmourPenetrated`)
+    /// [observed: w6d6_02_pure_dr_85_floor_and_armour_penetrated, w6d6p2_02_ap_floor_threshold].
+    pub armour_penetrated: bool,
     /// A hit worth nothing before perks counts as a miss: no critical, no hit effects
     /// [documented: Weapon Damage Formula notes].
     pub miss: bool,
@@ -345,7 +348,7 @@ pub fn hit(
     let w = h.weapon;
     let kind = AttackKind::of(w);
     let n = h.projectiles.max(1) as f32;
-    let weapon_base = w.base_damage as f32 * r.damage_weapon_mult;
+    let weapon_base = w.base_damage as f32 * w.split_beam_mult.unwrap_or(1.0) * r.damage_weapon_mult;
     let cond = 1.0 - (r.condition_damage_threshold - h.condition.clamp(0.0, 1.0)).max(0.0) * r.condition_damage_penalty;
     // Crippled-arm penalty for melee and unarmed [documented].
     let arm = weapon_base * (r.damage_arm_condition_base - 1.0 + r.damage_arm_condition_mult * a.arm_condition.clamp(0.0, 1.0)) / 2.0;
@@ -402,8 +405,10 @@ pub fn hit(
     // floor; the body part's multiplier comes last, on what armour let through
     // [observed 2026-11-21, docs/spec-notes/damage-armour.md §1-2].
     let through = (raw - dt) * (1.0 - dr / 100.0) * (1.0 - resist / 100.0);
-    let dealt = if target.child || miss { 0.0 } else { through.max(before_ammo * t.dt_floor) * part_mult };
-    Damage { kind, base, modified, sneak_mult, part_mult, crit_chance, critical, crit_bonus, raw, dt, dr, dealt, miss }
+    let floor = before_ammo * t.dt_floor;
+    let armour_penetrated = !target.child && !miss && through > floor;
+    let dealt = if target.child || miss { 0.0 } else { through.max(floor) * part_mult };
+    Damage { kind, base, modified, sneak_mult, part_mult, crit_chance, critical, crit_bonus, raw, dt, dr, dealt, armour_penetrated, miss }
 }
 
 /// Melee reach in game units: `fCombatDistance` × the actor's scale × the weapon's Reach

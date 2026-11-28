@@ -49,6 +49,7 @@ pub const LUCK: u16 = 11;
 pub const ACTION_POINTS: u16 = 12;
 pub const CARRY_WEIGHT: u16 = 13;
 pub const CRITICAL_CHANCE: u16 = 14;
+pub const HEAL_RATE: u16 = 15;
 pub const DAMAGE_RESISTANCE: u16 = 18;
 pub const HEALTH: u16 = 16;
 pub const MELEE_DAMAGE: u16 = 17;
@@ -151,8 +152,9 @@ pub fn capped(code: u16, v: f64) -> f64 {
 }
 
 /// The skills a creature's Combat Skill stands for [documented: GECK wiki Stats Tab -
-/// Creatures, "Small Guns, Big Guns, Energy Weapons, Explosives, Melee Weapons"].
-const CREATURE_COMBAT_SKILLS: [u16; 5] = [BIG_GUNS, ENERGY_WEAPONS, EXPLOSIVES, MELEE_WEAPONS, GUNS];
+/// Creatures; observed 2026-11-25: w6d7_04 & w6d7p2_05b, CrRadroach reads Unarmed=25
+/// from combat_skill alongside Guns/Melee and 0.0 for non-combat/non-stealth skills].
+const CREATURE_COMBAT_SKILLS: [u16; 6] = [BIG_GUNS, ENERGY_WEAPONS, EXPLOSIVES, MELEE_WEAPONS, GUNS, UNARMED];
 
 /// Actor base configuration flags (`ACBS/flags`, `u32` bitmask)
 /// [documented: GECK wiki GetActorBaseFlagsLow, GetActorBaseFlagsHigh, ActorHasBaseFlag;
@@ -435,12 +437,14 @@ impl<'a> Game<'a> {
             let offset = d.and_then(|d| d.skill_offsets).map_or(0, |o| o[i]);
             return values[i] as f64 + offset as f64;
         }
-        let creature = d.filter(|d| &d.sig == b"CREA");
-        if let Some(v) = creature.and_then(|d| d.combat_skill).filter(|_| CREATURE_COMBAT_SKILLS.contains(&skill)) {
-            return v as f64;
-        }
-        if let Some(v) = creature.and_then(|d| d.stealth_skill).filter(|_| skill == SNEAK) {
-            return v as f64;
+        if let Some(creature) = d.filter(|d| &d.sig == b"CREA") {
+            if CREATURE_COMBAT_SKILLS.contains(&skill) {
+                return creature.combat_skill.unwrap_or(0) as f64;
+            }
+            if skill == SNEAK {
+                return creature.stealth_skill.unwrap_or(0) as f64;
+            }
+            return 0.0;
         }
         self.derived_skill(r, skill)
     }
@@ -477,9 +481,19 @@ impl<'a> Game<'a> {
             CARRY_WEIGHT => setting(self, "fAVDCarryWeightsBase", 150.0) + setting(self, "fAVDCarryWeightMult", 10.0) * self.formula_input(r, STRENGTH),
             // [documented: GECK wiki Critical Hit Chance Formula.]
             CRITICAL_CHANCE => setting(self, "fAVDCritLuckBase", 0.0) + setting(self, "fAVDCritLuckMult", 1.0) * self.formula_input(r, LUCK),
-            // [documented: GECK wiki Weapon Damage Formula.]
+            // [observed 2026-11-25: w6d7p3_05c_healrate_and_meleedmg_clean, Endurance 5..10 -> 0,5,5,5,10,10.]
+            HEAL_RATE => match self.formula_input(r, ENDURANCE).floor() as i32 {
+                6 => setting(self, "fAVDHealRateEndurance6Bonus", 5.0),
+                7 => setting(self, "fAVDHealRateEndurance7Bonus", 5.0),
+                8 => setting(self, "fAVDHealRateEndurance8Bonus", 5.0),
+                9 => setting(self, "fAVDHealRateEndurance9Bonus", 10.0),
+                e if e >= 10 => setting(self, "fAVDHealRateEndurance10Bonus", 10.0),
+                _ => 0.0,
+            },
+            // [documented: GECK wiki Weapon Damage Formula; observed 2026-11-25:
+            // w6d7_05_derived_stats_damaged_special_and_heal_rate, floor(0.5 * STR): STR 3 -> 1.0.]
             MELEE_DAMAGE => {
-                setting(self, "fAVDMeleeDamageStrengthMult", 0.5) * (setting(self, "fAVDMeleeDamageStrengthOffset", 0.0) + self.formula_input(r, STRENGTH))
+                (setting(self, "fAVDMeleeDamageStrengthMult", 0.5) * (setting(self, "fAVDMeleeDamageStrengthOffset", 0.0) + self.formula_input(r, STRENGTH))).floor()
             }
             UNARMED_DAMAGE => setting(self, "fAVDUnarmedDamageBase", 0.5) + setting(self, "fAVDUnarmedDamageMult", 0.05) * self.formula_input(r, UNARMED),
             // [documented: GECK wiki Stats Tab - NPC, both derive from Endurance;

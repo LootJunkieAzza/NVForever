@@ -563,7 +563,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // weapon's own (its override, else its animation type's setting), 1 a melee
         // weapon's VATS attack AP or an unarmed weapon's fUpperCutAPCost, 2 an unarmed
         // weapon's fCrossAPCost [documented: GetCalculatedAPCost, alias
-        // GetCalculatedWeaponAttackAPCost]. AP perks are not counted [hypothesis].
+        // GetCalculatedWeaponAttackAPCost]. Applies ACTION_POINT_COST (EP 40) perks on
+        // positive AP costs and returns the unrounded float [observed:
+        // w6d6_20_calc_ap_cost_with_perks]; clamps negative post-perk results at 0.0 [design].
         "getcalculatedapcost" | "getcalculatedweaponattackapcost" => {
             let w = form(args, 1).or_else(|| crate::functions::items::equipped_weapon(g, FormId::PLAYER_REF)).unwrap_or(FormId(0x1F4));
             let field = |g: &Game, s: &str, p: &str| crate::nvse::record_value(g, w, s, p);
@@ -595,7 +597,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 1 | 2 => 0.0,
                 _ => own(),
             };
-            XVal::Num(ap.round())
+            let ap = if ap > 0.0 {
+                g.entry_point_with(FormId::PLAYER_REF, crate::perks::ACTION_POINT_COST, &[Some(w)], ap).0.max(0.0)
+            } else {
+                0.0
+            };
+            XVal::Num(ap)
         }
         // fVATSMaxEngageDistance [documented: GetVATSMaxEngageDistance; the Tweaks
         // setting is not NVForever's]; 5000 when no plugin sets it [observed 2026-11-08:

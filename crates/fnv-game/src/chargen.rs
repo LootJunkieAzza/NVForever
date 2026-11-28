@@ -411,9 +411,14 @@ impl TraitSheet {
     pub fn apply(&self, g: &mut Game) {
         for t in &self.traits {
             if self.chosen.contains(t) {
+                if !g.player.perks.contains_key(t) {
+                    g.player.perk_order.retain(|&p| p != *t);
+                    g.player.perk_order.push(*t);
+                }
                 g.player.perks.entry(*t).or_insert(1);
             } else {
                 g.player.perks.remove(t);
+                g.player.perk_order.retain(|&p| p != *t);
             }
         }
     }

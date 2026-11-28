@@ -10,6 +10,10 @@ use fnv_sim::inventory::Extra;
 use fnv_sim::world::EquipLock;
 use fnv_sim::FormId;
 
+#[cfg(test)]
+#[path = "w6d9_container_inv_count_tests.rs"]
+mod w6d9_container_inv_count_tests;
+
 /// The items an item parameter stands for: the form itself, or every member of a form
 /// list [documented: GECK wiki AddItem and RemoveItem notes, a form list applies the
 /// count to each item in it].
@@ -204,7 +208,8 @@ fn remove_all_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 /// neither the actor nor the player's inventory can take it off, and nothing else goes
 /// into its slot, until UnequipItem [documented: GECK wiki EquipItem]
 /// (`fnv_sim::EquipLock`). A slot held by a locked item refuses the item [documented:
-/// same page], an error of the call.
+/// same page], silently as a non-aborting no-op [observed 2026-11-25: w6d7p2_28 &
+/// w6d7p2_29].
 pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
@@ -217,14 +222,22 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if g.world.equip_lock(actor, item) == Some(EquipLock::NoEquip) {
         g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }
-    let e = match g.world.equip(actor, item) {
-        // Power armour on the untrained player: the game's message, as from the Pip-Boy
-        // [hypothesis: a script's EquipItem is refused as the player's own equipping is].
+    let e = match g.world.equip_scripted(actor, item) {
+        Ok(e) => e,
+        // Refused scripted EquipItem never aborts the calling script [observed 2026-11-25:
+        // w6d7p2_28_equip_pa_broken_unowned_settled & w6d7p2_29_equip_locks_settled].
         Err(fnv_sim::world::SimError::NoPowerArmorTraining(_)) => {
             super::player::refuse_power_armor(g);
-            return Err(format!("{} needs Power Armor Training", g.data.name(item)));
+            return none();
         }
-        r => r.map_err(|e| e.to_string())?,
+        Err(
+            fnv_sim::world::SimError::NotCarried { .. }
+            | fnv_sim::world::SimError::EquipLocked { .. }
+            | fnv_sim::world::SimError::NotEquippable(_)
+            | fnv_sim::world::SimError::Broken(_)
+            | fnv_sim::world::SimError::NotAnItem(_),
+        ) => return none(),
+        Err(e) => return Err(e.to_string()),
     };
     if !e.consumed && hide_flag(a, 1) {
         g.world.lock_equip(actor, item, Some(EquipLock::NoUnequip)).map_err(|e| e.to_string())?;
@@ -554,9 +567,18 @@ pub fn mod_weapon_health_perc(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
 /// `actor.SetWeaponHealthPerc percent`: the equipped weapon's condition.
 pub fn set_weapon_health_perc(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
-    // Never above 99.83 % [documented: GECK wiki SetWeaponHealthPerc, "hardcoded not to
-    // increase condition beyond 99.83%"].
-    let v = (a.num(0)? as f32 / 100.0).min(0.9983);
+    // Caps at (base_health - 1) / base_health (e.g. 79/80 = 98.75%, 199/200 = 99.50%,
+    // 599/600 = 99.83%, 999/1000 = 99.90%) [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN
+    // 57.30, w6d9_41_weapon_health_perc_set_mod_and_unarmed_cap: s100=98.75;
+    // w6d9p2_41_weapon_health_cap_formula: cap(80=98.75,200=99.50,600=99.83,1000=99.90)|mod(-40=10.00,-60=100.00)].
+    // [design]: falls back to 0.9983 when base health is missing or <= 1.
+    let cap = equipped_weapon(g, actor)
+        .and_then(|w| match crate::nvse::record_value(g, w, "DATA", "health") {
+            Some(fnv_script::vm::XVal::Num(h)) => (h > 1.0).then_some(((h - 1.0) / h) as f32),
+            _ => g.world.forms.item(g.unclone(w)).and_then(|i| i.health).filter(|&h| h > 1).map(|h| (h as f32 - 1.0) / h as f32),
+        })
+        .unwrap_or(0.9983);
+    let v = (a.num(0)? as f32 / 100.0).min(cap);
     set_weapon_condition(g, actor, |_| v)?;
     none()
 }
@@ -593,11 +615,14 @@ pub fn reset_inventory(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
     none()
 }
 
-/// The number of items the container holds [documented: catalogue summary].
+/// The number of distinct item entries the container holds (matching GetNumItems, not
+/// the sum of item quantities) [documented: catalogue summary; observed: 2026-11-25,
+/// FNV 1.4.0.525 + JIP LN 57.30, w6d9_32_container_invcount_numitems_invobj_and_allitems:
+/// 0(cic=0,num=0)|1(cic=3,num=3) after adding 10 caps + 2 stimpaks + 5 pistols].
 pub fn get_container_inventory_count(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let s = g.world.get(r).map_err(|e| e.to_string())?;
-    Ok(Value::Num(s.inventory.as_ref().map(|i| i.iter().map(|(_, n)| n as f64).sum()).unwrap_or(0.0)))
+    Ok(Value::Num(s.inventory.as_ref().map(|i| i.iter().filter(|(_, n)| *n > 0).count() as f64).unwrap_or(0.0)))
 }
 
 /// `item.SetItemValue value`: the base item's value for every reference [documented:
@@ -768,3 +793,7 @@ mod add_item_to_leveled_list_tests {
         assert_eq!(lv_wrap, XVal::Num(4464.0));
     }
 }
+
+#[cfg(test)]
+#[path = "w6d9_weapon_health_cap_tests.rs"]
+mod w6d9_weapon_health_cap_tests;

@@ -134,12 +134,18 @@ impl Game<'_> {
         (1.0 - (threshold - condition.clamp(0.0, 1.0)).max(0.0) * self.condition_damage_penalty().max(0.0)).max(0.0)
     }
 
-    /// A hit on `target`: whether its damage before armour got past the target's DT
-    /// (GetArmourPenetrated) [documented: "had penetrated the actor's DT, or was
-    /// fully-absorbed by it"]. The engine tells it before the hit is dealt, so the hit's
-    /// OnHit block reads it.
+    /// A hit on `target`: whether post-DT/DR damage exceeded the 20% armour floor
+    /// (`GetArmourPenetrated`) [observed: w6d6_02_pure_dr_85_floor_and_armour_penetrated,
+    /// w6d6p2_02_ap_floor_threshold]. The engine tells it before the hit is dealt, so
+    /// the hit's OnHit block reads it.
+    pub fn note_armour_penetrated(&mut self, target: FormId, penetrated: bool) {
+        self.other.jip11.penetrated.insert(target, penetrated);
+    }
+
+    /// Compatibility wrapper comparing `(raw - dt)` against `0.2 * raw` when no DR is
+    /// supplied (`GetArmourPenetrated`).
     pub fn note_armour_hit(&mut self, target: FormId, raw: f64, dt: f64) {
-        self.other.jip11.penetrated.insert(target, raw > dt);
+        self.note_armour_penetrated(target, (raw - dt) > raw * 0.2);
     }
 
     /// The player's breath for GetActorDiveBreath: the seconds left, and whether under

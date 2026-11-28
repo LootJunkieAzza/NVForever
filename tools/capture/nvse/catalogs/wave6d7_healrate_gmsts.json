@@ -1,0 +1,88 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_healrate_gmsts",
+  "description": "Wave 6D-7 read-only console probe for HealRate Endurance bonus GMSTs (Endurance 5..10).",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d7_healrate_gmsts",
+      "title": "Wave 6D-7: HealRate Endurance bonus GMSTs",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d7p3_05c_healrate_and_meleedmg_clean",
+          "bucket": "actor_values_derived",
+          "extender": "Vanilla / xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actor-values.md",
+          "spec_line": 174,
+          "functions_tested": [
+            "GetAV",
+            "GetBaseAV",
+            "SetAV"
+          ],
+          "claim": "SD-02(a,b): Clean uncontaminated sweep of HealRate across Endurance 5..10 and MeleeDamage across Strength 1..10.",
+          "expected": "Confirm HealRate (0,5,5,5,10,10 for END 5..10) and MeleeDamage truncation (floor(STR * 0.5)) on odd Strengths.",
+          "script_lines": [
+            "float fEnd0 = Player.GetBaseAV Endurance",
+            "float fStr0 = Player.GetBaseAV Strength",
+            "Player.SetAV Endurance 5",
+            "float fH5 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 6",
+            "float fH6 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 7",
+            "float fH7 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 8",
+            "float fH8 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 9",
+            "float fH9 = Player.GetAV HealRate",
+            "Player.SetAV Endurance 10",
+            "float fH10 = Player.GetAV HealRate",
+            "Player.SetAV Endurance fEnd0",
+            "Player.SetAV Strength 1",
+            "float fM1 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 2",
+            "float fM2 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 3",
+            "float fM3 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 5",
+            "float fM5 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 6",
+            "float fM6 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 7",
+            "float fM7 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 9",
+            "float fM9 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength 10",
+            "float fM10 = Player.GetAV MeleeDamage",
+            "Player.SetAV Strength fStr0",
+            "string_var sOut = sv_Construct \"PROBE|w6d7p3_05c_healrate_and_meleedmg_clean|hr(5..10=%.1f,%.1f,%.1f,%.1f,%.1f,%.1f)|md(1,2,3,5,6,7,9,10=%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f)\" fH5 fH6 fH7 fH8 fH9 fH10 fM1 fM2 fM3 fM5 fM6 fM7 fM9 fM10",
+            "PrintToConsole \"%z\" sOut"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,529 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_getcauseofdeath_gun_code",
+  "description": "Wave 6D-6 read-only probes verifying GetCauseofDeath returns 1 for ranged gun kills.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_getcauseofdeath_gun_code",
+      "title": "GetCauseofDeath gun kill code 1",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6_42_live_kill_dismember_no_dismember_and_bm",
+          "bucket": "combat_dismemberment",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/dismemberment.md",
+          "spec_line": 382,
+          "functions_tested": [
+            "FireWeapon",
+            "GetKillingBlowLimb",
+            "GetCauseofDeath",
+            "IsLimbGone",
+            "AddPerk",
+            "RemovePerk"
+          ],
+          "claim": "SD-17: Test live combat kills on low-HP WastelanderAM with WeapNVVarmintRifle (No Dismember/Explode) with BloodyMess vs WeapSniperRifle (Explode Only) with BloodyMess.",
+          "expected": "Verify whether BloodyMess overrides No Dismember/Explode (dismemberment.md:382) and record GetKillingBlowLimb, GetCauseofDeath, and IsLimbGone 0 13.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT1 = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*w6d642_t1\" rT1",
+            "rT1.SetAV Health 5",
+            "rT1.SetAV DamageThreshold 0",
+            "rT1.SetRestrained 1",
+            "float fPx = Player.GetPos X",
+            "float fPy = Player.GetPos Y",
+            "float fPz = Player.GetPos Z",
+            "rT1.SetPos X fPx",
+            "rT1.SetPos Y (fPy + 85)",
+            "rT1.SetPos Z fPz",
+            "rT1.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rVr = GetFormFromMod \"FalloutNV.esm\" \"7EA24\"",
+            "ref rA556 = GetFormFromMod \"FalloutNV.esm\" \"4240\"",
+            "ref rBm = GetFormFromMod \"FalloutNV.esm\" \"94EBA\"",
+            "Player.AuxVarSetFlt \"*w6d642_g\" (Player.GetBaseAV Guns)",
+            "Player.SetAV Guns 100",
+            "Player.AddPerk rBm",
+            "Player.AddItemHealthPercent rVr 1 1.0",
+            "Player.AddItem rA556 10 1",
+            "Player.EquipItem rVr 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "extra_steps": [
+            {
+              "suffix": "s1_varmint",
+              "wait_ticks": 5,
+              "script_lines": [
+                "ref rVr = GetFormFromMod \"FalloutNV.esm\" \"7EA24\"",
+                "Player.FireWeapon rVr"
+              ]
+            },
+            {
+              "suffix": "s2_sniper",
+              "wait_ticks": 5,
+              "script_lines": [
+                "ref rT1 = Player.AuxVarGetRef \"*w6d642_t1\"",
+                "Player.AuxVarSetFlt \"*w6d642_d1\" (rT1.GetDead)",
+                "Player.AuxVarSetFlt \"*w6d642_g1\" (rT1.IsLimbGone 0 13)",
+                "Player.AuxVarSetFlt \"*w6d642_k1\" (rT1.GetKillingBlowLimb)",
+                "Player.AuxVarSetFlt \"*w6d642_c1\" (rT1.GetCauseofDeath)",
+                "rT1.Disable",
+                "rT1.MarkForDelete",
+                "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+                "ref rT2 = Player.PlaceAtMe rBase 1 90 0",
+                "Player.AuxVarSetRef \"*w6d642_t2\" rT2",
+                "rT2.SetAV Health 5",
+                "rT2.SetAV DamageThreshold 0",
+                "rT2.SetRestrained 1",
+                "rT2.SetPos X (Player.GetPos X)",
+                "rT2.SetPos Y ((Player.GetPos Y) + 85)",
+                "rT2.SetPos Z (Player.GetPos Z)",
+                "rT2.SetAngle Z 180",
+                "Player.SetAngle Z 0",
+                "Player.SetAngle X 15",
+                "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+                "ref rA308 = GetFormFromMod \"FalloutNV.esm\" \"6B53C\"",
+                "Player.AddItemHealthPercent rSn 1 1.0",
+                "Player.AddItem rA308 10 1",
+                "Player.EquipItem rSn 0 1"
+              ]
+            },
+            {
+              "suffix": "s3_fire_sn",
+              "wait_ticks": 5,
+              "script_lines": [
+                "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+                "Player.FireWeapon rSn"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT2 = Player.AuxVarGetRef \"*w6d642_t2\"",
+                "int iD1 = Player.AuxVarGetFlt \"*w6d642_d1\"",
+                "int iG1 = Player.AuxVarGetFlt \"*w6d642_g1\"",
+                "int iK1 = Player.AuxVarGetFlt \"*w6d642_k1\"",
+                "int iC1 = Player.AuxVarGetFlt \"*w6d642_c1\"",
+                "int iD2 = rT2.GetDead",
+                "int iG2 = rT2.IsLimbGone 0 13",
+                "int iK2 = rT2.GetKillingBlowLimb",
+                "int iC2 = rT2.GetCauseofDeath",
+                "rT2.Disable",
+                "rT2.MarkForDelete",
+                "ref rVr = GetFormFromMod \"FalloutNV.esm\" \"7EA24\"",
+                "ref rSn = GetFormFromMod \"FalloutNV.esm\" \"4353\"",
+                "ref rA556 = GetFormFromMod \"FalloutNV.esm\" \"4240\"",
+                "ref rA308 = GetFormFromMod \"FalloutNV.esm\" \"6B53C\"",
+                "ref rBm = GetFormFromMod \"FalloutNV.esm\" \"94EBA\"",
+                "Player.RemovePerk rBm",
+                "Player.UnequipItem rSn 0 1",
+                "Player.RemoveItem rSn 1 1",
+                "Player.RemoveItem rVr 1 1",
+                "Player.RemoveItem rA556 10 1",
+                "Player.RemoveItem rA308 10 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*w6d642_g\")",
+                "PrintToConsole \"PROBE|w6d6_42_live_kill_dismember_no_dismember_and_bm|varmintBM(dead=%g,lg=%g,kbl=%g,cod=%g)|sniperBM(dead=%g,lg=%g,kbl=%g,cod=%g)\" iD1 iG1 iK1 iC1 iD2 iG2 iK2 iC2"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p2_44_cause_of_death_and_beanbag",
+          "bucket": "combat_death_fatigue",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 666,
+          "functions_tested": [
+            "FireWeapon",
+            "SetOnHitEventHandler",
+            "GetHitFatigueDamage",
+            "GetHitHealthDamage",
+            "GetCauseofDeath",
+            "GetDeadCount",
+            "GetKillXP"
+          ],
+          "claim": "SD-17: Measure Ammo12GaBeanBag fatigue hit and GetCauseofDeath for live kills by 10mm Pistol, Laser Rifle, and MineFragExplosion.",
+          "expected": "Record exact beanbag fatigue damage and GetCauseofDeath codes for gun, energy, and explosion.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*p244_t\" rT",
+            "rT.SetAV Health 10000",
+            "rT.SetAV DamageThreshold 0",
+            "rT.SetAV DamageResist 0",
+            "rT.SetRestrained 1",
+            "Player.AuxVarSetFlt \"*p244_fat0\" (rT.GetAV Fatigue)",
+            "rT.SetPos X (Player.GetPos X)",
+            "rT.SetPos Y ((Player.GetPos Y) + 115)",
+            "rT.SetPos Z (Player.GetPos Z)",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rCb = CompileScript \"nvseprobe_s_p244_cb.gek\"",
+            "Player.AuxVarSetRef \"*p244_cb\" rCb",
+            "SetOnHitEventHandler rCb 1 rT",
+            "ref rSg = GetFormFromMod \"FalloutNV.esm\" \"8ED0B\"",
+            "ref rBb = GetFormFromMod \"FalloutNV.esm\" \"13E446\"",
+            "Player.AuxVarSetFlt \"*p244_g\" (Player.GetBaseAV Guns)",
+            "Player.AuxVarSetFlt \"*p244_ew\" (Player.GetBaseAV EnergyWeapons)",
+            "Player.AuxVarSetFlt \"*p244_c\" (Player.GetBaseAV CritChance)",
+            "Player.SetAV Guns 100",
+            "Player.SetAV EnergyWeapons 100",
+            "Player.SetAV CritChance 0",
+            "Player.AddItemHealthPercent rSg 1 1.0",
+            "Player.AddItem rBb 10 1",
+            "Player.EquipItem rSg 0 1",
+            "Player.EquipItem rBb 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "helper_scripts": {
+            "nvseprobe_s_p244_cb.gek": [
+              "begin Function { ref rArg1 }",
+              "ref rTgt = GetSelfAlt",
+              "Player.AuxVarSetFlt \"*p244_n\" ((Player.AuxVarGetFlt \"*p244_n\") + 1)",
+              "Player.AuxVarSetFlt \"*p244_hd\" (rTgt.GetHitHealthDamage)",
+              "Player.AuxVarSetFlt \"*p244_bd\" (rTgt.GetHitBaseWeaponDamage)",
+              "Player.AuxVarSetFlt \"*p244_ld\" (rTgt.GetHitLimbDamage)",
+              "Player.AuxVarSetFlt \"*p244_fd\" (rTgt.GetHitFatigueDamage)",
+              "Player.AuxVarSetFlt \"*p244_loc\" (rTgt.GetHitLocation)",
+              "Player.AuxVarSetFlt \"*p244_ap\" (rTgt.GetArmourPenetrated)",
+              "Player.AuxVarSetFlt \"*p244_hf1\" (rTgt.GetHitExtendedFlag 1)"
+            ]
+          },
+          "extra_steps": [
+            {
+              "suffix": "s1_bb",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rSg = GetFormFromMod \"FalloutNV.esm\" \"8ED0B\"",
+                "Player.FireWeapon rSg"
+              ]
+            },
+            {
+              "suffix": "s2_eq10",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p244_t\"",
+                "ref rCb = Player.AuxVarGetRef \"*p244_cb\"",
+                "Player.AuxVarSetFlt \"*p244_bbh\" (Player.AuxVarGetFlt \"*p244_hd\")",
+                "Player.AuxVarSetFlt \"*p244_bbf\" (Player.AuxVarGetFlt \"*p244_fd\")",
+                "Player.AuxVarSetFlt \"*p244_fat1\" (rT.GetAV Fatigue)",
+                "SetOnHitEventHandler rCb 0 rT",
+                "rT.SetAV Health 5",
+                "rT.SetPos Y ((Player.GetPos Y) + 85)",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+                "Player.AddItemHealthPercent r10 1 1.0",
+                "Player.AddItem rA10 10 1",
+                "Player.EquipItem r10 0 1"
+              ]
+            },
+            {
+              "suffix": "s3_fire10",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.FireWeapon r10"
+              ]
+            },
+            {
+              "suffix": "s4_eqlas",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p244_t\"",
+                "Player.AuxVarSetFlt \"*p244_d10\" (rT.GetDead)",
+                "Player.AuxVarSetFlt \"*p244_cod10\" (rT.GetCauseofDeath)",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+                "ref rT2 = Player.PlaceAtMe rBase 1 90 0",
+                "Player.AuxVarSetRef \"*p244_t2\" rT2",
+                "rT2.SetAV Health 5",
+                "rT2.SetRestrained 1",
+                "rT2.SetPos X (Player.GetPos X)",
+                "rT2.SetPos Y ((Player.GetPos Y) + 85)",
+                "rT2.SetPos Z (Player.GetPos Z)",
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "ref rMfc = GetFormFromMod \"FalloutNV.esm\" \"4485\"",
+                "Player.AddItemHealthPercent rLas 1 1.0",
+                "Player.AddItem rMfc 10 1",
+                "Player.EquipItem rLas 0 1"
+              ]
+            },
+            {
+              "suffix": "s5_firelas",
+              "wait_ticks": 4,
+              "script_lines": [
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "Player.FireWeapon rLas"
+              ]
+            },
+            {
+              "suffix": "s6_expl",
+              "wait_ticks": 5,
+              "script_lines": [
+                "ref rT2 = Player.AuxVarGetRef \"*p244_t2\"",
+                "Player.AuxVarSetFlt \"*p244_dlas\" (rT2.GetDead)",
+                "Player.AuxVarSetFlt \"*p244_codlas\" (rT2.GetCauseofDeath)",
+                "rT2.Disable",
+                "rT2.MarkForDelete",
+                "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+                "ref rT3 = Player.PlaceAtMe rBase 1 130 0",
+                "Player.AuxVarSetRef \"*p244_t3\" rT3",
+                "rT3.SetAV Health 5",
+                "rT3.SetRestrained 1",
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"7078B\"",
+                "rT3.PlaceAtMe rExpl 1"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT3 = Player.AuxVarGetRef \"*p244_t3\"",
+                "float fBbh = Player.AuxVarGetFlt \"*p244_bbh\"",
+                "float fBbf = Player.AuxVarGetFlt \"*p244_bbf\"",
+                "float fFat0 = Player.AuxVarGetFlt \"*p244_fat0\"",
+                "float fFat1 = Player.AuxVarGetFlt \"*p244_fat1\"",
+                "int iD10 = Player.AuxVarGetFlt \"*p244_d10\"",
+                "int iCod10 = Player.AuxVarGetFlt \"*p244_cod10\"",
+                "int iDLas = Player.AuxVarGetFlt \"*p244_dlas\"",
+                "int iCodLas = Player.AuxVarGetFlt \"*p244_codlas\"",
+                "int iDEx = rT3.GetDead",
+                "int iCodEx = rT3.GetCauseofDeath",
+                "rT3.Disable",
+                "rT3.MarkForDelete",
+                "ref rLas = GetFormFromMod \"FalloutNV.esm\" \"4336\"",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "ref rSg = GetFormFromMod \"FalloutNV.esm\" \"8ED0B\"",
+                "Player.UnequipItem rLas 0 1",
+                "Player.RemoveItem rLas 1 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.RemoveItem rSg 1 1",
+                "Player.RemoveItem (GetFormFromMod \"FalloutNV.esm\" \"13E446\") 10 1",
+                "Player.RemoveItem (GetFormFromMod \"FalloutNV.esm\" \"4241\") 10 1",
+                "Player.RemoveItem (GetFormFromMod \"FalloutNV.esm\" \"4485\") 10 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*p244_g\")",
+                "Player.SetAV EnergyWeapons (Player.AuxVarGetFlt \"*p244_ew\")",
+                "Player.SetAV CritChance (Player.AuxVarGetFlt \"*p244_c\")",
+                "PrintToConsole \"PROBE|w6d6p2_44_cause_of_death_and_beanbag|bb(h=%.2f,f=%.2f,fat=%.1f->%.1f)|cod(10=%g:%g,las=%g:%g,expl=%g:%g)\" fBbh fBbf fFat0 fFat1 iD10 iCod10 iDLas iCodLas iDEx iCodEx"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p3_44b_cause_of_death_gun_expl_killactor",
+          "bucket": "combat_death_fatigue",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 666,
+          "functions_tested": [
+            "FireWeapon",
+            "PlaceAtMe",
+            "KillActor",
+            "GetCauseofDeath",
+            "GetDead"
+          ],
+          "claim": "SD-17: Measure GetCauseofDeath for live kills by 10mm Pistol, MineFragExplosion (HP=1, wait 6 ticks), and KillActor with cause 2 vs 4.",
+          "expected": "Record exact GetCauseofDeath codes for gun, explosion, and KillActor.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT1 = Player.PlaceAtMe rBase 1 90 0",
+            "Player.AuxVarSetRef \"*p344_t1\" rT1",
+            "rT1.SetAV Health 5",
+            "rT1.SetAV DamageThreshold 0",
+            "rT1.SetRestrained 1",
+            "rT1.SetPos X (Player.GetPos X)",
+            "rT1.SetPos Y ((Player.GetPos Y) + 85)",
+            "rT1.SetPos Z (Player.GetPos Z)",
+            "rT1.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "ref rA10 = GetFormFromMod \"FalloutNV.esm\" \"4241\"",
+            "Player.AuxVarSetFlt \"*p344_g\" (Player.GetBaseAV Guns)",
+            "Player.SetAV Guns 100",
+            "Player.AddItemHealthPercent r10 1 1.0",
+            "Player.AddItem rA10 10 1",
+            "Player.EquipItem r10 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "extra_steps": [
+            {
+              "suffix": "s1_gun",
+              "wait_ticks": 5,
+              "script_lines": [
+                "Player.FireWeapon (GetFormFromMod \"FalloutNV.esm\" \"434F\")"
+              ]
+            },
+            {
+              "suffix": "s2_expl",
+              "wait_ticks": 8,
+              "script_lines": [
+                "ref rT1 = Player.AuxVarGetRef \"*p344_t1\"",
+                "Player.AuxVarSetFlt \"*p344_d1\" (rT1.GetDead)",
+                "Player.AuxVarSetFlt \"*p344_c1\" (rT1.GetCauseofDeath)",
+                "rT1.Disable",
+                "rT1.MarkForDelete",
+                "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+                "ref rT2 = Player.PlaceAtMe rBase 1 130 0",
+                "Player.AuxVarSetRef \"*p344_t2\" rT2",
+                "rT2.SetAV Health 1",
+                "rT2.SetAV DamageThreshold 0",
+                "rT2.SetRestrained 1",
+                "ref rExpl = GetFormFromMod \"FalloutNV.esm\" \"7078B\"",
+                "rT2.PlaceAtMe rExpl 1",
+                "ref rT3 = Player.PlaceAtMe rBase 1 160 0",
+                "Player.AuxVarSetRef \"*p344_t3\" rT3",
+                "rT3.SetRestrained 1",
+                "rT3.KillActor Player 1 3"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT2 = Player.AuxVarGetRef \"*p344_t2\"",
+                "ref rT3 = Player.AuxVarGetRef \"*p344_t3\"",
+                "int iD1 = Player.AuxVarGetFlt \"*p344_d1\"",
+                "int iC1 = Player.AuxVarGetFlt \"*p344_c1\"",
+                "int iD2 = rT2.GetDead",
+                "int iC2 = rT2.GetCauseofDeath",
+                "int iD3 = rT3.GetDead",
+                "int iC3 = rT3.GetCauseofDeath",
+                "rT2.Disable",
+                "rT2.MarkForDelete",
+                "rT3.Disable",
+                "rT3.MarkForDelete",
+                "ref r10 = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "Player.UnequipItem r10 0 1",
+                "Player.RemoveItem r10 1 1",
+                "Player.RemoveItem (GetFormFromMod \"FalloutNV.esm\" \"4241\") 10 1",
+                "Player.SetAV Guns (Player.AuxVarGetFlt \"*p344_g\")",
+                "PrintToConsole \"PROBE|w6d6p3_44b_cause_of_death_gun_expl_killactor|gun10(%g:%g)|expl(%g:%g)|ka3(%g:%g)\" iD1 iC1 iD2 iC2 iD3 iC3"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "w6d6p4_44c_cod_40mm_explosion",
+          "bucket": "combat_death_fatigue",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-rules.md",
+          "spec_line": 666,
+          "functions_tested": [
+            "FireWeapon",
+            "GetCauseofDeath",
+            "GetDead"
+          ],
+          "claim": "SD-17: Measure GetCauseofDeath on a live kill by 40mm Grenade Launcher explosion.",
+          "expected": "Record exact GetCauseofDeath code (0 = explosion).",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rT = Player.PlaceAtMe rBase 1 110 0",
+            "Player.AuxVarSetRef \"*p444_t\" rT",
+            "rT.SetAV Health 5",
+            "rT.SetAV DamageThreshold 0",
+            "rT.SetRestrained 1",
+            "rT.SetPos X (Player.GetPos X)",
+            "rT.SetPos Y ((Player.GetPos Y) + 120)",
+            "rT.SetPos Z (Player.GetPos Z)",
+            "rT.SetAngle Z 180",
+            "Player.SetAngle Z 0",
+            "Player.SetAngle X 15",
+            "ref rGl = GetFormFromMod \"FalloutNV.esm\" \"7EA25\"",
+            "ref rA40 = GetFormFromMod \"FalloutNV.esm\" \"7EA26\"",
+            "Player.AddItemHealthPercent rGl 1 1.0",
+            "Player.AddItem rA40 5 1",
+            "Player.EquipItem rGl 0 1",
+            "Player.SetWeaponOut 1"
+          ],
+          "wait_ticks_after": 5,
+          "extra_steps": [
+            {
+              "suffix": "fire",
+              "wait_ticks": 6,
+              "script_lines": [
+                "Player.FireWeapon (GetFormFromMod \"FalloutNV.esm\" \"7EA25\")"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rT = Player.AuxVarGetRef \"*p444_t\"",
+                "int iD = rT.GetDead",
+                "int iCod = rT.GetCauseofDeath",
+                "rT.Disable",
+                "rT.MarkForDelete",
+                "ref rGl = GetFormFromMod \"FalloutNV.esm\" \"7EA25\"",
+                "Player.UnequipItem rGl 0 1",
+                "Player.RemoveItem rGl 1 1",
+                "Player.RemoveItem (GetFormFromMod \"FalloutNV.esm\" \"7EA26\") 5 1",
+                "PrintToConsole \"PROBE|w6d6p4_44c_cod_40mm_explosion|dead=%g|cod=%g\" iD iCod"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

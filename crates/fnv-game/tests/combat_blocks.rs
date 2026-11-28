@@ -333,7 +333,7 @@ fn knockouts_causes_of_death_armour_shots_and_styles() {
     let mut g = game(&f);
     assert_eq!(ask(&mut g, GUARD_REF, GET_KNOCKED_STATE, &[]), 0.0);
     g.extra.entry(GUARD_REF).or_default().unconscious = true;
-    assert_eq!(ask(&mut g, GUARD_REF, GET_KNOCKED_STATE, &[]), 1.0);
+    assert_eq!(ask(&mut g, GUARD_REF, GET_KNOCKED_STATE, &[]), 0.0);
     // Alive: no cause; killed by a weaponless hit: hand to hand; KillActor alone: none.
     assert_eq!(ask(&mut g, RAIDER_REF, GET_CAUSE_OF_DEATH, &[]), -1.0);
     g.hit(RAIDER_REF, 500.0, HitInfo { attacker: Some(GUARD_REF), location: 0, ..HitInfo::default() });
@@ -343,7 +343,7 @@ fn knockouts_causes_of_death_armour_shots_and_styles() {
     assert_eq!(ask(&mut g, GUARD_REF, GET_CAUSE_OF_DEATH, &[]), -1.0);
     // The weapon types: hand to hand, melee, guns, explosives, thrown.
     let codes: Vec<i32> = (0..=13).map(|t| cause_code(Some(t))).collect();
-    assert_eq!(codes, [4, 3, 3, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 5]);
+    assert_eq!(codes, [4, 3, 3, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 5]);
     // Nothing worn: 0.
     assert_eq!(ask(&mut g, FormId::PLAYER_REF, GET_ARMOR_RATING, &[]), 0.0);
     // FireWeapon asks the engine for a shot.

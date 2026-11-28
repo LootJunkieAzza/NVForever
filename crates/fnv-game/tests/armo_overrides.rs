@@ -383,3 +383,48 @@ fn temp_clone_form_armo_is_isolated_in_both_directions_and_equippable() {
     );
     assert_eq!(g.body_armor(FormId::PLAYER_REF), Some((2.0, ArmorClass::Heavy)), "detection::body_armor reads cloned torso armor overrides");
 }
+
+#[test]
+fn get_armor_rating_scales_by_condition_and_includes_damage_resist_av() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetArmorArmorRating 1000 TestArmorA\nplayer.AddItemHealthPercent TestArmorA 1 1.0\nplayer.EquipItem TestArmorA");
+    assert_eq!(num(&mut g, "player.GetArmorRating"), 10.0);
+    // ModAV DamageResist adds onto GetArmorRating [observed: w6d6p3_10b_armor_rating_dr1000].
+    q(&mut g, "player.ModAV DamageResist 15");
+    assert_eq!(num(&mut g, "player.GetArmorRating"), 25.0);
+    q(&mut g, "player.ModAV DamageResist -15\nplayer.UnequipItem TestArmorA\nplayer.RemoveItem TestArmorA 1");
+    // At 25% condition: 10 * (1 - (0.5 - 0.25) * 1.0) = 7.5 -> rounds to 8.0 [observed: w6d6p3_10b_armor_rating_dr1000].
+    q(&mut g, "player.AddItemHealthPercent TestArmorA 1 0.25\nplayer.EquipItem TestArmorA");
+    assert_eq!(num(&mut g, "player.GetArmorRating"), 8.0);
+}
+
+#[test]
+fn npc_default_choice_skips_broken_zero_condition_armor() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = NPC_REF;
+    // Clear existing ARMOR_B and add a 0%-condition copy: NPC must pick intact ARMOR_A (DT 6) over broken ARMOR_B (DT 10).
+    let cur_b = g.world.item_count(npc, FormId(ARMOR_B)).unwrap();
+    if cur_b > 0 {
+        g.world.remove_item(npc, FormId(ARMOR_B), cur_b).unwrap();
+    }
+    if g.world.item_count(npc, FormId(ARMOR_A)).unwrap() == 0 {
+        g.world.add_item(npc, FormId(ARMOR_A), 1).unwrap();
+    }
+    g.world.add_item_at_condition(npc, FormId(ARMOR_B), 1, Some(0.0)).unwrap();
+    let eq = g.world.equipment(npc).unwrap();
+    assert!(eq.contains(&FormId(ARMOR_A)), "intact armor selected");
+    assert!(!eq.contains(&FormId(ARMOR_B)), "0%-condition armor skipped");
+}
+
+#[test]
+fn armor_with_zero_equipment_slots_mask_cannot_be_equipped() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    g.world.add_item(p, FormId(ARMOR_A), 1).unwrap();
+    q(&mut g, "SetEquipmentSlotsMask 0 TestArmorA");
+    assert!(matches!(g.world.equip(p, FormId(ARMOR_A)), Err(fnv_sim::world::SimError::NotEquippable(_))));
+    assert!(!g.world.peek(p).unwrap().inventory.as_ref().unwrap().is_equipped(FormId(ARMOR_A)));
+}
