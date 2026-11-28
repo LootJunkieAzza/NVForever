@@ -89,8 +89,10 @@ pub enum Progress {
     /// The host's `quest` ended: completed, or `failed`.
     QuestEnded { quest: u32, failed: bool },
     /// A guest's join choice for joint progression and its character's stable ID
-    /// (`fnv_game::coop_joint`). Guest to host.
-    JointChoice { character: u64, on: bool },
+    /// (`fnv_game::coop_joint`), and the questlines it sits out (`sat_out`, a bit per row
+    /// of `fnv_game::coop_questlines::LINES`; every player runs the same build).
+    /// Guest to host.
+    JointChoice { character: u64, on: bool, sat_out: u64 },
     /// The host set `stage` of a claimable `quest` (`fnv_game::coop_joint::StageOffer`),
     /// for the players whose bit is set in `to` (bit = player id). `line` is the INFO whose
     /// result script set it (0: none), its end script when `line_end`; `prior` the host's
@@ -276,10 +278,11 @@ fn put_progress(b: &mut Vec<u8>, what: &Progress) {
             b.extend_from_slice(&quest.to_le_bytes());
             b.push(u8::from(*failed));
         }
-        Progress::JointChoice { character, on } => {
+        Progress::JointChoice { character, on, sat_out } => {
             b.push(5);
             b.extend_from_slice(&character.to_le_bytes());
             b.push(u8::from(*on));
+            b.extend_from_slice(&sat_out.to_le_bytes());
         }
         Progress::Stage { quest, stage, line, line_end, prior, to } => {
             b.push(6);
@@ -361,7 +364,7 @@ fn get_progress(r: &mut Reader) -> Option<Progress> {
         2 => Progress::Reload { stamp: r.u32()? },
         3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: r.u32()?, stage: r.u32()? },
         4 => Progress::QuestEnded { quest: r.u32()?, failed: flag(r)? },
-        5 => Progress::JointChoice { character: u64_of(r)?, on: flag(r)? },
+        5 => Progress::JointChoice { character: u64_of(r)?, on: flag(r)?, sat_out: u64_of(r)? },
         6 => {
             let (quest, stage, line, line_end, to) = (r.u32()?, i32_of(r)?, r.u32()?, flag(r)?, r.u8()?);
             let n = r.u8()?;
@@ -480,6 +483,9 @@ struct Checks {
     offers: HashMap<u8, VecDeque<(u32, i32)>>,
     /// Token buckets: (guest, kind) → (tokens, when last filled).
     buckets: HashMap<(u8, u8), (f32, Instant)>,
+    /// The questlines a join choice may sit out: rows of `fnv_game::coop_questlines::LINES`
+    /// ([`HostChecks::set_lines`]; 0 until set, so any line sat out is refused).
+    lines: u32,
 }
 
 impl Checks {
@@ -530,6 +536,12 @@ impl HostChecks {
         }
     }
 
+    /// The number of questlines this build has (`fnv_game::coop_questlines::LINES`): a
+    /// join choice sitting out a line past them is refused.
+    pub fn set_lines(&self, n: usize) {
+        self.lock().lines = n.min(64) as u32;
+    }
+
     /// Guest `id` left: its character and open offers go.
     pub fn left(&self, id: u8) {
         let mut c = self.lock();
@@ -564,9 +576,13 @@ impl HostChecks {
                     return Verdict::Drop(Reason::Rate);
                 }
             }
-            Progress::JointChoice { character, .. } => {
+            Progress::JointChoice { character, sat_out, .. } => {
                 if character == 0 {
                     return Verdict::Drop(Reason::Rule("joint choice: no character"));
+                }
+                let known = if c.lines >= 64 { u64::MAX } else { (1u64 << c.lines) - 1 };
+                if sat_out & !known != 0 {
+                    return Verdict::Drop(Reason::Rule("joint choice: no such questline"));
                 }
                 if c.characters.get(&id).is_some_and(|had| *had != character) {
                     return Verdict::Drop(Reason::Rule("joint choice: another character"));
@@ -692,7 +708,7 @@ mod tests {
             Progress::Gift { batch: 3, item: 0x0011_A208, count: 24, quest: 0x0010_4C1E, stage: 50 },
             Progress::Gift { batch: 4, item: 0x0015_9E04, count: 1, quest: 0, stage: Progress::NO_STAGE },
             Progress::QuestEnded { quest: 0x0010_4C1F, failed: true },
-            Progress::JointChoice { character: 0x0123_4567_89AB_CDEF, on: true },
+            Progress::JointChoice { character: 0x0123_4567_89AB_CDEF, on: true, sat_out: 0b1010 },
             Progress::Stage { quest: 0x0011_76B8, stage: 100, line: 0x0013_E51E, line_end: true, prior: vec![1, 10, 20, 50], to: 0b0110 },
             Progress::StageResult { quest: 0x0011_76B8, stage: -1, taken: false },
             Progress::KillCredit { to: 1, target: 0x0010_4C1D, target_base: 0x0010_4C1E, npc: true, xp: 10, karma: -5, killer: true, infamy: vec![(0x0010_4C2A, 30)] },
@@ -826,7 +842,7 @@ mod tests {
         let checks = HostChecks::default();
         let mut g = guard(&checks);
         let t = Instant::now();
-        let choice = |character, on| Progress::JointChoice { character, on }.encode();
+        let choice = |character, on| Progress::JointChoice { character, on, sat_out: 0 }.encode();
         assert_eq!(g.admit_item(1, &choice(0, true), t), Verdict::Drop(Reason::Rule("joint choice: no character")));
         assert_eq!(g.admit_item(1, &choice(42, true), t), Verdict::Accept);
         assert_eq!(checks.character(1), Some(42));
@@ -840,6 +856,30 @@ mod tests {
         checks.left(1);
         assert_eq!(checks.character(1), None);
         assert_eq!(g.admit_item(1, &choice(43, true), t + Duration::from_secs(3)), Verdict::Accept);
+    }
+
+    /// The questlines a join choice sits out must be rows this build has
+    /// (docs/design/coop-quest-sync.md §5).
+    #[test]
+    fn a_join_choice_sits_out_only_questlines_that_exist() {
+        let checks = HostChecks::default();
+        let mut g = guard(&checks);
+        let t = Instant::now();
+        let choice = |sat_out| Progress::JointChoice { character: 42, on: true, sat_out }.encode();
+        // Not set: none may be sat out; nothing sat out is fine.
+        assert_eq!(g.admit_item(1, &choice(1), t), Verdict::Drop(Reason::Rule("joint choice: no such questline")));
+        assert_eq!(g.admit_item(1, &choice(0), t), Verdict::Accept);
+        checks.set_lines(24);
+        assert_eq!(g.admit_item(1, &choice((1 << 24) - 1), t + Duration::from_secs(1)), Verdict::Accept);
+        assert_eq!(g.admit_item(1, &choice(1 << 24), t + Duration::from_secs(2)), Verdict::Drop(Reason::Rule("joint choice: no such questline")));
+        assert_eq!(g.admit_item(1, &choice(u64::MAX), t + Duration::from_secs(3)), Verdict::Drop(Reason::Rule("joint choice: no such questline")));
+        // A full table of 64 takes every bit.
+        checks.set_lines(64);
+        assert_eq!(g.admit_item(1, &choice(u64::MAX), t + Duration::from_secs(4)), Verdict::Accept);
+        // A choice cut short (no lines field) is not read.
+        let mut short = Progress::JointChoice { character: 42, on: true, sat_out: 0 }.encode();
+        short.truncate(short.len() - 8);
+        assert_eq!(decode(&short), None);
     }
 
     #[test]

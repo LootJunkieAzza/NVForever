@@ -976,6 +976,10 @@ pub struct PlayerState {
     /// Quest stages this character claimed in co-op (`crate::coop_joint::ClaimLedger`).
     #[serde(skip_serializing_if = "crate::coop_joint::ClaimLedger::is_empty", default)]
     pub claims: crate::coop_joint::ClaimLedger,
+    /// This character's quest progression sync as a co-op guest and the questlines it
+    /// sits out (`crate::coop_questlines::QuestSync`; docs/design/coop-quest-sync.md).
+    #[serde(skip_serializing_if = "crate::coop_questlines::QuestSync::is_empty", default)]
+    pub quest_sync: crate::coop_questlines::QuestSync,
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
@@ -1878,6 +1882,9 @@ pub struct Game<'a> {
     /// This load order's quest prerequisites for joint progression, read on first use
     /// (`crate::coop_prereqs`). Not part of the saved state.
     pub coop_prereqs_cache: std::sync::OnceLock<crate::coop_prereqs::Prereqs>,
+    /// This load order's questlines a guest can sit out, read on first use
+    /// (`crate::coop_questlines`). Not part of the saved state.
+    pub coop_questlines_cache: std::sync::OnceLock<crate::coop_questlines::Questlines>,
     /// A co-op host's story NPC the host may not talk to yet: a player is not near it
     /// ([`Game::story_gate`]); the far players, and when it was last asked (game
     /// seconds). Not saved.
@@ -2862,6 +2869,23 @@ impl fnv_script::compile::Env for GameEnv<'_, '_> {
     }
 }
 
+/// Canonical lowercase event name for xNVSE handler storage, lookup, removal, and
+/// dispatch: `OnEquip` aliases `OnActorEquip` (`onactorequip`) and `OnUnequip` aliases
+/// `OnActorUnequip` (`onactorunequip`) [observed: 2026-11-24, Fallout: New Vegas
+/// 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, GSDocMitchellHouse (0x00103DF9), 10 official
+/// base masters, `tools/capture/nvse/catalogs/wave6d1_on_actor_equip_unequip_alias.json`
+/// probe `w6d1_08_on_actor_equip_unequip_aliases`:
+/// `PROBE|w6d1_08_on_actor_equip_unequip_aliases|alias(g=1/1,rem=1/1)|eq(n=1,in=1,same=0,tick=1,s0=1,sP=0,nm=onactorequip)|un(n=1,in=1,s0=1,sP=0,nm=onactorunequip)`;
+/// no DLL, PDB, or third-party source consulted].
+pub(crate) fn canonical_event_name(event: &str) -> String {
+    let lower = event.to_ascii_lowercase();
+    match lower.as_str() {
+        "onequip" => "onactorequip".into(),
+        "onunequip" => "onactorunequip".into(),
+        _ => lower,
+    }
+}
+
 impl<'a> Game<'a> {
     pub fn new(data: &'a GameData, mut world: World<'a>, cfg: GameConfig) -> Game<'a> {
         // GetTimePlayed counts from the first game the process makes (`nvse_jg5`).
@@ -3072,6 +3096,7 @@ impl<'a> Game<'a> {
             coop_uniques_cache: std::sync::OnceLock::new(),
             coop_joint_on: false,
             coop_prereqs_cache: std::sync::OnceLock::new(),
+            coop_questlines_cache: std::sync::OnceLock::new(),
             guest_own_refs: BTreeMap::new(),
             guest_service: 0,
             coop_services: std::sync::OnceLock::new(),
@@ -4487,7 +4512,7 @@ impl<'a> Game<'a> {
         let key_text = |k: &XVal| if let XVal::Str(s) = k { s.to_ascii_lowercase() } else { String::new() };
         Ok(match c {
             EventCall::Set { event, func, pairs, alt } => {
-                let mut h = Handler { event: event.to_ascii_lowercase(), name: event.clone(), func, filters: Vec::new(), priority: 1, alt, seq: self.handler_seq };
+                let mut h = Handler { event: canonical_event_name(&event), name: event.clone(), func, filters: Vec::new(), priority: 1, alt, seq: self.handler_seq };
                 for (k, v) in pairs {
                     match (key_text(&k).as_str(), &k) {
                         ("priority", _) => {
@@ -4551,20 +4576,34 @@ impl<'a> Game<'a> {
                 XVal::Num(1.0)
             }
             EventCall::Remove { event, func, pairs } => {
-                let event = event.to_ascii_lowercase();
-                let filters: Vec<(usize, XVal)> = pairs
-                    .into_iter()
-                    .filter_map(|(k, v)| match (key_text(&k).as_str(), &k) {
-                        ("first", _) => Some((1, v)),
-                        ("second", _) => Some((2, v)),
-                        (_, XVal::Num(i)) => Some((*i as usize, v)),
-                        _ => None,
-                    })
-                    .collect();
+                let event = canonical_event_name(&event);
+                // Non-zero priority removes only that priority; 0 or omitted removes all
+                // [documented: RemoveEventHandler; observed: 2026-11-24, Fallout: New Vegas
+                // 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, GSDocMitchellHouse (0x00103DF9),
+                // 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_remove_event_handler_priority.json`
+                // probe `w6d1_02_remove_event_handler_priority`:
+                // `PROBE|w6d1_02_remove_event_handler_priority|r5=1,0|keys=1,0,1|n=2|r0=1,sz0=0|rf=1,n100=0,n200=1|end=1,0`;
+                // no DLL, PDB, or third-party source consulted].
+                let mut priority: i32 = 0;
+                let mut filters: Vec<(usize, XVal)> = Vec::new();
+                for (k, v) in pairs {
+                    match (key_text(&k).as_str(), &k) {
+                        ("priority", _) => {
+                            priority = v.num().map_err(|e| e.to_string())? as i32;
+                        }
+                        ("first", _) => filters.push((1, v)),
+                        ("second", _) => filters.push((2, v)),
+                        (_, XVal::Num(i)) => filters.push((*i as usize, v)),
+                        _ => {}
+                    }
+                }
                 let before = self.handlers.len();
                 let ext = &mut self.ext;
                 self.handlers.retain(|h| {
-                    let hit = h.event == event && h.func == func && filters.iter().all(|f| h.filters.contains(f));
+                    let hit = h.event == event
+                        && h.func == func
+                        && (priority == 0 || h.priority == priority)
+                        && filters.iter().all(|f| h.filters.contains(f));
                     if hit {
                         for (_, v) in &h.filters {
                             ext.release(v);
@@ -4764,7 +4803,7 @@ impl<'a> Game<'a> {
         if self.handlers.is_empty() {
             return 0;
         }
-        let lname = event.to_ascii_lowercase();
+        let lname = canonical_event_name(event);
         let mut hs: Vec<Handler> = self.handlers.iter().filter(|h| h.event == lname && self.handler_matches(h, &args, on)).cloned().collect();
         if hs.is_empty() {
             return 0;
@@ -4997,7 +5036,13 @@ impl<'a> Game<'a> {
         };
         // OnLoad gives the reference twice [observed].
         let second = if ev == event::ON_LOAD { XVal::Ref(on.0) } else { second };
-        self.dispatch_event(&name, vec![XVal::Ref(on.0), second], Some(on));
+        if ev == event::ON_ACTOR_EQUIP {
+            // Canonical event name `onactorequip` with null calling reference (`GetSelfAlt == 0`)
+            // [observed: `w6d1_08_on_actor_equip_unequip_aliases`].
+            self.dispatch_event("onactorequip", vec![XVal::Ref(on.0), second], None);
+        } else {
+            self.dispatch_event(&name, vec![XVal::Ref(on.0), second], Some(on));
+        }
     }
 
     /// Run a non-frame event on a reference's script, with a trace line.
@@ -7074,28 +7119,9 @@ impl<'a> Game<'a> {
         self.item_event_with(holder, item, ev, subject, None)
     }
 
-    fn item_event_with(
-        &mut self,
-        holder: FormId,
-        item: FormId,
-        ev: u16,
-        subject: Option<Value>,
-        world_ref: Option<FormId>,
-    ) -> bool {
-        // The extender's OnEquip and OnUnequip (and OnActorUnequip with it): the holder and
-        // the item [observed: nvse-events, (player, pistol) for all three]. Not OnAdd:
-        // AddItem of a base form did not fire it [observed]; OnDrop is sent by Drop with
-        // the dropped reference.
-        if matches!(ev, event::ON_EQUIP | event::ON_UNEQUIP) {
-            self.ext_event(ev, holder, Some(Value::Ref(item.0)));
-        }
-        if ev == event::ON_ADD {
-            self.showoff_on_add(holder, item, world_ref);
-        }
-        if ev == event::ON_UNEQUIP {
-            use fnv_script::vm::XVal;
-            self.dispatch_event("OnActorUnequip", vec![XVal::Ref(holder.0), XVal::Ref(item.0)], Some(holder));
-        }
+    /// Run only the item's own `Begin <ev>` script block (plus player disguise handling)
+    /// when the caller already dispatched the extender's PRE-unequip event.
+    pub(crate) fn item_block_only(&mut self, holder: FormId, item: FormId, ev: u16, subject: Option<Value>) -> bool {
         let Some(script) = self.data.script_of_base(item) else { return false };
         if !self.data.script(script).is_some_and(|u| u.has_block(ev)) {
             return false;
@@ -7113,6 +7139,28 @@ impl<'a> Game<'a> {
             self.emit(EventKind::BlockRun { unit, block, on: Some(holder) });
         }
         ran
+    }
+
+    fn item_event_with(
+        &mut self,
+        holder: FormId,
+        item: FormId,
+        ev: u16,
+        subject: Option<Value>,
+        world_ref: Option<FormId>,
+    ) -> bool {
+        // OnEquip aliases OnActorEquip (already dispatched by `ref_event(ON_ACTOR_EQUIP)`),
+        // and OnUnequip aliases OnActorUnequip (`onactorunequip`, null calling reference)
+        // [observed: `w6d1_08_on_actor_equip_unequip_aliases`]. Not OnAdd: AddItem of a base
+        // form does not fire xNVSE OnAdd; OnDrop is sent by Drop with the dropped reference.
+        if ev == event::ON_ADD {
+            self.showoff_on_add(holder, item, world_ref);
+        }
+        if ev == event::ON_UNEQUIP {
+            use fnv_script::vm::XVal;
+            self.dispatch_event("onactorunequip", vec![XVal::Ref(holder.0), XVal::Ref(item.0)], None);
+        }
+        self.item_block_only(holder, item, ev, subject)
     }
 
     /// A dialogue line was said (runner input standing in for Layer 6 dialogue): its

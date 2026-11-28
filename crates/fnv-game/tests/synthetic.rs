@@ -3749,6 +3749,132 @@ fn get_explosion_hit_damage_returns_minus_one_outside_handler() {
 }
 
 #[test]
+fn on_actor_equip_and_unequip_aliases_self_and_pre_unequip() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(
+            &format!("ref cbEq\nref cbUn\nint g1\nint g2\nint r1\nint r2\nint ok\nBegin Function {{ }}\n{body}\nEnd\n"),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let res = q(
+        &mut g,
+        "set TestGlobal to 0
+         TestNpcREF.AddItem TestWeapon 1 1
+         let cbEq := (Begin Function {ref a, ref it}
+           let TestGlobal := TestGlobal + 1000
+           if eval (GetSelfAlt == 0)
+             let TestGlobal := TestGlobal + 1
+           endif
+           if eval (GetCurrentEventName == \"onactorequip\")
+             let TestGlobal := TestGlobal + 2
+           endif
+         End)
+         let cbUn := (Begin Function {ref a, ref it}
+           let TestGlobal := TestGlobal + 2000
+           if eval (GetSelfAlt == 0)
+             let TestGlobal := TestGlobal + 10
+           endif
+           if eval (a.GetEquipped it)
+             let TestGlobal := TestGlobal + 100
+           endif
+           if eval (GetCurrentEventName == \"onactorunequip\")
+             let TestGlobal := TestGlobal + 200
+           endif
+         End)
+         SetEventHandler \"OnActorEquip\" cbEq
+         SetEventHandler \"OnActorUnequip\" cbUn
+         let g1 := Ar_Size (GetEventHandlers \"OnEquip\")
+         let g2 := Ar_Size (GetEventHandlers \"OnUnequip\")
+         TestNpcREF.EquipItem TestWeapon 0 1
+         let ok := (TestNpcREF.GetEquipped TestWeapon)
+         TestNpcREF.UnequipItem TestWeapon 0 1
+         let r1 := RemoveEventHandler \"OnEquip\" cbEq
+         let r2 := RemoveEventHandler \"OnUnequip\" cbUn
+         SetFunctionValue (ok * 10000 + (g1 == 1) * 1000 + (g2 == 1) * 100 + (r1 == 1) * 10 + (r2 == 1))",
+    );
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+        "unexpected script error: {:?}",
+        g.events
+    );
+    assert_eq!(res, XVal::Num(11111.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3313.0);
+}
+
+#[test]
+fn remove_event_handler_respects_priority_and_zero_wildcard() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    q(
+        &mut g,
+        "SetEventHandler \"W6Rem\" TestSet \"priority\"::10
+         SetEventHandler \"W6Rem\" TestSet \"priority\"::5
+         SetEventHandler \"W6Rem\" TestSet \"priority\"::1",
+    );
+    // Removing priority 5 removes only priority 5; repeat returns 0.
+    assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"W6Rem\" TestSet \"priority\"::5)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"W6Rem\" TestSet \"priority\"::5)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "array_var a\nlet a := GetEventHandlers \"W6Rem\"\nSetFunctionValue ((Ar_HasKey a 10) * 100 + (Ar_HasKey a 5) * 10 + (Ar_HasKey a 1))"), XVal::Num(101.0));
+    // Priority 10 and 1 remain (2 priority buckets); priority 0 removes both.
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GetEventHandlers \"W6Rem\"))"), XVal::Num(2.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"W6Rem\" TestSet \"priority\"::0)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "DispatchEventAlt \"W6Rem\" 77\nSetFunctionValue TestGlobal"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"W6Rem\" TestSet)"), XVal::Num(0.0));
+}
+
+#[test]
+fn jip_quest_stage_handler_exact_stage_zero_and_duplicate_return() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(
+            &format!("ref cb10\nref cb0\nint r1\nint r2\nint r3\nint r4\nBegin Function {{ }}\n{body}\nEnd\n"),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let res = q(
+        &mut g,
+        "set TestGlobal to 0
+         let cb10 := (Begin Function {ref qst, int stg}
+           if eval (GetSelfAlt == 0) && (qst == Q) && (stg == 10) && (GetStage Q == 10)
+             let TestGlobal := TestGlobal + 1
+           endif
+         End)
+         let cb0 := (Begin Function {ref qst, int stg}
+           let TestGlobal := TestGlobal + 100
+         End)
+         let r1 := SetOnQuestStageEventHandler cb10 1 Q 10
+         let r2 := SetOnQuestStageEventHandler cb10 1 Q 10
+         SetOnQuestStageEventHandler cb0 1 Q 0
+         SetStage Q 10
+         let r3 := SetOnQuestStageEventHandler cb10 0 Q 10
+         let r4 := SetOnQuestStageEventHandler cb10 0 Q 10
+         SetFunctionValue (r1 * 1000 + r2 * 100 + r3 * 10 + r4)",
+    );
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+        "unexpected script error: {:?}",
+        g.events
+    );
+    // ret=1,0,1,0 (add=1, dup=0, rem=1, miss=0)
+    assert_eq!(res, XVal::Num(1010.0));
+    // cb10 fired once with GetSelfAlt==0 & POST-update GetStage==10 (+1); cb0 (stage 0) did NOT fire on stage 10.
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 1.0);
+}
+
+#[test]
 fn dispatch_event_returns_one_and_overwrites_info_map_keys() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();

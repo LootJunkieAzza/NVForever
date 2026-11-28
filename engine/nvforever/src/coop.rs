@@ -9,13 +9,24 @@
 //! host by the rules it registers with its link (`host_progress_rules`) and its world (`host_forms`).
 //!
 //! **Off by default.** Nothing here opens a socket until the Co-op switch is on and a
-//! lobby is created or joined [design]; this part opens none (below).
-//! Without a link every system here returns at once, so single player is as it was.
+//! lobby is created or joined [design]. Without a link every system here returns at once,
+//! so single player is as it was.
 //!
-//! **No transport here.** This part has no sockets, discovery or lobby codes: hosting or
-//! joining says so (the log, and the join screen) until the internet transport of #3910 goes
-//! on top and plugs into `nvf_coop::seam` [design]. The host's checks of every guest message
-//! ([`HostForms`], `nvf_coop::guard`) and this player's state sent are in place for it.
+//! **The connection** ([`connect`]): the internet transport (`nvf_coop::stack`) under the
+//! session, every packet sealed with Noise and each player known by its key. A host's
+//! lobby gets an online code from the matchmaking service (else, LAN only or the service
+//! unreachable, a code of its address, with the router asked to open the port); a guest
+//! joins by either code or by an address. The host lets in a player joining by online
+//! code when it is asked to (the Co-op Lobby), and can remove a guest (Kick), or keep it
+//! out for the lobby's life (Ban). The host's checks of every guest message ([`HostForms`],
+//! `nvf_coop::guard`) come first. The host's lobby list says how each guest is connected
+//! and its ping (`Link::paths`). A load keeps the lobby ([`connect`]: the new run hosts it
+//! again, with the same code).
+//!
+//! **The lobby browser** ([`browse`], docs/design/coop-lobby-browser.md): the host's lobby
+//! may be public (listed, with a title, its place kept current) and may have a password; the
+//! Join screen's Browse tab lists the public lobbies, keeps favourite hosts and reports a
+//! lobby. Test aids for the online path in one game: [`test_service`].
 //!
 //! **The host's world.** The host runs the world: its NPCs are the only ones that think
 //! (packages, fights, deaths). It sends each NPC it draws (where, facing, weapon out,
@@ -110,7 +121,8 @@
 //! while the link reconnects; only a player who quit or stayed away past the grace is
 //! removed.
 //!
-//! Log: `co-op: no network transport in this build`, `co-op: welcomed as player <n>`, `co-op: <name> joined`, `co-op:
+//! Log: `co-op: hosting on UDP port <p> ...`, `co-op: lobby code <code> ...` and the rest of
+//! [`connect`]'s, `co-op: welcomed as player <n>`, `co-op: <name> joined`, `co-op:
 //! player <n> left`, `co-op: player <n> at <place> feet (x, y, z) yaw <deg>` (the first
 //! state from each player, then one every [`STATE_LOG_EVERY`] seconds), `co-op: not
 //! joined: <why>` (what the join screen says), `co-op: turned away <n> Hello(s) without
@@ -138,7 +150,7 @@ use nvf_coop::net::{self, attack, flag, npc_flag, Event, HitView, LimbView, Link
 use nvf_play::combat::{ActorHit, CombatStats, RelayedHit, RemoteHit};
 use nvf_play::coop_mates::{Mate, SocialMates};
 use nvf_play::loading::{Loading, TravelRequest};
-use nvf_play::lobby::{CoopSwitch, Hosting, Joining, LobbyRequest, LobbyState};
+use nvf_play::lobby::{Browse, CoopSwitch, HostOptions, Hosting, Joining, LobbyRequest, LobbyState};
 use nvf_play::lockpick::{LockOpened, OpenedBy};
 use nvf_play::player::Player;
 use nvf_play::sfx::{PlaySound, Sfx};
@@ -146,6 +158,10 @@ use nvf_play::{Location, PlayState, RefVisual, Travel};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+mod browse;
+mod connect;
+pub(crate) mod net_settings;
+mod test_service;
 mod areas;
 pub(crate) mod checks;
 mod far_combat;
@@ -158,6 +174,7 @@ mod scene;
 mod story;
 mod syncing;
 
+pub use connect::set_load_order;
 pub use leave::HoldLeave;
 
 /// How far behind the newest state the others are drawn, so there are two to blend.
@@ -192,10 +209,8 @@ pub const REJOIN_ENV: &str = "NVF_COOP_REJOIN_HOST";
 /// world is in (`syncing`).
 pub const SYNC_ENV: &str = "NVF_COOP_SYNC_SCREEN";
 
-/// The port a lobby opens on, UDP [design].
-const DEFAULT_PORT: u16 = 47_960;
-/// What a game hosting or joining says while no transport is plugged in (module notes).
-const NO_TRANSPORT: &str = "This build has no network transport yet: the internet transport goes on top of this part.";
+/// The port a lobby opens on, UDP [design] (`nvf_coop::code::DEFAULT_PORT`).
+const DEFAULT_PORT: u16 = nvf_coop::code::DEFAULT_PORT;
 /// A guest looking for its host gives up after this long without an answer (seconds).
 const FIND_FOR: f32 = 15.0;
 /// Another player's state is logged when first heard, then once this often (seconds).
@@ -230,6 +245,39 @@ pub(crate) struct Coop {
     /// The host's code, once hosting.
     code: Option<String>,
     note: Option<String>,
+    /// The transport's control ([`connect`]): the service's events, join answers.
+    control: Option<nvf_coop::stack::Control>,
+    /// The host's port, and whether its router opened it for an address code.
+    port: u16,
+    opened: bool,
+    /// The router's answer on the way (an address code), and an online code asked for.
+    reaching: Option<std::sync::Mutex<std::sync::mpsc::Receiver<nvf_coop::reach::Reach>>>,
+    online_pending: bool,
+    /// The host's: players joining by online code waiting for its answer (their number in
+    /// the service's lobby, name).
+    asking: Vec<(u32, String)>,
+    /// A guest's: the host was asked to let it in, and has not answered.
+    awaiting_host: bool,
+    /// The host's online lobby's secret (it takes the code back after a load's restart),
+    /// and whether this run handed the lobby to the run a load starts ([`connect::hand_over`]).
+    secret: Option<String>,
+    handed_off: bool,
+    /// The lobby browser ([`browse`]): the host's choices, the password typed to join, the
+    /// Browse tab's request, its list and when it last asked, a report on its way (and its
+    /// code) and the last one's answer, the favourite hosts, the host's place for its
+    /// listing (and when it was looked up) and the listing last sent.
+    host_options: HostOptions,
+    join_password: String,
+    browse_job: Option<browse::BrowseJob>,
+    browse: Browse,
+    browse_at: f32,
+    report_job: Option<browse::ReportJob>,
+    report_code: String,
+    report_note: Option<(String, String)>,
+    favourites: Vec<String>,
+    place: String,
+    place_at: f32,
+    listing_sent: Option<(bool, String, String, bool)>,
     joining: Joining,
     finding_since: Option<f32>,
     /// The host's checks were given the load order and the world's rules.
@@ -348,6 +396,27 @@ impl Coop {
             last_leash: None,
             code: None,
             note: None,
+            control: None,
+            port: DEFAULT_PORT,
+            opened: false,
+            reaching: None,
+            online_pending: false,
+            asking: Vec::new(),
+            awaiting_host: false,
+            secret: None,
+            handed_off: false,
+            host_options: HostOptions::default(),
+            join_password: String::new(),
+            browse_job: None,
+            browse: Browse::Idle,
+            browse_at: f32::NEG_INFINITY,
+            report_job: None,
+            report_code: String::new(),
+            report_note: None,
+            favourites: Vec::new(),
+            place: String::new(),
+            place_at: f32::NEG_INFINITY,
+            listing_sent: None,
             joining: Joining::Idle,
             finding_since: None,
             forms_set: false,
@@ -404,8 +473,15 @@ impl Coop {
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
+        net_settings::register(app);
+        test_service::start_local_service();
         let c = &self.0;
         let mut coop = Coop::new(c.name.clone());
+        coop.favourites = browse::load_favourites();
+        // A lobby a load restarted, or a scripted run's, takes its choices from the
+        // environment (the lobby screen sets them otherwise).
+        coop.host_options = connect::options_from_env();
+        coop.join_password = coop.host_options.password.clone();
         // The main menu's run after a lobby ended neither hosts nor joins, whatever the
         // command line it was started with says (`leave`).
         let ended = std::env::var_os(leave::NO_LOBBY_ENV).is_some();
@@ -413,7 +489,10 @@ impl Plugin for CoopPlugin {
         if ended {
             info!("co-op: the lobby ended in the run before: not hosting or joining");
         } else if let Some(port) = c.host {
-            coop.start_hosting(port);
+            coop.start_hosting(port, None);
+        } else if let Some((port, again)) = connect::handed_over() {
+            info!("co-op: hosting the lobby on UDP port {port} again (a load restarted the game, or {} is set)", connect::HOST_ENV);
+            coop.start_hosting(port, again);
         } else if let Some(join) = c.join.as_deref() {
             coop.start_joining(join);
         }
@@ -438,6 +517,7 @@ impl Plugin for CoopPlugin {
                     host_progress_rules,
                     host_forms,
                     replication::frame_clock,
+                    connect::poll,
                     lobby,
                     send,
                     take_events,
@@ -458,6 +538,7 @@ impl Plugin for CoopPlugin {
                     .after(nvf_play::PlaySet::Physics),
             )
             .add_systems(Update, hold_joining_world.before(nvf_play::PlaySet::Scripts))
+            .add_systems(Update, (track_place, hand_over_on_load))
             .add_systems(Update, (replication::dismember_out.before(replication::replicate), replication::dismember_in.after(replication::replicate)))
             .add_systems(Update, (replication::corpses_out.before(replication::replicate), replication::corpses_in.after(replication::replicate)))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
@@ -679,30 +760,85 @@ impl Coop {
         self.link.as_ref().is_some_and(|l| !l.is_host())
     }
 
-    /// Open a lobby on `port`: no transport is plugged in here, so none opens.
-    fn start_hosting(&mut self, port: u16) {
-        warn!("co-op: no network transport in this build: cannot host on UDP port {port}");
-        self.note = Some(NO_TRANSPORT.to_string());
+    /// Open a lobby on `port` ([`connect::host_link`]) with the host's choices: an online
+    /// code is asked for, else the router, for an address code. `again`: the online code and
+    /// secret of the lobby a load restarted, taken back; the address code of one is kept.
+    fn start_hosting(&mut self, port: u16, again: Option<(String, String)>) {
+        match connect::host_link(port, &self.name, &self.host_options, &self.place, self.friendly_fire, again.as_ref()) {
+            Ok((link, control)) => {
+                self.link = Some(link);
+                self.port = port;
+                self.listing_sent = None;
+                let online = nvf_coop::signal_io::service().is_some();
+                // The address code a load's restart carried (the router's port is still open).
+                let kept = std::env::var(connect::CODE_ENV).ok().and_then(|c| Some((nvf_coop::code::Lobby::decode(&c)?, c))).filter(|(l, _)| l.port == port && !online);
+                match (again, kept) {
+                    (Some((code, secret)), _) if online => {
+                        self.code = Some(code);
+                        self.secret = Some(secret);
+                        self.online_pending = false;
+                    }
+                    (_, Some((lobby, code))) => {
+                        if let Some(l) = &self.link {
+                            l.set_lobby(lobby.key());
+                        }
+                        info!("co-op: lobby code {code} again (a load restarted the game)");
+                        self.code = Some(code);
+                        self.opened = std::env::var_os(connect::OPENED_ENV).is_some();
+                    }
+                    _ => {
+                        self.online_pending = online;
+                        if !online {
+                            self.reaching = Some(connect::reach_out(port));
+                        }
+                    }
+                }
+                self.control = Some(control);
+            }
+            Err(why) => {
+                warn!("co-op: {why}");
+                self.note = Some(why);
+            }
+        }
     }
 
     fn stop_hosting(&mut self) {
         // Dropping the link says goodbye to the guests.
         self.link = None;
+        self.control = None;
+        if self.opened {
+            connect::close_router(self.port);
+        }
+        self.opened = false;
+        self.reaching = None;
+        self.online_pending = false;
+        self.asking.clear();
         self.forms_set = false;
         self.rules_set = false;
         self.hello_drops = (0, 0.0);
         self.state_logged.clear();
         self.code = None;
         self.note = None;
+        self.secret = None;
+        self.listing_sent = None;
+        connect::forget_lobby();
         self.forget_peers();
         self.progress.reset();
         self.story = Default::default();
     }
 
-    /// Join the lobby `at` names: no transport is plugged in here, so none opens.
-    fn start_joining(&mut self, _at: &str) {
-        warn!("co-op: no network transport in this build: cannot join");
-        self.fail(NO_TRANSPORT);
+    /// Join the lobby `at` names ([`connect::guest_link`]), with the password typed.
+    fn start_joining(&mut self, at: &str) {
+        match connect::guest_link(at, &self.name, &self.join_password) {
+            Ok((link, control)) => {
+                self.link = Some(link);
+                self.control = Some(control);
+                self.joining = Joining::Finding;
+                self.finding_since = None;
+                self.awaiting_host = false;
+            }
+            Err(why) => self.fail(&why),
+        }
     }
 
     /// A join that did not happen: what the join screen says, logged too.
@@ -713,6 +849,8 @@ impl Coop {
 
     fn stop_joining(&mut self) {
         self.link = None;
+        self.control = None;
+        self.awaiting_host = false;
         self.state_logged.clear();
         self.joining = Joining::Idle;
         self.host = None;
@@ -798,6 +936,7 @@ fn host_progress_rules(mut coop: ResMut<Coop>) {
     }
     let coop = &mut *coop;
     if let Some(link) = &coop.link {
+        coop.progress.checks.set_lines(fnv_game::coop_questlines::LINES.len());
         for (kind, rule) in coop.progress.checks.rules() {
             link.add_rule(kind, rule);
         }
@@ -806,15 +945,52 @@ fn host_progress_rules(mut coop: ResMut<Coop>) {
 }
 
 /// The lobby screens' asks, and what they show.
-fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<LobbyRequest>, mut state: ResMut<LobbyState>, switch: Res<CoopSwitch>) {
+fn lobby(
+    time: Res<Time<Real>>,
+    mut coop: ResMut<Coop>,
+    mut asks: MessageReader<LobbyRequest>,
+    mut state: ResMut<LobbyState>,
+    switch: Res<CoopSwitch>,
+    (progress, script): (Option<Res<nvf_play::coop_progress::CoopProgress>>, Option<Res<nvf_play::script::ScriptState>>),
+) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
     for ask in asks.read() {
         match ask {
-            LobbyRequest::Create if !switch.on => info!("co-op: the Co-op switch is off: no lobby"),
-            LobbyRequest::Create if coop.is_guest() => info!("co-op: in another player's lobby: leave it to open one"),
-            LobbyRequest::Create if coop.link.is_none() => coop.start_hosting(DEFAULT_PORT),
-            LobbyRequest::Create => {}
+            LobbyRequest::Create(_) if !switch.on => info!("co-op: the Co-op switch is off: no lobby"),
+            LobbyRequest::Create(_) if coop.is_guest() => info!("co-op: in another player's lobby: leave it to open one"),
+            LobbyRequest::Create(o) if coop.link.is_none() => {
+                coop.host_options = o.clone();
+                coop.start_hosting(DEFAULT_PORT, None);
+            }
+            LobbyRequest::Create(_) => {}
+            // One in flight, or one asked less than 2 s ago (the service's limit): the list
+            // shown stays.
+            LobbyRequest::Browse(_) if coop.browse_job.is_some() || now - coop.browse_at < browse::BROWSE_EVERY => {}
+            LobbyRequest::Browse(q) => match browse::start(q) {
+                Some(job) => {
+                    coop.browse_at = now;
+                    coop.browse_job = Some(job);
+                    coop.browse = Browse::Loading;
+                }
+                None => coop.browse = Browse::Failed(tr("The lobby browser needs the matchmaking service: Co-op connection is LAN only, or the service is turned off.").into()),
+            },
+            LobbyRequest::Report { code } => match browse::report(code) {
+                Some(job) => {
+                    coop.report_job = Some(job);
+                    coop.report_code = code.clone();
+                }
+                None => coop.report_note = Some((code.clone(), tr("The report needs the matchmaking service.").into())),
+            },
+            LobbyRequest::Favourite { host_fp, on } => {
+                browse::set_favourite(&mut coop.favourites, host_fp, *on);
+                info!("co-op: host {host_fp} {} the favourites", if *on { "added to" } else { "taken off" });
+                if let Browse::Ready(rows) = &mut coop.browse {
+                    for r in rows.iter_mut().filter(|r| r.host_fp == *host_fp) {
+                        r.favourite = *on;
+                    }
+                }
+            }
             LobbyRequest::Close if coop.is_host() => {
                 coop.stop_hosting();
                 info!("co-op: lobby closed");
@@ -825,12 +1001,32 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
                 info!("co-op: left the lobby");
             }
             LobbyRequest::Leave => {}
-            LobbyRequest::Find(_) if !switch.on => info!("co-op: the Co-op switch is off: not joining"),
-            LobbyRequest::Find(_) if coop.is_host() => info!("co-op: close your own lobby to join another"),
-            LobbyRequest::Find(code) => {
+            LobbyRequest::Find { .. } if !switch.on => info!("co-op: the Co-op switch is off: not joining"),
+            LobbyRequest::Find { .. } if coop.is_host() => info!("co-op: close your own lobby to join another"),
+            LobbyRequest::Find { code, password } => {
+                coop.join_password = password.clone();
                 coop.stop_joining();
                 coop.start_joining(code);
             }
+            LobbyRequest::Kick { id, ban } if coop.is_host() => {
+                let done = coop.link.as_ref().is_some_and(|l| l.kick(*id, *ban));
+                let who = coop.peers.get(id).map_or_else(|| label(*id, ""), |p| label(*id, &p.name));
+                match (done, *ban) {
+                    (true, true) => info!("co-op: {who} (player {id}) kicked and banned while this lobby lasts"),
+                    (true, false) => info!("co-op: {who} (player {id}) kicked"),
+                    (false, _) => info!("co-op: {who} (player {id}): not kicked (no such guest, or no key to ban)"),
+                }
+            }
+            LobbyRequest::Kick { .. } => {}
+            LobbyRequest::Admit { peer, yes } if coop.is_host() => {
+                if let Some(c) = &coop.control {
+                    c.admit(*peer, *yes);
+                }
+                coop.asking.retain(|(p, _)| p != peer);
+            }
+            LobbyRequest::Admit { .. } => {}
+            // A guest's quest sync choices: `nvf_play::coop_progress` keeps them.
+            LobbyRequest::QuestSync(_) | LobbyRequest::SitOut { .. } => {}
             LobbyRequest::Cancel => {
                 if coop.joining == Joining::Finding {
                     coop.stop_joining();
@@ -841,31 +1037,155 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
             }
         }
     }
+    // The Browse tab's answer, and a report's.
+    if let Some(b) = coop.browse_job.as_ref().and_then(|j| browse::poll(j, &connect::load_order(), &coop.favourites)) {
+        coop.browse = b;
+        coop.browse_job = None;
+    }
+    if let Some(r) = coop.report_job.as_ref().and_then(browse::report_done) {
+        coop.report_job = None;
+        let said = match r {
+            Ok(()) => tr("Lobby reported. Thank you.").to_string(),
+            Err(why) => trf("The report did not go through: {why}", &[("why", &why)]),
+        };
+        coop.report_note = Some((coop.report_code.clone(), said));
+    }
+    // The host's listing follows its place and friendly fire (sent when it changes).
+    if coop.is_host() && browse::listed(&coop.host_options) {
+        let now_listing = (coop.host_options.public, browse::title(&coop.host_options, &coop.name), coop.place.clone(), coop.friendly_fire);
+        if coop.listing_sent.as_ref() != Some(&now_listing) {
+            if let Some(c) = &coop.control {
+                c.set_listing(now_listing.0, &now_listing.1, &now_listing.2, now_listing.3);
+            }
+            coop.listing_sent = Some(now_listing);
+        }
+    }
     // A guest's search: answered (`take_events`), or given up.
     if coop.joining == Joining::Finding {
         let since = *coop.finding_since.get_or_insert(now);
         if coop.link.as_ref().is_some_and(|l| l.id().is_some()) {
             coop.joining = Joining::Found;
-        } else if now - since > FIND_FOR {
+        } else if connect::waited_too_long(coop, since, now) {
             coop.link = None;
-            coop.fail("No answer from the host: check the code, and that their lobby is open.");
+            coop.control = None;
+            coop.fail(tr("No answer from the host: check the code, and that their lobby is open."));
         }
     }
     let hosting = match (&coop.code, coop.is_host()) {
         (Some(code), true) => Hosting::Open { code: code.clone(), note: coop.note.clone() },
+        (None, true) => Hosting::Open { code: tr("(asking for a code...)").into(), note: coop.note.clone() },
         _ => Hosting::Off,
     };
     let mut players = Vec::new();
     if coop.link.is_some() {
-        players.push(if coop.is_host() { format!("{} (host, you)", coop.name) } else { format!("{} (you)", coop.name) });
+        // Who shares quest progress and the questlines each sits out
+        // (docs/design/coop-quest-sync.md §5): a guest knows its own, the host every guest's.
+        let own_sat_out = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(0, |rt| rt.game.player.quest_sync.mask());
+        let sharing = |id: Option<u8>| -> String {
+            let Some(p) = progress.as_deref() else { return String::new() };
+            let (on, sat_out) = match id {
+                None => (p.joint_on, own_sat_out),
+                Some(id) => (p.joint_peers.get(&id).map(|(_, on)| *on), p.joint_sat_out.get(&id).copied().unwrap_or(0)),
+            };
+            sharing_label(on, sat_out)
+        };
+        players.push(if coop.is_host() { format!("{}{}", coop.name, tr(" (host, you)")) } else { format!("{}{}{}", coop.name, tr(" (you)"), sharing(None)) });
+        // The host's line per guest says how it is connected and its ping
+        // (docs/design/coop-networking.md §10).
+        let paths = if coop.is_host() { coop.link.as_ref().map(Link::paths).unwrap_or_default() } else { Vec::new() };
         for (&id, p) in &coop.peers {
             let n = label(id, &p.name);
             // The host is player 0: marked on a guest's list.
-            let n = if id == 0 && coop.is_guest() && n != "The host" { format!("{n} (host)") } else { n };
-            players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
+            let n = if id == 0 && coop.is_guest() && n != tr("The host") { format!("{n}{}", tr(" (host)")) } else { n };
+            let n = if coop.is_host() { format!("{n}{}", sharing(Some(id))) } else { n };
+            let n = match paths.iter().find(|(i, ..)| *i == id) {
+                Some((_, addr, rtt)) => format!("{n}{}", path_label(addr.map(nvf_coop::stack::Path::of), *rtt)),
+                None => n,
+            };
+            players.push(if p.lost { format!("{n}{}", tr(" (reconnecting)")) } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest() });
+    let guests = if coop.is_host() { coop.peers.iter().map(|(&id, p)| (id, label(id, &p.name))).collect() } else { Vec::new() };
+    let asks = if coop.is_host() { coop.asking.clone() } else { Vec::new() };
+    let host = coop.is_host();
+    state.set_if_neq(LobbyState {
+        hosting,
+        players,
+        joining: coop.joining.clone(),
+        guest: coop.is_guest(),
+        guests,
+        asks,
+        public: host && coop.host_options.public,
+        locked: host && !coop.host_options.password.is_empty(),
+        browse: coop.browse.clone(),
+        report_note: coop.report_note.clone(),
+    });
+}
+
+/// A guest's connection on the host's lobby list: how it is connected, and the reliable
+/// stream's round trip once measured [design: our own words].
+fn path_label(path: Option<nvf_coop::stack::Path>, rtt: Option<std::time::Duration>) -> String {
+    use nvf_coop::stack::Path;
+    let word = path.map(|p| match p {
+        Path::Lan => tr("local network"),
+        Path::Direct => tr("direct"),
+        Path::Relayed => tr("through another player"),
+        Path::HostedRelay => tr("through a relay"),
+    });
+    match (word, rtt) {
+        (Some(w), Some(r)) => trf(" ({path}, {ms} ms)", &[("path", &w), ("ms", &r.as_millis())]),
+        (Some(w), None) => format!(" ({w})"),
+        (None, Some(r)) => trf(" ({ms} ms)", &[("ms", &r.as_millis())]),
+        (None, None) => String::new(),
+    }
+}
+
+/// The host's place for its lobby browser listing, looked up every
+/// [`browse::LISTING_EVERY`] seconds while it hosts a listed or locked lobby.
+fn track_place(world: &mut World) {
+    let now = world.resource::<Time>().elapsed_secs();
+    let due = world.get_resource::<Coop>().is_some_and(|c| c.is_host() && browse::listed(&c.host_options) && now - c.place_at >= browse::LISTING_EVERY);
+    if !due {
+        return;
+    }
+    let place = browse::place_now(world).unwrap_or_default();
+    let mut coop = world.resource_mut::<Coop>();
+    coop.place_at = now;
+    if coop.place != place {
+        coop.place = place;
+    }
+}
+
+/// A load restarts the game (`crate::handoff`): a host hands its lobby to the new run
+/// ([`connect::hand_over`]); when the new run fails and this one stays, it hosts again.
+fn hand_over_on_load(mut coop: ResMut<Coop>, handoff: Option<Res<crate::handoff::Handoff>>) {
+    let Some(h) = handoff else { return };
+    let coop = &mut *coop;
+    if h.leaving() && h.loading() && coop.is_host() && !coop.handed_off {
+        connect::hand_over(coop);
+    } else if !h.leaving() && coop.handed_off {
+        coop.handed_off = false;
+        info!("co-op: the new run did not take over: hosting the lobby again");
+        let again = connect::handed_over().and_then(|(_, a)| a);
+        coop.start_hosting(coop.port, again);
+    }
+}
+
+/// A player's quest sharing on the lobby list (docs/design/coop-quest-sync.md §5): sharing,
+/// and the questlines sat out (two by name, then how many more, so six players' lines stay
+/// on the screen); not sharing; or nothing before it chose [design: our own words].
+fn sharing_label(on: Option<bool>, sat_out: u64) -> String {
+    match on {
+        None => String::new(),
+        Some(false) => tr(" (not sharing quests)").into(),
+        Some(true) if sat_out == 0 => tr(" (sharing quests)").into(),
+        Some(true) => {
+            let names = fnv_game::coop_questlines::names(sat_out);
+            let shown = names.iter().take(2).map(|n| tr(n)).collect::<Vec<_>>().join(", ");
+            let more = if names.len() > 2 { format!(" +{}", names.len() - 2) } else { String::new() };
+            trf(" (sharing quests, sitting out {names})", &[("names", &format!("{shown}{more}"))])
+        }
+    }
 }
 
 fn label(id: u8, name: &str) -> String {
@@ -1462,6 +1782,11 @@ fn take_events(
                 coop.host = None;
                 coop.ended = true;
                 notes.push(tr("The host's game has ended").into());
+            }
+            Event::Kicked { banned } => {
+                coop.host = None;
+                coop.ended = true;
+                notes.push(connect::kicked_note(banned));
             }
             Event::Npcs(list) => {
                 for n in list {
@@ -3560,19 +3885,35 @@ fn state_line(id: u8, s: &PlayerState) -> String {
 mod tests {
     use super::*;
 
-    /// With no transport plugged in, hosting opens nothing and joining says why.
+    /// The lobby list's quest sharing (docs/design/coop-quest-sync.md §5): the host sees
+    /// which questlines each guest sits out.
     #[test]
-    fn hosting_and_joining_without_a_transport_say_so() {
+    fn the_lobby_list_names_the_questlines_a_player_sits_out() {
+        use fnv_game::coop_questlines::{bit, index};
+        let line = |k: &str| bit(index(k).unwrap());
+        assert_eq!(sharing_label(None, 0), "");
+        assert_eq!(sharing_label(Some(false), line("house")), " (not sharing quests)");
+        assert_eq!(sharing_label(Some(true), 0), " (sharing quests)");
+        assert_eq!(sharing_label(Some(true), line("house")), " (sharing quests, sitting out Mr. House)");
+        assert_eq!(sharing_label(Some(true), line("house") | line("ncr")), " (sharing quests, sitting out Mr. House, NCR)");
+        assert_eq!(sharing_label(Some(true), line("house") | line("ncr") | line("legion") | line("cass")), " (sharing quests, sitting out Mr. House, NCR +2)");
+    }
+
+    /// Hosting opens a lobby on the internet transport (LAN only here: no service asked),
+    /// and a join of something that is no code says why.
+    #[test]
+    fn hosting_opens_a_link_and_a_bad_code_says_why() {
+        nvf_coop::prefs::set_connection(nvf_coop::prefs::Connection::LanOnly);
         let mut app = App::new();
-        app.add_plugins(CoopPlugin(Config { host: Some(DEFAULT_PORT), join: None, name: "Courier".into() }));
+        app.add_plugins(CoopPlugin(Config { host: Some(0), join: None, name: "Courier".into() }));
         let coop = app.world().resource::<Coop>();
-        assert!(coop.link.is_none() && coop.code.is_none());
-        assert_eq!(coop.note.as_deref(), Some(NO_TRANSPORT));
+        assert!(coop.link.as_ref().is_some_and(Link::is_host), "{:?}", coop.note);
+        assert!(!coop.online_pending && coop.reaching.is_some(), "LAN only: an address code");
         let mut app = App::new();
         app.add_plugins(CoopPlugin(Config { host: None, join: Some("anything".into()), name: "Courier".into() }));
         let coop = app.world().resource::<Coop>();
         assert!(coop.link.is_none());
-        assert_eq!(coop.joining, Joining::Failed(NO_TRANSPORT.to_string()));
+        assert_eq!(coop.joining, Joining::Failed("That is not a lobby code: check it with the host.".into()));
     }
 
     struct NoTransport;
