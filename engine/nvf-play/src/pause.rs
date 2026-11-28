@@ -672,6 +672,11 @@ struct LoadList {
     next_name: String,
     /// The thumbnail of the save at this index (None: it has none or it did not decode).
     thumb: Option<(usize, Option<Handle<Image>>)>,
+    /// In-flight background thumbnail read + decode for row `usize` so browsing saves never
+    /// blocks the main thread [design].
+    pending_thumb: Option<(usize, PathBuf, bevy::tasks::Task<Option<(u32, u32, Vec<u8>)>>)>,
+    /// Decoded thumbnails cached for the current open of the load/save page [design].
+    thumb_cache: std::collections::HashMap<PathBuf, Option<Handle<Image>>>,
 }
 
 impl LoadList {
@@ -679,6 +684,8 @@ impl LoadList {
         self.saves = dir.map(fnv_save::list).unwrap_or_default();
         self.next_name.clear();
         self.thumb = None;
+        self.pending_thumb = None;
+        self.thumb_cache.clear();
         let names: Vec<String> = self.saves.iter().take(8).map(|(p, h)| format!("{:?} ({})", stem(p), kind_name(h.kind))).collect();
         info!("pause menu: load page: {} save(s), newest first: {}", self.saves.len(), names.join(", "));
     }
@@ -696,17 +703,13 @@ impl LoadList {
             .collect();
         self.next_name = new_save_name(cfg);
         self.thumb = None;
+        self.pending_thumb = None;
+        self.thumb_cache.clear();
         let names: Vec<String> = self.saves.iter().take(8).map(|(p, _)| format!("{:?}", stem(p))).collect();
         info!("pause menu: save page: {} manual save(s), newest first: {}", self.saves.len(), names.join(", "));
     }
 
-    /// Read and decode the thumbnail of save `i` unless it is the one held.
-    fn ensure_thumb(&mut self, i: usize, images: &mut Assets<Image>) {
-        if self.thumb.as_ref().is_some_and(|(t, _)| *t == i) {
-            return;
-        }
-        let Some((path, _)) = self.saves.get(i) else { return };
-        let decoded = fnv_save::read_header(path).ok().and_then(|f| crate::save::decode_thumbnail(&f.shot));
+    fn finish_thumb(&mut self, i: usize, path: &Path, decoded: Option<(u32, u32, Vec<u8>)>, images: &mut Assets<Image>) {
         let handle = decoded.and_then(|(w, h, rgba)| {
             info!("pause menu: load page row {i} {:?}: thumbnail {w}x{h}", stem(path));
             // A broken save's picture is left out rather than handed to the GPU.
@@ -718,7 +721,45 @@ impl LoadList {
         if handle.is_none() {
             info!("pause menu: load page row {i} {:?}: no thumbnail", stem(path));
         }
+        self.thumb_cache.insert(path.to_path_buf(), handle.clone());
         self.thumb = Some((i, handle));
+    }
+
+    /// Read and decode the thumbnail of save `i` unless it is the one held, offloading file
+    /// I/O and decoding to `IoTaskPool` when available so opening or scrolling the Load page
+    /// never hitches the main thread [design].
+    fn ensure_thumb(&mut self, i: usize, images: &mut Assets<Image>) {
+        if self.thumb.as_ref().is_some_and(|(t, _)| *t == i) {
+            return;
+        }
+        let Some((path, _)) = self.saves.get(i) else { return };
+        let path = path.clone();
+        if let Some(cached) = self.thumb_cache.get(&path) {
+            self.pending_thumb = None;
+            self.thumb = Some((i, cached.clone()));
+            return;
+        }
+        if let Some((pi, ppath, mut task)) = self.pending_thumb.take() {
+            if pi == i && ppath == path {
+                if let Some(decoded) = bevy::tasks::block_on(bevy::tasks::futures_lite::future::poll_once(&mut task)) {
+                    self.finish_thumb(i, &path, decoded, images);
+                } else {
+                    self.pending_thumb = Some((pi, ppath, task));
+                }
+                return;
+            }
+        }
+        if let Some(pool) = bevy::tasks::IoTaskPool::try_get() {
+            let task_path = path.clone();
+            let task = pool.spawn(async move {
+                fnv_save::read_header(&task_path).ok().and_then(|f| crate::save::decode_thumbnail(&f.shot))
+            });
+            self.thumb = None;
+            self.pending_thumb = Some((i, path, task));
+        } else {
+            let decoded = fnv_save::read_header(&path).ok().and_then(|f| crate::save::decode_thumbnail(&f.shot));
+            self.finish_thumb(i, &path, decoded, images);
+        }
     }
 }
 
