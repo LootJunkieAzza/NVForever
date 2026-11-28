@@ -243,7 +243,13 @@ pub(crate) fn anchor_cascades(
 ///
 /// Nothing else writes the cascades in between.
 pub(crate) fn cascade_edits() -> ScheduleConfigs<ScheduleSystem> {
-    (anchor_cascades, crate::sky::reach_toward_sun, crate::shadow_rate::hold_cascades).chain()
+    (
+        anchor_cascades,
+        crate::sky::reach_toward_sun,
+        crate::shadow_rate::hold_cascades,
+        crate::sky::prepare_sun_slice_hulls,
+    )
+        .chain()
 }
 
 /// Adds [`cascade_edits`] (with them [`anchor_cascades`], always; the test aid turns it
@@ -252,10 +258,12 @@ pub struct ShadowAnchorPlugin;
 
 impl Plugin for ShadowAnchorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CascadeAnchors>().add_systems(
-            PostUpdate,
-            cascade_edits().after(SimulationLightSystems::UpdateDirectionalLightCascades).before(SimulationLightSystems::UpdateLightFrusta),
-        );
+        app.init_resource::<CascadeAnchors>()
+            .init_resource::<bevy::light::NvfDirLightSliceHulls>()
+            .add_systems(
+                PostUpdate,
+                cascade_edits().after(SimulationLightSystems::UpdateDirectionalLightCascades).before(SimulationLightSystems::UpdateLightFrusta),
+            );
     }
 }
 

@@ -347,11 +347,91 @@ pub fn nvf_small_caster_texels() -> f32 {
 /// rendering can work.
 ///
 /// This only processes entities without [`NoCpuCulling`]. Entities with
+/// NVForever: when secondary cameras (water mirror and/or B42 Optics extra cameras) share
+/// the main camera's directional shadow maps this frame, `share_mirror_casters` overwrites
+/// their caster lists right after `check_dir_light_mesh_visibility`, and held cascades
+/// (`HoldDirectionalShadowMaps`) keep their previous frame's caster lists intact instead of
+/// re-culling 10k+ meshes [design].
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NvfSkipDirLightShadowView {
+    /// Views whose directional shadow caster lists are overwritten by `share_mirror_casters`.
+    pub views: [Option<Entity>; 4],
+    /// Bitmask of held directional shadow cascades whose previous caster lists stay intact.
+    pub held_mask: u32,
+}
+
+impl NvfSkipDirLightShadowView {
+    /// Returns true if `view` skips directional light shadow culling this frame.
+    pub fn skips(&self, view: Entity) -> bool {
+        self.views.contains(&Some(view))
+    }
+
+    /// Returns true if any view is currently registered to skip culling.
+    pub fn any_views(&self) -> bool {
+        self.views.iter().any(Option::is_some)
+    }
+
+    /// Clears all registered skip views.
+    pub fn clear_views(&mut self) {
+        self.views = [None; 4];
+    }
+
+    /// Registers `view` to skip directional light shadow culling (up to 4 views).
+    pub fn push_view(&mut self, view: Entity) {
+        if self.skips(view) {
+            return;
+        }
+        if let Some(slot) = self.views.iter_mut().find(|s| s.is_none()) {
+            *slot = Some(view);
+        }
+    }
+}
+
+pub use bevy_camera::visibility::NvfSpatialMeshGrid;
+
+impl NvfDirLightSliceHull {
+    /// Returns true if the 2D light-space box `(cx ± rx, cy ± ry)` intersects this hull.
+    #[inline]
+    pub fn intersects_box(&self, cx: f32, cy: f32, rx: f32, ry: f32) -> bool {
+        let centre = bevy_math::Vec2::new(cx, cy);
+        let reach = bevy_math::Vec2::new(rx + self.margin, ry + self.margin);
+        self.edges
+            .iter()
+            .all(|&(n, n_abs, limit)| n.dot(centre) - n_abs.dot(reach) <= limit)
+    }
+}
+
+/// NVForever: per-cascade 2D light-space convex hull of the camera frustum slice
+/// (`sky::prepare_sun_slice_hulls`). Checking it inside `check_dir_light_mesh_visibility`
+/// before pushing to `defer_visible_entities_queue` prevents thousands of shadow casters
+/// outside the slice hull from being marked `ViewVisibility::VISIBLE` on drawn frames and
+/// then flipped back to `HIDDEN` on held cascade frames (avoiding GPU mesh instance churn)
+/// [design].
+#[derive(Clone, Debug)]
+pub struct NvfDirLightSliceHull {
+    /// Light-space X basis axis in world coordinates.
+    pub lx: Vec3A,
+    /// Light-space Y basis axis in world coordinates.
+    pub ly: Vec3A,
+    /// Conservative margin in world units around the slice outline for shadow filtering.
+    pub margin: f32,
+    /// Precomputed convex-hull edges `(outward_normal, abs_normal, support_limit)`.
+    pub edges: Vec<(bevy_math::Vec2, bevy_math::Vec2, f32)>,
+}
+
+/// Resource storing per-`(light, view)` cascade slice hulls for [`check_dir_light_mesh_visibility`].
+#[derive(Resource, Default, Clone, Debug)]
+pub struct NvfDirLightSliceHulls {
+    /// `(light_entity, view_entity, per_cascade_hulls)` entries for the current frame.
+    pub entries: Vec<(Entity, Entity, Vec<Option<NvfDirLightSliceHull>>)>,
+}
+
 /// [`NoCpuCulling`] receive no view-specific processing in the main world.
 pub fn check_dir_light_mesh_visibility(
     mut commands: Commands,
     mut directional_lights: Query<
         (
+            Entity,
             &DirectionalLight,
             &CascadesFrusta,
             &mut CascadesVisibleEntities,
@@ -380,19 +460,37 @@ pub fn check_dir_light_mesh_visibility(
         ),
     >,
     visible_entity_ranges: Option<Res<VisibleEntityRanges>>,
+    skip_shadow_view: Option<Res<NvfSkipDirLightShadowView>>,
+    slice_hulls: Option<Res<NvfDirLightSliceHulls>>,
+    spatial_grid: Option<Res<NvfSpatialMeshGrid>>,
     mut defer_visible_entities_queue: Local<Parallel<Vec<Entity>>>,
     mut view_visible_entities_queue: Local<Parallel<Vec<Vec<Entity>>>>,
 ) {
     let visible_entity_ranges = visible_entity_ranges.as_deref();
+    let skip_shadow_view = skip_shadow_view.as_deref();
+    let held_mask = skip_shadow_view.map_or(0, |s| s.held_mask);
+    let slice_hulls = slice_hulls.as_deref();
+    let spatial_grid = spatial_grid.as_deref().filter(|g| g.ready);
 
     let small_texels = nvf_small_caster_texels();
-    for (directional_light, frusta, mut visible_entities, maybe_view_mask, light_view_visibility, cascades) in
-        &mut directional_lights
+    for (
+        light_entity,
+        directional_light,
+        frusta,
+        mut visible_entities,
+        maybe_view_mask,
+        light_view_visibility,
+        cascades,
+    ) in &mut directional_lights
     {
+        let mut had_matching_view = Vec::with_capacity(visible_entities.entities.len());
         let mut views_to_remove = Vec::new();
         for (view, cascade_view_entities) in &mut visible_entities.entities {
             match frusta.frusta.get(view) {
                 Some(view_frusta) => {
+                    if cascade_view_entities.len() == view_frusta.len() {
+                        had_matching_view.push(*view);
+                    }
                     cascade_view_entities.resize(view_frusta.len(), Default::default());
                 }
                 None => views_to_remove.push(*view),
@@ -416,48 +514,144 @@ pub fn check_dir_light_mesh_visibility(
         }
 
         let view_mask = maybe_view_mask.unwrap_or_default();
+        let view_has_default_layer = view_mask.intersects(&RenderLayers::default());
 
         for (view, view_frusta) in &frusta.frusta {
-            // NVForever small casters: per cascade, squared bounding radius below which a
-            // caster is left out of its map (0: none), avoiding 4 sqrts per mesh [design].
-            let mut min_radius_sq = [0.0f32; 8];
-            // NVForever fast ortho X/Y pre-reject: light-space orthographic rows 0 and 1
-            // from `Cascade::clip_from_world` so far meshes reject in 4 SIMD dots before
-            // full 6-plane OBB frustum intersection [design].
-            let mut ortho_xy: [Option<(Vec3A, f32, Vec3A, f32)>; 8] =
-                [None; 8];
-            if let Some(cs) = cascades.and_then(|c| c.cascades.get(view)) {
-                for (idx, c) in cs.iter().enumerate().take(8) {
-                    let r = small_texels * c.texel_size;
-                    min_radius_sq[idx] = r * r;
-                    let m = c.clip_from_world;
-                    let r3 = m.row(3);
-                    if (r3 - bevy_math::Vec4::W).length_squared() < 1e-6 {
-                        let r0 = m.row(0);
-                        let r1 = m.row(1);
-                        let r0_xyz = Vec3A::new(r0.x, r0.y, r0.z);
-                        let r1_xyz = Vec3A::new(r1.x, r1.y, r1.z);
-                        if r0_xyz.length_squared() > 0.0 && r1_xyz.length_squared() > 0.0 {
-                            ortho_xy[idx] = Some((r0_xyz, r0.w, r1_xyz, r1.w));
+            if skip_shadow_view.is_some_and(|s| s.skips(*view)) {
+                continue;
+            }
+            let view_held_mask = if held_mask != 0 && had_matching_view.contains(view) {
+                held_mask
+            } else {
+                0
+            };
+            let any_active = (0..view_frusta.len()).any(|c| c >= 32 || (view_held_mask & (1u32 << c)) == 0);
+            if any_active {
+                // NVForever small casters: per cascade, squared bounding radius below which a
+                // caster is left out of its map (0: none), avoiding 4 sqrts per mesh [design].
+                let mut min_radius_sq = [0.0f32; 8];
+                // NVForever fast ortho X/Y pre-reject: light-space orthographic rows 0 and 1
+                // from `Cascade::clip_from_world` so far meshes reject before full 6-plane
+                // OBB frustum intersection. When all active cascades share the same light-space
+                // X/Y axes (the standard directional-light case), project each mesh once onto
+                // the shared `(lx, ly)` axes, pre-reject against the union of all active
+                // cascades, and test each cascade with 2 scalar compares [design].
+                let mut ortho_xy: [Option<(Vec3A, f32, Vec3A, f32)>; 8] = [None; 8];
+                let mut shared_axes: Option<(Vec3A, Vec3A)> = None;
+                let mut shared_ok = true;
+                let mut shared_bounds: [Option<(f32, f32, f32, f32)>; 8] = [None; 8];
+                let mut union_min_x = f32::INFINITY;
+                let mut union_max_x = f32::NEG_INFINITY;
+                let mut union_min_y = f32::INFINITY;
+                let mut union_max_y = f32::NEG_INFINITY;
+                let mut min_any_radius_sq = f32::INFINITY;
+                if let Some(cs) = cascades.and_then(|c| c.cascades.get(view)) {
+                    for (idx, c) in cs.iter().enumerate().take(8) {
+                        let r = small_texels * c.texel_size;
+                        min_radius_sq[idx] = r * r;
+                        let is_active = idx < view_frusta.len()
+                            && (idx >= 32 || (view_held_mask & (1u32 << idx)) == 0);
+                        if is_active {
+                            min_any_radius_sq = min_any_radius_sq.min(min_radius_sq[idx]);
+                        }
+                        let m = c.clip_from_world;
+                        let r3 = m.row(3);
+                        if (r3 - bevy_math::Vec4::W).length_squared() < 1e-6 {
+                            let r0 = m.row(0);
+                            let r1 = m.row(1);
+                            let r0_xyz = Vec3A::new(r0.x, r0.y, r0.z);
+                            let r1_xyz = Vec3A::new(r1.x, r1.y, r1.z);
+                            let len0 = r0_xyz.length();
+                            let len1 = r1_xyz.length();
+                            if len0 > 0.0 && len1 > 0.0 {
+                                ortho_xy[idx] = Some((r0_xyz, r0.w, r1_xyz, r1.w));
+                                if is_active && shared_ok {
+                                    let dir0 = r0_xyz / len0;
+                                    let dir1 = r1_xyz / len1;
+                                    let (lx, ly) = *shared_axes.get_or_insert((dir0, dir1));
+                                    if (dir0 - lx).length_squared() < 1e-6
+                                        && (dir1 - ly).length_squared() < 1e-6
+                                    {
+                                        // `cx = len0 * (lx.dot(world_c)) + r0.w`; `|cx| <= 1.0001 + len0 * rx_ls`
+                                        let inv0 = 1.0 / len0;
+                                        let inv1 = 1.0 / len1;
+                                        let c_min_x = (-1.0001 - r0.w) * inv0;
+                                        let c_max_x = (1.0001 - r0.w) * inv0;
+                                        let c_min_y = (-1.0001 - r1.w) * inv1;
+                                        let c_max_y = (1.0001 - r1.w) * inv1;
+                                        shared_bounds[idx] = Some((c_min_x, c_max_x, c_min_y, c_max_y));
+                                        union_min_x = union_min_x.min(c_min_x);
+                                        union_max_x = union_max_x.max(c_max_x);
+                                        union_min_y = union_min_y.min(c_min_y);
+                                        union_max_y = union_max_y.max(c_max_y);
+                                    } else {
+                                        shared_ok = false;
+                                    }
+                                }
+                            } else if is_active {
+                                shared_ok = false;
+                            }
+                        } else if is_active {
+                            shared_ok = false;
+                        }
+                    }
+                    // Only enable union reject if every active cascade has shared bounds.
+                    for idx in 0..view_frusta.len() {
+                        if idx >= 32 || (view_held_mask & (1u32 << idx)) == 0 {
+                            if idx >= 8 || shared_bounds[idx].is_none() {
+                                shared_ok = false;
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    shared_ok = false;
+                }
+                if !min_any_radius_sq.is_finite() {
+                    min_any_radius_sq = 0.0;
+                }
+                let shared_union = if shared_ok {
+                    shared_axes.map(|(lx, ly)| {
+                        (lx, ly, union_min_x, union_max_x, union_min_y, union_max_y)
+                    })
+                } else {
+                    None
+                };
+                let view_slice_hulls: Option<&[Option<NvfDirLightSliceHull>]> = slice_hulls
+                    .and_then(|h| {
+                        h.entries
+                            .iter()
+                            .find(|(l, v, _)| *l == light_entity && *v == *view)
+                            .map(|(_, _, list)| list.as_slice())
+                    });
+                // Check once per cascade whether its slice hull shares `(lx, ly)` with
+                // `shared_union` so we can reuse `(cx, rx, cy, ry)` with 0 extra dot
+                // products and pre-reject entire spatial grid cells before entity tests [design].
+                let mut aligned_hulls: [Option<&NvfDirLightSliceHull>; 8] = [None; 8];
+                let mut all_active_aligned_hulls = shared_union.is_some();
+                if let Some((lx, ly, ..)) = shared_union {
+                    for cascade in 0..view_frusta.len() {
+                        if cascade < 32 && (view_held_mask & (1u32 << cascade)) != 0 {
+                            continue;
+                        }
+                        if cascade < 8
+                            && let Some(Some(hull)) =
+                                view_slice_hulls.and_then(|list| list.get(cascade))
+                            && (hull.lx - lx).length_squared() < 1e-5
+                            && (hull.ly - ly).length_squared() < 1e-5
+                        {
+                            aligned_hulls[cascade] = Some(hull);
+                        } else {
+                            all_active_aligned_hulls = false;
                         }
                     }
                 }
-            }
-            // Resize any per-thread buffer left at a stale state from a prior frame.
-            // Threads receiving no work this frame won't run the `init` closure from `par_iter`, and without this
-            // their buffer might be indexed out-of-bounds during collection if the number of cascades has increased.
-            for thread_queue in view_visible_entities_queue.iter_mut() {
-                thread_queue.resize(view_frusta.len(), Vec::default());
-            }
 
-            visible_entity_query.par_iter().for_each_init(
-                || {
-                    let mut entities = view_visible_entities_queue.borrow_local_mut();
-                    entities.resize(view_frusta.len(), Vec::default());
-                    (defer_visible_entities_queue.borrow_local_mut(), entities)
-                },
-                |(defer_visible_entities_local_queue, view_visible_entities_local_queue),
-                 (
+                // Shared per-entity culling logic used by both the spatial-grid fast path
+                // and the fallback parallel world scan.
+                let cull_entity = |defer_local: &mut Vec<Entity>,
+                                   cascade_queues: &mut [Vec<Entity>],
+                                   (
                     entity,
                     inherited_visibility,
                     maybe_entity_mask,
@@ -465,13 +659,24 @@ pub fn check_dir_light_mesh_visibility(
                     maybe_transform,
                     has_visibility_range,
                     has_no_frustum_culling,
+                ): (
+                    Entity,
+                    &InheritedVisibility,
+                    Option<&RenderLayers>,
+                    Option<&Aabb>,
+                    Option<&GlobalTransform>,
+                    bool,
+                    bool,
                 )| {
                     if !inherited_visibility.get() {
                         return;
                     }
 
-                    let entity_mask = maybe_entity_mask.unwrap_or_default();
-                    if !view_mask.intersects(entity_mask) {
+                    let layer_ok = match maybe_entity_mask {
+                        None => view_has_default_layer,
+                        Some(entity_mask) => view_mask.intersects(entity_mask),
+                    };
+                    if !layer_ok {
                         return;
                     }
 
@@ -496,13 +701,44 @@ pub fn check_dir_light_mesh_visibility(
                             .max(ay.length_squared())
                             .max(az.length_squared());
                         let radius_sq = aabb.half_extents.length_squared() * scale_sq;
+                        if !has_no_frustum_culling && radius_sq < min_any_radius_sq {
+                            return;
+                        }
                         let world_c = affine.transform_point3a(aabb.center);
                         let h = aabb.half_extents;
+                        // Project once onto shared light-space X/Y axes and pre-reject
+                        // against the union of all active cascades before entering the loop.
+                        let shared_xy = if !has_no_frustum_culling {
+                            if let Some((lx, ly, umin_x, umax_x, umin_y, umax_y)) = shared_union {
+                                let cx = lx.dot(world_c);
+                                let rx = lx.dot(ax).abs() * h.x
+                                    + lx.dot(ay).abs() * h.y
+                                    + lx.dot(az).abs() * h.z;
+                                if cx + rx < umin_x || cx - rx > umax_x {
+                                    return;
+                                }
+                                let cy = ly.dot(world_c);
+                                let ry = ly.dot(ax).abs() * h.x
+                                    + ly.dot(ay).abs() * h.y
+                                    + ly.dot(az).abs() * h.z;
+                                if cy + ry < umin_y || cy - ry > umax_y {
+                                    return;
+                                }
+                                Some((cx, rx, cy, ry))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
                         for (cascade, (frustum, frustum_visible_entities)) in view_frusta
                             .iter()
-                            .zip(view_visible_entities_local_queue.iter_mut())
+                            .zip(cascade_queues.iter_mut())
                             .enumerate()
                         {
+                            if cascade < 32 && (view_held_mask & (1u32 << cascade)) != 0 {
+                                continue;
+                            }
                             // NVForever small casters: under about a texel of this cascade's
                             // map, a caster's shadow is filtered away; it is left out.
                             if !has_no_frustum_culling
@@ -510,8 +746,25 @@ pub fn check_dir_light_mesh_visibility(
                             {
                                 continue;
                             }
-                            // NVForever fast ortho X/Y pre-reject before 6-plane OBB test [design].
-                            if !has_no_frustum_culling
+                            if let Some((cx, rx, cy, ry)) = shared_xy {
+                                if let Some(Some((c_min_x, c_max_x, c_min_y, c_max_y))) =
+                                    shared_bounds.get(cascade)
+                                {
+                                    if cx + rx < *c_min_x
+                                        || cx - rx > *c_max_x
+                                        || cy + ry < *c_min_y
+                                        || cy - ry > *c_max_y
+                                    {
+                                        continue;
+                                    }
+                                }
+                                // Aligned slice hull test BEFORE 6-plane OBB math (0 extra dots).
+                                if let Some(Some(hull)) = aligned_hulls.get(cascade) {
+                                    if !hull.intersects_box(cx, cy, rx, ry) {
+                                        continue;
+                                    }
+                                }
+                            } else if !has_no_frustum_culling
                                 && let Some(Some((r0_xyz, r0_w, r1_xyz, r1_w))) =
                                     ortho_xy.get(cascade)
                             {
@@ -536,23 +789,108 @@ pub fn check_dir_light_mesh_visibility(
                             {
                                 continue;
                             }
+                            // Fallback slice hull check only when not already checked via `aligned_hulls`.
+                            let already_checked_hull = shared_xy.is_some()
+                                && aligned_hulls.get(cascade).is_some_and(Option::is_some);
+                            if !already_checked_hull
+                                && let Some(Some(hull)) =
+                                    view_slice_hulls.and_then(|list| list.get(cascade))
+                            {
+                                let cx = hull.lx.dot(world_c);
+                                let rx = hull.lx.dot(ax).abs() * h.x
+                                    + hull.lx.dot(ay).abs() * h.y
+                                    + hull.lx.dot(az).abs() * h.z;
+                                let cy = hull.ly.dot(world_c);
+                                let ry = hull.ly.dot(ax).abs() * h.x
+                                    + hull.ly.dot(ay).abs() * h.y
+                                    + hull.ly.dot(az).abs() * h.z;
+                                if !hull.intersects_box(cx, cy, rx, ry) {
+                                    continue;
+                                }
+                            }
                             visible = true;
 
                             frustum_visible_entities.push(entity);
                         }
                         if visible {
-                            defer_visible_entities_local_queue.push(entity);
+                            defer_local.push(entity);
                         }
                     } else {
-                        defer_visible_entities_local_queue.push(entity);
-                        for frustum_visible_entities in view_visible_entities_local_queue.iter_mut()
+                        defer_local.push(entity);
+                        for (cascade, frustum_visible_entities) in
+                            cascade_queues.iter_mut().enumerate()
                         {
+                            if cascade < 32 && (view_held_mask & (1u32 << cascade)) != 0 {
+                                continue;
+                            }
                             frustum_visible_entities.push(entity);
                         }
                     }
-                },
-            );
-            // collect entities from parallel queue
+                };
+
+                // Resize any per-thread buffer left at a stale state from a prior frame.
+                for thread_queue in view_visible_entities_queue.iter_mut() {
+                    thread_queue.resize(view_frusta.len(), Vec::default());
+                }
+
+                // Two-level spatial-grid front-end [design]: reject entire 1024-unit cells
+                // outside the active cascade union bounds & aligned slice hulls before
+                // touching per-entity ECS components.
+                if let (Some(grid), Some((lx, ly, umin_x, umax_x, umin_y, umax_y))) =
+                    (spatial_grid, shared_union)
+                {
+                    let he = grid.cell_half_extent;
+                    let cell_rx = (lx.x.abs() + lx.y.abs() + lx.z.abs()) * he;
+                    let cell_ry = (ly.x.abs() + ly.y.abs() + ly.z.abs()) * he;
+                    let mut defer_local = defer_visible_entities_queue.borrow_local_mut();
+                    let mut cascade_queues = view_visible_entities_queue.borrow_local_mut();
+                    cascade_queues.resize(view_frusta.len(), Vec::default());
+
+                    for item in visible_entity_query.iter_many(&grid.everywhere).matched() {
+                        cull_entity(&mut defer_local, &mut cascade_queues, item);
+                    }
+                    for (_, cell_center, entities) in &grid.cells {
+                        let cell_cx = lx.dot(*cell_center);
+                        if cell_cx + cell_rx < umin_x || cell_cx - cell_rx > umax_x {
+                            continue;
+                        }
+                        let cell_cy = ly.dot(*cell_center);
+                        if cell_cy + cell_ry < umin_y || cell_cy - cell_ry > umax_y {
+                            continue;
+                        }
+                        if all_active_aligned_hulls {
+                            let any_hull = aligned_hulls
+                                .iter()
+                                .flatten()
+                                .any(|hull| hull.intersects_box(cell_cx, cell_cy, cell_rx, cell_ry));
+                            if !any_hull {
+                                continue;
+                            }
+                        }
+                        for item in visible_entity_query.iter_many(entities).matched() {
+                            cull_entity(&mut defer_local, &mut cascade_queues, item);
+                        }
+                    }
+                } else {
+                    visible_entity_query.par_iter().for_each_init(
+                        || {
+                            let mut entities = view_visible_entities_queue.borrow_local_mut();
+                            entities.resize(view_frusta.len(), Vec::default());
+                            (defer_visible_entities_queue.borrow_local_mut(), entities)
+                        },
+                        |(defer_visible_entities_local_queue, view_visible_entities_local_queue),
+                         item| {
+                            cull_entity(
+                                defer_visible_entities_local_queue,
+                                view_visible_entities_local_queue,
+                                item,
+                            );
+                        },
+                    );
+                }
+            }
+            // collect entities from parallel queue (keeping held cascades' lists intact)
+            let mut held_defer = defer_visible_entities_queue.borrow_local_mut();
             for (view_dest_index, view_dest) in visible_entities
                 .entities
                 .get_mut(view)
@@ -560,6 +898,10 @@ pub fn check_dir_light_mesh_visibility(
                 .iter_mut()
                 .enumerate()
             {
+                if view_dest_index < 32 && (view_held_mask & (1u32 << view_dest_index)) != 0 {
+                    held_defer.extend_from_slice(&view_dest.entities);
+                    continue;
+                }
                 view_dest.entities.clear();
                 for thread_entity_queue in view_visible_entities_queue.iter_mut() {
                     view_dest
@@ -683,6 +1025,7 @@ pub fn check_point_light_mesh_visibility(
                 }
 
                 let view_mask = maybe_view_mask.unwrap_or_default();
+        let view_has_default_layer = view_mask.intersects(&RenderLayers::default());
                 let light_sphere = Sphere {
                     center: Vec3A::from(transform.translation()),
                     radius: point_light.range,
@@ -699,7 +1042,7 @@ pub fn check_point_light_mesh_visibility(
                             continue;
                         };
                         let caster = NvfCaster { entity, inherited, mask, aabb, transform, has_range, no_culling };
-                        let reached = nvf_caster_faces(&caster, view_mask, &light_sphere, &cubemap_frusta.frusta, visible_entity_ranges, shadow_lod_origin);
+                        let reached = nvf_caster_faces(&caster, view_mask, view_has_default_layer, &light_sphere, &cubemap_frusta.frusta, visible_entity_ranges, shadow_lod_origin);
                         if reached != 0 {
                             view_visibility.set_visible();
                             for (i, face) in faces.iter_mut().enumerate() {
@@ -735,8 +1078,11 @@ pub fn check_point_light_mesh_visibility(
                         if !inherited_visibility.get() {
                             return;
                         }
-                        let entity_mask = maybe_entity_mask.unwrap_or_default();
-                        if !view_mask.intersects(entity_mask) {
+                        let layer_ok = match maybe_entity_mask {
+                            None => view_has_default_layer,
+                            Some(entity_mask) => view_mask.intersects(entity_mask),
+                        };
+                        if !layer_ok {
                             return;
                         }
                         if has_visibility_range
@@ -805,6 +1151,7 @@ pub fn check_point_light_mesh_visibility(
                 }
 
                 let view_mask = maybe_view_mask.unwrap_or_default();
+        let view_has_default_layer = view_mask.intersects(&RenderLayers::default());
                 let light_sphere = Sphere {
                     center: Vec3A::from(transform.translation()),
                     radius: point_light.range,
@@ -820,7 +1167,7 @@ pub fn check_point_light_mesh_visibility(
                             continue;
                         };
                         let caster = NvfCaster { entity, inherited, mask, aabb, transform, has_range, no_culling };
-                        if nvf_caster_faces(&caster, view_mask, &light_sphere, core::slice::from_ref(&*frustum), visible_entity_ranges, shadow_lod_origin) != 0 {
+                        if nvf_caster_faces(&caster, view_mask, view_has_default_layer, &light_sphere, core::slice::from_ref(&*frustum), visible_entity_ranges, shadow_lod_origin) != 0 {
                             view_visibility.set_visible();
                             seen.push(entity);
                         }
@@ -850,8 +1197,11 @@ pub fn check_point_light_mesh_visibility(
                             return;
                         }
 
-                        let entity_mask = maybe_entity_mask.unwrap_or_default();
-                        if !view_mask.intersects(entity_mask) {
+                        let layer_ok = match maybe_entity_mask {
+                            None => view_has_default_layer,
+                            Some(entity_mask) => view_mask.intersects(entity_mask),
+                        };
+                        if !layer_ok {
                             return;
                         }
                         // Check visibility ranges.
@@ -942,12 +1292,17 @@ struct NvfCaster<'a> {
 fn nvf_caster_faces(
     c: &NvfCaster,
     view_mask: &RenderLayers,
+    view_has_default_layer: bool,
     light_sphere: &Sphere,
     frusta: &[Frustum],
     visible_entity_ranges: Option<&VisibleEntityRanges>,
     shadow_lod_origin: Option<Entity>,
 ) -> u8 {
-    if !c.inherited.get() || !view_mask.intersects(c.mask.unwrap_or_default()) {
+    let layer_ok = match c.mask {
+        None => view_has_default_layer,
+        Some(mask) => view_mask.intersects(mask),
+    };
+    if !c.inherited.get() || !layer_ok {
         return 0;
     }
     if c.has_range

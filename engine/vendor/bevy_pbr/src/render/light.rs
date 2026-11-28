@@ -456,6 +456,12 @@ pub fn extract_lights(
     system_change_tick: SystemChangeTick,
     // NVForever hidden light views: the views a hidden light takes with it, counted.
     nvf_light_views: Query<&PointAndSpotLightViewEntities>,
+    // NVForever held directional shadow maps: skip re-extracting held cascades whose
+    // main-world caster lists were kept untouched [design].
+    nvf_hold_directional: Extract<Option<Res<HoldDirectionalShadowMaps>>>,
+    // NVForever shared directional shadow maps: skip re-extracting duplicate cascades
+    // for a view that reuses an earlier donor view's identical directional shadow layers.
+    nvf_reuse_directional: Extract<Option<Res<NvfReuseDirectionalShadowMaps>>>,
 ) {
     // NVForever light view counts: the system's time.
     let nvf_start = nvf_counting().then(std::time::Instant::now);
@@ -835,10 +841,19 @@ pub fn extract_lights(
                 }
             }
             // Calculate the added and removed entities for each cascade.
+            let hold_dir = nvf_hold_directional.as_deref().copied().unwrap_or_default();
+            let nvf_reuse_cfg = nvf_reuse_directional.as_deref().filter(|r| {
+                r.donor_view.is_some_and(|donor| {
+                    visible_entities.entities.contains_key(&donor) && mapper.get(donor).is_ok()
+                }) && r.has_skips()
+            });
             let mut all_cascades_seen = HashSet::new();
             for (main_auxiliary_entity, visible_mesh_entities_list) in
                 visible_entities.entities.iter()
             {
+                if nvf_reuse_cfg.is_some_and(|r| r.skips(*main_auxiliary_entity)) {
+                    continue;
+                }
                 for subview_index in 0..(cascade_config.bounds.len() as u32) {
                     let retained_view_entity = RetainedViewEntity {
                         main_entity: MainEntity::from(main_entity),
@@ -848,16 +863,30 @@ pub fn extract_lights(
                     };
                     all_cascades_seen.insert(retained_view_entity);
 
+                    if hold_dir.holds(subview_index as usize)
+                        && existing_shadow_map_visible_entities
+                            .subviews
+                            .contains_key(&retained_view_entity)
+                        && let Some(extracted_subview) = existing_extracted_shadow_map_visible_entities
+                            .subviews
+                            .get_mut(&retained_view_entity)
+                    {
+                        extracted_subview.skip_if_unchanged = true;
+                        continue;
+                    }
+
                     existing_shadow_map_visible_entities
                         .subviews
                         .entry(retained_view_entity)
                         .or_insert_with(|| (system_change_tick.this_run(), Default::default()));
 
                     // Extract the visible CPU culled entities to the list.
-                    let extracted_entities = &mut existing_extracted_shadow_map_visible_entities
+                    let extracted_subview = existing_extracted_shadow_map_visible_entities
                         .subviews
                         .entry(retained_view_entity)
-                        .or_default()
+                        .or_default();
+                    extracted_subview.skip_if_unchanged = false;
+                    let extracted_entities = &mut extracted_subview
                         .classes
                         .entry(TypeId::of::<Mesh3d>())
                         .or_default()
@@ -1166,8 +1195,9 @@ pub fn prepare_lights(
     ),
     // NVForever held shadow maps: the hold, and the directional shadow texture of the last
     // frame (see where the texture is taken below).
-    (mut hold_directional, mut last_directional_texture, mut nvf_directional_high_water, mut nvf_last_directional_cascades, nvf_outdoor_sun, hold_lights, mut nvf_light_record, mut nvf_last_point_texture, mut nvf_view_cache, mut nvf_parked, mut nvf_was_on): (
+    (mut hold_directional, nvf_reuse_directional, mut last_directional_texture, mut nvf_directional_high_water, mut nvf_last_directional_cascades, nvf_outdoor_sun, hold_lights, mut nvf_light_record, mut nvf_last_point_texture, mut nvf_view_cache, mut nvf_parked, mut nvf_was_on): (
         Option<ResMut<HoldDirectionalShadowMaps>>,
+        Option<Res<NvfReuseDirectionalShadowMaps>>,
         Local<Option<TextureId>>,
         // NVForever held shadow maps (#3779): high-water layer count for the current side.
         Local<NvfDirectionalShadowLayerHighWater>,
@@ -2075,6 +2105,25 @@ pub fn prepare_lights(
         ) = point_lights.get_mut(*light_entity).unwrap();
 
         if !light.shadow_maps_enabled {
+            // NVForever pooled point shadow views [design]: while ALCS holds a slot for
+            // this lamp, park its 6 face view entities in place (strip `RootNonCameraView`,
+            // tag `NvfParkedView`) instead of despawning and respawning them on every
+            // shadow_maps_enabled toggle (eliminates 13k+ view spawns/despawns).
+            if hold_lights.is_some()
+                && nvf_cube_of.contains_key(light_entity)
+                && !point_and_spot_light_view_entities.0.is_empty()
+            {
+                if nvf_light_record.parked_lights.insert(*light_entity) {
+                    for &view in &point_and_spot_light_view_entities.0 {
+                        commands
+                            .entity(view)
+                            .remove::<RootNonCameraView>()
+                            .insert(NvfParkedView);
+                    }
+                }
+                continue;
+            }
+            nvf_light_record.parked_lights.remove(light_entity);
             // NVForever light view counts.
             nvf_event(NVF_DESPAWNED, point_and_spot_light_view_entities.0.len() as u64);
             despawn_entities(
@@ -2088,6 +2137,11 @@ pub fn prepare_lights(
             // NVForever kept shadow views.
             nvf_light_record.made_from.remove(light_entity);
             continue;
+        }
+        if nvf_light_record.parked_lights.remove(light_entity) {
+            for &view in &point_and_spot_light_view_entities.0 {
+                commands.entity(view).remove::<NvfParkedView>();
+            }
         }
 
         // NVForever held light shadow maps: the views' cube and texture.
@@ -2327,6 +2381,23 @@ pub fn prepare_lights(
         ) = point_lights.get_mut(*light_entity).unwrap();
 
         if !light.shadow_maps_enabled {
+            // NVForever pooled spot shadow views [design]: park in place while ALCS holds
+            // a slot for this spot light.
+            if hold_lights.is_some()
+                && nvf_spot_of.contains_key(light_entity)
+                && !point_and_spot_light_view_entities.0.is_empty()
+            {
+                if nvf_light_record.parked_lights.insert(*light_entity) {
+                    for &view in &point_and_spot_light_view_entities.0 {
+                        commands
+                            .entity(view)
+                            .remove::<RootNonCameraView>()
+                            .insert(NvfParkedView);
+                    }
+                }
+                continue;
+            }
+            nvf_light_record.parked_lights.remove(light_entity);
             // NVForever light view counts.
             nvf_event(NVF_DESPAWNED, point_and_spot_light_view_entities.0.len() as u64);
             despawn_entities(
@@ -2338,6 +2409,11 @@ pub fn prepare_lights(
             // NVForever kept shadow views.
             nvf_light_record.made_from.remove(light_entity);
             continue;
+        }
+        if nvf_light_record.parked_lights.remove(light_entity) {
+            for &view in &point_and_spot_light_view_entities.0 {
+                commands.entity(view).remove::<NvfParkedView>();
+            }
         }
 
         // NVForever held light shadow maps: the light's slot (else its index, as in Bevy)
@@ -2449,6 +2525,13 @@ pub fn prepare_lights(
     nvf_lap.lap(NVF_SPOT_VIEWS);
 
     // set up light data for each view
+    let nvf_reuse_cfg = nvf_reuse_directional
+        .as_deref()
+        .filter(|r| r.donor_view.is_some() && r.has_skips());
+    let mut nvf_donor_drawn_lights: [Option<(Entity, usize, u32)>; MAX_DIRECTIONAL_LIGHTS] =
+        [None; MAX_DIRECTIONAL_LIGHTS];
+    let mut nvf_donor_drawn_count: usize = 0;
+
     for (
         entity,
         camera_main_entity,
@@ -2622,6 +2705,9 @@ pub fn prepare_lights(
             }
         }
 
+        let nvf_is_donor_view = nvf_reuse_cfg
+            .is_some_and(|r| r.donor_view == Some(camera_main_entity.entity()));
+        let nvf_is_skip_view = nvf_reuse_cfg.is_some_and(|r| r.skips(camera_main_entity.entity()));
         let mut directional_depth_texture_array_index = 0u32;
         for (light_index, light_entity) in directional_light_entities
             .iter()
@@ -2670,6 +2756,36 @@ pub fn prepare_lights(
             let iter = cascades
                 .zip(frusta)
                 .zip(&light.cascade_shadow_config.bounds);
+            let this_light_cascades = iter.len();
+
+            let nvf_donor_matched = nvf_is_skip_view
+                && !light.occlusion_culling
+                && nvf_donor_drawn_lights[..nvf_donor_drawn_count]
+                    .iter()
+                    .flatten()
+                    .any(|&(le, count, start_layer)| {
+                        le == *light_entity
+                            && count == this_light_cascades
+                            && start_layer == directional_depth_texture_array_index
+                    });
+
+            if nvf_donor_matched {
+                for (cascade_index, ((cascade, _), bound)) in iter.enumerate() {
+                    gpu_lights.directional_lights[light_index].cascades[cascade_index] =
+                        GpuDirectionalCascade {
+                            clip_from_world: cascade.clip_from_world,
+                            texel_size: cascade.texel_size,
+                            far_bound: *bound,
+                        };
+                    directional_depth_texture_array_index += 1;
+                }
+                if let Some(entities) = light_view_entities.remove(&entity) {
+                    despawn_entities(&mut commands, entities);
+                }
+                continue;
+            }
+
+            let nvf_light_start_layer = directional_depth_texture_array_index;
 
             let light_view_entities = light_view_entities.entry(entity).or_insert_with(|| {
                 (0..iter.len())
@@ -2793,6 +2909,14 @@ pub fn prepare_lights(
                     .prepare_for_new_frame(retained_view_entity, gpu_preprocessing_mode);
                 live_shadow_mapping_lights.insert(retained_view_entity);
             }
+            if nvf_is_donor_view
+                && !light.occlusion_culling
+                && nvf_donor_drawn_count < MAX_DIRECTIONAL_LIGHTS
+            {
+                nvf_donor_drawn_lights[nvf_donor_drawn_count] =
+                    Some((*light_entity, this_light_cascades, nvf_light_start_layer));
+                nvf_donor_drawn_count += 1;
+            }
         }
 
         // Make a link from the camera to all shadow cascades with occlusion
@@ -2884,6 +3008,7 @@ pub fn prepare_lights(
     // NVForever kept shadow views: a light gone from the render world (hidden, despawned)
     // has its views made anew when it is back.
     nvf_light_record.made_from.retain(|entity, _| point_lights.contains(*entity));
+    nvf_light_record.parked_lights.retain(|entity| point_lights.contains(*entity));
     nvf_event(NVF_PHASES_DROPPED, (nvf_phases - shadow_render_phases.len()) as u64);
     light_key_cache.retain(|entity, _| nvf_kept(entity));
     specialized_shadow_material_pipeline_cache.retain(|entity, _| nvf_kept(entity));
@@ -3145,7 +3270,7 @@ pub struct SpecializedShadowMaterialViewPipelineCache {
 }
 
 pub fn check_views_lights_need_specialization(
-    view_light_entities: Query<(&LightEntity, &ExtractedView)>,
+    view_light_entities: Query<(&LightEntity, &ExtractedView), Without<NvfParkedView>>,
     shadow_render_phases: Res<ViewBinnedRenderPhases<Shadow>>,
     mut light_key_cache: ResMut<LightKeyCache>,
     mut dirty_specializations: ResMut<DirtySpecializations>,
@@ -3208,7 +3333,7 @@ pub(crate) struct SpecializeShadowsSystemParam<'w, 's> {
     // NVForever kept shadow phases: written for the kept views' removed entities.
     shadow_render_phases: ResMut<'w, ViewBinnedRenderPhases<Shadow>>,
     render_lightmaps: Res<'w, RenderLightmaps>,
-    view_light_entities: Query<'w, 's, (&'static LightEntity, &'static ExtractedView)>,
+    view_light_entities: Query<'w, 's, (&'static LightEntity, &'static ExtractedView), Without<NvfParkedView>>,
     shadow_map_visible_entities_query: Query<'w, 's, &'static RenderShadowMapVisibleEntities>,
     light_key_cache: Res<'w, LightKeyCache>,
     specialized_shadow_material_pipeline_cache: ResMut<'w, SpecializedShadowMaterialPipelineCache>,
@@ -3552,7 +3677,7 @@ pub fn queue_shadows(
     mut shadow_render_phases: ResMut<ViewBinnedRenderPhases<Shadow>>,
     gpu_preprocessing_support: Res<GpuPreprocessingSupport>,
     mesh_allocator: Res<MeshAllocator>,
-    view_light_entities: Query<(&LightEntity, &ExtractedView, &RenderLayers, Has<RootNonCameraView>)>,
+    view_light_entities: Query<(&LightEntity, &ExtractedView, &RenderLayers, Has<RootNonCameraView>), Without<NvfParkedView>>,
     shadow_map_visible_entities_query: Query<&RenderShadowMapVisibleEntities>,
     specialized_material_pipeline_cache: Res<SpecializedShadowMaterialPipelineCache>,
     mut pending_shadow_queues: ResMut<PendingShadowQueues>,
@@ -3977,6 +4102,49 @@ impl HoldDirectionalShadowMaps {
 
 impl bevy_render::extract_resource::ExtractResource<RenderApp> for HoldDirectionalShadowMaps {
     type Source = HoldDirectionalShadowMaps;
+    fn extract_resource(source: &Self::Source) -> Self {
+        *source
+    }
+}
+
+/// NVForever shared directional shadow maps: when `donor_view` (the earliest-order active
+/// sharing camera, e.g. B42 Optics `ExtraCamera` at `order: -10` or water mirror at `-1`)
+/// already renders identical directional shadow cascades into the same
+/// `directional_light_depth_texture` layers before `skip_views` (e.g. water mirror and main
+/// camera at `order: 0`), every view in `skip_views` reuses those already-drawn layers
+/// instead of extracting, queuing, preprocessing, and rasterizing every cascade again.
+#[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct NvfReuseDirectionalShadowMaps {
+    pub donor_view: Option<Entity>,
+    pub skip_views: [Option<Entity>; 4],
+}
+
+impl NvfReuseDirectionalShadowMaps {
+    pub fn skips(&self, view: Entity) -> bool {
+        self.skip_views.contains(&Some(view))
+    }
+
+    pub fn has_skips(&self) -> bool {
+        self.skip_views.iter().any(Option::is_some)
+    }
+
+    pub fn clear(&mut self) {
+        self.donor_view = None;
+        self.skip_views = [None; 4];
+    }
+
+    pub fn push_skip(&mut self, view: Entity) {
+        if self.skips(view) {
+            return;
+        }
+        if let Some(slot) = self.skip_views.iter_mut().find(|s| s.is_none()) {
+            *slot = Some(view);
+        }
+    }
+}
+
+impl bevy_render::extract_resource::ExtractResource<RenderApp> for NvfReuseDirectionalShadowMaps {
+    type Source = NvfReuseDirectionalShadowMaps;
     fn extract_resource(source: &Self::Source) -> Self {
         *source
     }
@@ -4575,7 +4743,7 @@ fn nvf_count_hidden_views(views: &Query<&PointAndSpotLightViewEntities>, light: 
 
 /// NVForever light view counts: count this frame's point and spot light shadow views, and
 /// those that run (render world, once the views of the frame are made: `RenderSystems::Prepare`).
-pub fn nvf_count_light_views(views: Query<(&LightEntity, Has<RootNonCameraView>)>) {
+pub fn nvf_count_light_views(views: Query<(&LightEntity, Has<RootNonCameraView>), Without<NvfParkedView>>) {
     use core::sync::atomic::Ordering::Relaxed;
     if !nvf_counting() {
         return;
@@ -4591,6 +4759,12 @@ pub fn nvf_count_light_views(views: Query<(&LightEntity, Has<RootNonCameraView>)
     NVF_LIGHT_VIEWS.fetch_add(alive, Relaxed);
     NVF_LIGHT_VIEWS_RUN.fetch_add(run, Relaxed);
 }
+
+/// NVForever pooled shadow views [design]: marks a point/spot shadow view entity parked
+/// while its ALCS lamp's `shadow_maps_enabled` is temporarily false so specialization,
+/// queueing, and view-counting skip it without despawning/respawning the entity.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct NvfParkedView;
 
 /// NVForever held light shadow maps: what each layer was last drawn with (the light and the
 /// texture), by layer of the point cube texture and of the directional texture (spot lights).
@@ -4608,6 +4782,9 @@ pub struct NvfLightShadowRecord {
     /// NVForever kept shadow views: what each light's (render entity) views were last made
     /// from.
     made_from: EntityHashMap<NvfViewSource>,
+    /// NVForever pooled shadow views: lights whose shadow view entities are currently
+    /// parked with [`NvfParkedView`] while their ALCS slot stays active [design].
+    parked_lights: EntityHashSet,
 }
 
 /// NVForever hosted shadow views (2026-11-25, engine/vendor/README.md "hosted shadow
@@ -4805,13 +4982,16 @@ pub fn per_view_shadow_pass<const IS_LATE: bool>(
             .filter(|shared| shared.host == Some(nvf_view_entity))
     {
         let hosted_span = diagnostics.time_span(ctx.command_encoder(), "hosted_shadow_views");
-        for (nvf_index, view_light_entity) in shared.views.iter().copied().enumerate() {
-            // Two views to a command encoder: finishing one is most of what a view costs
-            // the processor, and a system's encoders are finished side by side
-            // (bevy_render render_context.rs `nvf_split_encoder`).
-            if nvf_index % NVF_HOSTED_VIEWS_PER_ENCODER == 0 {
-                ctx.nvf_split_encoder();
-            }
+        // Cap hosted shadow encoders to ~8 parallel chunks (at least 4 views per encoder)
+        // instead of 1 encoder per 2 views so interiors with 100+ point-light cube faces
+        // do not split into 60+ separate command encoders and queue_submit merges [design].
+        let views_per_encoder = shared
+            .views
+            .len()
+            .div_ceil(8)
+            .max(NVF_HOSTED_VIEWS_PER_ENCODER * 2);
+        let mut recorded_in_encoder = 0usize;
+        for view_light_entity in shared.views.iter().copied() {
             let Ok((
                 view_light,
                 extracted_light_view,
@@ -4824,6 +5004,17 @@ pub fn per_view_shadow_pass<const IS_LATE: bool>(
             else {
                 continue;
             };
+            if shadow_render_phases
+                .get(&extracted_light_view.retained_view_entity)
+                .is_none()
+            {
+                continue;
+            }
+            if recorded_in_encoder == 0 || recorded_in_encoder >= views_per_encoder {
+                ctx.nvf_split_encoder();
+                recorded_in_encoder = 0;
+            }
+            recorded_in_encoder += 1;
             if has_preprocess_bind_groups
                 && !has_skip_gpu_preprocess
                 && !has_no_indirect_drawing

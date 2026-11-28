@@ -127,6 +127,10 @@ pub struct RenderExtractedVisibleEntities {
     /// Entities that the CPU has determined to be visible from this view or
     /// subview, sorted by [`VisibilityClass`].
     pub classes: TypeIdHashMap<RenderExtractedVisibleEntitiesClass>,
+    /// NVForever: when true, the subview's extracted list was held untouched (e.g. a
+    /// held directional shadow cascade), so [`collect_visible_cpu_culled_entities`]
+    /// skips re-sorting and diffing and only clears the frame's added/removed deltas [design].
+    pub skip_if_unchanged: bool,
 }
 
 /// The entities that the CPU has determined are visible from a single
@@ -383,6 +387,17 @@ fn collect_visible_cpu_culled_entities_for_subview(
     maybe_render_subview_visible_entities: &mut Option<&mut RenderExtractedVisibleEntities>,
     visibility_classes: &mut HashSet<TypeId>,
 ) {
+    // NVForever held subview fast path: keep existing sorted entities intact and clear
+    // per-frame added/removed deltas without re-sorting thousands of shadow casters [design].
+    if let Some(ref render_subview_visible_entities) = *maybe_render_subview_visible_entities
+        && render_subview_visible_entities.skip_if_unchanged
+    {
+        for entities in render_visible_entities.classes.values_mut() {
+            entities.prepare_for_new_frame();
+        }
+        return;
+    }
+
     // Gather up all visibility classes. We need to make sure that the
     // `RenderVisibleEntities` has an entry for each one.
     visibility_classes.clear();
@@ -446,6 +461,7 @@ mod tests {
                     entities: pairs.clone(),
                 },
             )]),
+            skip_if_unchanged: false,
         };
         let mut render_visible_entities = RenderVisibleEntities::default();
 
