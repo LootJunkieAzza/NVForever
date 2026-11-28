@@ -341,6 +341,11 @@ struct Args {
     /// The profile in that instance (default: the instance's selected_profile).
     #[arg(long, value_name = "NAME")]
     profile: Option<String>,
+    /// An enabled mod folder, lowest priority first. Repeat for each folder. The launcher
+    /// passes these. The game does not read `mod-order.txt`. With none, every mod folder
+    /// is a layer in name order, and folder on/off is not applied.
+    #[arg(long = "mod-layer")]
+    mod_layers: Vec<PathBuf>,
     /// Record schema directory.
     #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv"))]
     esm_schema: PathBuf,
@@ -1394,9 +1399,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    // A mods folder's copy of a plugin is opened instead of Data's (fnv_install::plugins):
-    // NVForever's own mods folder, or an MO2 profile's mods from the highest priority down
-    // with its overwrite folder first (#1526).
+    // The mods folders: with --mo2, an MO2 profile's mods from the highest priority down
+    // with its overwrite folder first (#1526), as on main; otherwise NVForever's own mods
+    // folder, whose enabled folders are the layers below.
     let mods: Vec<PathBuf> = match &mo2 {
         Some(l) => {
             let mut roots = l.mod_roots();
@@ -1423,7 +1428,28 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     } else {
         None
     };
-    let opened = world::open_plugins(args.data(), &mods, &args.plugins);
+    // Without --mo2, the enabled mod folders are layers over Data, lowest priority first: the
+    // launcher passes them as --mod-layer (it reads mod-order.txt; the game does not). With
+    // none, every mod folder is a layer in name order. Plugins come from the same layers,
+    // highest first, then one left loose at the top of the mods folder, then Data, so a
+    // turned-off folder's plugin is not opened and the list order picks between two copies.
+    let mods_dir = mods.first().cloned().unwrap_or_default();
+    let launcher_layers: Vec<PathBuf> = if mo2.is_some() {
+        Vec::new()
+    } else if !args.mod_layers.is_empty() {
+        args.mod_layers.clone()
+    } else if mods_dir.is_dir() {
+        fnv_install::plugins::mod_folder_layers(&mods_dir)
+    } else {
+        Vec::new()
+    };
+    let opened = if mo2.is_some() {
+        world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_in(args.data(), &mods, n))
+    } else {
+        let layered = fnv_install::plugins::layered_plugin_files(&launcher_layers, mods_dir.is_dir().then_some(mods_dir.as_path()));
+        let link_into = mods_dir.is_dir().then_some(mods_dir.as_path());
+        world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_layered(args.data(), &layered, link_into, n))
+    };
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // No setting names the code page: the plugins' own text says it, else the language
     // Steam installed the game in (a translation mod on an English install keeps its
@@ -1533,9 +1559,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     };
     // The test aids' folders, the last highest.
     let overs: Vec<PathBuf> = mount_pack.into_iter().chain(ground_pack).collect();
-    // The archives beside a plugin in the mods folder are mounted with it. The VFS takes
-    // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
-    // above, which wants the overwrite folder first.
+    // `--mo2` is unchanged: that instance's folders, read only. Otherwise the enabled
+    // mod folders are layers over Data. Loose files and archives in Data are still read.
+    // The test aids' folders (the reflection mount pack, the ground pack), when asked for,
+    // are the highest loose layers.
     let game = match &mo2 {
         Some(l) => {
             // The test aids' folders as the highest layers, for this run only.
@@ -1543,7 +1570,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             roots.extend(overs.iter().cloned());
             GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
         }
-        None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), &overs, &args.plugins, &args.nif_schema),
+        None => {
+            let mut layers = launcher_layers.clone();
+            layers.extend(overs.iter().cloned());
+            GameData::open_launcher_mods(args.data(), &mods_dir, &layers, &args.plugins, &args.nif_schema)
+        }
     };
     let game = match game {
         Ok(g) => g,
