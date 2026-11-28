@@ -16539,7 +16539,8 @@ order = [[
   "test aid calls AddScriptPackage on TrudyRef",
   "test aid calls GetOffersServicesNow on TrudyRef = 0",
   "barter: TrudyRef sells Alcohol, Food (its services)",
-  "barter: 0x00104C6D holds back 1 item(s) outside its services: 9mm Pistol (Weapons)",
+  # #3350: her own .357 lying loose in the saloon is offered too (menu::model::owned_loose), and held back as a weapon.
+  "barter: 0x00104C6D holds back 2 item(s) outside its services: .357 Magnum Revolver (Weapons), 9mm Pistol (Weapons)",
   "menu: close",
 ]]
 
