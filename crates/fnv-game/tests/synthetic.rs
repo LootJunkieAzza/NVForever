@@ -615,6 +615,32 @@ fn a_quest_started_again_runs_its_timer_from_the_start() {
     assert_eq!(g.var(key, 2), Value::Num(0.0), "ran out: fTimer {:?}", g.var(key, 1));
 }
 
+/// #4851 (Lucky 38's pod timer): the first run after a start counts the time since the
+/// start, as VMS40Timer's first drop did (layer5-captures.md §5.4), so a timer started
+/// again runs out at its time plus at most one quest delay, not one run later.
+#[test]
+fn a_quest_started_again_counts_its_first_run_from_the_start() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    g.frames(120);
+    g.stop_quest(q());
+    g.frames(600);
+    let key = InstKey::Quest { quest: q() };
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 1, Value::Num(1.0), "test", true);
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 2, Value::Num(1.0), "test", true);
+    g.start_quest(q());
+    // Just past the first run (the quest delay is 0.5 s): it took off the half second
+    // since the start.
+    g.frames(32);
+    let Value::Num(left) = g.var(key, 1) else { panic!() };
+    assert!((0.4..=0.6).contains(&left), "first run after the start: fTimer {left}");
+    // Out by 1.0 s and one delay more (0.5 s), not a run later.
+    g.frames(64);
+    assert_eq!(g.var(key, 2), Value::Num(0.0), "ran out: fTimer {:?}", g.var(key, 1));
+}
+
 #[test]
 fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
     // OnTrigger runs every frame the player is inside; with `Game::trigger_frame` before

@@ -3840,7 +3840,7 @@ order = [[
   "settings: anti-aliasing TAA",
   "settings: ambient-occlusion Quality",
   "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
-  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: on main (2026-11-27, this machine alone) the TAA and Quality AO change leaves 15 pipelines pending at the 15 s cap" },
+  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: fails on the first run of a new build: an unattended run keeps no pipeline cache and the driver's is cold, so the start's pipelines outlast the loading screen's 15 s cap on the 2-thread compile pool and the TAA and AO pipelines queue behind them (16 pending at the cap); a second run passes (4.75 s, pending 0)" },
   { re = 'pause menu: resume$' },
 ]]
 expect = [
@@ -3848,7 +3848,7 @@ expect = [
   { re = 'pause menu: resume$', count = 1, label = "one actual release" },
 ]
 forbid = [
-  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on main" },
+  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on the first run of a new build (cold pipeline caches)" },
   { text = "Caught rendering error", label = "a rendering validation error" },
   { text = "failed and will not be tried again", label = "a failed pipeline" },
   { text = "and no longer waited for", label = "a pipeline over its retry cap" },
@@ -6967,6 +6967,18 @@ expect = [
   { re = 'anim sounds summary:.*\b3 reload keys' },
   { re = 'anim sounds summary:.*\b5 door sounds \(2 from door records\)', known_failing = "main 2026-10-23 (301f062d): 9 door sounds (2 from door records): --open-doors opened 10 doors, more of Goodsprings' doors are drawn in the run since the streaming changes; the door records' 2 hold" },
   { re = 'anim sounds summary:.*\b0 keys without a SOUN' },
+]
+
+[[scenario]]
+name = "footsteps-walk-again"
+source = "issue #4827 (engine/nvforever/src/anim_sounds.rs player_layer_heard): the player walks 3 s, stops 3 s and walks 3 s again; both walks step. Before the fix the walk clip coming in was heard only from half its layer's weight, and the second walk was silent (6 footsteps in all, all in the first walk; 13 with the fix, 2026-11-27)"
+areas = ["anim-sounds", "audio"]
+paths = ["engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,11:0:0,14:1:0,17:0:0" }
+args = ["--play", "--pos=-70720,-85587,6500", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'anim sounds summary:.*\((?P<n>\d+) by the player', range = [10, 18], label = "both walks step: about 6 footsteps each" },
 ]
 
 [[scenario]]
