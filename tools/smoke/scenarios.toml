@@ -19403,7 +19403,7 @@ source = "#4917 (player report: harvested White Horse Nettles were knocked over 
 note = "the nettle 0016AF22 south of Goodsprings (placed at -68223, -3810, 8109.7, upright); the player starts 110 north of it, faces south and runs through it for 2.5 s, then the console reads its place and tilt"
 areas = ["physics"]
 paths = ["crates/fnv-phys/src/world.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NEAR = "0016AF22", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "6:180:0", NVF_PLAY_TEST_MOVE = "7:1:0,9.5:0:0", NVF_PLAY_TEST_CONSOLE = "11:0016AF22.getpos z;11.2:0016AF22.getangle x;11.4:0016AF22.getangle y;11.6:close" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "5.8:-68223:-3720:8200", NVF_PLAY_TEST_LOOK = "6:180:0", NVF_PLAY_TEST_MOVE = "7:1:0,9.5:0:0", NVF_PLAY_TEST_CONSOLE = "5:0016AF22.activate player;5.5:close;10.5:player.getpos y;11:0016AF22.getpos z;11.2:0016AF22.getangle x;11.4:0016AF22.getangle y;11.6:close" }
 args = ["--play", "--pos=-68223,-3700,8110", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
