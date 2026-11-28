@@ -493,7 +493,8 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 /// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
 /// at the name alone, so any value counts, and a load's new run drops it like any driving
 /// aid (`profile-slow-frames`).
-pub const MEASURING_AIDS: [&str; 11] = [
+pub const MEASURING_AIDS: [&str; 12] = [
+    "NVF_PLAY_TEST_COMPUTE_THREADS",
     "NVF_PLAY_TEST_SAMPLE",
     "NVF_PLAY_TEST_PROFILE",
     "NVF_PLAY_TEST_PROFILE_COUNTS",
@@ -1108,6 +1109,7 @@ mod tests {
 
     #[test]
     fn measuring_aids_leave_the_run_attended() {
+        assert!(!drives_run("NVF_PLAY_TEST_COMPUTE_THREADS"));
         assert!(!drives_run("NVF_PLAY_TEST_SAMPLE"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_MS"));
