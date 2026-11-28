@@ -1,6 +1,7 @@
 //! Manages mesh vertex and index buffers.
 
 use alloc::borrow::Cow;
+use core::ops::Range;
 use bevy_app::{App, Plugin};
 use bevy_asset::AssetId;
 use bevy_derive::{Deref, DerefMut};
@@ -22,6 +23,7 @@ use bevy_mesh::morph::MorphAttributes;
 use crate::{
     mesh::{Mesh, MeshMetadata, MeshVertexBufferLayouts, RenderMesh},
     render_asset::{prepare_assets, ExtractedAssets},
+    render_resource::Buffer,
     renderer::{RenderAdapter, RenderDevice, RenderQueue},
     slab_allocator::{
         Slab, SlabAllocationBufferSlice, SlabAllocator, SlabAllocatorSettings, SlabId, SlabItem,
@@ -29,6 +31,22 @@ use crate::{
     },
     GpuResourceAppExt, Render, RenderApp, RenderSystems,
 };
+
+/// NVForever (#4792) [design]: upper bound on `AssetIndex::index()` cached in `MeshAllocator::dense_cache`.
+const DENSE_CACHE_MAX_INDEX: usize = 1 << 20;
+
+/// Cached per-mesh slab IDs and element ranges for O(1) array-indexed lookup
+/// by `AssetId::Index`, avoiding 3–4 `HashMap<MeshAllocationKey, _>` probes per
+/// mesh per pass on the render thread.
+#[derive(Clone, Default)]
+struct DenseMeshAlloc {
+    generation: u32,
+    vertex: Option<(MeshSlabId, Range<u32>)>,
+    index: Option<(MeshSlabId, Range<u32>)>,
+    metadata: Option<(MeshSlabId, Range<u32>)>,
+    #[cfg(feature = "morph")]
+    morph_target: Option<(MeshSlabId, Range<u32>)>,
+}
 
 /// A plugin that manages GPU memory for mesh data.
 pub struct MeshAllocatorPlugin;
@@ -56,6 +74,12 @@ pub struct MeshAllocator {
     /// WebGL 2. On this platform, we must give each vertex array its own
     /// buffer, because we can't adjust the first vertex when we perform a draw.
     general_vertex_slabs_supported: bool,
+
+    /// Dense O(1) lookup table indexed by `AssetId::Index` slot.
+    dense_cache: Vec<Option<DenseMeshAlloc>>,
+
+    /// Dense O(1) slab buffer lookup table indexed by `SlabId::id`.
+    dense_buffers: Vec<Option<Buffer>>,
 }
 
 /// Tunable parameters that customize the behavior of the allocator.
@@ -240,6 +264,8 @@ impl FromWorld for MeshAllocator {
         Self {
             slab_allocator,
             general_vertex_slabs_supported,
+            dense_cache: Vec::new(),
+            dense_buffers: Vec::new(),
         }
     }
 }
@@ -326,8 +352,10 @@ pub fn allocate_and_free_meshes(
     // Clear the list of meshes displaced by last frame's slab growth.
     mesh_allocator.clear_displaced_keys();
 
-    // Process removed or modified meshes.
-    mesh_allocator.free_meshes(&extracted_meshes);
+    // Process removed or modified meshes that are not being re-extracted this frame;
+    // re-extracted meshes reuse their existing slab slices in place when their layout and
+    // size are unchanged inside `allocate_meshes`.
+    mesh_allocator.free_meshes_except_extracted(&extracted_meshes);
 
     // Process newly-added or modified meshes.
     mesh_allocator.allocate_meshes(
@@ -351,11 +379,110 @@ pub fn allocate_and_free_meshes(
 }
 
 impl MeshAllocator {
+    #[inline]
+    fn split_index_id(mesh_id: &AssetId<Mesh>) -> Option<(usize, u32)> {
+        match *mesh_id {
+            AssetId::Index { index, .. } => {
+                let bits = index.to_bits();
+                let slot = (bits & 0xffff_ffff) as usize;
+                if slot < DENSE_CACHE_MAX_INDEX {
+                    Some((slot, (bits >> 32) as u32))
+                } else {
+                    None
+                }
+            }
+            AssetId::Uuid { .. } => None,
+        }
+    }
+
+    #[inline]
+    fn dense_slice<'a>(&'a self, slot_range: &'a Option<(MeshSlabId, Range<u32>)>) -> Option<MeshBufferSlice<'a>> {
+        let (slab_id, range) = slot_range.as_ref()?;
+        let buffer = self.dense_buffers.get(slab_id.id.get() as usize)?.as_ref()?;
+        Some(SlabAllocationBufferSlice::new(buffer, range.clone()))
+    }
+
+    fn refresh_dense_buffers(&mut self) {
+        let max_id = self
+            .slab_allocator
+            .slabs
+            .keys()
+            .map(|id| id.id.get() as usize)
+            .max();
+        match max_id {
+            None => self.dense_buffers.clear(),
+            Some(max_id) => {
+                self.dense_buffers.clear();
+                self.dense_buffers.resize(max_id + 1, None);
+                for (slab_id, slab) in &self.slab_allocator.slabs {
+                    if let Some(buf) = slab.buffer() {
+                        self.dense_buffers[slab_id.id.get() as usize] = Some(buf.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    fn refresh_dense_mesh(&mut self, mesh_id: &AssetId<Mesh>) {
+        let Some((slot, generation)) = Self::split_index_id(mesh_id) else {
+            return;
+        };
+        let vertex = self.mesh_id_to_vertex_slab(mesh_id).copied().and_then(|s| {
+            self.slab_allocation_slice(&MeshAllocationKey::new(*mesh_id, ElementClass::Vertex), s)
+                .map(|sl| (s, sl.range))
+        });
+        let index = self.mesh_id_to_index_slab(mesh_id).copied().and_then(|s| {
+            self.slab_allocation_slice(&MeshAllocationKey::new(*mesh_id, ElementClass::Index), s)
+                .map(|sl| (s, sl.range))
+        });
+        let metadata = self.mesh_id_to_metadata_slab(mesh_id).copied().and_then(|s| {
+            self.slab_allocation_slice(&MeshAllocationKey::new(*mesh_id, ElementClass::Metadata), s)
+                .map(|sl| (s, sl.range))
+        });
+        #[cfg(feature = "morph")]
+        let morph_target = self.mesh_id_to_morph_target_slab(mesh_id).copied().and_then(|s| {
+            self.slab_allocation_slice(
+                &MeshAllocationKey::new(*mesh_id, ElementClass::MorphTarget),
+                s,
+            )
+            .map(|sl| (s, sl.range))
+        });
+        #[cfg(feature = "morph")]
+        let any = vertex.is_some() || index.is_some() || metadata.is_some() || morph_target.is_some();
+        #[cfg(not(feature = "morph"))]
+        let any = vertex.is_some() || index.is_some() || metadata.is_some();
+        if any {
+            if self.dense_cache.len() <= slot {
+                self.dense_cache.resize(slot + 1, None);
+            }
+            self.dense_cache[slot] = Some(DenseMeshAlloc {
+                generation,
+                vertex,
+                index,
+                metadata,
+                #[cfg(feature = "morph")]
+                morph_target,
+            });
+        } else if let Some(cell) = self.dense_cache.get_mut(slot)
+            && cell.as_ref().is_some_and(|e| e.generation == generation)
+        {
+            *cell = None;
+        }
+    }
+
     /// Returns the buffer and range within that buffer of the metadata for
     /// the mesh with the given ID.
     ///
     /// If the mesh wasn't allocated, returns None.
+    #[inline]
     pub fn mesh_metadata_slice(&self, mesh_id: &AssetId<Mesh>) -> Option<MeshBufferSlice<'_>> {
+        if let Some((slot, generation)) = Self::split_index_id(mesh_id) {
+            let entry = self.dense_cache.get(slot)?.as_ref()?;
+            if entry.generation != generation {
+                return None;
+            }
+            return self.dense_slice(&entry.metadata);
+        }
         self.slab_allocation_slice(
             &MeshAllocationKey::new(*mesh_id, ElementClass::Metadata),
             *self.mesh_id_to_metadata_slab(mesh_id)?,
@@ -386,7 +513,15 @@ impl MeshAllocator {
     /// the mesh with the given ID.
     ///
     /// If the mesh wasn't allocated, returns None.
+    #[inline]
     pub fn mesh_vertex_slice(&self, mesh_id: &AssetId<Mesh>) -> Option<MeshBufferSlice<'_>> {
+        if let Some((slot, generation)) = Self::split_index_id(mesh_id) {
+            let entry = self.dense_cache.get(slot)?.as_ref()?;
+            if entry.generation != generation {
+                return None;
+            }
+            return self.dense_slice(&entry.vertex);
+        }
         self.slab_allocation_slice(
             &MeshAllocationKey::new(*mesh_id, ElementClass::Vertex),
             *self.mesh_id_to_vertex_slab(mesh_id)?,
@@ -397,7 +532,15 @@ impl MeshAllocator {
     /// the mesh with the given ID.
     ///
     /// If the mesh has no index data or wasn't allocated, returns None.
+    #[inline]
     pub fn mesh_index_slice(&self, mesh_id: &AssetId<Mesh>) -> Option<MeshBufferSlice<'_>> {
+        if let Some((slot, generation)) = Self::split_index_id(mesh_id) {
+            let entry = self.dense_cache.get(slot)?.as_ref()?;
+            if entry.generation != generation {
+                return None;
+            }
+            return self.dense_slice(&entry.index);
+        }
         self.slab_allocation_slice(
             &MeshAllocationKey::new(*mesh_id, ElementClass::Index),
             *self.mesh_id_to_index_slab(mesh_id)?,
@@ -409,7 +552,15 @@ impl MeshAllocator {
     ///
     /// If the mesh has no morph target data or wasn't allocated, returns None.
     #[cfg(feature = "morph")]
+    #[inline]
     pub fn mesh_morph_target_slice(&self, mesh_id: &AssetId<Mesh>) -> Option<MeshBufferSlice<'_>> {
+        if let Some((slot, generation)) = Self::split_index_id(mesh_id) {
+            let entry = self.dense_cache.get(slot)?.as_ref()?;
+            if entry.generation != generation {
+                return None;
+            }
+            return self.dense_slice(&entry.morph_target);
+        }
         self.slab_allocation_slice(
             &MeshAllocationKey::new(*mesh_id, ElementClass::MorphTarget),
             *self.mesh_id_to_morph_target_slab(mesh_id)?,
@@ -422,7 +573,21 @@ impl MeshAllocator {
     /// If the mesh wasn't allocated, or has no index data in the case of the
     /// index buffer, the corresponding element in the returned tuple will be
     /// None.
+    #[inline]
     pub fn mesh_slabs(&self, mesh_id: &AssetId<Mesh>) -> Option<MeshSlabs> {
+        if let Some((slot, generation)) = Self::split_index_id(mesh_id) {
+            let entry = self.dense_cache.get(slot)?.as_ref()?;
+            if entry.generation != generation {
+                return None;
+            }
+            return Some(MeshSlabs {
+                vertex_slab_id: entry.vertex.as_ref()?.0,
+                index_slab_id: entry.index.as_ref().map(|(s, _)| *s),
+                metadata_slab_id: entry.metadata.as_ref().map(|(s, _)| *s),
+                #[cfg(feature = "morph")]
+                morph_target_slab_id: entry.morph_target.as_ref().map(|(s, _)| *s),
+            });
+        }
         Some(MeshSlabs {
             vertex_slab_id: self.mesh_id_to_vertex_slab(mesh_id).cloned()?,
             index_slab_id: self.mesh_id_to_index_slab(mesh_id).cloned(),
@@ -512,65 +677,79 @@ impl MeshAllocator {
             let vertex_buffer_size = mesh.get_vertex_buffer_size() as u64;
             if vertex_buffer_size == 0 {
                 warn!("Mesh {:?} contains no vertices.", mesh_id);
+                allocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Metadata));
+                allocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Vertex));
+                allocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Index));
+                #[cfg(feature = "morph")]
+                allocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::MorphTarget));
                 continue;
             }
 
             // Allocate metadata.
+            let metadata_key = MeshAllocationKey::new(*mesh_id, ElementClass::Metadata);
             if mesh.final_aabb.is_some() || mesh.final_uv_ranges.iter().any(Option::is_some) {
                 // If storage buffers are unsupported, we allocate uniform buffers for each mesh.
                 if crate::storage_buffers_are_unsupported(&render_device.limits()) {
                     allocation_stage.allocate_large(
-                        &MeshAllocationKey::new(*mesh_id, ElementClass::Metadata),
+                        &metadata_key,
                         ElementLayout::metadata(false),
                     );
                 } else {
-                    allocation_stage.allocate(
-                        &MeshAllocationKey::new(*mesh_id, ElementClass::Metadata),
+                    allocation_stage.allocate_or_reuse(
+                        &metadata_key,
                         size_of::<MeshMetadata>() as u64,
                         ElementLayout::metadata(true),
                         mesh_allocator_settings,
                     );
                 }
+            } else {
+                allocation_stage.free(&metadata_key);
             }
 
             // Allocate vertex data. Note that we can only pack mesh vertex data
             // together if the platform supports it.
+            let vertex_key = MeshAllocationKey::new(*mesh_id, ElementClass::Vertex);
             let vertex_element_layout = ElementLayout::vertex(mesh_vertex_buffer_layouts, mesh);
             if self.general_vertex_slabs_supported {
-                allocation_stage.allocate(
-                    &MeshAllocationKey::new(*mesh_id, ElementClass::Vertex),
+                allocation_stage.allocate_or_reuse(
+                    &vertex_key,
                     vertex_buffer_size,
                     vertex_element_layout,
                     mesh_allocator_settings,
                 );
             } else {
-                allocation_stage.allocate_large(
-                    &MeshAllocationKey::new(*mesh_id, ElementClass::Vertex),
-                    vertex_element_layout,
-                );
+                allocation_stage.allocate_large(&vertex_key, vertex_element_layout);
             }
 
             // Allocate index data.
+            let index_key = MeshAllocationKey::new(*mesh_id, ElementClass::Index);
             if let (Some(index_buffer_data), Some(index_element_layout)) =
                 (mesh.get_index_buffer_bytes(), ElementLayout::index(mesh))
             {
-                allocation_stage.allocate(
-                    &MeshAllocationKey::new(*mesh_id, ElementClass::Index),
+                allocation_stage.allocate_or_reuse(
+                    &index_key,
                     index_buffer_data.len() as u64,
                     index_element_layout,
                     mesh_allocator_settings,
                 );
+            } else {
+                allocation_stage.free(&index_key);
             }
 
             // Allocate morph target data.
             #[cfg(feature = "morph")]
-            if let Some(morph_targets) = mesh.get_morph_targets() {
-                allocation_stage.allocate(
-                    &MeshAllocationKey::new(*mesh_id, ElementClass::MorphTarget),
-                    morph_targets.len() as u64 * size_of::<MorphAttributes>() as u64,
-                    MORPH_ATTRIBUTE_ELEMENT_LAYOUT,
-                    mesh_allocator_settings,
-                );
+            {
+                let morph_key = MeshAllocationKey::new(*mesh_id, ElementClass::MorphTarget);
+                if let Some(morph_targets) = mesh.get_morph_targets() {
+                    allocation_stage.allocate_or_reuse(
+                        &morph_key,
+                        morph_targets.len() as u64 * size_of::<MorphAttributes>() as u64,
+                        MORPH_ATTRIBUTE_ELEMENT_LAYOUT,
+                        mesh_allocator_settings,
+                    );
+                } else {
+                    allocation_stage.free(&morph_key);
+                }
             }
         }
 
@@ -588,6 +767,22 @@ impl MeshAllocator {
             self.copy_mesh_index_data(mesh_id, mesh, render_device, render_queue);
             #[cfg(feature = "morph")]
             self.copy_mesh_morph_target_data(mesh_id, mesh, render_device, render_queue);
+        }
+
+        if !extracted_meshes.extracted.is_empty() || !self.keys_displaced_by_slab_growth().is_empty()
+        {
+            self.refresh_dense_buffers();
+            for (mesh_id, _) in &extracted_meshes.extracted {
+                self.refresh_dense_mesh(mesh_id);
+            }
+            let displaced: Vec<AssetId<Mesh>> = self
+                .keys_displaced_by_slab_growth()
+                .iter()
+                .map(|k| k.mesh_id)
+                .collect();
+            for mesh_id in displaced {
+                self.refresh_dense_mesh(&mesh_id);
+            }
         }
     }
 
@@ -704,8 +899,54 @@ impl MeshAllocator {
         );
     }
 
+    /// Frees allocations for removed/modified meshes that will not be re-extracted this
+    /// frame; meshes in `extracted_meshes.extracted` are handled in `allocate_meshes` so
+    /// unchanged layouts/sizes reuse their GPU slab slots in place.
+    fn free_meshes_except_extracted(&mut self, extracted_meshes: &ExtractedAssets<RenderMesh>) {
+        if extracted_meshes.removed.is_empty()
+            && extracted_meshes.modified.is_empty()
+            && extracted_meshes.added.is_empty()
+        {
+            return;
+        }
+        let mut deallocation_stage = self.slab_allocator.stage_deallocation();
+        let extracted_ids: bevy_platform::collections::HashSet<AssetId<Mesh>> = extracted_meshes
+            .extracted
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+
+        let meshes_to_free: Vec<AssetId<Mesh>> = extracted_meshes
+            .removed
+            .iter()
+            .chain(extracted_meshes.modified.iter())
+            .chain(extracted_meshes.added.iter())
+            .filter(|id| !extracted_ids.contains(*id))
+            .copied()
+            .collect();
+
+        if meshes_to_free.is_empty() {
+            return;
+        }
+
+        for mesh_id in &meshes_to_free {
+            deallocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Metadata));
+            deallocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Vertex));
+            deallocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Index));
+            #[cfg(feature = "morph")]
+            deallocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::MorphTarget));
+        }
+
+        deallocation_stage.commit();
+        self.refresh_dense_buffers();
+        for mesh_id in &meshes_to_free {
+            self.refresh_dense_mesh(mesh_id);
+        }
+    }
+
     /// Frees allocations for meshes that were removed, modified, or re-extracted
     /// this frame.
+    #[cfg(test)]
     fn free_meshes(&mut self, extracted_meshes: &ExtractedAssets<RenderMesh>) {
         let mut deallocation_stage = self.slab_allocator.stage_deallocation();
 
@@ -717,13 +958,15 @@ impl MeshAllocator {
         // the new ones, so it's exactly that set. This catches a mesh
         // removed from `Assets` and reinserted under the same ID, which arrives as
         // `Removed` then `Added` and so never appears in `modified`.
-        let meshes_to_free = extracted_meshes
+        let meshes_to_free: Vec<AssetId<Mesh>> = extracted_meshes
             .removed
             .iter()
             .chain(extracted_meshes.modified.iter())
-            .chain(extracted_meshes.added.iter());
+            .chain(extracted_meshes.added.iter())
+            .copied()
+            .collect();
 
-        for mesh_id in meshes_to_free {
+        for mesh_id in &meshes_to_free {
             deallocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Metadata));
             deallocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Vertex));
             deallocation_stage.free(&MeshAllocationKey::new(*mesh_id, ElementClass::Index));
@@ -732,6 +975,10 @@ impl MeshAllocator {
         }
 
         deallocation_stage.commit();
+        self.refresh_dense_buffers();
+        for mesh_id in &meshes_to_free {
+            self.refresh_dense_mesh(mesh_id);
+        }
     }
 }
 
@@ -872,6 +1119,8 @@ mod tests {
         MeshAllocator {
             slab_allocator: SlabAllocator::new(),
             general_vertex_slabs_supported,
+            dense_cache: Vec::new(),
+            dense_buffers: Vec::new(),
         }
     }
 
@@ -1268,5 +1517,51 @@ mod tests {
             },
             32,
         );
+    }
+
+    #[test]
+    fn dense_index_cache_matches_slab_allocations_across_alloc_reextract_and_free() {
+        let (render_device, render_queue) = create_dummy_device();
+        let settings = MeshAllocatorSettings::default();
+        let mut mesh_vertex_buffer_layouts = MeshVertexBufferLayouts::default();
+        let mut mesh_allocator = mesh_allocator(true);
+
+        let id_gen0 = AssetId::<Mesh>::from(bevy_asset::AssetIndex::from_bits(7u64));
+        let id_gen1 = AssetId::<Mesh>::from(bevy_asset::AssetIndex::from_bits(7u64 | (1u64 << 32)));
+        let extracted = extracted_mesh(id_gen0, full_mesh());
+        mesh_allocator.allocate_meshes(
+            &settings,
+            &extracted,
+            &mut mesh_vertex_buffer_layouts,
+            &render_device,
+            &render_queue,
+        );
+
+        assert!(mesh_allocator.mesh_vertex_slice(&id_gen0).is_some());
+        assert!(mesh_allocator.mesh_index_slice(&id_gen0).is_some());
+        assert!(mesh_allocator.mesh_metadata_slice(&id_gen0).is_some());
+        assert!(mesh_allocator.mesh_slabs(&id_gen0).is_some());
+        assert!(mesh_allocator.mesh_vertex_slice(&id_gen1).is_none());
+        assert!(mesh_allocator.mesh_slabs(&id_gen1).is_none());
+
+        // Re-extract as vertex-only mesh: index/metadata must disappear from dense cache too.
+        let bare = extracted_mesh(id_gen0, test_mesh());
+        mesh_allocator.free_meshes_except_extracted(&bare);
+        mesh_allocator.allocate_meshes(
+            &settings,
+            &bare,
+            &mut mesh_vertex_buffer_layouts,
+            &render_device,
+            &render_queue,
+        );
+        assert!(mesh_allocator.mesh_vertex_slice(&id_gen0).is_some());
+        assert!(mesh_allocator.mesh_index_slice(&id_gen0).is_none());
+        assert!(mesh_allocator.mesh_metadata_slice(&id_gen0).is_none());
+        assert!(mesh_allocator.mesh_slabs(&id_gen0).unwrap().index_slab_id.is_none());
+
+        // Free completely.
+        mesh_allocator.free_meshes(&bare);
+        assert!(mesh_allocator.mesh_vertex_slice(&id_gen0).is_none());
+        assert!(mesh_allocator.mesh_slabs(&id_gen0).is_none());
     }
 }

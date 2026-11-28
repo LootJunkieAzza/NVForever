@@ -575,6 +575,16 @@ systems, loads its shaders and makes its allocator at startup, and a plugin cann
 after startup; nvforever's mesh terrain blend, off in most runs, gates its two material
 types with it. Drop it if upstream gains a way to register a material type lazily.
 
+Material reverse indices (#4719), in `src/material.rs`, marked `NVForever material reverse index`:
+`mark_meshes_as_changed_if_their_materials_changed` and `check_entities_needing_specialization`
+replace `AssetChanged<Mesh3d>` / `AssetChanged<MeshMaterial3d<M>>` full-world entity scans with
+incremental `Local` reverse maps (`MaterialMeshIndex<M>` and `MaterialSpecIndex<M>`) fed by
+pure `Changed<...>`/`Added<...>` component queries, `RemovedComponents`, and `MessageReader<AssetEvent<...>>`
+(with `mark_meshes_as_changed_if_their_materials_changed` ordered `.after(AssetEventSystems)`).
+This keeps both systems O(changed components + entities referencing changed assets) instead of
+scanning every mesh entity whenever any mesh or material asset event fires. Drop this patch if
+upstream Bevy indexes `AssetChanged` lookups by asset ID.
+
 Another change (sun visibility, #2670 and #2671, docs/design/sun-visibility.md), each part
 marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
 
@@ -1236,6 +1246,25 @@ offered; `nvf_hdr_changed` compares the asked-for output with the configured for
 frame, and a change reconfigures the surface at once (no restart). Test aid
 `NVF_PLAY_TEST_SDR_SURFACE=1`: the surface counts as offering no `Rgba16Float`.
 
+MeshAllocator in-place reuse and dense index cache (`#4792`, `[design]`), marked
+`NVForever (#4792)` in `src/mesh/allocator.rs` and `src/slab_allocator.rs`:
+
+- `SlabAllocator::try_reuse_in_place` / `allocate_or_reuse` and
+  `MeshAllocator::free_meshes_except_extracted` reuse an existing resident general-slab
+  slice in place when a re-extracted mesh's layout, slot count, and padding match,
+  overwriting the existing GPU buffer range instead of freeing and reallocating slab slots
+  every frame.
+- `MeshAllocator` maintains dense `Vec`-backed lookup tables (`dense_cache` indexed by
+  `AssetId::Index` slot with generation check, and `dense_buffers` indexed by `SlabId`),
+  refreshed on allocation, slab-growth displacement, and deallocation so
+  `mesh_vertex_slice`, `mesh_index_slice`, `mesh_metadata_slice`,
+  `mesh_morph_target_slice`, and `mesh_slabs` avoid repeated `HashMap` probes on the render
+  thread. `AssetId::Uuid` and out-of-range indices fall back to upstream's `HashMap` path.
+- Unit test `dense_index_cache_matches_slab_allocations_across_alloc_reextract_and_free`
+  covers allocation, re-extraction with dropped index/metadata buffers, generation mismatch,
+  and deallocation. Drop this patch if upstream adopts in-place slab reuse and dense
+  allocator lookups.
+
 ## bevy_shader 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 The shader cache, for composed shaders kept between runs (perf/pipeline-cache, 2026-11-19).
@@ -1259,6 +1288,11 @@ seconds after it from 6.3 s to 1.2 s (asked to ready, all together) [observed, n
 `pipeline_disk_cache.rs`]. Composing on several threads instead was tried and is slower
 (wesl 0.6's identifiers share reference counts). The test `composed_store_skips_compositions_of_unchanged_sources`
 checks a second cache composes nothing the first kept and composes again after a change.
+In `src/nvf_composed.rs` (`#4785`, `[design]`): entries hold `Arc<str>` WGSL and
+`Arc<[(String, Option<u64>)]>` deps so `to_bytes` snapshots handles under the mutex and
+releases the lock before sorting and serializing up to ~96 MiB of WGSL; `pending_new()`
+tracks newly inserted compositions separately from cache-hit `used` touches so callers can
+throttle mid-session rewrites.
 Drop it when Bevy caches compositions itself.
 
 `NVForever modules off the lock` (`src/shader_cache.rs`): `get` is split into `prepare`
@@ -1275,6 +1309,29 @@ is queued again rather than failed for the run. `get` is
 takes the pipeline as an `Option` (`None` for the list's builds, which are not compiled
 again when a shader changes). Tests: `a_module_asked_twice_at_once_is_made_once_and_a_stale_one_is_not_kept`,
 `a_build_dropped_unfinished_wakes_its_waiters`, `shaders_are_found_by_a_path_only_they_have`.
+
+## bevy_transform 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Hierarchy transform propagation (`#4790`, `[design]`). One change in `src/systems.rs`
+(`parallel::propagate_parent_transforms`, `propagation_worker`, `WorkQueue::send_batches` /
+`send_batches_with`), marked `NVForever (#4790)`:
+
+- `WorkQueue::send_batches` returns the number of queued chunks; a single batch runs inline
+  without waking `ComputeTaskPool` workers.
+- Multi-batch propagation caps extra spawned workers to
+  `(sent - 1).min(task_pool.thread_num().saturating_sub(1)).min(4)` instead of always
+  spawning `thread_num() - 1` workers.
+- Idle workers waiting on another busy worker drop the receiver mutex and call
+  `std::thread::yield_now()` after 32 empty spins instead of busy-spinning continuously.
+
+Why: upstream spawns `thread_num() - 1` workers whenever any non-empty batch exists and
+busy-spins idle workers on the shared receiver lock, wasting CPU time across deep character
+skeletons on high-core-count machines. Computed `GlobalTransform` values are unchanged. Both
+upstream license files (`LICENSE-APACHE`, `LICENSE-MIT`) are retained. Drop this patch if
+upstream bounds transform-propagation worker count and empty-queue spinning.
+
+Source: crates.io `bevy_transform` 0.20.1, archive SHA-256
+`ef20be97ccdd905cc3f9b66dbea1108ac6bffb1bb9cf9d0b44acd057d10116e9`.
 
 ## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
 

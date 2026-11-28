@@ -1837,8 +1837,6 @@ dependencies = [
 [[package]]
 name = "bevy_transform"
 version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef20be97ccdd905cc3f9b66dbea1108ac6bffb1bb9cf9d0b44acd057d10116e9"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
