@@ -110,14 +110,27 @@ Part of #2272. Core-only implementations in `crates/fnv-game` replacing four
     4. **Settled `SetNoGunWobble` check (`t3nw(0.1434,0.1434)`):** `n == nw ==
        0.1434`, confirming `SetNoGunWobble 1` leaves `GetCalculatedActorSpread`
        unchanged once weapon-draw bloom has settled.
+  - `w6t2p2_07_spread_anim_7_9_2_1_0`
+    (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+    `PROBE|w6t2p2_07_spread_anim_7_9_2_1_0|t8(0.6212,0.4232,0.4232,0.5157)|t9(0.1781,0.3631,0.3631,0.4556)|t2(1.0000,1.0000)`
+    — directly confirms:
+    1. **`anim 9` (Missile Launcher `0x4340`):** either single arm adds
+       `+0.1850` (`0.4 * skill_mult`, `0.1781 -> 0.3631`) and both arms add
+       `+0.2775` (`0.6 * skill_mult`, `0.1781 -> 0.4556`), matching the 2H
+       ranged group `5..=9`.
+    2. **`anim 8` (Minigun `0x433F`):** symmetric single-arm readings
+       (`0.4232` R and L) and both-arms increment `+0.0925` (`0.4232 -> 0.5157`,
+       with `n=0.6212` still decaying from draw bloom).
+    3. **`anim 2` (Baseball Bat `0x421C`):** zero crippled-arm penalty
+       (`1.0000 -> 1.0000` with both arms crippled).
 - [hypothesis] Items without a direct external source citation or original-game
   observation:
-  1. **Unprobed weapon animation types (`0..=2`, `7`, `9`, `11..=13`)**:
-     `w4d_09_spread_all_anim_types` directly observed types `3, 4` (1H guns),
-     `5, 6, 8` (2H ranged), and `10` (thrown). Grouping `7` (Rifle Energy) and
-     `9` (Launcher) with `5, 6, 8` (2H ranged), and `0..=2` (unarmed/melee)
-     plus `11..=13` (mines/thrown) with `10` (zero crippled-arm penalty) is
-     `[hypothesis]`.
+  1. **Unprobed weapon animation types (`0..=1`, `7`, `11..=13`)**:
+     `w4d_09_spread_all_anim_types` and `w6t2p2_07_spread_anim_7_9_2_1_0`
+     directly observed types `3, 4` (1H guns), `5, 6, 8, 9` (2H ranged), and
+     `2, 10` (melee/thrown). Grouping `7` (Rifle Energy) with `5, 6, 8, 9` (2H
+     ranged), and `0..=1` (unarmed/1H melee) plus `11..=13` (mines/thrown) with
+     `2, 10` (zero crippled-arm penalty) is `[hypothesis]`.
   2. **GMST fallback defaults when absent from masters**: per
      `crates/fnv-combat/src/tuning.rs` and `docs/spec-notes/combat-data.md` §3,
      falling back to the wiki GMST values when a load order omits those GMST

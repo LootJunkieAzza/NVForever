@@ -241,6 +241,13 @@ impl<C> Default for IdleSlot<C> {
 }
 
 impl<C> IdleSlot<C> {
+    /// Play a clip that is no IDLE record (a slot machine's seat) as an idle `source`
+    /// asked for; returns its serial.
+    pub fn start_clip(&mut self, source: IdleSource, clip: C, play: IdlePlay) -> u32 {
+        self.start(0, source, None, clip, play);
+        self.serial
+    }
+
     /// Play an idle from its start. What played until now is held under it while it
     /// fades in; an idle started in the same step is replaced outright (a package's
     /// change idle followed by the next package's begin idle).
@@ -445,6 +452,11 @@ pub struct PlayerIdles {
     pub third: IdleSlot<Arc<Clip>>,
     /// The player when an idle began to turn the view ([`Held`]).
     pub held: Option<Held>,
+    /// A menu that is played at a place in the world is open (the slot machine's,
+    /// `slots_seat.rs`): the third-person body's idles go on under it, where a menu
+    /// otherwise holds them [design: the body is seen at the machine; slots-170-B
+    /// camera-win-warm, the cheer held on its first frame].
+    pub under_menu: bool,
 }
 
 /// Movement camera overlays animate the view without owning position; other
@@ -964,6 +976,8 @@ pub fn drive(
     // closes, so a scene goes on where it was [observed: owner's TTW run 2026-11-02, the
     // stage that opens the trait menu starts the birth scene's last section, which
     // played out behind the menu; hypothesis: the original's menu mode stops it].
+    // ... except the player's body at a menu played in the world (`PlayerIdles::under_menu`).
+    let body_dt = if pi.under_menu { dt } else if game.menu.is_some() { 0.0 } else { dt };
     let dt = if game.menu.is_some() { 0.0 } else { dt };
     // Between frames the game being played keeps its world in the simulation
     // (`nvf_play::script::with_world`); conditions are evaluated with it put back.
@@ -1766,9 +1780,8 @@ pub fn drive(
             None => {}
         }
     }
-    for slot in [&mut pi.first, &mut pi.third] {
-        slot.advance(dt);
-    }
+    pi.first.advance(dt);
+    pi.third.advance(body_dt);
     if let Some(p) = pi.first.playing().or(pi.third.playing()) {
         now.insert(player_ref, p.idle);
     }

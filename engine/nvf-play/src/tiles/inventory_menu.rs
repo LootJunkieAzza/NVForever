@@ -344,12 +344,15 @@ impl Shown {
             device,
             figures,
             repair,
-            modify: tab == 0 && m.folder.is_none(),
-            modify_lit: selected.is_some(),
+            modify: tab == 0 && (m.folder.is_none() || matches!(m.folder, Some(crate::menu::model::Folder::Ysi(_)))),
+            modify_lit: selected.is_some_and(|r| r.folder.is_none()),
             ammo: selected.is_some_and(|r| r.kind == Some(ItemKind::Ammo)),
             equippable: selected.is_some_and(|r| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor | ItemKind::Aid)) && r.condition.is_none_or(|c| c > 0.0)),
             hotkey_lit: selected.is_some_and(|r| r.folder.is_none() && r.kind.is_some_and(crate::hotkeys::can_hold)),
-            keyring: m.folder.is_some(),
+            // Only vanilla Misc folders (Keyring / Caravan Cards) swap IM_RepairButton for
+            // IM_CancelButton (`_KeyringOpen`). Inside `Folder::Ysi(_)`, IM_RepairButton
+            // stays visible so the two buttons never overlap on the same slot [design].
+            keyring: matches!(m.folder, Some(crate::menu::model::Folder::Keys | crate::menu::model::Folder::Cards)),
             hints,
             condition_title,
             panel,
@@ -966,8 +969,10 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
         let last = p.tiles.written.shown.as_ref().and_then(|s| s.repair.word);
         let upkeep = crate::pipboy::labels::label(MAINTAIN_SETTING, REPAIR_UPKEEP);
         let word = repair_word(offer.as_ref().map(|o| fnv_game::repair::hint(o.gear, o.condition)), tab, last, upkeep);
-        // Inside a Misc folder Cancel stands in its place.
-        let repair = RepairButton { shown: m.folder.is_none(), usable: offer.as_ref().is_some_and(|o| o.usable()), word };
+        // Inside a vanilla Misc folder Cancel stands in Repair's place; inside a ySI category
+        // folder (e.g. Weapons/Apparel) Repair remains available for selected items [design].
+        let in_vanilla_misc_folder = matches!(m.folder, Some(crate::menu::model::Folder::Keys | crate::menu::model::Folder::Cards));
+        let repair = RepairButton { shown: !in_vanilla_misc_folder, usable: offer.as_ref().is_some_and(|o| o.usable()), word };
         let panel = hold.and_then(|h| h.slot);
         let game = &script.rt.as_ref()?.game;
         let words = (hints_of(game), fnv_game::ui_loading::game_string(game, CONDITION_TITLE));
@@ -1168,6 +1173,19 @@ fn send_on_row(out: &mut FeedOut<'_>, view: &MenuTiles, index: usize, on_it: boo
     }
 }
 
+/// What the tiled Drop button (click or R key) emits: with `quantity-select-short-keys`
+/// enabled (#3799), Shift drops the whole stack and Ctrl drops a single item without opening
+/// the quantity prompt [design: Shift takes precedence over Ctrl when both are held].
+pub(crate) fn tiled_drop_command(qtt_select_short_keys: bool, shift: bool, ctrl: bool) -> Command {
+    if qtt_select_short_keys && shift {
+        Command::DropStack
+    } else if qtt_select_short_keys && ctrl {
+        Command::DropSingle
+    } else {
+        Command::Drop
+    }
+}
+
 pub(crate) fn touch_target(tiles:&InventoryTiles,ui:&Ui,menu:TileId,point:Vec2,model:&crate::menu::model::MenuModel)->Option<crate::pipboy::touch_scroll::NativeTarget>{
     use crate::pipboy::touch_scroll::{NativeRow,NativeTarget};
     NativeTarget::at(ui,menu,point,|tile| {
@@ -1262,6 +1280,8 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         if let Some((touch,index))=touch.as_deref_mut().zip(index) {touch.capture_row(m,index);}
     }
     let shift = input.shift;
+    let ctrl = devices.keys.pressed(KeyCode::ControlLeft) || devices.keys.pressed(KeyCode::ControlRight);
+    let ctrl_single = m.qtt_select_short_keys && ctrl;
     let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::INVENTORY), tab: 0 };
     let physical = frame_keys(&mut input, &devices, game, pad_menu);
     let report = fnv_game::ui_input::step(game, &[menu], &input, &fnv_ui::input::no_measure);
@@ -1285,8 +1305,11 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     let mut pressed_marker = false;
     for c in report.clicks.iter().filter(|c| ui.is_live(c.tile)) {
         if let fnv_ui::input::By::Key(k) = &c.by {
-            // E has nothing to do on the hand-built page: in a folder, the file's Cancel has it.
-            let folder_e = m.folder.is_some() && k.eq_ignore_ascii_case("E");
+            // E has nothing to do on the hand-built page: in a vanilla Misc folder, the
+            // file's Cancel button has it (`_KeyringOpen`). Inside `Folder::Ysi(_)`,
+            // `IM_CancelButton` is hidden so `Back` / `Backspace` leaves the folder.
+            let folder_e = matches!(m.folder, Some(crate::menu::model::Folder::Keys | crate::menu::model::Folder::Cards))
+                && k.eq_ignore_ascii_case("E");
             if !folder_e && !key_acts(k, &physical) {
                 continue;
             }
@@ -1330,7 +1353,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
                 out.commands.write(MenuInput(Command::One));
             }
             ItemsTile::Button(Button::Drop) => {
-                out.commands.write(MenuInput(Command::Drop));
+                out.commands.write(MenuInput(tiled_drop_command(m.qtt_select_short_keys, shift, ctrl)));
             }
             ItemsTile::Button(Button::Repair) => {
                 out.repair.write(RepairInput::Open);
@@ -1342,7 +1365,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             // page's way out is `Back`. Outside a folder the button is hidden and a script's
             // `ClickMenuButton` on it must not close the Pip-Boy [design, #3915].
             ItemsTile::Button(Button::Cancel) => {
-                if m.folder.is_some() {
+                if matches!(m.folder, Some(crate::menu::model::Folder::Keys | crate::menu::model::Folder::Cards)) {
                     out.commands.write(MenuInput(Command::Back));
                 }
             }
@@ -1380,7 +1403,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         if let Some(ItemsTile::Row(index)) = state.under.and_then(|t| items_tile(ui, &tiles.view, tabs, t)) {
             if let Some(index) = tiles.view.row_at(m, Side::Player, index) {
                 row_acted = true;
-                send_on_row(&mut out, &tiles.view, index, false, &[Command::Hover(Side::Player, index), if shift { Command::DropStack } else { Command::Drop }]);
+                send_on_row(&mut out, &tiles.view, index, false, &[Command::Hover(Side::Player, index), if shift { Command::DropStack } else if ctrl_single { Command::DropSingle } else { Command::Drop }]);
             }
         }
     }
@@ -2573,6 +2596,21 @@ mod tests {
     }
 
     #[test]
+    fn tiled_drop_button_honors_qtt_select_short_keys() {
+        // Off by default (vanilla unchanged): Drop button always emits Command::Drop.
+        assert_eq!(tiled_drop_command(false, false, false), Command::Drop);
+        assert_eq!(tiled_drop_command(false, true, false), Command::Drop);
+        assert_eq!(tiled_drop_command(false, false, true), Command::Drop);
+        assert_eq!(tiled_drop_command(false, true, true), Command::Drop);
+
+        // Enabled (#3799): Shift drops stack, Ctrl drops single, Shift+Ctrl prefers Shift.
+        assert_eq!(tiled_drop_command(true, false, false), Command::Drop);
+        assert_eq!(tiled_drop_command(true, true, false), Command::DropStack);
+        assert_eq!(tiled_drop_command(true, false, true), Command::DropSingle);
+        assert_eq!(tiled_drop_command(true, true, true), Command::DropStack);
+    }
+
+    #[test]
     fn script_click_on_cancel_button_exits_folder_and_is_noop_outside_folder() {
         use crate::menu::model::Folder;
         use fnv_script::vm::XVal;
@@ -2646,5 +2684,35 @@ mod tests {
         assert_eq!(run_click(Some(Folder::Keys), "IM_CancelButton"), vec![Command::Back]);
         // Control: hidden buttons that still have an active top-level command (e.g. Drop) keep working via ClickMenuButton.
         assert_eq!(run_click(None, "IM_DropButton"), vec![Command::Drop]);
+    }
+
+    #[test]
+    fn ysi_folder_keeps_repair_and_hides_cancel_mutually_exclusively() {
+        use crate::menu::model::Folder;
+
+        let check = |folder: Option<Folder>, tab: usize| {
+            let mut m = MenuModel::empty_inventory();
+            m.folder = folder;
+            let in_vanilla_misc = matches!(folder, Some(Folder::Keys | Folder::Cards));
+            let repair = RepairButton { shown: !in_vanilla_misc, usable: true, word: None };
+            let s = Shown::of(&m, None, tab, false, Default::default(), repair, (Hints::default(), String::new()), None);
+            // IM_RepairButton and IM_CancelButton occupy the same slot and must be mutually exclusive.
+            assert_ne!(s.repair.shown, s.keyring);
+            let mut ui = tree();
+            let mut t = InventoryTiles::default();
+            run(&mut ui, Some(s), &mut t).unwrap();
+            let repair_vis = at(&ui, &button_path("IM_RepairButton"), "visible");
+            let cancel_vis = at(&ui, &button_path("IM_CancelButton"), "visible");
+            let keyring_open = at(&ui, INVENTORY_MENU, "_KeyringOpen");
+            (repair_vis, cancel_vis, keyring_open)
+        };
+
+        // Inside a ySI category folder on Weapons tab: Repair shown, Cancel/_KeyringOpen hidden (no overlap).
+        assert_eq!(check(Some(Folder::Ysi(0)), 0), (1.0, 0.0, 0.0));
+        // Inside vanilla Misc Keyring / Caravan Cards: Cancel/_KeyringOpen shown, Repair hidden.
+        assert_eq!(check(Some(Folder::Keys), 3), (0.0, 1.0, 1.0));
+        assert_eq!(check(Some(Folder::Cards), 3), (0.0, 1.0, 1.0));
+        // Tab root: Repair shown, Cancel/_KeyringOpen hidden.
+        assert_eq!(check(None, 0), (1.0, 0.0, 0.0));
     }
 }

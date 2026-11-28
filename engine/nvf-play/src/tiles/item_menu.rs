@@ -208,6 +208,17 @@ pub fn settle(ui: &mut Ui, s: &Snapshot, st: &mut MenuTiles, write_sizes: &mut d
         }
         ui.update();
     }
+    if s.ysi_icons {
+        let mut moved = false;
+        for side in SIDES {
+            for row in &st.rows[side as usize] {
+                moved |= fnv_game::ui_ysi::sync_row_icon_x(ui, row.tile);
+            }
+        }
+        if moved {
+            ui.update();
+        }
+    }
     for side in SIDES {
         let i = side as usize;
         let Some(list_tile) = ui.find_tile(st.paths.lists[i]) else { continue };
@@ -415,13 +426,25 @@ pub fn hover_selects(moved: bool, wheel_holds: bool, already: bool) -> bool {
 /// row selected and shift, the stack; another row, it selected and acted on; the row selected,
 /// its action.
 pub fn row_commands(side: Side, index: usize, on_it: bool, shift: bool) -> Vec<crate::menu::model::Command> {
+    row_commands_with(side, index, on_it, shift, false)
+}
+
+/// [`row_commands`] with optional Shift/Ctrl quantity-select shortcut routing
+/// (`quantity-select-short-keys`, #3799) [design: Shift takes precedence over Ctrl when both
+/// are held].
+pub fn row_commands_with(side: Side, index: usize, on_it: bool, shift: bool, ctrl_single: bool) -> Vec<crate::menu::model::Command> {
     use crate::menu::model::Command;
-    match (on_it, shift) {
-        (true, true) => vec![Command::Stack],
-        (false, _) => vec![Command::Hover(side, index), if shift { Command::Stack } else { Command::One }],
-        (true, false) => vec![Command::Select(side, index)],
+    match (on_it, shift, ctrl_single) {
+        (true, true, _) => vec![Command::Stack],
+        (true, false, true) => vec![Command::OneSingle],
+        (false, _, _) => vec![Command::Hover(side, index), if shift { Command::Stack } else if ctrl_single { Command::OneSingle } else { Command::One }],
+        (true, false, false) => vec![Command::Select(side, index)],
     }
 }
+
+#[cfg(test)]
+#[path = "item_menu_ysi_tests.rs"]
+mod item_menu_ysi_tests;
 
 #[cfg(test)]
 mod tests {

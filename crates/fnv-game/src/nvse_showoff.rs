@@ -246,7 +246,14 @@ impl Game<'_> {
         allowed
     }
 
-    /// `ShowOff:OnPreActivateInventoryItemAlt` for scripted `EquipItem` / `UseAidItem`.
+    /// `ShowOff:OnPreActivateInventoryItemAlt` for scripted `EquipItem` / `UseAidItem`
+    /// [observed 2026-11-24: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + ShowOffNVSE 184,
+    /// 10 official base masters, `GSDocMitchellHouse`, committed probes
+    /// `w6t2_02_showoff_pre_activate_inv_alt` and
+    /// `w6t2p2_02_pre_activate_inv_alt_allow_vs_omit`
+    /// (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`): scripted
+    /// `Player.EquipItem` fires `Alt` only (`na=0,al=1`), with `ThisAlt=Player`,
+    /// `isRef=1`, `bNotPrevented=1` (`alw=1`), `iKey=0`, `bEquipping=1`].
     /// Free when no `ShowOff:OnPreActivateInventoryItemAlt` handler is registered.
     pub(crate) fn pre_activate_inventory_item_alt(
         &mut self,
@@ -420,9 +427,15 @@ impl Game<'_> {
     /// `w1_3632_onfireweapon_and_forcejam` in #3679 (`SetEventHandlerAlt
     /// "ShowOff:OnFireWeapon"` with `begin Function { ref rWeap }`, `Player.FireWeapon`
     /// with `Weap10mmPistol` `0x0000434F` and 7-pellet Caravan Shotgun `0x000CD53A` ->
-    /// `self=0x14`, `weap=WEAP base`, 7-pellet shotgun fires once); hypothesis: NPC-actor
-    /// dispatch, non-actor and melee animation types 0..=2 exclusion, and god-mode
-    /// firing]. Free when no handler is registered.
+    /// `self=0x14`, `weap=WEAP base`, 7-pellet shotgun fires once); observed 2026-11-24:
+    /// committed probe `w6t2p3_04_fire_god_melee`
+    /// (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+    /// `norm(so=1,jp=1)|god(so=1,jp=0)|melee(so=1,jp=1)` confirming `ShowOff:OnFireWeapon`
+    /// still fires for the player in god mode (`ToggleGodMode`) while JIP suppresses;
+    /// hypothesis: NPC-actor dispatch, non-actor exclusion, and melee animation types
+    /// `0..=2` exclusion during normal combat (scripted `Player.FireWeapon` on a melee
+    /// weapon fired both handlers in `w6t2p3_04_fire_god_melee`)]. Free when no handler is
+    /// registered.
     pub(crate) fn showoff_on_fire_weapon(&mut self, actor: FormId, weapon: FormId, dedup_same_frame: bool) -> usize {
         if !self.handled(ON_FIRE_WEAPON) || weapon.0 == 0 {
             return 0;
@@ -489,9 +502,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     let v = match name {
         // Outside a ShowOff:OnAdd handler none [documented: only inside one].
         "getaddeditemrefshowoff" => XVal::Ref(g.showoff.added.map_or(0, |r| r.0)),
-        // Outside a ShowOff:OnExplosionHit handler 0 and nothing [documented: unusable
-        // outside it].
-        "getexplosionhitdamage" => XVal::Num(g.showoff.explosion_damage.unwrap_or(0.0)),
+        // Outside a ShowOff:OnExplosionHit handler returns -1.0 [observed: 2026-11-24,
+        // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_get_explosion_hit_damage_outside.json`
+        // probe `w6d1_18_on_explosion_hit_armor_dt`:
+        // `dt50(dmg=100.0,loss=75.0)|set30(dmg=100.0,loss=9.0)|rad=192.0,srcP=0,out=-1.0`;
+        // no DLL, PDB, or third-party source consulted].
+        "getexplosionhitdamage" => XVal::Num(g.showoff.explosion_damage.unwrap_or(-1.0)),
         "setexplosionhitdamage" => {
             if g.showoff.explosion_damage.is_some() {
                 g.showoff.explosion_damage = Some(num(args, 0, 0.0));

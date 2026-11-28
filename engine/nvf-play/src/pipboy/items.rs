@@ -68,7 +68,7 @@
 use super::frame::{self, Align, Card, Ctx, Hint, Kit, LINE, MAIN, THICK};
 use super::hotkey_panel::HotkeyHold;
 use crate::hotkeys::Hotkeys;
-use super::labels::label;
+use super::labels::built_in_label;
 use super::{Page, PageBody, PipBoy};
 use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{self, Category, Command, MenuModel, Mode, Row, Side};
@@ -246,18 +246,18 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
     if let Some((_, title, v)) = &i.first {
         out.push(tile(0.0, 0.0, w, title, v.clone()));
     }
-    out.push(tile(col(1.0), 0.0, w, label("sInventoryWeightUpper", "WG"), i.weight.clone().unwrap_or_else(|| "--".into())));
-    out.push(tile(col(2.0), 0.0, w, label("sInventoryValue", "VAL"), i.value.clone().unwrap_or_else(|| "--".into())));
+    out.push(tile(col(1.0), 0.0, w, built_in_label("sInventoryWeightUpper"), i.weight.clone().unwrap_or_else(|| "--".into())));
+    out.push(tile(col(2.0), 0.0, w, built_in_label("sInventoryValue"), i.value.clone().unwrap_or_else(|| "--".into())));
     if let Some(s) = i.strength {
-        out.push(tile(col(2.0), -h, w, label("sInventoryStrReq", "STR"), s.to_string()));
+        out.push(tile(col(2.0), -h, w, built_in_label("sInventoryStrReq"), s.to_string()));
     }
     if let Some(d) = &i.dps {
-        out.push(tile(0.0, -h, w, label("sInventoryDamagePerSecond", "DPS"), d.clone()));
+        out.push(tile(0.0, -h, w, built_in_label("sInventoryDamagePerSecond"), d.clone()));
     }
     let mut row = 1.0;
     if i.condition.is_some() || i.beside.is_some() {
         if let Some(cnd) = i.condition {
-            out.push(Tile { meter: Some(cnd.clamp(0.0, 1.0)), ..tile(0.0, h, w, label("sInventoryCondition", "CND"), String::new()) });
+            out.push(Tile { meter: Some(cnd.clamp(0.0, 1.0)), ..tile(0.0, h, w, built_in_label("sInventoryCondition"), String::new()) });
         }
         if let Some(b) = &i.beside {
             out.push(tile(col(1.0), h, 2.0 * w + 10.0, b, String::new()));
@@ -272,7 +272,7 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
                 out.push(tile(0.0, (row + n as f32) * h, 3.0 * w + 20.0, "", line.to_string()));
             }
         } else {
-            out.push(tile(0.0, row * h, 3.0 * w + 20.0, label("sInventoryEffects", "EFFECTS"), e.clone()));
+            out.push(tile(0.0, row * h, 3.0 * w + 20.0, built_in_label("sInventoryEffects"), e.clone()));
         }
     }
     out
@@ -346,7 +346,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 let w = &w;
                 // Binoculars and the like are weapons without damage: no DAM or STR
                 // [hypothesis].
-                i.first = (w.base_damage > 0).then(|| (FirstStat::Damage, label("sInventoryDamage", "DAM"), w.base_damage.to_string()));
+                i.first = (w.base_damage > 0).then(|| (FirstStat::Damage, built_in_label("sInventoryDamage"), w.base_damage.to_string()));
                 i.strength = (w.strength_req > 0).then_some(w.strength_req);
                 i.badge = w.skill.as_deref().and_then(skill_badge).map(str::to_string);
                 i.skill_req = i.badge.is_some().then_some(w.skill_req);
@@ -390,7 +390,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
         }
         Some(ItemKind::Armor) => {
             if let Some(a) = cf.and_then(|f| f.armor.get(&r.item)) {
-                i.first = Some((FirstStat::Threshold, label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
+                i.first = Some((FirstStat::Threshold, built_in_label("sInventoryDamageThreshold"), format!("{:.0}", a.dt)));
                 // The player's tweak compares with the worn pieces in the same slots, which
                 // it would replace (DR is 0 on New Vegas armour, so DT only) [design: docs/design/tweaks.md].
                 let worn = sim.world.equipment(FormId::PLAYER_REF).unwrap_or_default();
@@ -524,8 +524,13 @@ pub fn keys(
         send(Command::Drop);
     }
     // The player's tweak: Q drops the selected item too [design: docs/design/tweaks.md].
+    // With `quantity-select-short-keys` enabled (#3799), Shift drops the whole stack and
+    // Ctrl drops a single item without opening the quantity prompt [design].
     if !asking && drop_key && keys.just_pressed(KeyCode::KeyQ) {
-        send(Command::Drop);
+        let short_keys = active.0.as_ref().is_some_and(|m| m.qtt_select_short_keys);
+        let shift = short_keys && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        let ctrl = short_keys && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+        send(if shift { Command::DropStack } else if ctrl { Command::DropSingle } else { Command::Drop });
     }
     for w in wheel.read() {
         *lines += match w.unit {
@@ -588,8 +593,9 @@ fn on_row_click(
     if click.button == PointerButton::Secondary && !no_right_drop {
         if hold.slot.is_none() {
             let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+            let ctrl = active.0.as_ref().is_some_and(|m| m.qtt_select_short_keys) && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
             out.write(MenuInput(Command::Hover(Side::Player, r.0)));
-            out.write(MenuInput(if shift { Command::DropStack } else { Command::Drop }));
+            out.write(MenuInput(if shift { Command::DropStack } else if ctrl { Command::DropSingle } else { Command::Drop }));
         }
         return;
     }
@@ -721,10 +727,10 @@ pub fn draw(
     }
     commands.entity(body).despawn_children().with_children(|p| {
         let cards = [
-            Card::new(WG.0, WG.1, label("sInventoryWeight", "Wg"), wg_text(m)),
-            Card::new(HP.0, HP.1, label("sHitPointsShort", "HP"), hp),
-            Card::new(DT.0, DT.1, label("sInventoryDamageThreshold", "DT"), dt),
-            Card::new(CAPS.0, CAPS.1, label("sInventoryCaps", "Caps"), caps.to_string()),
+            Card::new(WG.0, WG.1, built_in_label("sInventoryWeight"), wg_text(m)),
+            Card::new(HP.0, HP.1, built_in_label("sHitPointsShort"), hp),
+            Card::new(DT.0, DT.1, built_in_label("sInventoryDamageThreshold"), dt),
+            Card::new(CAPS.0, CAPS.1, built_in_label("sInventoryCaps"), caps.to_string()),
         ];
         frame::heading(p, &mut c, Page::Items.title(), &cards);
         list(p, &mut c, m, first, &heights, pip.tab());
@@ -800,7 +806,7 @@ pub fn page_hints(tab: Category, row: Option<&Row>, repair: (&'static str, bool)
     };
     if tab == Category::Weapons {
         // X, with a controller LB (`inventory_menu.xml`'s, `crate::pad::menu_buttons`).
-        out.push(Hint::new(label("sInventoryMod", "Mod"), key(KeyCode::KeyX), !mod_slots));
+        out.push(Hint::new(built_in_label("sInventoryMod"), key(KeyCode::KeyX), !mod_slots));
     }
     out
 }
@@ -812,7 +818,7 @@ const UNEQUIP: &str = "Unequip";
 
 /// [design, #2312] The existing hint/glyph path names RB (or R1) for the panel.
 pub fn hotkey_button() -> String {
-    format!("{})", crate::pad::pad_label(crate::pad::PadInput::Button(GamepadButton::RightTrigger), crate::pad::labels()))
+    format!("[{}]", crate::pad::pad_label(crate::pad::PadInput::Button(GamepadButton::RightTrigger), crate::pad::labels()))
 }
 
 /// The drop hint's key: a right click on the keyboard and mouse (owner 2026-11-02, #1393),
@@ -821,8 +827,8 @@ pub fn hotkey_button() -> String {
 fn drop_key() -> String {
     use crate::pad::{labels, pad_label, Labels, PadInput};
     match labels() {
-        Labels::Keys => format!("{})", crate::bindings::mouse_name(MouseButton::Right)),
-        l => format!("{})", pad_label(PadInput::Button(GamepadButton::West), l)),
+        Labels::Keys => format!("[{}]", crate::bindings::mouse_name(MouseButton::Right)),
+        l => format!("[{}]", pad_label(PadInput::Button(GamepadButton::West), l)),
     }
 }
 
@@ -1160,26 +1166,26 @@ mod tests {
         let keys_misc_ammo: Vec<_> = [Category::Misc, Category::Ammo].map(|tab| shown(&page_hints(tab, Some(&misc(tab)), ("Repair", false), false, false))).into();
         let keys_empty = shown(&page_hints(Category::Weapons, None, ("Repair", false), false, true));
 
-        assert_eq!(weapons, [hint("Equip A)", false), hint("Drop X)", false), hint("Repair Y)", false), hint("Hotkey RB)", false), hint("Mod LB)", false)]);
-        assert_eq!(bare, ("Repair", true, "Mod", true, false));
-        assert_eq!(apparel, [hint("Unequip A)", false), hint("Drop X)", false), hint("Maintain Y)", true), hint("Hotkey RB)", false)]);
-        assert_eq!(aid, [hint("Use A)", false), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey RB)", false)]);
+        assert_eq!(weapons, [hint("Equip [A]", false), hint("Drop [X]", false), hint("Repair [Y]", false), hint("Hotkey [RB]", false), hint("Modify [LB]", false)]);
+        assert_eq!(bare, ("Repair", true, "Modify", true, false));
+        assert_eq!(apparel, [hint("Unequip [A]", false), hint("Drop [X]", false), hint("Maintain [Y]", true), hint("Hotkey [RB]", false)]);
+        assert_eq!(aid, [hint("Use [A]", false), hint("Drop [X]", false), hint("Repair [Y]", true), hint("Hotkey [RB]", false)]);
         assert_eq!(book, "Use");
-        assert_eq!(refused, ("Equip A)".to_string(), true, false));
+        assert_eq!(refused, ("Equip [A]".to_string(), true, false));
         for h in &misc_ammo {
-            assert_eq!(h, &[hint("Equip A)", true), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey RB)", true)]);
+            assert_eq!(h, &[hint("Equip [A]", true), hint("Drop [X]", false), hint("Repair [Y]", true), hint("Hotkey [RB]", true)]);
         }
         assert!(quest);
         assert_eq!(empty, (5, true), "an empty Weapons tab: all five controller hints, all dim");
 
-        assert_eq!(keys_weapons, [hint("Repair R)", false), hint("Mod X)", false)]);
-        assert_eq!(keys_bare, [hint("Repair R)", true), hint("Mod X)", true)]);
-        assert_eq!(keys_apparel, [hint("Maintain R)", true)]);
-        assert_eq!(keys_aid, [hint("Repair R)", true)]);
+        assert_eq!(keys_weapons, [hint("Repair [R]", false), hint("Modify [X]", false)]);
+        assert_eq!(keys_bare, [hint("Repair [R]", true), hint("Modify [X]", true)]);
+        assert_eq!(keys_apparel, [hint("Maintain [R]", true)]);
+        assert_eq!(keys_aid, [hint("Repair [R]", true)]);
         for h in &keys_misc_ammo {
-            assert_eq!(h, &[hint("Repair R)", true)]);
+            assert_eq!(h, &[hint("Repair [R]", true)]);
         }
-        assert_eq!(keys_empty, [hint("Repair R)", true), hint("Mod X)", true)]);
+        assert_eq!(keys_empty, [hint("Repair [R]", true), hint("Modify [X]", true)]);
     }
 
     /// Five hints 46 apart from the Repair button's place end above the figures' highest
@@ -1259,7 +1265,7 @@ mod tests {
         };
         let t = info_tiles(&weapon);
         let titles: Vec<&str> = t.iter().map(|t| t.title.as_str()).collect();
-        assert_eq!(titles, ["DAM", "WG", "VAL", "STR", "DPS", "CND", "40mm Grenade (1/19)"]);
+        assert_eq!(titles, ["DAM", "WEIGHT", "Value", "Strength Req.", "DPS", "Condition", "40mm Grenade (1/19)"]);
         assert_eq!(t[4].rect.min, Vec2::new(0.0, -h));
         assert_eq!(t[1].rect.min, Vec2::new(w + 10.0, 0.0));
         assert_eq!(t[3].rect.min, Vec2::new(2.0 * (w + 10.0), -h));
@@ -1269,7 +1275,7 @@ mod tests {
         let aid = Info { value: Some("675".into()), effects: Some("HP +40".into()), ..Info::default() };
         let t = info_tiles(&aid);
         assert_eq!(t[0].value, "--");
-        assert_eq!((t[2].title.as_str(), t[2].rect.min.y), ("EFFECTS", h));
+        assert_eq!((t[2].title.as_str(), t[2].rect.min.y), ("Effects", h));
         // Armour: effects under the condition row.
         let armour = Info { condition: Some(1.0), beside: Some("Medium".into()), effects: Some("AGL -1".into()), ..Info::default() };
         assert_eq!(info_tiles(&armour).last().map(|t| t.rect.min.y), Some(2.0 * h));

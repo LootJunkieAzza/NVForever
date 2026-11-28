@@ -495,16 +495,26 @@ fn apply_pbr_lighting(
         if ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u
                 && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             if nvf_lit {
-                shadow = shadows::fetch_point_shadow(light_id, in.world_position, in.world_normal, in.frag_coord.xy);
+                // NVForever held light shadow maps: by its weight, under 0 past a weight of
+                // 1 (shadows.wesl `nvf_weigh_shadow`); the sums below take it as they need.
+                shadow = shadows::nvf_fetch_point_shadow_weighed(light_id, in.world_position, in.world_normal, in.frag_coord.xy);
             }
         }
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
-        if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && shadow > 0.0 &&
+        if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u &&
+                shadow > shadows::nvf_shadow_floor(light_id) &&
                 (view_bindings::clustered_lights.data[light_id].flags &
                     mesh_view_types::POINT_LIGHT_FLAGS_CONTACT_SHADOWS_ENABLED_BIT) != 0u {
             let L = normalize(view_bindings::clustered_lights.data[light_id].position_radius.xyz - in.world_position.xyz);
-            shadow *= calculate_contact_shadow(in.world_position.xyz, in.frag_coord.xy, L, contact_shadow_steps);
+            // NVForever held light shadow maps: the contact shadow takes the light's weight
+            // with its map's shadow (shadows.wesl `nvf_shadow_weight`: 1 for a light without
+            // one), once for both: `shadow` is 1 - weight + weight * map, and the march takes
+            // its share of the weighed part alone, 1 - weight + weight * map * contact.
+            // Weighed apart they multiplied (at a weight of 0.75 a place both shade kept 6% of
+            // the light, the map's shadow 25%); and a place the map shades in full (the test
+            // above) needs no march.
+            shadow = mix(shadows::nvf_shadow_floor(light_id), shadow, calculate_contact_shadow(in.world_position.xyz, in.frag_coord.xy, L, contact_shadow_steps));
         }
 
         let light_contrib = lighting::point_light(light_id, &lighting_input, enable_diffuse, true);
@@ -562,7 +572,8 @@ fn apply_pbr_lighting(
                 && (view_bindings::clustered_lights.data[light_id].flags &
                     mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             if nvf_lit {
-                shadow = shadows::fetch_spot_shadow(
+                // NVForever held light shadow maps: by its weight, as the point light's.
+                shadow = shadows::nvf_fetch_spot_shadow_weighed(
                     light_id,
                     in.world_position,
                     in.world_normal,
@@ -573,11 +584,19 @@ fn apply_pbr_lighting(
         }
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
-        if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && shadow > 0.0 &&
+        if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u &&
+                shadow > shadows::nvf_shadow_floor(light_id) &&
                 (view_bindings::clustered_lights.data[light_id].flags &
                     mesh_view_types::POINT_LIGHT_FLAGS_CONTACT_SHADOWS_ENABLED_BIT) != 0u {
             let L = normalize(view_bindings::clustered_lights.data[light_id].position_radius.xyz - in.world_position.xyz);
-            shadow *= calculate_contact_shadow(in.world_position.xyz, in.frag_coord.xy, L, contact_shadow_steps);
+            // NVForever held light shadow maps: the contact shadow takes the light's weight
+            // with its map's shadow (shadows.wesl `nvf_shadow_weight`: 1 for a light without
+            // one), once for both: `shadow` is 1 - weight + weight * map, and the march takes
+            // its share of the weighed part alone, 1 - weight + weight * map * contact.
+            // Weighed apart they multiplied (at a weight of 0.75 a place both shade kept 6% of
+            // the light, the map's shadow 25%); and a place the map shades in full (the test
+            // above) needs no march.
+            shadow = mix(shadows::nvf_shadow_floor(light_id), shadow, calculate_contact_shadow(in.world_position.xyz, in.frag_coord.xy, L, contact_shadow_steps));
         }
 
         let light_contrib = lighting::spot_light(light_id, &lighting_input, enable_diffuse);

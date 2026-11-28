@@ -200,6 +200,8 @@ pub(crate) struct Props {
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
     shader: bool,
+    /// The shape is a shadow patch baked into its model ([`baked_shadow_patch`]).
+    pub(crate) shadow_patch: bool,
 }
 
 impl Props {
@@ -738,7 +740,62 @@ pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_blo
         }
     }
     props.vertex_faded = props.vertex_faded && props.unlit && props.alpha.is_none() && vertex_alpha_below_one(dec, o.block);
+    props.shadow_patch = baked_shadow_patch(&props, dec, o.block);
+    // A shadow patch takes its vertex alpha whatever the flag ([`baked_shadow_patch`]).
+    props.vertex_alpha |= props.shadow_patch;
     props
+}
+
+/// NiAlphaProperty flags that blend SRC_ALPHA / INV_SRC_ALPHA [documented: nif.xml
+/// AlphaFlags: bit 0 blending, bits 1-4 the source factor, bits 5-8 the destination's;
+/// 6 SRC_ALPHA, 7 INV_SRC_ALPHA].
+pub(crate) fn blends_over(flags: i64) -> bool {
+    flags & 1 != 0 && (flags >> 1) & 15 == 6 && (flags >> 5) & 15 == 7
+}
+
+/// Whether these vertex colours (as stored) are a shadow's: every one black (each channel
+/// at most [`SHADOW_BLACK`] once cleaned), some alpha below 1 and some above 0.
+pub(crate) fn shadow_colours(colours: &[[f32; 4]]) -> bool {
+    let clean: Vec<[f32; 4]> = colours.iter().map(|c| clean_vertex_color(*c, true)).collect();
+    !clean.is_empty()
+        && clean.iter().all(|c| c[0] <= SHADOW_BLACK && c[1] <= SHADOW_BLACK && c[2] <= SHADOW_BLACK)
+        && clean.iter().any(|c| c[3] < 1.0)
+        && clean.iter().any(|c| c[3] > 0.0)
+}
+
+/// The largest colour channel a shadow patch's vertex may hold [engineering choice: the
+/// patches store exact black].
+pub(crate) const SHADOW_BLACK: f32 = 0.02;
+
+/// Whether a shape is a shadow patch baked into its model: the dark polygon the game's
+/// furniture carries on the floor under it. An unlit shape (BSShaderNoLightingProperty)
+/// that names no texture, blends SRC_ALPHA / INV_SRC_ALPHA ([`blends_over`]) and whose
+/// vertex colours are black with an alpha that varies ([`shadow_colours`]) [observed:
+/// `CardTable01:1` of `meshes\clutter\casino\cardtable01.nif`, decoded: 20 vertices on
+/// the floor plane under the table, colour 0 0 0, alpha 0 along the outline and 0.7
+/// inside, NiAlphaProperty 0x10ED, shader flags 0x82000000].
+///
+/// Such a shape takes its vertex alpha whether or not its shader sets "Vertex_Alpha"
+/// [hypothesis, playtest 2026-11-25: the card table's does not set it, and with the alpha
+/// taken as 1 ([`clean_vertex_color`]) the patch was an opaque black octagon with a hard
+/// outline; its stored alpha is the picture of a shadow, nothing at its edge and 70% in
+/// the middle, which only shows if the alpha is drawn. No frame of the original was
+/// compared; docs/spec-notes/nif.md §6 "Vertex colours"]. It does not fade where it meets
+/// the surface behind it either (`nif_material::soft_intersections`): it lies on that
+/// surface, and the fade's test of that (the two facings from screen derivatives) failed
+/// from a few metres away, so the patch went from half gone to whole as the camera moved
+/// (the player's video of that table).
+///
+/// 1,314 shapes of the base game's and the add-ons' archives are such [observed 2026-11-25,
+/// `crates/fnv-nif/examples/baked_shadow_survey.rs`]: the patches under furniture (alpha
+/// 0.4 to 0.8), and 196 that are black in full somewhere, the dark of recessed ceiling
+/// lights, tunnel mouths, doorways and wall holes.
+pub(crate) fn baked_shadow_patch(props: &Props, dec: &Decoded, shape: usize) -> bool {
+    if !props.unlit || !props.textures.iter().all(|t| t.is_empty()) || !props.alpha.is_some_and(|(flags, _)| blends_over(flags)) {
+        return false;
+    }
+    let data = dec.blocks.get(shape).and_then(|b| b.as_ref().ok()).and_then(|s| s.block_ref("data")).and_then(|r| dec.get(r));
+    data.and_then(|d| d.floats("vertex_colors")).is_some_and(|c| shadow_colours(c.as_chunks::<4>().0))
 }
 
 /// Perceptual roughness for a NiMaterialProperty glossiness, read as a Blinn-Phong
@@ -814,13 +871,23 @@ pub fn display_to_linear(v: f32) -> f32 {
 /// and made Doc Mitchell's bed, the Goodsprings gas station's vending machine and door
 /// shine like wet paint (owner's playtest, 2026-10-11). Such a shape gets
 /// [`UNMASKED_SPECULAR`] instead [hypothesis, nif.md §6 "Specular"].
+///
+/// Under Physical lighting (graphics-enhanced.md §3.25) a normal-mapped shape without the
+/// flag takes a faint reflectance of 0.32 (F0 about 0.016) in place of none, with its
+/// roughness held at 0.86 or more (`shape_material_inner`) [design].
 pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (f32, bool) {
+    specular_with(props, has_normal_map, unmasked, crate::authored::physical_pbr())
+}
+
+/// [`specular`] for a run with or without Physical lighting.
+fn specular_with(props: &Props, has_normal_map: bool, unmasked: bool, physical: bool) -> (f32, bool) {
     if props.hair {
         return (0.0, false);
     }
     match (has_normal_map, props.specular) {
         (true, true) if unmasked => (UNMASKED_SPECULAR, false),
         (true, true) => (2.0, true),
+        (true, false) if physical => (0.32, false),
         (true, false) => (0.0, false),
         (false, _) => (0.3, false),
     }
@@ -1116,6 +1183,53 @@ pub(crate) fn blend_is_opaque(props: &Props, cut: Option<f32>, alpha_mode: Alpha
     matches!(alpha_mode, AlphaMode::Blend) && source_over && nothing_thins_it && opaque_texture()
 }
 
+/// One shape of a survey of [`blend_is_opaque`] over whole archives
+/// ([`blend_opaque_survey`]; the example `blend_opaque_survey`, #3230).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlendSurveyShape {
+    /// The shape's name in its file (`"?"` when it has none).
+    pub shape: String,
+    /// Its base texture path as the file stores it.
+    pub texture: String,
+    /// The rule draws it opaque.
+    pub drawn_opaque: bool,
+    /// It tests alpha as well (NiAlphaProperty bit 9).
+    pub tested: bool,
+    /// Everything holds but the window environment map, which keeps the blend.
+    pub only_window_env: bool,
+}
+
+/// The shapes of one model that are drawn blended by their NiAlphaProperty, with whether
+/// [`blend_is_opaque`] draws each opaque, `opaque` telling whether a texture path is opaque
+/// in every texel. The rule's own test, not a copy: a survey that counts what the engine
+/// does (#3230 asked for every world model).
+pub fn blend_opaque_survey(bytes: &[u8], schema: &fnv_nif::Schema, opaque: impl Fn(&str) -> bool) -> Vec<BlendSurveyShape> {
+    let Ok(file) = NifFile::parse(bytes, Some(schema)) else { return Vec::new() };
+    let dec = Decoded::new(&file, bytes, schema);
+    let objects = fnv_nif::scene::scene_objects(&file, &dec);
+    let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+    let mut out = Vec::new();
+    for o in objects.iter().filter(|o| !o.is_node) {
+        let props = shape_props(&file, &dec, o, &by_block);
+        let Some((flags, _)) = props.alpha else { continue };
+        let mode = shape_alpha_mode(&props);
+        if !matches!(mode, AlphaMode::Blend) {
+            continue;
+        }
+        let texture = props.textures.first().cloned().unwrap_or_default();
+        let tex_opaque = || !texture.is_empty() && opaque(&texture);
+        // A vertex-alpha cut needs the mesh; the rule refuses vertex alpha before it.
+        let drawn_opaque = blend_is_opaque(&props, None, mode, tex_opaque);
+        let only_window_env = !drawn_opaque && props.env.is_some_and(|e| e.window) && {
+            let mut p = props.clone();
+            p.env = None;
+            blend_is_opaque(&p, None, mode, tex_opaque)
+        };
+        out.push(BlendSurveyShape { shape: o.name.clone().unwrap_or_else(|| "?".into()), texture, drawn_opaque, tested: flags & 0x200 != 0, only_window_env });
+    }
+    out
+}
+
 /// The alpha from which a blended shape's texels belong to its solid core ([`solid_core`])
 /// [engineering choice: at 0.85 and above the blend shows at most 15% of what lies behind, so
 /// the texel is a surface to everything that reads depth. At 0.98, the first choice, the
@@ -1395,7 +1509,10 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         // Green points down the image (DirectX style), Bevy expects up [observed,
         // docs/spec-notes/nif.md §6 "Normal maps"].
         flip_normal_map_y: true,
-        perceptual_roughness: gloss_roughness(gloss),
+        // Physical lighting: shapes without the specular flag (or hair) are rough, at least
+        // 0.86, so the sky's image-based light does not gloss them [design, tuned by eye on
+        // #3828's branch].
+        perceptual_roughness: if crate::authored::physical_pbr() && !props.specular && !props.hair { gloss_roughness(gloss).max(0.86) } else { gloss_roughness(gloss) },
         metallic: 0.0,
         reflectance,
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
@@ -1432,7 +1549,9 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         unlit_vertex_colors(&mut material);
     }
     material.extension.decal = props.decal;
-    if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
+    // A baked shadow patch lies on the surface behind it: no fade where they meet
+    // ([`baked_shadow_patch`]).
+    if !props.shadow_patch && crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
     }
     if let Some(strength) = props.refraction {
@@ -2630,6 +2749,29 @@ mod tests {
     }
 
     #[test]
+    fn a_baked_shadow_patch_is_black_vertices_with_a_varying_alpha_that_blend() {
+        // The card table's patch: alpha 0 along the outline, 0.7 inside.
+        let patch = [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.7], [0.0, 0.0, 0.0, 0.0]];
+        assert!(shadow_colours(&patch));
+        assert!(!shadow_colours(&[]), "no colours");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 1.0]; 3]), "alpha 1 everywhere: nothing to show");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 0.0]; 3]), "alpha 0 everywhere: nothing drawn");
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, 0.0], [0.9, 0.5, 0.1, 0.7]]), "a coloured glow, not a shadow");
+        assert!(shadow_colours(&[[0.01, 0.0, 0.02, 0.0], [0.0, 0.0, 0.0, 0.5]]), "within SHADOW_BLACK");
+        // Garbage alphas are cleaned to 1 first (`clean_vertex_color`).
+        assert!(!shadow_colours(&[[0.0, 0.0, 0.0, f32::NAN], [0.0, 0.0, 0.0, 1.0]]));
+        // 0x10ED: blending, SRC_ALPHA / INV_SRC_ALPHA, no test.
+        assert!(blends_over(0x10ED));
+        assert!(!blends_over(0x10EC), "blending off");
+        assert!(!blends_over(0x100D), "SRC_ALPHA / ONE: additive");
+        // The shape takes its vertex alpha though its shader does not set the flag.
+        let props = Props { unlit: true, alpha: Some((0x10ED, 0)), shadow_patch: true, vertex_alpha: true, textures: vec![String::new()], ..Default::default() };
+        assert!(matches!(shape_alpha_mode(&props), AlphaMode::Blend));
+        assert_eq!(clean_vertex_color([0.0, 0.0, 0.0, 0.7], props.vertex_alpha)[3], 0.7);
+        assert_eq!(clean_vertex_color([0.0, 0.0, 0.0, 0.7], false)[3], 1.0, "without it: the opaque black patch");
+    }
+
+    #[test]
     fn falloff_only_when_blended() {
         let props = Props { falloff: Falloff::from_fields(0.985, 0.174, 1.0, 0.0), ..Default::default() };
         assert!(shape_falloff(&props, AlphaMode::Add).is_some());
@@ -2796,51 +2938,7 @@ mod tests {
 
     // A synthetic NIF (20.2.0.7, user version 11, BS version 34) in the layout of
     // `crates/fnv-nif/tests/synthetic.rs` and `schemas/nif`; no game data.
-    fn words(out: &mut Vec<u8>, values: &[u32]) {
-        out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
-    }
-
-    fn floats(out: &mut Vec<u8>, values: &[f32]) {
-        out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
-    }
-
-    fn nif(blocks: &[(&str, Vec<u8>)], strings: &[&str]) -> Vec<u8> {
-        fn string(out: &mut Vec<u8>, s: &str) {
-            words(out, &[s.len() as u32]);
-            out.extend(s.as_bytes());
-        }
-        let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
-        words(&mut out, &[0x1402_0007]);
-        out.push(1);
-        words(&mut out, &[11, blocks.len() as u32, 34]);
-        out.extend([1, 0, 1, 0, 1, 0]); // three empty export strings
-        let mut types = vec![];
-        for (kind, _) in blocks {
-            if !types.contains(kind) {
-                types.push(*kind);
-            }
-        }
-        out.extend((types.len() as u16).to_le_bytes());
-        for kind in &types {
-            string(&mut out, kind);
-        }
-        for (kind, _) in blocks {
-            out.extend((types.iter().position(|t| t == kind).unwrap() as u16).to_le_bytes());
-        }
-        for (_, block) in blocks {
-            words(&mut out, &[block.len() as u32]);
-        }
-        words(&mut out, &[strings.len() as u32, strings.iter().map(|s| s.len()).max().unwrap_or(0) as u32]);
-        for s in strings {
-            string(&mut out, s);
-        }
-        words(&mut out, &[0]); // groups
-        for (_, block) in blocks {
-            out.extend(block);
-        }
-        words(&mut out, &[1, 0]); // footer: one root, block 0
-        out
-    }
+    use super::made_nif::{floats, nif, words};
 
     /// NiAVObject fields: name (string index), no extra data or controller, flags 14,
     /// identity transform, these properties, no collision.
@@ -2973,7 +3071,7 @@ mod tests {
         let (m, _) = shape_material_inner(&props, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
         assert!(m.extension.env_cube.is_some() && m.extension.env_mask.is_some(), "cube and mask bound");
         assert_eq!((m.extension.env.x, m.extension.env.y), (1.5, 1.0), "the scale and the slot-5 mask");
-        assert_eq!((m.extension.env_how.z, m.extension.env_how.w), (0.0, 1.0), "a reflecting shape, not a window");
+        assert_eq!((m.extension.env_how.z, m.extension.env_how.w), (0.0, 2.0), "a reflecting shape, not a window: the vertex normal");
         let window = env_model_props((1 << 7) | (1 << 21));
         let (w, _) = shape_material_inner(&window, &mut tri.clone(), &mut AllTextures, Tangents::Generate, &d);
         assert_eq!(w.extension.env_how.z, 1.0, "both flags: a window shape");
@@ -3403,12 +3501,20 @@ mod tests {
         assert_eq!(specular(&flagged, false, false), (0.3, false));
         let hair = Props { specular: true, hair: true, ..Default::default() };
         assert_eq!((specular(&hair, true, false), specular(&hair, false, false)), ((0.0, false), (0.0, false)));
+        // Physical lighting: a faint reflectance without the flag; the flag and hair as before.
+        assert_eq!(specular_with(&Props::default(), true, false, true), (0.32, false));
+        assert_eq!(specular_with(&flagged, true, false, true), (2.0, true));
+        assert_eq!(specular_with(&hair, true, false, true), (0.0, false));
         // Phong exponent → roughness: 0 is fully rough, higher is smoother.
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);
         assert!(gloss_roughness(10.0) > gloss_roughness(67.0) && gloss_roughness(-5.0) == 1.0);
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/made_nif/mod.rs"]
+mod made_nif;
 
 #[cfg(test)]
 #[path = "nif_numeric_admission_tests.rs"]

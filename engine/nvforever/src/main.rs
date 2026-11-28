@@ -42,6 +42,7 @@ mod fos_start;
 mod reports;
 mod native_crash;
 mod exit_watch;
+mod run_end;
 #[cfg(target_os = "linux")]
 mod native_crash_unix;
 mod camera_overlay;
@@ -97,6 +98,7 @@ mod decals;
 mod dismember;
 mod distant_lights;
 mod knockouts;
+mod coop;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -140,6 +142,9 @@ mod light_shadow_casters;
 mod light_shadow_detail;
 mod light_shadows;
 mod lights;
+mod photo_lights;
+mod physical_ibl;
+mod tone_presets;
 mod limbs;
 mod lips;
 mod memory_budget;
@@ -159,6 +164,11 @@ mod terminal_view;
 mod scope_lens;
 mod scope_view;
 mod poker_view;
+mod slots_view;
+mod caravan_pot;
+mod caravan_view;
+mod card_shape;
+mod slots_seat;
 mod lod;
 mod locomotion;
 mod combat_face;
@@ -197,6 +207,7 @@ mod talk_clips;
 mod readahead;
 mod reflection;
 mod reflection_sky;
+mod rtgi_volume;
 mod minimap_render;
 mod refraction;
 mod residents;
@@ -219,6 +230,7 @@ mod shadow_thin;
 mod shafts;
 mod heat_haze;
 mod sun_heightfield;
+mod bokeh;
 mod imagespace;
 mod imposters;
 mod sky;
@@ -269,6 +281,7 @@ mod vigor_view;
 mod walk_probe;
 mod water;
 mod weapon_models;
+mod wind_dust;
 mod window_icon;
 mod window_mode;
 mod keep_awake;
@@ -329,6 +342,11 @@ struct Args {
     /// The profile in that instance (default: the instance's selected_profile).
     #[arg(long, value_name = "NAME")]
     profile: Option<String>,
+    /// An enabled mod folder, lowest priority first. Repeat for each folder. The launcher
+    /// passes these. The game does not read `mod-order.txt`. With none, every mod folder
+    /// is a layer in name order, and folder on/off is not applied.
+    #[arg(long = "mod-layer")]
+    mod_layers: Vec<PathBuf>,
     /// Record schema directory.
     #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv"))]
     esm_schema: PathBuf,
@@ -1382,9 +1400,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    // A mods folder's copy of a plugin is opened instead of Data's (fnv_install::plugins):
-    // NVForever's own mods folder, or an MO2 profile's mods from the highest priority down
-    // with its overwrite folder first (#1526).
+    // The mods folders: with --mo2, an MO2 profile's mods from the highest priority down
+    // with its overwrite folder first (#1526), as on main; otherwise NVForever's own mods
+    // folder, whose enabled folders are the layers below.
     let mods: Vec<PathBuf> = match &mo2 {
         Some(l) => {
             let mut roots = l.mod_roots();
@@ -1411,7 +1429,28 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     } else {
         None
     };
-    let opened = world::open_plugins(args.data(), &mods, &args.plugins);
+    // Without --mo2, the enabled mod folders are layers over Data, lowest priority first: the
+    // launcher passes them as --mod-layer (it reads mod-order.txt; the game does not). With
+    // none, every mod folder is a layer in name order. Plugins come from the same layers,
+    // highest first, then one left loose at the top of the mods folder, then Data, so a
+    // turned-off folder's plugin is not opened and the list order picks between two copies.
+    let mods_dir = mods.first().cloned().unwrap_or_default();
+    let launcher_layers: Vec<PathBuf> = if mo2.is_some() {
+        Vec::new()
+    } else if !args.mod_layers.is_empty() {
+        args.mod_layers.clone()
+    } else if mods_dir.is_dir() {
+        fnv_install::plugins::mod_folder_layers(&mods_dir)
+    } else {
+        Vec::new()
+    };
+    let opened = if mo2.is_some() {
+        world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_in(args.data(), &mods, n))
+    } else {
+        let layered = fnv_install::plugins::layered_plugin_files(&launcher_layers, mods_dir.is_dir().then_some(mods_dir.as_path()));
+        let link_into = mods_dir.is_dir().then_some(mods_dir.as_path());
+        world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_layered(args.data(), &layered, link_into, n))
+    };
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // No setting names the code page: the plugins' own text says it, else the language
     // Steam installed the game in (a translation mod on an English install keeps its
@@ -1521,9 +1560,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     };
     // The test aids' folders, the last highest.
     let overs: Vec<PathBuf> = mount_pack.into_iter().chain(ground_pack).collect();
-    // The archives beside a plugin in the mods folder are mounted with it. The VFS takes
-    // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
-    // above, which wants the overwrite folder first.
+    // `--mo2` is unchanged: that instance's folders, read only. Otherwise the enabled
+    // mod folders are layers over Data. Loose files and archives in Data are still read.
+    // The test aids' folders (the reflection mount pack, the ground pack), when asked for,
+    // are the highest loose layers.
     let game = match &mo2 {
         Some(l) => {
             // The test aids' folders as the highest layers, for this run only.
@@ -1531,7 +1571,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             roots.extend(overs.iter().cloned());
             GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
         }
-        None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), &overs, &args.plugins, &args.nif_schema),
+        None => {
+            let mut layers = launcher_layers.clone();
+            layers.extend(overs.iter().cloned());
+            GameData::open_launcher_mods(args.data(), &mods_dir, &layers, &args.plugins, &args.nif_schema)
+        }
     };
     let game = match game {
         Ok(g) => g,
@@ -1912,6 +1956,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // never mix the two; the page's row changes the next start's.
     let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::authored::set_enabled(authored);
+    // Physical PBR lighting (graphics-enhanced.md §3.25): the run's state by the same rule,
+    // fixed before the first shader hook and material; the page's row changes the next start's.
+    let physical_pbr = settings::physical_pbr_after_ini(graphics.physical_pbr, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::authored::set_physical_pbr(physical_pbr);
+    app.add_systems(Startup, move || info!("physical PBR: {}", if physical_pbr { "on" } else { "off" }));
     app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
     // Reflections on authored materials (#2981): the run's state by the same rule, fixed
     // before the first NIF pipeline (the opt-in def and the metallic factor); the world
@@ -1919,6 +1968,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // (reflection_sky.rs).
     let reflections = settings::reflections_after_ini(graphics.authored_reflections, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::reflection_cube::set_enabled(reflections && authored);
+    if physical_pbr && reflections && authored {
+        app.add_systems(Startup, || info!("physical PBR: authored reflections keep the view's environment map; the sky's image-based light is off and other surfaces take flat ambient"));
+    }
     app.add_systems(Startup, move || {
         info!(
             "authored reflections: {}",
@@ -2020,7 +2072,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     #[cfg(target_os = "android")]
     let default_plugins = default_plugins.disable::<bevy::gilrs::GilrsPlugin>();
     app.add_plugins(default_plugins)
-    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, keep_awake::KeepAwakePlugin, hdr::HdrPlugin))
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, keep_awake::KeepAwakePlugin, hdr::HdrPlugin, photo_lights::PhotoLightsPlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins(night_sky::NightSkyPlugin)
@@ -2030,9 +2082,15 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // Its solid cores of blended shapes (only while the light is drawn).
     .add_plugins(solid_cores::SolidCoresPlugin)
     // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
+    // Physical lighting's image-based light from the sky (graphics-enhanced.md §3.25); idle
+    // without the row.
+    .add_plugins(physical_ibl::PhysicalIblPlugin)
+    .add_plugins(tone_presets::TonePresetsPlugin)
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    // The bounce light volume: its shader for the lighting (imported only under its def), its bindings (only on request).
+    .add_plugins(rtgi_volume::RtgiVolumePlugin)
     // Shadows of placed lights, the ALC shadows row (off by default).
     .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))
     .add_plugins(light_shadow_detail::LightShadowDetailPlugin)
@@ -2123,6 +2181,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         centre: None,
         waiting: Vec::new(),
         model_overrides: Default::default(),
+        coop_areas: Vec::new(),
         travels: 0,
     })
     .insert_resource(world)
@@ -2296,6 +2355,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(roulette_view::RouletteViewPlugin);
         // The blackjack table (blackjack_view.rs).
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // The reels turning on the placed slot machine, its arm and spin camera (slots_view.rs).
+        app.add_plugins(slots_view::SlotsViewPlugin);
         // Test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: the terrain parallax's readback (#3322).
         terrain_parallax_ab::install(&mut app);
         // The terminal's monitor (terminal_view.rs).
@@ -2305,6 +2366,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(scope_view::ScopeViewPlugin);
         // The poker table (poker_view.rs).
         app.add_plugins(poker_view::PokerViewPlugin);
+        // The Caravan table in 3D (caravan_view.rs).
+        app.add_plugins(caravan_view::CaravanViewPlugin);
     }
     if let Some(a) = actor_world {
         if let Some(c) = creator_data.take() {
@@ -2345,6 +2408,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.insert_resource(inertia);
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
+            // Co-op: idle until a lobby is opened or joined.
+            app.add_plugins(coop::CoopPlugin(coop::Config { host: None, join: None, name: "Courier".to_string() }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
@@ -2404,6 +2469,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.add_plugins(npc_combat::NpcCombatPlugin);
             // NPCs heal with the stimpaks they carry (npc_stimpaks.rs).
             app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
+            // A slot machine played in the world: the body's idles and win celebration
+            // (slots_seat.rs).
+            app.add_plugins(slots_seat::SlotsSeatPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
