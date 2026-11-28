@@ -325,7 +325,10 @@ fn nvf_apply_pbr_lighting(
 ) -> vec4<f32> {";
 
 /// Replacements in `apply_pbr_lighting` [observed: bevy_pbr 0.20.1 `pbr_functions.wesl`],
-/// in order; the light loops' line occurs three times (point, spot, directional).
+/// in order; the light loops' line occurs three times (point, spot, directional). A point
+/// or spot light's `shadow` may be under 0 (a held lamp's weight past 1, bevy_pbr
+/// shadows.wesl `nvf_weigh_shadow`): the display sum takes it as it is, Bevy's own sum
+/// (the highlights, in a world view) `max(shadow, 0.0)`.
 const DISPLAY_EDITS: [(&str, &str); 7] = [
     ("@if(!PREPASS_FRAGMENT)\nfn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {", DISPLAY_HELPERS),
     (
@@ -336,15 +339,15 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     ),
     (
         "        direct_light += light_contrib * shadow;",
-        "        direct_light += light_contrib * shadow;
+        "        direct_light += light_contrib * max(shadow, 0.0);
         if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow; }",
     ),
     (
         "        direct_light += light_contrib * shadow;",
         "        @if(!FIRST_PERSON_DEPTH)
-        direct_light += light_contrib * shadow;
+        direct_light += light_contrib * max(shadow, 0.0);
         @if(FIRST_PERSON_DEPTH)
-        direct_light += light_contrib * (shadow * select(1.0, 0.10, (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));
+        direct_light += light_contrib * (max(shadow, 0.0) * select(1.0, 0.10, (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));
         if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow; }",
     ),
     (

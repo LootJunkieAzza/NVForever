@@ -332,6 +332,41 @@ impl Game<'_> {
     }
 }
 
+/// Whether a call of the numbered extender `opcode` reaches a handler, as the game runs
+/// one: by the names the opcode table gives it (`command_opcodes.json`, the function
+/// table's own name), as `Game::extender_condition` and source-compiled units' calls do.
+/// Each name is called once with no arguments on the player in `g`, first through the
+/// named handlers, then as a one-line query for the script VM's own functions (a query
+/// the VM skips as not built, or that does not compile without arguments, counts as no
+/// handler); the extender's flow statements (`let`, `while` …) are the compiler's. Which
+/// names have a handler does not depend on the data, so an empty game serves
+/// (`fnvtool script coverage`, `script stubs`; #1408). A handler that panics is there.
+pub fn reaches_handler(g: &mut Game, table: &fnv_script::FunctionTable, opcode: u16) -> bool {
+    let mut names = crate::nvse_debug::opcode_names(u32::from(opcode));
+    names.extend(table.get(opcode).map(|f| f.name.clone()));
+    names.iter().any(|n| {
+        let lower = n.to_ascii_lowercase();
+        // The extender's flow statements are the script compiler's own lines
+        // (fnv_script::compile::parse `extender`), not calls a query can make.
+        if matches!(lower.as_str(), "let" | "eval" | "while" | "foreach" | "loop" | "break" | "continue" | "label" | "goto") {
+            return true;
+        }
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if call(g, &RunCtx::default(), &lower, Some(FormId::PLAYER_REF), &[]).is_some() {
+                return true;
+            }
+            // The script VM's own functions (GetBaseObject, PrintC, let …): a one-line
+            // query runs them, and one it cannot run is skipped as not built.
+            let from = g.events.len();
+            let r = g.run_query(&format!("Begin Function {{}}\nSetFunctionValue ({n})\nEnd"), RunCtx { self_ref: Some(FormId::PLAYER_REF), ..RunCtx::default() });
+            let not_built = g.events[from..].iter().any(|e| matches!(&e.kind, crate::trace::EventKind::Skipped { what, .. } if what.starts_with("not built yet")));
+            g.events.truncate(from);
+            r.is_ok() && !not_built
+        }))
+        .unwrap_or(true)
+    })
+}
+
 /// An xNVSE function by catalogue name (lower case); `None` when it is not built here.
 /// `on` is the reference it was called on, else the calling reference.
 pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {

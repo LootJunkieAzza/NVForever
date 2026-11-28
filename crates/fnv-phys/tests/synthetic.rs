@@ -3374,6 +3374,29 @@ fn a_ceiling_lower_than_the_body_leaves_no_room() {
 }
 
 #[test]
+fn a_skin_laid_on_the_landscape_takes_the_body_a_slab_over_it_does_not() {
+    // A road: one sheet of triangles 20 over the ground (#4826). Asked at the ground's
+    // height, as a coarse navmesh under the road has it: the body overlaps the sheet
+    // there, so it is put on the sheet.
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    let road = Shape::TriMesh {
+        vertices: vec![[-150.0, -150.0, 0.0], [150.0, -150.0, 0.0], [150.0, 150.0, 0.0], [-150.0, 150.0, 0.0]],
+        triangles: vec![[0, 1, 2], [0, 2, 3]],
+        materials: vec![0; 2],
+    };
+    w.add_ref(&at(80, [SPOT[0], SPOT[1], 20.0]), &[object(road, Motion::Static)]);
+    let on = w.character_spot(&c, SPOT);
+    // On the sheet, at most a step over it (the place is tried a share of a step up).
+    assert!(matches!(on, Ok(f) if f[2] > 20.0 && f[2] < 20.0 + CharacterParams::default().step_height + 2.0), "{on:?}");
+    // A slab with room under its top (its underside 20 up, its top 30): still none.
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    w.add_ref(&at(81, [SPOT[0], SPOT[1], 25.0]), &[object(boxed([100.0, 100.0, 5.0]), Motion::Static)]);
+    assert_eq!(w.character_spot(&c, SPOT), Err(SpotRefused::NoRoom));
+}
+
+#[test]
 fn a_spot_is_on_the_level_asked_for_of_those_stacked() {
     let mut w = ground();
     let c = spot_character(&mut w);

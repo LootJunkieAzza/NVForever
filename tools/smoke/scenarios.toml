@@ -3840,7 +3840,7 @@ order = [[
   "settings: anti-aliasing TAA",
   "settings: ambient-occlusion Quality",
   "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
-  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: on main (2026-11-27, this machine alone) the TAA and Quality AO change leaves 15 pipelines pending at the 15 s cap" },
+  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: fails on the first run of a new build: an unattended run keeps no pipeline cache and the driver's is cold, so the start's pipelines outlast the loading screen's 15 s cap on the 2-thread compile pool and the TAA and AO pipelines queue behind them (16 pending at the cap); a second run passes (4.75 s, pending 0)" },
   { re = 'pause menu: resume$' },
 ]]
 expect = [
@@ -3848,7 +3848,7 @@ expect = [
   { re = 'pause menu: resume$', count = 1, label = "one actual release" },
 ]
 forbid = [
-  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on main" },
+  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on the first run of a new build (cold pipeline caches)" },
   { text = "Caught rendering error", label = "a rendering validation error" },
   { text = "failed and will not be tried again", label = "a failed pipeline" },
   { text = "and no longer waited for", label = "a pipeline over its retry cap" },
@@ -4432,6 +4432,43 @@ expect = [
 ]
 
 [[scenario]]
+name = "pilot-ai-due"
+source = "issue #2365 (spooknik's coverage review): the quest pilot's steps left to the AI (`patrol_point`, an actor entering a trigger) succeeded at once and nothing looked whether the actor did it. They are checked afterwards: done once the actor is within 256 units of the point, an `ai_not_done` finding after 180 s or when the chain ends first"
+note = "A tiny chain kept beside the smoke tests (tools/smoke/pilot/ai-due.actions.json)"
+areas = ["quests", "ai"]
+paths = ["engine/nvforever/src/pilot.rs", "tools/smoke/pilot/ai-due.actions.json"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "900", NVF_PLAY_TEST_UNATTENDED = "1" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-music", "--pilot", "{repo}/tools/smoke/pilot/ai-due.actions.json"]
+run_seconds = 90
+ends = "pilot: done:"
+order = [[
+  { re = 'pilot: step \d+: the AI did what step 1 left to it: SunnyRef reaching SunnyRef', label = "a step the AI has done is said done" },
+  { re = 'pilot: finding ai_not_done: .*step 2 left to the AI: SunnyRef reaching VERGSCoyote6REF, the chain ended first', label = "one it never did is a finding at the chain's end" },
+  { re = 'pilot: done: 1 chain\(s\), 4 steps \(0 failed\)', label = "the run ends with no failed step" },
+]]
+
+[[scenario]]
+name = "pilot-sshq-stairs"
+source = "issue #2365 (from #3473): in the Sunset Sarsaparilla HQ the prize room, its corridor and stairs are a navmesh of their own (0x0010489C) that no link joins to the cell's main navmesh; the original's followers do not cross there (observer check 279), a player walks the stairs. The quest pilot walks to the near end of the gap and steps across on its own movement, down to Allen Marks' holotape and back up to Festus, instead of an unreachable finding"
+note = "A tiny chain kept beside the smoke tests (tools/smoke/pilot/sshq-stairs.actions.json): VMS09a 10 is set and the two doors on the way are unlocked by script"
+areas = ["quests", "ai"]
+paths = ["engine/nvforever/src/pilot.rs", "crates/fnv-nav/src/graph.rs", "tools/smoke/pilot/sshq-stairs.actions.json"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "900", NVF_PLAY_TEST_UNATTENDED = "1" }
+args = ["--cell", "SSHQ01", "--play", "--hour", "12", "--no-voice", "--no-music", "--pilot", "{repo}/tools/smoke/pilot/sshq-stairs.actions.json"]
+run_seconds = 180
+ends = "pilot: done:"
+order = [[
+  { re = 'pilot: step 5: no navmesh link joins the player.s part of Interior', label = "the walk down finds the two navmeshes unjoined" },
+  { re = 'pilot: step 5: stepped across in ', label = "the player steps down onto the prize room's navmesh" },
+  { re = 'pilot: step 7: stepped across in ', label = "and back up the stairs onto the main navmesh" },
+  { re = 'pilot: done: 1 chain\(s\), 8 steps \(0 failed\)', label = "the run ends with no failed step" },
+]]
+expect = [
+  { text = "pilot: finding unreachable", count = 0, label = "no unreachable finding" },
+  { text = "pilot: finding no_navmesh_way", count = 0, label = "no fast-travel stand-in across the gap" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]
@@ -4910,7 +4947,7 @@ args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", 
 messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "main 2026-10-23 (origin/main cd54601d+, 13 blows): the add-ons' load message boxes hold the game for about 8 s of the 30 (list 7 W4: 12 and 14 on its branch)" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [100, 170], label = "the dogs bite from their reach and body, (RNAM 48 + 62 for the Dog skeleton) x 1.2 = 132 at most, not from inside the player (the original's dogs began a median 133 units away; ours 121 on 2026-10-17; npc-behaviour-compare.md §3, #1334)" },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
@@ -6967,6 +7004,18 @@ expect = [
   { re = 'anim sounds summary:.*\b3 reload keys' },
   { re = 'anim sounds summary:.*\b5 door sounds \(2 from door records\)', known_failing = "main 2026-10-23 (301f062d): 9 door sounds (2 from door records): --open-doors opened 10 doors, more of Goodsprings' doors are drawn in the run since the streaming changes; the door records' 2 hold" },
   { re = 'anim sounds summary:.*\b0 keys without a SOUN' },
+]
+
+[[scenario]]
+name = "footsteps-walk-again"
+source = "issue #4827 (engine/nvforever/src/anim_sounds.rs player_layer_heard): the player walks 3 s, stops 3 s and walks 3 s again; both walks step. Before the fix the walk clip coming in was heard only from half its layer's weight, and the second walk was silent (6 footsteps in all, all in the first walk; 13 with the fix, 2026-11-27)"
+areas = ["anim-sounds", "audio"]
+paths = ["engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,11:0:0,14:1:0,17:0:0" }
+args = ["--play", "--pos=-70720,-85587,6500", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'anim sounds summary:.*\((?P<n>\d+) by the player', range = [10, 18], label = "both walks step: about 6 footsteps each" },
 ]
 
 [[scenario]]
@@ -9964,7 +10013,7 @@ args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", 
 run_seconds = 130
 expect = [
   { re = 'npc combat: 0x000(F36F|15CE)\S* 0x\S+ fights (FiendCookCookRef|0x000F9CE)', label = "the NCR troopers fight the Fiends" },
-  { re = 'battle: .* killed by ', min = 3, label = "three or more killed" },
+  { re = 'battle: .* killed by ', min = 3, label = "three or more killed", known_failing = "#1162: the fight's own course: 2 killed in some runs (1 of 4 runs on 2026-11-27; about 1 in 7 when the issue was opened), on main as on branches; the Fiends that stand are fighting on when the run ends at 120 s" },
   { re = 'battle summary: 2 sides, (?P<n>\d+) actors', range = [5, 12], label = "battle summary: 2 sides" },
 ]
 
@@ -10011,8 +10060,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', range = [26, 1000], all = true, label = "every cover spot has room for the capsule" },
-  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek (?P<n>\d+)', range = [26, 1000], all = true, label = "every peek point has room for the capsule" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', label = "a fighter takes cover in the battle", known_failing = "#1162: in about 1 run of 3 nobody reaches cover before the fight is over (0 cover taken, the battle resolved in 43-53 s; Take Cover Chance is rolled every 10 s), so no cover spot is there to measure; the room round each spot that is taken is checked by the forbid lines below" },
   { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the battle" },
   { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the battle is over full scale" },
   { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
@@ -10020,7 +10068,11 @@ expect = [
   { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
   { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no sound of the battle cut mid-waveform (each stop fades out)" },
 ]
-forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
+forbid = [
+  { re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot ([0-9]|1[0-9]|2[0-5])(\D|$)', label = "a cover spot with less room than the capsule needs (26)" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek ([0-9]|1[0-9]|2[0-5])(\D|$)', label = "a peek point with less room than the capsule needs (26)" },
+]
 
 [[scenario]]
 name = "person-armour-pace"
@@ -11394,10 +11446,10 @@ expect = [{ re = 'provocation summary: .*aggro radius: (?P<n>\d+) warnings, (?P<
 [[scenario]]
 name = "aggro-spawned-no-warning"
 source = "#1341 (crates/fnv-game/src/aggro.rs \"Spawned actors do not warn\", docs/design/combat-ai.md §13.1): an actor created at run time (PlaceAtMe) attacks a player inside its aggro radius at once, without the placed one's warnings; the original's CrCoyote did so at the placed coyote's spot, 700 of 1,024 units off (capture o25_coyote, 2026-11-06)"
-note = "the setup of aggro-radius (the player about 600 units from VERGSCoyote6REF 0x00157B38, past half its 1,024 radius, where a placed one warns); the six Goodsprings coyotes are disabled and a CrCoyote (the first created reference, 0xFF0000xx) is PlaceAtMe'd at coyote 6's spot at 3 s"
+note = "the setup of aggro-radius (the player about 600 units from VERGSCoyote6REF 0x00157B38, past half its 1,024 radius, where a placed one warns); the six Goodsprings coyotes are disabled and a CrCoyote (the first created reference, 0xFF0000xx) is PlaceAtMe'd at coyote 6's spot at 3 s. Coyote 6 is first set back on its editor place (-58705, -753, 8838), 595 units from the player [observed: fnvtool world refs]: it wanders in the 2.5 s before it is disabled, and the spawn followed it out of the band in 2 of 4 runs (#1162)"
 areas = ["combat", "alert"]
 paths = ["crates/fnv-game/src/aggro.rs", "engine/nvforever/src/provoked.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,3:call:VERGSCoyote6REF:PlaceAtMe:CrCoyote:1" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,2.6:call:VERGSCoyote6REF:SetPos:x:-58705,2.7:call:VERGSCoyote6REF:SetPos:y:-753,2.8:call:VERGSCoyote6REF:SetPos:z:8838,3:call:VERGSCoyote6REF:PlaceAtMe:CrCoyote:1" }
 args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 25
 expect = [{ re = 'provocation: .*0xFF0000[0-9A-F]{2} attacks the player, who stayed inside its aggro radius \((?P<n>\d+) of 1024 units\)', range = [513, 1024], label = "the spawned coyote attacks past half its radius" }]
@@ -28259,6 +28311,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "knvse-npc-weapon-replace"
+source = "#1461: an NPC's attack clips come from its kNVSE replacement files (AnimGroupOverride folders, SetActorAnimationPath) where one has the clip's file name (engine/nvforever/src/attack_anims.rs, anim_paths::ActorAnimFiles). Here SetActorAnimationPath names the first-person folder's 2haattack3.kf, a file the base archives hold under the same name as the third-person one, so the shot's clip must be read from it"
+areas = ["scripts", "actors", "combat"]
+paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/anim_paths.rs", "crates/fnv-game/src/nvse_anim.rs", "crates/fnv-game/src/nvse_anim_folders.rs"]
+note = "WeapNVServiceRifle is a 2ha weapon whose attack is Attack3 (2haattack3.kf). Run by hand on A Blue Moon's merged Data (2026-11-27) the folders load (471 entries) and Ringo plays 4 replaced locomotion moves, but he never holds the rifle there, so the weapon folder (WWPSR) is not shown by that run"
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 600 0;9.5:RingoRef.AddItem WeapNVServiceRifle 1;RingoRef.AddItem Ammo556mm 200;RingoRef.EquipItem WeapNVServiceRifle;10:PrintC \"nvf set %g\", (RingoRef.SetActorAnimationPath 0 1 \"characters\\_1stperson\\2haattack3.kf\");10.5:close;12:RingoRef.StartCombat player;12.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'script: print "nvf set 1"', label = "the file is there: the setter gives 1" },
+  { re = 'attack anims: 00104C7D plays meshes.characters._1stperson.2haattack3[.]kf', label = "Ringo's shots play the replacement of 2haattack3.kf" },
+  { re = 'attack anims: 00104C7D plays meshes.characters._male.2haattack3[.]kf', count = 0, label = "never the folder's own clip while it is replaced" },
+]
+
+[[scenario]]
 name = "knvse-player-sequences"
 source = "kNVSE on the player (docs/design/knvse-anim.md §5): PlayAnimationPath's and ActivateAnim's sequences are requests the player's rigs play beside locomotion (script_sequences.rs, #2395); DeactivateAnim takes each back"
 areas = ["scripts", "player"]
@@ -37522,6 +37589,7 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error in the clustering passes" },
 ]
+
 [[scenario]]
 name = "physical-lighting"
 source = "[design, #3827 part 5] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/lights.rs `physical_patched`, physical_ibl.rs, fog.rs, eye_adapt.rs): with --graphics-only physical-pbr at Goodsprings at noon, the run's switch is on, the physical light loop is installed and the sky's image-based light is made, without a pipeline or rendering error. Whether the look is right is checked in pictures by hand"
@@ -37563,3 +37631,14 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
+[[scenario]]
+name = "dawn-leaves-night-before-sunrise"
+source = "[hypothesis, fitted] docs/spec-notes/world.md §6 'Night key beyond sunrise and sunset' (#2916): the night key lies a third of the transition before sunrise begins (5:20 for the Mojave's 6:00-8:00), so at 06:00 the grade is already part of the way to the sunrise adapter (saturation under the night's and the day's 1.10), as the original's picture under Lake Mead is at 06:00 (observer job o35_uw_dawn)"
+areas = ["renderer", "sky"]
+paths = ["crates/fnv-world/src/sky.rs", "crates/fnv-world/src/imagespace.rs"]
+args = ["--explore", "--cell", "28,16", "--pos=116992,66816,2420", "--heading", "0", "--pitch", "0", "--hour", "6", "--weather", "NVWastelandClear"]
+run_seconds = 14
+expect = [
+  { re = 'sky: 06:0\d  climate NVDefaultClimate  weather NVWastelandClear .*grade: saturation 1\.0[0-5]', label = "at 06:00 the grade is well on to the sunrise's (1.01 here; the old keys gave 1.09-1.10 at 06:02)" },
+]
+forbid = ["Caught rendering error"]

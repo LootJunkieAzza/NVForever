@@ -1400,7 +1400,7 @@ mod tests {
             FIRST_PERSON_FLASHLIGHT_DIFFUSE,
         );
         let spec_lit = format!(
-            "direct_light += light_contrib * (shadow * select(1.0, {:.2}, (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));",
+            "direct_light += light_contrib * (max(shadow, 0.0) * select(1.0, {:.2}, (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u));",
             FIRST_PERSON_FLASHLIGHT_SPECULAR,
         );
         assert_eq!(chained.matches(&diffuse_lit).count(), 1, "diffuse scale matches Rust constant once");
@@ -1411,9 +1411,11 @@ mod tests {
             "world and third-person spot diffuse stay at 1.0",
         );
         assert_eq!(
-            chained.matches("@if(!FIRST_PERSON_DEPTH)\n        direct_light += light_contrib * shadow;").count(),
+            // (`max(shadow, 0.0)`: a held lamp's shadow may be under 0, which only the display
+            // sum takes; lights/display_shader.rs `DISPLAY_EDITS`.)
+            chained.matches("@if(!FIRST_PERSON_DEPTH)\n        direct_light += light_contrib * max(shadow, 0.0);").count(),
             1,
-            "world and third-person spot specular stay unmodified",
+            "world and third-person spot specular stay unscaled",
         );
     }
 }
