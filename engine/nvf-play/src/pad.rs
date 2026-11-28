@@ -1397,8 +1397,9 @@ pub fn hint_name(keys: &[KeyCode], at: MenuAt) -> String {
     hint_name_as(keys, at, labels())
 }
 
-/// The hint after a button's words, as the original writes it: the name and ")" ("R)",
-/// with a controller "Y)") [observed: "Take All R)", "Exit E)"].
+/// The hint after a button's words: the name in brackets ("[R]", with a controller
+/// "[Y]"), the shape of the built-in `sPCMenuHint*` labels [design, #4495: in place of
+/// the key and ")" read from the original's screen].
 pub fn hint(keys: &[KeyCode], at: MenuAt) -> String {
     hint_as(keys, at, labels())
 }
@@ -1406,13 +1407,13 @@ pub fn hint(keys: &[KeyCode], at: MenuAt) -> String {
 /// [`hint`] with the labels `l` (a view that keeps the labels it was made with, so a
 /// change of device draws it again).
 pub fn hint_as(keys: &[KeyCode], at: MenuAt, l: Labels) -> String {
-    format!("{})", hint_name_as(keys, at, l))
+    format!("[{}]", hint_name_as(keys, at, l))
 }
 
-/// [`hint`] in brackets, the help box's and the tiled menus' `_PCButtonText` shape
-/// ("[E]", with a controller "[B]") [observed: "Close [E]"].
+/// [`hint`]: the help box's and the tiled menus' `_PCButtonText` shape ("[E]", with a
+/// controller "[B]"), now every hint's.
 pub fn hint_bracketed(keys: &[KeyCode], at: MenuAt) -> String {
-    format!("[{}]", hint_name(keys, at))
+    hint(keys, at)
 }
 
 /// A help box over any menu: no own buttons, so B (Esc) closes it.
@@ -1420,12 +1421,11 @@ pub const HELP_AT: MenuAt = MenuAt { code: None, tab: HELP_PAGE };
 
 /// A hint the game's strings give for the keyboard (`sPCMenuHintE`, "[E]"; a
 /// `_PCButtonText`): as it is on a keyboard, and with a controller the button's name in
-/// the same shape ("[B]", or "B)") [design, #1662: the gamepad strings are the
-/// original's button pictures, which are not drawn].
+/// the hints' shape ("[B]") [design, #1662: the gamepad strings are the original's button
+/// pictures, which are not drawn].
 pub fn game_hint(game: &str, keys: &[KeyCode], at: MenuAt) -> String {
     match labels() {
         Labels::Keys => game.to_string(),
-        _ if game.trim_start().starts_with('[') => hint_bracketed(keys, at),
         _ => hint(keys, at),
     }
 }
@@ -1623,8 +1623,8 @@ mod tests {
             assert_eq!(menu_key_at(LeftTrigger, at), Some(KeyCode::PageUp));
             assert_eq!(menu_key_at(DPadUp, at), Some(KeyCode::ArrowUp));
             // The hints under the lists name the triggers.
-            assert_eq!(hint_as(&[KeyCode::ArrowLeft], at, Labels::Xbox), "LT)");
-            assert_eq!(hint_as(&[KeyCode::ArrowRight], at, Labels::PlayStation), "R2)");
+            assert_eq!(hint_as(&[KeyCode::ArrowLeft], at, Labels::Xbox), "[LT]");
+            assert_eq!(hint_as(&[KeyCode::ArrowRight], at, Labels::PlayStation), "[R2]");
         }
         // "How many?" over them: the shared buttons, the D-pad stepping the amount.
         assert_eq!(menu_key_at(DPadLeft, HELP_AT), Some(KeyCode::ArrowLeft));
@@ -1708,13 +1708,13 @@ mod tests {
     fn hints_follow_the_labels_in_use() {
         let at = at_menu(fnv_game::game::menus::MAP);
         assert_eq!(labels(), Labels::Keys);
-        assert_eq!(hint(&[KeyCode::KeyR], at), "R)");
+        assert_eq!(hint(&[KeyCode::KeyR], at), "[R]");
         assert_eq!(hint_bracketed(&[KeyCode::KeyE, KeyCode::Escape], HELP_AT), "[E]");
         assert_eq!(game_hint("[E]", &[KeyCode::KeyE, KeyCode::Escape], HELP_AT), "[E]");
         set_labels(Labels::Xbox);
-        assert_eq!(hint(&[KeyCode::KeyR], at), "Y)");
+        assert_eq!(hint(&[KeyCode::KeyR], at), "[Y]");
         assert_eq!(game_hint("[E]", &[KeyCode::KeyE, KeyCode::Escape], HELP_AT), "[B]");
-        assert_eq!(game_hint("E)", &[KeyCode::KeyE, KeyCode::Escape], HELP_AT), "B)");
+        assert_eq!(game_hint("[E]", &[KeyCode::KeyE, KeyCode::Escape], HELP_AT), "[B]");
         assert_eq!(crate::dialogue_menu::goodbye_hint(), "[B] Goodbye");
         set_labels(Labels::Keys);
         assert_eq!(crate::dialogue_menu::goodbye_hint(), crate::dialogue_menu::GOODBYE_HINT);
@@ -1750,11 +1750,11 @@ mod tests {
         }
         // Hints with each style.
         let at = MenuAt { code: Some(fnv_game::game::menus::MAP), tab: 3 };
-        assert_eq!(hint_as(&[KeyCode::KeyR], at, Labels::Keys), "R)");
-        assert_eq!(hint_as(&[KeyCode::KeyR], at, Labels::Xbox), "Y)");
-        assert_eq!(hint_as(&[KeyCode::KeyR], at, Labels::PlayStation), "Triangle)");
+        assert_eq!(hint_as(&[KeyCode::KeyR], at, Labels::Keys), "[R]");
+        assert_eq!(hint_as(&[KeyCode::KeyR], at, Labels::Xbox), "[Y]");
+        assert_eq!(hint_as(&[KeyCode::KeyR], at, Labels::PlayStation), "[Triangle]");
         let bet = MenuAt { code: Some(crate::caravan::MENU_CARAVAN), tab: CARAVAN_BET };
-        assert_eq!(hint_as(&[KeyCode::KeyA], bet, Labels::PlayStation), "R2)");
+        assert_eq!(hint_as(&[KeyCode::KeyA], bet, Labels::PlayStation), "[R2]");
         assert_eq!(hint_name_as(&[KeyCode::KeyE, KeyCode::Escape], HELP_AT, Labels::PlayStation), "Circle");
         set_labels(Labels::PlayStation);
         assert_eq!(crate::dialogue_menu::goodbye_hint(), "[Circle] Goodbye");

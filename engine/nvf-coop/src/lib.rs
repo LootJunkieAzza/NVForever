@@ -8,11 +8,15 @@
 //! checks on everything a guest sends, and `seam` what carries the packets (any
 //! transport that implements [`seam::Transport`]) and who may join. No real transport is in
 //! this part: sockets, discovery and lobby codes come with the internet transport on top.
-//! `world` holds the host's checks on the world's messages a guest sends.
+//! `world` holds the host's checks on the world's messages a guest sends. `progress` is
+//! shared progress on the reliable stream (quest rewards, stage offers, kill credit, the
+//! host's quest, level and `story`), with the host's checks on what a guest sends of it.
 
 pub mod guard;
 pub mod net;
+pub mod progress;
 pub mod rel;
 pub mod repl;
 pub mod seam;
+pub mod story;
 pub mod world;
