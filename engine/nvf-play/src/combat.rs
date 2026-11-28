@@ -2581,6 +2581,22 @@ fn disarm(
 const LIVE_DROP_SPEED: f32 = 0.05;
 const LIVE_DROP_HEIGHT: f32 = 60.0;
 
+/// The share of its PROJ speed a grenade the player throws leaves with: half, and the
+/// other half by how much of the wind-up (attack pressed to the clip's `Hit` key,
+/// `wind_up` s) attack was held, all of it when attack is still held as the throw leaves
+/// (`holding`) [observed: the original's frag grenade, held 5, 10, 30, 60 and 120 game
+/// loops, flew at 0.52, 0.60, 0.78, 0.99 and 0.98 of its 1,200 units/s, a tap by
+/// `FireWeapon` at about 0.48; Heave Ho! multiplies on top, observer runs o32_throw
+/// 2026-11-25/26, issue #1785, combat-rules.md §5 "Throw speed"; hypothesis: that the
+/// share runs over our clip's wind-up (0.87 s for the frag) and stops at its `Hit` key,
+/// which fits those figures as well as a rise over 1 s, and that only grenades do it].
+fn throw_hold_share(held: f32, wind_up: f32, holding: bool) -> f32 {
+    if holding || wind_up <= 0.0 {
+        return 1.0;
+    }
+    0.5 + 0.5 * (held.max(0.0) / wind_up).min(1.0)
+}
+
 /// Whether `weapon` is a grenade: of the animation type "Grenade Throw (1 Hand)"
 /// [documented: GECK wiki Weapons, Animation Type] and its projectile explodes (as
 /// nvforever's `npc_grenades::carried`).
@@ -4173,6 +4189,11 @@ pub(crate) fn fire(
                 // (perk-entry-points.md §8).
                 let (throw_mult, throw_by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_THROWING_VELOCITY, id, 1.0);
                 let throw_mult = throw_mult.max(0.01);
+                // A thrown grenade leaves faster the longer attack was held during its
+                // wind-up (`throw_hold_share`); not VATS mode's throws, which aim at a
+                // mark at the full speed.
+                let hold = (c.self_ammo && vats_shot.is_none() && is_grenade(&c.forms, id))
+                    .then(|| throw_hold_share(c.grenade_hold, cycle.timing.fire_delay, control.trigger));
                 let leaving = if let Some(point) = vats_shot.filter(|_| c.self_ammo) {
                     // VATS mode's throw: from the eye on the low arc that lands on the mark
                     // (vats-mode.md §16.3), at 45° when it is out of reach; at the speed the
@@ -4221,6 +4242,15 @@ pub(crate) fn fire(
                 // A mod's Increase Projectile Speed (weapon-data-fields.md §5).
                 if let Some(m) = w.projectile_speed_mult {
                     shots.iter_mut().for_each(|p| p.speed_up(m));
+                }
+                if let Some(share) = hold {
+                    shots.iter_mut().for_each(|p| p.speed_up(share));
+                    info!(
+                        "combat: {} thrown after a hold of {:.2} s of its {:.2} s wind-up: x {share:.2} of its speed",
+                        w.edid.as_deref().unwrap_or("?"),
+                        c.grenade_hold,
+                        cycle.timing.fire_delay
+                    );
                 }
                 if (throw_mult - 1.0).abs() > 1e-4 {
                     shots.iter_mut().for_each(|p| p.speed_up(throw_mult));
@@ -7202,6 +7232,24 @@ fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The original's frag throws by game loops held (issue #1785): 5 / 10 / 30 / 60 loops
+    /// at 0.52 / 0.60 / 0.78 / 0.99 of the PROJ speed; ours over the frag clip's 0.867 s
+    /// wind-up comes within 0.03 of each.
+    #[test]
+    fn a_grenade_flies_faster_the_longer_attack_is_held() {
+        let wind_up = 0.867;
+        for (loops, seen) in [(5.0, 0.52), (10.0, 0.60), (30.0, 0.78)] {
+            let share = super::throw_hold_share(loops / 60.0, wind_up, false);
+            assert!((share - seen).abs() < 0.03, "{loops} loops: {share} against {seen}");
+        }
+        // Held to the throw (60 or 120 loops): the full speed; a tap: half.
+        assert_eq!(super::throw_hold_share(0.867, wind_up, true), 1.0);
+        assert_eq!(super::throw_hold_share(2.0, wind_up, false), 1.0);
+        assert_eq!(super::throw_hold_share(0.0, wind_up, false), 0.5);
+        // A throw with no wind-up keeps its speed.
+        assert_eq!(super::throw_hold_share(0.1, 0.0, false), 1.0);
+    }
+
     #[test]
     fn armour_that_stops_a_shot_stops_its_blood() {
         assert!(super::blood_stopped(10.0, 12.0));
