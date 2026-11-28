@@ -310,7 +310,13 @@ The names with no record in the vanilla masters, by spelling:
 - A trait holds a number or a string; in the original it is both at once [documented:
   AddTraitToTile notes]. NVForever holds one and reads it as the other on demand:
   - text reads as a number when it is one, else 0;
-  - a whole number reads as text without a point [hypothesis].
+  - a whole number reads as text without a point; a fractional number prints as the
+    shortest text that reads back as the same single-precision float (`f32`), falling
+    back to `f64` when `f32` overflows or underflows to zero [hypothesis: original-game
+    float-to-string formatting for traits is not captured; single precision avoids
+    exposing `f64` rounding tails when code-written `f32` fractions such as `user5`
+    are multiplied by XML constants like `_VUI+CNDmax`; design: `f64` fallback outside
+    finite non-zero `f32` range].
 - A trait is written either as a plain value (`<width> 400 </width>`, `<visible>
   &false; </visible>`, `<string> &-sTitle; </string>`) or as operators (§4).
 - Names are compared without case. Traits beginning `_` are the files' own (`_Value`,
@@ -475,8 +481,12 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   this change lines × the font's size); the layout uses it for a text tile without its
   own `height` (§3.1.1), and the code writes no text tile's `height` into the tree
   [design: not yet needed].
-- [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
-  when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
+- [hypothesis] Colour: a tile's own `systemcolor`; else its own non-black
+  `red`/`green`/`blue` when it sets any; else the nearest tile above's `systemcolor` (so
+  child prefabs that copy missing `red`/`green`/`blue` traits from a parent — evaluating to
+  0/0/0 — still inherit an enclosing menu's `systemcolor`, while `&nosystemcolor;` /
+  `&uselocalcolor;` / `0` on the tile or ancestor yields local RGB); else its own
+  `red`/`green`/`blue` when no ancestor sets `systemcolor`; else system colour 1, the
   HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always
   assign"; T12c: until then its own, white, which drew `AmmoTypeLabel`, a menu child with
   no colour above it, white].

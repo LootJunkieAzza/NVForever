@@ -19,7 +19,7 @@ use bevy::render::render_phase::ViewBinnedRenderPhases;
 use bevy::render::render_resource::{
     BufferDescriptor, BufferUsages, Extent3d, SamplerDescriptor, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor,
 };
-use bevy::render::renderer::{RenderAdapter, RenderDevice};
+use bevy::render::renderer::{RenderAdapter, RenderDevice, RenderQueue};
 use bevy::render::sync_world::MainEntity;
 use bevy::render::view::{ExtractedView, RetainedViewEntity};
 use bevy::shader::ShaderDefVal;
@@ -33,8 +33,8 @@ fn vendored(file: &str) -> String {
     unix_lines(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}")))
 }
 
-/// wgpu's no-op device and adapter: real resource creation and validation, no GPU.
-fn noop() -> (RenderDevice, RenderAdapter) {
+/// wgpu's no-op device, adapter and queue: real resource creation and validation, no GPU.
+pub(super) fn noop() -> (RenderDevice, RenderAdapter, RenderQueue) {
     use bevy::tasks::block_on;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
@@ -44,8 +44,8 @@ fn noop() -> (RenderDevice, RenderAdapter) {
         backend_options: wgpu::BackendOptions { noop: wgpu::NoopBackendOptions { enable: true, ..default() }, ..default() },
     });
     let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("the no-op adapter");
-    let (device, _) = block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: adapter.limits(), ..default() })).expect("the no-op device");
-    (RenderDevice::from(device), RenderAdapter::new(adapter))
+    let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: adapter.limits(), ..default() })).expect("the no-op device");
+    (RenderDevice::from(device), RenderAdapter::new(adapter), RenderQueue::new(queue))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -129,7 +129,7 @@ fn the_mesh_key_gives_the_layout_key() {
 /// else changed; the labels aside.
 #[test]
 fn the_bit_adds_three_bindings_and_nothing_else() {
-    let (device, adapter) = noop();
+    let (device, adapter, _) = noop();
     let mut world = World::new();
     world.insert_resource(device);
     world.insert_resource(adapter);
@@ -188,7 +188,7 @@ fn the_light_is_the_approved_one() {
 // ---------------------------------------------------------------------------------------
 // The view keys.
 
-fn extracted(view: RetainedViewEntity) -> ExtractedView {
+pub(super) fn extracted(view: RetainedViewEntity) -> ExtractedView {
     ExtractedView {
         retained_view_entity: view,
         clip_from_view: Mat4::IDENTITY,
@@ -201,7 +201,7 @@ fn extracted(view: RetainedViewEntity) -> ExtractedView {
     }
 }
 
-fn bindings_on(device: &RenderDevice) -> NvfRtgiVolumeBindings {
+pub(super) fn bindings_on(device: &RenderDevice) -> NvfRtgiVolumeBindings {
     let texture = device.create_texture(&TextureDescriptor {
         label: None,
         size: Extent3d { width: 3, height: 3, depth_or_array_layers: 12 },
@@ -224,7 +224,7 @@ fn bindings_on(device: &RenderDevice) -> NvfRtgiVolumeBindings {
 /// given the component too); without it the key is the old one again.
 #[test]
 fn only_the_bound_view_has_the_bit() {
-    let (device, _) = noop();
+    let (device, ..) = noop();
     let mut world = World::new();
     world.init_resource::<ViewKeyCache>();
     world.init_resource::<ViewKeyPrepassCache>();
@@ -417,7 +417,7 @@ const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wesl";
 /// Every module the world's shaders import, `pbr_functions` as lights.rs patches it. Without
 /// `hook` the bounce light is taken out of everything it touches: no hook, no shader of its own,
 /// and not the two statements in nif_material.wesl.
-fn modules(hook: bool) -> Vec<(String, String)> {
+pub(super) fn modules(hook: bool) -> Vec<(String, String)> {
     let (without, with) = hooked();
     let functions = crate::lights::reflection_gate::gate_patched(if hook { &with } else { &without }).expect("the reflection gate applies");
     let mut modules = vendored_modules();
@@ -448,7 +448,7 @@ fn defs(extra: &[&'static str]) -> Vec<ShaderDefVal> {
 
 const SUN: [&str; 4] = ["NVF_SUN_VISIBILITY", "NVF_CLOUD_VISIBILITY", "NVF_TERRAIN_VISIBILITY", "NVF_CLOUD_VOLUME"];
 
-fn bindings(source: &str) -> BTreeSet<(u32, u32)> {
+pub(super) fn bindings(source: &str) -> BTreeSet<(u32, u32)> {
     let module = naga::front::wgsl::parse_str(source).unwrap();
     module.global_variables.iter().filter_map(|(_, g)| g.binding.as_ref().map(|b| (b.group, b.binding))).collect()
 }

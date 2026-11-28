@@ -37,6 +37,7 @@ use bevy_render::{
 };
 use core::fmt::Write;
 use core::num::NonZero;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
     contact_shadows::{
@@ -183,6 +184,12 @@ pub struct NvfRtgiVolumeBindings {
     pub texture: TextureView,
     pub sampler: Sampler,
 }
+
+/// NVForever RTGI volume: how many mesh view bind groups [`prepare_mesh_view_bind_groups`] has
+/// made in this process, and how many of them with [`NvfRtgiVolumeBindings`]: what a run says at
+/// its end (nvforever `rtgi_volume.rs`), counted where it is bound.
+pub static NVF_VIEW_BIND_GROUPS: AtomicU64 = AtomicU64::new(0);
+pub static NVF_RTGI_VIEW_BIND_GROUPS: AtomicU64 = AtomicU64::new(0);
 
 impl MeshPipelineViewLayoutKey {
     /// Builds a unique label for each layout based on the flags
@@ -437,6 +444,17 @@ fn layout_entries(
             // Point Shadow Texture Array Linear Sampler
             #[cfg(feature = "experimental_pbr_pcss")]
             (4, sampler(SamplerBindingType::Filtering)),
+            // NVForever ALCS far maps: the far point shadow texture array (light.rs
+            // `HoldLightShadowMaps::far_slots`), with binding 2's samplers.
+            #[cfg(all(
+                not(target_abi = "sim"),
+                any(
+                    not(feature = "webgl"),
+                    not(target_arch = "wasm32"),
+                    feature = "webgpu"
+                )
+            ))]
+            (50, texture_cube_array(TextureSampleType::Depth)),
             // Directional Shadow Texture Array
             (
                 5,
@@ -958,6 +976,16 @@ pub fn prepare_mesh_view_bind_groups(
                 (3, &shadow_samplers.point_light_comparison_sampler),
                 #[cfg(feature = "experimental_pbr_pcss")]
                 (4, &shadow_samplers.point_light_linear_sampler),
+                // NVForever ALCS far maps.
+                #[cfg(all(
+                    not(target_abi = "sim"),
+                    any(
+                        not(feature = "webgl"),
+                        not(target_arch = "wasm32"),
+                        feature = "webgpu"
+                    )
+                ))]
+                (50, &shadow_bindings.nvf_point_light_far_depth_texture_view),
                 (5, &shadow_bindings.directional_light_depth_texture_view),
                 (6, &shadow_samplers.directional_light_comparison_sampler),
                 #[cfg(feature = "experimental_pbr_pcss")]
@@ -1126,7 +1154,9 @@ pub fn prepare_mesh_view_bind_groups(
 
             // NVForever RTGI volume: present exactly when `check_views_need_specialization`
             // gave the view's pipelines `MeshPipelineKey::NVF_RTGI_VOLUME`.
+            NVF_VIEW_BIND_GROUPS.fetch_add(1, Ordering::Relaxed);
             if let Some(volume) = nvf_rtgi_volume {
+                NVF_RTGI_VIEW_BIND_GROUPS.fetch_add(1, Ordering::Relaxed);
                 layout_key |= MeshPipelineViewLayoutKey::NVF_RTGI_VOLUME;
                 entries = entries.extend_with_indices((
                     (47, volume.uniform.as_entire_binding()),

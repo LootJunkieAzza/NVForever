@@ -630,6 +630,18 @@ pub(crate) fn black_over(fade: [f32; 4], f: f32) -> [f32; 4] {
     [fade[0] * keep, fade[1] * keep, fade[2] * keep, covered]
 }
 
+/// Base cinematic grade used before applying active `IMAD` modifiers: under Physical
+/// lighting outdoors, set aside the weather's tint, contrast and brightness (made for the
+/// display values, not linear light) while keeping its HDR values and letting gameplay
+/// modifiers (`effect`) compose cleanly.
+fn effective_grade_base(base: fnv_world::imagespace::Cinematic, physical: bool, indoors: bool) -> fnv_world::imagespace::Cinematic {
+    if physical && !indoors {
+        fnv_world::imagespace::Cinematic { hdr: base.hdr, ..fnv_world::imagespace::Cinematic::default() }
+    } else {
+        base
+    }
+}
+
 /// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn update_grade(
@@ -734,8 +746,10 @@ pub(crate) fn update_grade(
         _ => (0.0, 0.0),
     };
     let base = sky.cinematic();
-    let c = graded(&base, &effect);
-    mods.hdr = Some((base.hdr, c.hdr));
+    let c_hdr = graded(&base, &effect);
+    mods.hdr = Some((base.hdr, c_hdr.hdr));
+    let grade_base = effective_grade_base(base, nvf_assets::authored::physical_pbr(), sky.interior.is_some());
+    let c = graded(&grade_base, &effect);
     if let Some(w) = &world {
         modifier_sounds(&mut mods, w, &forms, sounds);
     }
@@ -972,7 +986,7 @@ pub(crate) fn blur_pass(
 
 #[cfg(test)]
 mod tests {
-    use super::{black_over, bokeh_text, dof_text, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, TALK_DOF_DISTANCE, TALK_DOF_RANGE, TALK_DOF_STRENGTH, WAIT_MENU_BLUR};
+    use super::{black_over, bokeh_text, dof_text, effective_grade_base, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, Hdr, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, TALK_DOF_DISTANCE, TALK_DOF_RANGE, TALK_DOF_STRENGTH, WAIT_MENU_BLUR};
     use bevy::prelude::*;
 
     /// What `update_grade` writes this frame: the screen's own blur and what stays sharp.
@@ -1152,6 +1166,35 @@ mod tests {
         // Half black over a half white fade: three quarters covered, a third of it white.
         let [r, _, _, a] = black_over([1.0, 1.0, 1.0, 0.5], 0.5);
         assert!((a - 0.75).abs() < 1e-6 && (r - 1.0 / 3.0).abs() < 1e-6, "{r} {a}");
+    }
+
+    #[test]
+    fn effective_grade_base_neutralizes_exterior_wash_but_keeps_hdr_and_interiors() {
+        let mut hdr = Hdr::default();
+        hdr.v[fnv_world::imagespace::HDR_TARGET_LUM] = 2.4;
+        let base = fnv_world::imagespace::Cinematic {
+            saturation: 0.72,
+            contrast: 0.85,
+            contrast_avg_lum: 0.48,
+            brightness: 1.12,
+            tint: [0.85, 0.62, 0.31],
+            tint_amount: 0.35,
+            hdr,
+        };
+        let ext = effective_grade_base(base, true, false);
+        assert_eq!(ext.saturation, 1.0);
+        assert_eq!(ext.contrast, 1.0);
+        assert_eq!(ext.brightness, 1.0);
+        assert_eq!(ext.tint_amount, 0.0);
+        assert_eq!(ext.hdr.v[fnv_world::imagespace::HDR_TARGET_LUM], 2.4);
+
+        let intr = effective_grade_base(base, true, true);
+        assert_eq!(intr.tint_amount, 0.35);
+        assert_eq!(intr.saturation, 0.72);
+
+        let vanilla = effective_grade_base(base, false, false);
+        assert_eq!(vanilla.tint_amount, 0.35);
+        assert_eq!(vanilla.brightness, 1.12);
     }
 }
 

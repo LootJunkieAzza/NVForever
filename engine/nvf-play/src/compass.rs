@@ -375,6 +375,11 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
     if found.is_empty() {
         return;
     }
+    // A co-op guest sharing quest progress keeps what it found for its own save
+    // (coop-shared-progress.md §2).
+    if rt.game.coop_guest && rt.game.coop_joint_on {
+        rt.game.player.claims.markers.extend(found.iter().map(|(f, _)| FormId(*f)));
+    }
     let mut messages = messages;
     let xp = sim.forms.setting_f32("iXPRewardDiscoverMapMarker").map_or(DISCOVER_XP, |v| v as f64);
     for (form, name) in found {
@@ -539,7 +544,8 @@ fn gather(
                     continue;
                 }
                 let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
-                let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
+                // On a co-op guest, the host's word too (`Game::coop_hostile`, empty outside co-op).
+                let hostile = fighting || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF);
                 if hostile {
                     let x = offset(heading, here, [at[0], at[1]]);
                     let unseen = ["Invisibility", "Chameleon"].iter().filter_map(|n| fnv_game::functions::av_by_name(n)).any(|c| fnv_game::functions::actor_value_capped(g, r, c) > 0.0);

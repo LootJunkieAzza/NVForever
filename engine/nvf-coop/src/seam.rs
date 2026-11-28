@@ -6,8 +6,10 @@
 //! crosses routers) plugs in under it unchanged. No real transport is in this part: the
 //! tests carry packets in memory ([`memory`]) or over loopback UDP ([`loopback`]).
 //!
-//! Who may join is the other half of the seam: an [`Admission`] ([`SharedSecret`] for
-//! now), which an authenticated transport replaces.
+//! Who may join is the other half of the seam: an [`Admission`]. [`SharedSecret`] is the
+//! interim one the tests use; the real transport ([`crate::stack::Stack`], Noise) proves
+//! each peer's key, and its admission ([`crate::stack::KeyAdmission`]) takes the key the
+//! sender's address proved, not anything the Hello says.
 
 use std::net::SocketAddr;
 
@@ -40,6 +42,33 @@ pub trait Admission: Send {
     fn answered(&self, token: u64, id: Option<u8>, proof: u64) -> bool {
         self.answer(token, id) == proof
     }
+    /// Host: whether the Hello from `from` carrying `proof` and `token` may be let in. An
+    /// admission that knows who is at an address (an authenticating transport) decides by
+    /// that; the default is [`Admission::admits`].
+    fn admits_from(&self, proof: u64, token: u64, from: SocketAddr) -> Admit {
+        let _ = (token, from);
+        if self.admits(proof) {
+            Admit::Yes
+        } else {
+            Admit::No
+        }
+    }
+    /// Host: the player at `at` is banned while the lobby lasts (Kick with Ban); false when
+    /// this admission cannot tell players apart (a shared secret).
+    fn ban(&mut self, at: SocketAddr) -> bool {
+        let _ = at;
+        false
+    }
+}
+
+/// What the host does with a Hello ([`Admission::admits_from`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Admit {
+    Yes,
+    /// Dropped without a word (a stranger, a forged token).
+    No,
+    /// Told it is banned ([`crate::net::Msg::Kicked`]), so its game stops asking.
+    Banned,
 }
 
 /// The lobby's secret, shared by its host and guests, never 0 (module notes and

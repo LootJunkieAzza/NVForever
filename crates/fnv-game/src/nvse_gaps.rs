@@ -1187,11 +1187,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // #2040: 16 in the start cell 0xDEB16, where the loaded actors are 20 with 4
         // disabled Golden Geckos; hypothesis: the same at level 3].
         "getactorsbyprocessinglevel" => {
-            let high = g.package_actors();
+            let level = num(args, 0, -1.0) as i64;
             let on = |r: &FormId| g.world.is_enabled(*r).unwrap_or(false);
-            let actors: Vec<XVal> = match num(args, 0, -1.0) as i64 {
-                0 => high.iter().filter(|r| on(r)).map(|r| XVal::Ref(r.0)).collect(),
-                3 => g.world.placed.refs.iter().filter(|(r, p)| matches!(&p.sig, b"ACHR" | b"ACRE") && !high.contains(r) && on(r)).map(|(r, _)| XVal::Ref(r.0)).collect(),
+            let actors: Vec<XVal> = match level {
+                0 => loaded_processing_actors(g).into_iter().filter(|r| on(r)).map(|r| XVal::Ref(r.0)).collect(),
+                3 => {
+                    let high = loaded_processing_actors(g);
+                    g.world.placed.refs.iter().filter(|(r, p)| matches!(&p.sig, b"ACHR" | b"ACRE") && !high.contains(r) && on(r)).map(|(r, _)| XVal::Ref(r.0)).collect()
+                }
                 _ => Vec::new(),
             };
             if actors.is_empty() { zero } else { list(g, actors) }
@@ -1953,6 +1956,47 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     Some(Ok(v))
 }
+
+/// Actors currently in the loaded cells (`GetActorsByProcessingLevel 0`): placed `ACHR`/`ACRE`
+/// whose current cell is in `loaded_cells` (including actors moved or walked into a loaded cell)
+/// and live created actors in `loaded_cells`, in FormID order. Unlike `Game::package_actors`,
+/// this excludes actors in unloaded cells that previously chose a package.
+fn loaded_processing_actors(g: &Game) -> std::collections::BTreeSet<FormId> {
+    let mut out = std::collections::BTreeSet::new();
+    if g.loaded_cells.is_empty() {
+        return out;
+    }
+    let placed = g.world.placed;
+    let forms = g.world.forms;
+    let is_placed_actor = |r: FormId| placed.get(r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
+    for c in &g.loaded_cells {
+        if let Some(refs) = placed.by_cell.get(c) {
+            for &r in refs {
+                if is_placed_actor(r) {
+                    out.insert(r);
+                }
+            }
+        }
+    }
+    for (r, s) in g.world.changed() {
+        if !s.cell.is_some_and(|c| g.loaded_cells.contains(&c)) {
+            continue;
+        }
+        if r >= FormId::FIRST_DYNAMIC {
+            if !s.deleted() && crate::ai::is_actor_base(forms, s.base) {
+                out.insert(r);
+            }
+        } else if is_placed_actor(r) {
+            out.insert(r);
+        }
+    }
+    out.retain(|&r| g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)));
+    out
+}
+
+#[cfg(test)]
+#[path = "nvse_gaps_proc_level_tests.rs"]
+mod proc_level_tests;
 
 #[cfg(test)]
 mod tests {

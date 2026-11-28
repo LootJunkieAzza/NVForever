@@ -448,6 +448,48 @@ pub struct ShotVisual {
 #[derive(Resource, Default)]
 pub struct ShotVisuals {
     pub flying: Vec<ShotVisual>,
+    /// Timed projectile crossings and blast disturbances at the water surface this frame.
+    pub water_entries: Vec<ShotWaterEntry>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ShotWaterEntry {
+    pub point: V3,
+    pub direction: V3,
+    /// The placed water reference, or zero for the continuous cell water.
+    pub receiver: u32,
+    pub kind: WaterImpact,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WaterImpact {
+    Bullet,
+    HeavyEntry,
+    Blast(SurfaceBlast),
+}
+
+/// The source explosion's resolved EXPL radius, signed depth (positive below the
+/// surface), and the splash reach used when the surface qualified. All are game units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SurfaceBlast {
+    pub radius: f32,
+    pub depth: f32,
+    pub reach: f32,
+}
+
+fn water_entry_kind(motion: Motion, explosive: bool) -> Option<WaterImpact> {
+    match motion {
+        Motion::Missile if !explosive => Some(WaterImpact::Bullet),
+        Motion::Missile | Motion::Lobber if explosive => Some(WaterImpact::HeavyEntry),
+        _ => None,
+    }
+}
+
+/// Instant traces can detonate on their hit immediately while the authored water
+/// splash still waits for its travel time. Omit just the extra delayed entry ring
+/// in that case. Inspect this projectile's step so simultaneous shots stay independent.
+fn timed_water_impact(kind: Option<WaterImpact>, delay: f32, detonated_now: bool) -> Option<WaterImpact> {
+    kind.filter(|kind| !(*kind == WaterImpact::HeavyEntry && delay > 0.0 && detonated_now))
 }
 
 /// A shot threw out a shell casing: the weapon, where the casing starts and its
@@ -909,9 +951,39 @@ pub struct NpcWeaponWear {
     pub last: f32,
 }
 
+/// A co-op guest's hit on an actor, for the host, whose world it is, to apply
+/// ([`CombatStats::relay`], [`RemoteHit`]).
+#[derive(Debug, Clone, Copy)]
+pub struct RelayedHit {
+    pub target: FormId,
+    pub dealt: f32,
+    pub weapon: Option<FormId>,
+    pub location: i32,
+    pub critical: bool,
+    pub limb: Option<fnv_game::combat::LimbHit>,
+}
+
+/// [`RelayedHit::location`] of a shot on a placed object that is not an actor (a hit
+/// location is -1 or a body part's index): its hit blocks run on the host.
+pub const OBJECT_LOCATION: i32 = -1000;
+
+/// A hit from another game (a co-op guest's, [`RelayedHit`]) to apply here as `by`'s.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct RemoteHit {
+    pub by: FormId,
+    pub hit: RelayedHit,
+}
+
 /// Counts for the exit report.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct CombatStats {
+    /// A co-op guest's: the host runs the world, so hits on actors other than the player
+    /// are not applied here. The player's own are kept here for the host; others (none
+    /// should land, the guest's NPCs not fighting) are dropped. `None` in any other game.
+    pub relay: Option<Vec<RelayedHit>>,
+    /// A co-op host's: hits on the other players' actors (`fnv_game::Game::coop_actors`),
+    /// each with who dealt it, for their own games to take; they do nothing here.
+    pub coop_hits: Vec<(Option<FormId>, RelayedHit)>,
     /// The player's shots that rolled for their ammo's spent item (a case, hull or
     /// drained cell), and the items given, by item.
     pub spent_rolls: u32,
@@ -1079,6 +1151,8 @@ struct Flying {
     ended_at: Option<V3>,
     /// The gas clouds it has passed through, each hit once (`crate::gas_traps`, #2687).
     gassed: Vec<FormId>,
+    /// The Projectile Zone primitives (`XTRI 23`) it has crossed, each hit once (#3662).
+    proj_zones_hit: Vec<FormId>,
 }
 
 /// A hit waiting for its delivery time (hitscan: distance ÷ speed).
@@ -1566,6 +1640,7 @@ struct Splash {
     dir: V3,
     weapon: FormId,
     shooter: FormId,
+    water_impact: Option<WaterImpact>,
 }
 
 /// A thrown mine that came to rest ([`ProjEvent::Settled`]): its PROJ, where, the way it
@@ -2022,6 +2097,7 @@ impl Plugin for CombatPlugin {
             .init_resource::<HitMarks>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
+            .add_message::<RemoteHit>()
             .add_message::<ForcedHitReaction>()
             .add_message::<ActorPush>()
             .add_message::<Knockback>()
@@ -2036,6 +2112,12 @@ impl Plugin for CombatPlugin {
                 Update,
                 (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, (actor_attacks, sync_player_anim_events).chain(), fly, crate::dismember::resolve, (crate::mines::tick, crate::grass_fire::tick).chain(), crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
+            // Another player's hits land while this player talks, too: the world stands
+            // still behind a conversation, and a guest's hit that came then would be
+            // dropped, so nobody could kill an NPC the host was talking to. Its death ends
+            // the conversation (`fnv_game::Game::update_dialogue`). Without co-op no
+            // [`RemoteHit`] is ever written, so this does nothing [design].
+            .add_systems(Update, remote_hits.in_set(PlaySet::Activation).after(fly).before(crate::dismember::resolve).run_if(remote_hits_land).run_if(resource_exists::<Combat>))
             .add_systems(Update, (draw_marks, watch_hit_effects, leave_space_shots).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
@@ -2528,7 +2610,9 @@ struct DeathDrops {
 /// picks the one reference up (`RefState::dropped_by`; #1032) [hypothesis: the
 /// original's corpses list the weapon lying beside them; owner's report]. Only deaths seen in play count: an actor dead when it
 /// is drawn was never seen holding a weapon, so a corpse laid out by the game keeps its
-/// own (`Game::starts_dead`).
+/// own (`Game::starts_dead`). Another co-op player's actor drops nothing: its weapon is
+/// that player's, in its own game, and it lies only while it is down (a dropped copy
+/// could be picked up here) [design].
 ///
 /// Under the player's NPCs Drop Live Grenades tweak, one that dies holding a grenade (a
 /// thrown weapon that explodes, as `npc_grenades` throws) lets it fall live at its feet
@@ -2546,7 +2630,7 @@ fn death_drops(
 ) {
     let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
     for (&id, p) in &parts.by_ref {
-        if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) {
+        if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) || rt.game.coop_actors.contains_key(&FormId(id)) {
             continue;
         }
         // The player's tweak: a weapon put away is dropped too [design: docs/design/tweaks.md].
@@ -4160,7 +4244,7 @@ pub(crate) fn fire(
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
                     let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, sure: None, vats: vats_shot.is_some(), sneaking: control.sneak };
                     let vats_aim = vats_shot.filter(|_| p.explosion.is_some() && !p.mine);
-                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new() });
+                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new(), proj_zones_hit: Vec::new() });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
                 // The flash itself is the renderer's (`ShotFired`); the test aid marks
@@ -4659,6 +4743,79 @@ pub(crate) fn crit_effect(c: &Combat, weapon: Option<FormId>) -> Option<(FormId,
     Some((w.crit_effect?, w.crit_on_death))
 }
 
+/// When [`remote_hits`] runs: in play, and behind this player's own conversation.
+fn remote_hits_land(state: Res<State<PlayState>>) -> bool {
+    matches!(state.get(), PlayState::Playing | PlayState::Dialogue)
+}
+
+/// Hits from another game ([`RemoteHit`]: a co-op guest's on this host's actors), applied
+/// as this game's own are. Only co-op writes a [`RemoteHit`].
+fn remote_hits(
+    mut remote: MessageReader<RemoteHit>,
+    mut sim: ResMut<SimState>,
+    mut stats: ResMut<CombatStats>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut feedback: ResMut<HitFeedback>,
+    mut messages: MessageWriter<ActorHit>,
+    (mut combat, mut phys): (Option<ResMut<Combat>>, Option<ResMut<PhysState>>),
+) {
+    for RemoteHit { by, hit } in remote.read().copied() {
+        // A shot on a placed object (not an actor): its hit blocks run, as `by`'s, and it
+        // takes the damage, as a shot of this game's own does (the projectile branch).
+        if hit.location == OBJECT_LOCATION && !sim.is_actor(hit.target.0) {
+            let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: -1, ..HitInfo::default() };
+            let r = hit.target;
+            let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
+            if let Some(c) = combat.as_deref_mut() {
+                damage_destructible(c, &mut sim, script.as_deref_mut(), r, hit.dealt, None);
+            }
+            // Knocked here too: the other players' copies of a loose object follow this
+            // world's (a guest's physics does not write back what the host moves), so
+            // without it a bottle the guest shot stayed put on every screen
+            // [observed: buckallobill, in game, NVForever co-op].
+            let pushed = match (phys.as_deref_mut(), combat.as_deref()) {
+                (Some(p), Some(c)) => remote_push(p, c, &sim, by, r, hit.weapon),
+                _ => false,
+            };
+            stats.object_scripts += ran as u32;
+            stats.objects_pushed += pushed as u32;
+            info!("combat: {by}'s shot (another game's) hits {}{}{}", r, if ran { ", its hit blocks ran" } else { "" }, if pushed { ", knocked away" } else { "" });
+            continue;
+        }
+        let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: hit.location, critical: hit.critical, limb: hit.limb, ..HitInfo::default() };
+        let mut dealt = hit.dealt;
+        // A hit on this player in the host's world, dealt against an actor that wears
+        // nothing there: this player's armour takes its part here, as an explosion's
+        // damage meets it (`fly`).
+        if let (FormId::PLAYER_REF, Some(c)) = (hit.target, combat.as_deref()) {
+            let (dt, dr) = target_armor(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF);
+            dealt = (dealt - dt).max(dealt * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
+        }
+        apply_hit(script.as_deref_mut(), &mut sim, hit.target, dealt, info, &mut stats, &mut feedback, None, &mut messages, &[], false, None);
+    }
+}
+
+/// The height above a shooter's feet a remote shot is taken to leave from, for its push
+/// ([`remote_push`]): about a standing actor's eyes [design].
+const REMOTE_SHOT_EYE: f32 = 110.0;
+
+/// A remote shot's push on a loose object (another game's hit, [`remote_hits`]): the
+/// weapon's projectile's impact force, from the shooter's eyes towards the object's
+/// centre, as this game's own shot on it pushes. The hit's own point and direction are
+/// not in the message, so they are taken from where the shooter stands here [design].
+/// Returns whether it moved.
+fn remote_push(phys: &mut PhysState, c: &Combat, sim: &SimState, by: FormId, r: FormId, weapon: Option<FormId>) -> bool {
+    let force = weapon.and_then(|w| c.forms.chain(w, None)).and_then(|ch| ch.projectile).and_then(|p| c.forms.projectiles.get(&p)).map_or(0.0, |p| p.impact_force);
+    if force <= 0.0 {
+        return false;
+    }
+    let Some(at) = phys.world.ref_center(r.0) else { return false };
+    let Some(feet) = phys.world.actor_volume(by.0).map(|v| v.feet).or_else(|| sim.world.peek(by).map(|s| s.pos)) else { return false };
+    let dir = vec::normalize(vec::sub(at, [feet[0], feet[1], feet[2] + REMOTE_SHOT_EYE]));
+    let impulse = vec::scale(dir, force * OBJECT_PUSH * phys.world.params.units_per_metre);
+    phys.world.push_ref(r.0, at, impulse, OBJECT_PUSH_MAX_SPEED).is_some()
+}
+
 /// Where a shot or a blow struck `target`, for the scripts (JohnnyGuitar's
 /// Get3DDistanceFromHitToNiNode, `fnv_game::nvse_jg_nif`).
 fn note_hit_point(script: Option<&mut ScriptState>, target: FormId, at: [f32; 3]) {
@@ -4714,6 +4871,16 @@ fn hit_actor(
     blast: &[LimbHit],
 ) -> Option<(HitResult, Option<ActorHit>)> {
     let mine = info.attacker == Some(FormId::PLAYER_REF);
+    // A co-op guest's ([`CombatStats::relay`]): the player's hits on others go to the
+    // host, whose world takes them; nothing is applied here.
+    if target != FormId::PLAYER_REF {
+        if let Some(out) = stats.relay.as_mut() {
+            if mine {
+                out.push(RelayedHit { target, dealt, weapon: info.weapon, location: info.location, critical: info.critical, limb: info.limb });
+            }
+            return None;
+        }
+    }
     let rt = script.and_then(|s| s.rt.as_mut())?;
     if target == FormId::PLAYER_REF {
         // While the classic VATS style plays its queued attacks the player takes a share
@@ -4727,6 +4894,11 @@ fn hit_actor(
             None => dealt,
         };
         return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback, blast).map(|r| (r, None));
+    }
+    // Another co-op player's: their game takes it, with their own armour (`remote_hits`).
+    if rt.game.is_coop_actor(target) {
+        stats.coop_hits.push((info.attacker, RelayedHit { target, dealt, weapon: info.weapon, location: info.location, critical: info.critical, limb: info.limb }));
+        return Some((HitResult { dealt: dealt as f64, immune: true, ..HitResult::default() }, None));
     }
     // The hit's effects go on before its damage (`hit_effects`).
     let span = info_span!("combat::hit_effects").entered();
@@ -5365,6 +5537,26 @@ fn gas_hit(c: &Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: 
     );
 }
 
+/// A scripted Projectile Zone primitive (`XTRI 23`) crossed by a shot (#3662): runs its
+/// `OnHit` / `OnHitWith` blocks via `Game::hit_object` without stopping the shot.
+/// Re-checks `Game::present` in case an earlier crossed zone on the same shot disabled
+/// this one (e.g. `MS01TriggerJunkyard1Ref` disabling both triggers in `OnHit`).
+fn projectile_zone_hit(sim: &mut SimState, script: Option<&mut ScriptState>, r: FormId, by: By, projectile: Option<FormId>) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    let attacker = (by.actor != FormId(0)).then_some(by.actor);
+    let weapon = (by.weapon != FormId(0)).then_some(by.weapon);
+    let ran = with_world(rt, sim, |rt| {
+        if !rt.game.present(r) {
+            return false;
+        }
+        let info = HitInfo { attacker, weapon, projectile, location: -1, ..HitInfo::default() };
+        rt.game.hit_object(r, info)
+    });
+    if ran {
+        info!("combat: shot crosses Projectile Zone {r}: its hit blocks ran");
+    }
+}
+
 /// Destructible references whose collision overlaps a sphere, with their distance.
 fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&ScriptState>, at: V3, radius: f32) -> Vec<(FormId, f32)> {
     let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
@@ -5495,7 +5687,7 @@ fn actor_attacks(
             let tracer = rolled || (shown && instant(&p));
             let dir = vec::normalize(p.vel);
             c.next_visual += 1;
-            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new() });
+            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new(), proj_zones_hit: Vec::new() });
             if let Some(flying) = c.flying.last() {
                 grenade_probe.accepted(probe_request, s, &flying.p, flying.proj, flying.id);
                 if let Some(probe) = launch_probe.as_deref_mut() { probe.inserted(s, scripted, flying, &sim.world); }
@@ -5713,6 +5905,8 @@ fn leave_space_shots(mut travel: MessageReader<crate::Travel>, mut c: ResMut<Com
     if let Some(s) = snap.as_deref_mut() {
         s.clear_tracking();
     }
+    c.splashes.clear();
+    visuals.water_entries.clear();
     let n = c.flying.len() + c.pending.len() + c.boom.len();
     if n == 0 {
         return;
@@ -5924,7 +6118,10 @@ fn fly(
         });
     }
     (c.vats_blast.toward, c.vats_blast.off) = (0, 0);
-    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() {
+    if !visuals.water_entries.is_empty() {
+        visuals.water_entries.clear();
+    }
+    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() && c.splashes.is_empty() {
         if !visuals.flying.is_empty() {
             visuals.flying.clear();
         }
@@ -5932,11 +6129,16 @@ fn fly(
     }
     // Shots whose flight ended this frame without a hit to deliver: their references go.
     let mut over: Vec<(FormId, f32)> = Vec::new();
-    // The gas clouds the shots pass through or leave from this frame (#2687): the
-    // cloud, the shot's source, whether the gun was fired inside it.
+    // The gas clouds (#2687) and scripted Projectile Zone primitives (XTRI 23, #3662)
+    // shots can cross this frame.
     // Read with the world in the runtime (`with_world`): outside it, nothing is present.
-    let gas = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, &mut sim, |rt| crate::gas_traps::volumes(rt))).unwrap_or_default();
+    let (gas, proj_zones) = script
+        .as_deref_mut()
+        .and_then(|s| s.rt.as_mut())
+        .map(|rt| with_world(rt, &mut sim, |rt| (crate::gas_traps::volumes(rt), crate::script_trigger::projectile_zones(rt))))
+        .unwrap_or_default();
     let mut gas_hits: Vec<(FormId, By, bool)> = Vec::new();
+    let mut proj_zone_hits: Vec<(FormId, By, Option<FormId>)> = Vec::new();
     {
         let world = view(&mut phys, script.as_deref(), Some(&sim));
         let hold = c.tracer_hold;
@@ -6012,7 +6214,7 @@ fn fly(
                 }
             }
             // Its way this frame, from the muzzle on the first, to where it stopped.
-            if !gas.is_empty() && !f.by.harmless {
+            let shot_segment = || {
                 let to = events
                     .iter()
                     .find_map(|e| match e {
@@ -6021,11 +6223,27 @@ fn fly(
                     })
                     .unwrap_or(f.p.pos);
                 let from = if first { f.origin } else { before };
+                (from, to)
+            };
+            if !gas.is_empty() && !f.by.harmless {
+                let (from, to) = shot_segment();
                 let inside = if first { crate::gas_traps::around(&gas, f.origin) } else { Vec::new() };
                 for r in crate::gas_traps::crossed(&gas, from, to) {
                     if !f.gassed.contains(&r) {
                         f.gassed.push(r);
                         gas_hits.push((r, f.by, inside.contains(&r)));
+                    }
+                }
+            }
+            // Scripted Projectile Zone primitives (XTRI 23) crossed by this shot segment
+            // (#3662): each projectile triggers each volume at most once without stopping
+            // the shot.
+            if !proj_zones.is_empty() {
+                let (from, to) = shot_segment();
+                for r in crate::script_trigger::crossed_projectile_zones(&proj_zones, from, to) {
+                    if !f.proj_zones_hit.contains(&r) {
+                        f.proj_zones_hit.push(r);
+                        proj_zone_hits.push((r, f.by, f.rref));
                     }
                 }
             }
@@ -6078,6 +6296,7 @@ fn fly(
                     if f.p.rolling { ", after rolling" } else { "" }
                 );
             }
+            let detonated_now = at_once && f.p.explosion.is_some() && !f.by.harmless && events.iter().any(|event| matches!(event, ProjEvent::Explode { .. }));
             for e in events {
                 match e {
                     ProjEvent::Hit { actor, part, object, point, delay, normal, material } => {
@@ -6109,7 +6328,8 @@ fn fly(
                     ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
                     ProjEvent::Splash { point, dir } => {
                         let delay = if at_once && !beam && speed > 0.0 { vec::len(vec::sub(point, f.origin)) / speed } else { 0.0 };
-                        c.splashes.push(Splash { due: c.time + delay, point, dir, weapon: f.by.weapon, shooter: f.by.actor });
+                        let water_impact = timed_water_impact(water_entry_kind(f.p.motion, f.p.explosion.is_some()), delay, detonated_now);
+                        c.splashes.push(Splash { due: c.time + delay, point, dir, weapon: f.by.weapon, shooter: f.by.actor, water_impact });
                     }
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
@@ -6148,6 +6368,9 @@ fn fly(
     for (r, by, inside) in gas_hits {
         let what = if inside { "a shot fired inside it" } else { "a shot through it" };
         gas_hit(c, &mut sim, script.as_deref_mut(), r, Some(by.actor), Some(by.weapon), inside, what);
+    }
+    for (r, by, rref) in proj_zone_hits {
+        projectile_zone_hit(&mut sim, script.as_deref_mut(), r, by, rref);
     }
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_| !over.is_empty()) {
         with_world(rt, &mut sim, |rt| {
@@ -6225,6 +6448,21 @@ fn fly(
         let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
         ShotVisual { id: g.id, projectile: g.proj, owner: g.owner, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled, strength: beam_strength(g.beam, g.left, g.fade) }
     }));
+    // Record due crossings before this frame's detonations: a lobber can cross
+    // the surface and strike the bed on one step. Keep the authored IPCT and its
+    // sounds in their existing delivery order below.
+    let (splashes, keep): (Vec<Splash>, Vec<Splash>) = std::mem::take(&mut c.splashes).into_iter().partition(|w| w.due <= c.time);
+    c.splashes = keep;
+    for w in &splashes {
+        let Some(kind) = w.water_impact else { continue };
+        // A hitscan crossing can be due after the water it was aimed at streamed out.
+        if let Some((surface, receiver)) = phys.world.water_surface_with_receiver(w.point)
+            .filter(|&(surface, _)| (surface - w.point[2]).abs() < 1.0)
+        {
+            let point = [w.point[0], w.point[1], surface];
+            visuals.water_entries.push(ShotWaterEntry { point, direction: w.dir, receiver, kind });
+        }
+    }
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
     while let Some(blast_req) = c.boom.pop() {
@@ -6251,11 +6489,15 @@ fn fly(
         // the water shows instead of the blast's own model (no fireball in the
         // original, `WATER_SURFACE_EXPLOSION`); its damage and push are as on land.
         let reach = c.forms.setting("fExplosionSplashRadius").filter(|r| *r > 0.0).unwrap_or(WATER_BLAST_REACH);
-        let water = water_thrown_up(at, phys.world.water_surface_for(at), ground.as_ref().map(|g| g.point[2]), reach);
+        let water = phys.world.water_surface_with_receiver(at).filter(|&(surface, _)| {
+            water_thrown_up(at, Some(surface), ground.as_ref().map(|g| g.point[2]), reach).is_some()
+        });
         let look = if water.is_some() { ExplosionLook::Hidden } else { ExplosionLook::Own };
         effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor), normal: ground.as_ref().map(|g| g.normal), look, gore: false });
-        if let Some(surface) = water {
+        if let Some((surface, receiver)) = water {
             let point = [at[0], at[1], surface];
+            let blast = SurfaceBlast { radius: x.radius, depth: surface - at[2], reach };
+            visuals.water_entries.push(ShotWaterEntry { point, direction: [0.0; 3], receiver, kind: WaterImpact::Blast(blast) });
             stats.water_blasts += 1;
             info!("combat: explosion {} throws up water at ({:.0}, {:.0}, {:.0}), {:.0} units from the surface", x.edid.as_deref().unwrap_or("?"), point[0], point[1], point[2], (at[2] - surface).abs());
             // No one's: it is not heard as a second blast (detection hears the blast's).
@@ -6466,8 +6708,6 @@ fn fly(
     }
     // Shots that went down into water: the water impact of the weapon's impact data set
     // on the surface, facing up (no decal on water).
-    let (splashes, keep): (Vec<Splash>, Vec<Splash>) = std::mem::take(&mut c.splashes).into_iter().partition(|w| w.due <= c.time);
-    c.splashes = keep;
     if let Some(s) = sfx.as_deref() {
         for w in splashes {
             let impact = c.forms.weapons.get(&w.weapon).and_then(|x| x.impact_dataset).and_then(|set| s.forms.impact_id(set, "water"));
@@ -6584,7 +6824,8 @@ fn fly(
         if p.by.harmless {
             stats.harmless_hits += 1;
             let hit = p.actor.map(|a| if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) }).or(p.object.map(|o| FormId(o as u32)));
-            if let Some(target) = hit {
+            // (A co-op guest's world is the host's: its hit blocks run there.)
+            if let Some(target) = hit.filter(|_| stats.relay.is_none()) {
                 let info = HitInfo { attacker: Some(shooter), weapon: Some(id), projectile: p.rref, location: -1, ..HitInfo::default() };
                 let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.harmless_hit(target, info)));
                 stats.harmless_scripts += u32::from(ran);
@@ -6616,6 +6857,22 @@ fn fly(
             debug!("combat: shot lands at ({:.0}, {:.0}, {:.0}) on {}", p.point[0], p.point[1], p.point[2], p.object.map_or("no object".to_string(), |o| format!("{:08X}", o as u32)));
             if let Some(obj) = p.object {
                 let r = FormId(obj as u32);
+                // A co-op guest's shot on a placed object goes to the host, whose world
+                // runs the object's hit blocks and takes its damage as this player's
+                // ([`remote_hits`]; Sunny's bottles count for the host's quest
+                // [observed: buckallobill, in game, NVForever co-op]); what that changes
+                // comes back as the host's world does. The object is still knocked here,
+                // where it is seen.
+                if shooter == FormId::PLAYER_REF && !r.is_dynamic() {
+                    if let Some(out) = stats.relay.as_mut() {
+                        let (ap, _) = hit_perks(script.as_deref_mut(), &mut sim, shooter, id, None);
+                        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
+                        out.push(RelayedHit { target: r, dealt: d.dealt, weapon: Some(id), location: OBJECT_LOCATION, critical: false, limb: None });
+                        let impulse = vec::scale(p.dir, p.force * OBJECT_PUSH * phys.world.params.units_per_metre);
+                        phys.world.push_ref(obj as u32, p.point, impulse, OBJECT_PUSH_MAX_SPEED);
+                        continue;
+                    }
+                }
                 // The object's OnHit and OnHitWith blocks, before any damage
                 // [documented: GECK wiki Event Handling] (combat-rules.md §14).
                 let info = HitInfo { attacker: Some(shooter), weapon: Some(id), projectile: p.rref, location: -1, ..HitInfo::default() };
@@ -7443,7 +7700,8 @@ mod tests {
         let mut phys = PhysState::default();
         let id = 0x1234;
         let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
-        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+        let standing_height = ch.params.height;
+        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
         phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [0.0, 0.0, 30.0], radius: 8.0, height: 30.0, dead: false });
         phys
     }
@@ -7471,7 +7729,8 @@ mod tests {
                 phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet, radius: 15.0, height: 30.0, dead: false });
                 if walking {
                     let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), feet);
-                    phys.npcs.insert(id, NpcBody { prev_feet: feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
+                    let standing_height = ch.params.height;
+                    phys.npcs.insert(id, NpcBody { prev_feet: feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default(), standing_height, sneak_crouch: false });
                 }
                 for forward in [[1.0, 0.0, 0.0], vec::normalize([1.0, 0.0, -1.0])] {
                     let mut world = view(&mut phys, None, None).for_melee();
@@ -7652,6 +7911,24 @@ mod tests {
         assert_eq!(jam_anim("ReloadZ").as_deref(), Some("JamZ"));
         assert_eq!(jam_anim("Reload"), None);
         assert_eq!(jam_anim("AttackLeft"), None);
+    }
+
+    #[test]
+    fn explosive_projectile_entry_is_distinct_from_detonation() {
+        assert_eq!(water_entry_kind(Motion::Missile, false), Some(WaterImpact::Bullet));
+        assert_eq!(water_entry_kind(Motion::Missile, true), Some(WaterImpact::HeavyEntry));
+        assert_eq!(water_entry_kind(Motion::Lobber, true), Some(WaterImpact::HeavyEntry));
+        assert_eq!(water_entry_kind(Motion::Beam, true), None);
+        assert_eq!(water_entry_kind(Motion::Flame, false), None);
+    }
+
+    #[test]
+    fn delayed_explosive_trace_cannot_send_a_heavy_entry_after_its_detonation() {
+        let heavy = water_entry_kind(Motion::Missile, true);
+        assert_eq!(timed_water_impact(heavy, 0.15, true), None);
+        assert_eq!(timed_water_impact(heavy, 0.15, false), heavy, "another projectile flying through water without detonating");
+        assert_eq!(timed_water_impact(heavy, 0.0, true), heavy, "a crossing due now precedes the same frame's blast");
+        assert_eq!(timed_water_impact(Some(WaterImpact::Bullet), 0.15, false), Some(WaterImpact::Bullet));
     }
 
     #[test]

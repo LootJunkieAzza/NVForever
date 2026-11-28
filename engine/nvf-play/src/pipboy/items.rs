@@ -524,8 +524,13 @@ pub fn keys(
         send(Command::Drop);
     }
     // The player's tweak: Q drops the selected item too [design: docs/design/tweaks.md].
+    // With `quantity-select-short-keys` enabled (#3799), Shift drops the whole stack and
+    // Ctrl drops a single item without opening the quantity prompt [design].
     if !asking && drop_key && keys.just_pressed(KeyCode::KeyQ) {
-        send(Command::Drop);
+        let short_keys = active.0.as_ref().is_some_and(|m| m.qtt_select_short_keys);
+        let shift = short_keys && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        let ctrl = short_keys && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+        send(if shift { Command::DropStack } else if ctrl { Command::DropSingle } else { Command::Drop });
     }
     for w in wheel.read() {
         *lines += match w.unit {
@@ -588,8 +593,9 @@ fn on_row_click(
     if click.button == PointerButton::Secondary && !no_right_drop {
         if hold.slot.is_none() {
             let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+            let ctrl = active.0.as_ref().is_some_and(|m| m.qtt_select_short_keys) && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
             out.write(MenuInput(Command::Hover(Side::Player, r.0)));
-            out.write(MenuInput(if shift { Command::DropStack } else { Command::Drop }));
+            out.write(MenuInput(if shift { Command::DropStack } else if ctrl { Command::DropSingle } else { Command::Drop }));
         }
         return;
     }
@@ -812,7 +818,7 @@ const UNEQUIP: &str = "Unequip";
 
 /// [design, #2312] The existing hint/glyph path names RB (or R1) for the panel.
 pub fn hotkey_button() -> String {
-    format!("{})", crate::pad::pad_label(crate::pad::PadInput::Button(GamepadButton::RightTrigger), crate::pad::labels()))
+    format!("[{}]", crate::pad::pad_label(crate::pad::PadInput::Button(GamepadButton::RightTrigger), crate::pad::labels()))
 }
 
 /// The drop hint's key: a right click on the keyboard and mouse (owner 2026-11-02, #1393),
@@ -821,8 +827,8 @@ pub fn hotkey_button() -> String {
 fn drop_key() -> String {
     use crate::pad::{labels, pad_label, Labels, PadInput};
     match labels() {
-        Labels::Keys => format!("{})", crate::bindings::mouse_name(MouseButton::Right)),
-        l => format!("{})", pad_label(PadInput::Button(GamepadButton::West), l)),
+        Labels::Keys => format!("[{}]", crate::bindings::mouse_name(MouseButton::Right)),
+        l => format!("[{}]", pad_label(PadInput::Button(GamepadButton::West), l)),
     }
 }
 
@@ -1160,26 +1166,26 @@ mod tests {
         let keys_misc_ammo: Vec<_> = [Category::Misc, Category::Ammo].map(|tab| shown(&page_hints(tab, Some(&misc(tab)), ("Repair", false), false, false))).into();
         let keys_empty = shown(&page_hints(Category::Weapons, None, ("Repair", false), false, true));
 
-        assert_eq!(weapons, [hint("Equip A)", false), hint("Drop X)", false), hint("Repair Y)", false), hint("Hotkey RB)", false), hint("Modify LB)", false)]);
+        assert_eq!(weapons, [hint("Equip [A]", false), hint("Drop [X]", false), hint("Repair [Y]", false), hint("Hotkey [RB]", false), hint("Modify [LB]", false)]);
         assert_eq!(bare, ("Repair", true, "Modify", true, false));
-        assert_eq!(apparel, [hint("Unequip A)", false), hint("Drop X)", false), hint("Maintain Y)", true), hint("Hotkey RB)", false)]);
-        assert_eq!(aid, [hint("Use A)", false), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey RB)", false)]);
+        assert_eq!(apparel, [hint("Unequip [A]", false), hint("Drop [X]", false), hint("Maintain [Y]", true), hint("Hotkey [RB]", false)]);
+        assert_eq!(aid, [hint("Use [A]", false), hint("Drop [X]", false), hint("Repair [Y]", true), hint("Hotkey [RB]", false)]);
         assert_eq!(book, "Use");
-        assert_eq!(refused, ("Equip A)".to_string(), true, false));
+        assert_eq!(refused, ("Equip [A]".to_string(), true, false));
         for h in &misc_ammo {
-            assert_eq!(h, &[hint("Equip A)", true), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey RB)", true)]);
+            assert_eq!(h, &[hint("Equip [A]", true), hint("Drop [X]", false), hint("Repair [Y]", true), hint("Hotkey [RB]", true)]);
         }
         assert!(quest);
         assert_eq!(empty, (5, true), "an empty Weapons tab: all five controller hints, all dim");
 
-        assert_eq!(keys_weapons, [hint("Repair R)", false), hint("Modify X)", false)]);
-        assert_eq!(keys_bare, [hint("Repair R)", true), hint("Modify X)", true)]);
-        assert_eq!(keys_apparel, [hint("Maintain R)", true)]);
-        assert_eq!(keys_aid, [hint("Repair R)", true)]);
+        assert_eq!(keys_weapons, [hint("Repair [R]", false), hint("Modify [X]", false)]);
+        assert_eq!(keys_bare, [hint("Repair [R]", true), hint("Modify [X]", true)]);
+        assert_eq!(keys_apparel, [hint("Maintain [R]", true)]);
+        assert_eq!(keys_aid, [hint("Repair [R]", true)]);
         for h in &keys_misc_ammo {
-            assert_eq!(h, &[hint("Repair R)", true)]);
+            assert_eq!(h, &[hint("Repair [R]", true)]);
         }
-        assert_eq!(keys_empty, [hint("Repair R)", true), hint("Modify X)", true)]);
+        assert_eq!(keys_empty, [hint("Repair [R]", true), hint("Modify [X]", true)]);
     }
 
     /// Five hints 46 apart from the Repair button's place end above the figures' highest

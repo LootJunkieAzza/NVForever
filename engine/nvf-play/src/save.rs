@@ -42,6 +42,16 @@
 //!   the encoder or the disk. No picture within [`SHOT_WAIT_FRAMES`] frames: the save is
 //!   written without one. A load or quit waits for the saves in flight ([`SaveWrites`]).
 //!
+//! - **A co-op guest's own game**: a guest joining another player's world
+//!   keeps its own game as it was then ([`KeepSolo`] asks, [`keep_solo`] takes it into
+//!   [`SoloBase`] before the guest is moved). Each save made while it is kept writes that
+//!   game with the character as it is now (`GameSnapshot::with_character_of`): the place,
+//!   the world, quests and time are the guest's own, the inventory, values, level, XP and
+//!   perks are what it has now. So a guest loads back into its own game where it left it,
+//!   with what it gained in the other world. The engine's part is its own game's too,
+//!   apart from the view, sneak, run, flashlight and the magazine in hand. Outside co-op
+//!   nothing asks for it, and saves are written as before [design].
+//!
 //! The random numbers are not restored as saved: a load re-seeds them, so a reload does
 //! not replay the same rolls (design §5 q3); test aid `NVF_PLAY_TEST_SAVE_SAME_ROLLS=1`
 //! keeps the saved positions.
@@ -273,6 +283,24 @@ pub struct OrderChange {
     pub missing: Vec<String>,
 }
 
+/// Co-op: keep this game as it is now, as the guest's own ([`keep_solo`]),
+/// once it runs; coop.rs asks for it as a guest joins another's world.
+#[derive(Resource, Default)]
+pub struct KeepSolo;
+
+/// A co-op guest's own game as it was when it joined another's world (module notes);
+/// `None` when it could not be taken (the scripts do not run). While it is here, saves
+/// write it with the character as it is now.
+#[derive(Resource)]
+pub struct SoloBase(pub Option<Box<Solo>>);
+
+pub struct Solo {
+    pub game: fnv_game::game::GameSnapshot,
+    pub engine: EngineSnapshot,
+    /// The header's place, location and game date then.
+    pub header: SaveHeader,
+}
+
 /// The engine part waiting for the runtime to be restored.
 #[derive(Resource)]
 pub struct PendingEngine(pub EngineSnapshot, pub PathBuf, pub Option<OrderChange>);
@@ -429,7 +457,7 @@ impl Plugin for SavePlugin {
             .add_message::<LoadRequest>()
             .add_message::<LoadRefused>()
             .add_systems(Update, (requests, autosaves).in_set(PlaySet::Ui))
-            .add_systems(Update, (death_recovery::update, write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
+            .add_systems(Update, (death_recovery::update, write_saves, take_shot, finish_writes, apply_engine, keep_solo).chain().after(PlaySet::Sync))
             .add_systems(Last, flush_on_exit);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
@@ -561,7 +589,7 @@ fn player_dead(world: &World) -> bool {
 }
 
 /// Why saving is not allowed now, if it is not.
-fn not_now(world: &World) -> Option<String> {
+pub fn not_now(world: &World) -> Option<String> {
     let st = world.get_resource::<ScriptState>()?;
     let Some(rt) = st.rt.as_ref() else { return Some("the scripts are not running yet".into()) };
     if world.resource::<crate::loading::Loading>().active() {
@@ -663,14 +691,16 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         SaveKind::Manual => r.name.as_str(),
     };
     let path = cfg.path_of(name)?;
-    let mut game = world.resource_scope(|world, mut sim: Mut<SimState>| {
+    let (mut game, story) = world.resource_scope(|world, mut sim: Mut<SimState>| {
         let mut st = world.resource_mut::<ScriptState>();
         let rt = st.rt.as_mut().ok_or("the scripts are not running")?;
         // The extender's SaveGame event, with the save's name [documented: NVSE Event
         // Handling], before the state is taken.
         crate::script::with_world(rt, &mut sim, |rt| {
             rt.game.dispatch_event("SaveGame", vec![fnv_script::vm::XVal::Str(name.to_string())], None);
-            rt.game.checked_snapshot()
+            // The story to undo keeps the unique rewards of claimed quests
+            // (coop-shared-progress.md §4.1).
+            rt.game.checked_snapshot().map(|g| (g, rt.game.coop_story_to_undo()))
         })
     })?;
     // Test aid: this save reads as one from a later version (smoke `save-refused-load`).
@@ -678,7 +708,28 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         game.format = "fnv.game.state/2".into();
     }
     let engine = engine_snapshot(world);
-    let header = header(world, r.kind, &game, &engine);
+    let mut header = header(world, r.kind, &game, &engine);
+    // A co-op guest's save: its own game, with the character as it is now.
+    let (game, engine) = match world.get_resource::<SoloBase>().and_then(|s| s.0.as_deref()) {
+        Some(solo) => {
+            let mut e = solo.engine.clone();
+            (e.third_person, e.distance, e.sneak, e.always_run, e.flashlight, e.magazine) = (engine.third_person, engine.distance, engine.sneak, engine.always_run, engine.flashlight, engine.magazine);
+            let h = &solo.header;
+            (header.place, header.location, header.weather) = (h.place.clone(), h.location.clone(), h.weather.clone());
+            (header.game_year, header.game_month, header.game_day, header.game_hour) = (h.game_year, h.game_month, h.game_day, h.game_hour);
+            info!("save: a co-op guest's save: its own game at {} with the character as it is now", h.location);
+            // What the host's story gave or took is not part of the character: taken off,
+            // but for the unique rewards of the stages this character claimed
+            // (docs/design/coop-save.md §5).
+            let mut now = game;
+            let undone = story.undo_on(&mut now);
+            if !undone.is_empty() {
+                info!("save: the host's story taken off the guest's save: {}", undone.join(", "));
+            }
+            (solo.game.clone().with_character_of(&now), e)
+        }
+        None => (game, engine),
+    };
     let refs = game.sim.refs.len();
     let body = SaveBody { format: BODY_FORMAT.into(), game, engine };
     let bytes = serde_json::to_vec(&body).map_err(|e| e.to_string())?;
@@ -1235,6 +1286,32 @@ fn header(world: &World, kind: SaveKind, game: &fnv_game::game::GameSnapshot, en
     h
 }
 
+/// Take this game as the co-op guest's own ([`KeepSolo`], module notes) once it runs and a
+/// save it loaded is back, before anything moves the player.
+fn keep_solo(world: &mut World) {
+    if !world.contains_resource::<KeepSolo>() || world.contains_resource::<SoloBase>() || world.contains_resource::<PendingEngine>() {
+        return;
+    }
+    let Some(st) = world.get_resource::<ScriptState>() else { return };
+    if st.off.is_some() {
+        world.insert_resource(SoloBase(None));
+        return;
+    }
+    if st.rt.is_none() || st.pending_game_waiting() || world.resource::<crate::loading::Loading>().active() {
+        return;
+    }
+    let game = world.resource_scope(|world, mut sim: Mut<SimState>| {
+        let mut st = world.resource_mut::<ScriptState>();
+        let rt = st.rt.as_mut()?;
+        Some(crate::script::with_world(rt, &mut sim, |rt| rt.game.snapshot()))
+    });
+    let Some(game) = game else { return };
+    let engine = engine_snapshot(world);
+    let header = header(world, SaveKind::Auto, &game, &engine);
+    info!("save: this game kept as the co-op guest's own: {} at {:?}; its saves come back here", header.location, header.place.feet);
+    world.insert_resource(SoloBase(Some(Box::new(Solo { game, engine, header }))));
+}
+
 /// Put back the engine's part once the runtime holds the restored game.
 fn apply_engine(world: &mut World) {
     if !world.contains_resource::<PendingEngine>() {
@@ -1244,6 +1321,7 @@ fn apply_engine(world: &mut World) {
         return;
     }
     let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
+    replay_claims(world);
     // The player's tweak: a load turns god mode off [design: docs/design/tweaks.md].
     if world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.game.god_mode_off_on_load) && crate::combat::god_mode() {
         crate::combat::set_god_mode(false);
@@ -1381,6 +1459,38 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
         eprintln!("load: {}", missing_content_text(&missing));
     }
     Ok((f.header, body, Some(OrderChange { remap, missing })))
+}
+
+/// Joint progression's replay (`fnv_game::coop_joint`, coop-shared-progress.md §3.5): when this character's
+/// own world loads, the quest stages it claimed in another player's world are applied
+/// before the first frame. Not for a load that joins a co-op session (that world is the
+/// host's: the claims wait in the character for its own next load) [design].
+fn replay_claims(world: &mut World) {
+    use crate::coop_progress::{REJOIN_ENV, SYNC_ENV};
+    if std::env::var_os(SYNC_ENV).is_some() || std::env::var_os(REJOIN_ENV).is_some() {
+        return;
+    }
+    if world.get_resource::<crate::coop_progress::CoopProgress>().is_some_and(|p| p.role == crate::coop_progress::Role::Guest) {
+        return;
+    }
+    let lines = match world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+        Some(rt) => rt.game.replay_claims(),
+        None => return,
+    };
+    if let Some(mut corner) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
+        for l in lines {
+            corner.push(l.into());
+        }
+    }
+    // The map markers found in another player's world (coop-shared-progress.md §2):
+    // found here too, as a save's own are (no notice, no XP).
+    let markers = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()).map(|rt| std::mem::take(&mut rt.game.player.claims.markers)).unwrap_or_default();
+    if !markers.is_empty() {
+        info!("co-op: {} map marker(s) found in co-op are found here too", markers.len());
+        let mut found = world.get_resource::<crate::pipboy::data::DataState>().map(|s| s.discovered().clone()).unwrap_or_default();
+        found.extend(markers.iter().map(|m| m.0));
+        crate::pipboy::data::DataState::restore_discovered(world, found);
+    }
 }
 
 #[cfg(test)]
