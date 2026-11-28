@@ -474,6 +474,12 @@ pub(crate) fn open_menus(
                     let list: Vec<String> = held.iter().map(|(i, c)| format!("{} ({c})", model::display_name(sim.world.forms, *i))).collect();
                     info!("barter: {merchant} holds back {} item(s) outside its services: {}", held.len(), if list.is_empty() { "none".into() } else { list.join(", ") });
                 }
+                // Its own items lying loose in its cell, offered too (`model::owned_loose`, #3350).
+                let loose = model::owned_loose(&sim.world, merchant);
+                if !loose.is_empty() {
+                    let names: Vec<String> = loose.iter().filter_map(|r| sim.world.peek(*r).map(|s| s.base).or_else(|| sim.refs.get(*r).map(|p| p.base))).map(|i| model::display_name(sim.world.forms, i)).collect();
+                    info!("barter: {merchant} also offers {} owned loose item(s) lying in its cell: {}", loose.len(), names.join(", "));
+                }
                 Ok(m)
             })
         }

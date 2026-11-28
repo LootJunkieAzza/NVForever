@@ -221,6 +221,34 @@ Not built: the BarterExit lines merchants say when the menu closes (GECK wiki Se
 the blur, the mods tile, the "Calculate Buy Price" perk entry point, repair at merchants. The
 menus from their files: §8.
 
+### 5.1 The merchant's owned loose items (#3350)
+
+- A merchant's barter list also offers the items it owns that lie loose in the world,
+  not in any container [observed: observer check 256 and its follow-up, 2026-11-28].
+  - Blake (`NVBlakeREF` 0x000F1866, at the Crimson Caravan) listed the two medical books
+    of Bitter Springs Infirmary Blues: `VBSPsychologyBook` and `VBSPediatricsBook`.
+    These are persistent references owned by him, lying on the ground.
+  - He also listed his owned loose Purified Water (0x000151A3, one row of 8) and
+    Whiskey (0x00032C75, one row of 4). These references are not persistent.
+  - Neither his merchant container (`VendorContainerBlake` 0x000FD56D) nor his own
+    inventory held any of them, before the menu opened or while it was open.
+  - The loose references stayed enabled while the menu was open.
+- NVForever offers the item references in the merchant's cell that are owned by its
+  base or its reference, enabled and not taken (`menu::model::owned_loose`).
+  - All units of one item make one row, together with any stock row of the same item.
+  - A quest item is offered too: Blake's books are quest items.
+  - Buying takes the stock's units first, then the loose references. Each reference
+    goes into the player's inventory, owned by no one, so it is bought, not stolen,
+    and it leaves the world as a pick-up would. The item's OnAdd then runs as for any
+    item reaching the player.
+- [hypothesis] The reach is the merchant's cell, by the counts. 7 of the 8 waters and
+  all 4 whiskeys lie in Blake's cell; the eighth water lies somewhere else.
+- [hypothesis] Only ownership by the merchant counts. Ownership by its faction or by
+  the cell was not checked.
+- [observed: a scan of the ten masters, 2026-11-28] 76 such items lie by 11 merchants.
+  Blake has 23, the merchant reference 0x000E6822 has 21 and Genaro (Freeside) 18;
+  the other eight have one to four each.
+
 ## 6. Looking at one
 
 - `NVF_PLAY_TEST_BARTER=<merchant reference>[:discount]` opens the barter menu with that

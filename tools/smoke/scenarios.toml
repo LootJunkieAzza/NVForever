@@ -16575,7 +16575,8 @@ order = [[
   "test aid calls AddScriptPackage on TrudyRef",
   "test aid calls GetOffersServicesNow on TrudyRef = 0",
   "barter: TrudyRef sells Alcohol, Food (its services)",
-  "barter: 0x00104C6D holds back 1 item(s) outside its services: 9mm Pistol (Weapons)",
+  # #3350: her own .357 lying loose in the saloon is offered too (menu::model::owned_loose), and held back as a weapon.
+  "barter: 0x00104C6D holds back 2 item(s) outside its services: .357 Magnum Revolver (Weapons), 9mm Pistol (Weapons)",
   "menu: close",
 ]]
 
@@ -37775,4 +37776,18 @@ forbid = [
   { text = "panicked", label = "no panic" },
   { text = "co-op test guest: SmokeGuest failed to join", label = "the guest is not refused (the password matches)" },
   { text = "co-op: the lobby browser:", label = "the Browse request does not fail" },
+]
+[[scenario]]
+name = "barter-owned-loose-items"
+source = "#3350 (observer check 256 and its follow-up, 2026-11-28; docs/spec-notes/barter-menu.md §5.1): a merchant's barter menu offers the items it owns lying loose in its cell, as well as its stock; Blake at the Crimson Caravan sells the two medical books Bitter Springs Infirmary Blues asks for, which lie owned by him on the ground and are in no container"
+note = "Fresh game beside Blake (NVBlakeREF 0x000F1866); ShowBarterMenu at 4 s. With the change: 23 owned loose items, the two books among them (2026-11-28); on main the line does not exist and the books are not offered."
+areas = ["barter", "menus"]
+paths = ["engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "4:call:NVBlakeREF:ShowBarterMenu" }
+args = ["--world", "WastelandNV", "--pos=13316,17266,9939", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { text = "a script opens the barter menu with 0x000F1866", label = "Blake's barter menu opens" },
+  { re = 'barter: 0x000F1866 also offers (?P<n>\d+) owned loose item', range = [23, 23], label = "his 23 owned loose items in his cell are offered (Purified Water x7, Whiskey x4, ...)" },
+  { re = 'barter: 0x000F1866 also offers .*Pediatric Medicine.*Modern Refugee', label = "the two books of Bitter Springs Infirmary Blues among them" },
 ]
