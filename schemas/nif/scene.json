@@ -239,6 +239,11 @@
       ],
       "note": "nif.xml <niobject name=\"BSShaderPPLightingProperty\">; the emissive colour needs bs_version > 34."
     },
+    "Lighting30ShaderProperty": {
+      "inherit": "BSShaderPPLightingProperty",
+      "fields": [],
+      "note": "nif.xml <niobject name=\"Lighting30ShaderProperty\" inherit=\"BSShaderPPLightingProperty\">; pixel shader 3.0 subclass with no fields of its own."
+    },
     "BSShaderNoLightingProperty": {
       "inherit": "BSShaderLightingProperty",
       "fields": [
