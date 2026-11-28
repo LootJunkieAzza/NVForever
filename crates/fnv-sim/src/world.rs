@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::clock::{self, Calendar};
-use crate::form::FormId;
+use crate::form::{FormId, FormMap};
 use crate::forms::{BaseData, FormStore, ItemKind, LeveledEntry, SPECIAL};
 use crate::inventory::{unequipped, Extra, Inventory, Pick};
 use crate::leveled::{self, LeveledError};
@@ -554,6 +554,72 @@ pub struct TemporarySceneBase {
     pub model_override: Option<String>,
 }
 
+/// Lazy incremental cell -> materialised-refs index so `GetFirstRef`/`GetRefs` cell
+/// walks avoid scanning every materialised reference in `World::refs` [design].
+#[derive(Default)]
+struct ChangedCellIndex {
+    built: bool,
+    by_cell: FormMap<Vec<FormId>>,
+    ref_cell: FormMap<Option<FormId>>,
+    dirty: Vec<FormId>,
+}
+
+impl ChangedCellIndex {
+    #[inline]
+    fn mark_dirty(&mut self, id: FormId) {
+        if self.built {
+            self.dirty.push(id);
+        }
+    }
+
+    fn sync(&mut self, refs: &FormMap<RefState>) {
+        if !self.built {
+            self.by_cell.clear();
+            self.ref_cell.clear();
+            self.dirty.clear();
+            for (&id, s) in refs {
+                self.ref_cell.insert(id, s.cell);
+                if let Some(c) = s.cell {
+                    self.by_cell.entry(c).or_default().push(id);
+                }
+            }
+            self.built = true;
+            return;
+        }
+        if self.dirty.is_empty() {
+            return;
+        }
+        for id in self.dirty.drain(..) {
+            let new_cell = refs.get(&id).and_then(|s| s.cell);
+            let old_cell = self.ref_cell.get(&id).copied().flatten();
+            if old_cell == new_cell {
+                if new_cell.is_none() && !refs.contains_key(&id) {
+                    self.ref_cell.remove(&id);
+                }
+                continue;
+            }
+            if let Some(old) = old_cell {
+                if let Some(bucket) = self.by_cell.get_mut(&old) {
+                    if let Some(pos) = bucket.iter().position(|&x| x == id) {
+                        bucket.swap_remove(pos);
+                    }
+                    if bucket.is_empty() {
+                        self.by_cell.remove(&old);
+                    }
+                }
+            }
+            if let Some(new) = new_cell {
+                self.by_cell.entry(new).or_default().push(id);
+                self.ref_cell.insert(id, Some(new));
+            } else if refs.contains_key(&id) {
+                self.ref_cell.insert(id, None);
+            } else {
+                self.ref_cell.remove(&id);
+            }
+        }
+    }
+}
+
 pub struct World<'a> {
     pub forms: &'a FormStore,
     pub placed: &'a RefTable,
@@ -561,7 +627,13 @@ pub struct World<'a> {
     /// The player's level as item rolls read it ([`World::set_player_level`]); `None`:
     /// [`SimConfig::player_level`]. Not saved: the game sets it on a load and on each tick.
     roll_level: Option<u16>,
-    refs: BTreeMap<FormId, RefState>,
+    /// O(1) runtime reference table keyed by `FastFormIdHasher`; deterministic FormID-ordered
+    /// iteration (`changed`, `created`, `snapshot`, `restock_merchants`) walks `sorted_refs`
+    /// [design].
+    refs: FormMap<RefState>,
+    sorted_refs: std::collections::BTreeSet<FormId>,
+    /// Lazy incremental cell -> materialised-refs index synced on demand [design].
+    cell_index: std::sync::Mutex<ChangedCellIndex>,
     temporary_scene_bases: BTreeMap<FormId, TemporarySceneBase>,
     /// Globals set at run time (scripts, the clock); others keep their authored value.
     globals: BTreeMap<FormId, f32>,
@@ -711,7 +783,9 @@ impl<'a> World<'a> {
             placed,
             cfg,
             roll_level: None,
-            refs: BTreeMap::new(),
+            refs: FormMap::default(),
+            sorted_refs: std::collections::BTreeSet::new(),
+            cell_index: std::sync::Mutex::new(ChangedCellIndex::default()),
             temporary_scene_bases: BTreeMap::new(),
             globals: BTreeMap::new(),
             fine_clock: clock::FineClock::default(),
@@ -927,13 +1001,25 @@ impl<'a> World<'a> {
     }
 
     /// State of a reference that has already been materialised.
+    #[inline]
     pub fn peek(&self, id: FormId) -> Option<&RefState> {
         self.refs.get(&id)
     }
 
     /// Materialised references in FormID order.
-    pub fn changed(&self) -> impl Iterator<Item = (FormId, &RefState)> {
-        self.refs.iter().map(|(&k, v)| (k, v))
+    pub fn changed(&self) -> impl ExactSizeIterator<Item = (FormId, &RefState)> {
+        self.sorted_refs.iter().map(|&k| (k, &self.refs[&k]))
+    }
+
+    /// Materialised references currently residing in `cell`, appended to `out` (unsorted;
+    /// callers sort/dedup alongside placed refs). Uses an O(1) incremental cell index
+    /// instead of scanning all materialised refs [design].
+    pub fn changed_in_cell(&self, cell: FormId, out: &mut Vec<FormId>) {
+        let mut idx = self.cell_index.lock().unwrap_or_else(|e| e.into_inner());
+        idx.sync(&self.refs);
+        if let Some(bucket) = idx.by_cell.get(&cell) {
+            out.extend_from_slice(bucket);
+        }
     }
 
     /// [design, #2538] The applicable lock (`World::lock_source`), from runtime state
@@ -988,11 +1074,13 @@ impl<'a> World<'a> {
             // moves it.
             let as_placed = self.placed.get(id).is_some_and(|p| s.enabled() == !p.initially_disabled() && !s.deleted());
             self.refs.insert(id, s);
+            self.sorted_refs.insert(id);
             if !as_placed {
                 self.note_presence(Some(id));
             }
         }
         self.touched_refs.insert(id);
+        self.cell_index.get_mut().unwrap_or_else(|e| e.into_inner()).mark_dirty(id);
         Ok(self.refs.get_mut(&id).expect("inserted above"))
     }
 
@@ -1341,10 +1429,12 @@ impl<'a> World<'a> {
             return Ok(());
         };
         let due: Vec<(FormId, FormId)> = self
-            .refs
+            .sorted_refs
             .iter()
-            .filter(|&(&id, s)| !s.deleted() && self.restocks(id, s.base))
-            .map(|(&id, s)| (id, s.base))
+            .filter_map(|&id| {
+                let s = &self.refs[&id];
+                (!s.deleted() && self.restocks(id, s.base)).then_some((id, s.base))
+            })
             .collect();
         for (id, base) in due {
             let inv = self.roll_inventory(base, self.item_level(id))?;
@@ -1788,6 +1878,8 @@ impl<'a> World<'a> {
             self.note_presence(Some(id));
             self.touch(id);
             self.touched_refs.insert(id);
+            self.sorted_refs.insert(id);
+            self.cell_index.get_mut().unwrap_or_else(|e| e.into_inner()).mark_dirty(id);
             self.refs.insert(
                 id,
                 RefState {
@@ -2405,6 +2497,9 @@ impl<'a> World<'a> {
             }
             self.refs.remove(id);
             self.touched_refs.insert(*id);
+            self.sorted_refs.remove(id);
+            self.cell_index.get_mut().unwrap_or_else(|e| e.into_inner()).mark_dirty(*id);
+            self.non_actor_created.remove(id);
             self.note_presence(Some(*id));
             // Made anew: its level is fixed again when the cell is entered.
             self.ref_levels.remove(id);
@@ -2649,6 +2744,8 @@ impl<'a> World<'a> {
         self.note_presence(Some(id));
         self.touch(id);
         self.touched_refs.insert(id);
+        self.sorted_refs.insert(id);
+        self.cell_index.get_mut().unwrap_or_else(|e| e.into_inner()).mark_dirty(id);
         self.refs.insert(
             id,
             RefState {
@@ -2815,7 +2912,13 @@ impl<'a> World<'a> {
     /// References created at run time (drops), in FormID order, taken ones included
     /// (`RefState::deleted`).
     pub fn created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
-        self.refs.range(FormId::FIRST_DYNAMIC..).map(|(&k, v)| (k, v))
+        self.sorted_refs.range(FormId::FIRST_DYNAMIC..).map(|&k| (k, &self.refs[&k]))
+    }
+
+    /// Highest dynamic reference FormID currently in `self.refs`, in O(log N) via
+    /// `BTreeSet::range(..).next_back()` instead of scanning all dynamic refs [design].
+    pub fn last_created(&self) -> Option<FormId> {
+        self.sorted_refs.range(FormId::FIRST_DYNAMIC..).next_back().copied()
     }
 
     /// The created references `holder` dropped as it died ([`RefState::dropped_by`]) that
@@ -2828,11 +2931,14 @@ impl<'a> World<'a> {
     /// is still present (not taken, enabled). Scenarios name it `created:<item>`
     /// because the FormID the game gives a dropped item is not known in advance.
     pub fn newest_created(&self, base: FormId) -> Option<FormId> {
-        self.refs
+        self.sorted_refs
             .range(FormId::FIRST_DYNAMIC..)
             .rev()
-            .find(|(_, s)| s.base == base && !s.deleted() && s.enabled())
-            .map(|(&id, _)| id)
+            .copied()
+            .find(|&id| {
+                let s = &self.refs[&id];
+                s.base == base && !s.deleted() && s.enabled()
+            })
     }
 
     /// `actor` activates `target` itself (the player's own activation): an item
@@ -3049,8 +3155,9 @@ impl<'a> World<'a> {
         let mut w = World::new(forms, placed, s.config);
         w.rng.set_word_pos(pos);
         w.next_dynamic = s.next_dynamic;
-        w.refs = s.refs.clone();
-        for (&id, r) in w.refs.range(FormId::FIRST_DYNAMIC..) {
+        w.refs = s.refs.iter().map(|(&k, v)| (k, v.clone())).collect();
+        w.sorted_refs = s.refs.keys().copied().collect();
+        for (&id, r) in s.refs.range(FormId::FIRST_DYNAMIC..) {
             if !w.is_actor_sig(r.base) {
                 w.non_actor_created.insert(id);
             }
@@ -3089,8 +3196,8 @@ impl<'a> World<'a> {
     fn made_at_from_saved_place(&mut self) {
         let forms = self.forms;
         let actor = |base: FormId| matches!(forms.sig(base).as_ref(), Some(b"NPC_" | b"CREA" | b"LVLN" | b"LVLC"));
-        for (_, s) in self.refs.range_mut(FormId::FIRST_DYNAMIC..) {
-            if s.made_at.is_none() && !s.deleted && actor(s.base) {
+        for (&id, s) in &mut self.refs {
+            if id >= FormId::FIRST_DYNAMIC && s.made_at.is_none() && !s.deleted && actor(s.base) {
                 s.made_at = Some((s.cell, s.pos));
             }
         }
