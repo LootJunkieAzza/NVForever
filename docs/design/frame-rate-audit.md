@@ -34,6 +34,13 @@ top down to the first leaf that explains the time. `--log-frame-times <s>` (no v
 and `NVF_PLAY_TEST_SAMPLE` (stress_sample.rs, actors and audio counts) were used beside
 it.
 
+`--log-frame-times <s>` also logs, each period, `gpu resources: <n> buffers, <n> textures,
+<n> texture views, <n> bind groups, …` (graphics.rs; wgpu's count of what the GPU API
+holds). A count that only grows over a session is a leak, and it costs every frame: each
+command buffer takes longer to finish and submit the more there are. It found the bind
+groups the lamps' shadow views left behind at every cell change (2026-11-25,
+graphics-enhanced.md §3.17 "Third round").
+
 ### Profiling options together
 
 [documented in source] `graphics::ensure_render_diagnostics` lets

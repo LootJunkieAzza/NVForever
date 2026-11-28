@@ -14690,7 +14690,7 @@ forbid = [
 [[scenario]]
 name = "settings-note-budget"
 source = "#2377: every settings note within the budget (200 characters, no command-line switch) once every row is registered, and two lines at the page's width in a 16:9 view once the pause menu's fonts are loaded; the rows' labels and values laid out at that width, a row whose text had to be cut logged"
-note = "`cut to fit` is reported, not failed: a row cut there is drawn with \"...\" and logs `settings: text of `<key>` cut to fit: ...`"
+note = "`cut to fit` is reported, not failed: a row cut there is drawn with \"...\" and logs `settings: text of `<key>` cut to fit: ...`. The two-line notes fit the default font again after 24 were shortened (#4612), so the marks of 2026-11-16 were dropped."
 areas = ["settings"]
 paths = ["engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/quality.rs", "lang/"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics" }
@@ -14698,12 +14698,12 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 15
 expect = [
   { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters\)', count = 1, label = "every registered note within 200 characters, no switch in it (at the start)" },
-  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters, two lines\)', count = 1, label = "and two lines at the page's 16:9 width (once the pause menu's fonts are loaded)" , known_failing = "2026-11-16: 49 of #1892's tweak notes run to three lines in the game's raster font, the menus' default (Menu Font Original); within two in the sharp font. Main draws the same notes in the same font" },
+  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters, two lines\)', count = 1, label = "and two lines at the page's 16:9 width (once the pause menu's fonts are loaded)" },
   { re = 'settings: \d+ rows laid out, \d+ cut to fit', count = 1, label = "the rows' labels and values laid out at that width" },
 ]
 forbid = [
   { re = 'settings: note of `\S+` over the budget: \d+ characters', label = "no note over the 200 characters" },
-  { re = 'settings: note of `\S+` over the budget: \d+ lines', label = "no note over two lines", known_failing = "2026-11-16: 49 of #1892's tweak notes run to three lines in the game's raster font, the menus' default (Menu Font Original); within two in the sharp font. Main draws the same notes in the same font" },
+  { re = 'settings: note of `\S+` over the budget: \d+ lines', label = "no note over two lines" },
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
 ]
 
@@ -37452,6 +37452,34 @@ forbid = [
 ]
 
 [[scenario]]
+name = "tonemap-preset-pick"
+source = "#4690 stage 1, docs/design/tonemapping-presets.md: a preset file in the home's Tonemapping folder is listed on the Graphics row Tonemapping preset; the run starts on Default (Bevy's default grading), and picking the file's preset on the page lays its values on the world camera at once. tonemap-preset-kept starts in the same home"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/tone_presets.rs", "crates/nvf-settings-layout/src/lib.rs", "engine/nvf-play/src/settings.rs"]
+note = "The home's INI may hold an earlier run's pick: Default is picked first (taken only when it is not chosen already), then the test preset, which is then always a change."
+env = { NVFOREVER_HOME = "tonemap-preset-home", NVF_PLAY_TEST_TONE_PRESET = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,12:tonemap-preset=Default,13:tonemap-preset=Smoke Dusk" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--no-voice", "--no-lodgen", "--no-messages"]
+run_seconds = 18
+expect = [
+  { text = "NVF_PLAY_TEST_TONE_PRESET: wrote", count = 1, label = "the test preset is written into the run's home" },
+  { re = 'tonemapping presets: 1 in .*Tonemapping', label = "the folder is read with the preset in it" },
+  { text = "tonemapping presets: Smoke Dusk (exposure +0.50 EV, contrast 1.10, highlights 0.30)", count = 1, label = "the pick lays the preset's values on the world camera" },
+]
+forbid = [{ re = 'tonemapping presets: .* left out: ', label = "a preset file refused" }, { text = "Caught rendering error", label = "a rendering (validation) error" }]
+
+[[scenario]]
+name = "tonemap-preset-kept"
+source = "#4690 stage 1, docs/design/tonemapping-presets.md: a start in tonemap-preset-pick's home reads the saved row and lays the picked preset on the world camera from the first frame"
+note = "runs after tonemap-preset-pick in the same home."
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/tone_presets.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "tonemap-preset-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--no-voice", "--no-lodgen", "--no-messages"]
+run_seconds = 14
+expect = [{ text = "tonemapping presets: Smoke Dusk (exposure +0.50 EV, contrast 1.10, highlights 0.30)", count = 1, label = "the saved pick is the active preset after a restart" }]
+forbid = [{ text = "tonemapping presets: Default", label = "the saved pick not read" }, { text = "Caught rendering error", label = "a rendering (validation) error" }]
+
+[[scenario]]
 name = "occlusion-culling-row-pick"
 source = "#3783, docs/settings-reference.md occlusion-culling: the Graphics row Occlusion culling is off by default and is read once at the start; turning it on in the page keeps this run as it was (off) and writes the next start's choice. occlusion-culling-row starts in the same home"
 areas = ["graphics", "ui"]
@@ -37494,3 +37522,44 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error in the clustering passes" },
 ]
+[[scenario]]
+name = "physical-lighting"
+source = "[design, #3827 part 5] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/lights.rs `physical_patched`, physical_ibl.rs, fog.rs, eye_adapt.rs): with --graphics-only physical-pbr at Goodsprings at noon, the run's switch is on, the physical light loop is installed and the sky's image-based light is made, without a pipeline or rendering error. Whether the look is right is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/physical_ibl.rs", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/eye_adapt.rs"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "physical-pbr"]
+run_seconds = 20
+expect = [
+  { text = "physical PBR: on", count = 1, label = "the run's switch is on" },
+  { text = "lights: physical PBR linear lighting installed", label = "the physical light loop is in place" },
+  { text = "lights: physical PBR, the main view keeps Tony McMapface", count = 1, label = "the main view tonemaps with Tony McMapface, not the clip" },
+  { text = "fog: the game's fog curve installed", label = "the game's fog, not a fog of Physical lighting's own" },
+  { re = 'graphics: .*physical PBR lighting', label = "the graphics line names it" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (a physical patch that does not compile)" },
+  { text = "not as expected (Bevy changed?)", label = "a physical patch's anchors missing" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+note = "Written 2026-11-25 (the split of #3828); first run 2026-11-26 on vanilla data: PASS."
+[[scenario]]
+name = "physical-lighting-volumetric"
+source = "[design, agreed with the volumetric work 2026-11-26] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/sky.rs `physical_cloud_light`, volumetric_clouds.rs `compose_uniform`): started with --graphics-only physical-pbr,volumetric-clouds-high,volumetric-light at Goodsprings at 17:30, the volumetric rows run under Physical lighting: the graphics line names both, the light in the air is wanted, and nothing fails to compile"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/volumetric_clouds.rs", "engine/nvforever/src/volumetric_clouds.wesl", "engine/nvforever/src/sky.rs", "engine/nvforever/src/medium_air_demand.rs", "engine/nvf-assets/src/tone_input.wesl", "crates/nvf-settings-layout/src/lib.rs"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "17.5", "--graphics-only", "physical-pbr,volumetric-clouds-high,volumetric-light"]
+run_seconds = 20
+expect = [
+  { text = "physical PBR: on", count = 1, label = "the run's switch is on" },
+  { re = 'graphics: .*physical PBR lighting', label = "the graphics line names Physical lighting" },
+  { re = 'graphics: .*volumetric clouds', label = "the clouds run under Physical lighting" },
+  { re = 'graphics: .*volumetric light', label = "the light in the air runs under Physical lighting" },
+  { text = "volumetric medium: light in the air wanted (the Volumetric light row)", label = "the row asks for the light" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the clouds' composite with the shared tonemapper input)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."

@@ -353,8 +353,10 @@ shadows, nvforever light_shadows.rs, docs/design/graphics-enhanced.md §3.17), m
     light whose layer has no room in the texture gets no views and no shadow flag.
   - The cascade count and the directional texture are taken before the lights' GPU data
     (moved up from below), since a spot light's layer and the texture's id decide its flag.
-  - `fade` (0..1 per light, absent: 1) goes into bits 24..31 of a slotted light's flags as
-    `255 - round(fade × 255)`, so 0 (every other light) is full strength.
+  - `fade` (per light, absent: 1), the weight of the light's shadow (the game's fade, 0..1,
+    times its strength, up to `NVF_SHADOW_WEIGHT_MAX`, 1.27), goes into bits 24..31 of a
+    slotted light's flags as `255 - round(weight × 200)` (`nvf_fade_bits`), so 0 (every
+    other light) is a weight of 1. Until 2026-11-25 it was a fade alone, `255 - fade × 255`.
   - A shadowed light's views are made again when its slot (or spot layer) or the texture
     changed, not only when the light changed. Upstream left a light's views pointing at its
     old layer and texture when another light changed the shadowed set.
@@ -371,9 +373,18 @@ shadows, nvforever light_shadows.rs, docs/design/graphics-enhanced.md §3.17), m
 - `src/render/shadows.wesl`: Bevy's `fetch_point_shadow` and `fetch_spot_shadow` are renamed
   `nvf_fetch_point_shadow_unfaded` and `nvf_fetch_spot_shadow_unfaded` (the spot one takes
   its layer from `nvf_spot_shadow_layer`); new `fetch_point_shadow` and `fetch_spot_shadow`
-  of the same signatures return `mix(1, shadow, fade)` with the fade from bits 24..31
-  (`nvf_shadow_fade`). The fade is applied here, not in `pbr_functions.wesl`, whose
+  of the same signatures return `max(1 - weight × (1 - shadow), 0)` with the weight from
+  bits 24..31 (`nvf_shadow_weight`, `nvf_weigh_shadow`; `nvf_shadow_fade` is the weight held
+  to 1). `nvf_fetch_point_shadow_weighed` and `nvf_fetch_spot_shadow_weighed` give the same
+  not held to 0, and `apply_pbr_lighting`'s point and spot loops call those: with a weight
+  past 1 a place the map shades in full gets less than none of the light, which nvforever's
+  display sum takes off the other light there (its edits make Bevy's own sum take
+  `max(shadow, 0)`). The weight is applied here, not in `pbr_functions.wesl`, whose
   `apply_pbr_lighting` nvforever's lights/display_shader.rs patches by text anchors.
+  `pbr_functions.wesl` does fade the contact shadows of point and spot lights
+  (2026-11-24), since 2026-11-25 with the map's shadow in one:
+  `mix(1 - fade, shadow, contact)`, and only where the map leaves light
+  (`shadow > 1 - fade`). Faded apart, the two multiplied below a fade of 1.
 - `src/volumetric_fog/volumetric_fog.wesl`: `fetch_spot_shadow_without_normal` takes its
   layer from `nvf_spot_shadow_layer` too (no fade: fog is not faded).
 
@@ -506,9 +517,25 @@ views`, in `src/render/light.rs` and `src/material.rs`:
   binned out first: queueing from the differences alone binned entities twice, bevy_render's
   panic "Binning main entity … when it was already binned" (Novac at 22:00, ALC Quality,
   2026-11-19; unit test `a_kept_shadow_phase_back_in_view_is_resynced_and_never_bins_twice`).
+  The resync also takes out the stale entries (2026-11-25): a mesh no view saw while the
+  light's views were away is dropped from `RenderMeshInstances` (upstream extracts only
+  visible meshes), and seen again it gets another input uniform index than the one its bin
+  was filled with. The kept bin went on drawing it with the old index, by then another
+  mesh's transform: slabs and shards of shadow around the player in the Primm casino, where
+  about 100 casters only the lamp's own views see come and go with each of its draws. A
+  binned entity whose mesh instance's `current_uniform_index` is not the one it was binned
+  with (`CachedBinnedEntity::nvf_input_uniform_index`, bevy_render below) leaves its bin
+  and is queued again (`NVF_LIGHT_SHADOW_STALE_CHECK=0` leaves the check out, to see the
+  fault again).
+  The same day, from a reading of the code: an entity removed while the view is away
+  leaves the kept phase's bin as well as its pipelines (`nvf_binned_len`; one removed and
+  then given another mesh or material in a later frame was no longer among the pipelines,
+  so the view was not wiped and drew it from the old bin); the far texture's lights
+  (`far_slots`) keep their phases too (they were left out); and a resumed view queues only
+  the pending pairs still visible.
   New events in the light view counts: `phases reused` (phases a light's new views found
-  kept), `kept phases wiped`, `kept phases resynced` (resumed views) and `entities
-  rebinned` (the guard's catches; none expected). The game's
+  kept), `kept phases wiped`, `kept phases resynced` (resumed views), `entities
+  rebinned` (the guard's catches; none expected) and `stale entries requeued`. The game's
   `NVF_LIGHT_SHADOW_KEEP_PHASES=0` (read once, `nvf_keep_shadow_phases_on`) leaves the set
   empty: upstream's behaviour.
 - **Kept shadow views.** A point or spot light whose `ExtractedPointLight` changed (every
@@ -629,6 +656,102 @@ the component only where something asks for a volume, which a developer aid alon
 Bevy inserts no such component; without it the layouts and shader defs are upstream's, and the
 pipeline keys are the same keys numbered differently. A meshlet view must not get it.
 
+Two more for the ALCS row (the ALC shadows' rewrite, 2026-11-24;
+docs/design/graphics-enhanced.md §3.17 "Rewrite of 2026-11-24"):
+
+- **ALCS soft shadows**, marked `NVForever ALCS soft shadows`, in
+  `src/render/shadow_sampling.wesl` (`nvf_sample_shadow_cubemap_soft`,
+  `nvf_point_shadow_major`, `nvf_point_shadow_depth`, `nvf_own_surface`) and
+  `src/render/shadows.wesl` (the point light's soft branch calls it in place of
+  `sample_shadow_cubemap_pcss`). Percentage-closer soft shadows of a point light in world
+  units: the blocker search covers the light as the fragment sees it (`light_size /
+  distance`, a tap at the fragment itself and 8 round it), the filter (12 taps) is as wide as
+  the penumbra of the blockers found, never under a texel, and each tap is compared against
+  where the fragment's own surface (the plane through it, from the surface normal) lies
+  along that tap, less a texel-sized margin. The taps turn by a per-pixel angle, a new one
+  each frame under `TEMPORAL_JITTER`. Since 2026-11-25 the search covers twice the light's
+  width (`NVF_SOFT_SEARCH_SCALE`) and the filter is never wider than the search nor than
+  `NVF_SOFT_FILTER_MAX` (0.015, was 0.07 with a search of at most 0.1): a filter wider than
+  the search blurred a shadow whose outer part the search had not found, a faint blob with
+  a hard outline where a lamp hangs close over what it lights. Upstream's version scales the search and the filter
+  by the light's size as a plain number and compares every tap against the fragment's one
+  clip-space depth: with a light size in the game's units (24) every lit surface shadowed
+  itself in stripes. `sample_shadow_cubemap_pcss` is left as it is, unused by the game.
+  Since the second round the same day a lamp the game gave a slot takes it with or
+  without a soft size: with size 0 there is no search, a fixed filter of
+  `NVF_SOFT_FILTER_MIN` texels and `NVF_PLAIN_FILTER_TAPS` taps (the camera's filter spans
+  a fraction of a texel of the lamps' maps, whose texels then showed as blocks).
+- **ALCS soft sizes**, marked `NVForever ALCS soft sizes`, in `src/render/light.rs`:
+  `HoldLightShadowMaps::soft_size` gives a light's soft-shadow size while the hold is
+  active, in place of `soft_shadows_enabled` and `radius` (upstream takes the size from the
+  radius, which its lighting also reads). A light not in the map is upstream's.
+- **ALCS unready casters**, marked `NVForever ALCS unready casters`, in
+  `src/render/light.rs`: `queue_shadows` counts, for each point or spot light view drawn
+  this frame while the hold is active, the casters it could not queue or that will be
+  skipped when drawn (not specialized though a caster to be, `nvf_caster_to_be`; no mesh
+  instance, prepared material or mesh slabs; a pipeline not built yet), and notes whether
+  any pipeline is being built (`PipelineCache::waiting_pipelines`). Lights with either are
+  kept for the game in `NVF_UNREADY` (`nvf_take_unready_shadow_lights`: light, casters,
+  building). Upstream draws such a view again next frame and the caster appears; a light
+  the game holds is not drawn again unless the game marks it.
+- **ALCS far maps**, marked `NVForever ALCS far maps`, in `src/render/light.rs`,
+  `mesh_view_bindings.rs`, `mesh_view_bindings.wesl`, `shadow_sampling.wesl` and
+  `shadows.wesl`: `HoldLightShadowMaps::far_slots`, `far_capacity` and `far_size` put point
+  lights' cubes in a second cube texture of another side (and a static cache of its own),
+  bound to the mesh views at 50 (45 until the light volume of #3032 took 45 and 46; 47 to 49 are for the bounce light volume of #4442; the first texture's view while there is none). A far
+  light's cube number is `NVF_FAR_CUBE` (128) + its slot: the number keys the per-layer
+  records and attachment caches, its low seven bits are the slot in its texture, and bits
+  16..23 of the light's flags carry it + 1 (`nvf_point_far`). The first texture's cubes are
+  counted from the shadowed lights that draw into it alone (upstream's count of all of them
+  made the texture anew whenever far lights drew). The game's own sampler reads the light's
+  texture (`nvf_point_compare`, `nvf_point_depth`, `nvf_point_side`), and the normal bias,
+  scaled by the first texture's texel, is scaled again for a far light
+  (`nvf_point_texel_scale`). Upstream has one size for every point light's cube.
+- **ALCS quiet static draws**, marked `NVForever ALCS quiet static draws`, in
+  `src/render/light.rs`: `HoldLightShadowMaps::static_quiet` (bits per cube face, within
+  `to_static`) and `NvfStaticShadowFace::quiet`. A quiet face is drawn into the static
+  cache's layer and not copied into the sampled layer after, which keeps its picture; only
+  a layer that already holds this light's map may be left so (`nvf_had_map`). The game asks
+  for it where moving casters stand in the face and composites the face in the next frame,
+  so their shadows never leave the sampled map. Without `static_quiet` nothing changes.
+- **Hosted shadow views** (2026-11-25), marked `NVForever hosted shadow views`, in
+  `src/render/light.rs` (`NvfSharedShadowViews`, `nvf_host_shadow_views`,
+  `per_view_shadow_pass`), `src/render/gpu_preprocess.rs`
+  (`gather_shadow_cascades_for_view`), `src/lib.rs`, with `bevy_core_pipeline`'s
+  `NvfHostedView` and `bevy_render`'s `RenderContext::nvf_split_encoder`. Upstream makes
+  every point and spot light shadow view a root view: the camera driver runs the whole
+  `Core3d` schedule for it, which records four compute passes and the shadow pass in five
+  command buffers, for each of a point light's six faces. While the hold is active the
+  first camera that runs `Core3d` with light views hosts them instead, as it does its
+  cascades: they join its uniform allocation, bin unpacking and mesh preprocessing passes,
+  and `per_view_shadow_pass` builds each one's indirect parameters and draws its map after
+  the cascades', two views to a command encoder so the encoders are finished side by
+  side. The views carry `NvfHostedView` and the driver runs nothing for them. Measured in
+  a casino hall of 25 lamps drawing 5 to 6 faces a frame (a build with spans): the render
+  thread 8.6 ms a frame before, 6.0 ms after, 4.6 ms without the lamps' shadows; the
+  camera driver 2.75 ms, then 1.07 ms. The GPU's time in the shadow passes is under
+  `per_view_shadow_pass` now (the span `hosted_shadow_views` inside it), no longer under
+  `auxiliary_views`. `NVF_LIGHT_SHADOW_HOSTED=0` gives upstream's root views back (a
+  measuring aid). Tried first and dropped: one command encoder shared by the root views'
+  systems; finishing an encoder costs by the passes in it, so the one long encoder took as
+  long as the many and was finished on the submitting thread.
+- **Stale unpacking bind groups** (2026-11-25), marked `NVForever stale unpacking bind
+  groups`, in `src/render/gpu_preprocess.rs` `prepare_preprocess_bind_groups`: upstream
+  only ever adds to `BinUnpackingBindGroups` and `UniformAllocationBindGroups`, so the
+  bind groups of every view there ever was stay alive. A light's shadow views are new
+  views each time its cell is loaded: with the game's lamps casting, every cell entered
+  left about 1,800 bind groups for good, and each command buffer costs more to finish and
+  submit the more there are (33,600 after 24 cells against 5,200; the submission 0.58 ms a
+  frame, then 1.27 ms). The entries of views that are gone are dropped each frame, and no
+  bind groups are made for a light view the game holds this frame (a point or spot light
+  view without `RootNonCameraView`: nothing is dispatched or drawn for it). After: about
+  250 bind groups in the same room however many cells were entered. Found with the game's
+  `gpu resources:` line (`--log-frame-times`). The two resources are one system parameter
+  now (the system had sixteen). Since bevy#26418 came in (below) the tables' entries no
+  bind group was made for in a frame are dropped by its own sweep, so the drop of gone
+  views' entries here was taken out again; what is left of this change is that no bind
+  groups are made for a held light view.
+
 Graphics pass 2026-11-23, four more changes:
 
 - `src/cluster/gpu.rs`, `src/cluster/mod.rs`: bevy#25869 (GPU clustering keeps each view's
@@ -711,6 +834,10 @@ screen: nvforever light_shadows.rs `shown_unseen`, docs/design/graphics-enhanced
 - Upstream finds casters only for lights a camera sees (its loop goes over the cameras'
   visible lights), and drops a light no camera sees from the render world, so a light's
   shadow maps cannot be drawn before it comes into view.
+- `update_point_light_frusta` and `update_spot_light_frusta` (`src/point_light.rs`,
+  `src/spot_light.rs`) also take a light listed there (2026-11-25): they skip a light whose
+  `ViewVisibility` is off, and a shown light is marked visible only afterwards, so one no
+  camera ever saw kept the default frusta, which cull every caster [from the code].
 
 Bevy inserts no such resource; without it, or empty, nothing changes. With the ALC shadows
 row Off both resources stay empty (the game's systems that fill them do not run, after
@@ -1041,7 +1168,9 @@ Kept shadow phases (2026-11-19, the bevy_pbr "kept shadow phases" above), in
 `src/render_phase/mod.rs`, marked `NVForever kept shadow phases`: `BinnedRenderPhase` gains
 `nvf_is_binned` (whether an entity is binned) and `nvf_retain_binned` (removes the binned
 entities a test refuses, as `remove` does), so a kept phase can be resynced with its light's
-visible list and an entity never binned twice.
+visible list and an entity never binned twice. `CachedBinnedEntity` gains
+`nvf_input_uniform_index`, the index `add` binned the entity with, which the test is given
+(2026-11-25: the stale entries of a kept phase, bevy_pbr above).
 
 Pipeline compiling (perf/pipeline-cache, 2026-11-19; nvforever
 `src/pipeline_disk_cache.rs` has the measurements), in `src/render_resource/pipeline_cache.rs`,
