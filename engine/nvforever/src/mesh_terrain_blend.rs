@@ -503,6 +503,11 @@ const REFRESH_FRAMES: u32 = 60;
 /// thousand around Primm) then switches over some frames instead of in one 50-120 ms
 /// frame [observed 2026-11-19, stress tour Goodsprings-Primm, `profile hitch` lines].
 const CLONE_WORK_PER_FRAME: usize = 64;
+/// [design] At most this many entity material-component swaps (`remove::<NifMaterial>` +
+/// `insert::<NifBlendMaterial>`) per frame, so a ready publication with thousands of
+/// eligible shapes amortizes ECS archetype table moves across frames instead of stalling
+/// the main thread in one frame.
+const SWAP_WORK_PER_FRAME: usize = 128;
 /// [design] At most this many `census-shape` lines per run; each line is a distinct base
 /// form, shape index and reason mask (the first reference seen of it).
 const SHAPE_LINES: usize = 2048;
@@ -1082,6 +1087,7 @@ fn apply_configured_variants(p: &mut Conversion, c: BlendConfig) {
     let published = cache.published.as_ref().map(publication_key);
     let revision = published.map_or(0, |k| k.0);
     let clone_work = pace.as_deref().map_or(CLONE_WORK_PER_FRAME, |p| p.count(CLONE_WORK_PER_FRAME));
+    let swap_budget = pace.as_deref().map_or(SWAP_WORK_PER_FRAME, |p| p.count(SWAP_WORK_PER_FRAME));
     let _spending = pace.as_deref().map(|p| p.spending());
     let restricted = follow_coverage(cache, variants, blends, clone_work);
     let create_budget = clone_work.saturating_sub(restricted);
@@ -1103,7 +1109,7 @@ fn apply_configured_variants(p: &mut Conversion, c: BlendConfig) {
     let skipped = needed.is_none();
     let settled_before = variants.readiness.as_ref().map(|r| r.settled.load(Ordering::Acquire));
     let lines_before = variants.shape_lines;
-    let outcome = full_pass(commands, cache, variants, materials, blends, &mut shapes.p0(), c, revision, create_budget);
+    let outcome = full_pass(commands, cache, variants, materials, blends, &mut shapes.p0(), c, revision, create_budget, swap_budget);
     variants.passes += u64::from(!skipped);
     if let Some(readiness) = variants.readiness.as_ref().filter(|_| !outcome.pending) { readiness.settled.store(revision, Ordering::Release); }
     if skipped {
@@ -1176,8 +1182,10 @@ fn full_pass(
     c: BlendConfig,
     revision: u64,
     create_budget: usize,
+    swap_budget: usize,
 ) -> Outcome {
     let mut o = Outcome::default();
+    let mut swapped = 0usize;
     if variants.generation != revision {
         variants.generation = revision;
         o.evicted += variants.materials.len();
@@ -1275,6 +1283,11 @@ fn full_pass(
             continue;
         };
         if shape.enabled.as_ref() != Some(&handle) || drawn.is_some() {
+            if swapped >= swap_budget {
+                o.pending = true;
+                continue;
+            }
+            swapped += 1;
             commands.entity(entity).remove::<MeshMaterial3d<NifMaterial>>().insert(MeshMaterial3d(handle.clone()));
             o.commands += 1;
             // [design] The shared bookkeeping runs on ordinary material changes only; a
@@ -2729,5 +2742,24 @@ mod tests {
         let verify = &app.world().resource::<Variants>().verify;
         assert_eq!((verify.skipped, verify.diverged), (6, 1), "the unseen edit is a divergence");
         assert_eq!(app.world().get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0, source, "and the verify pass acts on it");
+    }
+
+    #[test]
+    fn swaps_above_per_frame_budget_stay_pending_and_finish_on_next_frame() {
+        let mut app = conversion_app();
+        publish(&mut app);
+        let source = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(NifMaterial::default());
+        let total = SWAP_WORK_PER_FRAME + 20;
+        let entities: Vec<Entity> = (0..total)
+            .map(|i| app.world_mut().spawn((tracked(i, 0), BlendShape::new(source.clone()), MeshMaterial3d(source.clone()))).id())
+            .collect();
+        app.update();
+        let after_first = entities.iter().filter(|&&e| blends_on(&app, e)).count();
+        assert_eq!(after_first, SWAP_WORK_PER_FRAME, "first frame swaps exactly SWAP_WORK_PER_FRAME shapes");
+        assert!(app.world().resource::<Variants>().last.as_ref().unwrap().pending, "remaining swaps keep the pass pending");
+        app.update();
+        let after_second = entities.iter().filter(|&&e| blends_on(&app, e)).count();
+        assert_eq!(after_second, total, "second frame finishes the remaining swaps");
+        assert!(!app.world().resource::<Variants>().last.as_ref().unwrap().pending, "pass settles once every shape is swapped");
     }
 }

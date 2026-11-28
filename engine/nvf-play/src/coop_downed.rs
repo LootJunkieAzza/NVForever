@@ -55,7 +55,7 @@ pub enum Downed {
 }
 
 impl Downed {
-    /// The lines shown, given the Activate control's prompt (`"E)"`), and whether the
+    /// The lines shown, given the Activate control's prompt (`"[E]"`), and whether the
     /// picture is dimmed.
     pub fn lines(&self, key: &str) -> (String, Option<&'static str>, bool) {
         let wait = tr("or wait for a revive");
@@ -135,7 +135,7 @@ fn draw(
         return;
     }
     let width = windows.single().map_or(1280.0, |w| 960.0 * w.width() / w.height().max(1.0));
-    let key = bindings.as_deref().map_or_else(|| "E)".to_string(), |b| b.prompt(crate::bindings::Control::Activate));
+    let key = bindings.as_deref().map_or_else(|| "[E]".to_string(), |b| b.prompt(crate::bindings::Control::Activate));
     let now = screen.0.clone().map(|d| (d, key.clone(), width.round() as i32));
     if now == *last {
         return;

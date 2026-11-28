@@ -23,7 +23,8 @@ parts, in order:
 3. **The solve** (built): the points packed as a texture, and its reading on the CPU.
 4. **The fit** (built): how much of the ambient goes and how strong the bounce in its place is.
 5. The shader that reads such a texture, with nothing drawn by default.
-6. The collector: a room's geometry, textures and lamps from the running game.
+6. The collector: a room's geometry, textures and lamps from the running game
+   ([rtgi-collect](rtgi-collect.md); built: the reader of meshes and textures).
 7. The job: a solve on entry, the fade from stock light, and what happens when there is none.
 8. Light that changes during a visit, and the night.
 9. The setting.
@@ -337,7 +338,7 @@ All are ours, none is a claim about the original game.
 
 | Number | Value | Why |
 |---|---|---|
-| alpha and colour mips | the largest level of at most 256 and of at most 64 texels a side, else the smallest there is | [design] one fixed level a lookup: a ray has no pixel to choose it by |
+| alpha and colour mips (`levels_read`) | the largest level of at most 256 and of at most 64 texels a side, else the smallest there is | [design] one fixed level a lookup: a ray has no pixel to choose it by |
 | rays' lift | 0.01 units, or 4e-6 of the largest coordinate | [design] a ray does not meet the surface it leaves |
 | roundings | a box's far side 6e-7 of itself further, boxes kept 4e-6 of it past the nearest hit | [design] without the first, rays aimed at edges and corners slip out of a closed room; without the second a nearer hit can be passed over. A test fails without either |
 | tree | 16 bins, leaves of at most 8, halves by count below depth 48 | [design] the stack of a walk is bounded |

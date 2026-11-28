@@ -335,7 +335,7 @@ mod tests {
                 // without a shadow, never by the directional lights.
                 assert_eq!(lighting.matches("let nvf_ao_lamps = nvf_ao_multibounce(nvf_lamp_visibility(nvf_ao_ambient), diffuse_color);").count(), usize::from(on), "{case}");
                 assert_eq!(lighting.matches("let nvf_ao_ambient = nvf_ambient_visibility(in.frag_coord.xy, -view_z);").count(), usize::from(on), "{case}: the texels are read once a fragment");
-                assert_eq!(lighting.matches("* select(nvf_ao_lamps, nvf_ao_shadowed,").count(), if on { 2 } else { 0 }, "{case}");
+                assert_eq!(lighting.matches("* mix(nvf_ao_lamps, nvf_ao_shadowed, select(0.0, shadows::nvf_shadow_fade(light_id),").count(), if on { 2 } else { 0 }, "{case}");
                 assert_eq!(lighting.matches("if nvf_display { nvf_direct += nvf_point_display(").count(), 1, "{case}: one point line");
                 assert_eq!(lighting.matches("if nvf_display { nvf_direct += nvf_spot_display(").count(), 1, "{case}: one spot line");
                 let directional = block_after(lighting, "for (var i: u32 = 0u; i < n_directional_lights; i = i + 1u) {");
@@ -350,15 +350,15 @@ mod tests {
                     assert!(at("let diffuse_color") < at("* nvf_ao_multibounce("), "{case}: the diffuse colour exists where the ambient line takes it");
                     assert!(at("* nvf_ao_multibounce(nvf_ao_ambient, diffuse_color);") < at("    // Total light\n"), "{case}");
                     assert!(at("let view_z") < at("let nvf_ao_lamps") && at("let nvf_ao_lamps") < at("    // Point lights (direct)\n"), "{case}: formed after view_z, before the loops");
-                    let point = at("nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow * select(nvf_ao_lamps, nvf_ao_shadowed,");
-                    let spot = at("nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow * select(nvf_ao_lamps, nvf_ao_shadowed,");
+                    let point = at("nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow * mix(nvf_ao_lamps, nvf_ao_shadowed, select(");
+                    let spot = at("nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow * mix(nvf_ao_lamps, nvf_ao_shadowed, select(");
                     assert!(point < at("    // Spot lights (direct)\n"), "{case}: in the point loop");
                     assert!(at("    // Spot lights (direct)\n") < spot && spot < at("    // directional lights (direct)\n"), "{case}: in the spot loop");
                     // Only where bevy_pbr leaves the light's shadow unread.
                     assert_eq!(lighting.matches("(in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u)").count(), 4, "{case}: each lamp line's diffuse and highlight");
                     // The highlights: what Bevy's line added is taken back by the factor, for
                     // the point and the spot lights, from the one factor read above.
-                    assert_eq!(lighting.matches("if nvf_display { direct_light -= light_contrib * (shadow * (1.0 - select(nvf_ao_spec, nvf_ao_spec_shadowed,").count(), 2, "{case}");
+                    assert_eq!(lighting.matches("if nvf_display { direct_light -= light_contrib * (max(shadow, 0.0) * (1.0 - mix(nvf_ao_spec, nvf_ao_spec_shadowed, select(0.0, shadows::nvf_shadow_fade(light_id),").count(), 2, "{case}");
                     assert_eq!(lighting.matches("let nvf_ao_spec = nvf_specular_visibility(nvf_ao_ambient, NdotV, roughness);").count(), 1, "{case}");
                     let p = |s: &str| post.find(s).unwrap_or_else(|| panic!("{case}: {s}"));
                     // After the fog (and the dither), before the alpha is premultiplied; the
