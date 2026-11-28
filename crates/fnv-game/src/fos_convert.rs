@@ -699,6 +699,7 @@ pub fn convert_fos(
         match map_id(raw_q) {
             Ok(qid) if data.quests.contains_key(&qid) => {
                 g.ui.active_quest = Some(qid);
+                g.refresh_current_objective();
                 engine.active_quest = Some(qid.0);
                 inc_ok("active_quest");
             }
@@ -2891,3 +2892,7 @@ fn apply_actor_avs(
     }
     applied_any
 }
+
+#[cfg(test)]
+#[path = "w6d9_getcurrentobjective_tests.rs"]
+mod w6d9_getcurrentobjective_tests;

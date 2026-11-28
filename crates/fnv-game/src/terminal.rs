@@ -182,15 +182,15 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Optio
     })
 }
 
-/// `Lock level` on a terminal: locked, at `level` (above 5: 5, Requires Key); level 0
-/// keeps the level it had [documented: GECK wiki Lock, "Lock 0 ... will lock it but NOT
-/// change the lock level"; observed, function probes `fp3_terminal` 2026-10-17: `Lock 50`
-/// on an Easy terminal gave GetLocked 2 and GetLockLevel 5]. A terminal hacked before
-/// keeps its access, one locked out stays so [documented: GECK wiki Lock]: [`opening`]
-/// checks those before the level.
+/// `Lock level` on a terminal: locked at `level.clamp(0, 5)` (0 Very Easy ... 4 Very
+/// Hard, 5 Requires Key); `Lock 0` sets level 0 (Very Easy), not the prior difficulty
+/// [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+/// w6d9_25_terminal_lock_unlock_level_password_and_lockedout: tl=1|0(1,1)|50(2,5)|u(0,-1)|z(1,0);
+/// w6d9p3_25_terminal_lock_levels: l1(1,1)|l4(1,4)|l5(2,5)|l50(2,5)|l0(1,0)]. A terminal
+/// hacked before keeps its access, one locked out stays so [documented: GECK wiki Lock]:
+/// [`opening`] checks those before the level.
 pub fn lock(g: &mut Game, reference: FormId, level: i32) {
-    let had = lock_level(g, reference);
-    let level = if level > 0 { level.min(5) } else { had.max(0) };
+    let level = level.clamp(0, 5);
     g.terminals.script_locks.insert(reference, ScriptLock { locked: true, level });
 }
 
@@ -201,15 +201,24 @@ pub fn unlock(g: &mut Game, reference: FormId) {
 }
 
 /// GetLocked of a terminal reference in a loaded cell: 0 for an Unlocked terminal (no lock
-/// data) or one a script unlocked, 2 for one a script locked or the player locked out,
-/// else 1, also once hacked [documented: GECK wiki GetLocked, "Does not change state when
-/// hacked"; observed, `fp3_terminal`: an Easy terminal read 1, 2 after Lock 50, 0 after
-/// Unlock]. The caller answers 0 for a terminal whose cell is not loaded [observed: the
-/// same terminal read 0 from another cell].
+/// data) or one a script unlocked, 1 for difficulty 0..=4 (Very Easy..Very Hard, even when
+/// set via `Lock`), and 2 when locked out or at level 5 (Requires Key, e.g. `Lock 5` /
+/// `Lock 50`) [documented: GECK wiki GetLocked; observed: `fp3_terminal` (`Lock 50` -> 2,
+/// level 5); 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30, w6d9p3_25_terminal_lock_levels:
+/// l1(1,1)|l4(1,4)|l5(2,5)|l50(2,5)|l0(1,0)]. The caller answers 0 for a terminal whose
+/// cell is not loaded [observed: the same terminal read 0 from another cell].
 pub fn locked(g: &Game, reference: FormId) -> u8 {
+    let locked_out = g.terminals.access.get(&reference) == Some(&Access::LockedOut);
     match g.terminals.script_locks.get(&reference) {
-        Some(l) => 2 * l.locked as u8,
-        None if g.terminals.access.get(&reference) == Some(&Access::LockedOut) => 2,
+        Some(l) if !l.locked => 0,
+        Some(l) => {
+            if locked_out || l.level >= 5 {
+                2
+            } else {
+                1
+            }
+        }
+        None if locked_out => 2,
         None => {
             let base = crate::functions::base_of(g, reference);
             let unlocked = base.and_then(|b| g.data.terminals.get(&b)).is_none_or(|t| t.has(terminal_flag::UNLOCKED));
@@ -392,3 +401,7 @@ mod tests {
         assert_eq!(server_text(9), "-Server 10-");
     }
 }
+
+#[cfg(test)]
+#[path = "w6d9_terminal_lock_tests.rs"]
+mod w6d9_terminal_lock_tests;

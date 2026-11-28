@@ -484,6 +484,8 @@ at the destination; Fallout behaviour can start a procedure without changing the
 
 ### 3.1 Escort, Find, Use Item At, Ambush and Flee Not Combat
 
+- **`ForceFlee` outside combat vs `FleeNotCombat` package** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8_21_forceflee_and_isfleeing_fleenotcombat`: `PROBE|w6d8_21_forceflee_and_isfleeing_fleenotcombat|fl0=0 flP=0 aiP=1 prP=11 flF1=1 prF1=16 flF2=0 prF2=4`; no DLL, PDB, or third-party source consulted]: a `FleeNotCombat` script package (`0x107480`) leaves JIP `IsFleeing == 0` (`flP=0`), whereas `ForceFlee` outside combat sets `IsFleeing == 1` and `GetCurrentAIProcedure == 16` (`FLEE`) (`flF1=1 prF1=16`).
+
 The owner's GECK wiki export has no page of its own for these five types (the links of
 Category:Packages, "Escort Package", "Find Package" and so on, lead to pages that are not
 in it) [observed 2026-10-17: no page titled so in `C:\fnv-private\geckwiki`]. What it

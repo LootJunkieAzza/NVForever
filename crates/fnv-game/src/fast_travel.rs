@@ -18,9 +18,15 @@ pub const WORLD_NO_TRAVEL: u32 = 1 << 1;
 /// (`world` `None` indoors): an interior does [documented: GECK wiki EnableFastTravel,
 /// "inside an interior cell, they will still be not permitted"], an exterior does not;
 /// [`CELL_INVERT_TRAVEL`] turns that round, and [`WORLD_NO_TRAVEL`] forbids the whole
-/// worldspace. An interior that behaves like an exterior counts as one [hypothesis].
+/// worldspace. [`CELL_LIKE_EXTERIOR`] (bit 7) does not allow fast travel from an interior
+/// or re-invert [`CELL_INVERT_TRAVEL`] [observed: Fallout: New Vegas 1.4.0.525 (040020D0),
+/// xNVSE 6.4.9, ShowOffNVSE Plugin 184, JIP LN NVSE 57.30 (5730), 2026-11-25,
+/// `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+/// `w6d10_38_enable_fast_travel_keep_and_pccanfasttravel`
+/// (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+/// `init(can=0,ovr=0,b2=0,b7=0)|eft(keep=1,aft0=1,en=0)|cell(b2=1,b2Ban=0,b7=0,b27=1)`].
 pub fn place_forbids(cell: u32, world: Option<u32>) -> bool {
-    let indoors = world.is_none() && cell & CELL_LIKE_EXTERIOR == 0;
+    let indoors = world.is_none();
     indoors != (cell & CELL_INVERT_TRAVEL != 0) || world.is_some_and(|w| w & WORLD_NO_TRAVEL != 0)
 }
 
@@ -44,8 +50,8 @@ mod tests {
     fn an_interior_forbids_travel_and_the_cell_flag_inverts_it() {
         assert!(place_forbids(1, None));
         assert!(!place_forbids(1 | CELL_INVERT_TRAVEL, None));
-        assert!(!place_forbids(1 | CELL_LIKE_EXTERIOR, None), "a fake exterior is as one");
-        assert!(place_forbids(1 | CELL_LIKE_EXTERIOR | CELL_INVERT_TRAVEL, None));
+        assert!(place_forbids(1 | CELL_LIKE_EXTERIOR, None), "bit 7 alone does not allow interior fast travel");
+        assert!(!place_forbids(1 | CELL_LIKE_EXTERIOR | CELL_INVERT_TRAVEL, None), "bit 2 allows interior fast travel even with bit 7 set");
         assert!(!place_forbids(0, Some(0)));
         assert!(place_forbids(CELL_INVERT_TRAVEL, Some(0)));
         assert!(place_forbids(0, Some(WORLD_NO_TRAVEL)));

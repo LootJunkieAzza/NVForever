@@ -5,7 +5,7 @@
 use super::{base_of, none, yes, Args, Ctx};
 use crate::game::{Game, InstKey};
 use crate::trace::EventKind;
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArgValue, Value, XVal};
 use fnv_sim::FormId;
 
 fn is_item(g: &Game, base: FormId) -> bool {
@@ -405,6 +405,66 @@ pub fn set_scale(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// `ModScale delta`: adds `delta` to the reference's current scale and clamps the
+/// result to `[0.5, 2.0]` [documented: GECK wiki ModScale; observed: Fallout: New Vegas
+/// 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+/// `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+/// `w6d10_06_scale_get_set_modscale_xscl_and_clamps`
+/// (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+/// `mod(st=2,1.50,1.25,0.50,2.00)`]. Non-finite deltas are ignored as a no-op [design].
+pub fn mod_scale(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let delta = a.num(0)?;
+    if !delta.is_finite() {
+        return none();
+    }
+    let s = (scale_of(g, r) + delta).clamp(0.5, 2.0);
+    g.world.get(r).map_err(|e| e.to_string())?.scale = Some(s as f32);
+    if let Some(e) = g.extra.get_mut(&r) {
+        e.scale = None;
+    }
+    g.turned.insert(r);
+    g.emit(crate::trace::EventKind::Scaled { reference: r, scale: s });
+    none()
+}
+
+/// Catalogue-unnumbered vanilla object functions handled as named source calls
+/// (`docs/spec-notes/misc-stats.md` §5).
+pub(crate) fn handles_source(name: &str) -> bool {
+    name.eq_ignore_ascii_case("ModScale")
+}
+
+/// Execute a catalogue-unnumbered vanilla object source call (`ModScale`).
+/// An explicit empty or unknown receiver fails rather than falling back to `ctx.self_ref`.
+pub(crate) fn call_source(
+    g: &mut Game,
+    ctx: &Ctx,
+    receiver: Option<Value>,
+    name: &str,
+    values: &[XVal],
+) -> Option<Result<XVal, String>> {
+    if !name.eq_ignore_ascii_case("modscale") {
+        return None;
+    }
+    Some((|| {
+        let r = match receiver {
+            Some(value) => value.as_form().map(FormId).ok_or("invalid calling reference")?,
+            None => ctx.self_ref.ok_or("ModScale requires a calling reference")?,
+        };
+        if values.len() != 1 {
+            return Err("ModScale expects 1 argument".into());
+        }
+        let delta = match &values[0] {
+            XVal::Num(n) => *n,
+            _ => return Err("ModScale expects a numeric delta argument".into()),
+        };
+        let call_ctx = Ctx { on: Some(r), ..ctx.clone() };
+        let arg = [ArgValue::Value(Value::Num(delta))];
+        mod_scale(g, &call_ctx, &Args(&arg))?;
+        Ok(XVal::Num(0.0))
+    })())
+}
+
 /// The lock level of a door or container (0, 25, 50, 75, 100, 255) [documented:
 /// catalogue notes]; a load door without lock data of its own reads its other side's
 /// [observed, function probes 2026-10-17: the gas station's outer door has no XLOC and read
@@ -513,3 +573,7 @@ pub fn set_talking_activator_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<
 pub fn place_leveled_actor_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     place_at_me(g, ctx, &Args(&a.0[..1.min(a.len())]))
 }
+
+#[cfg(test)]
+#[path = "w6d10_modscale_tests.rs"]
+mod w6d10_modscale_tests;

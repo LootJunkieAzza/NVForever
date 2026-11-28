@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 const EXAMPLES: usize = 12;
 const GET_IS_ALIGNMENT: u16 = 0x1DA;
 
-const SETTINGS: &[&str] = &["fKarmaModKillingEvilActor", "fKarmaModStealing", "iGuardWarnings", "fAITrespassWarningTimer", "iKarmaMax", "iKarmaMin"];
+const SETTINGS: &[&str] = &["fKarmaModKillingEvilActor", "fKarmaModKillingVeryEvilActor", "fKarmaModStealing", "iGuardWarnings", "fAITrespassWarningTimer", "iKarmaMax", "iKarmaMin"];
 const STRINGS: &[&str] = &[
     "sKarmaMajorGained",
     "sKarmaMajorLost",
@@ -39,9 +39,10 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ac
         "settings": settings(&g, &forms),
         "rules": {
             "stealing": s.stealing,
-            "killing_very_evil": s.killing_evil,
+            "killing_very_evil": s.killing_very_evil,
             "killing_evil": s.killing_evil,
-            "killing_good": -s.killing_evil,
+            "killing_good": -s.killing_evil * 0.5,
+            "killing_very_good": -s.killing_evil,
             "murdering_neutral": -s.killing_evil * NEUTRAL_MURDER_SHARE,
             "guard_warnings": s.guard_warnings,
             "warning_timer": s.warning_timer,

@@ -116,6 +116,18 @@ impl QuestDef {
     }
 }
 
+/// Effective quest script processing interval in seconds: a positive `SetQuestDelay`
+/// override, `DEFAULT_QUEST_DELAY` (5 s) when overridden to `<= 0.0`, or the quest
+/// definition's `script_delay()` when not overridden (returning `0.0` only when neither
+/// an override nor a quest definition exists).
+pub fn effective_delay(override_delay: Option<f64>, def: Option<&QuestDef>) -> f64 {
+    match override_delay {
+        Some(d) if d > 0.0 => d,
+        Some(_) => DEFAULT_QUEST_DELAY,
+        None => def.map_or(0.0, QuestDef::script_delay),
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectiveState {
     pub displayed: bool,

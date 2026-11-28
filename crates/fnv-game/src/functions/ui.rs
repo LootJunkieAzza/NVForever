@@ -255,6 +255,7 @@ pub fn force_active_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     }
     g.ui.active_quest = Some(q);
     g.ui.active_quest_count += 1;
+    g.refresh_current_objective();
     none()
 }
 

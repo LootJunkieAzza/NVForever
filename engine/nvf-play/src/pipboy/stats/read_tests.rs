@@ -271,3 +271,38 @@ fn pipboy_stats_snapshot_resolves_ttw_ini_karma_titles_for_levels_1_through_50()
     assert_eq!(neutral_31.karma_title.as_deref(), Some("SynthNeutral31"));
     assert_eq!(neutral_31.karma_setting_title.as_deref(), Some("SynthNeutral31"));
 }
+
+#[test]
+fn pipboy_stats_karma_alignment_reads_runtime_karma_globals() {
+    let glob = |fid: u32, edid: &str, v: f32| {
+        record(b"GLOB", fid, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", v.to_le_bytes().to_vec())])
+    };
+    let globs = [
+        glob(0x910, "KarmaVeryEvil", -750.0),
+        glob(0x911, "KarmaEvil", -250.0),
+        glob(0x912, "KarmaGood", 250.0),
+        glob(0x913, "KarmaVeryGood", 750.0),
+    ]
+    .concat();
+    let player = record(b"NPC_", 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let bytes = [tes4(), top(b"GLOB", &globs), top(b"NPC_", &player)].concat();
+    let plugins: &'static [fnv_esm::Plugin] = Box::leak(Box::new([fnv_esm::Plugin::parse(&bytes, "KarmaRuntime.esm".into()).unwrap()]));
+    let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).unwrap()));
+    let schema: &'static Schema = Box::leak(Box::new(Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap()));
+    let mut forms = Forms::new(lo, schema);
+    let mut sim = SimState::new(lo, schema, &fnv_world::WorldIndex::default());
+    let mut script = ScriptState::over_plugins(plugins);
+
+    {
+        let g = &mut script.rt.as_mut().unwrap().game;
+        g.player.level = Some(1);
+        gf::set_actor_value_current(g, P, av::KARMA, 150.0).unwrap();
+    }
+    let before = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(before.karma.as_ref().map(|(_, w, _)| *w), Some("Neutral"));
+
+    // Lower KarmaGood at runtime from 250 -> 100; Pip-Boy Stats must reflect "Good" immediately.
+    sim.world.set_global(FormId(0x912), 100.0).unwrap();
+    let after = snapshot(&mut forms, &mut sim, Some(&mut script));
+    assert_eq!(after.karma.as_ref().map(|(_, w, _)| *w), Some("Good"));
+}

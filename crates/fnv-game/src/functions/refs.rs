@@ -471,22 +471,30 @@ pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
-/// The reference's place as the plugins put it, before anything moved it: (position,
-/// angles in radians). The player reads 0 on every axis [documented: GetStartingPos,
-/// GetStartingAngle; observed: jip4 probe set, the player 0, DocMitchellRef its placement,
-/// angle Z 22.918].
-fn starting_place(g: &Game, r: FormId) -> ([f32; 3], [f32; 3]) {
+/// The reference's starting position before script movement: placement `DATA` for
+/// plugin-placed refs, creation position (`RefState::made_at`) for dynamic `PlaceAtMe`
+/// refs, and `[0.0; 3]` for the player [documented: GECK wiki GetStartingPos; observed:
+/// jip4 probe set, the player 0, DocMitchellRef its placement; observed: Fallout: New
+/// Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse`
+/// (`0x00103DF9`), 10 official base masters,
+/// `w6d10_04_starting_pos_and_angle_player_placed_and_dynamic`
+/// (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+/// `pc(0.0,0.0,0.0,aZ=0.0)|doc(sx=2288.8->2288.8,aZ=22.92)|dyn(posX=2352.0,sx0=2352.0,sy0=1603.6,sz0=7360.4,aZ=270.00,sxAfter=2352.0)`].
+fn starting_pos(g: &Game, r: FormId) -> [f32; 3] {
     if r == FormId::PLAYER_REF {
-        return ([0.0; 3], [0.0; 3]);
+        return [0.0; 3];
     }
-    g.world.placed.get(r).map_or(([0.0; 3], [0.0; 3]), |p| (p.pos, p.rot))
+    if let Some(p) = g.world.placed.get(r) {
+        return p.pos;
+    }
+    g.world.peek(r).and_then(|s| s.made_at).map_or([0.0; 3], |(_, pos)| pos)
 }
 
 /// `GetStartingPos axis` [documented: GECK wiki GetStartingPos].
 pub fn get_starting_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
-    Ok(Value::Num(f64::from(starting_place(g, r).0[i])))
+    Ok(Value::Num(f64::from(starting_pos(g, r)[i])))
 }
 
 /// `GetStartingAngle axis`, in degrees [documented: GECK wiki GetStartingAngle;
@@ -805,3 +813,7 @@ impl Game<'_> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "w6d10_getstartingpos_tests.rs"]
+mod w6d10_getstartingpos_tests;

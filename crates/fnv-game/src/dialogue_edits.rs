@@ -221,12 +221,18 @@ impl<'a> Game<'a> {
         ok
     }
 
-    /// Replace the choice at `position`; false when there is none there [documented:
-    /// TopicInfoReplaceChoice; hypothesis: nothing past the end].
+    /// Replace the choice at `position`; negative positions clamp to index 0 when the
+    /// choice list is non-empty, while positions past the end do nothing [documented:
+    /// TopicInfoReplaceChoice; observed: 2026-11-25, FNV 1.4.0.525 + SUP NVSE 855,
+    /// w6d9p2_16_replace_choice_neg_multi: n(10->10)|neg(chg0=1,chgLast=0)|rest=1;
+    /// design: non-finite positions (NaN/inf) are rejected as no-ops].
     pub(crate) fn replace_choice(&mut self, info: FormId, topic: FormId, position: f64) -> bool {
-        let at = position as i64;
-        let fits = self.dialogue_view().info(&info).is_some_and(|d| at >= 0 && (at as usize) < d.choices.len());
-        fits && self.edit_info(info, |d| d.choices[at as usize] = topic)
+        if !position.is_finite() {
+            return false;
+        }
+        let at = if position < 0.0 { 0usize } else { position as usize };
+        let fits = self.dialogue_view().info(&info).is_some_and(|d| at < d.choices.len());
+        fits && self.edit_info(info, |d| d.choices[at] = topic)
     }
 
     /// Write a line's DATA flags and the two rules read from them (Say Once, Goodbye).
@@ -260,3 +266,7 @@ impl<'a> Game<'a> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "w6d9_replace_choice_neg_tests.rs"]
+mod w6d9_replace_choice_neg_tests;

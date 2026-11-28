@@ -1377,6 +1377,7 @@ impl DataState {
         if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
             // The quest is set without counting a ForceActiveQuest.
             rt.game.ui.active_quest = Some(FormId(q));
+            rt.game.refresh_current_objective();
         }
     }
 
@@ -2161,6 +2162,7 @@ fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game)
                 // Scripts read the player's pick too (not counted as a ForceActiveQuest).
                 if let Some(rt) = game.script.as_mut().and_then(|s| s.rt.as_mut()) {
                     rt.game.ui.active_quest = Some(FormId(q.form));
+                    rt.game.refresh_current_objective();
                 }
             }
         }

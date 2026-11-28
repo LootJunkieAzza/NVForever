@@ -91,12 +91,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // `info topic position`: the choice at `position` (from 0) becomes the topic
-        // [documented: TopicInfoReplaceChoice; hypothesis: from 0, as
-        // TopicInfoGetAllChoices' array, and nothing past the end].
+        // `info topic position`: the choice at `position` (from 0) becomes the topic;
+        // negative positions clamp to index 0 on a non-empty choice list and positions
+        // past the end do nothing [documented: TopicInfoReplaceChoice; observed:
+        // 2026-11-25, FNV 1.4.0.525 + SUP NVSE 855,
+        // w6d9_16_topicinfo_choices_related_add_replace,
+        // w6d9p2_16_replace_choice_neg_multi; design: omitted or non-finite position is
+        // a no-op].
         "topicinforeplacechoice" => {
-            if let (Some(i), Some(t)) = (line(g, form(args, 0)), topic(g, form(args, 1))) {
-                g.replace_choice(i, t, num(args, 2).unwrap_or(-1.0));
+            if let (Some(i), Some(t), Some(pos)) = (line(g, form(args, 0)), topic(g, form(args, 1)), num(args, 2)) {
+                g.replace_choice(i, t, pos);
             }
             zero
         }

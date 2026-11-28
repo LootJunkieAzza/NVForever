@@ -116,6 +116,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if let Some(q) = form(args, 0).filter(|q| g.data.quests.contains_key(q)) {
                 g.ui.active_quest = Some(q);
                 g.ui.active_quest_count += 1;
+                g.refresh_current_objective();
             }
             zero
         }

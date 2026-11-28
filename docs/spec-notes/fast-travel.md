@@ -82,17 +82,29 @@ are tried in, are NVForever's reading [hypothesis unless marked]:
      `schemas/fnv/world.json`]. For Skyrim the same bit is *not* Can't Travel From Here,
      interiors only [documented: UESP, Skyrim's CELL page; another game]. NVForever takes
      it as the inversion: set, an interior allows travel and an exterior forbids it
-     [hypothesis: the names agree if the editor's box stores the difference from the
-     kind's default; observer check 285]. No record settles it: none of the ten masters'
+     [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + ShowOffNVSE
+     Plugin 184 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse`
+     (`0x00103DF9`), 10 official base masters, read-only console probe
+     `w6d10_38_enable_fast_travel_keep_and_pccanfasttravel`
+     (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+     `PROBE|w6d10_38_enable_fast_travel_keep_and_pccanfasttravel|init(can=0,ovr=0,b2=0,b7=0)|eft(keep=1,aft0=1,en=0)|cell(b2=1,b2Ban=0,b7=0,b27=1)`;
+     zero DLL, PDB, or third-party source consulted — setting bit 2 enables interior fast
+     travel (`b2=1`), `EnableFastTravel 0` still blocks it (`b2Ban=0`), and bit 7 ("Behave
+     Like Exterior") neither enables interior fast travel alone (`b7=0`) nor re-inverts
+     bit 2 (`b27=1`); over-encumbrance refusal while bit 2=1 and `WRLD` bit 1 flags
+     likewise confirmed in `w6d10_39_fast_travel_encumbrance_and_worldspace_cant_ft`:
+     `PROBE|w6d10_39_fast_travel_encumbrance_and_worldspace_cant_ft|enc(ok=1,over=0,back=1)|ft=0|wrldFt(wnv=0->1,gom=1,fort=1,l38=1)`]. No record settles it: none of the ten masters'
      CELL records, 516 of interiors and 44,076 of exteriors, sets it [observed: a
      throw-away reader of every CELL `DATA`, 2026-11-23], so no interior of the game
      allows travel by the data. Every map marker, and the reference each links to for the
      arrival, is in a worldspace [observed: the same reader, the base game and the four
      story DLCs].
    - An interior that behaves like an exterior (bit 7, "a 'fake exterior', with no
-     landscape but sky and weather" [documented: GECK wiki Cell Lighting]) counts as an
-     exterior here [hypothesis]; the only one is Dead Money's test cell
-     NVDLC01stealthTest [observed].
+     landscape but sky and weather" [documented: GECK wiki Cell Lighting]) does **not**
+     count as an exterior here: it neither enables interior fast travel alone (`b7=0`)
+     nor re-inverts bit 2 (`b27=1`) [observed:
+     `w6d10_38_enable_fast_travel_keep_and_pccanfasttravel` above]; the only one is Dead
+     Money's test cell NVDLC01stealthTest [observed].
    - A worldspace's flag forbids travel in all its cells, whatever the cell flag
      [hypothesis]. Both are read as SetCellFlag and SetWorldspaceFlag left them [design].
    - The rule is `fnv_game::fast_travel::place_forbids`, which the map and

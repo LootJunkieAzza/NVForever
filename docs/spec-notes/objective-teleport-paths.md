@@ -28,3 +28,7 @@ a two-door route ending with its target, flat
 Alt markers, no active/completed objective, cycles and unreachable paths. No installed
 mod body, mesh, plugin or asset is included. Rendering and complete map acceptance
 remain pending separately under the existing objective issue.
+
+## `GetCurrentObjective` baseline & retention
+
+[observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`, `w6d9p2_05_getcurrentobjective_details`: `PROBE|w6d9p2_05_getcurrentobjective_details|orig=00000000,co0=0|coF=10,coS=10|d30=10,all=10,clr=10`; no DLL, PDB, or third-party source consulted] With no active quest initially, `GetCurrentObjective` returns `0` (not `-1`); once an active quest has displayed incomplete objectives (`30` then `10`), it reports `10` and retains that last index even after all objectives are completed or `ClearActiveQuest` is called. Which objective wins when multiple incomplete objectives are displayed (lowest index vs. most recently displayed) remains `[hypothesis]` (lowest index in NVForever), because `w6d9p2_05_getcurrentobjective_details` displayed `30` then `10` where `10` is both lowest and most recently displayed.

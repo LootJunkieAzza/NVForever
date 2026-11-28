@@ -267,7 +267,15 @@ not decode yet.
   (`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3679):
   `PROBE|b3_jip4_02_session_time_and_start_angle|sess=5.31,docZ=22.92,dynZ=270.00`; zero
   DLL, PDB, or third-party source consulted; hypothesis: X/Y axes and persistence of
-  `made_rot` across saves].
+  `made_rot` across saves]. For dynamic references created via `PlaceAtMe`, `GetStartingPos`
+  likewise returns the reference's creation position (`RefState::made_at`) and remains
+  unchanged after `SetPos`, while `Player.GetStartingPos` reads `0` on every axis
+  [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9, 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe
+  `w6d10_04_starting_pos_and_angle_player_placed_and_dynamic`
+  (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`):
+  `PROBE|w6d10_04_starting_pos_and_angle_player_placed_and_dynamic|pc(0.0,0.0,0.0,aZ=0.0)|doc(sx=2288.8->2288.8,aZ=22.92)|dyn(posX=2352.0,sx0=2352.0,sy0=1603.6,sz0=7360.4,aZ=270.00,sxAfter=2352.0)`;
+  zero DLL, PDB, or third-party source consulted].
 - `GetIsPoisoned` [documented: "under the influence of a poison-type effect"]: returns `1`
   for active `SPEL` type-5 poisons (`RadScorpion1Poison`, `BarkScorpionPoison`,
   `CazadorPoison`; cleared to `0` by Antivenom dispel), `ALCH` poisons (`BleakVenom`),
