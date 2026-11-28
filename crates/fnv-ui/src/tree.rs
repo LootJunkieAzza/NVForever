@@ -178,9 +178,35 @@ const RESHAPED_RUN_WARNING: u32 = 120;
 /// Sentinel id for [`DEAD`] tiles in `const` contexts [design].
 const DEAD_ID: TileId = TileId { tree: 0, index: 0, gen: 0 };
 
+/// Fast non-cryptographic integer hasher for `(u32, u32)` dependency keys [design].
+#[derive(Default)]
+struct FastPairHasher(u64);
+
+impl std::hash::Hasher for FastPairHasher {
+    #[inline(always)]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = self.0.wrapping_mul(0x517c_c1b7_2722_0a95).wrapping_add(u64::from(b));
+        }
+    }
+
+    #[inline(always)]
+    fn write_u32(&mut self, i: u32) {
+        self.0 = (self.0 ^ u64::from(i)).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+
+    #[inline(always)]
+    fn finish(&self) -> u64 {
+        self.0 ^ (self.0 >> 32)
+    }
+}
+
+type FastPairMap<V> = HashMap<(u32, u32), V, std::hash::BuildHasherDefault<FastPairHasher>>;
+
 /// Deterministic case-insensitive 64-bit FNV-1a hash of a tile name for scoped
 /// structural invalidation [design]. A hash collision can only trigger an extra
 /// re-evaluation, never a missed invalidation.
+#[inline(always)]
 fn name_key(name: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in name.bytes() {
@@ -481,7 +507,7 @@ pub struct Ui {
     /// Reverse dependency map for incremental [`Ui::update`]: maps a source
     /// `(tile_slot, trait_idx)` to the expression `(tile_slot, trait_idx)` entries that
     /// read it, rebuilt on structural changes (`dirty_all`) [design].
-    dependents: HashMap<(u32, u32), Vec<(u32, u32)>>,
+    dependents: FastPairMap<Vec<(u32, u32)>>,
     /// Expression `(tile_slot, trait_idx)` entries queued for incremental [`Ui::update`]
     /// when a plain trait value changes without a structural shape change [design].
     dirty_exprs: Vec<(u32, u32)>,
@@ -1848,9 +1874,13 @@ impl Ui {
 
     // ---- working traits out -----------------------------------------------------------
 
-    /// Rebuild reverse dependency edges from all live expression traits' recorded `sources`.
+    /// Rebuild reverse dependency edges from all live expression traits' recorded `sources`,
+    /// reusing existing inner `Vec` capacities to avoid heap churn on HUD tile reshapes [design].
     fn rebuild_dependents(&mut self) {
-        self.dependents.clear();
+        for list in self.dependents.values_mut() {
+            list.clear();
+        }
+        let mut active_edges = 0usize;
         for id in 0..self.tiles.len() {
             if !self.tiles[id].live {
                 continue;
@@ -1865,9 +1895,13 @@ impl Ui {
                     let list = self.dependents.entry((src_tile.index, src_k)).or_default();
                     if list.last().copied() != Some(dst) {
                         list.push(dst);
+                        active_edges += 1;
                     }
                 }
             }
+        }
+        if self.dependents.len() > active_edges.saturating_mul(2).saturating_add(128) {
+            self.dependents.retain(|_, v| !v.is_empty());
         }
     }
 
