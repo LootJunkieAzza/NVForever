@@ -106,6 +106,8 @@ fn write_files() {
         "AuthorNotesPack/_1stPerson/2haJamF.kf",
         "AuthorNotesPack/_1stPerson/2haJamF_a.kf",
         "Everyone/_Male/Locomotion/mtidle.kf",
+        "Polled/_1stPerson/mtfastforward.kf",
+        "Keyworded/_Male/Locomotion/mtforward.kf",
     ] {
         let p = ago.join(f);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -143,6 +145,8 @@ fn write_files() {
     )
     .unwrap();
     std::fs::write(ago.join("everyone.json"), r#"{"folder": "Everyone", "condition": "this == Player"}"#).unwrap();
+    std::fs::write(ago.join("polled.json"), r#"{"folder": "Polled", "condition": "TestFlag == 2", "pollCondition": true, "priority": 2}"#).unwrap();
+    std::fs::write(ago.join("keyworded.json"), r#"{"folder": "Keyworded", "condition": "HasKeyWord (this.GBO) \"OwnedKnvseTag\"", "pollCondition": true}"#).unwrap();
     std::fs::write(ago.join("Empty.json"), "").unwrap();
     std::fs::write(ago.join("Broken.json"), "[{").unwrap();
     set_roots(Roots { read: vec![dir], ..Roots::default() });
@@ -160,13 +164,16 @@ fn folder_overrides_follow_the_weapon_and_the_condition() {
     let mut g = Game::new(&f.data, world, GameConfig::default());
     g.player_entered(Some(FormId(ROOM)));
     g.tick();
-    // Valid entries kept in file-name order without regard to case: everyone's, the gun's
-    // and its conditioned sub-set, plus the mod-only, direct-KF and chances packs.
+    // Valid entries kept in file-name order without regard to case: everyone's, the
+    // polled entries, the gun's and its conditioned sub-set, plus the mod-only, direct-KF
+    // and chances packs.
     let folders: Vec<&str> = g.anim_folders.entries.iter().map(|e| e.folder.as_str()).collect();
     assert_eq!(
         folders,
         [
             "Everyone",
+            "Keyworded",
+            "Polled",
             "Gun",
             "Gun\\Flag",
             "ModOnly",
@@ -177,8 +184,8 @@ fn folder_overrides_follow_the_weapon_and_the_condition() {
         ]
     );
     // The Mod* files, hidden `.mohidden` folder and text file are not in the base list.
-    assert_eq!(g.anim_folders.entries[1].first, ["AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf"]);
-    assert_eq!(g.anim_folders.entries[1].third, ["AnimGroupOverride\\Gun\\_male\\2hrAttack3.kf"]);
+    assert_eq!(g.anim_folders.entries[3].first, ["AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf"]);
+    assert_eq!(g.anim_folders.entries[3].third, ["AnimGroupOverride\\Gun\\_male\\2hrAttack3.kf"]);
     // Without the gun: only everyone's entry (its condition holds on the player).
     g.refresh_anim_folders();
     assert_eq!(g.anim_overrides(FormId::PLAYER_REF, false), ["AnimGroupOverride\\Everyone\\_Male\\Locomotion\\mtidle.kf"]);
@@ -269,6 +276,162 @@ player.ActivateAnim \"AnimGroupOverride/Gun/_1stPerson/2hrAttack3.kf\"");
         .collect();
     kept.sort();
     assert_eq!(kept, [("animgroupoverride/gun/_1stperson/2hrattack3.kf".to_string(), false), ("animgroupoverride/gun/_male/2hrattack3.kf".to_string(), true)]);
+}
+
+/// `pollCondition: true` entries re-evaluate on the very next tick (without waiting 15
+/// frames), while non-polled entries keep their cached 15-frame cadence even when polled
+/// entries exist. Also verifies both documented two-arg `HasKeyWord (this.GBO) "..."`
+/// and hypothesis one-arg `PlayerREF.HasKeyword "..."`.
+#[test]
+fn polled_folder_conditions_poll_only_polled_entries_and_keep_non_polled_on_15_frame_cadence() {
+    files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig::default());
+    g.player_entered(Some(FormId(ROOM)));
+    q(&mut g, "player.AddItem TestGun 1\nplayer.EquipItem TestGun");
+
+    // Frame 1 (1 % 15 == 1): full refresh evaluates all entries. TestFlag is 0, so Gun
+    // matches (non-polled), Gun\Flag does NOT match (non-polled, needs TestFlag == 1),
+    // and Polled / Keyworded do NOT match (polled).
+    g.tick();
+    assert_eq!(g.frame, 1);
+    assert!(g.anim_folders.entries.iter().any(|e| e.folder == "Polled" && e.poll_condition));
+    assert!(g.anim_folders.entries.iter().any(|e| e.folder == "Keyworded" && e.poll_condition));
+    assert!(g.anim_folders.entries.iter().any(|e| e.folder == "Gun\\Flag" && !e.poll_condition));
+    assert_eq!(g.anim_overrides(FormId::PLAYER_REF, true), ["AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf"]);
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("Keyworded")));
+
+    // Frame 2 (non-15th): set TestFlag = 1 (satisfies non-polled Gun\Flag) AND assign the
+    // keyword (satisfies polled Keyworded). Polled Keyworded activates immediately, while
+    // non-polled Gun\Flag MUST NOT re-evaluate on frame 2!
+    q(&mut g, "set TestFlag to 1\nAssignKeyword Player \"OwnedKnvseTag\"");
+    g.tick();
+    assert_eq!(g.frame, 2);
+    assert!(
+        g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("Keyworded")),
+        "pollCondition: true entry must react on frame 2"
+    );
+    assert!(
+        !g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Gun\\Flag")),
+        "non-polled entry must NOT re-evaluate on frame 2 even when polled entries exist"
+    );
+    assert_eq!(
+        g.anim_overrides(FormId::PLAYER_REF, true),
+        ["AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf"],
+        "cached non-polled Gun entry stays active without re-evaluation"
+    );
+    // Ordinary scripts follow observed JIP LN 57.30 (`w4d_05_haskeyword_1arg_ref`):
+    // 2-arg `HasKeyword form "keyword"` succeeds, while 1-arg `PlayerREF.HasKeyword "..."`
+    // is NOT accepted outside kNVSE JSON condition evaluation.
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (HasKeyword PlayerREF \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
+        fnv_script::vm::XVal::Num(1.0)
+    );
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.HasKeyword \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
+        fnv_script::vm::XVal::Num(0.0)
+    );
+
+    // Frame 3 (non-15th): set TestFlag = 2 (satisfies polled Polled, priority 2) while
+    // keeping cached non-polled Gun (priority 0). Polled activates immediately AND preserves
+    // priority ordering after cached Gun.
+    q(&mut g, "set TestFlag to 2");
+    g.tick();
+    assert_eq!(g.frame, 3);
+    assert_eq!(
+        g.anim_overrides(FormId::PLAYER_REF, true),
+        [
+            "AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf",
+            "AnimGroupOverride\\Polled\\_1stPerson\\mtfastforward.kf",
+        ]
+    );
+
+    // Frame 4 (non-15th): clearing the keyword and setting TestFlag = 1 deactivates both
+    // polled entries immediately on frame 4, while non-polled Gun\Flag STILL waits for frame 16.
+    g.jip2.keywords.remove(&FormId::PLAYER_BASE);
+    q(&mut g, "set TestFlag to 1");
+    g.tick();
+    assert_eq!(g.frame, 4);
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("Keyworded")));
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Polled")));
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Gun\\Flag")));
+
+    // Frames 5..=15: non-polled Gun\Flag still must not activate until frame 16 (16 % 15 == 1).
+    for expected_frame in 5..=15 {
+        g.tick();
+        assert_eq!(g.frame, expected_frame);
+        assert!(
+            !g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Gun\\Flag")),
+            "non-polled entry must stay on 15-frame cadence at frame {expected_frame}"
+        );
+    }
+
+    // Frame 16 (16 % 15 == 1): full refresh now picks up non-polled Gun\Flag!
+    g.tick();
+    assert_eq!(g.frame, 16);
+    assert_eq!(
+        g.anim_overrides(FormId::PLAYER_REF, true),
+        [
+            "AnimGroupOverride\\Gun\\_1stPerson\\2hrAttack3.kf",
+            "AnimGroupOverride\\Gun\\Flag\\_1stperson\\2hrAttack3.kf",
+        ]
+    );
+
+    // Frame 17 (non-15th): set TestFlag = 0 (falsifies non-polled Gun\Flag). Because
+    // Gun\Flag is non-polled, it stays cached active until the next 15-frame refresh.
+    q(&mut g, "set TestFlag to 0");
+    g.tick();
+    assert_eq!(g.frame, 17);
+    assert!(
+        g.anim_overrides(FormId::PLAYER_REF, true).iter().any(|p| p.contains("Gun\\Flag")),
+        "deactivating a non-polled entry must also wait for the 15-frame cadence"
+    );
+}
+
+/// 1-arg `this.HasKeyword "..."` is accepted strictly during kNVSE JSON condition
+/// evaluation and rejected (`0.0`) in regular scripts (`w4d_05_haskeyword_1arg_ref`).
+#[test]
+fn one_arg_has_keyword_is_limited_to_knvse_json_conditions() {
+    files();
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig::default());
+    g.player_entered(Some(FormId(ROOM)));
+    g.tick();
+    let order = g.anim_folders.entries.len();
+    g.anim_folders.entries.push(fnv_game::nvse_anim_folders::FolderEntry {
+        forms: Vec::new(),
+        folder: "OneArgKw".into(),
+        condition: Some("this.HasKeyword \"OwnedKnvseTag\"".into()),
+        poll_condition: true,
+        priority: 3,
+        order,
+        third: vec!["AnimGroupOverride\\OneArgKw\\_Male\\Locomotion\\mtforward.kf".into()],
+        first: Vec::new(),
+        third_weighted: Vec::new(),
+        first_weighted: Vec::new(),
+        third_mods: Vec::new(),
+        first_mods: Vec::new(),
+    });
+    g.refresh_anim_folders();
+    assert!(!g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("OneArgKw")));
+
+    q(&mut g, "AssignKeyword Player \"OwnedKnvseTag\"");
+    g.tick();
+    assert!(
+        g.anim_overrides(FormId::PLAYER_REF, false).iter().any(|p| p.contains("OneArgKw")),
+        "1-arg this.HasKeyword must evaluate inside kNVSE JSON conditions"
+    );
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (HasKeyword PlayerREF \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
+        fnv_script::vm::XVal::Num(1.0)
+    );
+    assert_eq!(
+        g.run_query("Begin Function { }\nSetFunctionValue (PlayerREF.HasKeyword \"OwnedKnvseTag\")\nEnd\n", Default::default()).unwrap(),
+        fnv_script::vm::XVal::Num(0.0),
+        "ordinary scripts must not accept 1-arg ref.HasKeyword"
+    );
 }
 
 /// Weapon-mod subfolders (`Mod1`–`Mod3`, `Mod12`, `Mod123`) match the equipped weapon's

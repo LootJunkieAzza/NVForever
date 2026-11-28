@@ -25,10 +25,13 @@ pub const ROOT: &str = "AnimGroupOverride";
 /// animation picks never perturb `Game::rng` [design].
 const CHANCES_RNG_MIX: u64 = 0xA11F_01D5;
 
-/// How often the actors' entries are checked again, in frames (at 60 a second, four
-/// times a second) [decision: the original checks a condition when an animation starts,
-/// or every frame with `pollCondition` (hypothesis); a quarter second is close enough
-/// for both and keeps the cost of the conditions small].
+/// How often non-polled entries are checked again, in frames (at 60 a second, four times
+/// a second). Prior recorded [decision: the original checks a condition when an animation
+/// starts, or every frame with `pollCondition` (hypothesis); a quarter second is close
+/// enough for both and keeps the cost of the conditions small]. Proposed [design; pending
+/// owner agreement to overturn the prior decision for `pollCondition: true` entries only]:
+/// entries with `pollCondition: true` evaluate every frame while all other entries retain
+/// the `REFRESH_FRAMES` cadence and reuse their cached matches between full refreshes.
 const REFRESH_FRAMES: u64 = 15;
 
 /// One weighted variant pool parsed from a directory's `chances.txt`: each `(path,
@@ -64,6 +67,12 @@ pub struct FolderEntry {
     pub folder: String,
     /// A script condition, tested on the actor [observed: `this != Player`].
     pub condition: Option<String>,
+    /// JSON `pollCondition: true`: evaluate this entry every frame instead of only on
+    /// the periodic `REFRESH_FRAMES` cadence [observed: 12 of 778 entries in the 25-mod
+    /// survey of 2026-11-03 set `"pollCondition": true`; hypothesis: continual polling
+    /// in kNVSE; design: per-frame evaluation for this entry only, pending owner
+    /// agreement to overturn the prior decision in `knvse-anim-folders.md` §3].
+    pub poll_condition: bool,
     /// Higher wins over lower [hypothesis: values 1, 2 and 10 next to entries without
     /// one, the more special case given the higher number].
     pub priority: i64,
@@ -125,6 +134,11 @@ struct CachedActorPicks {
 pub struct AnimFolders {
     loaded: bool,
     pub entries: Vec<FolderEntry>,
+    /// Indices into `entries` of non-polled (`!poll_condition`) entries that matched each
+    /// actor at the last full `REFRESH_FRAMES` (or `refresh_anim_folders_for`) evaluation,
+    /// reused on intermediate frames so per-frame polling evaluates strictly
+    /// `pollCondition: true` entries [design].
+    cached_non_polled: HashMap<FormId, Vec<usize>>,
     /// The files each actor's entries give now, by (actor, first person), the lowest
     /// priority first (a later file of the same group wins, as with the engine's
     /// replacements).
@@ -137,6 +151,10 @@ pub struct AnimFolders {
     /// Stable `chances.txt` picks per actor, retained until the actor's equipped weapon,
     /// weapon mods, or matching entry set changes [design]. Not saved.
     picks: HashMap<FormId, CachedActorPicks>,
+    /// True strictly while evaluating a kNVSE `AnimGroupOverride` JSON condition so the
+    /// `[design]` 1-arg `ref.HasKeyword "keyword"` compatibility form is scoped to kNVSE
+    /// JSON conditions and never accepted in ordinary scripts (`nvse_jip2.rs`) [design].
+    pub(crate) evaluating_condition: bool,
 }
 
 impl Default for AnimFolders {
@@ -150,10 +168,12 @@ impl AnimFolders {
         Self {
             loaded: false,
             entries: Vec::new(),
+            cached_non_polled: HashMap::new(),
             active: HashMap::new(),
             warned: HashSet::new(),
             rng: ChaCha8Rng::seed_from_u64(seed ^ CHANCES_RNG_MIX),
             picks: HashMap::new(),
+            evaluating_condition: false,
         }
     }
 }
@@ -516,6 +536,7 @@ struct RawEntry {
     folder: String,
     forms: Vec<FormId>,
     condition: Option<String>,
+    poll_condition: bool,
     priority: i64,
 }
 
@@ -583,8 +604,9 @@ fn load(g: &Game) -> Vec<FolderEntry> {
                 None => ids.into_iter().map(FormId).collect(),
             };
             let condition = it.get("condition").and_then(Json::as_str).map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
+            let poll_condition = it.get("pollCondition").and_then(Json::as_bool).unwrap_or(false) && condition.is_some();
             let priority = it.get("priority").and_then(Json::as_i64).unwrap_or(0);
-            raw_entries.push(RawEntry { file: file.clone(), folder, forms, condition, priority });
+            raw_entries.push(RawEntry { file: file.clone(), folder, forms, condition, poll_condition, priority });
         }
     }
 
@@ -597,6 +619,7 @@ fn load(g: &Game) -> Vec<FolderEntry> {
             forms: raw.forms,
             folder: raw.folder,
             condition: raw.condition,
+            poll_condition: raw.poll_condition,
             priority: raw.priority,
             order: out.len(),
             third: scan.third,
@@ -671,13 +694,20 @@ impl Game<'_> {
     }
 
     /// Read the folders once (when the Data folder is known), then every
-    /// [`REFRESH_FRAMES`] the entries of the player and each actor the engine draws.
+    /// [`REFRESH_FRAMES`] evaluate all entries for the player and each actor the engine
+    /// draws. On intermediate frames, evaluate strictly `pollCondition: true` entries
+    /// (when any are loaded) while retaining cached non-polled matches from the last
+    /// [`REFRESH_FRAMES`] refresh.
     pub(crate) fn anim_folders_tick(&mut self) {
         self.load_anim_folders();
-        if self.anim_folders.entries.is_empty() || self.frame % REFRESH_FRAMES != 1 {
+        if self.anim_folders.entries.is_empty() {
             return;
         }
-        self.refresh_anim_folders();
+        if self.frame % REFRESH_FRAMES == 1 {
+            self.refresh_anim_folders();
+        } else if self.anim_folders.entries.iter().any(|e| e.poll_condition) {
+            self.refresh_polled_anim_folders();
+        }
     }
 
     /// Read the folders, once the Data folder is known.
@@ -688,35 +718,42 @@ impl Game<'_> {
         }
     }
 
-    /// Evaluate `entries` for one actor `a`, writing its active third- and first-person
-    /// override lists into `active`. Matching `Mod1`–`Mod3` (and combined) buckets are
-    /// appended after base files in specificity order; any `chances.txt` weighted pools
-    /// draw from `AnimFolders`'s dedicated RNG (never `Game::rng`) and keep their pick
-    /// stable per actor and pool until the equipped weapon, weapon-mod mask, or matching
-    /// entry set changes [design].
-    fn eval_anim_folders_for(&mut self, entries: &[FolderEntry], a: FormId, active: &mut HashMap<(FormId, bool), Vec<String>>) {
-        let base = crate::functions::base_of(self, a);
-        let weapon = crate::functions::items::equipped_weapon(self, a);
-        let weapon_mods = weapon.map_or(0, |w| self.world.get(a).ok().and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.equipped_mods(w)));
-        let mut hold: Vec<&FolderEntry> = Vec::new();
-        for e in entries {
-            if !e.forms.is_empty() && !e.forms.iter().any(|&f| f == a || Some(f) == base || Some(f) == weapon) {
-                continue;
-            }
-            if let Some(c) = &e.condition {
-                match self.evaluate_on(c, Some(a)) {
-                    Ok(true) => {}
-                    Ok(false) => continue,
-                    Err(err) => {
-                        if self.anim_folders.warned.insert(c.clone()) {
-                            tracing::warn!("AnimGroupOverride: {}: condition {c:?}: {err}", e.folder);
-                        }
-                        continue;
+    fn folder_entry_holds(&mut self, e: &FolderEntry, a: FormId, base: Option<FormId>, weapon: Option<FormId>) -> bool {
+        if !e.forms.is_empty() && !e.forms.iter().any(|&f| f == a || Some(f) == base || Some(f) == weapon) {
+            return false;
+        }
+        if let Some(c) = &e.condition {
+            let prev = self.anim_folders.evaluating_condition;
+            self.anim_folders.evaluating_condition = true;
+            let result = self.evaluate_on(c, Some(a));
+            self.anim_folders.evaluating_condition = prev;
+            match result {
+                Ok(true) => {}
+                Ok(false) => return false,
+                Err(err) => {
+                    if self.anim_folders.warned.insert(c.clone()) {
+                        tracing::warn!("AnimGroupOverride: {}: condition {c:?}: {err}", e.folder);
                     }
+                    return false;
                 }
             }
-            hold.push(e);
         }
+        true
+    }
+
+    /// Write an actor's active third- and first-person override lists into `active`.
+    /// Matching `Mod1`–`Mod3` (and combined) buckets are appended after base files in
+    /// specificity order; any `chances.txt` weighted pools draw from `AnimFolders`'s
+    /// dedicated RNG (never `Game::rng`) and keep their pick stable per actor and pool
+    /// until the equipped weapon, weapon-mod mask, or matching entry set changes [design].
+    fn write_active_for(
+        &mut self,
+        a: FormId,
+        weapon: Option<FormId>,
+        weapon_mods: u8,
+        mut hold: Vec<&FolderEntry>,
+        active: &mut HashMap<(FormId, bool), Vec<String>>,
+    ) {
         hold.sort_by_key(|e| (e.priority, e.order));
         let context = ActorPickContext {
             weapon,
@@ -781,7 +818,9 @@ impl Game<'_> {
                     }
                 }
             }
-            if !files.is_empty() {
+            if files.is_empty() {
+                active.remove(&(a, first));
+            } else {
                 active.insert((a, first), files);
             }
         }
@@ -790,19 +829,94 @@ impl Game<'_> {
         }
     }
 
-    /// The entries that hold for each actor now.
+    /// Evaluate all `entries` for one actor `a`, caching its matching non-polled entry
+    /// indices and writing its active third- and first-person override lists into `active`.
+    fn eval_anim_folders_for(
+        &mut self,
+        entries: &[FolderEntry],
+        a: FormId,
+        cached_non_polled: &mut HashMap<FormId, Vec<usize>>,
+        active: &mut HashMap<(FormId, bool), Vec<String>>,
+    ) {
+        let base = crate::functions::base_of(self, a);
+        let weapon = crate::functions::items::equipped_weapon(self, a);
+        let weapon_mods = weapon.map_or(0, |w| self.world.get(a).ok().and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.equipped_mods(w)));
+        let mut non_polled_ids = Vec::new();
+        let mut hold: Vec<&FolderEntry> = Vec::new();
+        for (idx, e) in entries.iter().enumerate() {
+            if !self.folder_entry_holds(e, a, base, weapon) {
+                continue;
+            }
+            if !e.poll_condition {
+                non_polled_ids.push(idx);
+            }
+            hold.push(e);
+        }
+        cached_non_polled.insert(a, non_polled_ids);
+        self.write_active_for(a, weapon, weapon_mods, hold, active);
+    }
+
+    /// Evaluate strictly `pollCondition: true` entries for one actor `a`, combining them
+    /// with the cached non-polled matches from the last full refresh without re-evaluating
+    /// any non-polled entry.
+    fn eval_polled_folders_for(
+        &mut self,
+        entries: &[FolderEntry],
+        a: FormId,
+        cached_non_polled: &HashMap<FormId, Vec<usize>>,
+        active: &mut HashMap<(FormId, bool), Vec<String>>,
+    ) {
+        let base = crate::functions::base_of(self, a);
+        let weapon = crate::functions::items::equipped_weapon(self, a);
+        let weapon_mods = weapon.map_or(0, |w| self.world.get(a).ok().and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.equipped_mods(w)));
+        let mut hold: Vec<&FolderEntry> = cached_non_polled
+            .get(&a)
+            .into_iter()
+            .flatten()
+            .filter_map(|&idx| entries.get(idx))
+            .filter(|e| !e.poll_condition)
+            .collect();
+        for e in entries.iter().filter(|e| e.poll_condition) {
+            if self.folder_entry_holds(e, a, base, weapon) {
+                hold.push(e);
+            }
+        }
+        self.write_active_for(a, weapon, weapon_mods, hold, active);
+    }
+
+    /// The entries that hold for each actor now (full evaluation of all entries).
     pub fn refresh_anim_folders(&mut self) {
         let mut actors: Vec<FormId> = self.senses.anim.keys().copied().collect();
         if !actors.contains(&FormId::PLAYER_REF) {
             actors.push(FormId::PLAYER_REF);
         }
         let entries = std::mem::take(&mut self.anim_folders.entries);
+        let mut cached_non_polled = HashMap::new();
         let mut active = HashMap::new();
         for &a in &actors {
-            self.eval_anim_folders_for(&entries, a, &mut active);
+            self.eval_anim_folders_for(&entries, a, &mut cached_non_polled, &mut active);
         }
         self.anim_folders.picks.retain(|a, _| actors.contains(a));
         self.anim_folders.entries = entries;
+        self.anim_folders.cached_non_polled = cached_non_polled;
+        self.anim_folders.active = active;
+    }
+
+    /// Re-evaluate strictly `pollCondition: true` entries for each drawn actor and the
+    /// player, leaving non-polled entries on their cached [`REFRESH_FRAMES`] results.
+    fn refresh_polled_anim_folders(&mut self) {
+        let mut actors: Vec<FormId> = self.senses.anim.keys().copied().collect();
+        if !actors.contains(&FormId::PLAYER_REF) {
+            actors.push(FormId::PLAYER_REF);
+        }
+        let entries = std::mem::take(&mut self.anim_folders.entries);
+        let cached_non_polled = std::mem::take(&mut self.anim_folders.cached_non_polled);
+        let mut active = std::mem::take(&mut self.anim_folders.active);
+        for a in actors {
+            self.eval_polled_folders_for(&entries, a, &cached_non_polled, &mut active);
+        }
+        self.anim_folders.entries = entries;
+        self.anim_folders.cached_non_polled = cached_non_polled;
         self.anim_folders.active = active;
     }
 
@@ -815,11 +929,11 @@ impl Game<'_> {
             return;
         }
         let entries = std::mem::take(&mut self.anim_folders.entries);
+        let mut cached_non_polled = std::mem::take(&mut self.anim_folders.cached_non_polled);
         let mut active = std::mem::take(&mut self.anim_folders.active);
-        active.remove(&(actor, false));
-        active.remove(&(actor, true));
-        self.eval_anim_folders_for(&entries, actor, &mut active);
+        self.eval_anim_folders_for(&entries, actor, &mut cached_non_polled, &mut active);
         self.anim_folders.entries = entries;
+        self.anim_folders.cached_non_polled = cached_non_polled;
         self.anim_folders.active = active;
     }
 

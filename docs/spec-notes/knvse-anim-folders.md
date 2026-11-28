@@ -117,13 +117,26 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   [design]. Unmatched `.kf` files (and directories whose `chances.txt` contains only
   author notes such as `Short: 20%` with no matching `.kf` filenames) remain
   unconditional and do not draw from either RNG [design].
-- **Which hold:** four times a second, for the player and each actor the engine draws: the
-  entries for the actor's reference, its base or its equipped weapon, and those for every
-  actor, whose condition holds on the actor (EvaluateString's compiler; a condition that
-  fails to compile or run counts as false and is logged once). [decision: the original
-  checks a condition when the animation starts, or continually with `pollCondition`
-  (hypothesis); a quarter second covers both closely enough, so `pollCondition` is read
-  but changes nothing.]
+- **Which hold:** four times a second (`REFRESH_FRAMES = 15`), for the player and each
+  actor the engine draws: the entries for the actor's reference, its base or its equipped
+  weapon, and those for every actor, whose condition holds on the actor (EvaluateString's
+  compiler, including two-argument `HasKeyWord (this.GBO) "..."` [documented: GECK wiki
+  HasKeyword; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+  2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  `w4d_05_haskeyword_1arg_ref` (`tools/capture/nvse/catalogs/wave4d_extenders.json`,
+  #3679): `op(kw=10555,kwc=10558)|kw1(cmp=0,ret=-9)|kw2(cmp=1,ret=0)|kwc1(cmp=0,ret=-9)|kwc2(cmp=0,ret=-9)`
+  — original JIP LN 57.30 compiles only 2-arg `HasKeyword form "keyword"` and refuses
+  1-arg `ref.HasKeyword "keyword"`; no DLL or source consulted] and one-argument
+  `this.HasKeyWord "..."` strictly inside kNVSE JSON condition evaluation (`AnimFolders::evaluating_condition`; regular scripts still require the 2-arg form) [design: kNVSE JSON condition compatibility extension]; a
+  condition that fails to compile or run counts as false and is logged once).
+  - Prior recorded [decision: the original checks a condition when the animation starts,
+    or continually with `pollCondition` (hypothesis); a quarter second covers both closely
+    enough, so `pollCondition` is read but changes nothing.]
+  - Proposed [design; **pending owner agreement to overturn the prior decision above**]:
+    entries with `"pollCondition": true` (and a non-empty `condition`) re-evaluate every
+    frame on intermediate ticks, while all non-polled entries remain strictly on the
+    15-frame (`REFRESH_FRAMES`) cadence and reuse their cached matches between full
+    refreshes.
 - **Which wins:** the holding entries in order of priority (none is 0), then of reading;
   within each entry, base files precede matching `Mod*` buckets in specificity order;
   their files are given in that order, and of two files of the same group the later wins

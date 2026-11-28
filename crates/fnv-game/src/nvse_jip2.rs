@@ -299,10 +299,30 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getcurrentweather" => XVal::Ref(g.weather.request.map(|r| r.weather).or(g.weather.shown).map_or(0, |w| w.0)),
         // ---- N7: actors and the game ----
         // Keywords: any text, without regard to case, on the base form; a form list
-        // assigns to its members [observed: jip-n7].
+        // assigns to its members [documented: GECK wiki HasKeyword `HasKeyword form
+        // "keyword"`; observed: jip-n7; observed: Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters, `w4d_05_haskeyword_1arg_ref`
+        // (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3679):
+        // `op(kw=10555,kwc=10558)|kw1(cmp=0,ret=-9)|kw2(cmp=1,ret=0)|kwc1(cmp=0,ret=-9)|kwc2(cmp=0,ret=-9)`
+        // — JIP LN 57.30 compiles only 2-arg `HasKeyword form "keyword"`, refusing 1-arg
+        // `ref.HasKeyword "keyword"` and `HasKeywordCond`; no DLL or source consulted].
+        // [design: one-argument reference syntax `ref.HasKeyword "keyword"` is accepted
+        // strictly while evaluating kNVSE `AnimGroupOverride` JSON conditions
+        // (`g.anim_folders.evaluating_condition`) so JSON conditions written with
+        // `this.HasKeyword "..."` evaluate against `subject`, while regular scripts
+        // require the documented/observed 2-arg form `HasKeyword form "keyword"`.]
         "assignkeyword" | "haskeyword" | "removekeyword" => {
-            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
-            let k = text(args, 1).to_ascii_lowercase();
+            let (f, k) = match (args.first(), args.get(1)) {
+                (Some(XVal::Str(k)), None) if name == "haskeyword" && g.anim_folders.evaluating_condition => {
+                    let Some(f) = subject else { return Some(Ok(zero)) };
+                    (f, k.to_ascii_lowercase())
+                }
+                _ => {
+                    let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
+                    (f, text(args, 1).to_ascii_lowercase())
+                }
+            };
             let targets: Vec<FormId> = if g.data.sig(f) == Some(*b"FLST") { crate::functions::list_members(g, f) } else { vec![base(g, f)] };
             match name {
                 "haskeyword" => return Some(Ok(yes(g.has_keyword(f, &k)))),
