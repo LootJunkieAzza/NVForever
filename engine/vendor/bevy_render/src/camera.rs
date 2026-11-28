@@ -617,7 +617,15 @@ pub fn extract_cameras(
                 })
                 .unwrap_or(TextureFormat::Rgba8UnormSrgb);
             let target_format = if hdr {
-                TextureFormat::Rgba16Float
+                // NVForever (#3973): test aid `NVF_PLAY_TEST_HDR_FORMAT=rg11b10` draws HDR views
+                // to a 32-bit unsigned float target instead of Rgba16Float (no alpha: the
+                // Pip-Boy screen's mark is lost; vendor/README.md).
+                static RG11B10: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                if *RG11B10.get_or_init(|| std::env::var("NVF_PLAY_TEST_HDR_FORMAT").is_ok_and(|v| v == "rg11b10")) {
+                    TextureFormat::Rg11b10Ufloat
+                } else {
+                    TextureFormat::Rgba16Float
+                }
             } else if compositing_space.is_some_and(|s| *s == CompositingSpace::Srgb) {
                 TextureFormat::Rgba8Unorm
             } else {
