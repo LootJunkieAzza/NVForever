@@ -378,6 +378,36 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
 - Greyed while a lobby is open or this game is a guest in one.
 - Registered in `engine/nvf-play/src/lobby.rs`
 
+### `coop-connection`: Co-op connection
+
+- On the page: Automatic: online codes, and through another player when needed. Direct only:
+  never through another player. LAN only: players on this network only.
+- In full: Automatic: online codes through the matchmaking service, the router asked for a
+  port, and a relay through another player when no direct path is found. Direct only: the
+  same, never through another player. LAN only: no matchmaking service, router port or relay.
+- More: docs/design/coop-networking.md
+- Registered in `engine/nvforever/src/coop/net_settings.rs`
+
+### `coop-router-port`: Open router port automatically
+
+- On the page: On: your router is asked to let co-op players in (UPnP, NAT-PMP or PCP), and
+  the port closes when you leave. Applies to the next lobby or join.
+- Greyed with LAN only.
+- Registered in `engine/nvforever/src/coop/net_settings.rs`
+
+### `coop-relay`: Relay for other players
+
+- On the page: On: a player in your lobby who cannot reach the host may play through your
+  game (at most 2, about 15 KB/s each). Their traffic stays encrypted.
+- Greyed with LAN only.
+- Registered in `engine/nvforever/src/coop/net_settings.rs`
+
+### `coop-ask`: Ask before players join
+
+- On the page: On: when you host, a player joining by online code waits until you let them in
+  from the Co-op Lobby. Players on your network join at once.
+- Registered in `engine/nvforever/src/coop/net_settings.rs`
+
 ## Display › Screen
 
 ### `monitor`: Monitor
@@ -1404,11 +1434,13 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
-### `water-effects`: Water caustics and river flow
+### `water-effects`: Enhanced water effects
 
 Sunlight shifts across shallow beds. Deeper water looks murkier from shore and
 underwater, using each water type's own colours and fog distances. Selected river
-stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
+stretches drift downstream, and patches of foam lap at the shore. Shots and
+near-surface explosions send out waves from their points of contact. The default
+graphics preset leaves the switch off. Enhanced turns it on.
 
 - Command-line switches: `--graphics`, `--graphics-only water-effects`
 - More: docs/design/graphics-enhanced.md

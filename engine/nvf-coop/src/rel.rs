@@ -34,8 +34,10 @@ pub const MAX_UNACKED: usize = 4096;
 pub struct Reliable {
     /// The number of the next item queued.
     next_seq: u32,
-    /// Items not yet acknowledged, oldest first: number, bytes, when last sent.
-    unacked: VecDeque<(u32, Vec<u8>, Option<Instant>)>,
+    /// Items not yet acknowledged, oldest first: number, bytes, when last sent, and whether
+    /// it went more than once (no round trip is measured on it: Karn's rule [documented:
+    /// RFC 6298 §3]).
+    unacked: VecDeque<(u32, Vec<u8>, Option<Instant>, bool)>,
     /// The next item number this side waits for.
     expected: u32,
     /// Something came since the last acknowledgement went.
@@ -43,6 +45,10 @@ pub struct Reliable {
     last_ack: Option<Instant>,
     /// Items sent again, for the perf line.
     pub resent: u64,
+    /// The round trip, smoothed (an item sent once, to its acknowledgement), once measured:
+    /// the lobby list's ping. It includes the other side's wait before it acknowledges
+    /// ([`ACK_EVERY`] at most).
+    pub rtt: Option<Duration>,
 }
 
 /// What one packet of the stream carries.
@@ -68,7 +74,7 @@ impl Reliable {
             return false;
         }
         item.truncate(ITEM_MAX);
-        self.unacked.push_back((self.next_seq, item, None));
+        self.unacked.push_back((self.next_seq, item, None, false));
         self.next_seq = self.next_seq.wrapping_add(1);
         true
     }
@@ -80,19 +86,44 @@ impl Reliable {
 
     /// The other side has every item before `ack`.
     pub fn acked(&mut self, ack: u32) {
+        self.acked_at(ack, None);
+    }
+
+    /// As [`Reliable::acked`], at `now`: the newest item acknowledged that went once gives
+    /// a round trip.
+    fn acked_at(&mut self, ack: u32, now: Option<Instant>) {
         // An acknowledgement of items never sent is from an older stream: ignored.
         let ahead = ack.wrapping_sub(self.unacked.front().map_or(self.next_seq, |u| u.0));
         if ahead > self.unacked.len() as u32 {
             return;
         }
+        let mut sample = None;
         while self.unacked.front().is_some_and(|u| u.0.wrapping_sub(ack) > u32::MAX / 2) {
-            self.unacked.pop_front();
+            if let Some((_, _, Some(sent), false)) = self.unacked.pop_front() {
+                sample = now.map(|n| n.saturating_duration_since(sent));
+            }
+        }
+        if let Some(s) = sample {
+            // Each new sample counts for an eighth [documented: RFC 6298 §2, alpha = 1/8].
+            self.rtt = Some(match self.rtt {
+                Some(r) => (r * 7 + s) / 8,
+                None => s,
+            });
         }
     }
 
     /// A frame came: its acknowledgement, and the items new to this side, in order.
     pub fn receive(&mut self, frame: Frame) -> Vec<Vec<u8>> {
-        self.acked(frame.ack);
+        self.take(frame, None)
+    }
+
+    /// As [`Reliable::receive`], at `now`, measuring the round trip ([`Reliable::rtt`]).
+    pub fn receive_at(&mut self, frame: Frame, now: Instant) -> Vec<Vec<u8>> {
+        self.take(frame, Some(now))
+    }
+
+    fn take(&mut self, frame: Frame, now: Option<Instant>) -> Vec<Vec<u8>> {
+        self.acked_at(frame.ack, now);
         if frame.items.is_empty() {
             return Vec::new();
         }
@@ -123,9 +154,10 @@ impl Reliable {
             let mut items = Vec::new();
             let mut bytes = 0;
             while i < self.unacked.len() && (items.is_empty() || bytes + self.unacked[i].1.len() + 2 <= PACKET_BUDGET) {
-                let (_, item, sent) = &mut self.unacked[i];
+                let (_, item, sent, again) = &mut self.unacked[i];
                 if sent.is_some() {
                     self.resent += 1;
+                    *again = true;
                 }
                 *sent = Some(now);
                 bytes += item.len() + 2;
@@ -148,6 +180,25 @@ impl Reliable {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The round trip: an item sent once and acknowledged 40 ms later measures 40 ms; one
+    /// sent again measures nothing.
+    #[test]
+    fn a_round_trip_is_measured_on_items_sent_once() {
+        let (mut a, mut b) = (Reliable::new(), Reliable::new());
+        let t = Instant::now();
+        assert!(a.push(vec![1]));
+        let f = a.frames(t, 8);
+        b.receive_at(f[0].clone(), t);
+        let ack = b.frames(t, 8);
+        a.receive_at(ack[0].clone(), t + Duration::from_millis(40));
+        assert_eq!(a.rtt, Some(Duration::from_millis(40)));
+        assert!(a.push(vec![2]));
+        a.frames(t, 8);
+        a.frames(t + RESEND, 8);
+        a.receive_at(Frame { ack: 2, first: 1, items: Vec::new() }, t + Duration::from_secs(1));
+        assert_eq!(a.rtt, Some(Duration::from_millis(40)), "resent: no sample");
+    }
 
     /// Run two streams against each other through `wire`, which may drop or reorder.
     fn exchange(a: &mut Reliable, b: &mut Reliable, now: Instant, mut wire: impl FnMut(usize, Frame) -> Option<Frame>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {

@@ -33,6 +33,22 @@ impl Lookup {
             Lookup::Color => 64,
         }
     }
+
+    /// The level it reads of a texture whose levels have these sides, the largest first: the first within
+    /// [`Lookup::side`], else the last.
+    fn level(self, sides: &[[usize; 2]]) -> Option<usize> {
+        sides.iter().position(|[w, h]| *w.max(h) <= self.side()).or(sides.len().checked_sub(1))
+    }
+}
+
+/// The levels that rays read of a texture whose levels have these sides (width and height, the largest first), in
+/// the same order: the colour's, and the alpha's where any material with the texture has a cutoff (`tested`). With
+/// the others left out of a [`Texture`] rays read the same.
+pub fn levels_read(sides: &[[usize; 2]], tested: bool) -> Vec<usize> {
+    let alpha = if tested { Lookup::Alpha.level(sides) } else { None };
+    let mut read: Vec<usize> = alpha.into_iter().chain(Lookup::Color.level(sides)).collect();
+    read.dedup();
+    read
 }
 
 pub struct Sampler {
@@ -59,11 +75,11 @@ impl Sampler {
     /// `None` of one without levels or with one that is not whole.
     pub fn new(t: Texture) -> Option<Sampler> {
         let whole = |l: &Level| l.width > 0 && l.height > 0 && l.width.checked_mul(l.height) == Some(l.texels.len());
-        if t.levels.is_empty() || !t.levels.iter().all(whole) {
+        if !t.levels.iter().all(whole) {
             return None;
         }
-        let level = |lookup: Lookup| t.levels.iter().position(|l| l.width.max(l.height) <= lookup.side()).unwrap_or(t.levels.len() - 1);
-        let (alpha, color) = (level(Lookup::Alpha), level(Lookup::Color));
+        let sides: Vec<[usize; 2]> = t.levels.iter().map(|l| [l.width, l.height]).collect();
+        let (alpha, color) = (Lookup::Alpha.level(&sides)?, Lookup::Color.level(&sides)?);
         let to_linear = Box::new(std::array::from_fn(|i| {
             let c = i as f32 / 255.0;
             if t.srgb {
@@ -161,5 +177,37 @@ pub mod tests {
         assert_eq!(read(&[512, 100]), (1, 1, 1));
         assert!(Sampler::new(chain(&[])).is_none() && Sampler::new(rgba(2, 2, &[[0; 4]; 3], false, Wrap::Clamp)).is_none());
         assert!(Sampler::new(rgba(0, 1, &[], false, Wrap::Clamp)).is_none());
+    }
+
+    /// A texture of the levels read alone gives every lookup that is made what the whole one gives, and none of
+    /// them is let go; whatever the sides and however short the chain.
+    #[test]
+    fn the_levels_read_are_enough() {
+        assert_eq!(levels_read(&[], true), [0; 0]);
+        let square = |sides: &[usize], tested| levels_read(&sides.iter().map(|s| [*s; 2]).collect::<Vec<_>>(), tested);
+        assert_eq!((square(&[1024, 512, 256, 128, 64, 32], true), square(&[1024, 512, 256, 128, 64, 32], false)), (vec![2, 4], vec![4]));
+        assert_eq!((square(&[512, 300], true), square(&[256, 128], true), square(&[256, 128], false)), (vec![1], vec![0, 1], vec![1]));
+        let mut chains = 0;
+        for (w, h) in [(1, 1), (3, 2), (64, 64), (65, 64), (64, 65), (100, 30), (130, 1), (256, 256), (257, 1), (1, 300), (512, 128), (600, 600), (1030, 4)] {
+            let sides: Vec<[usize; 2]> = (0..11).map(|m| [(w >> m).max(1), (h >> m).max(1)]).take_while(|s| *s != [1, 1]).chain([[1, 1]]).collect();
+            for mips in 1..=sides.len() {
+                let sides = &sides[..mips];
+                let of = |read: &[usize]| {
+                    let level = |l: usize| Level { width: sides[l][0], height: sides[l][1], texels: vec![[l as u8 * 20; 4]; sides[l][0] * sides[l][1]] };
+                    let levels = read.iter().map(|l| level(*l)).collect();
+                    Sampler::new(Texture { levels, srgb: false, wrap: [Wrap::Clamp; 2] }).unwrap()
+                };
+                let whole = of(&(0..mips).collect::<Vec<_>>());
+                for tested in [false, true] {
+                    let read = levels_read(sides, tested);
+                    let part = of(&read);
+                    let same = |lookup| part.sample([0.5; 2], lookup) == whole.sample([0.5; 2], lookup);
+                    assert!(same(Lookup::Color) && (!tested || same(Lookup::Alpha)), "{sides:?} {tested}: {read:?}");
+                    assert_eq!(part.levels.len(), read.len(), "{sides:?} {tested}");
+                }
+                chains += 1;
+            }
+        }
+        assert!(chains > 60);
     }
 }

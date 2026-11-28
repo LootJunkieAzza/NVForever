@@ -42,10 +42,13 @@ enum NewsState {
     Failed(String),
 }
 
-/// The Game folder page's NVForever.ini keys (#3483): the `[Launcher]` keys this launcher reads
-/// that are not rows of the game's menu. `[Game] Path` has its own box and Save on that page.
+/// The Game folder page's NVForever.ini keys (#3483): the keys this launcher reads that are not
+/// rows of the game's menu, the new game's start among them (#4313). `[Game] Path` has its own
+/// box and Save on that page.
 #[derive(Debug, Clone, Default, PartialEq)]
 struct IniForm {
+    /// `[General] sCharGenQuest` and `sIntroMovie` (src/start.rs).
+    start: crate::start::Fields,
     /// `[Launcher] Exe`; empty starts the program beside the launcher.
     exe: String,
     /// `[Launcher] News`.
@@ -59,6 +62,7 @@ impl IniForm {
     fn read(text: &str) -> IniForm {
         let flag = |key, default| ini_get(text, LAUNCHER, key).map_or(default, |v| v != "0");
         IniForm {
+            start: crate::start::Fields::read(text),
             exe: ini_get(text, LAUNCHER, "Exe").unwrap_or_default(),
             news: flag("News", true),
             close: flag("CloseOnPlay", false),
@@ -87,6 +91,9 @@ impl IniForm {
         let now = self.trimmed();
         let flag = |on: bool| if on { "1" } else { "0" };
         let mut t = text.to_string();
+        if now.start != was.start {
+            t = now.start.write(&t);
+        }
         if now.exe != was.exe {
             t = ini_set(&t, LAUNCHER, "Exe", &now.exe);
         }
@@ -173,10 +180,8 @@ pub struct App {
     edits: BTreeMap<String, String>,
     // Game folder.
     game_edit: String,
-    /// The Mods page's new-game start fields (src/start.rs), as typed.
-    start_edit: crate::start::Fields,
     /// The start card's Custom… window, open while `Some`: the quest and film as typed there,
-    /// put into `start_edit` by its OK (#4288).
+    /// put into the NVForever.ini card's start by its OK (#4288, #4313).
     start_custom: Option<crate::start::Fields>,
     // Mods.
     mods: Option<plugins::PluginList>,
@@ -453,7 +458,6 @@ impl App {
             stored: BTreeMap::new(),
             edits: BTreeMap::new(),
             game_edit: String::new(),
-            start_edit: crate::start::Fields::default(),
             start_custom: None,
             mods: None,
             mods_dirty: false,
@@ -647,7 +651,6 @@ impl App {
         self.ini_text = self.ini_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
         self.stored = ini_pairs(&self.ini_text, "Settings").into_iter().collect();
         self.edits.clear();
-        self.start_edit = crate::start::Fields::read(&self.ini_text);
         // The game writes its menu at each start (src/catalog.rs): the page follows it, on the
         // same tab.
         let menu = Catalog::load(self.ini_path().as_deref());
@@ -1711,15 +1714,18 @@ impl App {
         });
     }
 
-    /// The Game folder page's NVForever.ini card: the `[Launcher]` keys this launcher reads,
-    /// the game-written input device, the file's place, and the card's Save.
+    /// The Game folder page's NVForever.ini card: the new game's start (#4313), the `[Launcher]`
+    /// keys this launcher reads, the game-written input device, the file's place, and the
+    /// card's Save.
     fn ini_card(&mut self, ui: &mut egui::Ui) {
         if self.home.is_none() {
             ui.label("No home folder was found, so NVForever.ini cannot be written.");
             return;
         }
+        let ttw = self.ttw_active();
         card(ui, |ui| {
             ui.set_width(ui.available_width());
+            self.start_row(ui, ttw);
             ui.checkbox(&mut self.ini.news, "Fetch news").on_hover_text("[Launcher] News. Ask nv-forever.com (and GitHub) for the news when the launcher opens.");
             ui.checkbox(&mut self.ini.close, "Close the launcher when the game starts").on_hover_text("[Launcher] CloseOnPlay.");
             self.exe_row(ui);
@@ -1737,6 +1743,47 @@ impl App {
                 ui.label(RichText::new("Other lines in the file are left as they are.").small().color(WEAK));
             });
         });
+    }
+
+    /// The card's first row, the new game's start (src/start.rs, #2945, moved here from the
+    /// Mods page by #4313): the TTW on/off switch (on is TTW's start, off the base game's,
+    /// quest `00102037` and `FNVIntro.bik`), a "custom" tag for another mod's start, and
+    /// Custom…; #3229's warning under it while it applies. The card's Save writes it.
+    fn start_row(&mut self, ui: &mut egui::Ui, ttw: Option<bool>) {
+        use crate::start;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("New game start").strong()).on_hover_text("For mods that start somewhere else (their install guide gives the values). TTW off is the New Vegas opening and its film. Saved to NVForever.ini's [General].");
+            let mut ttw_on = self.ini.start.is_ttw();
+            let label = if ttw_on { "TTW on" } else { "TTW off" };
+            if ui.checkbox(&mut ttw_on, label).on_hover_text("On: quest 001FFFF8 and no intro film. Off: the base game, quest 00102037 and FNVIntro.bik. Save to keep it.").changed() {
+                self.ini.start = if ttw_on { start::Fields::ttw() } else { start::Fields::original() };
+            }
+            if self.ini.start.is_custom() {
+                ui.label(RichText::new("custom").small().color(GOLD)).on_hover_text("Another mod's start quest or intro film, set with Custom…");
+            }
+            if ui.small_button("Custom…").on_hover_text("Another mod's start quest or intro film (.bik)").clicked() {
+                self.start_custom = Some(self.ini.start.clone());
+            }
+        });
+        if let Some(why) = start::ttw_missing(&self.ini.start, ttw) {
+            ui.label(RichText::new(why).small().color(BAD));
+        }
+        self.start_custom_window(ui.ctx());
+    }
+
+    /// Whether TTW's master is on in the load order (`None`: not in it). The Mods page's list
+    /// when it has been read; else `plugins.txt` as it is on disk, read without the Mods page's
+    /// sync, so opening the Game folder page writes nothing (#4313).
+    fn ttw_active(&mut self) -> Option<bool> {
+        if self.mods.is_none() {
+            if let Some(home) = &self.home {
+                // Read once: no file is an empty list (TTW not in it), not a read every frame.
+                let text = std::fs::read_to_string(home.plugins_file()).unwrap_or_default();
+                self.mods = Some(plugins::PluginList::parse(&text));
+            }
+        }
+        let list = self.mods.as_ref()?;
+        list.entries.iter().find(|e| e.name.eq_ignore_ascii_case(crate::start::TTW_PLUGIN)).map(|e| e.active)
     }
 
     fn ini_form_dirty(&self) -> bool {
@@ -2404,7 +2451,6 @@ impl App {
         self.install_warn_row(ui);
         self.root_ask_row(ui);
         self.mod_note_row(ui);
-        self.start_box(ui);
         ui.separator();
         let apply_h = 40.0;
         let list_h = (ui.available_height() - apply_h - ui.spacing().item_spacing.y).max(48.0);
@@ -2442,60 +2488,6 @@ impl App {
                 self.apply_ask = true;
             }
         });
-    }
-
-    /// A new game's start (src/start.rs, #2945): the start quest and intro film typed in,
-    /// written to NVForever.ini's `[General]` by Save. A TTW on/off switch: on is TTW's start,
-    /// off is the base game's (quest `00102037`, `FNVIntro.bik`).
-    fn start_box(&mut self, ui: &mut egui::Ui) {
-        use crate::start;
-        let ttw = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(start::TTW_PLUGIN))).map(|e| e.active);
-        let saved = start::Fields::read(&self.ini_text);
-        let mut save = false;
-        ui.add_space(4.0);
-        card(ui, |ui| {
-            ui.set_width(ui.available_width());
-            // One line, so the load order below keeps the room (#4288).
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("New game start").strong()).on_hover_text("For mods that start somewhere else (their install guide gives the values). TTW off is the New Vegas opening and its film. Saved to NVForever.ini's [General].");
-                let mut ttw_on = self.start_edit.is_ttw();
-                let label = if ttw_on { "TTW on" } else { "TTW off" };
-                if ui.checkbox(&mut ttw_on, label).on_hover_text("On: quest 001FFFF8 and no intro film. Off: the base game, quest 00102037 and FNVIntro.bik. Save to keep it.").changed() {
-                    self.start_edit = if ttw_on { start::Fields::ttw() } else { start::Fields::original() };
-                }
-                if self.start_edit.is_custom() {
-                    ui.label(RichText::new("custom").small().color(GOLD)).on_hover_text("Another mod's start quest or intro film, set with Custom…");
-                }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.small_button("Custom…").on_hover_text("Another mod's start quest or intro film (.bik)").clicked() {
-                        self.start_custom = Some(self.start_edit.clone());
-                    }
-                    if self.start_edit != saved {
-                        if ui.small_button("Undo").clicked() {
-                            self.start_edit = saved.clone();
-                        }
-                        save = ui.add(gold_button("Save start", true)).clicked();
-                    }
-                });
-            });
-            if let Some(why) = start::ttw_missing(&self.start_edit, ttw) {
-                ui.label(RichText::new(why).small().color(BAD));
-            }
-        });
-        self.start_custom_window(ui.ctx());
-        if save {
-            let fields = self.start_edit.clone();
-            // Only the INI's text is read again: unsaved changes on the Settings page stay.
-            match self.write_ini(|t| fields.write(&t)) {
-                Ok(()) => {
-                    self.ini_text = self.ini_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
-                    self.start_edit = start::Fields::read(&self.ini_text);
-                    let what = if self.start_edit == start::Fields::original() { "New games start at the New Vegas opening." } else { "New game start saved." };
-                    self.message = Some((what.to_string(), false));
-                }
-                Err(e) => self.message = Some((e, true)),
-            }
-        }
     }
 
     fn mod_column(&mut self, ui: &mut egui::Ui) {
@@ -5316,9 +5308,9 @@ impl App {
     }
 
 
-    /// The start card's Custom… window (#4288): a mod's own start quest and intro film, for a
-    /// start that is neither TTW's nor the base game's. OK puts them on the card, whose Save
-    /// start writes them; Cancel, Escape or a click outside leaves the card as it was.
+    /// The start's Custom… window (#4288): a mod's own start quest and intro film, for a start
+    /// that is neither TTW's nor the base game's. OK puts them on the NVForever.ini card, whose
+    /// Save writes them (#4313); Cancel, Escape or a click outside leaves the card as it was.
     fn start_custom_window(&mut self, ctx: &egui::Context) {
         let Some(draft) = self.start_custom.as_mut() else { return };
         let mut done = None;
@@ -5352,7 +5344,7 @@ impl App {
             done = Some(false);
         }
         match done {
-            Some(true) => self.start_edit = self.start_custom.take().unwrap_or_default(),
+            Some(true) => self.ini.start = self.start_custom.take().unwrap_or_default(),
             Some(false) => self.start_custom = None,
             None => {}
         }
@@ -5968,7 +5960,7 @@ mod tests {
     fn the_ini_card_writes_only_what_changed() {
         let text = "; mine\n[Game]\nPath=F:\\FNV\n\n[Launcher]\nExe=D:\\gone\\nvforever.exe\n\n[Settings]\nhud-colour=Amber\n";
         let was = IniForm::read(text);
-        assert_eq!(was, IniForm { exe: "D:\\gone\\nvforever.exe".into(), news: true, close: false });
+        assert_eq!(was, IniForm { start: crate::start::Fields::original(), exe: "D:\\gone\\nvforever.exe".into(), news: true, close: false });
         let no = |_: &str| false;
         let yes = |_: &str| true;
         // Nothing changed: nothing checked, the text as it was.
@@ -5993,6 +5985,33 @@ mod tests {
         let bare = "[Game]\nPath=F:\\FNV\n";
         let was = IniForm::read(bare);
         assert_eq!(IniForm { news: false, ..was.clone() }.apply(&was, bare), "[Game]\nPath=F:\\FNV\n\n[Launcher]\nNews=0\n");
+    }
+
+    /// #4313: the card's Save writes the new game's start only when it changed, as its other
+    /// keys, and keeps every other line; switching TTW on and back off before Save writes nothing.
+    #[test]
+    fn the_ini_card_writes_the_start_only_when_it_changed() {
+        use crate::start::Fields;
+        let text = "[General]\nsCharGenQuest=001FFFF8\nsIntroMovie=\n\n[Launcher]\nNews=0\n\n[Settings]\nhud-colour=Amber\n";
+        let was = IniForm::read(text);
+        assert!(was.start.is_ttw());
+        // TTW off: the base game's two lines, nothing else changed.
+        let off = IniForm { start: Fields::original(), ..was.clone() };
+        assert!(off.check(&was, |_| false).is_ok());
+        assert_eq!(off.apply(&was, text), "[General]\nsCharGenQuest=00102037\nsIntroMovie=FNVIntro.bik\n\n[Launcher]\nNews=0\n\n[Settings]\nhud-colour=Amber\n");
+        assert_eq!(IniForm::read(&off.apply(&was, text)), off);
+        // Another mod's start, from the Custom… window.
+        let custom = IniForm { start: Fields { quest: "MyStart".into(), film: "Mine.bik".into(), no_film: false }, ..was.clone() };
+        let out = custom.apply(&was, text);
+        assert_eq!(ini_get(&out, "General", "sCharGenQuest").as_deref(), Some("MyStart"));
+        assert_eq!(ini_get(&out, "General", "sIntroMovie").as_deref(), Some("Mine.bik"));
+        // News alone leaves the start's lines as they are.
+        let news = IniForm { news: true, ..was.clone() };
+        assert_eq!(news.apply(&was, text), "[General]\nsCharGenQuest=001FFFF8\nsIntroMovie=\n\n[Launcher]\nNews=1\n\n[Settings]\nhud-colour=Amber\n");
+        // On and back off before Save: the form is as read, nothing to write.
+        let back = IniForm { start: Fields::ttw(), ..was.clone() };
+        assert_eq!(back, was);
+        assert_eq!(back.apply(&was, text), text);
     }
 
     #[test]

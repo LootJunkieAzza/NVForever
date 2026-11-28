@@ -306,17 +306,21 @@ impl Vfs {
     fn order_from_owned(owned: &[(String, String)], base: &[String], archive_list: &[&str], plugins: &[&str]) -> Vec<String> {
         let find = |name: &str| base.iter().find(|n| n.eq_ignore_ascii_case(name)).cloned();
         let mut order: Vec<String> = Vec::new();
-        let push = |n: Option<String>, order: &mut Vec<String>| {
-            if let Some(n) = n {
-                if !order.iter().any(|o| o.eq_ignore_ascii_case(&n)) {
-                    order.push(n);
-                }
+        let mut seen: Vec<String> = Vec::new();
+        let mut push = |display: String, open_as: String| {
+            if !seen.iter().any(|o| o.eq_ignore_ascii_case(&display)) {
+                seen.push(display);
+                order.push(open_as);
             }
         };
         for a in archive_list {
-            push(find(a), &mut order);
+            if let Some(n) = find(a) {
+                push(n.clone(), n);
+            }
         }
-        push(find("Update.bsa"), &mut order);
+        if let Some(n) = find("Update.bsa") {
+            push(n.clone(), n);
+        }
         let stems = plugin_stems(plugins);
         for stem in &stems {
             let mut own: Vec<(u64, &(String, String))> = owned
@@ -327,8 +331,8 @@ impl Vfs {
             // Unnumbered archives by name, then the numbered pieces in number order.
             own.sort_by_key(|(k, (n, _))| (*k, n.to_ascii_lowercase()));
             let own = own.into_iter().map(|(_, e)| e);
-            for (_, open_as) in own {
-                push(Some(open_as.clone()), &mut order);
+            for (display, open_as) in own {
+                push(display.clone(), open_as.clone());
             }
         }
         order
@@ -675,6 +679,51 @@ impl Vfs {
         }
     }
 
+    /// [`Self::read`] of a file of at most `stored` bytes where it lies and `contents` bytes
+    /// decoded. For an archived file the stored size is looked at before its buffer is made and
+    /// the size its contents declare before they are inflated (what inflates to more is an error
+    /// already). A loose file, which is both, is refused by the opened file's length before anything
+    /// is read, and when it gives more than that. A larger file is an error of kind
+    /// `FileTooLarge` that names the path and the size. In [`read_stats`] an archived file
+    /// counts once its stored bytes are read, a loose one when it is read whole.
+    pub fn read_at_most(&self, path: &str, stored: usize, contents: usize) -> Option<std::io::Result<Vec<u8>>> {
+        let key = normalize(path);
+        Some(match *self.index.get(&key)? {
+            Location::Loose => self.read_loose_at_most(&key, stored.min(contents)),
+            Location::Archive { archive, folder, file } => self.read_archived_at_most(&key, (archive, folder, file), stored, contents),
+        })
+    }
+
+    fn read_loose_at_most(&self, key: &str, most: usize) -> std::io::Result<Vec<u8>> {
+        let t = std::time::Instant::now();
+        let file = std::fs::File::open(&self.loose[key]).and_then(|f| Ok((f.metadata()?.len(), f)));
+        let bytes = file.and_then(|(len, f)| take_at_most(f, len, most)).map_err(|e| std::io::Error::new(e.kind(), format!("{key}: {e}")))?;
+        count_read(bytes.len(), std::time::Duration::ZERO, t.elapsed());
+        Ok(bytes)
+    }
+
+    fn read_archived_at_most(&self, key: &str, (archive, folder, file): (usize, usize, usize), stored: usize, contents: usize) -> std::io::Result<Vec<u8>> {
+        let broken = |e| std::io::Error::other(format!("{key}: {e}"));
+        // The lock as in `read_at`: for the seek and the read of the stored bytes alone.
+        let block = {
+            let asked = std::time::Instant::now();
+            let mut a = self.archives[archive].1.lock().unwrap_or_else(|p| p.into_inner());
+            let got = std::time::Instant::now();
+            let r = a.folders[folder].files[file].clone();
+            let size = r.stored_size() as usize;
+            if size > stored {
+                return Err(too_large(key, format_args!("{size} bytes stored, more than the {stored} allowed")));
+            }
+            let block = a.read_stored(&r);
+            count_read(size, got - asked, got.elapsed());
+            block.map_err(broken)?
+        };
+        if let Some(size) = block.contents_len().filter(|n| *n > contents) {
+            return Err(too_large(key, format_args!("{size} bytes decoded, more than the {contents} allowed")));
+        }
+        block.decode().map_err(broken)
+    }
+
     /// The loose files under a folder (lower case, `\` between parts, no leading `\`), as
     /// their whole normalized paths, sorted: every layer's (`Data` and the mods folders), from
     /// the index, so a folder made of several mods' files lists them all without walking the
@@ -700,6 +749,26 @@ impl Vfs {
         v.sort();
         v
     }
+}
+
+/// All of `from`, an opened file of `len` bytes, when that is at most `most`: nothing is read
+/// otherwise, and room is made for `len` and no more. One byte is asked for past them, so one
+/// that grew since is an error and is not read on.
+fn take_at_most(mut from: impl std::io::Read, len: u64, most: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::{Error, ErrorKind, Read as _};
+    let over = |size: u64| Error::new(ErrorKind::FileTooLarge, format!("{size} bytes, more than the {most} allowed"));
+    let room = usize::try_from(len).ok().filter(|n| *n <= most).ok_or_else(|| over(len))?;
+    let mut bytes = Vec::with_capacity(room);
+    from.by_ref().take(len).read_to_end(&mut bytes)?;
+    match from.take(1).read_to_end(&mut Vec::new())? {
+        0 => Ok(bytes),
+        _ if room == most => Err(over(len + 1)),
+        _ => Err(Error::other(format!("it grew past its {len} bytes while it was read"))),
+    }
+}
+
+fn too_large(key: &str, how: std::fmt::Arguments) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::FileTooLarge, format!("{key}: {how}"))
 }
 
 /// The `*.bsa` files directly in `dir` (a mod's archive lies at its root, not nested).
@@ -849,16 +918,20 @@ fn plugin_stems(plugins: &[&str]) -> Vec<String> {
     plugins.iter().map(|p| p.rsplit_once('.').map_or(*p, |(s, _)| s).to_ascii_lowercase()).collect()
 }
 
-/// A plugin owns `<stem>.bsa`, `<stem> - *.bsa` and the numbered pieces a packer splits a
-/// big archive into, `<stem>N.bsa` / `<stem>N - *.bsa` (#2521; docs/design/mod-folders.md).
-/// The piece's number (0 for an unnumbered archive) when `name` is `stem`'s. `stem` is
-/// lowercase, as [`plugin_stems`] gives it.
+/// A plugin owns `<stem>.bsa`, space-suffixed archives `<stem> *.bsa` (including
+/// `<stem> - *.bsa` and modlist suites such as `NS A Content T 00.bsa`, #3756), and the
+/// numbered pieces a packer splits a big archive into, `<stem>N.bsa` / `<stem>N *.bsa`
+/// (#2521; docs/design/mod-folders.md). The piece's number (0 for an unnumbered archive)
+/// when `name` is `stem`'s. `stem` is lowercase, as [`plugin_stems`] gives it.
 fn plugin_archive_piece(stem: &str, name: &str) -> Option<u64> {
+    if stem.is_empty() {
+        return None;
+    }
     let l = name.to_ascii_lowercase();
     let rest = l.strip_prefix(stem)?;
     let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
     let (num, tail) = rest.split_at(digits);
-    (tail == ".bsa" || tail.starts_with(" - ")).then(|| num.parse().unwrap_or(0))
+    (tail == ".bsa" || (tail.starts_with(' ') && tail.ends_with(".bsa"))).then(|| num.parse().unwrap_or(0))
 }
 
 /// The plugin that owns archive `name`: of the stems that claim it, the longest, so
@@ -1197,6 +1270,65 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Space-suffixed plugin archives such as `NS A Content T 00.bsa` follow their plugin
+    /// (#3756), while unrelated files sharing a short prefix without a space boundary stay
+    /// out, a longer plugin stem wins ownership, and explicit archive-list entries are not
+    /// duplicated in either flat or layered discovery.
+    #[test]
+    fn space_suffixed_archives_follow_their_plugin() {
+        let base = std::env::temp_dir().join(format!("nvf-vfs-space-suffix-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (data, mod_dir) = (base.join("Data"), base.join("mods").join("NS"));
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        let names = [
+            "NS.bsa",
+            "NS - Textures.bsa",
+            "NS A Content T 00.bsa",
+            "NS A Content T 01.bsa",
+            "NS A Content.bsa",
+            "NSExtra.bsa",
+            "NS_Other.bsa",
+            "NS-Other.bsa",
+            "NS.esp.bsa",
+            "Middle.bsa",
+        ];
+        for n in names {
+            std::fs::write(data.join(n), b"").unwrap();
+        }
+        let order = Vfs::archive_order(&data, &[], &["NS.esp", "Middle.esp"]);
+        assert_eq!(
+            order,
+            ["NS - Textures.bsa", "NS A Content T 00.bsa", "NS A Content T 01.bsa", "NS A Content.bsa", "NS.bsa", "Middle.bsa"]
+        );
+        // Longer plugin stem takes its own archives and space-suffixed children.
+        let order = Vfs::archive_order(&data, &[], &["NS.esp", "Middle.esp", "NS A Content.esp"]);
+        assert_eq!(
+            order,
+            ["NS - Textures.bsa", "NS.bsa", "Middle.bsa", "NS A Content T 00.bsa", "NS A Content T 01.bsa", "NS A Content.bsa"]
+        );
+        // Explicit archive-list entry keeps its list position and is not mounted twice.
+        let order = Vfs::archive_order(&data, &["NS A Content T 00.bsa"], &["NS.esp", "Middle.esp"]);
+        assert_eq!(
+            order,
+            ["NS A Content T 00.bsa", "NS - Textures.bsa", "NS A Content T 01.bsa", "NS A Content.bsa", "NS.bsa", "Middle.bsa"]
+        );
+        // Same non-duplication holds in layered MO2 discovery when the archive lives in a mod root.
+        for n in ["NS A Content T 00.bsa", "NS A Content T 01.bsa", "NSExtra.bsa"] {
+            std::fs::write(mod_dir.join(n), b"").unwrap();
+        }
+        let layered_empty_data = base.join("DataEmpty");
+        std::fs::create_dir_all(&layered_empty_data).unwrap();
+        let layered = Vfs::archive_files_layered(&layered_empty_data, std::slice::from_ref(&mod_dir), &["NS A Content T 00.bsa"], &["NS.esp"]);
+        let layered_names: Vec<&str> = layered.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(layered_names, ["NS A Content T 00.bsa", "NS A Content T 01.bsa"]);
+        assert_eq!(layered[0].1, mod_dir.join("NS A Content T 00.bsa"));
+        // Without NS.esp loaded, none of the NS* archives are auto-mounted.
+        let order = Vfs::archive_order(&data, &[], &["Middle.esp"]);
+        assert_eq!(order, ["Middle.bsa"]);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
     fn link_dir(target: &Path, link: &Path) -> bool {
         #[cfg(unix)]
         return std::os::unix::fs::symlink(target, link).is_ok();
@@ -1267,5 +1399,7 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod at_most_tests;
 #[cfg(test)]
 mod own_loose_tests;

@@ -1183,6 +1183,53 @@ pub(crate) fn blend_is_opaque(props: &Props, cut: Option<f32>, alpha_mode: Alpha
     matches!(alpha_mode, AlphaMode::Blend) && source_over && nothing_thins_it && opaque_texture()
 }
 
+/// One shape of a survey of [`blend_is_opaque`] over whole archives
+/// ([`blend_opaque_survey`]; the example `blend_opaque_survey`, #3230).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlendSurveyShape {
+    /// The shape's name in its file (`"?"` when it has none).
+    pub shape: String,
+    /// Its base texture path as the file stores it.
+    pub texture: String,
+    /// The rule draws it opaque.
+    pub drawn_opaque: bool,
+    /// It tests alpha as well (NiAlphaProperty bit 9).
+    pub tested: bool,
+    /// Everything holds but the window environment map, which keeps the blend.
+    pub only_window_env: bool,
+}
+
+/// The shapes of one model that are drawn blended by their NiAlphaProperty, with whether
+/// [`blend_is_opaque`] draws each opaque, `opaque` telling whether a texture path is opaque
+/// in every texel. The rule's own test, not a copy: a survey that counts what the engine
+/// does (#3230 asked for every world model).
+pub fn blend_opaque_survey(bytes: &[u8], schema: &fnv_nif::Schema, opaque: impl Fn(&str) -> bool) -> Vec<BlendSurveyShape> {
+    let Ok(file) = NifFile::parse(bytes, Some(schema)) else { return Vec::new() };
+    let dec = Decoded::new(&file, bytes, schema);
+    let objects = fnv_nif::scene::scene_objects(&file, &dec);
+    let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+    let mut out = Vec::new();
+    for o in objects.iter().filter(|o| !o.is_node) {
+        let props = shape_props(&file, &dec, o, &by_block);
+        let Some((flags, _)) = props.alpha else { continue };
+        let mode = shape_alpha_mode(&props);
+        if !matches!(mode, AlphaMode::Blend) {
+            continue;
+        }
+        let texture = props.textures.first().cloned().unwrap_or_default();
+        let tex_opaque = || !texture.is_empty() && opaque(&texture);
+        // A vertex-alpha cut needs the mesh; the rule refuses vertex alpha before it.
+        let drawn_opaque = blend_is_opaque(&props, None, mode, tex_opaque);
+        let only_window_env = !drawn_opaque && props.env.is_some_and(|e| e.window) && {
+            let mut p = props.clone();
+            p.env = None;
+            blend_is_opaque(&p, None, mode, tex_opaque)
+        };
+        out.push(BlendSurveyShape { shape: o.name.clone().unwrap_or_else(|| "?".into()), texture, drawn_opaque, tested: flags & 0x200 != 0, only_window_env });
+    }
+    out
+}
+
 /// The alpha from which a blended shape's texels belong to its solid core ([`solid_core`])
 /// [engineering choice: at 0.85 and above the blend shows at most 15% of what lies behind, so
 /// the texel is a surface to everything that reads depth. At 0.98, the first choice, the
@@ -2891,51 +2938,7 @@ mod tests {
 
     // A synthetic NIF (20.2.0.7, user version 11, BS version 34) in the layout of
     // `crates/fnv-nif/tests/synthetic.rs` and `schemas/nif`; no game data.
-    fn words(out: &mut Vec<u8>, values: &[u32]) {
-        out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
-    }
-
-    fn floats(out: &mut Vec<u8>, values: &[f32]) {
-        out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
-    }
-
-    fn nif(blocks: &[(&str, Vec<u8>)], strings: &[&str]) -> Vec<u8> {
-        fn string(out: &mut Vec<u8>, s: &str) {
-            words(out, &[s.len() as u32]);
-            out.extend(s.as_bytes());
-        }
-        let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
-        words(&mut out, &[0x1402_0007]);
-        out.push(1);
-        words(&mut out, &[11, blocks.len() as u32, 34]);
-        out.extend([1, 0, 1, 0, 1, 0]); // three empty export strings
-        let mut types = vec![];
-        for (kind, _) in blocks {
-            if !types.contains(kind) {
-                types.push(*kind);
-            }
-        }
-        out.extend((types.len() as u16).to_le_bytes());
-        for kind in &types {
-            string(&mut out, kind);
-        }
-        for (kind, _) in blocks {
-            out.extend((types.iter().position(|t| t == kind).unwrap() as u16).to_le_bytes());
-        }
-        for (_, block) in blocks {
-            words(&mut out, &[block.len() as u32]);
-        }
-        words(&mut out, &[strings.len() as u32, strings.iter().map(|s| s.len()).max().unwrap_or(0) as u32]);
-        for s in strings {
-            string(&mut out, s);
-        }
-        words(&mut out, &[0]); // groups
-        for (_, block) in blocks {
-            out.extend(block);
-        }
-        words(&mut out, &[1, 0]); // footer: one root, block 0
-        out
-    }
+    use super::made_nif::{floats, nif, words};
 
     /// NiAVObject fields: name (string index), no extra data or controller, flags 14,
     /// identity transform, these properties, no collision.
@@ -3508,6 +3511,10 @@ mod tests {
         assert!(gloss_roughness(10.0) > gloss_roughness(67.0) && gloss_roughness(-5.0) == 1.0);
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/made_nif/mod.rs"]
+mod made_nif;
 
 #[cfg(test)]
 #[path = "nif_numeric_admission_tests.rs"]

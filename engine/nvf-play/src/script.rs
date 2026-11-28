@@ -573,6 +573,8 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
                 }
                 // The game INI text the extender's INI functions read (`--mo2`'s profile).
                 data.ini_texts = ini_texts();
+                // The co-op perks (fnv_game::coop_perks): NVForever's own records.
+                fnv_game::coop_perks::add(&mut data);
                 data
             }));
             info!("script build: the whole thread: {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
@@ -1119,6 +1121,10 @@ impl Runtime {
         };
         // An actor whose default action ran (no OnActivate block, or its block called
         // `Activate`) is talked to, if it has a greeting.
+        // The target's own OnActivate passing the activation on (`Activate`) is still the
+        // player's hand: held by the co-op story gate like any talk.
+        let talker = self.game.talker(target).0;
+        self.game.script_talks.retain(|t| *t != target && *t != talker);
         let r = match r {
             Ok(done) => Ok(self.talk_after(from).unwrap_or(done)),
             r => r,
@@ -1211,7 +1217,11 @@ impl Runtime {
                 done = Some(ByHand::Woken);
                 continue;
             }
-            match g.start_dialogue(actor, None) {
+            // A script's `Activate Player` on it: the script's scene, not held by the
+            // co-op story gate (`Game::script_talks`).
+            let scripted = g.script_talks.iter().position(|t| *t == actor).map(|k| g.script_talks.remove(k)).is_some();
+            let started = if scripted { g.start_script_dialogue(actor, None) } else { g.start_dialogue(actor, None) };
+            match started {
                 Ok(info) => {
                     // The activation's own effect (the "nothing to say" line) is void.
                     self.skip.insert(i);
@@ -1229,10 +1239,17 @@ impl Runtime {
                     if g.is_out_cold(actor) {
                         self.skip.insert(i);
                     }
+                    // A co-op host's story NPC waiting for the other players
+                    // (`Game::story_gate`): the host's corner says so instead (`coop_progress::story_wait_notice`).
+                    if g.coop_story_wait.as_ref().is_some_and(|w| w.actor == g.talker(actor).0) {
+                        self.skip.insert(i);
+                    }
                     info!("dialogue: no conversation: {e}");
                 }
             }
         }
+        // None carried to a later activation by hand.
+        self.game.script_talks.clear();
         done
     }
 
@@ -2817,6 +2834,9 @@ pub(crate) fn run_scripts(
         }
     }
     let feet = phys.player.as_ref().map(|c| c.feet);
+    // A co-op guest's quests are the host's: the guest's game shows those messages
+    // (nvforever `coop`), not its own.
+    let guest = rt.game.coop_guest;
     for e in effects {
         // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
         let door = matches!(e, ScriptEffect::DoorTravel(_));
@@ -2873,6 +2893,9 @@ pub(crate) fn run_scripts(
                 }
                 info!("on screen: {}", note.text.trim().replace('\n', " / "));
                 corner.push(note);
+            }
+            ScriptEffect::Quest(n) if guest && !matches!(n, crate::script_events::QuestNotice::Discovered(_)) => {
+                debug!("quest message (this game's own, not shown to a co-op guest): {}", crate::quest_messages::describe(&n));
             }
             // ShowOff's ToggleQuestMessages 0: no quest line is shown (`UiRequests::quest_messages_off`).
             ScriptEffect::Quest(n) if rt.game.ui.quest_messages_off => info!("quest message dropped (ToggleQuestMessages 0): {}", crate::quest_messages::describe(&n)),

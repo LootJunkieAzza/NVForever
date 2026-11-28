@@ -168,7 +168,8 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Combat"), &["localized-dt-dr"]),
     section("Gameplay", Some("Menus"), &["quantity-select-short-keys"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
-    section("Gameplay", Some("Co-op"), &["coop"]),
+    // Co-op, and its networking (docs/design/coop-networking.md §10).
+    section("Gameplay", Some("Co-op"), &["coop", "coop-connection", "coop-router-port", "coop-relay", "coop-ask"]),
     section("Display", Some("Screen"), &["monitor", "resolution", "hdr-output", "borderless"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
     section("Display", Some("Upscaling and Anti-Aliasing"), &["upscaler", "upscaler-quality", "dlss-model", "fsr-library", "anti-aliasing", "sharpen"]),
@@ -1136,6 +1137,8 @@ pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[
     ("dialogue-background-tint-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
     ("dialogue-frame-opacity-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
     ("dialogue-hints-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
+    ("coop-router-port", "coop-connection", &["Automatic", "Direct only"], "Not with LAN only."),
+    ("coop-relay", "coop-connection", &["Automatic", "Direct only"], "Not with LAN only."),
 ];
 
 /// What a row needs of another row to apply: `parent` on (a switch on, a list past its first

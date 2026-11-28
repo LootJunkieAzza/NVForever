@@ -249,7 +249,11 @@ impl RigMaterials {
             }
             // [design, #2557] Keep animating the bound private plain source. Another
             // owner's replacement (e.g. a fade) keeps ownership until it restores us.
-            let publish = source == &slot.handle;
+            // Only re-insert `MeshMaterial3d` when an override (e.g. stealth cloak)
+            // currently shadows `slot.handle`; re-inserting the already-bound handle on
+            // uncloaked meshes dirties `MeshMaterial3d` and triggers unnecessary render
+            // specialization every frame [design].
+            let publish = current.0 != slot.handle && source == &slot.handle;
             let Some(mut m) = drawing.materials.get_mut(&slot.handle) else { continue };
             let unlit = m.base.unlit && !matches!(m.base.alpha_mode, AlphaMode::Multiply);
             if unlit && slot.unlit_base.is_none() {
@@ -399,6 +403,10 @@ pub fn animator_material_values<'a>(animator: &'a Animator, out: &mut Vec<(&'a s
         }
     }
 }
+
+#[cfg(test)]
+#[path = "material_anim_publish_tests.rs"]
+mod material_anim_publish_tests;
 
 #[cfg(test)]
 mod tests {
