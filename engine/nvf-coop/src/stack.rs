@@ -648,6 +648,16 @@ impl Stack {
         }
     }
 
+    /// A host's lobby after a load's restart takes its online `code` back from the service,
+    /// proving it with the lobby's `secret` (the service keeps a lobby a while after its
+    /// host goes quiet, `nvf_coop::online`): the guests' code stays good.
+    pub fn go_online_again(&mut self, service: &str, code: &str, secret: &str) {
+        let s = self.0.get_mut();
+        if s.host {
+            s.online = Some(Online::host_again(service, code, secret, s.local_candidates()));
+        }
+    }
+
     /// The admission that goes with this stack (the host's by key).
     pub fn admission(&self) -> KeyAdmission {
         KeyAdmission { shared: self.0.borrow().shared.clone() }

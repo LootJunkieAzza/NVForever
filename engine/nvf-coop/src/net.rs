@@ -1174,6 +1174,17 @@ impl Session {
 
     /// Bytes sent to and heard from each player (the host: 0) so far, with the items
     /// waiting on its reliable stream and those sent again.
+    /// The host's guests as the lobby list shows them (docs/design/coop-networking.md §10):
+    /// each one's id, the address the host knows it at (the transport's: a relayed guest's
+    /// stand-in, `crate::stack::Path::of`) and the reliable stream's round trip, once
+    /// measured. Empty on a guest.
+    pub fn paths(&self) -> Vec<(u8, Option<SocketAddr>, Option<std::time::Duration>)> {
+        match &self.role {
+            Role::Host => self.peers.iter().map(|p| (p.id, p.addr, p.rel.rtt)).collect(),
+            Role::Guest { .. } => Vec::new(),
+        }
+    }
+
     pub fn traffic(&self) -> Vec<Traffic> {
         let sent = self.sent.borrow();
         let of = |a: Option<SocketAddr>| a.map_or((0, 0), |a| (sent.get(&a).copied().unwrap_or(0), self.heard.get(&a).copied().unwrap_or(0)));
@@ -1566,7 +1577,7 @@ impl Session {
                 }
                 p.last_heard = now;
                 let id = p.id;
-                for item in p.rel.receive(frame) {
+                for item in p.rel.receive_at(frame, now) {
                     // Each item passes the host's rules for its kind before the game has it.
                     if self.guard.admit_item(id, &item, now) == Verdict::Accept {
                         self.push_event(Event::Reliable { id, item });
@@ -1820,7 +1831,7 @@ impl Session {
                         self.push_event(Event::RelReset { id: 0 });
                     }
                 }
-                for item in self.rel.receive(frame) {
+                for item in self.rel.receive_at(frame, now) {
                     self.push_event(Event::Reliable { id: 0, item });
                 }
             }
@@ -2072,6 +2083,11 @@ impl Link {
 
     pub fn traffic(&self) -> Vec<Traffic> {
         self.with(|s| s.traffic())
+    }
+
+    /// [`Session::paths`].
+    pub fn paths(&self) -> Vec<(u8, Option<SocketAddr>, Option<std::time::Duration>)> {
+        self.with(|s| s.paths())
     }
 
     pub fn events(&self) -> Vec<Event> {

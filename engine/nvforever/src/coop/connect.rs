@@ -6,9 +6,17 @@
 //! **Off by default.** Nothing here runs until a lobby is created or joined (the Co-op
 //! switch, or `--host` / `--join`), so single player opens no socket [design].
 //!
+//! **A load keeps the lobby.** A load starts the game again (`crate::handoff`): a host's run
+//! hands its port to the new run ([`hand_over`]), which hosts on it again with the same
+//! key, the same code (an online code taken back from the service with the lobby's
+//! secret, `host_again`) and the same choices, so the guests' sessions start again by
+//! themselves (`nvf_coop::noise`, a host started again) [design].
+//!
 //! Log: `co-op: hosting on UDP port <p> (encrypted; this game's key <fp>)`, `co-op: lobby
 //! code <code> ...`, `co-op: joining ...`, `co-op: online: <note>`, `co-op: <name> asks to
-//! join ...`, and the online checks' own `co-op connect: ...` line (`nvf_coop::online`).
+//! join ...`, `co-op: a load restarts the game: the lobby goes with it (port <p>)`, `co-op:
+//! the online lobby <code> again, through <service>`, and the online checks' own `co-op
+//! connect: ...` line (`nvf_coop::online`).
 
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::{self, Receiver};
@@ -20,6 +28,7 @@ use nvf_coop::code::Lobby;
 use nvf_coop::net::{Link, Session};
 use nvf_coop::noise::Identity;
 use nvf_coop::online::{HostInfo, OnlineEvent};
+use nvf_play::lobby::HostOptions;
 use nvf_coop::reach::{self, Reach};
 use nvf_coop::sockets::{Scope, Sockets};
 use nvf_coop::stack::{self, Control, Stack};
@@ -53,13 +62,146 @@ pub(super) fn identity() -> Identity {
     id
 }
 
-/// A host's link on `port`, every network, and its control.
-pub(super) fn host_link(port: u16, name: &str) -> Result<(Link, Control), String> {
-    let socks = Sockets::host(port, Scope::All).map_err(|e| trf("Cannot open UDP port {port} on this PC ({e}): is another game using it?", &[("port", &port), ("e", &e)]).to_string())?;
+/// A host's lobby across the restarts loads cause: its port, its code, the online lobby's
+/// secret (never written to a file), whether the router opened the port, and the host's
+/// choices (`1` lists it; its title and password).
+pub const HOST_ENV: &str = "NVF_COOP_HOST";
+pub const CODE_ENV: &str = "NVF_COOP_CODE";
+pub const SECRET_ENV: &str = "NVF_COOP_SECRET";
+pub const OPENED_ENV: &str = "NVF_COOP_OPENED";
+pub const PUBLIC_ENV: &str = "NVF_COOP_PUBLIC";
+pub const TITLE_ENV: &str = "NVF_COOP_TITLE";
+pub const PASSWORD_ENV: &str = "NVF_COOP_PASSWORD";
+
+/// The load order's hash, given to the matchmaking service by a host and compared by a guest
+/// before it connects (`nvf_coop::online`), and how many plugins it has (the browser's
+/// listing shows the count).
+static LOAD_ORDER: std::sync::OnceLock<(String, u32)> = std::sync::OnceLock::new();
+
+/// Note the load order (main.rs, once the plugins are opened).
+pub fn set_load_order(plugins: &[String]) {
+    let _ = LOAD_ORDER.set((load_order_hash(plugins), plugins.len() as u32));
+}
+
+/// FNV-1a (64-bit) of the plugins' names, lower case, one per line, in order, in hex: the same
+/// load order gives the same hash on every PC [design].
+fn load_order_hash(plugins: &[String]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in plugins.iter().flat_map(|p| p.to_ascii_lowercase().into_bytes().into_iter().chain(std::iter::once(b'\n'))) {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// This game's load order hash (empty before the plugins are opened).
+pub(super) fn load_order() -> String {
+    LOAD_ORDER.get().map(|(h, _)| h.clone()).unwrap_or_default()
+}
+
+/// How many plugins this game's load order has.
+pub(super) fn plugin_count() -> u32 {
+    LOAD_ORDER.get().map_or(0, |(_, n)| *n)
+}
+
+/// A host's choices from the environment: a lobby a load restarted, or a scripted run.
+pub(super) fn options_from_env() -> HostOptions {
+    options_from(|k| std::env::var(k).ok())
+}
+
+fn options_from(env: impl Fn(&str) -> Option<String>) -> HostOptions {
+    HostOptions { public: env(PUBLIC_ENV).is_some_and(|v| v.trim() == "1"), title: env(TITLE_ENV).unwrap_or_default(), password: env(PASSWORD_ENV).unwrap_or_default() }
+}
+
+/// The lobby a run before handed over, if it did: its port, and its online code with the
+/// secret that takes it back.
+pub(super) fn handed_over() -> Option<(u16, Option<(String, String)>)> {
+    handed_over_from(|k| std::env::var(k).ok())
+}
+
+fn handed_over_from(env: impl Fn(&str) -> Option<String>) -> Option<(u16, Option<(String, String)>)> {
+    let port = env(HOST_ENV)?.trim().parse().ok()?;
+    let again = env(CODE_ENV).zip(env(SECRET_ENV)).filter(|(c, s)| nvf_signal::code::Code::parse(c).is_some() && !s.is_empty());
+    Some((port, again))
+}
+
+/// Every variable of the lobby's environment ([`HOST_ENV`] and the rest).
+const LOBBY_ENV: [&str; 7] = [HOST_ENV, CODE_ENV, SECRET_ENV, OPENED_ENV, PUBLIC_ENV, TITLE_ENV, PASSWORD_ENV];
+
+/// The environment a host's lobby goes to the next run in: each variable, and its value
+/// (None: removed). A code still being asked for (shown in brackets) is not one.
+fn lobby_env(coop: &Coop) -> Vec<(&'static str, Option<String>)> {
+    let o = &coop.host_options;
+    vec![
+        (HOST_ENV, Some(coop.port.to_string())),
+        (CODE_ENV, coop.code.clone().filter(|c| !c.starts_with('('))),
+        (SECRET_ENV, coop.secret.clone()),
+        (OPENED_ENV, coop.opened.then(|| "1".to_string())),
+        (PUBLIC_ENV, Some(if o.public { "1" } else { "0" }.to_string())),
+        (TITLE_ENV, Some(o.title.clone())),
+        (PASSWORD_ENV, Some(o.password.clone())),
+    ]
+}
+
+/// A host's run that a load restarts hands its lobby to the new run (module notes): the
+/// port, the code, the secret and the host's choices go in the environment the new run is
+/// started with, and the link is let go without a goodbye, so the guests wait for it.
+pub(super) fn hand_over(coop: &mut Coop) {
+    if coop.link.is_none() {
+        return;
+    }
+    info!("co-op: a load restarts the game: the lobby goes with it (port {})", coop.port);
+    for (k, v) in lobby_env(coop) {
+        match v {
+            Some(v) => std::env::set_var(k, v),
+            None => std::env::remove_var(k),
+        }
+    }
+    if let Some(link) = coop.link.take() {
+        link.abandon();
+    }
+    coop.control = None;
+    coop.handed_off = true;
+}
+
+/// The lobby's environment cleared: it ended, and a later run does not open it again.
+pub(super) fn forget_lobby() {
+    for k in LOBBY_ENV {
+        std::env::remove_var(k);
+    }
+}
+
+/// The online lobby's information for the service.
+fn host_info(name: &str, o: &HostOptions, place: &str, friendly_fire: bool) -> HostInfo {
+    HostInfo { name: name.into(), load_order_hash: load_order(), listing: super::browse::listing_for(o, name, place, friendly_fire, plugin_count()), password: o.password.clone() }
+}
+
+/// A host's link on `port`, every network, and its control, with the host's choices.
+/// `again`: the online code and secret of the lobby a load restarted (the port may still be
+/// the old run's for a moment: tried for a few seconds).
+pub(super) fn host_link(port: u16, name: &str, o: &HostOptions, place: &str, friendly_fire: bool, again: Option<&(String, String)>) -> Result<(Link, Control), String> {
+    let tries = if again.is_some() || std::env::var_os(HOST_ENV).is_some() { 40 } else { 1 };
+    let mut socks = Sockets::host(port, Scope::All);
+    for _ in 1..tries {
+        if socks.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        socks = Sockets::host(port, Scope::All);
+    }
+    let socks = socks.map_err(|e| trf("Cannot open UDP port {port} on this PC ({e}): is another game using it?", &[("port", &port), ("e", &e)]).to_string())?;
     let (mut stack, control) = Stack::host(socks, identity(), None);
     if let Some(service) = nvf_coop::signal_io::service() {
-        stack.go_online(&service, HostInfo { name: name.into(), ..HostInfo::default() });
-        info!("co-op: asking {service} for an online code");
+        match again {
+            Some((code, secret)) => {
+                stack.go_online_again(&service, code, secret);
+                info!("co-op: the online lobby {code} again, through {service}");
+            }
+            None => {
+                stack.go_online(&service, host_info(name, o, place, friendly_fire));
+                info!("co-op: asking {service} for an online code");
+            }
+        }
     }
     info!("co-op: hosting on UDP port {port} (encrypted; this game's key {})", stack.identity().fingerprint());
     let admission = stack.admission();
@@ -68,8 +210,9 @@ pub(super) fn host_link(port: u16, name: &str) -> Result<(Link, Control), String
     Ok((link, control))
 }
 
-/// A guest's link to the host `at` names (an online code, an address code, or an address).
-pub(super) fn guest_link(at: &str, name: &str) -> Result<(Link, Control), String> {
+/// A guest's link to the host `at` names (an online code, an address code, or an address),
+/// with the lobby's password (empty: none; the service checks it for an online code).
+pub(super) fn guest_link(at: &str, name: &str, password: &str) -> Result<(Link, Control), String> {
     let me = identity();
     let token = stack::token_of(&me.public());
     if let Some(nvf_signal::code::JoinForm::Online(code)) = nvf_signal::code::JoinForm::parse(at) {
@@ -77,7 +220,7 @@ pub(super) fn guest_link(at: &str, name: &str) -> Result<(Link, Control), String
             return Err(tr("That is an online code, and Co-op connection is set to LAN only: change it in Settings to join.").into());
         };
         let fp = me.fingerprint();
-        let (stack, control) = Stack::join_online(&service, code, name, "", "", me).map_err(|e| trf("Cannot open a connection: {e}", &[("e", &e)]).to_string())?;
+        let (stack, control) = Stack::join_online(&service, code, name, &load_order(), password, me).map_err(|e| trf("Cannot open a connection: {e}", &[("e", &e)]).to_string())?;
         info!("co-op: joining online code {at} through {service} as {name} (encrypted; this game's key {fp})");
         let admission = stack.admission();
         let s = Session::join_on(Box::new(stack), Box::new(admission), &[stack::ONLINE_HOST], 0, name, token);
@@ -159,9 +302,11 @@ pub(super) fn take_reach(coop: &mut Coop) {
 /// What the matchmaking service and its checks said (`nvf_coop::online`).
 pub(super) fn online_event(coop: &mut Coop, e: OnlineEvent, notes: &mut Vec<String>) {
     match e {
-        OnlineEvent::Code { code, .. } => {
+        OnlineEvent::Code { code, secret } => {
             info!("co-op: lobby code {code} (online: the matchmaking service introduces players; the game's traffic goes between the games)");
             keep_code(&code);
+            super::test_service::join_as_test_guest(&code, &coop.host_options.password, &load_order());
+            coop.secret = Some(secret).filter(|s| !s.is_empty());
             coop.code = Some(code);
             coop.online_pending = false;
             coop.note = None;
@@ -234,4 +379,44 @@ pub(super) fn kicked_note(banned: bool) -> String {
 pub(super) fn waited_too_long(coop: &Coop, since: f32, now: f32) -> bool {
     let limit = if coop.awaiting_host { nvf_coop::online::ASK_FOR.as_secs_f32() + super::FIND_FOR } else { super::FIND_FOR };
     coop.joining == Joining::Finding && now - since > limit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// A host's lobby goes to the next run and comes back as it was: the port, the online
+    /// code with its secret, the router's port, and the host's choices.
+    #[test]
+    fn a_lobby_goes_to_the_next_run_and_back() {
+        let mut coop = Coop::new("Courier".into());
+        coop.port = 27999;
+        coop.code = Some("K7Q-M2X".into());
+        coop.secret = Some("s3cr3t".into());
+        coop.opened = true;
+        coop.host_options = HostOptions { public: true, title: "Vegas run".into(), password: "pw".into() };
+        let env: HashMap<&str, String> = lobby_env(&coop).into_iter().filter_map(|(k, v)| Some((k, v?))).collect();
+        assert_eq!(env.len(), LOBBY_ENV.len());
+        let get = |k: &str| env.get(k).cloned();
+        assert_eq!(handed_over_from(get), Some((27999, Some(("K7Q-M2X".into(), "s3cr3t".into())))));
+        assert_eq!(options_from(get), coop.host_options);
+        // A code still being asked for, and no secret: the port alone; nothing set, none.
+        coop.code = Some("(asking for a code...)".into());
+        coop.secret = None;
+        let env: HashMap<&str, String> = lobby_env(&coop).into_iter().filter_map(|(k, v)| Some((k, v?))).collect();
+        assert!(!env.contains_key(CODE_ENV) && !env.contains_key(SECRET_ENV));
+        assert_eq!(handed_over_from(|k| env.get(k).cloned()), Some((27999, None)));
+        assert_eq!(handed_over_from(|_| None), None);
+    }
+
+    /// The same load order hashes the same on every PC (case does not matter); another
+    /// order does not.
+    #[test]
+    fn the_load_order_hash_follows_the_order() {
+        let a = load_order_hash(&["FalloutNV.esm".into(), "DeadMoney.esm".into()]);
+        assert_eq!(a, load_order_hash(&["falloutnv.esm".into(), "deadmoney.ESM".into()]));
+        assert_ne!(a, load_order_hash(&["DeadMoney.esm".into(), "FalloutNV.esm".into()]));
+        assert_eq!(a.len(), 16);
+    }
 }
