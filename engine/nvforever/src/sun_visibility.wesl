@@ -10,8 +10,7 @@
 // NVF_TERRAIN_VISIBILITY switch the two samples on; without them K and T are 1.
 //
 // Every texture read is textureSampleLevel or textureLoad: the lighting runs in non-uniform
-// control flow (per-fragment branches here, and callers such as nif_material.wesl
-// `with_shade_light`).
+// control flow (per-fragment branches here).
 
 // The cloud shadows from the volumetric clouds' light volume (#3032 stage 2i M2): the shared
 // reader of its completed fronts (light_volume_reader.wesl; its header is the contract), only

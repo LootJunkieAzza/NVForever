@@ -126,6 +126,17 @@ struct PbrInput {
     /// leaves it. w = 0: off.
     @if(NVF_CROWN_SHADOW)
     nvf_crown: vec4<f32>,
+    /// NVForever (first-person shade light, nvf_assets nif_material.wesl): when
+    /// `nvf_shade_shadow >= 0.0`, directional light `nvf_shade_sun` takes
+    /// `nvf_shade_shadow` as its cascade shadow value (before sun visibility) and
+    /// `nvf_shade_aux` (the auxiliary `ArmsShade` light) is skipped (`shadow = 0.0`).
+    /// Negative: off.
+    @if(SHADE_LIGHT)
+    nvf_shade_shadow: f32,
+    @if(SHADE_LIGHT)
+    nvf_shade_sun: u32,
+    @if(SHADE_LIGHT)
+    nvf_shade_aux: u32,
 };
 
 /// Creates a PbrInput with default values
@@ -156,6 +167,12 @@ fn pbr_input_new() -> PbrInput {
     pbr_input.directional_shadow_factor = 1.0;
     @if(NVF_CROWN_SHADOW)
     pbr_input.nvf_crown = vec4<f32>(0.0);
+    @if(SHADE_LIGHT)
+    pbr_input.nvf_shade_shadow = -1.0;
+    @if(SHADE_LIGHT)
+    pbr_input.nvf_shade_sun = 0u;
+    @if(SHADE_LIGHT)
+    pbr_input.nvf_shade_aux = 0u;
 
     return pbr_input;
 }

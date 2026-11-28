@@ -159,14 +159,11 @@ views is built again, as any view key change does; it is the only thing that doe
   `nvf_sun_visibility(pos, L, 1.0, view_z)` (water casts and receives no cascade shadow).
   The reflection image is not multiplied. The water body is lit by `apply_pbr_lighting`
   and takes V through the hook.
-- The first-person arms' `with_shade_light` (`engine/nvf-assets/src/nif_material.wesl`)
-  rebuilds the sun's part of their light from two `apply_pbr_lighting` results (module
-  notes of nif_material.rs, "Shade light"). With the sun's value V(C) in both (C = 1 for
-  the unshadowed one) and the shade light's unchanged:
-  `missing = (V(1) − V(own)) + share × (1 − shade)` and
-  `k = (V(1) + share − V(wanted)) / missing`. With V(C) = C (no def, or indoors) these are
-  the old `(1 − own) + share × (1 − shade)` and `(1 + share − wanted) / missing` term for
-  term; the derivation is in the shader. The finished colour is not multiplied.
+- The first-person arms (`SHADE_LIGHT`, `engine/nvf-assets/src/nif_material.wesl`
+  `apply_shade_light`) compute `wanted = min(shade, shadow_past_body)` and pass it into
+  vendored `bevy_pbr`'s `apply_pbr_lighting` before `HOOK_EDITS`'s `NVF_SUN_VISIBILITY`
+  hook runs: the sun takes `V(wanted)` inside the single lighting pass and the auxiliary
+  shade light (`ArmsShade`, never flagged with `OUTDOOR_SUN_BIT`) is zeroed directly.
 - Terrain: see §5a.
 
 ## 5a. Terrain shadows (#2671, stage T2)

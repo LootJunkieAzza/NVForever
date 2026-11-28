@@ -10,8 +10,7 @@
 // mesh_view_bindings.rs `NvfAmbientOcclusionBindings`).
 //
 // Every texture read is textureLoad, no derivatives: the lighting runs in non-uniform
-// control flow (per-fragment branches, and callers such as nif_material.wesl
-// `with_shade_light`).
+// control flow (per-fragment branches).
 
 struct NvfAmbientOcclusion {
     // x: the exponent the factor is raised to before it scales the display-value sum (1:

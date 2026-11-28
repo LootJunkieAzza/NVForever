@@ -2254,28 +2254,30 @@ pub(crate) mod tests {
         assert!(types.contains("const DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT: u32"));
     }
 
-    /// water.wesl's highlight and nif_material.wesl's shade-light algebra (#2670 C2) with
+    /// water.wesl's highlight and nif_material.wesl's shade-light path (#2670 C2) with
     /// the sun visibility's def on and off: the conditions resolve, brackets close, the
     /// imports name what sun_visibility.wesl and bevy_pbr have, and without the def
-    /// nothing of the plumbing is left (water: light 0 and a factor of 1; arms: the
-    /// cascade value itself). Neither shader is compiled here (bevy_pbr's imports are not
-    /// resolved by any unit test): that they compile is for a run to show.
+    /// nothing of the plumbing is left (water: light 0 and a factor of 1). First-person
+    /// arms (`SHADE_LIGHT`) pass their shade-light shadow override directly into
+    /// `apply_pbr_lighting` before `HOOK_EDITS`'s `NVF_SUN_VISIBILITY` hook runs, so
+    /// `nif_material.wesl` does not duplicate `nvf_sun_visibility` outside the hook.
     #[test]
     fn water_and_arms_edits_resolve() {
         let read = |p: &str| unix_lines(&std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}")));
         let water = read(concat!(env!("CARGO_MANIFEST_DIR"), "/src/water.wesl"));
         let arms = read(concat!(env!("CARGO_MANIFEST_DIR"), "/../nvf-assets/src/nif_material.wesl"));
+        let pbr = read(concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/pbr_functions.wesl"));
+        let patched = hook_patched(&crate::lights::display_patched(&pbr).expect("display patch")).expect("sun visibility hook");
         let wesl = include_str!("sun_visibility.wesl");
         assert!(wesl.contains("fn nvf_sun_visibility(P: vec3<f32>, L: vec3<f32>, cascade_shadow: f32, view_z: f32) -> f32"));
         for on in [false, true] {
             let known = [("NVF_SUN_VISIBILITY", on)];
-            let (w, a) = (resolve_known(&water, &known), resolve_known(&arms, &known));
-            for (name, text) in [("water.wesl", &code(&w)), ("nif_material.wesl", &code(&a))] {
-                assert!(!text.contains("NVF_SUN_VISIBILITY"), "{name} {on}: every condition resolved");
-                assert!(balanced(text), "{name} {on}: brackets close");
-                assert_eq!(text.contains("nvf_sun_visibility("), on, "{name} {on}");
-                assert_eq!(text.contains("DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT"), on, "{name} {on}");
-            }
+            let w = resolve_known(&water, &known);
+            let w_code = code(&w);
+            assert!(!w_code.contains("NVF_SUN_VISIBILITY"), "water.wesl {on}: every condition resolved");
+            assert!(balanced(&w_code), "water.wesl {on}: brackets close");
+            assert_eq!(w_code.contains("nvf_sun_visibility("), on, "water.wesl {on}");
+            assert_eq!(w_code.contains("DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT"), on, "water.wesl {on}");
             // Water: the highlight is light 0 times 1 without the def; with it, the flagged
             // light's, times its visibility once, the reflection image untouched.
             let highlight = block_after(&w, "if lights.n_directional_lights > 0u {");
@@ -2284,16 +2286,16 @@ pub(crate) mod tests {
             assert_eq!(highlight.contains("sun_visibility = nvf_sun_visibility(pos, sun.direction_to_light, 1.0, view_z);"), on);
             assert_eq!(w.matches("* sun_visibility").count(), 1, "the highlight alone takes it");
             assert_eq!(w.contains("import nvforever::sun_visibility::nvf_sun_visibility;"), on);
-            // Arms: the cascade value itself without the def; with it, V for the flagged sun.
-            let value = block_after(&a, "fn sun_shadow_value(");
-            assert_eq!(code_lines(value).len() == 3, !on, "{value}");
-            assert_eq!(value.contains("return nvf_sun_visibility(in.world_position.xyz, lights.directional_lights[sun].direction_to_light, cascade, view_z);"), on);
-            let shade = block_after(&a, "fn with_shade_light(");
-            for s in ["let v_lit = sun_shadow_value(sun, in, 1.0, view_z);", "let v_own = sun_shadow_value(sun, in, own, view_z);", "let missing = (v_lit - v_own) + share * (1.0 - shade);", "let k = (v_lit + share - sun_shadow_value(sun, in, wanted, view_z)) / missing;"] {
-                assert!(shade.contains(s), "{s}");
-            }
-            assert_eq!(a.contains("@if(!PREPASS_PIPELINE && SHADE_LIGHT) import nvforever::sun_visibility::nvf_sun_visibility;"), on);
         }
+        // Arms (`SHADE_LIGHT`): single-pass shadow override into `apply_pbr_lighting`, where
+        // the `NVF_SUN_VISIBILITY` hook runs after `@if(SHADE_LIGHT)` sets `shadow`.
+        assert!(!code(&arms).contains("NVF_SUN_VISIBILITY"), "nif_material.wesl relies on pbr_functions' hook");
+        let apply = arms.find("@if(!PREPASS_PIPELINE && SHADE_LIGHT) pbr_input = apply_shade_light(pbr_input);").expect("apply_shade_light");
+        let light = arms.find("out.color = apply_pbr_lighting(pbr_input);").expect("apply_pbr_lighting");
+        assert!(apply < light);
+        let override_at = patched.find("if in.nvf_shade_shadow >= 0.0").expect("shade override in patched pbr_functions");
+        let hook_at = patched.find("nvf_sun_visibility_parts(").expect("sun visibility hook in patched pbr_functions");
+        assert!(override_at < hook_at, "shade override must feed shadow into nvf_sun_visibility_parts");
     }
 
     /// #3032 stage 2i M2: the real receivers composed as

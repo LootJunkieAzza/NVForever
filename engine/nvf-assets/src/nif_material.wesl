@@ -24,7 +24,7 @@
 // SHADE_LIGHT (shapes with NifSurface::shade_light, the player's first-person arms): the
 // sun's shadows on the shape are those in the shade light's shadow map, which holds only
 // casters near the camera, and those in the sun's own map cast from beyond the player's
-// unseen body (`with_shade_light`, `shadow_past_body`) [engineering choice].
+// unseen body (`apply_shade_light`, `shadow_past_body`) [engineering choice].
 //
 // REFRACT (shapes with the Refraction shader flag, main pass): what lies behind the shape
 // (Bevy's view transmission texture), shifted on the screen by the shape's normal (normal
@@ -94,15 +94,11 @@ import bevy_pbr::{
 @if(!PREPASS_PIPELINE) import nvf_assets::tone_input::tony_inverse_each;
 @if(!PREPASS_PIPELINE && SHADE_LIGHT) import bevy_pbr::{
     render::pbr_types::PbrInput,
-    render::mesh_types::{MESH_FLAGS_SHADOW_RECEIVER_BIT, NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT},
+    render::mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT,
     render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT,
     render::shadows::{fetch_directional_shadow, get_cascade_index},
     render::shadow_sampling::sample_shadow_map,
 };
-// The sun visibility (nvforever sun_visibility.rs) for the shade light's algebra, only
-// while the view has the plumbing (the shader def then exists: bevy_pbr mesh.rs).
-@if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
-@if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
 // The probe volume's bounce light (nvforever rtgi_volume.rs), only in the pipelines that read
 // it (nif_material.rs `reads_rtgi_volume`).
 @if(!PREPASS_PIPELINE && NVF_RTGI_VOLUME) import nvforever::rtgi_volume::nvf_rtgi_face;
@@ -475,62 +471,24 @@ const BODY_CLEARANCE: f32 = 24.0;
     return sample_shadow_map(uv, depth, array_index, in.frag_coord.xy, (*cascade).texel_size);
 }
 
-// The lit colour of a fragment whose sun shadows are those of the shade light and those
-// from beyond the unseen body, the darker of the two (nif_material.rs, "Shade light").
-// Of the directional lights with shadows, the brightest
-// is the sun and the next the shade light, which has the sun's colour at `share` of its
-// strength. `shadowed` is Bevy's lighting of `in`, each light with its own shadows.
-// Without two such lights it is the result.
+// Prepare `PbrInput` for a fragment whose sun shadows are the darker of the shade light's
+// shadow map and the sun's own shadow map beyond the unseen body (nif_material.rs,
+// "Shade light"). Of the directional lights with shadows, the brightest is the sun and
+// the next is the auxiliary shade light (`ArmsShade`), which carries a tiny share of the
+// sun's strength only so Bevy keeps its shadow map active.
 //
-// Bevy's lighting has no opening for another shadow value, so the result is put together
-// from two of its results. With S the sun's unshadowed light on the fragment and R the
-// rest of its light:
-//   shadowed = R + S * (own + share * shade)    (the shadow values of the two maps)
-//   lit      = R + S * (1 + share)              (the same without shadows)
-// so S = (lit - shadowed) / ((1 - own) + share * (1 - shade)), and the colour wanted,
-// R + S * wanted with wanted = min(shade, past), is lit - S * (1 + share - wanted).
-// Whatever shades the point past the body lies on the fragment's own line to the sun, so
-// past >= own: where neither map has a shadow (own = shade = 1) the result is `shadowed`.
-//
-// With the sun visibility (nvforever sun_visibility.rs, shader def NVF_SUN_VISIBILITY) the
-// outdoor sun's shadow value C becomes V(C) inside apply_pbr_lighting, for receivers and
-// non-receivers alike (non-receivers with C = 1); the shade light is never flagged, so
-// its values stay as they were. Then
-//   shadowed = R + S * (V(own) + share * shade)
-//   lit      = R + S * (V(1) + share)
-// so S = (lit - shadowed) / missing with missing = (V(1) - V(own)) + share * (1 - shade),
-// and the colour wanted, R + S * V(wanted) (the sun's light with the visibility of the
-// wanted shadow value, the shade light's taken out as before), is
-// lit - S * (V(1) + share - V(wanted)): k = (V(1) + share - V(wanted)) / missing.
-// Off (no def, or the sun not flagged: indoors) V(C) = C, so V(1) = 1, V(own) = own and
-// V(wanted) = wanted, and both lines are the ones above term for term:
-//   missing = (1 - own) + share * (1 - shade),   k = (1 + share - wanted) / missing.
-// `missing` near 0 (V(1) = V(own), e.g. own = 1, or a fully opaque cloud, with shade = 1)
-// returns `shadowed`, which keeps the shade light's share there as it did before.
-@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn sun_shadow_value(sun: u32, in: PbrInput, cascade: f32, view_z: f32) -> f32 {
-    @if(NVF_SUN_VISIBILITY)
-    if (lights.directional_lights[sun].flags & DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT) != 0u {
-        // As the hook in apply_pbr_lighting computes it (same position, light, view_z).
-        return nvf_sun_visibility(in.world_position.xyz, lights.directional_lights[sun].direction_to_light, cascade, view_z);
-    }
-    return cascade;
-}
-
-// The sRGB transfer both ways, held at 0 below, as the display-value sum uses it
-// (nvforever lights/display_shader.rs `nvf_linear_to_display`, `nvf_display_to_linear`).
-@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn shade_display(c: vec3<f32>) -> vec3<f32> {
-    let x = max(c, vec3(0.0));
-    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
-}
-
-@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn shade_linear(c: vec3<f32>) -> vec3<f32> {
-    let x = max(c, vec3(0.0));
-    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
-}
-
-@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn with_shade_light(in: PbrInput, shadowed: vec4<f32>) -> vec4<f32> {
+// Vendored `bevy_pbr::render::pbr_functions::apply_pbr_lighting` reads `nvf_shade_shadow`,
+// `nvf_shade_sun`, and `nvf_shade_aux` under `@if(SHADE_LIGHT)`, substituting `wanted`
+// directly as the sun's cascade shadow (before `NVF_SUN_VISIBILITY` applies cloud/terrain
+// transmittance `V(wanted)`) and zeroing the auxiliary shade light (`shadow = 0.0`).
+// Doing this in one lighting pass avoids the earlier two-pass linear extrapolation
+// (`lit_d - (lit_d - shadowed_d) * k`, with `k >= 1/share = 1024`), which broke whenever
+// `GAME_CLIP` (nvforever lights/display_shader.rs) clamped bright sunlit channels to 1.0
+// independently—leaving clipped channels blown out white while multiplying unclipped
+// channels into neon red/orange/yellow blotches on bright first-person sleeves and hands.
+@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn apply_shade_light(in: PbrInput) -> PbrInput {
     if (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) == 0u {
-        return shadowed;
+        return in;
     }
     let none = lights.n_directional_lights;
     var sun = none;
@@ -554,9 +512,15 @@ const BODY_CLEARANCE: f32 = 24.0;
         }
     }
     if shade_light == none || shade_amount <= 0.0 {
-        return shadowed;
+        return in;
     }
-    let share = shade_amount / sun_amount;
+    var out = in;
+    out.nvf_shade_sun = sun;
+    out.nvf_shade_aux = shade_light;
+    if dot(in.N, lights.directional_lights[sun].direction_to_light) <= 0.0 {
+        out.nvf_shade_shadow = 0.0;
+        return out;
+    }
     // As in apply_pbr_lighting.
     let view_z = dot(vec4(
         view.view_from_world[0].z,
@@ -564,40 +528,9 @@ const BODY_CLEARANCE: f32 = 24.0;
         view.view_from_world[2].z,
         view.view_from_world[3].z
     ), in.world_position);
-    let own = fetch_directional_shadow(sun, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
     let shade = fetch_directional_shadow(shade_light, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
-    // V(1) and V(own): 1 and own without the sun visibility (see above).
-    let v_lit = sun_shadow_value(sun, in, 1.0, view_z);
-    let v_own = sun_shadow_value(sun, in, own, view_z);
-    let missing = (v_lit - v_own) + share * (1.0 - shade);
-    if missing < 0.000001 {
-        // Neither map has a shadow here (or the clouds leave no sun to tell apart).
-        return shadowed;
-    }
-    let wanted = min(shade, shadow_past_body(sun, in, view_z));
-    // Only the directional lights' shadows are taken off (vendored bevy_pbr mesh_types.wesl):
-    // with the receiver bit cleared instead, the lamps' shadows (lamp shadows, the Pip-Boy
-    // light) and the ambient occlusion's factor on lamps (nvforever ssao_lighting) differed
-    // between `lit` and `shadowed` too, and k (up to 1/share) multiplied that difference
-    // into the colour: first-person shapes glowed in the lamps' colour [observed 2026-11-19,
-    // Prospector Saloon at 22:00, lamp shadows Quality with ambient occlusion].
-    var unshadowed = in;
-    unshadowed.flags |= NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT;
-    let lit = apply_pbr_lighting(unshadowed);
-    let k = (v_lit + share - sun_shadow_value(sun, in, wanted, view_z)) / missing;
-    @if(!NVF_PHYSICAL_PBR)
-    if lights.ambient_color.a < 0.0 {
-        // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
-        // the linear colour of the texture's display value × the sum (sRGB curve), so its
-        // display value is linear in the shadow values; the same algebra there (the
-        // specular part is taken along).
-        let lit_d = shade_display(lit.rgb);
-        let shadowed_d = shade_display(shadowed.rgb);
-        return vec4(shade_linear(lit_d - (lit_d - shadowed_d) * k), shadowed.a);
-    }
-    // Physical lighting: linear light, never below black, with the shadowed alpha.
-    @if(NVF_PHYSICAL_PBR) return vec4(max(lit.rgb - (lit.rgb - shadowed.rgb) * k, vec3(0.0)), shadowed.a);
-    @if(!NVF_PHYSICAL_PBR) return lit - (lit - shadowed) * k;
+    out.nvf_shade_shadow = min(shade, shadow_past_body(sun, in, view_z));
+    return out;
 }
 
 @if(FIRST_PERSON_DEPTH) struct FirstPersonOutput {
@@ -849,8 +782,7 @@ fn nif_fragment(
     }
     // A view with a cube: its reflection (bevy_pbr pbr_functions' environment blocks, compiled
     // for this fragment only by nvforever lights/reflection_gate.rs) is weighted by
-    // specular_occlusion, set here for both lighting calls below (the second is the
-    // first-person shadow correction, with_shade_light): the authored mark (every other
+    // specular_occlusion, set here for the lighting call below: the authored mark (every other
     // material gets 0, and the gate then skips the cube lookup), the ORM's occlusion (red;
     // pbr_input.diffuse_occlusion holds it alone, Bevy's screen-space occlusion being unused)
     // and the mesh's share under the mesh terrain blend.
@@ -893,8 +825,8 @@ fn nif_fragment(
         // Hot light source (hot_light): the emitted light is added after the lighting.
         @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY) let hot_e = pbr_input.material.emissive.rgb;
         @if(!PREPASS_PIPELINE && !TONEMAP_IN_SHADER && !BLEND_MULTIPLY) pbr_input.material.emissive = vec4(vec3(0.0), pbr_input.material.emissive.a);
+        @if(!PREPASS_PIPELINE && SHADE_LIGHT) pbr_input = apply_shade_light(pbr_input);
         out.color = apply_pbr_lighting(pbr_input);
-        @if(!PREPASS_PIPELINE && SHADE_LIGHT) out.color = with_shade_light(pbr_input, out.color);
         // Bevy's ambient specular, with the same inputs as in apply_pbr_lighting and
         // bevy_pbr::ambient::ambient_light (no lightmaps are used here). Not under Physical
         // lighting, which keeps the physical specular image-based light.

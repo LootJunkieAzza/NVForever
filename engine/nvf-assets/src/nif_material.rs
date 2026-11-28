@@ -92,13 +92,13 @@
 //! Shade light: a shape can take the sun's shadows from another light's shadow map
 //! instead of the sun's own ([`NifSurface::shade_light`]). That light is a second
 //! directional light with shadows, pointing as the sun does, so its shadow map holds the
-//! sun's shadows of the things on its own render layers. It carries a small share of the
-//! sun's light (any share; the shader reads it from the two lights' colours), which is
-//! what lets the shader tell the sun's part of a fragment's light from the rest using
-//! Bevy's lighting alone (`with_shade_light` in the shader). For the player's
-//! first-person arms, which the unseen body that casts the player's shadow stands in the
-//! middle of [engineering choice, nvforever `player_body.rs`]. Every other shape is lit
-//! by Bevy's lighting alone.
+//! sun's shadows of the things on its own render layers. `apply_shade_light` in the shader
+//! computes the wanted shadow (`min(shade, shadow_past_body)`) and passes it into vendored
+//! `bevy_pbr`'s `apply_pbr_lighting` (under `@if(SHADE_LIGHT)`), which substitutes it on
+//! the sun directly before sun visibility and zeroes the auxiliary shade light in a single
+//! lighting pass. For the player's first-person arms, which the unseen body that casts the
+//! player's shadow stands in the middle of [engineering choice, nvforever `player_body.rs`].
+//! Every other shape is lit by Bevy's lighting alone.
 //!
 //! FaceGen tint: an NPC's face and skin shapes carry the `.egt` colour offset of its
 //! texture coefficients ([`NifSurface::facegen_offset`], made by nvforever `facegen.rs`)
@@ -1822,25 +1822,31 @@ mod tests {
     }
 
     #[test]
-    fn shade_light_relight_takes_off_only_the_directional_shadows() {
-        // The relight in `with_shade_light` must differ from Bevy's lighting in the
-        // directional lights' shadows alone: clearing the receiver bit also dropped the lamps'
-        // shadows and changed the ambient occlusion's factor on lamps, and k multiplied that
-        // into a glow on first-person shapes [observed 2026-11-19].
+    fn shade_light_applies_shadow_override_in_single_lighting_pass() {
+        // First-person `SHADE_LIGHT` shapes must apply their shade-light / past-body shadow
+        // directly inside a single `apply_pbr_lighting` call rather than extrapolating from
+        // two lighting passes (which broke across `GAME_CLIP` channel clamping and amplified
+        // non-linear differences by `1 / ARMS_SHADE_SHARE = 1024`).
         let shader = include_str!("nif_material.wesl").replace("\r\n", "\n");
-        assert!(shader.contains("    unshadowed.flags |= NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT;\n"));
-        assert!(!shader.contains("unshadowed.flags &= ~MESH_FLAGS_SHADOW_RECEIVER_BIT"));
-        // The vendored bevy_pbr reads the bit in the directional loop only (its shadow-map,
-        // crown-shadow, transmitted-lobe and contact-shadow conditions), never in the point
-        // or spot loops.
+        let apply = shader.find("@if(!PREPASS_PIPELINE && SHADE_LIGHT) pbr_input = apply_shade_light(pbr_input);").expect("apply_shade_light call");
+        let light = shader.find("out.color = apply_pbr_lighting(pbr_input);").expect("single lighting call");
+        assert!(apply < light, "shade-light override must be populated before apply_pbr_lighting");
+        assert_eq!(shader.matches("apply_pbr_lighting(").count(), 1, "nif_material.wesl must call apply_pbr_lighting once");
+        assert!(!shader.contains("with_shade_light"));
+
+        // Vendored bevy_pbr reads the override strictly under `@if(SHADE_LIGHT)` inside the
+        // directional light loop, before the cascade fetch and sun-visibility hook, and
+        // never touches point or spot lights.
         let pbr = include_str!("../../vendor/bevy_pbr/src/render/pbr_functions.wesl").replace("\r\n", "\n");
         let directional = pbr.find("    // directional lights (direct)\n").expect("directional loop");
         let end = directional + pbr[directional..].find("    // Ambient light (indirect)").expect("after the loop");
-        let at = |s: &str| pbr.match_indices(s).map(|(i, _)| i).collect::<Vec<_>>();
-        let reads = at("(in.flags & NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT) == 0u");
-        assert_eq!(reads.len(), 4);
-        assert!(reads.iter().all(|&i| directional < i && i < end));
-        assert!(include_str!("../../vendor/bevy_pbr/src/render/mesh_types.wesl").contains("const NVF_MESH_FLAGS_NO_DIRECTIONAL_SHADOWS_BIT: u32 = 1u << 26u;"));
+        let override_at = pbr.find("@if(SHADE_LIGHT)\n        if in.nvf_shade_shadow >= 0.0").expect("SHADE_LIGHT override in pbr_functions");
+        let fetch_at = directional + pbr[directional..].find("shadows::fetch_directional_shadow(").expect("directional shadow fetch");
+        assert!(directional < override_at && override_at < fetch_at && fetch_at < end);
+
+        let types = include_str!("../../vendor/bevy_pbr/src/render/pbr_types.wesl").replace("\r\n", "\n");
+        assert!(types.contains("@if(SHADE_LIGHT)\n    nvf_shade_shadow: f32,"));
+        assert!(types.contains("@if(SHADE_LIGHT)\n    pbr_input.nvf_shade_shadow = -1.0;"));
     }
 
     /// First-person depth (module notes): the squeeze keeps the near plane at 1, puts the
