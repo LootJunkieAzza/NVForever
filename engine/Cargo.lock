@@ -5213,6 +5213,7 @@ dependencies = [
  "nvf-dlss-files",
  "nvf-play",
  "nvf-rtgi",
+ "nvf-signal",
  "png",
  "rapier3d",
  "rayon",

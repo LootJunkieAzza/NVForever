@@ -4,13 +4,17 @@
 //! `--join <code>` do the same from the command line.
 //!
 //! **Off by default.** Nothing here opens a socket until the Co-op switch is on and a
-//! lobby is created or joined [design]; this part opens none (below).
-//! Without a link every system here returns at once, so single player is as it was.
+//! lobby is created or joined [design]. Without a link every system here returns at once,
+//! so single player is as it was.
 //!
-//! **No transport here.** This part has no sockets, discovery or lobby codes: hosting or
-//! joining says so (the log, and the join screen) until the internet transport of #3910 goes
-//! on top and plugs into `nvf_coop::seam` [design]. The host's checks of every guest message
-//! ([`HostForms`], `nvf_coop::guard`) and this player's state sent are in place for it.
+//! **The connection** ([`connect`]): the internet transport (`nvf_coop::stack`) under the
+//! session, every packet sealed with Noise and each player known by its key. A host's
+//! lobby gets an online code from the matchmaking service (else, LAN only or the service
+//! unreachable, a code of its address, with the router asked to open the port); a guest
+//! joins by either code or by an address. The host lets in a player joining by online
+//! code when it is asked to (the Co-op Lobby), and can remove a guest (Kick), or keep it
+//! out for the lobby's life (Ban). The host's checks of every guest message ([`HostForms`],
+//! `nvf_coop::guard`) come first.
 //!
 //! **The host's world.** The host runs the world: its NPCs are the only ones that think
 //! (packages, fights, deaths). It sends each NPC it draws (where, facing, weapon out,
@@ -105,7 +109,8 @@
 //! while the link reconnects; only a player who quit or stayed away past the grace is
 //! removed.
 //!
-//! Log: `co-op: no network transport in this build`, `co-op: welcomed as player <n>`, `co-op: <name> joined`, `co-op:
+//! Log: `co-op: hosting on UDP port <p> ...`, `co-op: lobby code <code> ...` and the rest of
+//! [`connect`]'s, `co-op: welcomed as player <n>`, `co-op: <name> joined`, `co-op:
 //! player <n> left`, `co-op: player <n> at <place> feet (x, y, z) yaw <deg>` (the first
 //! state from each player, then one every [`STATE_LOG_EVERY`] seconds), `co-op: not
 //! joined: <why>` (what the join screen says), `co-op: turned away <n> Hello(s) without
@@ -141,6 +146,8 @@ use nvf_play::{Location, PlayState, RefVisual, Travel};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+mod connect;
+pub(crate) mod net_settings;
 mod areas;
 pub(crate) mod checks;
 mod far_combat;
@@ -185,10 +192,8 @@ pub const REJOIN_ENV: &str = "NVF_COOP_REJOIN_HOST";
 /// world is in (`syncing`).
 pub const SYNC_ENV: &str = "NVF_COOP_SYNC_SCREEN";
 
-/// The port a lobby opens on, UDP [design].
-const DEFAULT_PORT: u16 = 47_960;
-/// What a game hosting or joining says while no transport is plugged in (module notes).
-const NO_TRANSPORT: &str = "This build has no network transport yet: the internet transport goes on top of this part.";
+/// The port a lobby opens on, UDP [design] (`nvf_coop::code::DEFAULT_PORT`).
+const DEFAULT_PORT: u16 = nvf_coop::code::DEFAULT_PORT;
 /// A guest looking for its host gives up after this long without an answer (seconds).
 const FIND_FOR: f32 = 15.0;
 /// Another player's state is logged when first heard, then once this often (seconds).
@@ -223,6 +228,19 @@ pub(crate) struct Coop {
     /// The host's code, once hosting.
     code: Option<String>,
     note: Option<String>,
+    /// The transport's control ([`connect`]): the service's events, join answers.
+    control: Option<nvf_coop::stack::Control>,
+    /// The host's port, and whether its router opened it for an address code.
+    port: u16,
+    opened: bool,
+    /// The router's answer on the way (an address code), and an online code asked for.
+    reaching: Option<std::sync::Mutex<std::sync::mpsc::Receiver<nvf_coop::reach::Reach>>>,
+    online_pending: bool,
+    /// The host's: players joining by online code waiting for its answer (their number in
+    /// the service's lobby, name).
+    asking: Vec<(u32, String)>,
+    /// A guest's: the host was asked to let it in, and has not answered.
+    awaiting_host: bool,
     joining: Joining,
     finding_since: Option<f32>,
     /// The host's checks were given the load order and the world's rules.
@@ -335,6 +353,13 @@ impl Coop {
             last_leash: None,
             code: None,
             note: None,
+            control: None,
+            port: DEFAULT_PORT,
+            opened: false,
+            reaching: None,
+            online_pending: false,
+            asking: Vec::new(),
+            awaiting_host: false,
             joining: Joining::Idle,
             finding_since: None,
             forms_set: false,
@@ -388,6 +413,7 @@ impl Coop {
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
+        net_settings::register(app);
         let c = &self.0;
         let mut coop = Coop::new(c.name.clone());
         // The main menu's run after a lobby ended neither hosts nor joins, whatever the
@@ -420,6 +446,7 @@ impl Plugin for CoopPlugin {
                 (
                     host_forms,
                     replication::frame_clock,
+                    connect::poll,
                     lobby,
                     send,
                     take_events,
@@ -660,15 +687,37 @@ impl Coop {
         self.link.as_ref().is_some_and(|l| !l.is_host())
     }
 
-    /// Open a lobby on `port`: no transport is plugged in here, so none opens.
+    /// Open a lobby on `port` ([`connect::host_link`]): an online code is asked for, else
+    /// the router, for an address code.
     fn start_hosting(&mut self, port: u16) {
-        warn!("co-op: no network transport in this build: cannot host on UDP port {port}");
-        self.note = Some(NO_TRANSPORT.to_string());
+        match connect::host_link(port, &self.name) {
+            Ok((link, control)) => {
+                self.link = Some(link);
+                self.port = port;
+                self.online_pending = nvf_coop::signal_io::service().is_some();
+                if !self.online_pending {
+                    self.reaching = Some(connect::reach_out(port));
+                }
+                self.control = Some(control);
+            }
+            Err(why) => {
+                warn!("co-op: {why}");
+                self.note = Some(why);
+            }
+        }
     }
 
     fn stop_hosting(&mut self) {
         // Dropping the link says goodbye to the guests.
         self.link = None;
+        self.control = None;
+        if self.opened {
+            connect::close_router(self.port);
+        }
+        self.opened = false;
+        self.reaching = None;
+        self.online_pending = false;
+        self.asking.clear();
         self.hello_drops = (0, 0.0);
         self.state_logged.clear();
         self.code = None;
@@ -676,10 +725,18 @@ impl Coop {
         self.forget_peers();
     }
 
-    /// Join the lobby `at` names: no transport is plugged in here, so none opens.
-    fn start_joining(&mut self, _at: &str) {
-        warn!("co-op: no network transport in this build: cannot join");
-        self.fail(NO_TRANSPORT);
+    /// Join the lobby `at` names ([`connect::guest_link`]).
+    fn start_joining(&mut self, at: &str) {
+        match connect::guest_link(at, &self.name) {
+            Ok((link, control)) => {
+                self.link = Some(link);
+                self.control = Some(control);
+                self.joining = Joining::Finding;
+                self.finding_since = None;
+                self.awaiting_host = false;
+            }
+            Err(why) => self.fail(&why),
+        }
     }
 
     /// A join that did not happen: what the join screen says, logged too.
@@ -690,6 +747,8 @@ impl Coop {
 
     fn stop_joining(&mut self) {
         self.link = None;
+        self.control = None;
+        self.awaiting_host = false;
         self.state_logged.clear();
         self.joining = Joining::Idle;
         self.host = None;
@@ -788,6 +847,23 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
                 coop.stop_joining();
                 coop.start_joining(code);
             }
+            LobbyRequest::Kick { id, ban } if coop.is_host() => {
+                let done = coop.link.as_ref().is_some_and(|l| l.kick(*id, *ban));
+                let who = coop.peers.get(id).map_or_else(|| label(*id, ""), |p| label(*id, &p.name));
+                match (done, *ban) {
+                    (true, true) => info!("co-op: {who} (player {id}) kicked and banned while this lobby lasts"),
+                    (true, false) => info!("co-op: {who} (player {id}) kicked"),
+                    (false, _) => info!("co-op: {who} (player {id}): not kicked (no such guest, or no key to ban)"),
+                }
+            }
+            LobbyRequest::Kick { .. } => {}
+            LobbyRequest::Admit { peer, yes } if coop.is_host() => {
+                if let Some(c) = &coop.control {
+                    c.admit(*peer, *yes);
+                }
+                coop.asking.retain(|(p, _)| p != peer);
+            }
+            LobbyRequest::Admit { .. } => {}
             LobbyRequest::Cancel => {
                 if coop.joining == Joining::Finding {
                     coop.stop_joining();
@@ -803,13 +879,15 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
         let since = *coop.finding_since.get_or_insert(now);
         if coop.link.as_ref().is_some_and(|l| l.id().is_some()) {
             coop.joining = Joining::Found;
-        } else if now - since > FIND_FOR {
+        } else if connect::waited_too_long(coop, since, now) {
             coop.link = None;
+            coop.control = None;
             coop.fail("No answer from the host: check the code, and that their lobby is open.");
         }
     }
     let hosting = match (&coop.code, coop.is_host()) {
         (Some(code), true) => Hosting::Open { code: code.clone(), note: coop.note.clone() },
+        (None, true) => Hosting::Open { code: tr("(asking for a code...)").into(), note: coop.note.clone() },
         _ => Hosting::Off,
     };
     let mut players = Vec::new();
@@ -822,7 +900,9 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest() });
+    let guests = if coop.is_host() { coop.peers.iter().map(|(&id, p)| (id, label(id, &p.name))).collect() } else { Vec::new() };
+    let asks = if coop.is_host() { coop.asking.clone() } else { Vec::new() };
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), guests, asks });
 }
 
 fn label(id: u8, name: &str) -> String {
@@ -1418,6 +1498,11 @@ fn take_events(
                 coop.host = None;
                 coop.ended = true;
                 notes.push(tr("The host's game has ended").into());
+            }
+            Event::Kicked { banned } => {
+                coop.host = None;
+                coop.ended = true;
+                notes.push(connect::kicked_note(banned));
             }
             Event::Npcs(list) => {
                 for n in list {
@@ -3507,19 +3592,21 @@ fn state_line(id: u8, s: &PlayerState) -> String {
 mod tests {
     use super::*;
 
-    /// With no transport plugged in, hosting opens nothing and joining says why.
+    /// Hosting opens a lobby on the internet transport (LAN only here: no service asked),
+    /// and a join of something that is no code says why.
     #[test]
-    fn hosting_and_joining_without_a_transport_say_so() {
+    fn hosting_opens_a_link_and_a_bad_code_says_why() {
+        nvf_coop::prefs::set_connection(nvf_coop::prefs::Connection::LanOnly);
         let mut app = App::new();
-        app.add_plugins(CoopPlugin(Config { host: Some(DEFAULT_PORT), join: None, name: "Courier".into() }));
+        app.add_plugins(CoopPlugin(Config { host: Some(0), join: None, name: "Courier".into() }));
         let coop = app.world().resource::<Coop>();
-        assert!(coop.link.is_none() && coop.code.is_none());
-        assert_eq!(coop.note.as_deref(), Some(NO_TRANSPORT));
+        assert!(coop.link.as_ref().is_some_and(Link::is_host), "{:?}", coop.note);
+        assert!(!coop.online_pending && coop.reaching.is_some(), "LAN only: an address code");
         let mut app = App::new();
         app.add_plugins(CoopPlugin(Config { host: None, join: Some("anything".into()), name: "Courier".into() }));
         let coop = app.world().resource::<Coop>();
         assert!(coop.link.is_none());
-        assert_eq!(coop.joining, Joining::Failed(NO_TRANSPORT.to_string()));
+        assert_eq!(coop.joining, Joining::Failed("That is not a lobby code: check it with the host.".into()));
     }
 
     #[test]
