@@ -519,6 +519,11 @@ struct Variants {
     publications: HashMap<AssetId<NifBlendMaterial>, crate::terrain_surface::PublishedSurface>,
     ordinary_seen: HashMap<Entity, u32>,
     materials: HashMap<AssetId<NifMaterial>, (Handle<NifBlendMaterial>, SourceStamp)>,
+    /// Monotonic revision bumped when `materials` or `publications` keys change or when
+    /// `follow_coverage` / `restrict_clone` edits an existing clone in place, so
+    /// `extract_readiness` and `acknowledge_materials` re-check readiness while changed
+    /// clones are prepared or bound again [design].
+    id_rev: u64,
     reported: Option<u64>,
     reported_census: Option<Census>,
     frames_since_report: u32,
@@ -668,7 +673,13 @@ impl BlendReadiness {
     pub(crate) fn hold(&self, step: u64) { self.hold.store(step, Ordering::Release); }
 }
 #[derive(Resource, Default)]
-struct ReadinessInput { ids: HashSet<AssetId<NifBlendMaterial>>, ages: HashMap<AssetId<NifBlendMaterial>, u32>, steps: HashMap<AssetId<NifBlendMaterial>, u64>, delay: u32 }
+struct ReadinessInput {
+    ids: HashSet<AssetId<NifBlendMaterial>>,
+    ages: HashMap<AssetId<NifBlendMaterial>, u32>,
+    steps: HashMap<AssetId<NifBlendMaterial>, u64>,
+    delay: u32,
+    ids_rev: u64,
+}
 
 /// [design] Round 10a review (P3): whether a prepared, bound material may be acknowledged:
 /// older than the readiness delay aid's frames and not held by the crossing aid. The
@@ -694,21 +705,55 @@ fn install_readiness(app: &mut App, gate: MaterialGate) {
             .add_systems(Render, acknowledge_materials.run_if(move || gate.is_open()).in_set(RenderSystems::Cleanup));
     }
 }
-fn extract_readiness(mut input: ResMut<ReadinessInput>, variants: bevy::render::Extract<Res<Variants>>) {
-    input.ids = variants.materials.values().map(|(h, _)| h.id()).chain(variants.publications.keys().copied()).collect();
+fn sync_readiness_input(
+    input: &mut ReadinessInput,
+    variants: &Variants,
+    any_modified: bool,
+    last_rev: &mut Option<u64>,
+) {
+    let rev_changed = *last_rev != Some(variants.id_rev);
+    if !rev_changed && !any_modified {
+        return;
+    }
+    if rev_changed {
+        *last_rev = Some(variants.id_rev);
+        input.ids.clear();
+        input.ids.extend(variants.materials.values().map(|(h, _)| h.id()).chain(variants.publications.keys().copied()));
+    }
+    input.ids_rev = input.ids_rev.wrapping_add(1);
+}
+
+fn extract_readiness(
+    mut input: ResMut<ReadinessInput>,
+    variants: bevy::render::Extract<Res<Variants>>,
+    blend_events: bevy::render::Extract<Option<Res<Messages<AssetEvent<NifBlendMaterial>>>>>,
+    mut cursor: Local<bevy::ecs::message::MessageCursor<AssetEvent<NifBlendMaterial>>>,
+    mut last_rev: Local<Option<u64>>,
+) {
+    let any_modified = blend_events.as_ref().is_some_and(|events| {
+        cursor.read(events).any(|e| matches!(e, AssetEvent::Modified { .. }))
+    });
+    sync_readiness_input(&mut input, &variants, any_modified, &mut last_rev);
 }
 fn acknowledge_materials(
     mut input: ResMut<ReadinessInput>, shared: Res<BlendReadiness>,
     materials: Res<bevy::render::erased_render_asset::ErasedRenderAssets<bevy::pbr::PreparedMaterial>>,
     allocators: Res<bevy::render::material_bind_groups::MaterialBindGroupAllocators>,
+    mut settled_state: Local<Option<(u64, u64)>>,
 ) {
+    let hold = shared.hold.load(Ordering::Acquire);
+    // Steady-state fast path: once every current material ID is acknowledged (ready.len() == ids.len())
+    // and neither the ID set nor the hold step changed, avoid cloning/rebuilding the ready set [design].
+    if *settled_state == Some((input.ids_rev, hold)) {
+        return;
+    }
     let ids = input.ids.clone();
     input.ages.retain(|id, _| ids.contains(id));
     input.steps.retain(|id, _| ids.contains(id));
-    let hold = shared.hold.load(Ordering::Acquire);
     // Built outside the lock and swapped in: the main world's conversion asks `usable`
     // once per shape while this runs beside it (pipelined rendering).
     let mut ready = HashSet::with_capacity(ids.len());
+    let all_count = ids.len();
     for id in ids {
         let age = input.ages.entry(id).or_default();
         *age = age.saturating_add(1);
@@ -719,7 +764,9 @@ fn acknowledge_materials(
         let bound = allocators.get(&std::any::TypeId::of::<NifBlendMaterial>()).and_then(|a| a.get(material.binding.group)).is_some_and(|b| b.bind_group().is_some());
         if bound { ready.insert(id); }
     }
+    let all_ready = ready.len() == all_count;
     *shared.ready.lock().unwrap() = ready;
+    *settled_state = all_ready.then_some((input.ids_rev, hold));
 }
 
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
@@ -791,7 +838,8 @@ fn follow_setting(
     // the first cell, at PostStartup; this runs in Update).
     let layout = nvf_assets::nif_surface_blend::HeightLayout::new(nvf_play::smooth_terrain::spec().subdiv());
     cache.start(c.resolution, device.map(|d| d.limits().max_texture_dimension_2d), detail.layers(), layout);
-    *variants = Variants { readiness: variants.readiness.take(), ..default() };
+    let next_rev = variants.id_rev.wrapping_add(1);
+    *variants = Variants { readiness: variants.readiness.take(), id_rev: next_rev, ..default() };
     state.active = Some(c);
     state.shapes_pending = true;
     state.draining = None;
@@ -831,7 +879,8 @@ fn stop(mut commands: Commands, mut state: ResMut<BlendState>, mut cache: ResMut
         let passes = variants.passes;
         info!("{}", variants.verify.line(passes));
     }
-    *variants = Variants { readiness: variants.readiness.take(), ..default() };
+    let next_rev = variants.id_rev.wrapping_add(1);
+    *variants = Variants { readiness: variants.readiness.take(), id_rev: next_rev, ..default() };
     *state = BlendState { draining: Some(0), ..default() };
     info!("mesh terrain blend: stop restored-shapes={restored} tracked-shapes={} released-cells={released} kept-producer-materials={kept}", shapes.iter().count());
 }
@@ -1059,6 +1108,12 @@ fn follow_coverage(cache: &SurfaceCache, variants: &mut Variants, blends: &mut A
         }
         if done { *applied = Some(coverage); }
     }
+    if changed > 0 {
+        // In-place `get_mut` edits trigger re-prepare/re-bind on the renderer; bump
+        // `id_rev` so `extract_readiness` and `acknowledge_materials` invalidate
+        // `settled_state` and re-check readiness for the updated clones [design].
+        variants.id_rev = variants.id_rev.wrapping_add(1);
+    }
     changed
 }
 
@@ -1096,7 +1151,10 @@ fn apply_configured_variants(p: &mut Conversion, c: BlendConfig) {
     if variants.verify.on && restricted < clone_work {
         // The verify aid: the per-clone check of every recorded publication, as before.
         let restricted: usize = variants.publications.iter().map(|(id, publication)| restrict_clone(cache, blends, *id, publication)).sum();
-        if restricted > 0 { variants.verify.diverged(&format!("coverage-clones={restricted}")); }
+        if restricted > 0 {
+            variants.id_rev = variants.id_rev.wrapping_add(1);
+            variants.verify.diverged(&format!("coverage-clones={restricted}"));
+        }
     }
     let (changed, removed) = shapes_changed(shapes, removals, variants);
     let needed = pass_needed(variants, c, published, changed, materials);
@@ -1189,7 +1247,10 @@ fn full_pass(
     if variants.generation != revision {
         variants.generation = revision;
         o.evicted += variants.materials.len();
-        variants.materials.clear();
+        if !variants.materials.is_empty() {
+            variants.materials.clear();
+            variants.id_rev = variants.id_rev.wrapping_add(1);
+        }
     }
     variants.watched.clear();
     variants.census_drawn.clear();
@@ -1200,8 +1261,11 @@ fn full_pass(
         if shape.is_none() { continue; }
         if let Some(drawn) = drawn {
             ordinary_live.insert(entity);
-            if variants.ordinary_seen.insert(entity, drawn.last_changed().get()) != Some(drawn.last_changed().get()) {
-                o.evicted += usize::from(variants.materials.remove(&drawn.0.id()).is_some());
+            if variants.ordinary_seen.insert(entity, drawn.last_changed().get()) != Some(drawn.last_changed().get())
+                && variants.materials.remove(&drawn.0.id()).is_some()
+            {
+                o.evicted += 1;
+                variants.id_rev = variants.id_rev.wrapping_add(1);
             }
         }
     }
@@ -1263,6 +1327,7 @@ fn full_pass(
                 // A new clone of this publication: its coverage is checked next frame.
                 variants.surfaces.entry(publication_key(surface)).or_insert_with(|| (surface.clone(), None)).1 = None;
                 variants.materials.insert(id, (handle.clone(), stamp));
+                variants.id_rev = variants.id_rev.wrapping_add(1);
                 o.created += 1;
                 Some(handle)
             }
@@ -1306,11 +1371,19 @@ fn full_pass(
     let sources: HashSet<_> = shapes.iter().filter_map(|(_, s, _, _, _, _)| s.map(|s| s.original.id())).collect();
     let before = variants.materials.len();
     variants.materials.retain(|id, _| sources.contains(id));
-    o.evicted += before - variants.materials.len();
+    let evicted = before - variants.materials.len();
+    if evicted > 0 {
+        variants.id_rev = variants.id_rev.wrapping_add(1);
+    }
+    o.evicted += evicted;
     let live: HashSet<_> = shapes.iter().filter_map(|(_, s, _, _, _, _)| s.and_then(|s| s.enabled.as_ref().map(Handle::id))).chain(variants.materials.values().map(|(h, _)| h.id())).collect();
     let before = variants.publications.len();
     variants.publications.retain(|id, _| live.contains(id));
-    o.dropped += before - variants.publications.len();
+    let dropped = before - variants.publications.len();
+    if dropped > 0 {
+        variants.id_rev = variants.id_rev.wrapping_add(1);
+    }
+    o.dropped += dropped;
     let kept: HashSet<PublicationKey> = variants.publications.values().map(publication_key).collect();
     variants.surfaces.retain(|key, _| kept.contains(key));
     o
@@ -1347,6 +1420,10 @@ fn ready_line(surface: &crate::terrain_surface::PublishedSurface, generation: u6
     let detail = if surface.detail.is_empty() { " detail=colour".to_string() } else { format!(" detail=layers detail-quadrants={}", surface.detail.len()) };
     format!("mesh terrain blend: ready eligible-shapes={} resident-cells={} generation={generation} variant={} shape={} resolution={} shading={}{}{}{detail}", census.eligible, surface.cells, c.variant.name(), c.shape.name(), surface.resolution, c.shading.name(), weight_fields(c), census.fields())
 }
+
+#[cfg(test)]
+#[path = "mesh_terrain_blend_readiness_tests.rs"]
+mod readiness_skip_tests;
 
 #[cfg(test)]
 mod tests {
