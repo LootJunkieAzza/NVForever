@@ -1,0 +1,80 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d2_set_light_trait_rgb_wrap",
+  "description": "Wave 6D-2 read-only probe for SetLightTraitNumeric RGB byte wrapping, signed radius, and LIGH validation.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_ln_nvse": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d2_light_traits",
+      "title": "Wave 6D-2: SetLightTraitNumeric RGB wrap & LIGH check",
+      "extender": "JIP LN NVSE 57.30",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d2_22_light_grass_txst_traits_and_flags",
+          "bucket": "A",
+          "extender": "JIP LN 57.30",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/jip-traits-4.md",
+          "spec_line": 71,
+          "functions_tested": [
+            "GetLightTraitNumeric",
+            "SetLightTraitNumeric",
+            "GetGrassTraitNumeric",
+            "GetTextureSetTexture"
+          ],
+          "claim": "Verify SetLightTraitNumeric RGB/radius clamping/wrapping (static audit SD-13: R=300, R=-10, radius=-50, non-LIGH), GetGrassTraitNumeric OOB 10, and GetTextureSetTexture OOB 6.",
+          "expected": "Confirm exact byte wrap/clamp for LIGH R/G/B and radius, non-LIGH refusal, and OOB indices on GRAS and TXST.",
+          "script_lines": [
+            "ref rLt = GetFormFromMod \"FalloutNV.esm\" \"695BE\"",
+            "ref rGr = GetFormFromMod \"FalloutNV.esm\" \"17753\"",
+            "ref rTx = GetFormFromMod \"FalloutNV.esm\" \"782D2\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "float rad0 = GetLightTraitNumeric rLt 0",
+            "float r0 = GetLightTraitNumeric rLt 1",
+            "SetLightTraitNumeric rLt 1 300",
+            "float r300 = GetLightTraitNumeric rLt 1",
+            "SetLightTraitNumeric rLt 1 -10",
+            "float rNeg = GetLightTraitNumeric rLt 1",
+            "SetLightTraitNumeric rLt 1 r0",
+            "SetLightTraitNumeric rLt 0 -50",
+            "float radNeg = GetLightTraitNumeric rLt 0",
+            "SetLightTraitNumeric rLt 0 rad0",
+            "SetLightTraitNumeric rStim 0 123",
+            "float badLt = GetLightTraitNumeric rStim 0",
+            "float g0 = GetGrassTraitNumeric rGr 0",
+            "float g10 = GetGrassTraitNumeric rGr 10",
+            "string_var tx2 = GetTextureSetTexture rTx 2",
+            "string_var tx6 = GetTextureSetTexture rTx 6",
+            "PrintToConsole \"PROBE|w6d2_22_light_grass_txst_traits_and_flags|lt(rad=%.0f->%.0f,r=%.0f->300:%.0f,neg:%.0f,bad=%.0f)|gr=%.0f/%.0f|txLen=%g/%g\" rad0 radNeg r0 r300 rNeg badLt g0 g10 (sv_Length tx2) (sv_Length tx6)"
+          ]
+        }
+      ]
+    }
+  ]
+}

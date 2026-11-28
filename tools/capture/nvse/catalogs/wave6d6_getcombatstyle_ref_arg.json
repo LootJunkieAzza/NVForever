@@ -1,0 +1,80 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d6_getcombatstyle_ref_arg",
+  "description": "Wave 6D-6 read-only probe verifying GetCombatStyle returns 0 (NULL) when passed a placed actor ref argument.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d6_getcombatstyle_ref_arg",
+      "title": "GetCombatStyle placed ref argument returns NULL",
+      "extender": "JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d6p3_35_combat_style_precedence",
+          "bucket": "combat_style",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/combat-style-session.md",
+          "spec_line": 48,
+          "functions_tested": [
+            "GetCombatStyle",
+            "SetCombatStyle",
+            "TempCloneForm"
+          ],
+          "claim": "SD-15: Verify rNpc.GetCombatStyle vs GetCombatStyle rNpc vs GetCombatStyle rBase after rNpc.SetCombatStyle with stock, cloned, and clone-of-clone CSTY.",
+          "expected": "Prove whether GetCombatStyle rNpc returns live SetCombatStyle override or base traits_source.",
+          "script_lines": [
+            "ref rBase = GetFormFromMod \"FalloutNV.esm\" \"2E29D\"",
+            "ref rCsR = GetFormFromMod \"FalloutNV.esm\" \"2A44B\"",
+            "ref rCsL = GetFormFromMod \"FalloutNV.esm\" \"137AC0\"",
+            "ref rCl1 = TempCloneForm rCsR",
+            "ref rCl2 = TempCloneForm rCl1",
+            "ref rNpc = Player.PlaceAtMe rBase 1 110 0",
+            "rNpc.SetRestrained 1",
+            "ref rG0 = rNpc.GetCombatStyle",
+            "ref rGB = GetCombatStyle rBase",
+            "rNpc.SetCombatStyle rCsR",
+            "ref rG1 = rNpc.GetCombatStyle",
+            "ref rG1Arg = GetCombatStyle rNpc",
+            "rNpc.SetCombatStyle rCl1",
+            "ref rGCl1 = rNpc.GetCombatStyle",
+            "ref rGCl1Arg = GetCombatStyle rNpc",
+            "rNpc.SetCombatStyle rCl2",
+            "ref rGCl2 = rNpc.GetCombatStyle",
+            "rNpc.SetCombatStyle rCsL",
+            "ref rGFin = rNpc.GetCombatStyle",
+            "rNpc.Disable",
+            "rNpc.MarkForDelete",
+            "PrintToConsole \"PROBE|w6d6p3_35_combat_style_precedence|init(ref=%i,base=%i)|setR(ref=%i,arg=%i)|cl1(ref=%i,arg=%i,eq=%g)|cl2(eq=%g)|fin=%i\" rG0 rGB rG1 rG1Arg rGCl1 rGCl1Arg (rGCl1 == rCl1) (rGCl2 == rCl2) rGFin"
+          ]
+        }
+      ]
+    }
+  ]
+}

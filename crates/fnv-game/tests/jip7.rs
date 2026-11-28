@@ -210,6 +210,8 @@ fn ammunition_and_its_effects() {
     q(&mut g, "SetAmmoProjectile TestAmmo TestProjectile2");
     assert_eq!(g.num_field(FormId(AMMO), "DAT2", "projectile"), f64::from(PROJ2));
     assert_eq!(n(&mut g, "GetAmmoCasing TestAmmo"), f64::from(CASING));
+    q(&mut g, "SetAmmoCasing TestAmmo 0");
+    assert_eq!(n(&mut g, "GetAmmoCasing TestAmmo"), f64::from(CASING), "explicit null 0 is a no-op [observed: w6d2_11]");
     q(&mut g, "SetAmmoCasing TestAmmo");
     assert_eq!(n(&mut g, "GetAmmoCasing TestAmmo"), 0.0);
     // The effects list: 1 when it changed.
@@ -362,7 +364,8 @@ fn weathers_and_climates() {
     assert_eq!(n(&mut g, "ClimateAddWeatherType TestClimate TestWeather2 30 TestGlobal"), 1.0);
     assert_eq!(n(&mut g, "ClimateAddWeatherType TestClimate TestWeather 45"), 1.0);
     assert_eq!(n(&mut g, "GetClimateNumWeatherTypes TestClimate"), 2.0);
-    assert_eq!((n(&mut g, "GetClimateNthWeatherChance TestClimate 0"), n(&mut g, "GetClimateNthWeatherGlobal TestClimate 1")), (45.0, f64::from(GLOB)));
+    // ClimateAddWeatherType prepends new entries at index 0 [observed: w6d10_17].
+    assert_eq!((n(&mut g, "GetClimateNthWeatherGlobal TestClimate 0"), n(&mut g, "GetClimateNthWeatherChance TestClimate 1")), (f64::from(GLOB), 45.0));
     assert_eq!(n(&mut g, "ClimateRemoveWeatherType TestClimate TestWeather"), 1.0);
     assert_eq!(n(&mut g, "ClimateRemoveWeatherType TestClimate TestWeather"), 0.0);
     assert_eq!((n(&mut g, "GetClimateNumWeatherTypes TestClimate"), n(&mut g, "GetClimateNthWeatherType TestClimate 0")), (1.0, f64::from(WTHR2)));

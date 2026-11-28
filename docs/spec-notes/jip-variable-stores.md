@@ -26,6 +26,7 @@ a string [documented: AuxiliaryVariableGetType].
 | AuxiliaryVariableGetType (AuxVarType) | index; base form | 0 none, 1 float, 2 reference, 4 string | [documented: AuxiliaryVariableGetType] |
 | AuxiliaryVariableGetSize (AuxVarSize) | base form | element count, 0 if undefined | [documented: AuxiliaryVariableGetSize] |
 | AuxiliaryVariableErase (AuxVarErase) | index (missing or -1: the whole variable); base form | the new element count | [documented: AuxiliaryVariableErase] |
+| AuxiliaryVariableEraseAll (AuxVarEraseAll) | class 0–3; base form | 0 | erases all variables of that class on the owner (`AuxVarEraseAll 1 rCaps` clears temporary `*w6d11_ea1` while preserving permanent `w6d11_ea0`) [documented: AuxiliaryVariableEraseAll; observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_36_auxvar_scopes_erase_eraseall_and_namelen` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `ea(st=2,remT=0,remP=1)`; no DLL or source consulted] |
 | AuxiliaryVariableGetAll (AuxVarGetAll) | class 0–3; base form | a string map: variable name → its values | classes: 0 permanent-private, 1 temporary-private, 2 permanent-public, 3 temporary-public [documented: AuxiliaryVariableGetAll] |
 | AuxiliaryVariableGetAsArray (AuxVarGetAsArr) | base form | array of the values | [documented] |
 | AuxVarGetFltCond | quest, string-variable index | element 0 as a float | a condition function: the name comes from a string variable of the quest's script [documented: AuxVarGetFltCond] |
@@ -77,7 +78,7 @@ the base form given last) and whose values are a float, a form or a string
 | RefMapArraySetFloat (RefMapSetFlt), …SetRef, …SetString | sets the key's value, creating the entry [documented: RefMapArraySetFloat] |
 | RefMapArrayGetFloat (RefMapGetFlt), …GetRef, …GetString | the key's value; 0 when the map, the key or the type does not match [documented: RefMapArrayGetFloat] |
 | RefMapArrayGetType (RefMapGetType) | 0 none, 1 float, 2 form, 4 string [documented] |
-| RefMapArrayGetSize (RefMapSize), RefMapArrayGetKeys (RefMapKeys), RefMapArrayGetAll (RefMapGetAll) | count, keys array, everything [documented: their pages] |
+| RefMapArrayGetSize (RefMapSize), RefMapArrayGetKeys (RefMapKeys), RefMapArrayGetAll (RefMapGetAll) | count, keys array, and `RefMapGetAll class` (`0..=3`) returning a `StringMap` keyed by RefMap name (`RefMapGetAll 1` returns `StringMap` containing `"*w6d11_it"`) [documented: their pages; observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_39_refmap_iter_keys_getall_erase_validate` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `ga(st=2,t=[StringMap],sz=1,has=1)`; no DLL or source consulted] |
 | RefMapArrayGetFirst (RefMapFirst), RefMapArrayGetNext (RefMapNext) | a two-element array [key, value]; Next continues from the last First/Next call and gives ar_Null after the last pair [documented: RefMapArrayGetNext] |
 | RefMapArrayErase (RefMapErase), RefMapArrayDestroy (RefMapDestroy) | removes a key / the whole map [documented] |
 | RefMapArrayValidate (RefMapValidate) | removes keys whose references no longer exist and returns the new size [documented] |
@@ -100,9 +101,15 @@ applies to RefMaps too [hypothesis].
   insertion order [decision; not observed: each probe used one or two keys].
 - The not-probed setters AuxiliaryVariableSetFromArray, AuxiliaryVariableEraseAll and
   RefMapArrayErase follow their pages.
-- **No owner** (an empty ref variable as the form argument, on a script with no calling
-  reference, such as a UDF an event called): a getter gives what an unset variable
-  gives (0, an empty string, no form, size 0, an empty array) and the statement goes
+- **Undefined variable / no owner** (`AuxVarGetAsArr` on an undefined AuxVar returns
+  `ar_Null`, `ar_Size == -1` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base
+  masters, read-only `PrintToConsole` probe `w6d11_37_auxvar_asarray_and_setfromarr_edges`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `mis(sz=-1)`; no DLL or source consulted]). For an empty ref variable as the form
+  argument on a script with no calling reference (such as a UDF an event called): a getter
+  gives what an unset variable gives (0, an empty string, no form, size 0, `ar_Null`) and
+  the statement goes
   on; a setter gives 0 and keeps nothing [documented: AuxiliaryVariableGetFloat, "will
   (presumably) return 0 if the variable is not defined"; observed: Fallout: New Vegas
   1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room

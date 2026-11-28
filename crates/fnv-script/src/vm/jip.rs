@@ -196,7 +196,16 @@ impl Vm<'_, '_> {
                 let id = |v: &XVal| if let XVal::Array(i) = v { Some(*i).filter(|&i| i != 0) } else { None };
                 let (Some(ia), Some(ib)) = (id(&a), id(&b)) else { return num(0.0) };
                 let store = self.store()?;
-                let list = store.array(ia).is_some_and(|x| x.kind == ArrayKind::List);
+                let (Some(ka), Some(kb)) = (store.array(ia).map(|x| x.kind), store.array(ib).map(|x| x.kind)) else {
+                    return num(0.0);
+                };
+                // Cross-kind concatenation is a no-op, and StringMap key collisions are
+                // case-insensitive [observed: `w6d11_19_ar_cat_jip_lists_maps_smap_case_and_cross`,
+                // `smap(a0=1,sz0=3,a1=99)|cross(st=2,sz=2)`].
+                if ka != kb {
+                    return num(0.0);
+                }
+                let list = ka == ArrayKind::List;
                 let mut len = store.array(ia).map_or(0, |x| x.entries.len());
                 let add: Vec<(XKey, XVal)> = store.array(ib).map(|x| x.entries.clone()).unwrap_or_default();
                 let have: Vec<XKey> = store.array(ia).map(|x| x.entries.iter().map(|(k, _)| k.clone()).collect()).unwrap_or_default();
@@ -204,7 +213,7 @@ impl Vm<'_, '_> {
                     if list {
                         self.set_element(&a, &XVal::Num(len as f64), v)?;
                         len += 1;
-                    } else if replace || !have.contains(&k) {
+                    } else if replace || !have.iter().any(|h| h.cmp(&k) == std::cmp::Ordering::Equal) {
                         self.set_element(&a, &k.value(), v)?;
                     }
                 }
@@ -279,10 +288,14 @@ impl Vm<'_, '_> {
                 let ok = i >= 0.0 && self.host.mod_name(i as u32).is_some();
                 num(if ok { i.trunc() } else { -1.0 })
             }
-            // [documented: GetFormFromMod; observed: "14" and "000014" give the player].
+            // [documented: GetFormFromMod; observed: "14" and "000014" give the player;
+            // observed: `w6d11_08_form_resolution_gffm_buildref_sourcemod`,
+            // `gffm(pad=1,d8=1,ox=1,lo=1,dm=1,mid=1,mmod=1)`].
             "getformfrommod" | "gffm" => {
                 let (p, h) = (text(val(self, 0)?).unwrap_or_default(), text(val(self, 1)?).unwrap_or_default());
-                Ok(Some(XVal::Ref(self.plugin_form(&p, &h).unwrap_or(0))))
+                let h = h.trim();
+                let h = h.strip_prefix("0x").unwrap_or(h);
+                Ok(Some(XVal::Ref(self.plugin_form(&p, h).unwrap_or(0))))
             }
             // [documented: StringToRef; observed: "00000014" gives the player] RefToString's
             // "Plugin:hex", or a whole FormID in hex.
@@ -297,8 +310,12 @@ impl Vm<'_, '_> {
             // [documented: RefToString; observed: "FalloutNV.esm:104C0C"] upper-case hex
             // without the mod index or leading zeros.
             "reftostring" => {
+                // Passed as an argument, RefToString describes the base form; called on
+                // a reference it describes the reference itself [documented: RefToString;
+                // observed: `w6d11_09_formid_strings_reftostring_stringtoref`,
+                // `rts(on=[FalloutNV.esm:104C0F],arg=[FalloutNV.esm:104C0C],dm=[DeadMoney.esm:13F71],nul=[])`].
                 let f = match c.args.first() {
-                    Some(a) => self.xeval(a)?.value()?.as_form(),
+                    Some(a) => self.xeval(a)?.value()?.as_form().map(|f| self.host.base_form(f).unwrap_or(f)),
                     None => match &c.on {
                         Some(e) => self.xeval(e)?.value()?.as_form(),
                         None => None,
@@ -592,6 +609,7 @@ impl Vm<'_, '_> {
                 self.host.show_text(&text, buttons);
                 Ok(Some(XVal::Num(0.0)))
             }
+            "auxiliaryvariableeraseall" => self.aux_erase_all(c).map(Some),
             _ => self.jip_store_function(n, c),
         }
     }
@@ -639,7 +657,7 @@ impl Vm<'_, '_> {
                         if let Some(XExpr::Var { var, .. }) = c.args.get(1) {
                             self.write_var(var, XVal::Str(msg.clone()))?;
                         }
-                        XVal::Num(regex_error_code(&msg))
+                        XVal::Num(regex_error_code(&format!("{msg} {e:?}")))
                     }
                 }
             }
@@ -925,6 +943,9 @@ impl Vm<'_, '_> {
         if aux && op == "getall" {
             return self.aux_get_all(c).map(Some);
         }
+        if !aux && op == "getall" {
+            return self.refmap_get_all(c).map(Some);
+        }
         let name = match self.jarg(c, 0)? {
             Some(XVal::Str(s)) => s.to_lowercase(),
             _ => return Err(VmError::Type(format!("{n} without a name"))),
@@ -984,11 +1005,6 @@ impl Vm<'_, '_> {
                 let keys = stores(self.store()?, &name).refmaps.get(&name).map(|m| m.iter().map(|(k, _)| XVal::Ref(*k)).collect()).unwrap_or_default();
                 self.jlist(keys)?
             }
-            "getall" => {
-                let pairs = stores(self.store()?, &name).refmaps.get(&name).cloned().unwrap_or_default();
-                let entries = pairs.into_iter().map(|(k, v)| (XKey::Num(f64::from(k)), v)).collect();
-                XVal::Array(self.store()?.new_array(ArrayKind::Map, entries))
-            }
             // [documented: RefMapArrayGetNext; observed: Next after the last pair is
             // ar_Null] a [key, value] list.
             "getfirst" | "getnext" => {
@@ -1038,6 +1054,42 @@ impl Vm<'_, '_> {
             _ => return Ok(None),
         };
         Ok(Some(v))
+    }
+
+    /// RefMapArrayGetAll class: a string map of RefMap name -> Map of key -> value for
+    /// class 0..=3 (0 permanent-private, 1 temporary-private, 2 permanent-public,
+    /// 3 temporary-public) [documented: RefMapArrayGetAll; observed:
+    /// `w6d11_39_refmap_iter_keys_getall_erase_validate`,
+    /// `ga(st=2,t=[StringMap],sz=1,has=1)`].
+    fn refmap_get_all(&mut self, c: &XCall) -> Result<XVal, VmError> {
+        let class = self.jindex(c, 0, 0)?;
+        let plugin = self.host.calling_plugin();
+        let x = self.store()?;
+        let s = if class.rem_euclid(2) == 1 { &x.jip_temp } else { &x.jip };
+        let private_class = (class & 2) == 0;
+        let maps: Vec<(String, Vec<(u32, XVal)>)> = s
+            .refmaps
+            .iter()
+            .filter_map(|(k, pairs)| {
+                let (bare, owner) = match k.split_once(PRIVATE) {
+                    Some((b, p)) => (b.to_string(), Some(p.to_string())),
+                    None => (k.clone(), None),
+                };
+                let public = bare.trim_start_matches('*').starts_with('_');
+                let shown = match &plugin {
+                    None => owner.is_none(),
+                    Some(p) if private_class => !public && owner.as_deref() == Some(p.as_str()),
+                    Some(_) => public,
+                };
+                shown.then(|| (bare, pairs.clone()))
+            })
+            .collect();
+        let mut entries = Vec::new();
+        for (k, pairs) in maps {
+            let inner = pairs.into_iter().map(|(f, v)| (XKey::Num(f64::from(f)), v)).collect();
+            entries.push((XKey::Str(k), XVal::Array(x.new_array(ArrayKind::Map, inner))));
+        }
+        Ok(XVal::Array(x.new_array(ArrayKind::StringMap, entries)))
     }
 
     /// AuxiliaryVariableSet…/Get…/GetType/GetSize/Erase/GetAsArray.
@@ -1133,8 +1185,10 @@ impl Vm<'_, '_> {
                 XVal::Num(count as f64)
             }
             "getasarray" => {
-                let Some(o) = self.jowner_opt(c, 1)? else { return self.jlist(Vec::new()).map(Some) };
-                let l = stores(self.store()?, name).aux.get(&o).and_then(|m| m.get(name)).cloned().unwrap_or_default();
+                let Some(o) = self.jowner_opt(c, 1)? else { return Ok(Some(XVal::Array(0))) };
+                let Some(l) = stores(self.store()?, name).aux.get(&o).and_then(|m| m.get(name)).cloned() else {
+                    return Ok(Some(XVal::Array(0)));
+                };
                 self.jlist(l)?
             }
             _ => return Ok(None),
@@ -1192,6 +1246,38 @@ impl Vm<'_, '_> {
         Ok(XVal::Array(x.new_array(ArrayKind::StringMap, entries)))
     }
 
+    /// AuxiliaryVariableEraseAll class [base]: erase every auxiliary variable on the owner
+    /// matching class 0..=3 (0 permanent-private, 1 temporary-private, 2 permanent-public,
+    /// 3 temporary-public) [documented: AuxiliaryVariableEraseAll; observed:
+    /// `w6d11_36_auxvar_scopes_erase_eraseall_and_namelen`, `ea(st=2,remT=0,remP=1)`].
+    fn aux_erase_all(&mut self, c: &XCall) -> Result<XVal, VmError> {
+        let class = self.jindex(c, 0, 0)?;
+        let Some(o) = self.jowner_opt(c, 1)? else { return Ok(XVal::Num(0.0)) };
+        let plugin = self.host.calling_plugin();
+        let x = self.store()?;
+        let s = if class.rem_euclid(2) == 1 { &mut x.jip_temp } else { &mut x.jip };
+        let private_class = (class & 2) == 0;
+        if let Some(m) = s.aux.get_mut(&o) {
+            m.retain(|k, _| {
+                let (bare, owner) = match k.split_once(PRIVATE) {
+                    Some((b, p)) => (b, Some(p)),
+                    None => (k.as_str(), None),
+                };
+                let public = bare.trim_start_matches('*').starts_with('_');
+                let erase = match &plugin {
+                    None => owner.is_none(),
+                    Some(p) if private_class => !public && owner == Some(p.as_str()),
+                    Some(_) => public,
+                };
+                !erase
+            });
+            if m.is_empty() {
+                s.aux.remove(&o);
+            }
+        }
+        Ok(XVal::Num(0.0))
+    }
+
     /// A form argument as a base form: a reference gives its base.
     fn jip_base(&mut self, v: XVal) -> Result<u32, VmError> {
         let f = v.value()?.as_form().unwrap_or(0);
@@ -1208,23 +1294,29 @@ impl Vm<'_, '_> {
 }
 
 /// ValidateRegex's code for a pattern error [documented: ValidateRegex lists the codes;
-/// which message is which is our reading, hypothesis]: 5 brackets, 6 parentheses,
-/// 7 braces, 3 escape, 4 back-reference, 9 range, 11 repeat, else 14 (unknown).
+/// observed: `w6d11_31_validateregex_error_codes_and_outvar` (`brk=5`, `par=6`, `brc=8`
+/// for `a{3,1}`, `rng=9` for `[z-a]`, `rep=11`, `esc=3`); `a{x}` (`bx=8:90`) still returns
+/// `0` under `fancy-regex`'s literal-`{` fallback (deferred follow-up); mapping of remaining
+/// `fancy-regex` error strings is our reading, hypothesis]: 5 brackets, 6 parentheses,
+/// 8 bad brace range, 7 other braces, 3 escape, 4 back-reference, 9 range, 11 repeat,
+/// else 14 (unknown).
 fn regex_error_code(msg: &str) -> f64 {
     let m = msg.to_ascii_lowercase();
     let has = |w: &[&str]| w.iter().any(|w| m.contains(w));
-    if has(&["class", "bracket"]) {
+    if has(&["repetitioncountinvalid", "invalid repetition count range", "repetition quantifier"]) {
+        8.0
+    } else if has(&["classrangeinvalid", "character class range", "range"]) {
+        9.0
+    } else if has(&["class", "bracket"]) {
         5.0
     } else if has(&["paren", "group"]) {
         6.0
-    } else if has(&["brace", "counted", "repetition quantifier"]) {
+    } else if has(&["brace", "counted"]) {
         7.0
     } else if has(&["backref"]) {
         4.0
-    } else if has(&["escape"]) {
+    } else if has(&["escape", "invalidhex"]) {
         3.0
-    } else if has(&["range"]) {
-        9.0
     } else if has(&["repeat", "repetition"]) {
         11.0
     } else {

@@ -503,3 +503,13 @@ condition, if any, is the record's (not looked at beyond its entry).
 
 Checks: `fnv-game` `aid::tests::better_healing_multiplies_restored_health_only` (the
 captured figures); smoke `perk-better-healing`.
+
+### `GetPerkModifier` tab-0 target actor forwarding (`EP 56/58/1/2`) [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probe; zero DLL, PDB, or third-party source consulted), `w6d6p2_15_ep56_ep58_and_other_actor` (`tools/capture/nvse/catalogs/wave6d6_getperkmodifier_other.json`)]: `GetPerkModifier` passes the supplied actor reference as `other` for tab-0 conditions (`GetDetected` on `TheProfessional` -> `120.0`, `Ninja` EP 1 -> `11.50` and EP 2 -> `125.0`), and stacks EP 56 (`Toughness +3`, `Stonewall +5`, `HitTheDeck +25`) and EP 58 (`ShotgunSurgeon 10`, `PiercingStrike 15`):
+
+```text
+PROBE|w6d6p2_15_ep56_ep58_and_other_actor|ep56(10,kn,gr,sw)=13.0,18.0,38.0,18.0|ep58(sg,kn,10)=10.0,15.0,0.0|prf=120.0|nnj(1,2)=11.50,125.0
+```
+
+- When both optional form arguments (`tabs[0]` and `tabs[1]`) resolve to actor references (including leveled `LVLN`/`LVLC` and `TempCloneForm` actors), `GetPerkModifier` prefers `tabs[1]` over `tabs[0]` as `other` [design].

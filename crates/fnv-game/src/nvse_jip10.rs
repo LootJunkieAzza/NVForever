@@ -172,10 +172,12 @@ fn event_code(g: &Game, name: &str) -> Option<u16> {
     g.data.table.blocks.iter().find(|(_, n)| n.eq_ignore_ascii_case(name.trim())).map(|(c, _)| *c)
 }
 
-/// GetObjectiveTargets gives an objective's targets: shown and not done, or changed by a
-/// script [observed: one done objective gave none; hypothesis: the rule].
+/// GetObjectiveTargets and GetObjectiveHasTarget return targets only while the objective
+/// is displayed and not completed — even if AddObjectiveTarget/SetObjectiveNthTarget
+/// mutated its targets before completion [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN
+/// 57.30, w6d9_06_objective_targets_add_remove_set_nth: un(-1->-1)|disp=2|add2=2,hasD=1|oob=2|set0HasDr=1|rmHasD=0|doneN=-1].
 fn targets_kept(g: &Game, q: FormId, i: i32) -> bool {
-    g.objective_targets_changed(q, i) || g.quests.get(&q).and_then(|s| s.objectives.get(&i)).is_some_and(|o| o.displayed && !o.completed)
+    g.quests.get(&q).and_then(|s| s.objectives.get(&i)).is_some_and(|o| o.displayed && !o.completed)
 }
 
 /// A quest is shown in the Pip-Boy: it has a name and an objective shown or done
@@ -631,3 +633,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_objective_targets_tests.rs"]
+mod w6d9_objective_targets_tests;

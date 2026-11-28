@@ -441,11 +441,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // record's, a "Use AI Data" template's until SetServiceFlag changes the NPC's
         // [observed: lutana1 actor.service.tender2.4, actor.setservice.tender2]
         // ([`ai_record`]).
+        // Returns 1 when any bit in the mask is set (0 for mask 0), matching GetZoneFlag
+        // [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+        // w6d9_38_vendor_service_flags_and_masks: pete(w=0->1->0,m3=0:1:1)].
         "getserviceflag" => {
             let Some(rec) = form(args, 0).and_then(|f| ai_record(g, f)) else { return Some(Ok(zero)) };
             let flags = services_of(g, rec);
             let bit = num(args, 1).map_or(0, |b| b as i64 as u32);
-            yes(bit != 0 && flags & bit == bit)
+            yes(flags & bit != 0)
         }
         // `npc flag on`: changes the NPC record's flags, which the vendor's services read
         // unless "Autocalc Service" takes the class's (`Game::services`).
@@ -482,12 +485,19 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ZNAM of its Traits source (#2138); none DefaultCombatstyle [observed: lutana1
         // actor.combatstyle.doc, actor.combatstyle.ref.docref, actor.combatstyle.player].
         "getcombatstyle" => {
-            let own = if let Some(b) = form(args, 0) {
-                traits_source(g, b).and_then(|s| g.data.actors.get(&s)).and_then(|d| d.combat_style)
+            // Passing a placed reference or non-actor base as the explicit argument
+            // returns 0 (NULL) rather than DefaultCombatstyle
+            // [observed: w6d6p3_35_combat_style_precedence].
+            if let Some(b) = form(args, 0) {
+                if !g.data.actors.contains_key(&b) {
+                    return Some(Ok(XVal::Ref(0)));
+                }
+                let own = traits_source(g, b).and_then(|s| g.data.actors.get(&s)).and_then(|d| d.combat_style);
+                reff(own.or_else(|| g.data.by_edid("DefaultCombatstyle")))
             } else {
-                subject.and_then(|r| g.combat_style_id(r))
-            };
-            reff(own.or_else(|| g.data.by_edid("DefaultCombatstyle")))
+                let own = subject.and_then(|r| g.combat_style_id(r));
+                reff(own.or_else(|| g.data.by_edid("DefaultCombatstyle")))
+            }
         }
         // ---- perks ----
         // [documented: IsTrait] PERK DATA Trait, `Game::perk_def` first (`SetPerkFlag`).
@@ -757,9 +767,21 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // Non-`SPEL` replacement (`rStim`) leaves the existing VATS effect unchanged [observed:
+        // `w6d2_04_weapon_ammo_and_mod_traits`]; explicit null `0` no-op, omitted arg 1 clear,
+        // non-`WEAP` rejection, and `WEAP`/`SPEL` `unclone()` handling are [hypothesis]/[design].
         "setweaponvatseffect" => {
-            if let Some(w) = form(args, 0).filter(|&w| g.data.sig(w) == Some(*b"WEAP")) {
-                g.field_overrides.insert((w, "VATS/effect".into()), XVal::Ref(form(args, 1).map_or(0, |f| f.0)));
+            if let Some(w) = form(args, 0).filter(|&w| g.data.sig(g.unclone(w)) == Some(*b"WEAP")) {
+                match args.get(1) {
+                    None => {
+                        g.field_overrides.insert((w, "VATS/effect".into()), XVal::Ref(0));
+                    }
+                    Some(_) => {
+                        if let Some(sp) = form(args, 1).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"SPEL")) {
+                            g.field_overrides.insert((w, "VATS/effect".into()), XVal::Ref(sp.0));
+                        }
+                    }
+                }
             }
             zero
         }
@@ -891,3 +913,7 @@ fn set_playable(g: &mut Game, f: FormId, on: bool) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+#[path = "w6d9_service_flag_mask_tests.rs"]
+mod w6d9_service_flag_mask_tests;

@@ -38,7 +38,13 @@ pages, IDs 0–10]:
 | 0–3 | tag skill #1–#4 (actor value codes) | DATA tag_skills[n] |
 | 4–10 | base Strength … Luck | ATTR strength … luck |
 
-SetClassTraitNumeric returns the value it set [documented: returnType traitValue].
+SetClassTraitNumeric returns `0` (not the trait value) while updating the trait [observed:
+Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse`
+(`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe;
+zero writes to game install or Saves), `w6d2p3_24_class_and_faction_reputation_and_ranks`
+(`tools/capture/nvse/catalogs/wave6d2_set_class_trait_return_zero.json`):
+`PROBE|w6d2p3_24_class_and_faction_reputation_and_ranks|cls(ret=0,v=5->8,cf20=0->0)|rep(badEq0=1,badZ=0,nullZ=0,omitZ=1)|rk(nth=[Squire],arr0=[Squire])`;
+zero DLL, PDB, or third-party source consulted].
 
 `GetClassFlag class id` / `SetClassFlag class id value` [documented: IDs 0–19]:
 - 0 Playable and 1 Guard are DATA flags bits 0 and 1.
@@ -72,7 +78,17 @@ FollowersCombatStyleRanged 43 reads -20, CSAD's first field; 44 reads 0; the sam
 blue (DATA radius, color.red/green/blue), 4 falloff exponent, 5 FOV (DATA), 6 fade
 (FNAM). `Get/SetLightFlag light id` [documented: IDs 0–31]: DATA flags bits. The page's
 11 and 12 (colour shift) have no schema name and read the bit all the same.
-BasementLightFillWarm: radius 200, red 177, fade 1.25.
+BasementLightFillWarm: radius 200, red 177, fade 1.25. `SetLightTraitNumeric` wraps red
+channel `1` modulo 256 (`300 -> 44`, `-10 -> 246`), preserves signed radius (`0`: `200 -> -50`),
+and ignores non-`LIGH` forms (`bad=0`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
+JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+isolated clean-room staging copy (read-only probe; zero writes to game install or Saves),
+`w6d2_22_light_grass_txst_traits_and_flags`
+(`tools/capture/nvse/catalogs/wave6d2_set_light_trait_rgb_wrap.json`):
+`PROBE|w6d2_22_light_grass_txst_traits_and_flags|lt(rad=200->-50,r=177->300:44,neg:246,bad=0)|gr=30/0|txLen=36/0`;
+zero DLL, PDB, or third-party source consulted]; applying the same modulo-256 wrap to green/blue
+channels `2..=3` and `.trunc()` truncation on integer traits `0..=3` are [hypothesis], and
+ignoring non-finite inputs (`raw.is_finite()`) is [design].
 
 ## 5. Grass (GRAS)
 
@@ -142,10 +158,33 @@ not decode yet.
 ## 9. Factions, cells, waters, sounds
 
 - `Get/SetFactionReputationType faction`: FACT WMI1 [documented: its page; the field: the
-  schema's Reputation]. NCRFactionNV reads 0F43DE.
+  schema's Reputation]. NCRFactionNV reads 0F43DE. On a `FACT`, `SetFactionReputationType`
+  treats non-`REPU` forms and explicit null (`0`) as no-ops while omitting the second argument
+  clears `WMI1` to `0` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+  2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+  clean-room staging copy (read-only probe; zero writes to game install or Saves),
+  `w6d2p5_01_faction_reputation_validate`
+  (`tools/capture/nvse/catalogs/wave6d2_set_faction_reputation_validate.json`):
+  `PROBE|w6d2p5_01_faction_reputation_validate|badEq0=1,badZ=0,nullZ=0,omitZ=1`; zero DLL,
+  PDB, or third-party source consulted]; rejecting non-`FACT` targets and resolving
+  `TempCloneForm` aliases via `unclone()` on both arguments are [design] / [hypothesis]
+  (unprobed).
 - `Get/SetCellClimate`, `Get/SetCellLightingTemplate`, `Get/SetCellNoiseTexture`: CELL
   XCCM, LTMP and XNAM [documented: their pages]. Gomorrah00, the pages' example, has none
-  of the first two (0).
+  of the first two (0). `SetCellClimate` (`CLMT`), `SetCellLightingTemplate` (`LGTM`), and
+  `SetWaterSound` (`SOUN`) clear to `0` only when the 2nd arg is omitted and treat explicit
+  null (`0`) and wrong-type replacement forms as no-ops [observed: Fallout: New Vegas 1.4.0.525
+  + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official
+  base masters, isolated clean-room staging copy (read-only probes; zero writes to game install
+  or Saves), `w6d2_14_cell_water_form_and_set_clear` (for `SetWaterSound` wrong-type rejection
+  `ws(badEq0=1,badZ=0)`), `w6d2_15_cell_imagespace_climate_lgtm_noise` (for `SetCellClimate`
+  and `SetCellLightingTemplate` wrong-type rejection), and `w6d2p2_50_ref_setters_omit_null`
+  (`tools/capture/nvse/catalogs/wave6d2_cell_water_ref_setters_validate.json`):
+  `PROBE|w6d2_14_cell_water_form_and_set_clear|curZ=1,dam0z=0|cw(set=1,badEqW=1,badZ=0,nullEqW=1,nullZ=0)|ws(badEq0=1,badZ=0)|we(set=1,clrZ=0)`,
+  `PROBE|w6d2_15_cell_imagespace_climate_lgtm_noise|is=1|cc(set=1,badEqC=1,badZ=0)|lt(set=1,badEqL=1,badZ=0)|cf17=0->0`,
+  and `PROBE|w6d2p2_50_ref_setters_omit_null|cc(nZ=0,oZ=1)|lt(nZ=0,oZ=1)|ws(nZ=0,oZ=1)|we(oZ=1)|cw(oZ=1)|bm(oZ=1)`;
+  zero DLL, PDB, or third-party source consulted]; arg-0 `CELL`/`WATR` target-signature
+  validation is [documented] / [hypothesis].
 - `Get/SetWaterSound`, `Get/SetWaterNoiseTexture`: WATR SNAM and NNAM [documented]. NVCleanWater:
   sound 167340, noise `Data\Textures\Water\WastelandWaterPotomac.dds`. Not built:
   GetWaterTrait's 51 IDs, many of which its page leaves "Unknown".

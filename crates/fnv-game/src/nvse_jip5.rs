@@ -40,6 +40,10 @@ fn json_num(v: Option<&Json>) -> f64 {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d12_bptd_ragdoll_tests.rs"]
+mod w6d12_bptd_ragdoll_tests;
+
 /// A body part's numeric trait 0-18 [documented: GetBodyPartTraitNumeric's table]: the
 /// BPND field.
 const PART_NUMERIC: [&str; 19] = [
@@ -121,7 +125,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }),
         "setbodypartdataragdoll" => {
             if let Some(b) = of_sig(g, form(args, 0), b"BPTD") {
-                g.field_overrides.insert((b, "RAGA/".into()), XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
+                if args.len() < 2 {
+                    g.field_overrides.insert((b, "RAGA/".into()), XVal::Ref(0));
+                } else if let Some(r) = of_sig(g, form(args, 1), b"RGDL") {
+                    g.field_overrides.insert((b, "RAGA/".into()), XVal::Ref(r.0));
+                }
             }
             zero
         }
@@ -149,7 +157,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let path = usize::try_from(t as i64).ok().and_then(|i| if forms { PART_FORMS.get(i) } else { PART_NUMERIC.get(i) }).copied();
             let Some(path) = path.filter(|_| g.body_part(b, part).is_some()) else { return Some(Ok(if forms { XVal::Ref(0) } else { zero })) };
             if name.starts_with("set") {
-                let v = if forms { XVal::Ref(form(args, 3).map_or(0, |f| f.0)) } else { XVal::Num(num(args, 3, 0.0)) };
+                let v = if forms {
+                    let want = match t as i64 {
+                        0 | 1 => b"EXPL",
+                        2 | 3 => b"DEBR",
+                        _ => b"IPDS",
+                    };
+                    XVal::Ref(of_sig(g, form(args, 3), want).map_or(0, |f| f.0))
+                } else {
+                    XVal::Num(num(args, 3, 0.0))
+                };
                 g.field_overrides.insert((b, format!("BPND#{part}/{path}")), v);
                 zero
             } else if forms {
@@ -305,9 +322,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             Some(XVal::Ref(r)) => r,
             _ => 0,
         }),
+        // Non-WATR forms (e.g. Stimpak) are ignored and leave the previous water type
+        // intact [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 +
+        // JIP LN NVSE 57.30 (5730), 2026-11-25,
+        // `w6d10_12_worldspace_water_type_noise_tex_and_cell_flags_lnam`:
+        // `wWat(wnv=00030009,str=0016663E,set=1,badEqDef=1,badZ=0)`].
         "setworldspacewatertype" => {
-            if let Some(w) = of_sig(g, form(args, 0), b"WRLD") {
-                g.field_overrides.insert((w, "NAM2/".into()), XVal::Ref(form(args, 1).map_or(0, |t| t.0)));
+            if let (Some(w), Some(water)) = (of_sig(g, form(args, 0), b"WRLD"), of_sig(g, form(args, 1), b"WATR")) {
+                g.field_overrides.insert((w, "NAM2/".into()), XVal::Ref(water.0));
             }
             zero
         }
@@ -317,7 +339,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     Some(Ok(v))
 }
 
+#[cfg(test)]
+#[path = "w6d12_bptd_trait_form_tests.rs"]
+mod w6d12_bptd_trait_form_tests;
+
 /// Whether some landscape texture names the texture set as its texture (LTEX TNAM).
 fn landscape_texture_set(g: &Game, t: FormId) -> bool {
     g.data.sigs.iter().any(|(&l, s)| s == b"LTEX" && matches!(crate::nvse::record_value(g, l, "TNAM", ""), Some(XVal::Ref(r)) if r == t.0))
 }
+
+#[cfg(test)]
+#[path = "w6d10_worldspace_water_tests.rs"]
+mod w6d10_worldspace_water_tests;

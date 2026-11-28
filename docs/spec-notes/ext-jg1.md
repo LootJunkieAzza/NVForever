@@ -57,3 +57,7 @@ a 211-plugin mod list. These are his installation observations, separate from th
 eleven-row control above. He also identifies neighboring native registrations
 SetContainerOpenSound 0x2306 and SetContainerCloseSound 0x2308; those setters are outside
 the getter-only change and no setter behavior is inferred from registration alone.
+
+## Clamp inverted-bounds ordering
+
+- `Clamp x lo hi` tests `x < lo` first (returning `lo`), then `x > hi` (returning `hi`), so with inverted bounds `lo=10, hi=2`, `Clamp 5 10 2 = 10.0`, `Clamp 1 10 2 = 10.0`, and `Clamp 20 10 2 = 2.0` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, read-only `PrintToConsole` probe `w6d11_43_min_max_clamp_lerp_and_inverted_bounds` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `cl(in=5.0,lo=0.0,hi=10.0,eq=3.0,inv=10.0/10.0/2.0)`; no DLL or source consulted].

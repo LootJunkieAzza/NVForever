@@ -484,14 +484,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             if let Some((s, p)) = class_trait(k) {
                 set(g, f0, s, &p, XVal::Num(v));
             }
-            XVal::Num(v)
+            zero
         }
         // Combat styles [documented: Get/SetCombatStyleFlag, the flag IDs are CSTD flags'
         // bits as the schema names them; Get/SetCombatStyleTraitNumeric].
-        "getcombatstyleflag" => yes((0..32).contains(&k) && combat_style_flags(g, f0) & (1u64 << k) != 0),
+        // CSTD flags are strictly 16-bit (bits 0..=15; bits >= 16 ignored/read 0)
+        // [observed: w6d6_37_combat_style_flags_and_bounds, w6d6p2_37b_csty_flag_bit16_cutoff].
+        "getcombatstyleflag" => yes((0..16).contains(&k) && combat_style_flags(g, f0) & (1u64 << k) != 0),
         "setcombatstyleflag" => {
             let on = num(args, 2, 0.0) != 0.0;
-            if (0..32).contains(&k) && g.edit_combat_style(f0, |style| write_combat_style_flag(style, k, on)) {
+            if (0..16).contains(&k) && g.edit_combat_style(f0, |style| write_combat_style_flag(style, k, on)) {
                 let now = combat_style_flags(g, f0);
                 let new = if on { now | (1u64 << k) } else { now & !(1u64 << k) };
                 set(g, f0, "CSTD", "flags", XVal::Num(new as f64));
@@ -520,12 +522,25 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             zero
         }
         "getlighttraitnumeric" => XVal::Num(light_trait(k).map_or(0.0, |(s, p)| get_num(g, f0, s, p))),
+        // Channel 1 (`r`) wraps modulo 256, channel 0 (`rad`) preserves signed radius, and
+        // non-`LIGH` forms are ignored [observed: `w6d2_22_light_grass_txst_traits_and_flags`];
+        // channels 2..=3 (`g`/`b`) mod-256 wrap and `.trunc()` are [hypothesis], and
+        // `raw.is_finite()` is [design].
         "setlighttraitnumeric" => {
-            if let Some((s, p)) = light_trait(k) {
-                let value = num(args, 2, 0.0);
-                let changed = get_num(g, f0, s, p) != value;
-                set(g, f0, s, p, XVal::Num(value));
-                if changed { g.gaps.jip4.light_revision = g.gaps.jip4.light_revision.wrapping_add(1); }
+            if g.data.sig(g.unclone(f0)) == Some(*b"LIGH") {
+                if let Some((s, p)) = light_trait(k) {
+                    let raw = num(args, 2, 0.0);
+                    if raw.is_finite() {
+                        let value = match k {
+                            0 => raw.trunc(),
+                            1..=3 => (raw.trunc() as i64).rem_euclid(256) as f64,
+                            _ => raw,
+                        };
+                        let changed = get_num(g, f0, s, p) != value;
+                        set(g, f0, s, p, XVal::Num(value));
+                        if changed { g.gaps.jip4.light_revision = g.gaps.jip4.light_revision.wrapping_add(1); }
+                    }
+                }
             }
             zero
         }
@@ -563,10 +578,21 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             g.jip4_set_quest_flag(f0, k, num(args, 2, 0.0) != 0.0);
             zero
         }
-        // Factions: the reputation (WMI1) [documented: Get/SetFactionReputationType].
+        // Factions: the reputation (WMI1) [documented: Get/SetFactionReputationType;
+        // observed: `w6d2p5_01_faction_reputation_validate` — non-REPU and explicit 0 are no-ops,
+        // omitted arg clears WMI1 to 0; design/hypothesis: FACT-target validation and
+        // TempCloneForm unclone() resolution].
         "getfactionreputationtype" => XVal::Ref(get_form(g, f0, "WMI1", "")),
         "setfactionreputationtype" => {
-            set(g, f0, "WMI1", "", XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
+            if g.data.sig(g.unclone(f0)) == Some(*b"FACT") {
+                let next = match args.get(1) {
+                    None => Some(0),
+                    Some(_) => form(args, 1).filter(|&r| g.data.sig(g.unclone(r)) == Some(*b"REPU")).map(|r| r.0),
+                };
+                if let Some(id) = next {
+                    set(g, f0, "WMI1", "", XVal::Ref(id));
+                }
+            }
             zero
         }
         // Cells: climate (XCCM), lighting template (LTMP), water noise texture (XNAM)
@@ -575,17 +601,26 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getcellclimate" => XVal::Ref(get_form(g, f0, "XCCM", "")),
         "getcelllightingtemplate" => XVal::Ref(get_form(g, f0, "LTMP", "")),
         "getcellnoisetexture" => XVal::Str(get_str(g, f0, "XNAM", "")),
+        // Omitted arg clears to 0; explicit null 0 and wrong-type replacement forms are no-ops
+        // [observed: w6d2_15, w6d2p2_50]; arg-0 CELL target check is [documented] / [hypothesis].
         "setcellclimate" | "setcelllightingtemplate" => {
-            let sub = if name == "setcellclimate" { "XCCM" } else { "LTMP" };
-            let next = XVal::Ref(form(args, 1).map_or(0, |r| r.0));
-            let prev = if name == "setcelllightingtemplate" {
-                g.field_overrides.get(&(f0, "LTMP/".into())).cloned()
-            } else {
-                None
-            };
-            set(g, f0, sub, "", next.clone());
-            if name == "setcelllightingtemplate" && prev != Some(next) {
-                g.bump_lighting_revision();
+            if g.data.sig(g.unclone(f0)) == Some(*b"CELL") {
+                let (sub, want) = if name == "setcellclimate" { ("XCCM", *b"CLMT") } else { ("LTMP", *b"LGTM") };
+                let next = match args.get(1) {
+                    None => Some(XVal::Ref(0)),
+                    Some(_) => form(args, 1).filter(|&r| g.data.sig(g.unclone(r)) == Some(want)).map(|r| XVal::Ref(r.0)),
+                };
+                if let Some(next) = next {
+                    let prev = if name == "setcelllightingtemplate" {
+                        g.field_overrides.get(&(f0, "LTMP/".into())).cloned()
+                    } else {
+                        None
+                    };
+                    set(g, f0, sub, "", next.clone());
+                    if name == "setcelllightingtemplate" && prev != Some(next) {
+                        g.bump_lighting_revision();
+                    }
+                }
             }
             zero
         }
@@ -597,8 +632,18 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // GetWaterSound, GetWaterNoiseTexture and their setters].
         "getwatersound" => XVal::Ref(get_form(g, f0, "SNAM", "")),
         "getwaternoisetexture" => XVal::Str(get_str(g, f0, "NNAM", "")),
+        // Omitted arg clears to 0; explicit null 0 and non-SOUN replacement forms are no-ops
+        // [observed: w6d2_14, w6d2p2_50]; arg-0 WATR target check is [documented] / [hypothesis].
         "setwatersound" => {
-            set(g, f0, "SNAM", "", XVal::Ref(form(args, 1).map_or(0, |r| r.0)));
+            if g.data.sig(g.unclone(f0)) == Some(*b"WATR") {
+                let next = match args.get(1) {
+                    None => Some(XVal::Ref(0)),
+                    Some(_) => form(args, 1).filter(|&r| g.data.sig(g.unclone(r)) == Some(*b"SOUN")).map(|r| XVal::Ref(r.0)),
+                };
+                if let Some(next) = next {
+                    set(g, f0, "SNAM", "", next);
+                }
+            }
             zero
         }
         "setwaternoisetexture" => {

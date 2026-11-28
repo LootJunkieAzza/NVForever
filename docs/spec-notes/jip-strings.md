@@ -29,7 +29,7 @@ Observed:
   gives "This blip! has a blip! as a blip!" [observed: regex.search, regex.search0,
   regex.replace]. A `\b` inside a script string reaches the regex as written: the script
   compiler does not treat it as an escape.
-- `ValidateRegex "["` gives 5 [observed: regex.validate], as documented.
+- `ValidateRegex "["` gives 5 [observed: regex.validate], as documented; extended error-code sweep: valid `^[a-z]+$` returns `0` (out-var empty), `[abc` returns `5`, `(abc` returns `6`, `a{3,1}` and `a{x}` return `8` (`bad brace`), `[z-a]` returns `9`, `*abc` returns `11`, and `\x` returns `3`, with the out-var error text populated on every non-zero error [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, read-only `PrintToConsole` probe `w6d11_31_validateregex_error_codes_and_outvar` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `ok=0:0|brk=5:70|par=6:70|brc=8:90|rng=9:111|rep=11:89|esc=3:103|bx=8:90`; no DLL or source consulted]. NVForever unwraps `fancy-regex`'s error chain so `a{3,1}` maps to `8` and `[z-a]` maps to `9`; `a{x}` still returns `0` under `fancy-regex`'s literal-`{` fallback (deferred follow-up if strict ECMAScript brace rejection is wanted).
 - The target must be a string_var. A literal string there does not compile; use
   `(sv_Construct "…")` or a string_var variable [observed: jip_rx_trial, see
   xnvse-capture.md §5].
@@ -57,7 +57,7 @@ the `regex` crate lacks. Candidate: `fancy-regex` (dependencies.md), anchored wi
 
 | Function | Origin | Behaviour | Observed |
 |---|---|---|---|
-| RefToString | JIP | a load-order-independent key for a form: `<plugin file>:<form ID without the mod index, hex, no leading zeros>`. Called on a reference it describes the reference; given a reference as an argument it describes the **base form** [documented: RefToString] | Doc Mitchell's base form = "FalloutNV.esm:104C0C" (as the wiki's example); the player reference = "FalloutNV.esm:14" [observed: reftostring.base, reftostring.player] |
+| RefToString | JIP | a load-order-independent key for a form: `<plugin file>:<form ID without the mod index, hex, no leading zeros>`. Called on a reference it describes the reference; given a reference as an argument it describes the **base form** [documented: RefToString] | Doc Mitchell's base form = "FalloutNV.esm:104C0C" (as the wiki's example); the player reference = "FalloutNV.esm:14" [observed: reftostring.base, reftostring.player]; `rDocR.RefToString` returns `"FalloutNV.esm:104C0F"` while `RefToString rDocR` returns base `"FalloutNV.esm:104C0C"`, DeadMoney `"DeadMoney.esm:13F71"`, null `""` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_09_formid_strings_reftostring_stringtoref` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `rts(on=[FalloutNV.esm:104C0F],arg=[FalloutNV.esm:104C0C],dm=[DeadMoney.esm:13F71],nul=[])`; no DLL or source consulted] |
 | StringToRef | JIP | the form back from RefToString's text, or from GetFormIDString's eight hex digits [documented: StringToRef] | "FalloutNV.esm:104C0C" → 00104C0C [observed: stringtoref.modkey]; "00000014" → the player [observed: jip-getters/stringtoref.player] |
 
 The upper-case hex and the dropped leading zeros come from the observed keys.

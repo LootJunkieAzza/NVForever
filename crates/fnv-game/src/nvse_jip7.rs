@@ -494,14 +494,15 @@ fn parse_trait_index(args: &[XVal], k: usize) -> Option<usize> {
     }
 }
 
-/// Parses an optional form argument (`SetProjectileLight`):
-/// - `Some(None)` when omitted or explicitly null (`0`) -> clear.
-/// - `Some(Some(id))` when a non-zero form/integer ID is supplied -> validate signature.
-/// - `None` when malformed (string, negative/fractional number, etc.) -> reject cleanly.
+/// Parses an optional form argument (`SetAmmoCasing`, `SetProjectileLight`):
+/// - `Some(None)` when omitted -> clear.
+/// - `Some(Some(id))` when a non-zero form/integer ID is supplied -> validate/apply.
+/// - `None` when explicit null (`0`) or malformed -> no-op
+///   [observed: `w6d2_11_ammo_proj_expl_clone_and_edges`].
 fn parse_optional_form_arg(args: &[XVal], k: usize) -> Option<Option<FormId>> {
     match args.get(k) {
-        None | Some(XVal::Ref(0)) => Some(None),
-        Some(XVal::Num(x)) if *x == 0.0 => Some(None),
+        None => Some(None),
+        Some(XVal::Ref(0)) => None,
         Some(XVal::Ref(r)) => Some(Some(FormId(*r))),
         Some(XVal::Num(x)) if x.is_finite() && *x >= 1.0 && *x <= f64::from(u32::MAX) && x.fract() == 0.0 => Some(Some(FormId(*x as u32))),
         _ => None,
@@ -1213,7 +1214,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `ammo [projectile]`: omitting the 2nd argument clears to 0; passing an explicit
         // null ref (0) is a no-op leaving the current projectile unchanged [observed:
         // w4g_11_ammo_clear_and_proj_delete, tools/capture/nvse/catalogs/wave4g_f2_extenders.json].
-        // A non-null 2nd argument must be a PROJ (following TempCloneForm clones) [hypothesis].
+        // Non-PROJ forms are rejected as no-ops [observed: w6d2_11_ammo_proj_expl_clone_and_edges,
+        // tools/capture/nvse/catalogs/wave6d2_ammo_proj_ref_setters_null_noop.json]; accepting
+        // TempCloneForm PROJ clones via `unclone` is [design].
         "setammoprojectile" => {
             if let Some(a) = ammo(g, form(args, 0)) {
                 if args.len() < 2 {
@@ -1226,10 +1229,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `ammo [form]`: left out, none [documented: SetAmmoCasing].
+        // `ammo [form]`: left out clears; explicit null (0) is a no-op [documented:
+        // SetAmmoCasing; observed: `w6d2_11_ammo_proj_expl_clone_and_edges`].
         "setammocasing" => {
-            if let Some(a) = ammo(g, form(args, 0)) {
-                let target = form(args, 1);
+            if let (Some(a), Some(target)) = (ammo(g, form(args, 0)), parse_optional_form_arg(args, 1)) {
                 g.set_field(a, "DAT2", "consumed_ammo", XVal::Ref(target.map_or(0, |f| f.0)));
             }
             zero
@@ -1271,8 +1274,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `projectile [light]`: left out or null clears; a non-null form must be a LIGH
-        // (including TempCloneForm LIGH) [documented: SetProjectileLight].
+        // `projectile [light]`: left out clears; explicit null (0) and non-LIGH are no-ops
+        // (accepts TempCloneForm LIGH) [documented: SetProjectileLight; observed:
+        // `w6d2_11_ammo_proj_expl_clone_and_edges`].
         "setprojectilelight" => {
             if let (Some(p), Some(arg)) = (projectile(g, form(args, 0)), parse_optional_form_arg(args, 1)) {
                 match arg {
@@ -1439,9 +1443,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let Some(chance) = fit(num(args, 2, f64::NAN), (0.0, 100.0)) else { return Some(Ok(zero)) };
             let entry = ClimateWeather { weather: w, chance: chance as i64, global: of_sig(g, form(args, 3), b"GLOB") };
             let mut list = g.climate_weathers(c);
+            // New weather entries are prepended at index 0 [observed: Fallout: New Vegas
+            // 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+            // `w6d10_17_climate_nth_weather_global_and_textures`:
+            // `add(1,n=3,hdW=1,hdC=42,hdG=1,tlW=0,rem=1,n2=2)`].
             match list.iter_mut().find(|e| e.weather == w) {
                 Some(e) => *e = entry,
-                None => list.push(entry),
+                None => list.insert(0, entry),
             }
             g.other.jip7.climate_weathers.insert(c, list);
             yes(true)
@@ -1552,3 +1560,7 @@ fn impact_colour(g: &Game, i: FormId) -> f64 {
 #[cfg(test)]
 #[path = "nvse_jip7_launch_probe_tests.rs"]
 mod launch_probe_tests;
+
+#[cfg(test)]
+#[path = "w6d10_climate_add_tests.rs"]
+mod w6d10_climate_add_tests;

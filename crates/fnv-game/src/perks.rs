@@ -541,9 +541,16 @@ impl Game<'_> {
     /// [`Self::entry_point`] with the argument tabs `tabs` (a weapon's entry points: the
     /// weapon at tab 1).
     pub fn entry_point_with(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], value: f64) -> (f64, Vec<Applied>) {
+        self.entry_point_with_other(actor, point, tabs, None, value)
+    }
+
+    /// [`Self::entry_point_with`] also supplying `other` as the target actor for tab-0
+    /// owner conditions (e.g. `GetDetected` in `TheProfessional` / `Ninja`)
+    /// [observed: w6d6p2_15_ep56_ep58_and_other_actor].
+    pub fn entry_point_with_other(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], other: Option<FormId>, value: f64) -> (f64, Vec<Applied>) {
         let mut v = value;
         let mut applied = Vec::new();
-        for (perk, op) in self.entry_ops(actor, point, tabs, None) {
+        for (perk, op) in self.entry_ops(actor, point, tabs, other) {
             v = op.apply(v);
             applied.push(Applied { perk, value: v });
         }
