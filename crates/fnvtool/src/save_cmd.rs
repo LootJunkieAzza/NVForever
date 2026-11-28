@@ -8,7 +8,10 @@ use crate::LoadOrderArgs;
 use anyhow::Context;
 use clap::Subcommand;
 use fnv_esm::{LoadOrder, Schema};
-use fnv_game::fos_convert::{convert_fos, inspect_fos, ConvertOptions};
+use fnv_game::fos_convert::{
+    convert_fos_with_cosave, inspect_fos_with_cosave, ConvertOptions,
+};
+use fnv_save::nvse::NvseCosave;
 use fnv_save::{PluginEntry, SaveKind};
 use fnv_script::FunctionTable;
 use serde_json::{json, Value};
@@ -42,11 +45,24 @@ pub enum SaveCmd {
         /// Omit PNG thumbnail encoding from the `.fos` RGB screenshot.
         #[arg(long)]
         no_thumbnail: bool,
+        /// Ignore any adjacent `.nvse` co-save file instead of importing it.
+        #[arg(long)]
+        no_cosave: bool,
     },
 }
 
-fn has_adjacent_cosave(fos_path: &Path) -> bool {
-    fos_path.with_extension("nvse").is_file()
+fn load_adjacent_cosave(fos_path: &Path) -> (bool, Option<NvseCosave>, Option<String>) {
+    let nvse_path = fos_path.with_extension("nvse");
+    if !nvse_path.is_file() {
+        return (false, None, None);
+    }
+    match std::fs::read(&nvse_path) {
+        Ok(bytes) => match NvseCosave::parse(&bytes) {
+            Ok(parsed) => (true, Some(parsed), None),
+            Err(e) => (true, None, Some(format!("failed to parse {}: {e}", nvse_path.display()))),
+        },
+        Err(e) => (true, None, Some(format!("failed to read {}: {e}", nvse_path.display()))),
+    }
 }
 
 pub fn run(cmd: SaveCmd) -> anyhow::Result<Value> {
@@ -54,10 +70,14 @@ pub fn run(cmd: SaveCmd) -> anyhow::Result<Value> {
         SaveCmd::InspectFos { input } => {
             let bytes = std::fs::read(&input).with_context(|| input.display().to_string())?;
             let fos = fnv_save::fos::Fos::parse(&bytes).with_context(|| input.display().to_string())?;
-            let report = inspect_fos(&fos, has_adjacent_cosave(&input));
+            let (present, parsed, err_msg) = load_adjacent_cosave(&input);
+            let mut report = inspect_fos_with_cosave(&fos, present, parsed.as_ref());
+            if err_msg.is_some() {
+                *report.parse_errors.entry("cosave".into()).or_default() += 1;
+            }
             Ok(serde_json::to_value(report)?)
         }
-        SaveCmd::Convert { input, out, lo, schema, functions, no_thumbnail } => {
+        SaveCmd::Convert { input, out, lo, schema, functions, no_thumbnail, no_cosave } => {
             let bytes = std::fs::read(&input).with_context(|| input.display().to_string())?;
             let fos = fnv_save::fos::Fos::parse(&bytes).with_context(|| input.display().to_string())?;
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
@@ -82,13 +102,22 @@ pub fn run(cmd: SaveCmd) -> anyhow::Result<Value> {
             let refs = fnv_sim::RefTable::build(&order, &schema);
             let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
 
+            let (cosave_present, parsed_cosave, cosave_err) = if no_cosave {
+                (input.with_extension("nvse").is_file(), None, None)
+            } else {
+                load_adjacent_cosave(&input)
+            };
             let opts = ConvertOptions {
                 kind: SaveKind::Manual,
                 plugins: plugin_entries,
                 include_thumbnail: !no_thumbnail,
-                cosave_present: has_adjacent_cosave(&input),
+                cosave_present,
             };
-            let converted = convert_fos(&fos, &data, &forms, &refs, &opts).map_err(anyhow::Error::msg)?;
+            let mut converted = convert_fos_with_cosave(&fos, parsed_cosave.as_ref(), &data, &forms, &refs, &opts)
+                .map_err(anyhow::Error::msg)?;
+            if let Some(msg) = cosave_err {
+                converted.report.warnings.push(msg);
+            }
             let body_bytes = serde_json::to_vec(&converted.body)?;
             fnv_save::write(&out, &converted.header, &converted.shot, &body_bytes, false)
                 .with_context(|| out.display().to_string())?;
@@ -226,6 +255,105 @@ mod tests {
         assert_eq!(val["decoded_counts"]["talking_activators"], 0);
         assert_eq!(val["decoded_counts"]["misc_changes"], 0);
         assert_eq!(val["decoded_counts"]["player_active_effects"], 0);
+        assert!(val.get("cosave").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn inspect_fos_reads_sibling_nvse_and_fails_soft_on_corrupt_nvse() {
+        let dir = std::env::temp_dir().join(format!("nvf-save-cmd-cosave-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fos_path = dir.join("with_cosave.fos");
+        let nvse_path = dir.join("with_cosave.nvse");
+
+        // Reuse minimal valid FO3SAVEGAME structure.
+        let mut h = Vec::new();
+        h.extend(0x30u32.to_le_bytes());
+        h.push(0x7C);
+        h.extend([0u8; 64]);
+        h.push(0x7C);
+        for v in [0u32, 0, 1] {
+            h.extend(v.to_le_bytes());
+            h.push(0x7C);
+        }
+        for s in ["Test", "Drifter"] {
+            h.extend((s.len() as u16).to_le_bytes());
+            h.push(0x7C);
+            h.extend(s.as_bytes());
+            h.push(0x7C);
+        }
+        h.extend(2u32.to_le_bytes());
+        h.push(0x7C);
+        h.extend(4u16.to_le_bytes());
+        h.push(0x7C);
+        h.extend(b"Room");
+        h.push(0x7C);
+        h.extend(9u16.to_le_bytes());
+        h.push(0x7C);
+        h.extend(b"000.01.00");
+        let mut b = b"FO3SAVEGAME".to_vec();
+        b.extend((h.len() as u32).to_le_bytes());
+        b.extend(&h);
+        let mut pl = vec![1u8, 0x7C];
+        let name = b"FalloutNV.esm";
+        pl.extend((name.len() as u16).to_le_bytes());
+        pl.push(0x7C);
+        pl.extend(name);
+        pl.push(0x7C);
+        b.push(27);
+        b.extend((pl.len() as u32).to_le_bytes());
+        b.extend(&pl);
+        let table_at = b.len();
+        b.extend([0u8; 32 + 78]);
+        let g1 = b.len();
+        let cf = b.len();
+        let g2 = b.len();
+        b.extend(1000u32.to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+        let fid = b.len();
+        b.extend(0u32.to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+        let tail = b.len();
+        b.extend([5, 0, 0, 0, 0, 0, 0, 0, 0x7C]);
+        for (i, v) in [fid, tail, g1, cf, g2, 0, 1, 0].iter().enumerate() {
+            b[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&(*v as u32).to_le_bytes());
+        }
+        std::fs::write(&fos_path, &b).unwrap();
+
+        // Write valid minimal sibling .nvse with 1 JohnnyGuitar SMGJ stat.
+        let mut smgj = Vec::new();
+        smgj.extend_from_slice(&1u16.to_le_bytes());
+        smgj.extend_from_slice(&4u16.to_le_bytes());
+        smgj.extend_from_slice(b"Stat");
+        smgj.extend_from_slice(&42i32.to_le_bytes());
+        let mut chunk = b"SMGJ".to_vec();
+        chunk.extend_from_slice(&1u32.to_le_bytes());
+        chunk.extend_from_slice(&(smgj.len() as u32).to_le_bytes());
+        chunk.extend_from_slice(&smgj);
+        let mut nvse = b"NVSE".to_vec();
+        nvse.extend_from_slice(&1u32.to_le_bytes());
+        nvse.extend_from_slice(&0x0004_0006u32.to_le_bytes());
+        nvse.extend_from_slice(&0x0400_20D0u32.to_le_bytes());
+        nvse.extend_from_slice(&1u32.to_le_bytes());
+        nvse.extend_from_slice(&fnv_save::nvse::PLUGIN_JOHNNYGUITAR.to_le_bytes());
+        nvse.extend_from_slice(&1u32.to_le_bytes());
+        nvse.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+        nvse.extend_from_slice(&chunk);
+        std::fs::write(&nvse_path, &nvse).unwrap();
+
+        let val = run(SaveCmd::InspectFos { input: fos_path.clone() }).unwrap();
+        assert_eq!(val["cosave_present"], true);
+        assert_eq!(val["cosave"]["format_version"], 1);
+        assert_eq!(val["cosave"]["decoded_counts"]["jg_extra_misc_stats"], 1);
+
+        // Overwrite with corrupt .nvse: inspect-fos still succeeds and records parse_errors.cosave = 1.
+        std::fs::write(&nvse_path, b"CORRUPT").unwrap();
+        let val_bad = run(SaveCmd::InspectFos { input: fos_path }).unwrap();
+        assert_eq!(val_bad["cosave_present"], true);
+        assert!(val_bad.get("cosave").is_none());
+        assert_eq!(val_bad["parse_errors"]["cosave"], 1);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
