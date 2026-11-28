@@ -6970,6 +6970,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "footsteps-walk-again"
+source = "issue #4827 (engine/nvforever/src/anim_sounds.rs player_layer_heard): the player walks 3 s, stops 3 s and walks 3 s again; both walks step. Before the fix the walk clip coming in was heard only from half its layer's weight, and the second walk was silent (6 footsteps in all, all in the first walk; 13 with the fix, 2026-11-27)"
+areas = ["anim-sounds", "audio"]
+paths = ["engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,11:0:0,14:1:0,17:0:0" }
+args = ["--play", "--pos=-70720,-85587,6500", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'anim sounds summary:.*\((?P<n>\d+) by the player', range = [10, 18], label = "both walks step: about 6 footsteps each" },
+]
+
+[[scenario]]
 name = "shoot-bottles"
 source = "CLAUDE.md: after changes to shot impacts, knocks, item, container, activator, message-box or script sounds (audio.md §11): Sunny's bottles"
 note = "The shots start at 18 s, after the message boxes the scripts open about 5 s after they first run (the pre-order packs, the add-ons loaded: ten boxes, over about 8.5 s after the scripts first ran). While a box is open the player is held in a menu and a pull is lost: on 2026-10-23 the scripts first ran at 5.4 s, the boxes stood from 10.3 to 13.9 s and only the third bottle was hit [observed: smoke log, glass 1]. Same cause as semi-auto-rate"
