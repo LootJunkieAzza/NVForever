@@ -207,9 +207,8 @@ impl PhysWorld {
         a.colliders[0].3 = radius;
         if let Some(co) = self.w.colliders.get_mut(h) {
             co.user_data = owner;
-            if standalone {
-                self.hitvol_pending.push((h, body, local));
-            } else {
+            self.hitvol_pending.push((h, body, local));
+            if !standalone {
                 co.set_position_wrt_parent(local);
             }
             if (old_half - half).abs() > RESIZE || (old_r - radius).abs() > RESIZE {
@@ -270,9 +269,8 @@ impl PhysWorld {
             a.colliders[i].3 = p.radius;
             if let Some(co) = self.w.colliders.get_mut(h) {
                 co.user_data = Owner::Actor { form_id, layer, part: p.part }.encode_segment(i as u16);
-                if standalone {
-                    self.hitvol_pending.push((h, body, local));
-                } else {
+                self.hitvol_pending.push((h, body, local));
+                if !standalone {
                     co.set_position_wrt_parent(local);
                 }
                 if (old_half - half).abs() > RESIZE || (old_r - p.radius).abs() > RESIZE {
@@ -325,23 +323,27 @@ impl PhysWorld {
             let Some(body) = self.w.bodies.get(b) else { continue };
             let pose = *body.position() * local;
             if let Some(co) = self.w.colliders.get_mut(c) {
-                co.set_position(pose);
+                // Attached colliders are positioned by rapier's `handle_user_changes_to_colliders`
+                // from their `PARENT` flag; only standalone ones need an explicit `set_position`.
+                if co.parent().is_none() {
+                    co.set_position(pose);
+                }
             }
         }
         self.hitvol_pending = pending;
     }
 
-    /// Fast O(k log N) broad-phase-only refresh for standalone `NO_CONTACTS` actor hit
-    /// volumes: updates each pending collider's pose and propagates its AABB directly in
-    /// `broad_phase` via `BroadPhaseBvh::set_aabb`, avoiding a full zero-dt narrow-phase
-    /// and island pass when only existing standalone hit volumes moved [design].
-    /// Returns `false` if any non-standalone actor exists, the BVH is not built yet, or a
-    /// non-finite AABB requires the normal `detect()` / quarantine path.
+    /// Fast O(k log N) broad-phase-only refresh for `NO_CONTACTS` actor hit volumes (both
+    /// standalone and attached): updates each pending collider's world pose and propagates
+    /// its AABB directly in `broad_phase` via `BroadPhaseBvh::set_aabb`, avoiding a full
+    /// zero-dt narrow-phase and island pass when only existing hit volumes moved [design].
+    /// Applying the same path to both representations also avoids a zero-dt `detect()`
+    /// narrow-phase pass refreshing `contact_recycling` state for dynamic bodies on only
+    /// one side. Returns `false` if colliders were added/replaced, the BVH is not built
+    /// yet, or a non-finite AABB requires the normal `detect()` / quarantine path.
     pub(crate) fn flush_hit_volumes_fast(&mut self) -> bool {
-        if !self.standalone_hit_volumes
-            || self.hitvol_colliders_changed
+        if self.hitvol_colliders_changed
             || self.hitvol_pending.is_empty()
-            || !self.actors.values().all(|a| a.standalone)
             || self.w.query_pipeline_with_filter(QueryFilter::default()).bvh.is_empty()
         {
             return false;
@@ -353,10 +355,6 @@ impl PhysWorld {
             let Some(body) = self.w.bodies.get(b) else { continue };
             let pose = *body.position() * local;
             if let Some(co) = self.w.colliders.get_mut(c) {
-                if co.parent().is_some() {
-                    ok = false;
-                    break;
-                }
                 co.set_position(pose);
                 let aabb = co.compute_broad_phase_aabb(&self.w.integration_parameters, &self.w.bodies);
                 if !(aabb.mins.is_finite() && aabb.maxs.is_finite()) {

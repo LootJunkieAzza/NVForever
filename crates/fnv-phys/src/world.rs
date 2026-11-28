@@ -483,12 +483,12 @@ pub struct PhysWorld {
     pub(crate) grip: Option<crate::grab::Grip>,
     /// New actors' hit volumes get colliders of no body (`crate::actors`; on by default).
     pub(crate) standalone_hit_volumes: bool,
-    /// Standalone hit-volume colliders were inserted or removed since the last full
-    /// broad-phase registration (`detect`/`step`), requiring a full pass before fast
-    /// `set_aabb` updates may run [design].
+    /// Hit-volume colliders inserted or removed since the last full broad-phase
+    /// registration (`detect`/`step`), requiring a full pass before fast `set_aabb`
+    /// updates may run [design].
     pub(crate) hitvol_colliders_changed: bool,
-    /// Standalone hit-volume colliders written since the last refresh or step: (collider,
-    /// actor body, pose on the body), placed by `flush_hit_volumes`.
+    /// Hit-volume colliders written since the last refresh or step: (collider, actor body,
+    /// pose on the body), placed by `flush_hit_volumes` / `flush_hit_volumes_fast`.
     pub(crate) hitvol_pending: Vec<(ColliderHandle, RigidBodyHandle, Pose)>,
     /// [`Stats::solver_us`], milliseconds.
     pub(crate) solver_ms: [f64; 6],
@@ -1173,9 +1173,9 @@ impl PhysWorld {
         if self.dirty {
             // Only when there is work: this is called before every query.
             let _span = tracing::info_span!("phys::query_refresh").entered();
-            // Standalone hit-volume-only dirty marks (`NO_CONTACTS` capsules) can update
-            // their BVH leaves directly via `BroadPhaseBvh::set_aabb` without running a
-            // full zero-dt narrow-phase and island repair pass [design].
+            // Hit-volume-only dirty marks (`NO_CONTACTS` capsules, standalone or attached)
+            // can update their BVH leaves directly via `BroadPhaseBvh::set_aabb` without
+            // running a full zero-dt narrow-phase and island repair pass [design].
             if self.dirty_by == (1 << DirtyBy::HitVolume as u8)
                 && self.new_bodies.is_empty()
                 && self.pending_sleep.is_empty()
