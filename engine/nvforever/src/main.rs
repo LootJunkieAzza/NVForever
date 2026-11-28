@@ -1452,6 +1452,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_layered(args.data(), &layered, link_into, n))
     };
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
+    // Co-op's lobbies compare load orders by their hash (coop/connect.rs).
+    coop::set_load_order(&args.plugins);
     // No setting names the code page: the plugins' own text says it, else the language
     // Steam installed the game in (a translation mod on an English install keeps its
     // Cyrillic text) (#1443).

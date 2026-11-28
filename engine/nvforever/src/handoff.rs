@@ -219,6 +219,25 @@ enum Leaving {
 #[derive(Resource, Default)]
 pub struct Handoff(Leaving, Option<String>);
 
+impl Handoff {
+    /// The screen is covered for a load or the main menu, and a new run takes over, or is
+    /// about to start: what this run holds for others (the co-op host's port, `crate::coop`)
+    /// goes now. False again when the new run failed and this one stays.
+    pub fn leaving(&self) -> bool {
+        match &self.0 {
+            Leaving::Covered(..) | Leaving::HandedOver => true,
+            #[cfg(not(target_os = "android"))]
+            Leaving::Waiting(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether what it is leaving for is a load (not the main menu).
+    pub fn loading(&self) -> bool {
+        matches!(&self.0, Leaving::Covered(Some(_), _) | Leaving::Asked(Some(_)))
+    }
+}
+
 /// The new run's arguments: this run's without those the save or the window decide
 /// (`keep`), and what to open.
 pub fn new_run_args(keep: &[String], what: Option<&LoadRequest>, placement: Option<Placement>, file: &Path) -> Vec<String> {
