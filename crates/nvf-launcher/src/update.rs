@@ -573,8 +573,9 @@ fn commit(install: &Path, journal: &Journal, game: Option<&GameInstall>) -> Resu
 
 /// Carry out `plan` on `install` from `payload`: [`stage`] (nothing the install runs from
 /// changes; a failure leaves it as it was), then [`commit`] (renames only). Afterwards only
-/// `plan.backup` is kept under `update/previous/`. Nothing is written inside the game folder
-/// (`game`, the one the INI names) or the original game's user folder.
+/// `plan.backup` is kept under `update/previous/`; an older one that cannot be removed is
+/// said and left there, without failing the update (#4593). Nothing is written inside the
+/// game folder (`game`, the one the INI names) or the original game's user folder.
 pub fn apply(install: &Path, payload: &Path, plan: &Plan, game: Option<&GameInstall>) -> Result<(), String> {
     guard_plan(install, plan, game)?;
     let journal = stage(install, payload, plan)?;
@@ -1353,7 +1354,7 @@ mod tests {
     fn older_versions_are_removed_and_the_kept_one_stays() {
         let d = tmp("older-removal");
         let previous = d.join("previous");
-        let (keep, old) = (previous.join("0.8.0"), previous.join("0.7.0"));
+        let (keep, old) = (previous.join("v0.8.0"), previous.join("v0.7.0"));
         put(&keep.join(launcher_exe()), "kept");
         put(&old.join(launcher_exe()), "old");
         put(&previous.join("a stray file"), "not a version, never ours");
@@ -1372,7 +1373,7 @@ mod tests {
         use std::os::windows::fs::OpenOptionsExt;
         let d = tmp("older-removal-stuck");
         let previous = d.join("previous");
-        let (keep, stuck) = (previous.join("0.8.0"), previous.join("0.7.0"));
+        let (keep, stuck) = (previous.join("v0.8.0"), previous.join("v0.7.0"));
         put(&keep.join(launcher_exe()), "kept");
         put(&stuck.join(launcher_exe()), "stuck");
         let held = fs::OpenOptions::new().read(true).share_mode(0).open(stuck.join(launcher_exe())).unwrap();
