@@ -3934,7 +3934,8 @@ capture setup, so every part of a check that needs an interior is still open.
      multiplies: the two bottles' glass differs in colour (4.0-4.6× under moonlight), so
      they cannot show it; a pair with the same texture and different scales is needed.
 272. **Does a shape with Environment_Mapping and a cube but no slot-5 mask reflect?** (P3;
-     #2841, nif.md §6.) Ours: at full strength over the whole shape [hypothesis]. Place
+     #2841, nif.md §6.) Ours: masked by the normal map's alpha, window shapes at full
+     strength (#4783) [hypothesis]. Place
      an empty whiskey bottle (WhiskeyBottle01Empty01, `whiskeybottle01empty.nif`,
      `shinydull_e.dds`, no mask) and a cafeteria drinking glass (DrinkingGlass01,
      `clutter\cafeteria\drinkingglass01.nif`, no mask) in front of the player and take a
@@ -3943,7 +3944,11 @@ capture setup, so every part of a check that needs an interior is still open.
      `NVF_PLAY_DEBUG_ENV_NO_MASK=none` or `=normal-alpha`.
      *Status: open.* The whiskey bottle is patterned with one glossy patch, not evenly
      washed; the cafeteria glass is evenly milky [observed]; their own textures cannot be
-     told from an unmasked term.
+     told from an unmasked term. 2026-11-27 (#4783, capture job spear_4783, Goodsprings at
+     noon): the Throwing Spear's grip wrap (`chrome_e.dds`, no mask) shows its own warm
+     colour with highlights on the ridges, no grey chrome [observed], which rules out full
+     strength on that shape; at that view the normal-map alpha (dark on the wrap) and no
+     reflection look alike, so which of the two holds is still open.
 273. **Which way is the cube turned on a shape without the window flag, and on a window?**
      (P3; #2841, nif.md §6.) The GECK wiki says the window flag "simply flips the cubemap
      orientation" without saying which axis. Ours until #4392: both read the game-space reflection

@@ -1432,7 +1432,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     let env = shape_env(props, aids).and_then(|e| {
         let cube = textures.texture(&crate::texture::cube_path(&e.cube), true)?;
         let mask = e.mask.as_deref().filter(|_| has_uv).and_then(|m| textures.texture(m, false));
-        let mode = crate::env_map::mask_mode(mask.is_some(), aids.no_mask, has_uv && normal.is_some() && !unmasked)?;
+        let mode = crate::env_map::mask_mode(mask.is_some(), aids.no_mask_for(e.window), has_uv && normal.is_some() && !unmasked)?;
         // The normal-alpha variant reads the game's own normal map, bound in the mask's
         // slot: an authored set may replace the drawn normal map later (`crate::authored`).
         let mask = if mode == crate::env_map::MaskMode::NormalAlpha { normal.clone() } else { mask };
@@ -3082,12 +3082,12 @@ mod tests {
         assert_eq!(n.extension.env, Vec4::ZERO);
     }
 
-    /// The normal-alpha debug variant binds the game's own normal map as the mask (read by
-    /// its alpha), so an authored set that replaces the drawn normal map later
-    /// (`crate::authored::apply`) cannot change what the comparison reads. Fixtures written
-    /// for the test; the mesh keeps its own tangents.
+    /// The normal-alpha rule (the default for shapes without the window flag since #4783)
+    /// binds the game's own normal map as the mask (read by its alpha), so an authored set
+    /// that replaces the drawn normal map later (`crate::authored::apply`) cannot change
+    /// what it reads. Fixtures written for the test; the mesh keeps its own tangents.
     #[test]
-    fn normal_alpha_variant_binds_the_legacy_normal_as_mask() {
+    fn normal_alpha_rule_binds_the_legacy_normal_as_mask() {
         let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
         tri.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]]);
@@ -3099,13 +3099,13 @@ mod tests {
             textures: texture_set(&["w.dds", "w_n.dds", "", "", "textures\\effects\\shinydull_e.dds", ""]),
             ..default()
         };
-        let variant = crate::env_map::EnvAids { no_mask: crate::env_map::NoMask::NormalAlpha, ..default() };
-        let (m, _) = shape_material_inner(&whiskey, &mut tri.clone(), &mut AllTextures, Tangents::Keep, &variant);
-        assert_eq!(m.extension.env.y, 2.0, "read by alpha");
+        let (m, _) = shape_material_inner(&whiskey, &mut tri.clone(), &mut AllTextures, Tangents::Keep, &crate::env_map::EnvAids::default());
+        assert_eq!(m.extension.env.y, 2.0, "by default: read by alpha");
         assert!(m.base.normal_map_texture.is_some());
         assert_eq!(m.extension.env_mask, m.base.normal_map_texture, "the legacy normal map is the mask");
-        let (full, _) = shape_material_inner(&whiskey, &mut tri, &mut AllTextures, Tangents::Keep, &crate::env_map::EnvAids::default());
-        assert_eq!((full.extension.env.y, full.extension.env_mask.is_none()), (0.0, true), "by default: no mask, full strength");
+        let variant = crate::env_map::EnvAids { no_mask: crate::env_map::NoMask::Full, ..default() };
+        let (full, _) = shape_material_inner(&whiskey, &mut tri, &mut AllTextures, Tangents::Keep, &variant);
+        assert_eq!((full.extension.env.y, full.extension.env_mask.is_none()), (0.0, true), "the full variant: no mask, full strength");
     }
 
     /// The lounge chair's set-up (`furniture\loungechair_tops.nif`): a seat shape with a
