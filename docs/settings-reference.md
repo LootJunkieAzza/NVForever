@@ -499,8 +499,10 @@ Android-specific rows and HUD compatibility are documented in [the Android setti
   ships none). With the files there when the game starts, every choice takes effect at once;
   files put there later are found at the next start, so DLSS chosen until then reads DLSS
   (restart) (loading a save starts the game again). Sharpening controls FSR sharpening.
-  Frame generation needs an upscaler.
-- Command-line switches: `--upscaler`, `--upscaler-quality`, `--fsr`
+  Frame generation needs an upscaler. On macOS a fourth choice, MetalFX, has Apple's
+  MetalFX Temporal scaler rebuild the picture at FSR's render sizes (the Metal renderer only);
+  Sharpening then runs as the separate pass it is without an upscaler.
+- Command-line switches: `--upscaler` (`off`, `fsr`, `dlss`, `metalfx`), `--upscaler-quality`, `--fsr`
 - More: docs/dlss.md, docs/design/fsr-upscaling.md, docs/design/dlss-upscaling.md
 - Registered in `engine/nvforever/src/settings.rs`
 

@@ -252,6 +252,8 @@ mod ffx_api;
 mod fg_ui_layer;
 mod frame_gen;
 mod fsr;
+#[cfg(target_os = "macos")]
+mod metalfx;
 mod upscaler;
 mod speech_look;
 mod stream_pace;

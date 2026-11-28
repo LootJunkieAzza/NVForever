@@ -395,7 +395,8 @@ fn allowed_row(key: &str) -> bool {
 }
 
 fn desktop_choice(key: &str, value: &str) -> bool {
-    matches!(key, "upscaler" | "frame-generation") && value.to_ascii_lowercase().contains("dlss")
+    // DLSS (Windows) and MetalFX (macOS) are desktop upscalers.
+    matches!(key, "upscaler" | "frame-generation") && ["dlss", "metalfx"].iter().any(|d| value.to_ascii_lowercase().contains(d))
 }
 
 fn display_choices(key: &str, home: &Path) -> Option<Vec<display::Choice>> {

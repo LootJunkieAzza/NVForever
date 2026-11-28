@@ -79,6 +79,7 @@ impl Default for UpscaleSettings {
 impl UpscaleSettings {
     pub(crate) fn choice(self) -> UpscalerChoice {
         match self {
+            Self::Fsr(fsr) if fsr.metalfx => UpscalerChoice::MetalFx(fsr.quality),
             Self::Fsr(fsr) => UpscalerChoice::Fsr(fsr.quality),
             Self::Dlss(quality) => UpscalerChoice::Dlss(quality),
         }
@@ -269,9 +270,10 @@ pub(crate) fn common_textures(render_size: UVec2, output_size: UVec2) -> [Alloca
 }
 
 /// Whether a backend gets FSR's own state (context, masks, history, dilation buffers) beside
-/// the common prepared view: only FSR does. `fsr::prepare` asks this.
+/// the common prepared view: only FSR does, and MetalFX, which draws in FSR's pass.
+/// `fsr::prepare` asks this.
 pub(crate) fn allocates_fsr_state(upscaler: Upscaler) -> bool {
-    upscaler == Upscaler::Fsr
+    matches!(upscaler, Upscaler::Fsr | Upscaler::MetalFx)
 }
 
 /// The prepared view every temporal upscaler shares.
@@ -392,6 +394,12 @@ pub(crate) fn prepare(
         }
         // Bevy applies its projection jitter with the opposite displacement sign.
         jitter.offset = -jitter_offset(camera.frame, policy.jitter_phases);
+        // MetalFX's spatial scaler has no history to
+        // undo a jitter with; it gets the unjittered frame.
+        #[cfg(target_os = "macos")]
+        if crate::metalfx::spatial() && matches!(camera.settings, UpscaleSettings::Fsr(_)) {
+            jitter.offset = Vec2::ZERO;
+        }
         bias.0 = policy.mip_bias;
         // The ambient occlusion: at the render size before the upscaler (ssao.rs
         // `ao_before_fsr`), or with `NVF_AO_BEFORE_FSR=0` after tonemapping, from the depth
@@ -652,6 +660,10 @@ mod tests {
         assert_eq!(transition(Some((&balanced, render, output)), &camera(fsr(Quality), 14), render, output), Transition::Recreate);
         // FSR is taken when both components are there (the settings never put both).
         assert_eq!(camera_settings(Some(&FsrUpscaling::default()), Some(&DlssUpscaling { quality: Performance }), true).unwrap().upscaler(), Upscaler::Fsr);
+        // MetalFX is FSR's camera with its flag: FSR's state and pass, its own choice.
+        let metalfx = camera_settings(Some(&FsrUpscaling { metalfx: true, ..default() }), None, true).unwrap();
+        assert_eq!((metalfx.upscaler(), metalfx.choice()), (Upscaler::MetalFx, UpscalerChoice::MetalFx(Quality)));
+        assert!(allocates_fsr_state(Upscaler::MetalFx) && !allocates_fsr_state(Upscaler::Dlss));
     }
 
     #[test]
@@ -690,7 +702,7 @@ mod tests {
                 assert!(matches!(dlss, UpscaleSettings::Dlss(q) if q == quality), "{quality:?} {fsr_supported}");
                 assert!(!allocates_fsr_state(dlss.upscaler()));
             }
-            let fsr_camera = camera_settings(Some(&FsrUpscaling { quality, sharpness: 0.2 }), None, true).unwrap();
+            let fsr_camera = camera_settings(Some(&FsrUpscaling { quality, sharpness: 0.2, metalfx: false }), None, true).unwrap();
             assert!(matches!(fsr_camera, UpscaleSettings::Fsr(f) if f.quality == quality), "FSR stays FSR");
         }
     }

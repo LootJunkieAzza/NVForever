@@ -267,7 +267,7 @@ mod tests {
         }
         assert_eq!(row("button-style").shown_with, Some(controller));
         assert_eq!(row("upscaler-quality").shown_with, Some(menu::Rule {
-            parent: "upscaler".into(), choices: vec!["FSR 3.1".into(), "DLSS".into()], why: String::new() }));
+            parent: "upscaler".into(), choices: vec!["FSR 3.1".into(), "DLSS".into(), "MetalFX".into()], why: String::new() }));
         assert!(row("a-later-row").shown_with.is_none());
         assert!(row("a-later-row").needs.is_empty());
         assert!(menu.rows().all(|r| r.key != "controller-not-registered"));
