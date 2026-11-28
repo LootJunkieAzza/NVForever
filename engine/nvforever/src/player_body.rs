@@ -753,6 +753,9 @@ struct Rig {
     skeleton: String,
     animator: Animator,
     clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
+    /// Resolved `ClipInfo` cached by normalized VFS path across kNVSE override swaps so
+    /// switching weapons A -> B -> A reuses parsed metadata without re-scanning text keys [design].
+    clip_info_by_path: HashMap<String, Option<Arc<ClipInfo>>>,
     /// The up and down forms of clips, by path (failures too).
     variants: HashMap<String, Option<Arc<ClipInfo>>>,
     /// kNVSE's replacement files for this view ([`apply_anim_overrides`]): a clip's file
@@ -1094,8 +1097,13 @@ impl Rig {
             path = ctx.models.data.vfs.paths(|x| x.starts_with(&stem) && x.ends_with(".kf") && !x[self.folder.len()..].contains('\\')).into_iter().min();
         }
         let found = path.and_then(|path| {
-            let clip = ctx.clip(&path)?;
-            Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
+            let norm = path.to_ascii_lowercase();
+            if let Some(cached) = self.clip_info_by_path.get(&norm) {
+                return cached.clone();
+            }
+            let info = ctx.clip(&path).map(|clip| Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())));
+            self.clip_info_by_path.insert(norm, info.clone());
+            info
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
@@ -1481,7 +1489,7 @@ impl PlayerBody {
             Rig {
                 view, root, lens: None, folder: String::new(), skeleton: actor.skeleton,
                 animator: Animator::new(actor.skel, actor.nodes, None),
-                clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
+                clips: HashMap::new(), clip_info_by_path: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
                 eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None, script_used: None, translate: None,
                 weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
                 weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
@@ -2360,6 +2368,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         skeleton: a.skeleton.clone(),
         animator,
         clips: HashMap::new(),
+        clip_info_by_path: HashMap::new(),
         variants: HashMap::new(),
         overrides: Arc::default(),
         active_clip: None,
@@ -3480,7 +3489,14 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
 /// (docs/design/knvse-anim.md): each frame the game says which replacement files apply
 /// now, conditions run (`Game::anim_overrides_now`); when that changes, each rig takes
 /// the new files and forgets the clips it chose, so the next pick finds them.
-fn apply_anim_overrides(mut script: Option<ResMut<nvf_play::script::ScriptState>>, sim: Option<ResMut<nvf_play::sim::SimState>>, mut state: ResMut<PlayerBody>, mut current: Local<[(Vec<String>, Overrides); 2]>) {
+fn apply_anim_overrides(
+    mut script: Option<ResMut<nvf_play::script::ScriptState>>,
+    sim: Option<ResMut<nvf_play::sim::SimState>>,
+    mut state: ResMut<PlayerBody>,
+    mut parts: Option<ResMut<ActorParts>>,
+    data: Option<Res<nvf_assets::GameData>>,
+    mut current: Local<[(Vec<String>, Overrides); 2]>,
+) {
     let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
     let forced = rt.game.take_player_anim_refresh() || std::mem::take(&mut state.force_anim_refresh);
     let empty = rt.game.anim_paths.actor.is_empty() && rt.game.anim_paths.weapon.is_empty() && rt.game.anim_folders.active.is_empty() && current.iter().all(|c| c.0.is_empty());
@@ -3499,6 +3515,11 @@ fn apply_anim_overrides(mut script: Option<ResMut<nvf_play::script::ScriptState>
             let mut map: HashMap<String, Vec<String>> = HashMap::new();
             for p in &paths {
                 map.entry(p.rsplit('\\').next().unwrap_or(p).to_ascii_lowercase()).or_default().push(p.clone());
+                // Prefetch kNVSE override KF clips asynchronously on the read pool so
+                // subsequent ADS/fire/reload/locomotion transitions hit cache with 0 disk stall [design].
+                if let (Some(parts), Some(data)) = (parts.as_deref_mut(), data.as_deref()) {
+                    parts.prefetch_clip(data, &format!("meshes\\{p}"));
+                }
             }
             info!("player {} rig: {} kNVSE replacement file(s){}", if i == 1 { "First" } else { "Third" }, paths.len(), if paths.is_empty() { String::new() } else { format!(": {}", paths.join(", ")) });
             current[i] = (paths, Arc::new(map));
@@ -4626,7 +4647,8 @@ mod tests {
         let third_rig = Rig {
             view: View::Third, root: third_root, lens: None, folder: String::new(), skeleton: String::new(),
             animator: Animator::new(skel, vec![third_root, bone], None),
-            clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
+            clips: HashMap::new(),
+        clip_info_by_path: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
             weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(), idle_logged: false,
@@ -4640,6 +4662,7 @@ mod tests {
             view: View::First, root, lens: Some([outer, inner]), folder: String::new(), skeleton: String::new(),
             animator,
             clips: [(ClipKey::PipBoy(false), Some(pip_clip))].into_iter().collect(),
+            clip_info_by_path: HashMap::new(),
             variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
@@ -4711,7 +4734,8 @@ mod tests {
         let make_rig = |root: Entity, view: View, shown: Option<bool>| Rig {
             view, root, lens: None, folder: String::new(), skeleton: String::new(),
             animator: Animator::new(skel.clone(), vec![root], None),
-            clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
+            clips: HashMap::new(),
+        clip_info_by_path: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
             weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(), idle_logged: false,

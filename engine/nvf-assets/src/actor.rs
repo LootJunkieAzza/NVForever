@@ -399,7 +399,55 @@ impl ActorParts {
                 textures.offer(t, bytes, now);
             }
         }
+        // Harvest finished background KF clip prefetches into `self.clips` so subsequent
+        // `ActorCtx::clip` calls hit cache with zero main-thread disk I/O [design].
+        let mut clips_done = Vec::new();
+        self.clip_reads.retain(|path, task| match check_ready(task) {
+            Some(read) => {
+                clips_done.push((path.clone(), read));
+                false
+            }
+            None => true,
+        });
+        n += clips_done.len();
+        for (path, read) in clips_done {
+            self.store_clip(path, read);
+        }
         n
+    }
+
+    /// Start reading and parsing the KF clip at `path` on the background read pool if it
+    /// is not already cached or in flight and exists in the VFS [design].
+    pub fn prefetch_clip(&mut self, data: &GameData, path: &str) {
+        let key = fnv_vfs::normalize(path);
+        if self.clips.contains_key(&key) || self.clip_reads.contains_key(&key) {
+            return;
+        }
+        if !data.vfs.exists(&key) {
+            self.clips.insert(key, None);
+            return;
+        }
+        let (data, job) = (data.clone(), key.clone());
+        let task = crate::read_pool::read_pool().spawn(async move { read_clip(&data, &job) });
+        self.clip_reads.insert(key, task);
+    }
+
+    /// Keep a clip read (or its failure) under `key`. A KF file the game does not have is
+    /// no failure: callers ask for clips an actor may or may not have (#2277).
+    fn store_clip(&mut self, key: String, read: Result<Clip, String>) -> Option<Arc<Clip>> {
+        let c = match read {
+            Ok(c) => Some(Arc::new(c)),
+            Err(e) if e == ABSENT => {
+                debug!("{key}: no such clip");
+                None
+            }
+            Err(e) => {
+                crate::guard::failed(&mut self.failures, "actor file", format!("{key}: {e}"));
+                None
+            }
+        };
+        self.clips.insert(key, c.clone());
+        c
     }
 
     /// Where the part (or skeleton) at `path` stands: prepared (or failed to be), read on
@@ -809,25 +857,9 @@ impl ActorCtx<'_, '_> {
         false
     }
 
-    /// Keep a clip read (or its failure) under `key`. A KF file the game does not have is
-    /// no failure: callers ask for clips an actor may or may not have (a creature folder's
-    /// `talking.kf`, its unarmed stance, a weapon's sneak clips), and the base archives
-    /// lack most of them too, so it is logged at debug only, not reported as a missing
-    /// file (#2277).
+    /// Keep a clip read (or its failure) under `key`.
     fn take_clip(&mut self, key: String, read: Result<Clip, String>) -> Option<Arc<Clip>> {
-        let c = match read {
-            Ok(c) => Some(Arc::new(c)),
-            Err(e) if e == ABSENT => {
-                debug!("{key}: no such clip");
-                None
-            }
-            Err(e) => {
-                crate::guard::failed(&mut self.cache.failures, "actor file", format!("{key}: {e}"));
-                None
-            }
-        };
-        self.cache.clips.insert(key, c.clone());
-        c
+        self.cache.store_clip(key, read)
     }
 
     /// The first controller sequence of the KF file at `path` (loaded on first use).
@@ -836,7 +868,14 @@ impl ActorCtx<'_, '_> {
         if let Some(c) = self.cache.clips.get(&key) {
             return c.clone();
         }
-        // A read started on a worker thread is not started again here; it is dropped.
+        // Harvest an already-finished background read before falling back to main-thread I/O.
+        if let Some(task) = self.cache.clip_reads.get_mut(&key) {
+            if let Some(read) = check_ready(task) {
+                self.cache.clip_reads.remove(&key);
+                return self.take_clip(key, read);
+            }
+        }
+        // Still in flight on a worker thread: drop it and read synchronously now.
         self.cache.clip_reads.remove(&key);
         let read = read_clip(&self.models.data, &key);
         self.take_clip(key, read)
