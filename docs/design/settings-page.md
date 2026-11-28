@@ -180,7 +180,8 @@ and Distance, after `distant-lod`), #3013's `distant-lights` (Detail and Distanc
 row), #3569's `difficulty-player-damage`, `difficulty-npc-damage` and `difficulty-kill-xp`
 (Gameplay › Game, under `difficulty`, greyed unless Custom), #3348's `hdr-output` (Display › Screen,
 after `resolution`: a list, so before the switch `borderless`), #3783's `occlusion-culling`
-(Detail and Distance, after `mesh-terrain-blend`; read at the next start), #3843's
+(Detail and Distance, after `mesh-terrain-blend`; read at the next start), #3776's
+`decal-limit` (Graphics › Detail and Distance, after `smooth-terrain`), #3843's
 `localized-dt-dr` (Gameplay › Combat), `physical-pbr` (Lighting and Effects, after
 `night-sky-detail`; read at the next start), and #4690's `tonemap-preset` (after
 `physical-pbr`, a list of the presets found at the start). The
