@@ -3807,6 +3807,31 @@ fn on_actor_equip_and_unequip_aliases_self_and_pre_unequip() {
 }
 
 #[test]
+fn remove_event_handler_respects_priority_and_zero_wildcard() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    q(
+        &mut g,
+        "SetEventHandler \"W6Rem\" TestSet \"priority\"::10
+         SetEventHandler \"W6Rem\" TestSet \"priority\"::5
+         SetEventHandler \"W6Rem\" TestSet \"priority\"::1",
+    );
+    // Removing priority 5 removes only priority 5; repeat returns 0.
+    assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"W6Rem\" TestSet \"priority\"::5)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"W6Rem\" TestSet \"priority\"::5)"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "array_var a\nlet a := GetEventHandlers \"W6Rem\"\nSetFunctionValue ((Ar_HasKey a 10) * 100 + (Ar_HasKey a 5) * 10 + (Ar_HasKey a 1))"), XVal::Num(101.0));
+    // Priority 10 and 1 remain (2 priority buckets); priority 0 removes both.
+    assert_eq!(q(&mut g, "SetFunctionValue (Ar_Size (GetEventHandlers \"W6Rem\"))"), XVal::Num(2.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"W6Rem\" TestSet \"priority\"::0)"), XVal::Num(1.0));
+    assert_eq!(q(&mut g, "DispatchEventAlt \"W6Rem\" 77\nSetFunctionValue TestGlobal"), XVal::Num(0.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (RemoveEventHandler \"W6Rem\" TestSet)"), XVal::Num(0.0));
+}
+
+#[test]
 fn dispatch_event_returns_one_and_overwrites_info_map_keys() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();
