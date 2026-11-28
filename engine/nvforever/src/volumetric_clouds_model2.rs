@@ -820,7 +820,13 @@ mod tests {
         assert_eq!(lobes.matches("vc_m2_lobe_field(").count(), 1);
         for term in ["let large = vc_m2_lobe_field(uv, h, 8u, 0.70", "let profile = vc_m2_fair_profile(column, v);",
             "let cap = min(h - max(0.30, 0.68 * shoulder), small_top - h);", "let fine_uv = 6.0 * uvw + VC_M2_FRAY * erosion.yzx;",
-            "dot(erosion, vec3<f32>(0.46, 0.21, 0.10)) + 0.20 * rim + 0.12 * finest;", "foot * density * boundary"] {
+            "dot(erosion, vec3<f32>(0.46, 0.21, 0.10)) + 0.20 * rim + 0.12 * finest;",
+            "let towers = v.mix.z;",
+            "let growing = smoothstep(0.30, 0.47, v.scale.w) * smoothstep(0.00, 0.07, towers) * (1.0 - smoothstep(0.85, 1.0, towers));",
+            "let lower_interior = growing * smoothstep(0.055, 0.17, column.col.over) * (1.0 - smoothstep(0.22, 0.50, h));",
+            "let fold = 0.075 + 0.36 * coarse + 0.22 * warp + 0.15 * detail;",
+            "let shelf_detail = mix(detail, fold, lower_interior);",
+            "let field = max(shelf, heads) + erosion_strength * shelf_detail;", "foot * density * boundary"] {
             assert!(lobes.contains(term), "fair lobe sampling or support changed: {term}");
         }
         let lean = &src[src.find("fn vc_m2_density(").unwrap()..];

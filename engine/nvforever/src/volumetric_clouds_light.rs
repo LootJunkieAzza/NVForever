@@ -632,7 +632,7 @@ pub fn lighting(i: &VolumeInputs) -> Lighting {
 
 /// What the shading takes of the march's uniform, the same for every sample of a ray (march
 /// `VcShading`): the debug view in force, the uniform's `lmode`, the two weighted ambients, `loct`,
-/// `lfloor` and the light's elevation sine.
+/// `lfloor` and the light's elevation sine. The march fills `front` per sample.
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shading {
@@ -643,6 +643,7 @@ pub struct Shading {
     pub octave: Vec4,
     pub back: Vec4,
     pub rise: f32,
+    pub front: Vec2,
 }
 
 /// A ray's angular part (march `VcRayLight`): the direct light's colour times its strength, the two
@@ -709,6 +710,7 @@ pub fn shading(u: &CloudVolumeUniform) -> Shading {
         octave: u.loct,
         back: u.lfloor,
         rise: u.light_dir.y,
+        front: Vec2::ZERO,
     }
 }
 
@@ -788,6 +790,40 @@ pub const LEAN_BROAD: f32 = 0.8;
 #[cfg_attr(not(test), allow(dead_code))]
 pub const LEAN_FAIR_LOWER: f32 = 0.7;
 
+/// Regional lighting participation in a growing or closed deck (march `vc_front_weather`).
+#[cfg(test)]
+pub(crate) fn front_weather(amount: f32, towers: f32) -> f32 {
+    let deck = smooth(0.55, 0.73, amount);
+    let convective = 1.0 + deck * (smooth(0.23, 0.38, towers) - 1.0);
+    convective * smooth(0.32, 0.46, amount) * smooth(0.008, 0.09, towers) * (1.0 - smooth(0.85, 1.0, towers))
+}
+
+#[cfg(test)]
+pub(crate) fn front_fold(height: f32) -> f32 {
+    1.0 - 2.0 * smooth(0.01, 0.115, height)
+}
+
+/// The regional lighting weight and overhead optical depth prepared by `vc_incident`.
+#[cfg(test)]
+fn front_light(
+    col: &crate::volumetric_clouds_model2::Column, parent_height: f32, above: f32, optical_height: f32, u: &CloudVolumeUniform,
+) -> Vec2 {
+    use crate::volumetric_clouds_model2::{sigma, FILL};
+    let parent = parent_height.max(1.0);
+    let height = (above / parent).clamp(0.0, 1.0);
+    let underside = front_weather(u.scale.w, u.mix.z) * col.res * smooth(0.015, 0.12, col.over) * (1.0 - smooth(0.38, 0.78, height));
+    if underside <= 0.0 {
+        return Vec2::ZERO;
+    }
+    let deck = smooth(0.55, 0.73, u.scale.w);
+    let humid = 1.6 * (col.base_humidity - 0.5);
+    let fold = front_fold(optical_height);
+    let shelter = humid + deck * (fold - humid);
+    let water = (col.deck_relief.x + col.deck_relief.y + shelter).exp2();
+    let parent_depth = sigma(col.types, u) * FILL * parent;
+    Vec2::new((0.70 + 0.15 * deck) * underside, (parent_depth * u.lmode.y).sqrt() * water * (1.0 - height))
+}
+
 /// The lean model's light (march `vc_lean_shade`): the normalised two octaves with the
 /// extinction's floor and the powder in the direct light, the light from above and below through the
 /// columns, and sunlight scattered across a connected storm layer of optical depth `sheet_depth`.
@@ -820,7 +856,7 @@ pub fn lean_shade(d: Vec4, altitude: f32, depth: f32, sampled: bool, ray: &RayLi
     let scattered_path = fill_depth + (broad - fill_depth) * (LEAN_BROAD * fair);
     let (v0, v1) = ((-t).exp(), (-s.octave.y * scattered_path).exp());
     let sky = column_above(d, depth, sampled, s).max(lid).max(crown_depth * s.rise.max(0.0));
-    let above = (1.0 - foot) * sky + foot * bulk;
+    let mut above = (1.0 - foot) * sky + foot * bulk;
     let f = floor_at(ext, s);
     let retained = 1.0 - open_flank * high_sun * (1.0 - smooth(0.25, 0.65, h));
     let q0 = ray.p0.max(f * retained).min(ray.cap);
@@ -832,6 +868,16 @@ pub fn lean_shade(d: Vec4, altitude: f32, depth: f32, sampled: bool, ray: &RayLi
         let path = sheet_depth + bulk + 0.6 * (sheet_depth * (1.0 - h) - bulk);
         let scattered = s.octave.x * s.rise.max(0.0) * through(s.octave.y * path, 1.0);
         source += covered * (scattered - source);
+    }
+    if s.front.x > 0.0 {
+        let regional = s.front.y;
+        let toward = if sampled { (measured * s.rise.max(0.0)).min(3.0 * regional) } else { regional };
+        let measured_share = smooth(s.back.z, s.back.w, s.rise);
+        let overhead = regional + (0.55 * measured_share) * (toward - regional);
+        let path = regional + overhead / s.rise.max(0.25);
+        let diffuse = s.octave.x * s.rise.max(0.0) * through(path, s.octave.y);
+        source += s.front.x * (diffuse - source);
+        above += s.front.x * (overhead - above);
     }
     let direct = ray.light * (s.column.w * source);
     let lower = s.lower * (1.0 + (LEAN_FAIR_LOWER - 1.0) * fair);
@@ -988,6 +1034,12 @@ mod tests {
             "let phase = (1.0 - s.octave.x) * q0 * v0 + retained * retained * s.octave.x * q1 * v1;",
             "var source = vc_powder(ext, ray.powder) * phase;",
             "source = mix(source, scattered, covered);",
+            "let toward = select(regional, min(measured * max(s.rise, 0.0), 3.0 * regional), sampled);",
+            "let measured_share = smoothstep(s.back.z, s.back.w, s.rise);",
+            "let overhead = mix(regional, toward, 0.55 * measured_share);",
+            "let diffuse = s.octave.x * max(s.rise, 0.0) * vc_through(path, s.octave.y);",
+            "source = mix(source, diffuse, s.front.x);",
+            "above = mix(above, overhead, s.front.x);",
             "var direct = ray.light * (s.column.w * source);",
             "const VC_LEAN_FAIR_LOWER: f32 = 0.7;",
             "let lower = s.lower * mix(1.0, VC_LEAN_FAIR_LOWER, fair);",
@@ -1015,11 +1067,29 @@ mod tests {
         }
         assert_eq!(POWDER_LENGTH, 2000.0, "the constant the leaf writes");
         let march = include_str!("volumetric_clouds_march.wesl").replace("\r\n", "\n");
+        for line in [
+            "let convective = mix(1.0, smoothstep(0.23, 0.38, towers), deck);",
+            "return convective * smoothstep(0.32, 0.46, amount) * smoothstep(0.008, 0.09, towers) * (1.0 - smoothstep(0.85, 1.0, towers));",
+            "return col.res * smoothstep(0.015, 0.12, col.over) * (1.0 - smoothstep(0.38, 0.78, height));",
+            "return 1.0 - 2.0 * smoothstep(0.01, 0.115, height);",
+        ] {
+            assert!(march.contains(line), "the shared front lighting term no longer matches: {line}");
+        }
         assert!(march.contains("return vc_lean_shade(d, above, depth, sampled, ray, ls, crown_depth, foot * (1.0 - 0.70 * lobes), sheet_depth, open_flank);"));
         let incident = &march[march.find("fn vc_incident(").unwrap()..];
         let incident = &incident[..incident.find("\n}\n").unwrap()];
         let (before, after) = incident.split_once("return vc_lean_shade(").unwrap();
         assert!(before.contains("if s.mode == 13u {") && before.contains("if s.mode == 10u {") && !after.contains("return"), "after the diagnostics, the only light");
+        for line in [
+            "let underside = vc_front_weather(d.z, v.mix.z) * vc_front_underside(column.col, height);",
+            "let humid = 1.6 * (column.base_humidity - 0.5);",
+            "let fold = vc_front_fold(d.w);",
+            "let water = exp2(column.deck_relief.x + column.deck_relief.y + mix(humid, fold, deck));",
+            "let regional = sqrt(parent_depth * v.lmode.y) * water * (1.0 - height);",
+            "ls.front = vec2<f32>(mix(0.70, 0.85, deck) * underside, regional);",
+        ] {
+            assert!(before.contains(line), "the regional lighting mirror no longer matches: {line}");
+        }
     }
 
     /// Every aid at its most.
@@ -1077,12 +1147,110 @@ mod tests {
 
     /// A model shading with the ambients and the floor off and the given second octave's weight.
     fn bare(w1: f32) -> Shading {
-        Shading { mode: 0, column: Vec4::new(0.0, 0.0, 0.0, 1.0), upper: Vec3::ZERO, lower: Vec3::ZERO, octave: Vec4::new(w1, OCTAVE_DEPTH, OCTAVE_PHASE, 1.0), back: Vec4::new(0.0, 0.0, MEASURED_FROM, MEASURED_TO), rise: 1.0 }
+        Shading { mode: 0, column: Vec4::new(0.0, 0.0, 0.0, 1.0), upper: Vec3::ZERO, lower: Vec3::ZERO, octave: Vec4::new(w1, OCTAVE_DEPTH, OCTAVE_PHASE, 1.0), back: Vec4::new(0.0, 0.0, MEASURED_FROM, MEASURED_TO), rise: 1.0, front: Vec2::ZERO }
     }
 
     /// A unit white light with both octaves' phases `p0`, `p1`.
     fn lit(p0: f32, p1: f32) -> RayLight {
         RayLight { light: Vec3::ONE, p0, p1, cap: PHASE_CAP, powder: 0.0 }
+    }
+
+    #[test]
+    fn a_forming_storm_shares_light_across_its_lower_lobes() {
+        use crate::volumetric_clouds_model2::Column;
+        let early = front_weather(0.42, 0.05);
+        assert!((0.35..0.55).contains(&early), "the growing front already shares some light: {early}");
+        let mut u = uniform(&VolumeInputs { amount: 0.45, density: 0.76, ..Default::default() });
+        let col = Column { types: Vec3::new(0.05, 0.80, 0.15), over: 0.20, res: 1.0, base_humidity: 0.5, ..Default::default() };
+        u.mix = col.types.extend(0.0);
+        let front = front_light(&col, 6_000.0, 450.0, 0.12, &u);
+        assert!((0.65..=0.70).contains(&front.x) && front.y > 0.0);
+        assert!(front_light(&col, 9_000.0, 450.0, 0.12, &u).y > front.y);
+        assert_eq!(front_light(&col, 6_000.0, 5_000.0, 0.12, &u), Vec2::ZERO);
+        for sparse in [Column { over: 0.01, ..col }, Column { res: 0.0, ..col }] {
+            assert_eq!(front_light(&sparse, 6_000.0, 450.0, 0.12, &u), Vec2::ZERO);
+        }
+        for mix in [Vec3::X, Vec3::Y, Vec3::Z] {
+            u.mix = mix.extend(1.0);
+            assert_eq!(front_light(&col, 6_000.0, 450.0, 0.12, &u), Vec2::ZERO);
+        }
+        u.mix = col.types.extend(0.0);
+        for clear in [0.07, 0.29] {
+            u.scale.w = clear;
+            assert_eq!(front_light(&col, 6_000.0, 450.0, 0.12, &u), Vec2::ZERO);
+        }
+        let ray = RayLight { light: Vec3::new(1.0, 0.7, 0.4), powder: 0.7, ..lit(1.0, 0.8) };
+        let source = |region, shape, sun_depth, sampled| {
+            let s = Shading { front: region, column: Vec4::new(0.0, 4.0, 0.5, 1.0), mode: 6, ..bare(0.5) };
+            lean_shade(Vec4::new(shape, 0.001, 0.45, 0.12), 450.0, sun_depth, sampled, &ray, &s, 0.0, 0.0, 0.0, 0.0)
+        };
+        let range = |region| (source(region, 0.10, 0.6, true) - source(region, 0.95, 0.6, true)).length();
+        assert!(range(Vec2::ZERO) > 0.02);
+        assert!((range(front) / range(Vec2::ZERO) - (1.0 - front.x)).abs() < 1e-5);
+        let lit_side = source(front, 0.7, 0.25, true);
+        let sheltered = source(front, 0.7, 4.0, true);
+        assert!(sheltered.x < lit_side.x && (sheltered / sheltered.x - ray.light).length() < 1e-5);
+        assert_eq!(source(front, 0.7, 0.0, false), source(front, 0.7, 4.0, false));
+    }
+
+    #[test]
+    fn a_closing_front_replaces_humidity_with_the_visible_deck_relief() {
+        use crate::volumetric_clouds_model2::Column;
+        let mut u = uniform(&VolumeInputs { amount: 0.48, density: 0.76, ..Default::default() });
+        let types = crate::volumetric_clouds::type_mix(0.88, crate::volumetric_clouds::class_bias(4));
+        let col = Column { types, over: 0.2, res: 1.0, ..Default::default() };
+        u.mix = col.types.extend(0.0);
+        let depth = |amount, humidity, optical_height| {
+            let weather = CloudVolumeUniform { scale: u.scale.with_w(amount), ..u };
+            front_light(&Column { base_humidity: humidity, ..col }, 6_000.0, 450.0, optical_height, &weather).y
+        };
+        assert!(depth(0.48, 0.8, 0.04) > depth(0.48, 0.2, 0.04));
+        assert_eq!(depth(0.48, 0.8, 0.01), depth(0.48, 0.8, 0.115));
+        for amount in [0.73, 0.75, 0.88] {
+            let foot = depth(amount, 0.5, 0.01);
+            let middle = depth(amount, 0.5, 0.0625);
+            let inset = depth(amount, 0.5, 0.115);
+            assert!((foot / middle - 2.0).abs() < 1e-5 && (middle / inset - 2.0).abs() < 1e-5);
+            assert!((depth(amount, 0.1, 0.06) - depth(amount, 0.9, 0.06)).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn a_settled_dry_deck_recovers_its_sheet_lighting() {
+        use crate::volumetric_clouds::class_bias;
+        use crate::volumetric_clouds_model2::Column;
+        let weather = |amount, class| uniform(&VolumeInputs { amount, bias: class_bias(class), density: 0.76, ..Default::default() });
+        let dry = weather(0.73, 1);
+        let rain = weather(0.88, 4);
+        assert!(dry.mix.z < 0.23 && rain.mix.z > 0.38);
+        let sample = |u: &CloudVolumeUniform| {
+            let col = Column { types: u.mix.truncate(), over: 0.20, res: 1.0, ..Default::default() };
+            front_light(&col, 6_000.0, 450.0, 0.04, u)
+        };
+        assert_eq!(sample(&dry), Vec2::ZERO);
+        assert!((sample(&rain).x - 0.85).abs() < 1e-5);
+        // With the dry deck's type mix fixed, closure removes the shared lower-lobe response gradually.
+        assert_eq!(front_weather(0.55, dry.mix.z), 1.0);
+        assert!((front_weather(0.64, dry.mix.z) - 0.5).abs() < 1e-5);
+        assert_eq!(front_weather(0.73, dry.mix.z), 0.0);
+    }
+
+    #[test]
+    fn storm_upper_ambient_stays_continuous_as_horizon_light_taps_turn_on() {
+        let ray = lit(1.0, 0.8);
+        let d = Vec4::new(0.7, 0.001, 0.45, 0.12);
+        let ambient = |rise, depth, sampled| {
+            let s = Shading { mode: 7, rise, upper: Vec3::ONE, front: Vec2::new(0.92, 4.0),
+                column: Vec4::new(0.0, 4.0, 0.5, 1.0), ..bare(0.5) };
+            lean_shade(d, 450.0, depth, sampled, &ray, &s, 0.0, 0.0, 0.0, 0.0)
+        };
+        let horizon = ambient(0.0, 0.0, false);
+        assert!(horizon.x > 0.0);
+        for rise in [-0.01, 0.0, 0.01] {
+            assert_eq!(ambient(rise, 0.0, false), horizon);
+            assert_eq!(ambient(rise, 12.0, true), horizon);
+        }
+        assert!(ambient(1.0, 12.0, true).x < ambient(1.0, 0.0, false).x);
     }
 
     #[test]

@@ -4115,6 +4115,9 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
     base noise bend those folds. Dry pockets rise farther into the bank, while nearby wetter patches
     reach the lower base. This relief drifts with the bank and fades upward. The view and sunlight
     sample the same density field and filter these folds at their respective footprints.
+  - *Growing storm banks* [design]. On the lower face of a widening bank, fine erosion gives way
+    to the broader displacement already sampled for the lobes. The crown and exposed rim retain
+    finer detail. Both the camera and the sunlight sample this surface as cover changes.
   - *Extinction and water*: the types' extinction per unit times `DENSITY`: 400 units of whole cumulus are
     one optical depth at `DENSITY` 1. Water varies inside a fair bank at the scale of a group of lobes and
     mottles its lower face (one base read of the column, two more there); a storm's columns carry between
@@ -4147,6 +4150,10 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
     smoother path for the scattered octave, in a closed deck the layer's own depth spread across
     neighbouring columns (`sheet_depth`), and at an open flank fewer paths survive two events
     [hypothesis each, judged from pictures].
+  - *Storm undersides* [design]. A low sample inside a growing bank shares light with the surrounding
+    cloud. The shader estimates the path through the bank from its height and water content. Under a
+    high sun it also uses the depth already measured toward the light. As the deck closes, the
+    sample's height within the cloud distinguishes hanging folds from shallower recesses.
   - *From above and below*: the sky (0.7 SkyUpper + 0.3 Horizon, gain 1.4) and the ground (reflectance 0.3
     [hypothesis: a dry desert's albedo, from memory] times the weather's Ambient plus its Sunlight by the
     sun's daylight and `1 - target opacity`, 35 % of it at the sky's hue), each with hemisphere weight one

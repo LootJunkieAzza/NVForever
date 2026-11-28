@@ -4581,7 +4581,7 @@ pub(crate) mod tests {
             "                width = spread * t;",
             "emitted = vc_incident(d, depth, sampled, ray_light, shading, rel, ray.origin, width, column, v);",
             "return ambient + direct;",
-            "return VcShading(vc_view_code(v), v.lmode, v.lupper.rgb, v.llower.rgb, v.loct, v.lfloor, v.light_dir.y);",
+            "return VcShading(vc_view_code(v), v.lmode, v.lupper.rgb, v.llower.rgb, v.loct, v.lfloor, v.light_dir.y, vec2<f32>(0.0));",
             "let kept = exp(-d.x * d.y * dt);",
             "m.hidden_t += taken * t;",
             "let fade = vc_horizon_fade(t0, v.slab.w);",
@@ -5189,13 +5189,21 @@ pub(crate) mod tests {
             "t = c0 + offset * dt;",
             "let interior = d.x > max(2.0 * v.march.w, 0.12) && sigma > 0.0;",
             "stable = interior && previous_sigma > 0.0 && abs(sigma - previous_sigma) <= 0.22 * max(sigma, previous_sigma);",
-            "allow_reuse && vc_reuse_incident(cache, d, t, v.march.w);",
+            "let fold_weather = deck * mix(0.70, 0.85, deck) * vc_front_weather(v.scale.w, v.mix.z);",
+            "allow_reuse && vc_reuse_incident(cache, d, t, v.march.w, fold_weather, column.col, yb - v.slab.x);",
             "cache = VcIncidentCache(emitted, t, d.x * d.y, d.w, sampled && d.x > 2.0 * v.march.w);",
             "if c_to < n { cache.valid = false; }",
             "let taken = m.trans * (1.0 - kept);",
             "if m.trans * ahead < v.reach.z {",
         ] {
             assert!(flat.contains(line), "the flat refined march no longer has `{line}`: its mirror must follow");
+        }
+        let reuse = body("\nfn vc_reuse_incident(");
+        for line in [
+            "let weight = fold_weather * vc_front_underside(col, above / max(col.local, 1.0));",
+            "return weight * abs(vc_front_fold(d.w) - vc_front_fold(cache.height)) <= 0.25;",
+        ] {
+            assert!(reuse.contains(line), "the incident-light reuse check no longer has `{line}`: its mirror must follow");
         }
         for line in [
             "const VC_BLOCK_MOST: u32 = 16u;",
@@ -5243,6 +5251,7 @@ pub(crate) mod tests {
     struct FlatField<'a> {
         ray: RayField<'a>,
         height: &'a dyn Fn(f32) -> f32,
+        front_underside: &'a dyn Fn(f32) -> f32,
         first: &'a dyn Fn(f32) -> f32,
         tap: &'a dyn Fn(f32, f32) -> f32,
         near: u32,
@@ -5311,12 +5320,37 @@ pub(crate) mod tests {
         valid: bool,
     }
 
-    /// march `vc_reuse_incident`: the sample at `t` of the optical density `sigma`, the shape `shape` and
-    /// the height share `height`.
-    fn m_reuse(cache: FlatCache, (sigma, shape): (f32, f32), height: f32, t: f32, threshold: f32) -> bool {
+    fn m_fold_weather(amount: f32, towers: f32) -> f32 {
+        let deck = smoothstep(0.55, 0.73, amount);
+        deck * (0.70 + 0.15 * deck) * crate::volumetric_clouds_light::front_weather(amount, towers)
+    }
+
+    /// march `vc_reuse_incident`: the sample at `t` of the optical density `sigma`, the shape `shape`,
+    /// its optical height and the weight of fold-dependent lighting at the sampled column.
+    fn m_reuse(cache: FlatCache, (sigma, shape): (f32, f32), height: f32, t: f32, threshold: f32, fold_weight: f32) -> bool {
+        use crate::volumetric_clouds_light::front_fold;
         let distance = t - cache.t;
         let larger = cache.extinction.max(sigma);
-        cache.valid && shape > 2.0 * threshold && distance <= 2_500.0 && (height - cache.height).abs() <= 0.10 && (sigma - cache.extinction).abs() <= 0.30 * larger && distance * larger <= 0.45
+        let similar = cache.valid && shape > 2.0 * threshold && distance <= 2_500.0 && (height - cache.height).abs() <= 0.10
+            && (sigma - cache.extinction).abs() <= 0.30 * larger && distance * larger <= 0.45;
+        similar && (fold_weight <= 0.0 || fold_weight * (front_fold(height) - front_fold(cache.height)).abs() <= 0.25)
+    }
+
+    #[test]
+    fn light_reuse_measures_fresh_depth_across_an_active_storm_fold() {
+        let accepts = |previous, height, fold_weight| {
+            let cached = FlatCache { t: 1000.0, extinction: 0.001, height: previous, valid: true };
+            m_reuse(cached, (0.001, 0.65), height, 1200.0, 0.03, fold_weight)
+        };
+        let wet = m_fold_weather(0.83, 0.45);
+        assert!(!accepts(0.015, 0.105, wet) && !accepts(0.105, 0.015, wet));
+        assert!(accepts(0.060, 0.065, wet) && accepts(0.12, 0.20, wet));
+        assert!(accepts(0.015, 0.105, 0.1 * wet), "faint contribution at a thinning rim");
+        for (amount, towers) in [(0.07, 0.0), (0.29, 0.0), (0.48, 0.15), (0.73, 0.21), (0.83, 1.0)] {
+            let weight = m_fold_weather(amount, towers);
+            assert_eq!(weight, 0.0);
+            assert!(accepts(0.015, 0.105, weight));
+        }
     }
 
     /// One stretch of the flat refined march (march `vc_march_refined`), statement for
@@ -5334,6 +5368,7 @@ pub(crate) mod tests {
         let node = |b: f32, fs: f32, i: u32, n: u32, e: f32| if i >= n { e } else { b + i as f32 * fs };
         let (mut mt, mut mh, mut mht) = (1.0f32, 0.0f32, 0.0f32);
         let allow_reuse = u.families.w > 0.5 && u.light_dir.w > 0.0;
+        let fold_weather = m_fold_weather(u.scale.w, u.mix.z);
         let stride_limit = u.families.x as u32;
         let taps = (u.march.y as u32).clamp(1, 16);
         let near = f.near(taps);
@@ -5411,7 +5446,7 @@ pub(crate) mod tests {
                         cache.valid = false;
                         next_cell = true;
                     } else {
-                        reuse = allow_reuse && m_reuse(cache, d, (f.height)(t), t, u.march.w);
+                        reuse = allow_reuse && m_reuse(cache, d, (f.height)(t), t, u.march.w, fold_weather * (f.front_underside)(t));
                         if !reuse && shape > u.march.w && u.light_dir.w > 0.0 {
                             (j, s, ds) = (0, 0.0, (f.first)(t));
                             (optical, keep) = (0.0, 1.0);
@@ -5543,6 +5578,7 @@ pub(crate) mod tests {
         let mut log = Vec::new();
         let mut cells = run.cells.iter();
         let mut before: Option<(f32, bool, FlatCache)> = None;
+        let fold_weather = m_fold_weather(u.scale.w, u.mix.z);
         for (t, dt) in order.into_inner() {
             let Some(dt) = dt else {
                 log.push(Turn::Probe(t));
@@ -5558,7 +5594,8 @@ pub(crate) mod tests {
             let stretch = second.1 > second.0 && lo >= second.0;
             let cache = before.filter(|&(end, s, _)| s == stretch && (end - lo).abs() < 0.25).map_or(FlatCache::default(), |(_, _, c)| c);
             let height = (f.height)(t);
-            let reuse = u.families.w > 0.5 && u.light_dir.w > 0.0 && m_reuse(cache, (sigma, shape), height, t, u.march.w);
+            let reuse = u.families.w > 0.5 && u.light_dir.w > 0.0
+                && m_reuse(cache, (sigma, shape), height, t, u.march.w, fold_weather * (f.front_underside)(t));
             let depth = (!reuse && shape > u.march.w && u.light_dir.w > 0.0).then(|| f.light(t, taps, &mut log));
             log.push(Turn::Shade(t, reuse, depth));
             before = (!reuse).then_some((hi, stretch, FlatCache { t, extinction: sigma, height, valid: depth.is_some() && shape > 2.0 * u.march.w }));
@@ -5627,6 +5664,7 @@ pub(crate) mod tests {
             let field = FlatField {
                 ray: RayField { support: &support, density: &density, stepped: Some(&stepped) },
                 height: &height,
+                front_underside: &|t| 1.0 - smoothstep(0.38, 0.78, height(t)),
                 first: &first,
                 tap: &tap,
                 near,

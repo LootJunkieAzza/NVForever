@@ -38,6 +38,8 @@ struct VcShading {
     back: vec4<f32>,
     // The light's elevation sine (`light_dir.y`).
     rise: f32,
+    // The lower face's share of regional lighting and the broad parent bank's optical depth.
+    front: vec2<f32>,
 }
 
 // What a ray prepares once (the angular part of the light, volumetric_clouds_light.rs `RayLight`):
@@ -162,9 +164,10 @@ fn vc_lean_shade(d: vec4<f32>, altitude: f32, depth: f32, sampled: bool, ray: Vc
     // the single-scatter beam and the deck.
     let broad = max((1.0 - foot) * crown_depth, lid);
     let v1 = exp(-s.octave.y * mix(fill_depth, broad, VC_LEAN_BROAD * fair));
+    let measured_share = smoothstep(s.back.z, s.back.w, s.rise);
     var above = s.column.y * (1.0 - h);
     if sampled {
-        above = mix(above, measured * max(s.rise, 0.0), smoothstep(s.back.z, s.back.w, s.rise));
+        above = mix(above, measured * max(s.rise, 0.0), measured_share);
     }
     above = mix(max(above, max(lid, crown_depth * max(s.rise, 0.0))), bulk, foot);
     let f = vc_floor(ext, s);
@@ -183,6 +186,19 @@ fn vc_lean_shade(d: vec4<f32>, altitude: f32, depth: f32, sampled: bool, ray: Vc
         let path = sheet_depth + mix(bulk, sheet_depth * (1.0 - h), 0.6);
         let scattered = s.octave.x * max(s.rise, 0.0) * vc_through(s.octave.y * path, 1.0);
         source = mix(source, scattered, covered);
+    }
+    if s.front.x > 0.0 {
+        // Light that reaches the foot of a wet bank has crossed neighbouring lobes.
+        // Keep directional shelter, bounded by a few local columns at grazing incidence.
+        let regional = s.front.y;
+        let toward = select(regional, min(measured * max(s.rise, 0.0), 3.0 * regional), sampled);
+        // A grazing ray measures the side of the bank. Use its depth for
+        // overhead light only as the light rises, as for the column above.
+        let overhead = mix(regional, toward, 0.55 * measured_share);
+        let path = regional + overhead / max(s.rise, 0.25);
+        let diffuse = s.octave.x * max(s.rise, 0.0) * vc_through(path, s.octave.y);
+        source = mix(source, diffuse, s.front.x);
+        above = mix(above, overhead, s.front.x);
     }
     var direct = ray.light * (s.column.w * source);
     let lower = s.lower * mix(1.0, VC_LEAN_FAIR_LOWER, fair);

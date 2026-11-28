@@ -1247,7 +1247,14 @@ fn vc_m2_lobes(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32, wi
     let cap = min(h - max(0.30, 0.68 * shoulder), small_top - h);
     let heads = max(large.x + 0.42 * coarse, cap - 0.59 * (1.0 - tower)) + 0.16 * warp - 0.67 * exterior;
     let erosion_strength = clamp(v.nscale.w / 1.26, 0.0, 2.0);
-    let field = max(shelf, heads) + erosion_strength * detail;
+    // [hypothesis] As a convective bank spreads, the underside joins in broad
+    // folds. Keep the fine erosion on the exposed rim and upper lobes.
+    let towers = v.mix.z;
+    let growing = smoothstep(0.30, 0.47, v.scale.w) * smoothstep(0.00, 0.07, towers) * (1.0 - smoothstep(0.85, 1.0, towers));
+    let lower_interior = growing * smoothstep(0.055, 0.17, column.col.over) * (1.0 - smoothstep(0.22, 0.50, h));
+    let fold = 0.075 + 0.36 * coarse + 0.22 * warp + 0.15 * detail;
+    let shelf_detail = mix(detail, fold, lower_interior);
+    let field = max(shelf, heads) + erosion_strength * shelf_detail;
     let soft = clamp(width / column.col.local, 0.14, 0.32);
     let foot = smoothstep(0.02, 0.13, h);
     let roof = mix(0.75 + 0.44 * column.m2.x, max(0.5, max(large.y, small_top)), 0.45);
@@ -1679,7 +1686,7 @@ fn vc_dither(frag: vec2<f32>, frame: u32, temporal: bool) -> f32 {
 // What the light's shading (volumetric_clouds_light.wesl `vc_lean_shade`) takes of the uniform, once per
 // ray (#3032 stage 2e: the leaf takes plain values, never `CloudVolume`).
 fn vc_shading(v: CloudVolume) -> VcShading {
-    return VcShading(vc_view_code(v), v.lmode, v.lupper.rgb, v.llower.rgb, v.loct, v.lfloor, v.light_dir.y);
+    return VcShading(vc_view_code(v), v.lmode, v.lupper.rgb, v.llower.rgb, v.loct, v.lfloor, v.light_dir.y, vec2<f32>(0.0));
 }
 
 // The light's angular part for a ray along `dir` (volumetric_clouds_light.wesl `vc_ray_light`): the
@@ -1755,6 +1762,22 @@ fn vc_m2_crown_depth(column: VcPreparedColumn, above: f32, pos: vec3<f32>, width
     return sigma * distance * weight * buried * resolved;
 }
 
+fn vc_front_weather(amount: f32, towers: f32) -> f32 {
+    // Joining banks share light across lower lobes. Once the deck has closed,
+    // only a substantial convective component still supports that contrast.
+    let deck = smoothstep(0.55, 0.73, amount);
+    let convective = mix(1.0, smoothstep(0.23, 0.38, towers), deck);
+    return convective * smoothstep(0.32, 0.46, amount) * smoothstep(0.008, 0.09, towers) * (1.0 - smoothstep(0.85, 1.0, towers));
+}
+
+fn vc_front_underside(col: VcColumn, height: f32) -> f32 {
+    return col.res * smoothstep(0.015, 0.12, col.over) * (1.0 - smoothstep(0.38, 0.78, height));
+}
+
+fn vc_front_fold(height: f32) -> f32 {
+    return 1.0 - 2.0 * smoothstep(0.01, 0.115, height);
+}
+
 // The light a view sample `d` at `rel` gives toward the camera (linear), through the lean light
 // (volumetric_clouds_light.wesl `vc_lean_shade`), with the march's estimates of its column.
 fn vc_incident(d: vec4<f32>, depth: f32, sampled: bool, ray: VcRayLight, s: VcShading, rel: vec3<f32>, cam: vec3<f32>, width: f32, column: VcPreparedColumn, v: CloudVolume) -> vec3<f32> {
@@ -1808,6 +1831,23 @@ fn vc_incident(d: vec4<f32>, depth: f32, sampled: bool, ray: VcRayLight, s: VcSh
         let filled = mix(1.0, smoothstep(0.0, 0.20, column.col.over), column.col.res);
         sheet_depth = v.lmode.y * filled * exp2(2.0 * column.col.res * column.deck_relief.x);
     }
+    // A wet convective front can already span several lobes before the deck closes.
+    // Its lower light follows the water in the broader parent, keeping the rims local.
+    let parent = max(column.col.local, 1.0);
+    let height = clamp(above / parent, 0.0, 1.0);
+    let underside = vc_front_weather(d.z, v.mix.z) * vc_front_underside(column.col, height);
+    if underside > 0.0 {
+        // Early in the front, broad, humid columns shelter more of the lower face.
+        // In a closed deck the visible optical height distinguishes its hanging foot
+        // from the thinner recessed folds. Fade humidity before its read ends at .75.
+        let deck = smoothstep(0.55, 0.73, d.z);
+        let humid = 1.6 * (column.base_humidity - 0.5);
+        let fold = vc_front_fold(d.w);
+        let water = exp2(column.deck_relief.x + column.deck_relief.y + mix(humid, fold, deck));
+        let parent_depth = vc_m2_sigma(column.col.types, v) * VC_M2_FILL * parent;
+        let regional = sqrt(parent_depth * v.lmode.y) * water * (1.0 - height);
+        ls.front = vec2<f32>(mix(0.70, 0.85, deck) * underside, regional);
+    }
     return vc_lean_shade(d, above, depth, sampled, ray, ls, crown_depth, foot * (1.0 - 0.70 * lobes), sheet_depth, open_flank);
 }
 
@@ -1836,13 +1876,19 @@ struct VcIncidentCache {
     valid: bool,
 }
 
-fn vc_reuse_incident(cache: VcIncidentCache, d: vec4<f32>, t: f32, threshold: f32) -> bool {
+fn vc_reuse_incident(cache: VcIncidentCache, d: vec4<f32>, t: f32, threshold: f32, fold_weather: f32, col: VcColumn, above: f32) -> bool {
     let distance = t - cache.t;
     let extinction = d.x * d.y;
     let larger = max(cache.extinction, extinction);
-    return cache.valid && d.x > 2.0 * threshold && distance <= 2500.0
+    let similar = cache.valid && d.x > 2.0 * threshold && distance <= 2500.0
         && abs(d.w - cache.height) <= 0.10 && abs(extinction - cache.extinction) <= 0.30 * larger
         && distance * larger <= 0.45;
+    if !similar || fold_weather <= 0.0 {
+        return similar;
+    }
+    // Bound the fold's contribution to log2 optical depth across the two samples.
+    let weight = fold_weather * vc_front_underside(col, above / max(col.local, 1.0));
+    return weight * abs(vc_front_fold(d.w) - vc_front_fold(cache.height)) <= 0.25;
 }
 
 // --- The view march (#3032 stage 2c, checkpoint C1; the medium's trace entries `medium_trace_refined`
@@ -1987,6 +2033,8 @@ fn vc_march_refined(ray: MediumRay, t0: f32, t1: f32, grow: f32, blocks: u32, of
     let ray_light = vc_ray_light_of(ray.dir, v);
     let shading = vc_shading(v);
     let allow_reuse = v.families.w > 0.5 && v.light_dir.w > 0.0;
+    let deck = smoothstep(0.55, 0.73, v.scale.w);
+    let fold_weather = deck * mix(0.70, 0.85, deck) * vc_front_weather(v.scale.w, v.mix.z);
     var cache: VcIncidentCache;
     let stride_limit = u32(v.families.x);
     let ld = v.light_dir.xyz;
@@ -2128,7 +2176,7 @@ fn vc_march_refined(ray: MediumRay, t0: f32, t1: f32, grow: f32, blocks: u32, of
                 cache.valid = false;
                 next_cell = true;
             } else {
-                reuse = allow_reuse && vc_reuse_incident(cache, d, t, v.march.w);
+                reuse = allow_reuse && vc_reuse_incident(cache, d, t, v.march.w, fold_weather, column.col, yb - v.slab.x);
                 if !reuse && d.x > v.march.w && v.light_dir.w > 0.0 {
                     j = 0u;
                     s = 0.0;

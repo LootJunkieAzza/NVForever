@@ -674,6 +674,44 @@ fn fair_material_resolves_the_reconstructed_texel_across_the_view_ray() {
     }
 }
 
+/// Lower-interior displacement in the lobe field (march vc_m2_lobes).
+fn lean_shelf_detail(detail: f32, coarse: f32, warp: f32, over: f32, h: f32, u: &CloudVolumeUniform) -> f32 {
+    let towers = u.mix.z;
+    let growing = smoothstep(0.30, 0.47, u.scale.w) * smoothstep(0.00, 0.07, towers) * (1.0 - smoothstep(0.85, 1.0, towers));
+    let lower_interior = growing * smoothstep(0.055, 0.17, over) * (1.0 - smoothstep(0.22, 0.50, h));
+    let fold = 0.075 + 0.36 * coarse + 0.22 * warp + 0.15 * detail;
+    detail + (fold - detail) * lower_interior
+}
+
+#[test]
+fn an_interior_lower_shelf_keeps_broad_folds_as_its_fine_erosion_fades() {
+    let mut u = lean_ground_with_puff(0.48, None, 1.0);
+    u.mix.z = 0.09;
+    let relief = |coarse, over, h, u: &CloudVolumeUniform| {
+        [-0.25, 0.25].map(|detail| lean_shelf_detail(detail, coarse, 0.0, over, h, u))
+    };
+    let shelf = relief(0.0, 0.18, 0.18, &u);
+    assert!((shelf[1] - shelf[0] - 0.075).abs() < 1e-6);
+    assert!(shelf[0] > 0.0, "a fine trough leaves the broad shelf connected");
+    assert!(relief(0.4, 0.18, 0.18, &u)[0] > relief(-0.4, 0.18, 0.18, &u)[1],
+        "broad relief exceeds the residual fine erosion");
+    for (over, h) in [(0.04, 0.18), (0.18, 0.54)] {
+        assert_eq!(relief(0.0, over, h, &u), [-0.25, 0.25]);
+    }
+    u.scale.w = 0.39;
+    let during = relief(0.0, 0.18, 0.18, &u);
+    assert!(during[1] - during[0] > 0.075 && during[1] - during[0] < 0.5);
+    u.scale.w = 0.48;
+    u.mix.z = 0.925;
+    let nearly_tower = relief(0.0, 0.18, 0.18, &u);
+    assert!(nearly_tower[1] - nearly_tower[0] > 0.075 && nearly_tower[1] - nearly_tower[0] < 0.5);
+    for (amount, tower) in [(0.29, 0.0), (0.07, 0.0), (0.48, 0.0), (0.48, 1.0)] {
+        u.scale.w = amount;
+        u.mix.z = tower;
+        assert_eq!(relief(0.0, 0.18, 0.18, &u), [-0.25, 0.25]);
+    }
+}
+
 /// Fair material against the production noise bytes, including its view/light footprint.
 fn lean_lobes(xz: Vec2, col: &crate::volumetric_clouds_model2::Column, g: &crate::volumetric_clouds_model2::Geometry,
     s: &crate::volumetric_clouds_model2::Sample, u: &CloudVolumeUniform) -> (f32, f32) {
@@ -718,7 +756,8 @@ fn lean_lobes(xz: Vec2, col: &crate::volumetric_clouds_model2::Column, g: &crate
     let cap = (h - (0.68 * shoulder).max(0.30)).min(small_top - h);
     let heads = (large.x + 0.42 * coarse).max(cap - 0.59 * (1.0 - tower)) + 0.16 * warp - 0.67 * exterior;
     let erosion_strength = (u.nscale.w / 1.26).clamp(0.0, 2.0);
-    let field = shelf.max(heads) + erosion_strength * detail;
+    let shelf_detail = lean_shelf_detail(detail, coarse, warp, col.over, h, u);
+    let field = shelf.max(heads) + erosion_strength * shelf_detail;
     let soft = (width / g.parent).clamp(0.14, 0.32);
     let roof = 0.75 + 0.44 * g.cover;
     let roof = roof + 0.45 * (large.y.max(small_top).max(0.5) - roof);
