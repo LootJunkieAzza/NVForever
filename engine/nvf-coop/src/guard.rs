@@ -63,6 +63,7 @@ pub enum Kind {
     Welcome,
     Full,
     Who,
+    Kicked,
     State,
     Ping,
     Bye,
@@ -122,7 +123,7 @@ pub fn default_rate(kind: Kind) -> Option<Rate> {
         Kind::Rel => r(300.0, 1.5 * REL_PACKETS as f32 * TICKS),
         Kind::Hello => r(10.0, 5.0),
         Kind::Look => r(10.0, 5.0),
-        Kind::Bye | Kind::Welcome | Kind::Full | Kind::Who | Kind::Names => r(10.0, 10.0),
+        Kind::Bye | Kind::Welcome | Kind::Full | Kind::Who | Kind::Kicked | Kind::Names => r(10.0, 10.0),
         Kind::Item(repl_kind::CARRY) => r(60.0, 30.0),
         Kind::Item(repl_kind::LOOSE) => r(20.0, 10.0),
         Kind::Item(repl_kind::DIGEST) => r(16.0, 4.0),
@@ -413,7 +414,7 @@ impl Guard {
             return Err(Reason::Rate);
         }
         match msg {
-            Msg::Welcome { .. } | Msg::Full { .. } | Msg::Who | Msg::Names { .. } => Err(Reason::HostOnly),
+            Msg::Welcome { .. } | Msg::Full { .. } | Msg::Who | Msg::Kicked { .. } | Msg::Names { .. } => Err(Reason::HostOnly),
             Msg::Npcs { .. } | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Wear { .. } | Msg::Clock(_) | Msg::Scene(_) | Msg::Actors { .. } => Err(Reason::HostOnly),
             Msg::Revive { perks, .. } => {
                 *perks &= revive_perk::KNOWN;
