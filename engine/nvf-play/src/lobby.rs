@@ -12,7 +12,11 @@
 //! closed or left first [design].
 //!
 //! A guest in a session opens the same pause-menu entry and sees who is in the lobby, the
-//! host marked, with Leave Lobby instead of Create Lobby.
+//! host marked, with Leave Lobby instead of Create Lobby. A guest also has Quest Sync (its
+//! quest progression sync, on or off) and Questlines (the lines it sits out), with a
+//! confirm box when that would leave shared quests part way through
+//! (docs/design/coop-quest-sync.md; the choices live in `crate::coop_progress`, which
+//! fills [`QuestSyncView`]).
 //!
 //! The host's screen also lists the players asking to join by online code (Let In, Turn
 //! Away: the "Ask before players join" setting) and, for each guest, Kick (removed now) and
@@ -26,7 +30,9 @@
 //! Test aid `NVF_PLAY_TEST_LOBBY="<seconds>:<action>,..."` (real seconds from the start):
 //! `code=<code>` types a code, `join`, `open` (the lobby as the pause menu opens it),
 //! `create`, `close`, `leave`, `back`, `shot=<file>` (a screenshot), `coop=on` /
-//! `coop=off` (the switch, for this run only: not kept).
+//! `coop=off` (the switch, for this run only: not kept); for a guest's quest sync,
+//! `quest-sync` (the toggle), `questlines` (the menu), `line=<key>` (a line of
+//! `fnv_game::coop_questlines::LINES`, by key), `confirm`, `cancel`.
 
 use crate::interface::{amber, bc_supported, u};
 use crate::start_menu::{color, highlight, text, wrapped, Faces, Shade, ITEM, LINE};
@@ -35,6 +41,7 @@ use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
+use fnv_util::words::{tr, trf};
 use nvf_assets::GameData;
 
 /// The screen's width and top, interface units.
@@ -50,6 +57,8 @@ const TITLE: &str = "Co-op";
 pub const LOBBY_PLAYERS: usize = 6;
 /// The longest code or address typed.
 const MAX_TYPED: usize = 64;
+/// The Questlines menu's rows shown at once; Up and Down scroll the rest [design].
+const LINE_ROWS: usize = 12;
 
 /// Which screen is up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +84,32 @@ pub enum LobbyRequest {
     Kick { id: u8, ban: bool },
     /// The host's answer to player `peer` asking to join (its number in the service's lobby).
     Admit { peer: u32, yes: bool },
+    /// A guest turns its quest progression sync on or off (docs/design/coop-quest-sync.md §1).
+    QuestSync(bool),
+    /// A guest sits out questline `line` (a row of `fnv_game::coop_questlines::LINES`), or
+    /// takes it again.
+    SitOut { line: usize, out: bool },
+}
+
+/// A guest's quest progression sync as the lobby shows it (written by
+/// `crate::coop_progress` while the screen is open; docs/design/coop-quest-sync.md).
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct QuestSyncView {
+    /// This game is a guest with a character (the rows show).
+    pub guest: bool,
+    pub on: Option<bool>,
+    /// The lines sat out (`fnv_game::coop_questlines::Mask`).
+    pub sat_out: u64,
+    /// The shown names of the shared quests part way through, and those of each line.
+    pub busy: Vec<String>,
+    pub busy_by_line: Vec<(usize, Vec<String>)>,
+}
+
+/// What the confirm box asks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Confirm {
+    SyncOff,
+    SitOut(usize),
 }
 
 /// The host's lobby.
@@ -191,6 +226,11 @@ pub struct LobbyScreen {
     coop: bool,
     /// The Co-op switch's button was taken: turned over by [`input`].
     coop_ask: bool,
+    /// A guest's quest sync as of this frame ([`QuestSyncView`]), the Questlines menu up,
+    /// and the confirm box up.
+    sync: QuestSyncView,
+    lines: bool,
+    confirm: Option<Confirm>,
 }
 
 impl LobbyScreen {
@@ -199,6 +239,8 @@ impl LobbyScreen {
         info!("lobby: {mode:?} screen");
         self.mode = Some(mode);
         self.selected = 0;
+        self.lines = false;
+        self.confirm = None;
         self.opened = self.frame;
     }
 
@@ -240,6 +282,15 @@ enum Act {
     Ban(u8),
     LetIn(u32),
     TurnAway(u32),
+    /// A guest's Quest Sync toggle.
+    QuestSync,
+    /// Open the Questlines menu.
+    Questlines,
+    /// Sit this line (a row of `fnv_game::coop_questlines::LINES`) out, or take it again.
+    Line(usize),
+    /// The confirm box's yes and no.
+    Confirm,
+    Cancel,
 }
 
 pub struct LobbyPlugin;
@@ -259,6 +310,7 @@ impl Plugin for LobbyPlugin {
         app.init_resource::<LobbyScreen>()
             .init_resource::<LobbyState>()
             .init_resource::<CoopSwitch>()
+            .init_resource::<QuestSyncView>()
             .insert_resource(LobbyAid(aid))
             .add_message::<LobbyRequest>()
             .add_systems(PostStartup, load_switch.after(crate::settings::apply_stored))
@@ -271,8 +323,17 @@ impl Plugin for LobbyPlugin {
 
 /// The buttons that can be chosen, in order.
 fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
+    if screen.mode == Some(Mode::Host) && state.guest {
+        if screen.confirm.is_some() {
+            return vec![Act::Confirm, Act::Cancel];
+        }
+        if screen.lines {
+            return (0..fnv_game::coop_questlines::LINES.len()).map(Act::Line).chain([Act::Back]).collect();
+        }
+    }
     match screen.mode {
         None => Vec::new(),
+        Some(Mode::Host) if state.guest && screen.sync.guest => vec![Act::Leave, Act::QuestSync, Act::Questlines, Act::Back],
         Some(Mode::Host) if state.guest => vec![Act::Leave, Act::Back],
         Some(Mode::Host) if !screen.coop && coop_held(state).is_none() => vec![Act::Coop, Act::Back],
         Some(Mode::Host) => {
@@ -327,8 +388,18 @@ fn input(
     buttons: Query<(&PointerState, &Act), Changed<PointerState>>,
     mut asks: MessageWriter<LobbyRequest>,
     mut switch: ResMut<CoopSwitch>,
+    sync: Option<Res<QuestSyncView>>,
 ) {
     screen.frame = frames.map_or(screen.frame.wrapping_add(1), |f| f.0);
+    let sync = sync.as_deref().cloned().unwrap_or_default();
+    if screen.sync != sync {
+        screen.sync = sync;
+    }
+    // Not a guest any more: its menus go.
+    if !state.guest && (screen.lines || screen.confirm.is_some()) {
+        screen.lines = false;
+        screen.confirm = None;
+    }
     // The switch turned over last frame.
     if std::mem::take(&mut screen.coop_ask) {
         commands.queue(toggle_coop);
@@ -363,6 +434,11 @@ fn input(
             switch.on = CoopSwitch::read_line(v);
             screen.coop = switch.on;
             info!("test aid NVF_PLAY_TEST_LOBBY: co-op {} (not kept)", on_off(switch.on).to_ascii_lowercase());
+        } else if let Some(k) = a.strip_prefix("line=") {
+            match fnv_game::coop_questlines::index(k) {
+                Some(i) => take(&mut screen, &state, Act::Line(i), &mut asks),
+                None => warn!("NVF_PLAY_TEST_LOBBY: no questline {k:?}"),
+            }
         } else {
             let act = match a.as_str() {
                 "join" => Some(Act::Join),
@@ -382,6 +458,10 @@ fn input(
                 "close" => Some(Act::Close),
                 "leave" => Some(Act::Leave),
                 "back" => Some(Act::Back),
+                "quest-sync" => Some(Act::QuestSync),
+                "questlines" => Some(Act::Questlines),
+                "confirm" => Some(Act::Confirm),
+                "cancel" => Some(Act::Cancel),
                 other => {
                     warn!("NVF_PLAY_TEST_LOBBY: no action {other:?}");
                     None
@@ -452,7 +532,16 @@ fn input(
 
 fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut MessageWriter<LobbyRequest>) {
     info!("lobby: {act:?}");
+    if let Some(ask) = sync_press(screen, state, act) {
+        if let Some(ask) = ask {
+            info!("lobby: {ask:?}");
+            asks.write(ask);
+        }
+        return;
+    }
     match act {
+        // Taken by `sync_press`.
+        Act::QuestSync | Act::Questlines | Act::Line(_) | Act::Confirm | Act::Cancel => {}
         Act::Create => {
             asks.write(LobbyRequest::Create);
         }
@@ -501,6 +590,67 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
     }
 }
 
+/// A guest's Quest Sync toggle, Questlines menu and confirm box (docs/design/coop-quest-sync.md
+/// §1, §4): `Some` when `act` was one of theirs (with what to ask, if anything), `None` for
+/// every other act. Turning sync off, or sitting a line out, while shared quests are part way
+/// through opens the confirm box first, Cancel chosen.
+fn sync_press(screen: &mut LobbyScreen, state: &LobbyState, act: Act) -> Option<Option<LobbyRequest>> {
+    use fnv_game::coop_questlines::bit;
+    if !(screen.mode == Some(Mode::Host) && state.guest) {
+        return None;
+    }
+    let back_to = |screen: &mut LobbyScreen, to: Act| {
+        screen.selected = acts(screen, state).iter().position(|a| *a == to).unwrap_or(0);
+    };
+    let ask = match act {
+        Act::QuestSync if screen.sync.on == Some(true) && !screen.sync.busy.is_empty() => {
+            screen.confirm = Some(Confirm::SyncOff);
+            screen.selected = 1;
+            None
+        }
+        Act::QuestSync => Some(LobbyRequest::QuestSync(screen.sync.on != Some(true))),
+        Act::Questlines => {
+            screen.lines = true;
+            screen.selected = 0;
+            None
+        }
+        Act::Line(i) if screen.sync.sat_out & bit(i) != 0 => Some(LobbyRequest::SitOut { line: i, out: false }),
+        Act::Line(i) if screen.sync.on == Some(true) && screen.sync.busy_by_line.iter().any(|(l, _)| *l == i) => {
+            screen.confirm = Some(Confirm::SitOut(i));
+            screen.selected = 1;
+            None
+        }
+        Act::Line(i) => Some(LobbyRequest::SitOut { line: i, out: true }),
+        Act::Confirm | Act::Cancel | Act::Back if screen.confirm.is_some() => {
+            let c = screen.confirm.take();
+            let yes = act == Act::Confirm;
+            match c {
+                Some(Confirm::SitOut(i)) => {
+                    back_to(screen, Act::Line(i));
+                    yes.then_some(LobbyRequest::SitOut { line: i, out: true })
+                }
+                _ => {
+                    back_to(screen, Act::QuestSync);
+                    yes.then_some(LobbyRequest::QuestSync(false))
+                }
+            }
+        }
+        Act::Confirm | Act::Cancel => None,
+        Act::Back if screen.lines => {
+            screen.lines = false;
+            back_to(screen, Act::Questlines);
+            None
+        }
+        _ => return None,
+    };
+    Some(ask)
+}
+
+/// The Quest Sync button [design: our own words; the original has no such option].
+fn quest_sync_label(on: Option<bool>) -> String {
+    trf("Quest Sync: {state}", &[("state", &on_off(on == Some(true)))])
+}
+
 /// What the screen shows, kept to see when it changes.
 #[derive(Debug, Clone, PartialEq)]
 enum Piece {
@@ -509,15 +659,17 @@ enum Piece {
     Big(String),
     Field(String),
     Button(Act, String),
+    /// A row of a list, as wide as the panel, in small print (the Questlines menu).
+    Row(Act, String),
     /// A button that cannot be taken now: greyed, no pointer.
     Off(String),
 }
 
 fn on_off(on: bool) -> &'static str {
     if on {
-        "On"
+        tr("On")
     } else {
-        "Off"
+        tr("Off")
     }
 }
 
@@ -529,12 +681,29 @@ fn coop_label(on: bool) -> String {
 fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
     use Piece::*;
     let mut v = Vec::new();
+    if screen.mode == Some(Mode::Host) && state.guest {
+        if let Some(c) = screen.confirm {
+            confirm_pieces(&mut v, screen, c);
+            return v;
+        }
+        if screen.lines {
+            line_pieces(&mut v, screen);
+            v.push(Button(Act::Back, tr("Back").into()));
+            return v;
+        }
+    }
     match screen.mode {
         None => {}
         Some(Mode::Host) if state.guest => {
             v.push(Title(TITLE.into()));
             v.push(Line(format!("{} ({})", coop_label(true), coop_held(state).unwrap_or_default()), Shade::Dim));
             in_lobby(&mut v, state);
+            if screen.sync.guest {
+                v.push(Line(tr("Quest progression sync: whether the host's quest progress also counts in your own save.").into(), Shade::Dim));
+                v.push(Button(Act::QuestSync, quest_sync_label(screen.sync.on)));
+                let n = screen.sync.sat_out.count_ones();
+                v.push(Button(Act::Questlines, if n == 0 { tr("Questlines").into() } else { trf("Questlines ({n} out)", &[("n", &n)]) }));
+            }
         }
         Some(Mode::Host) => {
             v.push(Title(TITLE.into()));
@@ -590,17 +759,69 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
         }
     }
     if screen.mode.is_some() {
-        v.push(Button(Act::Back, "Back".into()));
+        v.push(Button(Act::Back, tr("Back").into()));
     }
     v
 }
 
 /// A guest's view of the lobby it is in: whose it is, who is there, and Leave Lobby.
 fn in_lobby(v: &mut Vec<Piece>, state: &LobbyState) {
-    let host = state.players.iter().find_map(|p| p.strip_suffix(" (host)"));
+    let host = state.players.iter().find_map(|p| p.strip_suffix(tr(" (host)")));
     v.push(Piece::Line(host.map_or_else(|| "You are in another player's lobby.".to_string(), |h| format!("You are in {h}'s lobby.")), Shade::Bright));
     players(v, state);
     v.push(Piece::Button(Act::Leave, "Leave Lobby".into()));
+}
+
+/// The Questlines menu (docs/design/coop-quest-sync.md §1-2): every line under its kind's
+/// heading, Synced or Sitting out, a window of [`LINE_ROWS`] round the one chosen
+/// [design: our own words].
+fn line_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen) {
+    use fnv_game::coop_questlines::{bit, Kind, LINES};
+    v.push(Piece::Title(tr("Questlines").into()));
+    v.push(Piece::Line(tr("Sit out a questline and its quests stay as your own save has them. The story before it splits off stays shared.").into(), Shade::Bright));
+    if screen.sync.on != Some(true) {
+        v.push(Piece::Line(tr("Quest sync is off: these apply once it is on.").into(), Shade::Dim));
+    }
+    let mut rows = Vec::new();
+    for k in Kind::ALL {
+        let mut first = true;
+        for (i, l) in LINES.iter().enumerate().filter(|(_, l)| l.kind == k) {
+            if std::mem::take(&mut first) {
+                rows.push(Piece::Line(k.label().to_string(), Shade::Dim));
+            }
+            let out = screen.sync.sat_out & bit(i) != 0;
+            rows.push(Piece::Row(Act::Line(i), format!("  {}   {}", tr(l.name), if out { tr("Sitting out") } else { tr("Synced") })));
+        }
+    }
+    let chosen = (screen.selected < LINES.len()).then_some(Act::Line(screen.selected));
+    let at = rows.iter().position(|r| matches!(r, Piece::Row(a, _) if Some(*a) == chosen)).unwrap_or(0);
+    let first = at.saturating_sub(LINE_ROWS / 2).min(rows.len().saturating_sub(LINE_ROWS));
+    let total = rows.len();
+    if first > 0 {
+        v.push(Piece::Line(trf("  ({n} more above: Up and Down scroll)", &[("n", &first)]), Shade::Dim));
+    }
+    v.extend(rows.into_iter().skip(first).take(LINE_ROWS));
+    if first + LINE_ROWS < total {
+        v.push(Piece::Line(trf("  ({n} more below: Up and Down scroll)", &[("n", &(total - first - LINE_ROWS))]), Shade::Dim));
+    }
+}
+
+/// The confirm box: the shared quests part way through, what happens to them, Confirm or
+/// Cancel (docs/design/coop-quest-sync.md §4).
+fn confirm_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, c: Confirm) {
+    use fnv_game::coop_questlines::{warning, LINES};
+    let (title, text, yes) = match c {
+        Confirm::SyncOff => (tr("Turn Off Quest Sync?").to_string(), warning(&screen.sync.busy, None), tr("Turn Off")),
+        Confirm::SitOut(i) => {
+            let name = LINES.get(i).map_or(tr("this questline"), |l| tr(l.name));
+            let names = screen.sync.busy_by_line.iter().find(|(l, _)| *l == i).map(|(_, n)| n.clone()).unwrap_or_default();
+            (trf("Sit Out {name}?", &[("name", &name)]), warning(&names, Some(name)), tr("Sit Out"))
+        }
+    };
+    v.push(Piece::Title(title));
+    v.push(Piece::Line(text, Shade::Bright));
+    v.push(Piece::Button(Act::Confirm, yes.into()));
+    v.push(Piece::Button(Act::Cancel, tr("Cancel").into()));
 }
 
 /// Who is in the lobby, one a line (the host and this player marked by the network side).
@@ -690,6 +911,12 @@ fn draw(
                         e.insert((Button, *act));
                         e.with_children(|n| text(n, &f.entry, t, 12.0, ITEM * 0.72, color(Shade::Bright)));
                     }
+                    Piece::Row(act, t) => {
+                        let node = at(inner, h);
+                        let mut e = if Some(*act) == chosen { p.spawn(highlight(node)) } else { p.spawn(node) };
+                        e.insert((Button, *act));
+                        e.with_children(|n| text(n, &f.small, t, 12.0, STEP * 0.8, color(Shade::Bright)));
+                    }
                 }
                 y += h;
             }
@@ -704,6 +931,7 @@ fn height(p: &Piece, lines: impl Fn(&str) -> usize) -> f32 {
         Piece::Line(t, _) => lines(t).max(1) as f32 * STEP + 6.0,
         Piece::Big(_) => ITEM + 16.0,
         Piece::Field(_) | Piece::Button(..) | Piece::Off(_) => ITEM + 6.0,
+        Piece::Row(..) => STEP + 6.0,
     }
 }
 
@@ -812,5 +1040,114 @@ mod tests {
         // small print (the font is not loaded here): it stays inside the 960-unit screen.
         let total: f32 = p.iter().map(|x| height(x, |t| if t.len() > 50 { 3 } else { 1 })).sum::<f32>() + 2.0 * PAD;
         assert!(TOP + total <= 960.0, "the six-player lobby reaches {}", TOP + total);
+    }
+
+    fn guest_state() -> LobbyState {
+        LobbyState { players: vec!["Cass (you)".into(), "Veronica (host)".into()], guest: true, ..default() }
+    }
+
+    fn guest_screen(on: Option<bool>, busy: &[&str]) -> LobbyScreen {
+        let mut s = opened(Mode::Host);
+        s.sync = QuestSyncView { guest: true, on, busy: busy.iter().map(|b| b.to_string()).collect(), ..default() };
+        s
+    }
+
+    /// The toggle (docs/design/coop-quest-sync.md §1, §4): off and on with nothing part way
+    /// through asks at once; off with shared quests part way through opens the confirm box,
+    /// Cancel chosen, naming them; Confirm turns it off, Cancel and Back leave it on.
+    #[test]
+    fn a_guests_quest_sync_toggle_warns_before_leaving_quests_part_way() {
+        let state = guest_state();
+        // No character yet (the view says nothing): no rows.
+        assert_eq!(acts(&opened(Mode::Host), &state), vec![Act::Leave, Act::Back]);
+        let mut screen = guest_screen(Some(true), &[]);
+        assert_eq!(acts(&screen, &state), vec![Act::Leave, Act::QuestSync, Act::Questlines, Act::Back]);
+        assert!(pieces(&screen, &state).contains(&Piece::Button(Act::QuestSync, "Quest Sync: On".into())));
+        assert_eq!(sync_press(&mut screen, &state, Act::QuestSync), Some(Some(LobbyRequest::QuestSync(false))));
+        let mut off = guest_screen(Some(false), &[]);
+        assert!(pieces(&off, &state).contains(&Piece::Button(Act::QuestSync, "Quest Sync: Off".into())));
+        assert_eq!(sync_press(&mut off, &state, Act::QuestSync), Some(Some(LobbyRequest::QuestSync(true))));
+        // Never chosen: turning it on.
+        let mut unset = guest_screen(None, &[]);
+        assert_eq!(sync_press(&mut unset, &state, Act::QuestSync), Some(Some(LobbyRequest::QuestSync(true))));
+        // Part way through: the box first.
+        let mut busy = guest_screen(Some(true), &["Heartache by the Number", "Ring-a-Ding-Ding!"]);
+        assert_eq!(sync_press(&mut busy, &state, Act::QuestSync), Some(None));
+        assert_eq!(busy.confirm, Some(Confirm::SyncOff));
+        assert_eq!(acts(&busy, &state), vec![Act::Confirm, Act::Cancel]);
+        assert_eq!(busy.selected, 1, "Cancel chosen");
+        let p = pieces(&busy, &state);
+        assert!(p.contains(&Piece::Title("Turn Off Quest Sync?".into())));
+        assert!(p.iter().any(|x| matches!(x, Piece::Line(t, _) if t.contains("Heartache by the Number, Ring-a-Ding-Ding!") && t.contains("stay at their current stage"))), "{p:?}");
+        assert!(p.contains(&Piece::Button(Act::Confirm, "Turn Off".into())) && p.contains(&Piece::Button(Act::Cancel, "Cancel".into())));
+        assert_eq!(sync_press(&mut busy, &state, Act::Cancel), Some(None));
+        assert_eq!(busy.confirm, None);
+        assert_eq!(acts(&busy, &state)[busy.selected], Act::QuestSync, "back on the toggle");
+        sync_press(&mut busy, &state, Act::QuestSync);
+        assert_eq!(sync_press(&mut busy, &state, Act::Back), Some(None), "Escape cancels");
+        sync_press(&mut busy, &state, Act::QuestSync);
+        assert_eq!(sync_press(&mut busy, &state, Act::Confirm), Some(Some(LobbyRequest::QuestSync(false))));
+        // Not a guest's act: left to `take`.
+        assert_eq!(sync_press(&mut busy, &state, Act::Leave), None);
+        // A host's screen: none of it.
+        let mut host = opened(Mode::Host);
+        assert_eq!(sync_press(&mut host, &LobbyState::default(), Act::Back), None);
+    }
+
+    /// The Questlines menu: every line under its heading, a click sits one out or takes it
+    /// again, a line with quests part way through asks first, Back returns to its button.
+    #[test]
+    fn the_questlines_menu_sits_lines_out_with_a_warning() {
+        use fnv_game::coop_questlines::{bit, index, LINES};
+        let state = guest_state();
+        let house = index("house").unwrap();
+        let mut screen = guest_screen(Some(true), &[]);
+        assert_eq!(sync_press(&mut screen, &state, Act::Questlines), Some(None));
+        assert_eq!(acts(&screen, &state).len(), LINES.len() + 1);
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Title("Questlines".into())));
+        assert!(p.contains(&Piece::Line("Main story".into(), Shade::Dim)));
+        assert!(p.contains(&Piece::Row(Act::Line(house), "  Mr. House   Synced".into())), "{p:?}");
+        assert!(p.iter().any(|x| matches!(x, Piece::Line(t, Shade::Dim) if t.contains("more below"))), "the list scrolls: {p:?}");
+        // The menu fits the screen (a long line taken as three lines of small print).
+        let total: f32 = p.iter().map(|x| height(x, |t| if t.len() > 50 { 3 } else { 1 })).sum::<f32>() + 2.0 * PAD;
+        assert!(TOP + total <= 960.0, "the Questlines menu reaches {}", TOP + total);
+        assert_eq!(sync_press(&mut screen, &state, Act::Line(house)), Some(Some(LobbyRequest::SitOut { line: house, out: true })));
+        // Sat out (as the view says next frame): shown, and a click takes it again.
+        screen.sync.sat_out = bit(house);
+        screen.selected = house;
+        assert!(pieces(&screen, &state).contains(&Piece::Row(Act::Line(house), "  Mr. House   Sitting out".into())));
+        assert_eq!(sync_press(&mut screen, &state, Act::Line(house)), Some(Some(LobbyRequest::SitOut { line: house, out: false })));
+        // The last line chosen: the window has scrolled to it.
+        screen.selected = LINES.len() - 1;
+        let last = LINES.len() - 1;
+        assert!(pieces(&screen, &state).iter().any(|x| matches!(x, Piece::Row(Act::Line(i), _) if *i == last)));
+        screen.selected = house;
+        // A House quest part way through: the box, naming it, then back on its row.
+        screen.sync.sat_out = 0;
+        screen.sync.busy = vec!["The House Always Wins, I".into()];
+        screen.sync.busy_by_line = vec![(house, vec!["The House Always Wins, I".into()])];
+        assert_eq!(sync_press(&mut screen, &state, Act::Line(house)), Some(None));
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Title("Sit Out Mr. House?".into())), "{p:?}");
+        assert!(p.iter().any(|x| matches!(x, Piece::Line(t, _) if t.contains("If you sit out Mr. House now") && t.contains("The House Always Wins, I"))));
+        assert_eq!(sync_press(&mut screen, &state, Act::Confirm), Some(Some(LobbyRequest::SitOut { line: house, out: true })));
+        assert!(screen.lines && screen.confirm.is_none());
+        assert_eq!(acts(&screen, &state)[screen.selected], Act::Line(house));
+        // Another line with nothing part way through: no box.
+        let ncr = index("ncr").unwrap();
+        assert_eq!(sync_press(&mut screen, &state, Act::Line(ncr)), Some(Some(LobbyRequest::SitOut { line: ncr, out: true })));
+        // Back: the guest's lobby again, on Questlines; its button counts what is sat out.
+        assert_eq!(sync_press(&mut screen, &state, Act::Back), Some(None));
+        assert!(!screen.lines);
+        assert_eq!(acts(&screen, &state)[screen.selected], Act::Questlines);
+        screen.sync.sat_out = bit(house) | bit(ncr);
+        assert!(pieces(&screen, &state).contains(&Piece::Button(Act::Questlines, "Questlines (2 out)".into())));
+        // Sync off: the menu says its choices wait.
+        screen.sync.on = Some(false);
+        sync_press(&mut screen, &state, Act::Questlines);
+        assert!(pieces(&screen, &state).contains(&Piece::Line("Quest sync is off: these apply once it is on.".into(), Shade::Dim)));
+        // And sitting a line out while off asks no box (nothing follows the host then).
+        assert_eq!(sync_press(&mut screen, &state, Act::Line(0)), Some(Some(LobbyRequest::SitOut { line: 0, out: true })));
     }
 }

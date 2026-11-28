@@ -101,22 +101,35 @@ fn the_host_offers_side_stages_to_guests_with_joint_on_and_keeps_presence() {
     // Nobody joined: nothing offered.
     host.set_stage(FormId(SIDE), 1);
     assert!(host.take_joint_offers().is_empty());
-    host.coop_joint_guests.insert(FormId(GUEST), JointGuest { character: 77, on: true });
+    host.coop_joint_guests.insert(FormId(GUEST), JointGuest { character: 77, on: true, ..JointGuest::default() });
     host.set_stage(FormId(SIDE), 10);
     host.set_stage(FormId(MAIN), 10);
     host.set_stage(FormId(IMPLANT), 10);
     let offers = host.take_joint_offers();
-    assert_eq!(offers.len(), 1, "main story and a player's own implant are never offered: {offers:?}");
+    // The base-game main story is offered (docs/design/coop-quest-sync.md §2); a
+    // player's own implant never is.
+    assert_eq!(offers.len(), 2, "the side quest and the main story: {offers:?}");
     assert!(!host.coop_presence.stages.contains_key(&FormId(IMPLANT)));
     assert_eq!((offers[0].quest, offers[0].stage, offers[0].prior.clone(), offers[0].to.clone()), (FormId(SIDE), 10, vec![1], vec![FormId(GUEST)]));
+    assert_eq!((offers[1].quest, offers[1].stage), (FormId(MAIN), 10));
     assert!(host.coop_presence.was_there(FormId(SIDE), 10, 77));
     assert!(!host.coop_presence.was_there(FormId(SIDE), 1, 77));
-    assert!(!host.coop_presence.stages.contains_key(&FormId(MAIN)));
-    // Joint off: no offer, no presence.
-    host.coop_joint_guests.insert(FormId(GUEST), JointGuest { character: 77, on: false });
+    assert!(host.coop_presence.was_there(FormId(MAIN), 10, 77));
+    // A guest that sits out the main story's trunk: no offer and no presence for it; its
+    // other quests still come (per-line filtering, the host's side).
+    let main_line = fnv_game::coop_questlines::bit(fnv_game::coop_questlines::index("main").unwrap());
+    assert_eq!(host.coop_questlines().lines_of(FormId(MAIN)), main_line, "VMQ01 is the trunk's root");
+    host.coop_joint_guests.insert(FormId(GUEST), JointGuest { character: 77, on: true, sat_out: main_line });
+    host.set_stage(FormId(MAIN), 20);
     host.set_stage(FormId(SIDE), 20);
+    let offers = host.take_joint_offers();
+    assert_eq!(offers.iter().map(|o| (o.quest, o.stage)).collect::<Vec<_>>(), vec![(FormId(SIDE), 20)], "{offers:?}");
+    assert!(!host.coop_presence.was_there(FormId(MAIN), 20, 77));
+    // Joint off: no offer, no presence.
+    host.coop_joint_guests.insert(FormId(GUEST), JointGuest { character: 77, on: false, ..JointGuest::default() });
+    host.set_stage(FormId(SIDE), 100);
     assert!(host.take_joint_offers().is_empty());
-    assert!(!host.coop_presence.was_there(FormId(SIDE), 20, 77));
+    assert!(!host.coop_presence.was_there(FormId(SIDE), 100, 77));
     // A sharing guest dropped: its stages are still offered, to
     // nobody here, so the engine keeps them for its return; nobody is marked present.
     host.coop_joint_guests.clear();
@@ -134,9 +147,10 @@ fn the_host_offers_side_stages_to_guests_with_joint_on_and_keeps_presence() {
     assert!(again.coop_presence.was_there(FormId(SIDE), 10, 77));
     // The debug console's view (`coop.presence`).
     let lines = again.coop_presence_lines(FormId(SIDE));
-    assert_eq!(lines.len(), 2, "{lines:?}");
+    // Stages 10 and 20 had the guest there (20 in the sat-out check above).
+    assert_eq!(lines.len(), 3, "{lines:?}");
     assert!(lines[1].contains("stage 10") && lines[1].contains("000000000000004d"), "{lines:?}");
-    assert_eq!(again.coop_presence_lines(FormId(MAIN)).len(), 1);
+    assert_eq!(again.coop_presence_lines(FormId(MAIN)).len(), 2, "one stage of the main story with the guest there");
 }
 
 #[test]
@@ -380,4 +394,55 @@ mod hand_over {
         assert_eq!(own.world.global(FormId(G_COUNT)).unwrap(), f32::from(REPLAY_SAY_DEPTH), "the self-repeating line stops at the bound: once per level");
         assert!(!own.coop_replaying && own.coop_replay_depth == 0);
     }
+}
+
+/// A guest's quest progression sync (docs/design/coop-quest-sync.md): the guest's filter
+/// follows its choice per line (toggle off takes nothing), a claimed quest part way through
+/// is what the warning names, and the choice goes with the character into its own save,
+/// back through a load, and on to another host.
+#[test]
+fn a_guests_quest_sync_choice_filters_per_line_and_saves_with_its_character() {
+    use fnv_game::coop_questlines::{bit, index};
+    let f = fixture();
+    let own_world = game(&f);
+    let own_snap = own_world.snapshot();
+    let own = own_world.quests.clone();
+    // The guest's game in the host's world.
+    let mut guest = game(&f);
+    let main = index("main").unwrap();
+    // Never chosen: what came before the toggle (rewards) still comes.
+    assert!(guest.coop_takes_quest(Some(FormId(MAIN))));
+    assert!(guest.coop_takes_quest(None));
+    // On, the trunk sat out: its quests are filtered, another line's are not.
+    guest.player.quest_sync.on = Some(true);
+    guest.player.quest_sync.set_sat_out(main, true);
+    assert!(!guest.coop_takes_quest(Some(FormId(MAIN))), "VMQ01 is the trunk's");
+    assert!(guest.coop_takes_quest(Some(FormId(SIDE))), "VMS24 is another line's");
+    assert!(guest.coop_takes_quest(None), "script XP names no quest");
+    // Off: nothing at all.
+    guest.player.quest_sync.on = Some(false);
+    assert!(!guest.coop_takes_quest(Some(FormId(SIDE))));
+    assert!(!guest.coop_takes_quest(None));
+    // The warning: nothing claimed, nothing part way through; a claimed stage of the side
+    // quest, ended nowhere, is; not within the trunk's line; ended by the host, it is not.
+    assert!(guest.coop_sync_in_progress(&own, 0).is_empty());
+    guest.player.claims.stages.entry(FormId(SIDE)).or_default().push(fnv_game::coop_joint::ClaimedStage { stage: 10, line: None });
+    let busy = guest.coop_sync_in_progress(&own, 0);
+    assert_eq!(busy.len(), 1, "{busy:?}");
+    assert!(!busy[0].trim().is_empty());
+    assert!(guest.coop_sync_in_progress(&own, bit(main)).is_empty());
+    guest.coop_host_ended.push((FormId(SIDE), false));
+    assert!(guest.coop_sync_in_progress(&own, 0).is_empty());
+    // The guest's save: its own game with this character, through JSON and a load.
+    let saved = own_snap.with_character_of(&guest.snapshot());
+    let json = serde_json::to_string(&saved).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let again = Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, &back).unwrap();
+    assert_eq!(again.player.quest_sync, guest.player.quest_sync);
+    assert_eq!((again.player.quest_sync.on, again.player.quest_sync.mask()), (Some(false), bit(main)));
+    // On to another host: the character carries it.
+    let mut other = game(&f);
+    fnv_game::coop::Character::of(&again.player).put_on(&mut other.player);
+    assert_eq!(other.player.quest_sync, guest.player.quest_sync);
 }
