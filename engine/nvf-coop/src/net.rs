@@ -66,7 +66,7 @@ use std::time::{Duration, Instant};
 
 use crate::guard::{FormCheck, Guard, Kind, Rate, Reason, Rule, Stats, Verdict};
 use crate::rel::{Frame, Reliable, ITEM_MAX, PACKET_BUDGET};
-use crate::seam::{Admission, Transport};
+use crate::seam::{Admission, Admit, Transport};
 
 pub use crate::repl::ActorPose;
 use crate::repl::{ACTORS_PER_PACKET, ACTOR_BYTES};
@@ -76,8 +76,10 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// its own (players and the reliable stream; the Hello and the host's answers carry the
 /// lobby's proof), so no game of an earlier protocol joins it, nor it them. 139 adds the
 /// world's messages (kinds 9, 10, 12-14, 17, 19, 20, 23, 24, 31), with a hit carried as
-/// its fields ([`HitView`]) rather than the game's own bytes.
-pub const VERSION: u8 = 139;
+/// its fields ([`HitView`]) rather than the game's own bytes. 140 is the internet transport
+/// under it ([`crate::stack`]: every packet sealed with Noise, its own kinds 0xE0-0xE8 under
+/// the same magic and version) and the host's Kick ([`Msg::Kicked`], kind 40).
+pub const VERSION: u8 = 140;
 pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -525,6 +527,9 @@ pub enum Msg {
     Full { proof: u64 },
     /// The host does not know the sender: say Hello again.
     Who,
+    /// The host removed this guest (Kick); with `banned` it will not let its key in again
+    /// while the lobby lasts (Ban), and answers its Hellos so.
+    Kicked { banned: bool },
     State { id: u8, seq: u32, state: PlayerState },
     /// "Still here", from a game with no state to send (a guest choosing its save).
     Ping,
@@ -581,6 +586,7 @@ impl Msg {
             Msg::Welcome { .. } => Kind::Welcome,
             Msg::Full { .. } => Kind::Full,
             Msg::Who => Kind::Who,
+            Msg::Kicked { .. } => Kind::Kicked,
             Msg::State { .. } => Kind::State,
             Msg::Ping => Kind::Ping,
             Msg::Bye { .. } => Kind::Bye,
@@ -624,6 +630,9 @@ pub enum Event {
     HostBack,
     /// The host left, or did not answer for [`GRACE`] (guests only).
     HostGone,
+    /// The host removed this guest (guests only); `banned`: it will not be let in again.
+    /// The link stops as at [`Event::HostGone`].
+    Kicked { banned: bool },
     /// A peer's look, when first heard or changed.
     Look { id: u8, look: Vec<u8> },
     /// A player's name, when first heard or changed (guests only; [`Msg::Names`]).
@@ -677,7 +686,7 @@ impl Event {
         match self {
             Event::Welcomed(id) | Event::Lost(id) | Event::Back(id) | Event::Left(id) => Some(*id),
             Event::Joined { id, .. } | Event::State { id, .. } | Event::Look { id, .. } | Event::Named { id, .. } | Event::Reliable { id, .. } | Event::RelReset { id } => Some(*id),
-            Event::Refused | Event::HostLost | Event::HostBack | Event::HostGone => Some(0),
+            Event::Refused | Event::HostLost | Event::HostBack | Event::HostGone | Event::Kicked { .. } => Some(0),
             Event::Npcs(_) | Event::Hit { .. } | Event::Unlocked { .. } | Event::Clock(_) | Event::Scene(_) | Event::Lines(_) | Event::Presence { .. } | Event::Wear(_) | Event::Door { .. } | Event::Revived { .. } | Event::ReviveAsked { .. } | Event::Actors { .. } => None,
         }
     }
@@ -1165,6 +1174,17 @@ impl Session {
 
     /// Bytes sent to and heard from each player (the host: 0) so far, with the items
     /// waiting on its reliable stream and those sent again.
+    /// The host's guests as the lobby list shows them (docs/design/coop-networking.md §10):
+    /// each one's id, the address the host knows it at (the transport's: a relayed guest's
+    /// stand-in, `crate::stack::Path::of`) and the reliable stream's round trip, once
+    /// measured. Empty on a guest.
+    pub fn paths(&self) -> Vec<(u8, Option<SocketAddr>, Option<std::time::Duration>)> {
+        match &self.role {
+            Role::Host => self.peers.iter().map(|p| (p.id, p.addr, p.rel.rtt)).collect(),
+            Role::Guest { .. } => Vec::new(),
+        }
+    }
+
     pub fn traffic(&self) -> Vec<Traffic> {
         let sent = self.sent.borrow();
         let of = |a: Option<SocketAddr>| a.map_or((0, 0), |a| (sent.get(&a).copied().unwrap_or(0), self.heard.get(&a).copied().unwrap_or(0)));
@@ -1436,9 +1456,17 @@ impl Session {
                     return;
                 }
                 // The lobby's proof before anything else, a known token's too.
-                if !self.admission.admits(proof) {
-                    self.guard.note(Kind::Hello, Reason::Secret, peer);
-                    return;
+                match self.admission.admits_from(proof, token, from) {
+                    Admit::Yes => {}
+                    Admit::No => {
+                        self.guard.note(Kind::Hello, Reason::Secret, peer);
+                        return;
+                    }
+                    Admit::Banned => {
+                        self.guard.note(Kind::Hello, Reason::Secret, peer);
+                        self.sock_send(&Msg::Kicked { banned: true }, from);
+                        return;
+                    }
                 }
                 // A known token is a guest coming back, from wherever it now is; a guest
                 // already at this address with a new token is the same guest started again
@@ -1549,7 +1577,7 @@ impl Session {
                 }
                 p.last_heard = now;
                 let id = p.id;
-                for item in p.rel.receive(frame) {
+                for item in p.rel.receive_at(frame, now) {
                     // Each item passes the host's rules for its kind before the game has it.
                     if self.guard.admit_item(id, &item, now) == Verdict::Accept {
                         self.push_event(Event::Reliable { id, item });
@@ -1604,9 +1632,32 @@ impl Session {
                 }
             }
             // Dropped by the guard: only the host sends these.
-            Msg::Welcome { .. } | Msg::Full { .. } | Msg::Who | Msg::Names { .. } => {}
+            Msg::Welcome { .. } | Msg::Full { .. } | Msg::Who | Msg::Kicked { .. } | Msg::Names { .. } => {}
             Msg::Npcs { .. } | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Wear { .. } | Msg::Clock(_) | Msg::Scene(_) | Msg::Actors { .. } => {}
         }
+    }
+
+    /// The host removes guest `id` (Kick): it is told so ([`BYE_COPIES`] times) and dropped;
+    /// with `ban`, the admission keeps it out while the lobby lasts ([`Admission::ban`]).
+    /// False when this is no host or `id` is no guest, and with `ban` when the admission
+    /// cannot ban (the guest is kicked all the same).
+    pub fn kick(&mut self, id: u8, ban: bool) -> bool {
+        if !self.is_host() {
+            return false;
+        }
+        let Some(addr) = self.peers.iter().find(|p| p.id == id).map(|p| p.addr) else { return false };
+        let banned = match addr {
+            Some(a) if ban => self.admission.ban(a),
+            _ => false,
+        };
+        if let Some(a) = addr {
+            for _ in 0..BYE_COPIES {
+                self.sock_send(&Msg::Kicked { banned }, a);
+            }
+        }
+        self.drop_peer(id);
+        self.last_names = None;
+        !ban || banned
     }
 
     /// The host drops guest `id`: the others are told, and the game.
@@ -1652,7 +1703,7 @@ impl Session {
         match *host {
             Some(h) if h != from => return,
             Some(_) => {}
-            None if matches!(msg, Msg::Welcome { .. } | Msg::Full { .. }) => *host = Some(from),
+            None if matches!(msg, Msg::Welcome { .. } | Msg::Full { .. } | Msg::Kicked { banned: true }) => *host = Some(from),
             None => return,
         }
         *last_heard = now;
@@ -1679,6 +1730,14 @@ impl Session {
                 self.hear_anew();
             }
             Msg::Full { .. } => self.push_event(Event::Refused),
+            Msg::Kicked { banned } => {
+                let Role::Guest { gone, .. } = &mut self.role else { return };
+                *gone = true;
+                for p in std::mem::take(&mut self.peers) {
+                    self.push_event(Event::Left(p.id));
+                }
+                self.push_event(Event::Kicked { banned });
+            }
             Msg::Who => {
                 let Role::Guest { asked, last_hello, .. } = &mut self.role else { return };
                 *asked = true;
@@ -1772,7 +1831,7 @@ impl Session {
                         self.push_event(Event::RelReset { id: 0 });
                     }
                 }
-                for item in self.rel.receive(frame) {
+                for item in self.rel.receive_at(frame, now) {
                     self.push_event(Event::Reliable { id: 0, item });
                 }
             }
@@ -1957,6 +2016,11 @@ impl Link {
         self.with(|s| s.is_host())
     }
 
+    /// [`Session::kick`].
+    pub fn kick(&self, id: u8, ban: bool) -> bool {
+        self.with(|s| s.kick(id, ban))
+    }
+
     pub fn id(&self) -> Option<u8> {
         self.with(|s| s.id())
     }
@@ -2019,6 +2083,11 @@ impl Link {
 
     pub fn traffic(&self) -> Vec<Traffic> {
         self.with(|s| s.traffic())
+    }
+
+    /// [`Session::paths`].
+    pub fn paths(&self) -> Vec<(u8, Option<SocketAddr>, Option<std::time::Duration>)> {
+        self.with(|s| s.paths())
     }
 
     pub fn events(&self) -> Vec<Event> {
@@ -2179,6 +2248,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.extend_from_slice(&proof.to_le_bytes());
         }
         Msg::Who => b.push(6),
+        Msg::Kicked { banned } => b.extend_from_slice(&[40, u8::from(*banned)]),
         Msg::Ping => b.push(7),
         Msg::Names { names } => {
             let names: Vec<_> = names.iter().take(MAX_GUESTS + 1).collect();
@@ -2418,6 +2488,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
         }
         5 => Msg::Bye { id: r.u8()? },
         6 => Msg::Who,
+        40 => Msg::Kicked { banned: r.u8()? != 0 },
         7 => Msg::Ping,
         8 => {
             let id = r.u8()?;
