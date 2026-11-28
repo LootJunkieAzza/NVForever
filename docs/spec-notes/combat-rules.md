@@ -429,15 +429,30 @@ between them in the original [observed: owner playtest, #2739].
     roll, launcher rounds go off where they first land). At a contact the speed into the
     surface keeps `fGrenadeRestitution` of itself, out of it (0.01 in FalloutNV.esm
     [observed]; its meaning [hypothesis: from its name]), the speed along it keeps
-    `grenade_roll_keep` (0.9) at the first landing, and the grenade goes on along the
-    surface; on ground (a normal at least 0.7 up) it rolls, its speed falling as
-    e^(−0.66 × t) (`grenade_roll_damping`), until it is slower than 40 units/s or its fuse
-    ends. Both shares are fitted to the original's frag grenade [observed: o26_gl frag0,
-    distances from where it left the hand: it touched down 513 units out after 0.58 s,
-    bounced under 15 units, rolled off at about 636 units/s and slowed at 0.66 a second
-    (rms 2.6 units), to 1,206 units by 2.47 s, still moving when the record ended; the
-    0.9 is its speed just after over just before]. Ours does the same since PR #1788
-    (smoke `frag-grenade-roll`). `fGrenadeFriction` (5.0 in FalloutNV.esm) is
+    `grenade_roll_keep` (0.6) at the first landing, and the grenade goes on along the
+    surface; on ground (a normal at least 0.7 up) it rolls, losing 140 units/s every
+    second (`grenade_roll_friction`), until it is slower than 40 units/s or its fuse
+    ends. Both are fitted to the original's frag grenade [observed: o32_throw,
+    2026-11-25/26, nine throws on the runway, FireWeapon taps and holds of 5-120 loops,
+    positions every game loop; observer follow-up 2026-11-28 on #1785]:
+    - the share of the ground speed kept at touchdown differs by throw, 0.33-0.36 for the
+      FireWeapon taps, about 0.6 for 5-10 loops, 0.48 and 0.71 for two 30-loop throws,
+      0.8-1.0 at 60-120 loops (median 0.61); after it one hop of 13-69 units, then 1-3
+      small ones [hypothesis: the share depends on how the grenade hits, not only on its
+      speed];
+    - the slow rolls come to a full stop (the taps at 502 and 588 units from the hand);
+      one constant friction fits each roll within a few units, 117-178 units/s² below
+      600 units/s of roll and 279-418 above 850;
+    - every grenade goes off 2.46-2.48 s after it leaves the hand, where it has got to:
+      5 loops 745 units out, 10 loops 969, 30 loops 1,267-1,313, 60 loops 1,844, 120
+      loops 1,705, 30 with Heave Ho! 1,921.
+
+    With 0.6 and 140 the distances at 1.0, 1.5 and 2.0 s and at the fuse come within
+    about 50 units of the 5-, 10-, 30- and 120-loop throws and Heave Ho!'s [observed: a
+    fit over the nine throws' figures, rms 124 units against 157 for the 0.9 and e^(−0.66 t)
+    fitted before to o26 frag0, whose speeds were misread]; the taps, which kept only a
+    third, roll about 150 units too far, and the 60-loop throw, which skimmed on at its
+    full speed, about 400 short (smoke `frag-grenade-roll`, `frag-grenade-tap`). `fGrenadeFriction` (5.0 in FalloutNV.esm) is
     not used [hypothesis: a Havok friction; our grenade is no rigid body]. The grenade
     model's own body (`GrenadeFrag.NIF` bhkRigidBody: mass 5, friction 0.5, restitution
     0.4, linear damping 0.1, angular damping 0.05) is not used either [observed values].
