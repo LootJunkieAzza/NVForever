@@ -1897,6 +1897,34 @@ fn explosions_push_dynamic_bodies_away() {
     assert!((w.ref_bodies(2)[0].translation[0] - far[0]).abs() < 0.01);
 }
 
+/// #4917: a picked White Horse Nettle's body (one 45 kg box on its end, on the Non
+/// Collidable layer) stays where it was placed: a character walks through it, a blast
+/// beside it and a crate dropped on it leave it be, and the crate falls through to the
+/// ground. Queries still see it.
+#[test]
+fn a_loose_body_on_the_non_collidable_layer_stays_rooted() {
+    let mut w = ground();
+    let nettle = CollisionObject { layer: fnv_phys::layers::NON_COLLIDABLE, mass: 45.0, ..object(boxed([2.5, 2.6, 27.0]), Motion::Dynamic) };
+    w.insert_ref(fnv_phys::PreparedRef::new(&PhysParams::default(), &at(1, [60.0, 0.0, 27.0]), &[nettle]).asleep());
+    w.add_ref(&at(2, [60.0, 0.0, 80.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    let placed = w.ref_bodies(1)[0];
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    walk(&mut w, &mut c, [120.0, 0.0], 120);
+    assert!(c.feet[0] > 100.0, "walked through it: {:?}", c.feet);
+    assert_eq!(w.push_dynamic([50.0, 0.0, 6.0], 300.0, 400.0), 1, "the blast pushes the crate only");
+    for _ in 0..120 {
+        w.step();
+    }
+    let b = w.ref_bodies(1)[0];
+    assert_eq!((b.translation, b.rotation), (placed.translation, placed.rotation), "{placed:?} -> {b:?}");
+    let crate_ = w.ref_bodies(2)[0];
+    assert!(crate_.translation[2] < 20.0, "the crate fell through it to the ground: {crate_:?}");
+    assert_eq!(w.stats().bodies_dynamic, 1);
+    let hit = w.queries().ray([0.0, 0.0, 30.0], [1.0, 0.0, 0.0], 200.0, &Filter::default()).unwrap();
+    assert_eq!(hit.owner.key(), Key::Ref(1));
+}
+
 // --- per-part hit volumes (combat C8) ---
 
 #[test]
