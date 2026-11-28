@@ -2123,25 +2123,6 @@ fn split_slice<'a, 'b>(path: &'a str, stack: &'b mut [&'a str; 16], heap: &'b mu
     if heap.is_empty() { &stack[..len] } else { heap.as_slice() }
 }
 
-/// Split `path` into trimmed non-empty segments into `stack` without heap allocation when
-/// there are at most `N` segments, falling back to `heap` otherwise [design].
-fn split_slice<'a, const N: usize>(path: &'a str, stack: &'a mut [&'a str; N], heap: &'a mut Vec<&'a str>) -> &'a [&'a str] {
-    let mut len = 0usize;
-    for part in path.split(['/', '\\']).map(str::trim).filter(|s| !s.is_empty()) {
-        if !heap.is_empty() {
-            heap.push(part);
-        } else if len < N {
-            stack[len] = part;
-            len += 1;
-        } else {
-            heap.reserve(N + 8);
-            heap.extend_from_slice(&stack[..N]);
-            heap.push(part);
-        }
-    }
-    if heap.is_empty() { &stack[..len] } else { heap.as_slice() }
-}
-
 /// Invalid/overflowing extra-operator results do not enter renderer traits [hypothesis].
 fn finite_extra(value: f64) -> Value {
     Value::Num(if value.is_finite() { value } else { 0.0 })
