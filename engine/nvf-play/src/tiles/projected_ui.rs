@@ -366,12 +366,18 @@ pub(crate) fn draw(
             }
         };
 
+        // `draw::paint` emits every coordinate and size through `interface::u(units)` =
+        // `Val::Vh(units * unit_scale() / 9.6)`, where `100 Vh` is this target camera's
+        // pixel height (`viewport.height`). Passing `960.0 / viewport.height` maps 1
+        // interface unit to 1 exact pixel inside the off-screen render target, regardless
+        // of `viewport.height` or the player's HUD/menu scale [design].
         let paint_target = PaintTarget::image(
             slot.output.camera,
             Vec2::new(viewport.width as f32, viewport.height as f32),
             1.0,
             0,
-        );
+        )
+        .with_unit_scale(projected_unit_scale(viewport.height));
         draw::paint(
             &mut commands,
             &mut slot.drawn,
@@ -392,5 +398,14 @@ pub(crate) fn draw(
     }
 }
 
+/// `interface::unit_scale` value that makes `interface::u(units)` (`Val::Vh`) resolve to
+/// `units` exact pixels in an off-screen render target of height `viewport_height` [design].
+pub(crate) fn projected_unit_scale(viewport_height: u32) -> f32 {
+    960.0 / (viewport_height.max(1) as f32)
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod scale_tests;
