@@ -67,7 +67,7 @@ impl Prereqs {
 }
 
 /// The quests a unit's calls start (`StartQuest Q`, `SetStage Q <first stage>`).
-fn starts(data: &GameData, unit: &ScriptUnit, program: &fnv_script::Program, out: &mut BTreeSet<FormId>) {
+pub(crate) fn starts(data: &GameData, unit: &ScriptUnit, program: &fnv_script::Program, out: &mut BTreeSet<FormId>) {
     fn call(data: &GameData, unit: &ScriptUnit, c: &fnv_script::ir::Call, out: &mut BTreeSet<FormId>) {
         let Some(name) = data.table.get(c.opcode).map(|f| f.name.as_str()) else { return };
         let set_stage = name.eq_ignore_ascii_case("SetStage");

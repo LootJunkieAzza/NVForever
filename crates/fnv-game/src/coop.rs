@@ -469,6 +469,10 @@ pub struct Character {
     pub character_id: u64,
     #[serde(skip_serializing_if = "crate::coop_joint::ClaimLedger::is_empty", default)]
     pub claims: crate::coop_joint::ClaimLedger,
+    /// Its quest progression sync and the questlines it sits out
+    /// (`crate::coop_questlines::QuestSync`): they go with it to every host.
+    #[serde(skip_serializing_if = "crate::coop_questlines::QuestSync::is_empty", default)]
+    pub quest_sync: crate::coop_questlines::QuestSync,
 }
 
 impl Character {
@@ -493,6 +497,7 @@ impl Character {
             caravan: p.caravan.clone(),
             character_id: p.character_id,
             claims: p.claims.clone(),
+            quest_sync: p.quest_sync.clone(),
         }
     }
 }
@@ -520,6 +525,7 @@ impl Character {
         p.caravan = self.caravan.clone();
         p.character_id = self.character_id;
         p.claims = self.claims.clone();
+        p.quest_sync = self.quest_sync.clone();
     }
 }
 

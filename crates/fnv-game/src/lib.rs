@@ -78,6 +78,7 @@ pub mod companion_wheel;
 pub mod coop;
 pub mod coop_joint;
 pub mod coop_prereqs;
+pub mod coop_questlines;
 pub mod coop_uniques;
 pub mod coop_perks;
 pub mod coop_story;

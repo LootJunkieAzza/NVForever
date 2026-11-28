@@ -25,6 +25,39 @@ pub enum CoopCmd {
         #[command(flatten)]
         a: crate::script_cmd::ScriptArgs,
     },
+    /// The questlines a co-op guest can sit out and the quests in each, as the game groups
+    /// them (`fnv_game::coop_questlines`, docs/design/coop-quest-sync.md §2), for review
+    /// (fnv.coop.questlines/1).
+    Questlines {
+        #[command(flatten)]
+        a: crate::script_cmd::ScriptArgs,
+    },
+}
+
+/// One row per line: its key and name, and its quests by editor ID, shown name and plugin.
+pub fn questline_rows(data: &GameData, q: &fnv_game::coop_questlines::Questlines) -> Vec<Value> {
+    let plugin = |f: FormId| data.load_order.get((f.0 >> 24) as usize).cloned().unwrap_or_default();
+    fnv_game::coop_questlines::LINES
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let quests: Vec<Value> = q
+                .members(i)
+                .into_iter()
+                .map(|f| {
+                    let d = data.quests.get(&f);
+                    json!({
+                        "edid": d.and_then(|d| d.edid.clone()),
+                        "name": d.and_then(|d| d.name.clone()),
+                        "form": format!("{:08X}", f.0),
+                        "plugin": plugin(f),
+                        "shared_with": fnv_game::coop_questlines::names(q.lines_of(f) & !fnv_game::coop_questlines::bit(i)),
+                    })
+                })
+                .collect();
+            json!({"key": l.key, "name": l.name, "roots": l.roots, "plugin": l.plugin, "count": quests.len(), "quests": quests})
+        })
+        .collect()
 }
 
 /// The load order's data, as the game builds it.
@@ -97,6 +130,28 @@ pub fn run(cmd: CoopCmd) -> anyhow::Result<Value> {
                 "load_order": plugins,
                 "summary": {"asking": p.ways.len(), "open": p.open.len()},
                 "quests": prereq_rows(&data, &p),
+                "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+            }))
+        }
+        CoopCmd::Questlines { a } => {
+            let t0 = std::time::Instant::now();
+            let (data, _, _, plugins) = load(&a)?;
+            let q = fnv_game::coop_questlines::compute(&data);
+            let lines = questline_rows(&data, &q);
+            // Named quests (shown in the Pip-Boy) in no line: they follow the main toggle only.
+            let mut loose: Vec<String> = data
+                .quests
+                .values()
+                .filter(|d| q.lines_of(d.form) == 0 && d.name.as_deref().is_some_and(|n| !n.trim().is_empty()) && !d.start_enabled())
+                .map(|d| format!("{} = {}", d.edid.clone().unwrap_or_default(), d.name.clone().unwrap_or_default()))
+                .collect();
+            loose.sort();
+            Ok(json!({
+                "schema": "fnv.coop.questlines/1",
+                "load_order": plugins,
+                "summary": {"lines": lines.len(), "quests_in_lines": q.of.len(), "named_in_no_line": loose.len()},
+                "lines": lines,
+                "in_no_line": loose,
                 "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,
             }))
         }
