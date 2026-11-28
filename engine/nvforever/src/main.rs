@@ -56,6 +56,7 @@ mod authored_test_records;
 mod anim_paths;
 mod actor_feet;
 mod tumble;
+mod menu_view;
 mod turret_aim;
 mod actor_jumps;
 mod actor_materials;
@@ -2445,6 +2446,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // The weather's wind on the bodies that respond to it, the tumbleweeds (tumble.rs).
             app.add_plugins(tumble::TumblePlugin);
+            // The main menu draws no 3D behind its slideshow (menu_view.rs, #4918).
+            app.add_plugins(menu_view::MenuViewPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
             // Fighters look angry (combat_face.rs; lips.rs draws the face).
