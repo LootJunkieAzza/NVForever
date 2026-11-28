@@ -472,7 +472,11 @@ networking was ported onto that seam [design]:
 What was run again on the port [observed, 2026-11-28, this PC only]: `cargo test -p
 nvf-coop` (the branch modules' own tests, and `stack.rs`'s: two games joining over Noise
 on loopback, a Hello whose token is not its key's turned away, a banned key kicked and told
-so when it comes back, a plaintext Hello never passed up). **Not run again**: every
+so when it comes back, a plaintext Hello never passed up), the engine and root tests and
+clippy, cargo deny, and the smoke scenarios the change calls for (77 pass, 2 known; one,
+`settings-heading-pointer`, lost its click with three games on the machine and passed run
+alone). Single player is unchanged with co-op off: nothing opens a socket until a lobby is
+created or joined. **Not run again**: every
 two-machine test of §13 phase 4 (online code through coop.nv-forever.com, the peer relay,
 the hosted relay, Direct only / LAN only, the birthday punch between a home network and
 mobile data). Those results are the branch's (build 1a8d04168 and a392fa875), not this
