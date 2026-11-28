@@ -335,7 +335,8 @@ mod shared_table_tests {
     /// #2995's night sky detail row; #3013's distant lights row; #3322's terrain parallax row;
     /// #2991's volumetric clouds row; #3348's HDR output row; #3783's occlusion culling row;
     /// #3032's volumetric light row and its strength; #3843's localized armor DT/DR row; the
-    /// casino screens' poker tables and Caravan tips rows), by the group it registers with.
+    /// casino screens' poker tables and Caravan tips rows; the
+    /// physical lighting row; #4690's tonemapping preset row), by the group it registers with.
     pub(super) const KNOWN: &[(&str, &str)] = &[
         ("detached-camera", "Gameplay"),
         ("gore-shake", "Gameplay"),
@@ -479,6 +480,8 @@ mod shared_table_tests {
         ("volumetric-clouds", "Graphics"),
         ("aerial-perspective", "Graphics"),
         ("night-sky-detail", "Graphics"),
+        ("physical-pbr", "Graphics"),
+        ("tonemap-preset", "Graphics"),
         ("distant-lights", "Graphics"),
         ("volumetric-light", "Graphics"),
         ("volumetric-light-strength", "Graphics"),
@@ -502,6 +505,11 @@ mod shared_table_tests {
         ("send-reports", "Reports"),
         ("reports-delete", "Reports"),
         ("coop", "Gameplay"),
+        // The co-op connection rows (nvforever `coop/net_settings.rs`).
+        ("coop-connection", "Gameplay"),
+        ("coop-router-port", "Gameplay"),
+        ("coop-relay", "Gameplay"),
+        ("coop-ask", "Gameplay"),
     ];
 
     /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).
@@ -769,8 +777,11 @@ mod shared_table_tests {
         assert_eq!(at("sneak-bounding-box"), "Gameplay > Game", "#3845");
         assert_eq!(at("volumetric-light"), "Graphics > Lighting and Effects", "with the other experimental effects (#3032)");
         assert_eq!(at("volumetric-light-strength"), "Graphics > Lighting and Effects", "right after its switch");
-        // The strength is greyed while its switch is off.
+        // The strength is greyed while its switch is off; the volumetric rows run under
+        // Physical lighting too (graphics-enhanced.md §3.25).
         assert_eq!(needs("volumetric-light-strength"), vec![Rule { parent: "volumetric-light", choices: &[], why: "Needs Volumetric Light." }]);
+        assert_eq!(needs("volumetric-light"), vec![]);
+        assert_eq!(needs("volumetric-clouds"), vec![]);
         // Sun shafts have no shared rule: whether Volumetric light replaces them depends on its
         // strength (nvforever settings.rs `shafts_status`, the game's page alone).
         assert_eq!(needs("light-shafts"), vec![]);

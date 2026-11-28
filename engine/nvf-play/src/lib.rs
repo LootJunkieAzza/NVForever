@@ -39,6 +39,7 @@ pub mod controller_aim;
 pub mod coop_downed;
 pub mod coop_mates;
 pub mod coop_subtitles;
+pub mod coop_progress;
 pub mod corner_messages;
 pub mod crafting;
 pub mod cursor;

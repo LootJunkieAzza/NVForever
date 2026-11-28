@@ -224,10 +224,10 @@ impl Session {
         }
     }
 
-    /// The third row's title: the casino's name as its record has it ("Gommorah
-    /// Earnings:" [observed: the owner's screenshot]).
+    /// The third row's title, with the casino's name as its record has it: "Won at
+    /// Gommorah:" (NVForever's own words [design, #4495]).
     pub fn earnings_title(&self) -> String {
-        trf("{casino} Earnings:", &[("casino", &self.def.name)])
+        trf("Won at {casino}:", &[("casino", &self.def.name)])
     }
 }
 

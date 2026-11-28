@@ -2030,10 +2030,14 @@ pub struct CloudComposeUniform {
     pub flags: Vec4,
 }
 
-/// The composition of this frame's display mode, held or not.
-pub fn compose_uniform(display_clip: bool, hold: bool) -> CloudComposeUniform {
+/// The composition of this frame's display mode, held or not. `linear`: the buffer holds
+/// linear light already (Physical lighting, sky.rs `physical_cloud_light`), which goes to the
+/// tonemapper as it is, as the physical dome's does; otherwise display values, mapped for the
+/// view's `curve` (tone_input.wesl).
+pub fn compose_uniform(curve: crate::lights::ToneCurve, linear: bool, hold: bool) -> CloudComposeUniform {
     let flag = |b: bool| if b { 1.0 } else { 0.0 };
-    CloudComposeUniform { flags: Vec4::new(flag(display_clip), flag(hold), 0.0, 0.0) }
+    let code = if linear { crate::lights::ToneCurve::Clipped.code() } else { curve.code() };
+    CloudComposeUniform { flags: Vec4::new(code, flag(hold), 0.0, 0.0) }
 }
 
 /// The volume's material (volumetric_clouds.wesl): the composition's uniform and the medium's
@@ -2610,7 +2614,7 @@ fn follow_volume(
     let (Some(sky), Some(c), Some(blended)) = (sky.as_deref(), cover.0.as_ref(), blended) else { return };
     // The live tuning's effective aids on top of the start values (#3032 stage 2e).
     let input = inputs(sky, c, &blended, temporal);
-    let input = aids.apply(input);
+    let input = physical_sun_hue(aids.apply(input), nvf_assets::authored::physical_pbr());
     // The level's probe spacing (the far buffer's scale is the medium's, by the request's level).
     let input = drawn_inputs(VolumeInputs { probe: Some(level.probe_factor()), ..input });
     // A weather the medium cannot use is shown flat, not repaired.
@@ -2723,7 +2727,7 @@ pub(super) fn show_volume(
     let far_changed = materials.get(&material.0).is_some_and(|m| m.far != medium.image);
     let bound = request.trace.is_some() && medium.image.is_some() && !far_changed;
     let drawing = bound && medium.ready;
-    let compose = compose_uniform(crate::lights::display_clip(), !drawing);
+    let compose = compose_uniform(crate::lights::tone_curve(), nvf_assets::authored::physical_pbr(), !drawing);
     let compose_changed = materials.get(&material.0).is_some_and(|m| m.params.flags.x != compose.flags.x || m.params.flags.y != compose.flags.y);
     if far_changed || compose_changed {
         if let Some(mut m) = materials.get_mut(&material.0) {
@@ -2817,10 +2821,32 @@ fn count_sky_jumps(
     }
 }
 
+/// The sunlight's share of the direct light's colour under Physical lighting (the `SUNCOLOUR`
+/// aid's value there): the physical sun's colour carries the hour, warm low and white high, as
+/// the ground it lights shows, so the clouds take it whole instead of the weather's cloud
+/// colours at its luminance; otherwise they stay grey over a warm evening land [design;
+/// observed: Goodsprings at 17:30, 2026-11-26].
+pub const PHYSICAL_SUN_COLOUR_SHARE: f32 = 1.0;
+
+/// The inputs with [`PHYSICAL_SUN_COLOUR_SHARE`] under Physical lighting, after the aids (which
+/// would set the share back); unchanged otherwise.
+fn physical_sun_hue(input: VolumeInputs, physical: bool) -> VolumeInputs {
+    if !physical {
+        return input;
+    }
+    let light_aids = crate::volumetric_clouds_light::LightAids { sun_colour: PHYSICAL_SUN_COLOUR_SHARE, ..input.light_aids };
+    VolumeInputs { light_aids, ..input }
+}
+
 /// The uniform's inputs from the live sky, the cover and this frame's blend of the weathers'
 /// own covers (the amount and the tint shares, [`blend_covers`]).
 fn inputs(sky: &SkyState, c: &CloudCoverOutput, blended: &BlendedCover, temporal: bool) -> VolumeInputs {
     let (light_dir, light_strength) = direct_light(sky.sun_dir(), sky.sun_elevation(), sky.climate.has_moon());
+    // Under Physical lighting the clouds are lit as the dome they lie on is drawn: the
+    // surfaces' sun colour and the physical sky's, in linear light (sky.rs
+    // `physical_cloud_light`; graphics-enhanced.md §3.25), and composed without the
+    // tonemapper's inverse ([`compose_uniform`]).
+    let daylight = nvf_assets::authored::physical_pbr().then(|| sky.physical_cloud_light());
     START.inputs(VolumeInputs {
         plane_height: c.plane_height,
         above_ground: crate::cloud_shadows::plane_above_ground(),
@@ -2830,15 +2856,15 @@ fn inputs(sky: &SkyState, c: &CloudCoverOutput, blended: &BlendedCover, temporal
         bias: sky_bias(sky.weather.classification, sky.prev.as_ref().filter(|_| sky.fade < 1.0).map(|w| w.classification), sky.fade),
         light_dir,
         light_strength,
-        sunlight: sky.color(ColorType::Sunlight),
+        sunlight: daylight.map_or_else(|| sky.color(ColorType::Sunlight), |d| d.sun),
         ambient: ambient_colour(&cloud_parts(sky, &blended.layer_cover, &blended.layer_weathers)),
         sky_scale: sky.sky_scale(),
         display_clip: crate::lights::display_clip(),
         temporal,
         sky: crate::volumetric_clouds_light::SkyLight {
-            upper: sky.color(ColorType::SkyUpper),
-            horizon: sky.color(ColorType::Horizon),
-            ambient: sky.color(ColorType::Ambient),
+            upper: daylight.map_or_else(|| sky.color(ColorType::SkyUpper), |d| d.upper),
+            horizon: daylight.map_or_else(|| sky.color(ColorType::Horizon), |d| d.horizon),
+            ambient: daylight.map_or_else(|| sky.color(ColorType::Ambient), |d| d.ground),
             elevation: sky.sun_elevation(),
         },
         moon_extra: sky.moon_brightness_multiplier() - 1.0,
@@ -4575,7 +4601,8 @@ pub(crate) mod tests {
     }
 
     /// volumetric_clouds.wesl with its imports replaced by stand-ins (the fields it reads of
-    /// Bevy's types) and the medium's upsample module pasted in, as plain WGSL. Only a run of
+    /// Bevy's types) and the medium's upsample and nvf_assets' tone input modules pasted in, as
+    /// plain WGSL. Only a run of
     /// the game proves the composed shader (the WESL imports, the material bind group).
     #[test]
     fn the_material_shader_is_valid_wgsl() {
@@ -4594,7 +4621,11 @@ pub(crate) mod tests {
         }
         let body = body.replace("constants::MATERIAL_BIND_GROUP", "2");
         let stand_ins = "struct VertexOutput {\n    @builtin(position) position: vec4<f32>,\n    @location(0) world_position: vec4<f32>,\n};\nstruct View { unjittered_clip_from_world: mat4x4<f32>, world_position: vec3<f32>, };\n@group(0) @binding(0) var<uniform> view: View;\n";
-        let source = format!("{stand_ins}{}\n{body}", include_str!("medium_upsample.wesl").replace("\r\n", "\n"));
+        let source = format!(
+            "{stand_ins}{}\n{}\n{body}",
+            include_str!("medium_upsample.wesl").replace("\r\n", "\n"),
+            include_str!("../../nvf-assets/src/tone_input.wesl").replace("\r\n", "\n")
+        );
         let module = naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
         naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty()).validate(&module).unwrap_or_else(|e| panic!("{e:?}"));
         assert!(module.entry_points.iter().any(|e| e.name == "fragment"));
@@ -4607,23 +4638,25 @@ pub(crate) mod tests {
         }
         assert!(shader.contains("view.unjittered_clip_from_world"), "the buffer is read where the unjittered projection puts the fragment");
         assert_eq!(CloudComposeUniform::min_size().get(), 16);
-        assert_eq!(compose_uniform(true, false).flags.x, 1.0);
-        assert_eq!(compose_uniform(false, true).flags.y, 1.0);
-        assert_eq!(compose_uniform(false, false), CloudComposeUniform::default());
+        use crate::lights::ToneCurve;
+        assert_eq!(compose_uniform(ToneCurve::Clipped, false, false).flags.x, 1.0);
+        assert_eq!(compose_uniform(ToneCurve::TonyMcMapface, false, true).flags.y, 1.0);
+        assert_eq!(compose_uniform(ToneCurve::TonyMcMapface, false, false), CloudComposeUniform::default());
+        assert_eq!(compose_uniform(ToneCurve::TonyMcMapface, true, false).flags.x, 1.0, "linear light (Physical lighting) skips the inverse");
+        let i = VolumeInputs::default();
+        assert_eq!(physical_sun_hue(i, false), i);
+        assert_eq!(physical_sun_hue(i, true).light_aids.sun_colour_share(), 1.0, "the physical sun's own hue");
         assert!(shader.contains("if compose.flags.y > 0.5 {\n        return vec4<f32>(0.0);"), "held: nothing added (premultiplied zero)");
     }
 
-    /// The Tony McMapface tables are sky.wesl's, so the volume maps its colour as the sky does.
+    /// The volume maps its colour through the sky's own tonemapper input (one table, in
+    /// nvf_assets tone_input.wesl), so it lands as the sky does.
     #[test]
     fn the_tonemapper_inverse_is_the_skys() {
-        let table = |src: &str, name: &str| -> String {
-            let start = src.find(&format!("var<private> {name}")).unwrap_or_else(|| panic!("{name}"));
-            src[start..start + src[start..].find(';').unwrap()].to_string()
-        };
         let (sky, ours) = (include_str!("sky.wesl"), include_str!("volumetric_clouds.wesl"));
-        for name in ["TONY_IN", "TONY_OUT"] {
-            assert_eq!(table(sky, name), table(ours, name), "{name}");
-        }
+        assert!(sky.contains("import nvf_assets::tone_input::to_tonemap_input;"));
+        assert!(ours.contains("import nvf_assets::tone_input::to_tonemap_input_each;"));
+        assert!(!sky.contains("var<private> TONY_IN") && !ours.contains("var<private> TONY_IN"), "no copy of the table");
     }
 
     /// The uniform's field order is the shader's struct's.

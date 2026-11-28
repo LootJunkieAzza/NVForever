@@ -102,7 +102,7 @@ fn follow(
             buffer.texture_descriptor.label = Some("water_reflected_clouds");
             let image = images.add(buffer);
             let material = materials.add(CloudVolumeMaterial {
-                params: compose_uniform(crate::lights::display_clip(), true),
+                params: compose_uniform(crate::lights::tone_curve(), nvf_assets::authored::physical_pbr(), true),
                 far: Some(image.clone()),
             });
             // Share the main proxy's exact dome depth. Transform propagation has already
@@ -122,7 +122,7 @@ fn follow(
         state.ready.lock().is_ok_and(|ready| *ready == Some(image.id()))
     });
     if let Some(material) = state.material.as_ref() {
-        let params = compose_uniform(crate::lights::display_clip(), !drawing);
+        let params = compose_uniform(crate::lights::tone_curve(), nvf_assets::authored::physical_pbr(), !drawing);
         if materials.get(material).is_some_and(|m| m.params != params) {
             if let Some(mut m) = materials.get_mut(material) {
                 m.params = params;

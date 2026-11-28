@@ -13,6 +13,11 @@ use rand_core::RngCore;
 /// that showed it), and a message box without buttons waits for its OK, button 0
 /// (#2925). Duration does nothing [documented: GECK wiki ShowMessage notes].
 pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     let m = a.form(0)?;
     let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
     // SetMessageFlags' Message Box bit (`nvse_jip6`).
@@ -21,6 +26,12 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     // "A disabled message will never be displayed by the game" [documented:
     // SetMessageDisabled].
     if g.message_disabled(m) {
+        return none();
+    }
+    // A co-op guest is in the host's game: the DLCs' "has been loaded" start messages
+    // its own start quests show are not for it [design]. Its
+    // own save keeps none of this session's quest stages, so it sees them in its own game.
+    if g.coop_guest && g.data.edid_of.get(&m).is_some_and(|e| dlc_start_message(e)) {
         return none();
     }
     // Too few variables for the text: the message does not show [documented: GECK wiki
@@ -64,6 +75,29 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
         g.queue_corner_message(&shown, &icon, seconds.map_or(crate::nvse_hud::CORNER_SECONDS, f64::from));
     }
     none()
+}
+
+/// The DLC start quests' messages: Dead Money's (NVDLC01LoadedMsg, NVDLC01DownloadMessage),
+/// and NVDLC02-05's LoadMessage01/02 (Honest Hearts, Old World Blues, Lonesome Road, Gun
+/// Runners' Arsenal) [observed: `fnvtool esm inventory` of the five DLC masters].
+pub fn dlc_start_message(edid: &str) -> bool {
+    let e = edid.to_ascii_lowercase();
+    e == "nvdlc01loadedmsg" || e == "nvdlc01downloadmessage" || (e.starts_with("nvdlc0") && !e.contains("reload") && (e.ends_with("loadmessage01") || e.ends_with("loadmessage02")))
+}
+
+#[cfg(test)]
+mod dlc_start_tests {
+    use super::dlc_start_message;
+
+    #[test]
+    fn the_dlc_load_messages_are_known_and_others_are_not() {
+        for e in ["NVDLC01LoadedMsg", "NVDLC01DownloadMessage", "NVDLC02LoadMessage01", "NVDLC02LoadMessage02", "NVDLC03LoadMessage01", "NVDLC04LoadMessage02", "NVDLC05LoadMessage01"] {
+            assert!(dlc_start_message(e), "{e}");
+        }
+        for e in ["NVDLC04ReloadMessage", "NVDLC01ToxicCloudStartMsg", "NVDLC01Gala02ElevatorStartMsg", "VMS21LoadMessage01"] {
+            assert!(!dlc_start_message(e), "{e}");
+        }
+    }
 }
 
 /// The numbers for a message's format specifiers: the arguments after the message. A
@@ -257,6 +291,13 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
+    // While co-op replays claimed stages nothing is said (a scene for a player who wasn't
+    // there), but the line the speaker would say still has its effect: its result
+    // scripts run at once (`Game::coop_replay_say_to`, `crate::coop_joint`) [design].
+    if g.coop_replaying {
+        g.coop_replay_say_to(speaker, target, topic);
+        return none();
+    }
     if g.say_by_script(speaker, Some(target), topic, true).is_some() {
         if a.num_or(3, 0.0) != 0.0 {
             g.set_line_look(speaker, LineLook::Speaker);
@@ -304,6 +345,10 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// head-track and allow-movement in a conversation with the player (the player's
 /// conversation holds the world anyway).
 pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     let speaker = ctx.subject()?;
     let target = a.form(0)?;
     if target != fnv_sim::FormId::PLAYER_REF {

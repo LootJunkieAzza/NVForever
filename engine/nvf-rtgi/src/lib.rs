@@ -90,7 +90,7 @@ mod vec3;
 mod volume;
 
 pub use bvh::{Corners, Ray};
-pub use export::{classified, meet, Export, Near, Sheared, VolumePoint};
+pub use export::{bounces, classified, meet, Bounce, Export, Near, Sheared, VolumePoint};
 pub use failed::{Cancel, Failed, Reason};
 pub use fit::{FitConfig, FitOutcome, Fitted, Met, Population, Solution, Stock};
 pub use floor::{Floor, FloorLimits, Room, EYE};
@@ -100,7 +100,7 @@ pub use light::{Cone, Directional, Lamp, LampTable, LightState};
 pub use reach::{GatherConfig, GatherLimits, Reached, ReachedBy, MOST_RAYS};
 pub use scene::{Cull, Instance, Level, Material, Mesh, SceneInput, Texture, Wrap};
 pub use solve::{Counts, Seeds, SolveConfig, SolvedVolume, Stats};
-pub use texture::{Lookup, Texels};
+pub use texture::{levels_read, Lookup, Texels};
 pub use trace::{lift, Face, Hit, PreparedScene, SceneLimits, SceneStats, MOST_THREADS};
 pub use vec3::V3;
 pub use volume::{Read, Reader, SLABS, THIN};

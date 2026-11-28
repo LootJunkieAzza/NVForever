@@ -168,7 +168,8 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Combat"), &["localized-dt-dr"]),
     section("Gameplay", Some("Menus"), &["quantity-select-short-keys"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
-    section("Gameplay", Some("Co-op"), &["coop"]),
+    // Co-op, and its networking (docs/design/coop-networking.md §10).
+    section("Gameplay", Some("Co-op"), &["coop", "coop-connection", "coop-router-port", "coop-relay", "coop-ask"]),
     section("Display", Some("Screen"), &["monitor", "resolution", "hdr-output", "borderless"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
     section("Display", Some("Upscaling and Anti-Aliasing"), &["upscaler", "upscaler-quality", "dlss-model", "fsr-library", "anti-aliasing", "sharpen"]),
@@ -267,7 +268,7 @@ pub const SECTIONS: &[Section] = &[
     // Shadow resolution sizes the flashlight's maps too, so it needs no Sun shadows (no NEEDS
     // line) (#2843).
     section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows", "terrain-shadows", "light-shadows"]),
-    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "volumetric-clouds", "light-shafts", "heat-haze", "desert-haze", "volumetric-light", "volumetric-light-strength", "aerial-perspective", "night-sky-detail", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
+    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "volumetric-clouds", "light-shafts", "heat-haze", "desert-haze", "volumetric-light", "volumetric-light-strength", "aerial-perspective", "night-sky-detail", "physical-pbr", "tonemap-preset", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
     section("Graphics", Some("Water"), &["water-reflections", "water-mirror", "water-effects"]),
     section("Graphics", Some("Detail and Distance"), &["distant-lod", "full-detail", "distant-objects", "grass", "anisotropic", "authored-materials", "authored-reflections", "terrain-height-blend", "terrain-anti-tiling", "terrain-parallax", "mesh-terrain-blend", "occlusion-culling", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance", "tree-distance", "distant-lights"]),
     section("Graphics", Some("World and Animation"), &["head-tracking", "foot-ik", "sky-clock"]),
@@ -1136,10 +1137,13 @@ pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[
     ("dialogue-background-tint-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
     ("dialogue-frame-opacity-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
     ("dialogue-hints-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
+    ("coop-router-port", "coop-connection", &["Automatic", "Direct only"], "Not with LAN only."),
+    ("coop-relay", "coop-connection", &["Automatic", "Direct only"], "Not with LAN only."),
 ];
 
 /// What a row needs of another row to apply: `parent` on (a switch on, a list past its first
-/// choice) when `choices` is empty, else `parent` on one of `choices` (by name). `why` is
+/// choice) when `choices` is empty, else `parent` on one of `choices` (by name; a switch's
+/// choices are "On" and "Off"). `why` is
 /// what the page says while it does not hold (English; the game shows it translated).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rule {
