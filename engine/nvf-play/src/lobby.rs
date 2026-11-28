@@ -18,6 +18,11 @@
 //! (docs/design/coop-quest-sync.md; the choices live in `crate::coop_progress`, which
 //! fills [`QuestSyncView`]).
 //!
+//! The host's screen also lists the players asking to join by online code (Let In, Turn
+//! Away: the "Ask before players join" setting) and, for each guest, Kick (removed now) and
+//! Ban (removed, and kept out while the lobby lasts) [design: docs/design/coop-networking.md
+//! §10].
+//!
 //! The screen is drawn over the menu that opened it and takes the keys while it is up
 //! ([`LobbyScreen::holds_input`]); it asks the network side for things with
 //! [`LobbyRequest`] and shows what [`LobbyState`] says.
@@ -75,6 +80,10 @@ pub enum LobbyRequest {
     Find(String),
     /// Stop looking (or leave the host found).
     Cancel,
+    /// The host removes guest `id`; with `ban`, keeps it out while the lobby lasts.
+    Kick { id: u8, ban: bool },
+    /// The host's answer to player `peer` asking to join (its number in the service's lobby).
+    Admit { peer: u32, yes: bool },
     /// A guest turns its quest progression sync on or off (docs/design/coop-quest-sync.md §1).
     QuestSync(bool),
     /// A guest sits out questline `line` (a row of `fnv_game::coop_questlines::LINES`), or
@@ -135,6 +144,10 @@ pub struct LobbyState {
     pub joining: Joining,
     /// This game is a guest in another player's lobby.
     pub guest: bool,
+    /// The host's guests, by id, as the list names them (for Kick and Ban).
+    pub guests: Vec<(u8, String)>,
+    /// The host's: players asking to join (their number, name).
+    pub asks: Vec<(u32, String)>,
 }
 
 /// The Co-op switch (see the module notes): off by default; its row of the settings page
@@ -265,6 +278,10 @@ enum Act {
     Back,
     /// The Co-op switch.
     Coop,
+    Kick(u8),
+    Ban(u8),
+    LetIn(u32),
+    TurnAway(u32),
     /// A guest's Quest Sync toggle.
     QuestSync,
     /// Open the Questlines menu.
@@ -323,7 +340,7 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
             let switch = coop_held(state).is_none().then_some(Act::Coop);
             match state.hosting {
                 Hosting::Off => switch.into_iter().chain([Act::Create, Act::Back]).collect(),
-                Hosting::Open { .. } => vec![Act::Close, Act::Back],
+                Hosting::Open { .. } => host_acts(state).into_iter().chain([Act::Close, Act::Back]).collect(),
             }
         }
         Some(Mode::Join) => match &state.joining {
@@ -332,6 +349,13 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
             Joining::Idle | Joining::Failed(_) => vec![Act::Join, Act::Back],
         },
     }
+}
+
+/// The host's buttons for the players asking and the guests, in the screen's order.
+fn host_acts(state: &LobbyState) -> Vec<Act> {
+    let asks = state.asks.iter().flat_map(|(p, _)| [Act::LetIn(*p), Act::TurnAway(*p)]);
+    let guests = state.guests.iter().flat_map(|(id, _)| [Act::Kick(*id), Act::Ban(*id)]);
+    asks.chain(guests).collect()
 }
 
 /// Why the Co-op switch cannot be turned off now, if it cannot: a lobby is open or this
@@ -527,6 +551,18 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
         Act::Leave => {
             asks.write(LobbyRequest::Leave);
         }
+        Act::Kick(id) => {
+            asks.write(LobbyRequest::Kick { id, ban: false });
+        }
+        Act::Ban(id) => {
+            asks.write(LobbyRequest::Kick { id, ban: true });
+        }
+        Act::LetIn(peer) => {
+            asks.write(LobbyRequest::Admit { peer, yes: true });
+        }
+        Act::TurnAway(peer) => {
+            asks.write(LobbyRequest::Admit { peer, yes: false });
+        }
         Act::Coop => match coop_held(state) {
             Some(why) => info!("lobby: co-op stays on: {why}"),
             None => screen.coop_ask = true,
@@ -693,6 +729,15 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                         v.push(Line(n.clone(), Shade::Bright));
                     }
                     players(&mut v, state);
+                    for (peer, name) in &state.asks {
+                        v.push(Line(format!("{name} asks to join:"), Shade::Bright));
+                        v.push(Button(Act::LetIn(*peer), format!("Let {name} In")));
+                        v.push(Button(Act::TurnAway(*peer), format!("Turn {name} Away")));
+                    }
+                    for (id, name) in &state.guests {
+                        v.push(Button(Act::Kick(*id), format!("Kick {name}")));
+                        v.push(Button(Act::Ban(*id), format!("Ban {name}")));
+                    }
                     v.push(Button(Act::Close, "Close Lobby".into()));
                 }
             }
@@ -968,6 +1013,16 @@ mod tests {
         assert!(pieces(&screen, &found).contains(&Piece::Line("You are in Veronica's lobby.".into(), Shade::Bright)));
         let failed = LobbyState { joining: Joining::Failed("No answer.".into()), ..default() };
         assert!(pieces(&screen, &failed).contains(&Piece::Line("No answer.".into(), Shade::Bright)));
+    }
+
+    #[test]
+    fn the_host_lets_players_in_and_kicks_or_bans_guests() {
+        let screen = opened(Mode::Host);
+        let state = LobbyState { hosting: Hosting::Open { code: "K7Q-M2X".into(), note: None }, guests: vec![(1, "Cass".into())], asks: vec![(7, "Boone".into())], ..default() };
+        let list = acts(&screen, &state);
+        assert_eq!(list, vec![Act::LetIn(7), Act::TurnAway(7), Act::Kick(1), Act::Ban(1), Act::Close, Act::Back]);
+        let buttons: Vec<Act> = pieces(&screen, &state).into_iter().filter_map(|p| if let Piece::Button(a, _) = p { Some(a) } else { None }).collect();
+        assert_eq!(buttons, list, "the buttons in the order the keys go through them");
     }
 
     #[test]
