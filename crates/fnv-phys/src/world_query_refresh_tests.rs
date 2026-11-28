@@ -61,3 +61,22 @@ fn new_real_position_and_velocity_kinematic_contacts_keep_unintegrated_motion_ta
         w.step();assert!(w.w.bodies[h].position().translation.x>current.translation.x);
     }
 }
+
+#[test]
+fn hitvol_only_dirty_skips_character_refresh_but_flushes_for_casts() {
+    let mut w = PhysWorld::new(PhysParams { gravity: 0.0, ..Default::default() });
+    w.add_ref(&pose(98, [0.0, 0.0, -70.0]), &[CollisionObject { shape: Shape::Box { half_extents: [500.0, 500.0, 70.0] }.into(), ..shape(Motion::Static) }]);
+    let mut ch = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 0.5]);
+    w.step();
+    let before = w.refresh_stats();
+    // Moving an actor hit volume marks only HitVolume dirty.
+    w.set_actor_volume(200, HitVolume { feet: [200.0, 0.0, 0.0], radius: 22.0, height: 120.0, dead: false });
+    let _ = w.move_character(&mut ch, CharacterInput { velocity: [100.0, 0.0], ..Default::default() });
+    let after_move = w.refresh_stats();
+    assert_eq!(after_move.refreshes, before.refreshes, "character move must skip HitVolume-only broad-phase refresh");
+    // A subsequent raycast (`Cast`) still flushes the pending hit volume and hits it.
+    let hit = w.queries().ray([100.0, 0.0, 60.0], [1.0, 0.0, 0.0], 200.0, &Filter::default());
+    assert!(hit.is_some_and(|h| matches!(h.owner, Owner::Actor { form_id: 200, .. })), "cast must flush pending hit volume");
+    let after_cast = w.refresh_stats();
+    assert_eq!(after_cast.refreshes, before.refreshes + 1);
+}

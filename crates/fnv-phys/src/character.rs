@@ -252,6 +252,15 @@ pub struct Character {
     /// [`STUCK_RETRY_SECS`] have passed. Off by default (the player, the tools' probes);
     /// the game turns it on for the actors it walks.
     pub hold_when_stuck: bool,
+    /// Direction-sensitive stuck hold for player-controlled characters: holds only while
+    /// the same horizontal movement direction keeps being pushed into an impassable corner
+    /// or crease, breaking out immediately on any direction change, stop, jump, or after
+    /// [`PLAYER_STUCK_RETRY_SECS`] [design].
+    pub hold_when_stuck_same_input: bool,
+    /// Idle hold for stationary grounded NPCs on fixed support colliders: skips repeated
+    /// zero-velocity sweeps for [`IDLE_STATIC_RETRY_SECS`] and breaks out immediately on
+    /// any movement input, jump, feet change, or support removal [design].
+    pub hold_when_idle_static: bool,
     held: Option<Held>,
     /// Steps held so far ([`Self::hold_when_stuck`], a count for reports).
     pub held_steps: u32,
@@ -276,6 +285,27 @@ struct Held {
     /// Seconds held since the move that found it stuck (the steps' `dt` summed).
     secs: f32,
     touched: Vec<Owner>,
+    /// Normalized horizontal velocity direction that triggered a direction-sensitive hold
+    /// (`None` for unconditional `hold_when_stuck`).
+    dir: Option<[f32; 2]>,
+    retry_secs: f32,
+    /// True when holding a stationary grounded NPC on a fixed support collider (breaks
+    /// immediately on any movement input, jump, feet change, or support removal) [design].
+    idle_static: bool,
+    /// Fixed support collider handle for `idle_static` holds, checked O(1) each substep.
+    support: Option<ColliderHandle>,
+}
+
+/// Retry interval for [`Character::hold_when_stuck_same_input`] (seconds): re-probes 10x/s
+/// while the same direction is held, and breaks out immediately on any turn/stop/jump [design].
+const PLAYER_STUCK_RETRY_SECS: f32 = 0.1;
+/// Retry interval for stationary grounded NPCs on fixed support colliders (seconds):
+/// re-probes 4x/s while stationary and breaks out immediately on any input or support removal [design].
+const IDLE_STATIC_RETRY_SECS: f32 = 0.25;
+
+fn horizontal_dir(v: [f32; 2]) -> Option<[f32; 2]> {
+    let l = v[0].hypot(v[1]);
+    (l > 1e-3).then(|| [v[0] / l, v[1] / l])
 }
 
 /// The sweeps rapier's character controller makes at most in one move [documented:
@@ -419,6 +449,8 @@ impl PhysWorld {
             stepped: 0,
             perch_base: None,
             hold_when_stuck: false,
+            hold_when_stuck_same_input: false,
+            hold_when_idle_static: false,
             held: None,
             held_steps: 0,
         };
@@ -738,10 +770,11 @@ impl PhysWorld {
         };
         let mut walls: Vec<[f32; 2]> = collisions.iter().filter_map(|h| wall(h.hit.normal1)).collect();
         let mut horizontal = [desired.x, desired.y];
-        // `walls` is read only by `wedged` below, which is not asked in two phases and
-        // answers no for a motion under its own 1e-6 floor: the scan is skipped then, with
-        // the same result [observed: the code; issue #1086].
-        let may_wedge = !two_phase && horizontal[0].hypot(horizontal[1]) >= WEDGE_MIN_SPEED;
+        // `walls` is read only by `wedged` below, which is not asked in two phases, requires
+        // hitting at least one wall during the sweep, and answers no for a motion under its
+        // own 1e-6 floor: the contact-manifold scan is skipped otherwise [observed: the code;
+        // issue #1086].
+        let may_wedge = !two_phase && !walls.is_empty() && horizontal[0].hypot(horizontal[1]) >= WEDGE_MIN_SPEED;
         if may_wedge {
             let q = self.w.query_pipeline_with_filter(filter);
             let reach = (c.gap.max(c.params.skin) + WALL_MARGIN) * k;
@@ -1001,20 +1034,96 @@ impl PhysWorld {
             swimming: c.swimming,
             touched,
         };
-        let stuck = c.hold_when_stuck && sweeps >= CONTROLLER_SWEEPS && c.feet == start_feet && c.grounded && !c.swimming && !jumping;
-        c.held = stuck.then(|| Held { feet: c.feet, secs: 0.0, touched: step.touched.clone() });
+        let stuck_npc = c.hold_when_stuck && sweeps >= CONTROLLER_SWEEPS && c.feet == start_feet && c.grounded && !c.swimming && !jumping;
+        // `settle` computes `moved.translation.z -= d * k` in Rapier units and converts back via
+        // `/ k`, which can jitter `c.feet[2]` by ~1e-6 on a stationary flat floor; allow a tiny
+        // sub-millimetre tolerance when checking whether the step stood still [design].
+        let stood_still = (c.feet[0] - start_feet[0]).abs() <= 1e-3
+            && (c.feet[1] - start_feet[1]).abs() <= 1e-3
+            && (c.feet[2] - start_feet[2]).abs() <= 1e-3;
+        let stuck_same_input = !stuck_npc
+            && c.hold_when_stuck_same_input
+            && (sweeps >= CONTROLLER_SWEEPS || wedged_from.is_some())
+            && stood_still
+            && c.grounded
+            && !c.swimming
+            && !jumping;
+        let static_support = if !stuck_npc
+            && !stuck_same_input
+            && c.hold_when_idle_static
+            && input.velocity == [0.0, 0.0]
+            && c.velocity == [0.0, 0.0]
+            && !jumping
+            && c.grounded
+            && on_walkable
+            && !c.swimming
+            && stood_still
+            && c.vertical_speed == 0.0
+            && c.since_landing.is_none()
+            && c.perch_base.is_none()
+            && push.collisions.iter().all(|h| {
+                self.w.colliders.get(h.handle).and_then(|col| col.parent()).and_then(|b| self.w.bodies.get(b)).is_none_or(|b| !b.is_dynamic())
+            })
+        {
+            support.map(|(h, ..)| h).filter(|&h| {
+                self.w.colliders.get(h).is_some_and(|co| {
+                    co.parent().is_none_or(|b| self.w.bodies.get(b).is_some_and(|rb| rb.is_fixed()))
+                })
+            })
+        } else {
+            None
+        };
+        c.held = if stuck_npc {
+            Some(Held { feet: c.feet, secs: 0.0, touched: step.touched.clone(), dir: None, retry_secs: STUCK_RETRY_SECS, idle_static: false, support: None })
+        } else if stuck_same_input {
+            horizontal_dir(input.velocity).map(|dir| Held {
+                feet: c.feet,
+                secs: 0.0,
+                touched: step.touched.clone(),
+                dir: Some(dir),
+                retry_secs: PLAYER_STUCK_RETRY_SECS,
+                idle_static: false,
+                support: None,
+            })
+        } else if let Some(sup) = static_support {
+            Some(Held {
+                feet: c.feet,
+                secs: 0.0,
+                touched: step.touched.clone(),
+                dir: Some([0.0, 0.0]),
+                retry_secs: IDLE_STATIC_RETRY_SECS,
+                idle_static: true,
+                support: Some(sup),
+            })
+        } else {
+            None
+        };
         (step, push)
     }
 
     /// The step of a character [`Held`] where it got stuck: standing where it is, as the
     /// move that found it stuck left it, without sweeping; `None` when it is not held, or
     /// when this step is a full move ([`STUCK_RETRY_SECS`] after the hold, a jump, moved
-    /// elsewhere).
+    /// elsewhere, or a changed movement direction for `hold_when_stuck_same_input`).
     fn held_move(&self, c: &mut Character, input: &CharacterInput) -> Option<(CharacterStep, Push)> {
         let dt = self.params.dt;
         let held = c.held.as_mut()?;
         held.secs += dt;
-        if !c.hold_when_stuck || input.jump || c.swimming || !c.grounded || c.feet != held.feet || secs_reached(held.secs, STUCK_RETRY_SECS, dt) {
+        let active = if held.idle_static {
+            c.hold_when_idle_static
+        } else {
+            c.hold_when_stuck || (c.hold_when_stuck_same_input && held.dir.is_some())
+        };
+        let same_dir = if held.idle_static {
+            input.velocity == [0.0, 0.0]
+        } else {
+            match held.dir {
+                None => true,
+                Some(d) => horizontal_dir(input.velocity).is_some_and(|n| n[0] * d[0] + n[1] * d[1] >= 0.995),
+            }
+        };
+        let support_alive = held.support.is_none_or(|h| self.w.colliders.contains(h));
+        if !active || !same_dir || !support_alive || input.jump || c.swimming || !c.grounded || c.feet != held.feet || secs_reached(held.secs, held.retry_secs, dt) {
             c.held = None;
             return None;
         }
@@ -1024,7 +1133,9 @@ impl PhysWorld {
         c.velocity = [0.0, 0.0];
         c.air_time = 0.0;
         c.since_landing = c.since_landing.map(|t| t + dt).filter(|&t| ((t * 60.0).round() as usize) < air::LANDING_SPEEDS.len());
-        c.held_steps += 1;
+        if !held.idle_static {
+            c.held_steps += 1;
+        }
         let push = Push { kcc: c.controller(self.k), dt, ignore: c.ignore_layers, passes: c.passes_characters, collisions: Vec::new() };
         let step = CharacterStep { feet: c.feet, grounded: true, sliding: false, landed_speed: None, gap: c.gap, swimming: false, touched };
         Some((step, push))
@@ -1050,6 +1161,10 @@ impl PhysWorld {
         self.w.bodies[c.body].set_next_kinematic_translation(c.center(k));
     }
 }
+
+#[cfg(test)]
+#[path = "character_fast_path_tests.rs"]
+mod character_fast_path_tests;
 
 /// What a planned move pushes ([`PhysWorld::plan_move`]): the controller and step it was
 /// planned with, which colliders count, and the collisions with bodies light enough to
