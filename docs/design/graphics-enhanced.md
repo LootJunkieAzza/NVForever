@@ -3974,11 +3974,19 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
     ONAM speeds and the wind). **What it cannot**: where the clouds stand and their shapes (a mod whose
     point is painted cloud forms loses them while this row is on; the row is off by default).
 - **The domain** [engineering choice]. Its base is the cloud shadows' plane: 20,000 units above the
-  ground reference, the camera's height (snapped to 1,024) when the worldspace's first composition is
-  made, held until the worldspace changes. That suits a start on the ground (about 290 m up at 70
-  units a metre: low for real clouds, but the cloud shadows on the ground and the clouds must agree, and
-  `NVF_PLAY_DEBUG_CLOUD_SHADOW=<height>,...` moves both together); a start in the air puts the plane,
-  and so the clouds, 20,000 units above that height. Above it cloud may occupy 24,000 units
+  ground reference, the median of the worldspace's LAND heights (snapped to 1,024; read once a run per
+  worldspace on a thread of its own, cloud_shadows.rs `land_relief`, #4727), held until the worldspace
+  changes, so the clouds stand at the same height wherever the game was loaded. Where there are no world
+  data or the worldspace has no LAND heights, the reference is the camera's height (snapped) when the
+  worldspace's first composition is made, as before #4727, when a game loaded on a peak put the clouds
+  over that peak. The median rather than the highest land: the bend (below) brings the base down to the
+  horizon for a view from the reference, and from far under it no cloud would reach the horizon.
+  [observed, 2026-11-27, vanilla data, the smoke `volumetric-clouds` at Goodsprings] WastelandNV: 16,386
+  cells read in 1.4 s, heights -3,104 to 20,672, median 5,720 (reference 6,144), 99th percentile 13,872:
+  the plane at 26,144 is about 5,500 units over the highest land. 20,000 units is still about 290 m at 70
+  units a metre, low for real clouds and soon reached in flight (how high, and the sizes with it, is the
+  open part of #4727); the cloud shadows on the ground and the clouds must agree,
+  and `NVF_PLAY_DEBUG_CLOUD_SHADOW=<height>,...` moves both together. Above it cloud may occupy 24,000 units
   (`NVF_PLAY_DEBUG_VOLUMETRIC_CLOUDS_HEIGHT=<16000..80000>`). The sizes that scale with the domain (the
   probe spacing, the placement's cells) are stated at 40,000 in the code (`REFERENCE_HEIGHT`).
   - *The bend*: the domain is bent down over the distance as a shell centred under the camera: a
@@ -4396,9 +4404,9 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
     it is met 184,000 units away, inside the guard): whole down to about 3.2 degrees, where the low-sun band
     leaves about 41 % of the shadow, and gone at about 2.7, where it leaves 28 %. Between the two the
     hand-over to the layers sweeps across the scene (smooth, no seam, but the pattern changes).
-    A start above the ground moves all of this up (the ground reference is the first output's camera
-    height rounded to 1,024, cloud_shadows.rs `GROUND_SNAP`): the floor is then 20,000 units over that
-    height, so its point lies farther sunward for a receiver on the ground.
+    A receiver above the ground reference (the worldspace's LAND median rounded to 1,024, cloud_shadows.rs
+    `land_relief`) reads the floor nearer, one below it farther sunward; where to start no longer moves the
+    floor (#4727).
   - *In motion*: the levels are addressed in the field's coordinates under this frame's drift, so the
     shadows move with the wind every frame and need no reprojection; a swap of fronts (every 8 frames
     near, 32 to 40 far) changes them only by the sun's progress, a weather fade's and the bend's tilt

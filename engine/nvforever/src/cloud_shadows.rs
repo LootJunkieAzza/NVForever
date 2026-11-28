@@ -81,6 +81,14 @@
 //!   output, which is neutral until the new composition is in. A fade's ordinary progress
 //!   is followed with the bounded lag of the rate cap.
 //!
+//! - **The ground reference** [engineering choice, #4727]: the plane stands
+//!   [`PLANE_ABOVE_GROUND`] over the worldspace's own ground, the median of its cells' LAND
+//!   heights ([`land_relief`], rounded to [`GROUND_SNAP`]), read once a run per worldspace on a
+//!   thread of its own ([`GroundScan`]) while the textures are read; nothing is composed before
+//!   it is known. Before it was the camera's height at the worldspace's first output, so a game
+//!   loaded on a peak put the clouds over that peak and one in a valley over the valley. Where
+//!   there is no world data or the worldspace has no LAND heights, it is still the camera's.
+//!
 //! - **The volume's cover** [design, #2991]: Volumetric clouds (volumetric_clouds.rs) need
 //!   the absolute cover `1 - Π (1 - alpha × weight)`, which the relative image cannot give
 //!   back. While it wants it ([`CloudCoverWanted`]) the producer runs whatever Cloud shadows
@@ -146,9 +154,10 @@ pub const REPEAT_UNITS: f32 = 60_000.0;
 /// strength) [engineering choice: the contributor's pick in play on 2026-11-17 among 0.6,
 /// 0.7, 0.8 and 1.0, docs/design/sun-visibility.md §8; to be refined].
 pub const STRENGTH: f32 = 0.6;
-/// The ground reference (the camera's height when the worldspace's first output is made)
-/// is rounded to this, game units [engineering choice: one LAND height step band, so a
-/// start a few units higher gives the same plane].
+/// The ground reference (the median of the worldspace's LAND heights, [`land_relief`]; the
+/// camera's height when the worldspace's first output is made where it has none) is rounded
+/// to this, game units [engineering choice: one LAND height step band, so the plane lies on
+/// a coarse grid of heights and a camera start a few units higher gives the same plane].
 const GROUND_SNAP: f32 = 1024.0;
 /// A layer shifted against the reference by this many texels since the last composition
 /// is composed again [engineering choice: a quarter texel, about 29 units on the ground;
@@ -379,6 +388,96 @@ pub fn advance_drift(offset: [f64; 2], last: Option<[f64; 2]>, phase: [f64; 2], 
 /// (`NVF_PLAY_DEBUG_CLOUD_SHADOW` may set it): the volume bends its domain from it.
 pub fn plane_above_ground() -> f32 {
     calibration().plane_above_ground
+}
+
+/// The spread of a worldspace's LAND heights (game z, the same as Bevy y), from
+/// [`land_relief`]: the median is the ground reference, the rest is logged for calibrating
+/// the plane.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LandRelief {
+    pub median: f32,
+    pub min: f32,
+    pub p99: f32,
+    pub max: f32,
+    /// The cells with LAND heights read.
+    pub cells: usize,
+}
+
+/// The ground reference of a worldspace: the median of the LAND vertex heights of its cells
+/// (`heights`, any order; not-a-number values left out), with their range and 99th percentile;
+/// `None` with no height. [engineering choice, #4727: a property of the worldspace, so the cloud
+/// plane is the same wherever a game was loaded; the median, not the highest land, because the
+/// volume's bend (volumetric_clouds.rs `shell_radius`) brings the base down to the horizon for a
+/// view from the reference, and a camera far below it would see no cloud toward the horizon.]
+pub fn land_relief(mut heights: Vec<f32>, cells: usize) -> Option<LandRelief> {
+    heights.retain(|h| h.is_finite());
+    let n = heights.len();
+    if n == 0 {
+        return None;
+    }
+    let (min, max) = heights.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &h| (lo.min(h), hi.max(h)));
+    let at = |v: &mut Vec<f32>, q: f32| -> f32 {
+        let k = ((q * (n - 1) as f32).round() as usize).min(n - 1);
+        *v.select_nth_unstable_by(k, f32::total_cmp).1
+    };
+    let median = at(&mut heights, 0.5);
+    let p99 = at(&mut heights, 0.99);
+    Some(LandRelief { median, min, p99, max, cells })
+}
+
+/// The LAND heights of a cell's 33 × 33 grid that are its own: the north row and the east column
+/// are the next cells' first, so every vertex of a worldspace is counted once.
+pub fn own_vertices(heights: &[f32]) -> impl Iterator<Item = f32> + '_ {
+    use fnv_world::land::SIDE;
+    let ok = heights.len() == SIDE * SIDE;
+    (0..if ok { SIDE - 1 } else { 0 }).flat_map(move |row| heights[row * SIDE..row * SIDE + SIDE - 1].iter().copied())
+}
+
+/// The ground reference in force (Bevy y): the worldspace's land median, else the camera's
+/// height, rounded to [`GROUND_SNAP`].
+pub fn ground_reference(land: Option<&LandRelief>, camera_y: f32) -> f32 {
+    let y = land.map_or(camera_y, |l| l.median);
+    (y / GROUND_SNAP).round() * GROUND_SNAP
+}
+
+/// Read every LAND of the worldspace `ws` for its heights ([`land_relief`]). Slow (each record
+/// decoded): run on a thread of its own ([`GroundScan`]).
+fn scan_land(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, index: &fnv_world::WorldIndex, ws: u32) -> Option<LandRelief> {
+    use fnv_world::land::{load_land, LandParts};
+    let w = index.worldspaces.get(&ws)?;
+    let mut heights = Vec::new();
+    let mut cells = 0;
+    for fid in w.grid.values() {
+        let Some(land) = index.cells.get(fid).and_then(|c| c.land) else { continue };
+        let Some(h) = load_land(lo, schema, land, LandParts::HEIGHTS).and_then(|l| l.heights) else { continue };
+        let before = heights.len();
+        heights.extend(own_vertices(&h));
+        cells += usize::from(heights.len() > before);
+    }
+    land_relief(heights, cells)
+}
+
+/// A worldspace's LAND being read on a thread of its own, at the lowest priority (as the
+/// generated LOD's bakes, lodgen.rs).
+#[derive(Debug)]
+pub struct GroundScan {
+    world: u32,
+    started: std::time::Instant,
+    handle: std::thread::JoinHandle<Option<LandRelief>>,
+}
+
+impl GroundScan {
+    fn start(world: &crate::world::WorldData, ws: u32) -> Option<Self> {
+        let (lo, schema, index) = (world.lo, world.schema, world.index);
+        let handle = std::thread::Builder::new()
+            .name("cloud ground".into())
+            .spawn(move || {
+                crate::lodgen::lowest_thread_priority();
+                scan_land(lo, schema, index, ws)
+            })
+            .ok()?;
+        Some(Self { world: ws, started: std::time::Instant::now(), handle })
+    }
 }
 
 /// The scroll rate the volume's noise drifts at: the layers' rates weighted by their visible
@@ -1330,6 +1429,12 @@ pub struct CloudShadowWork {
     composed_at: f64,
     /// (worldspace, Bevy y of the ground reference).
     ground: Option<(Option<u32>, f32)>,
+    /// The worldspace's LAND being read for its ground reference ([`GroundScan`]).
+    ground_scan: Option<GroundScan>,
+    /// Each worldspace's LAND heights as read ([`land_relief`]; `None`: it has none), kept for
+    /// the run (a few numbers each), so going back to a worldspace or switching on again reads
+    /// nothing.
+    land: HashMap<u32, Option<LandRelief>>,
     /// Why the output is `None`, as last logged.
     off_reason: Option<&'static str>,
     /// Layer count, weights (in [`LOG_WEIGHT_STEP`] steps) and textures last logged.
@@ -1453,6 +1558,58 @@ impl CloudShadowWork {
         self.ground = None;
         info!("cloud shadows: another worldspace: output cleared until it is composed again");
         true
+    }
+
+    /// The worldspace `ws`'s ground reference ([`ground_reference`]) once it is known: from its
+    /// LAND heights, read on a thread of their own the first time ([`GroundScan`]; `None` while
+    /// it reads, the output holding as before a first composition), else from the camera's height
+    /// (`camera_y`, `None` without a camera) where there is no world data or the worldspace has no
+    /// LAND heights.
+    fn ground_now(&mut self, ws: Option<u32>, world: Option<&crate::world::WorldData>, camera_y: Option<f32>) -> Option<f32> {
+        let camera = || camera_y.map(|y| ground_reference(None, y));
+        let Some(ws) = ws else {
+            self.ground_scan = None;
+            return camera();
+        };
+        if let Some(relief) = self.land.get(&ws) {
+            return match relief {
+                Some(r) => Some(ground_reference(Some(r), 0.0)),
+                None => camera(),
+            };
+        }
+        let Some(world) = world else {
+            self.ground_scan = None;
+            return camera();
+        };
+        if self.ground_scan.as_ref().is_some_and(|s| s.world != ws) {
+            // Another worldspace's read: its thread finishes on its own, unheard.
+            self.ground_scan = None;
+        }
+        let Some(scan) = self.ground_scan.take().or_else(|| GroundScan::start(world, ws)) else {
+            warn!("cloud shadows: cannot start the worldspace's land read; ground reference from the camera");
+            self.land.insert(ws, None);
+            return camera();
+        };
+        if !scan.handle.is_finished() {
+            self.ground_scan = Some(scan);
+            return None;
+        }
+        let ms = scan.started.elapsed().as_millis();
+        let relief = scan.handle.join().ok().flatten();
+        match &relief {
+            Some(r) => info!(
+                "cloud shadows: ground reference {:.0} from the worldspace's land: median {:.0} of {} cells, range {:.0} to {:.0}, 99th percentile {:.0} (read in {ms} ms)",
+                ground_reference(Some(r), 0.0),
+                r.median,
+                r.cells,
+                r.min,
+                r.max,
+                r.p99
+            ),
+            None => info!("cloud shadows: the worldspace has no LAND heights (read in {ms} ms): ground reference from the camera"),
+        }
+        self.land.insert(ws, relief);
+        self.ground_now(Some(ws), Some(world), camera_y)
     }
 
     /// The weather set now: replaced, it is a discontinuity; replaced at once (no fade),
@@ -1669,14 +1826,17 @@ pub fn produce_cloud_shadows(
         work.go_off("no cloud layers", false, &mut published, &mut images);
         return;
     }
-    // The ground reference: the camera's height when the worldspace's first output is
-    // made, held until the worldspace changes (`note_world`), so the plane never follows
-    // the camera.
+    // The ground reference: the worldspace's own (its LAND heights' median, read once on a
+    // thread of its own), else the camera's height when its first output is made; held until
+    // the worldspace changes (`note_world`), so the plane never follows the camera nor depends
+    // on where the game was loaded (#4727). The textures are read meanwhile; nothing is
+    // composed before it is known (below).
     if work.ground.is_none() {
-        let Ok(cam) = cam.single() else { return };
-        work.ground = Some((ws, (cam.translation.y / GROUND_SNAP).round() * GROUND_SNAP));
+        let camera_y = cam.single().ok().map(|c| c.translation.y);
+        if let Some(g) = work.ground_now(ws, world.as_deref(), camera_y) {
+            work.ground = Some((ws, g));
+        }
     }
-    let ground = work.ground.map_or(0.0, |(_, g)| g);
 
     // A fade announces its destination before the dome draws it. Get the reads
     // going now; zero-weight layers never enter the terrain shadow composition.
@@ -1757,6 +1917,7 @@ pub fn produce_cloud_shadows(
         }
         work.cover_refused = refused;
     }
+    let Some((_, ground)) = work.ground else { return };
     work.follow_deck(&layers, ground + cal.plane_above_ground, shadows_on, loading);
     if !loading && layers.iter().all(|l| alpha_of(&work.alphas, &l.texture).is_none()) {
         // Kept: the textures are not read again while the weather stays.
@@ -2516,6 +2677,61 @@ mod tests {
         app.world_mut().resource_mut::<Graphics>().set_changed();
         app.update();
         assert!(app.world().resource::<CloudShadows>().enabled, "the override wins over the row");
+    }
+
+    /// #4727: the ground reference is the worldspace's land median, rounded, whatever the camera's
+    /// height; the camera's only where the worldspace has no LAND heights.
+    #[test]
+    fn the_ground_reference_is_the_worldspaces_land_median() {
+        // Most of the land low, a few high peaks: the median stays with the plains.
+        let mut heights: Vec<f32> = (0..900).map(|i| 2_000.0 + (i % 30) as f32 * 10.0).collect();
+        heights.extend((0..100).map(|i| 40_000.0 + i as f32 * 100.0));
+        heights.extend([f32::NAN, f32::INFINITY]);
+        let r = land_relief(heights, 3).unwrap();
+        assert!((2_000.0..2_300.0).contains(&r.median), "{r:?}");
+        assert_eq!((r.min, r.max, r.cells), (2_000.0, 49_900.0, 3), "not-a-number values left out");
+        assert!(r.p99 >= 40_000.0 && r.p99 <= r.max, "{r:?}");
+        let g = ground_reference(Some(&r), 0.0);
+        assert_eq!(g, 2_048.0, "rounded to the snap");
+        for camera in [-5_000.0f32, 0.0, 2_100.0, 45_000.0, f32::NAN] {
+            assert_eq!(ground_reference(Some(&r), camera), g, "a start at {camera} gives the same plane");
+        }
+        assert_eq!(ground_reference(None, 3_000.0), 3_072.0, "no land: the camera's, rounded as before");
+        assert_eq!(land_relief(Vec::new(), 0), None);
+        assert_eq!(land_relief(vec![f32::NAN], 1), None);
+        let one = land_relief(vec![-700.0], 1).unwrap();
+        assert_eq!((one.median, one.min, one.p99, one.max), (-700.0, -700.0, -700.0, -700.0));
+    }
+
+    /// A cell's own vertices: its 32 × 32 south-west share of the 33 × 33 grid (the north row and the
+    /// east column are the neighbours'), none from a grid of another size.
+    #[test]
+    fn a_cells_own_vertices_leave_out_the_shared_edges() {
+        use fnv_world::land::SIDE;
+        let grid: Vec<f32> = (0..SIDE * SIDE).map(|i| i as f32).collect();
+        let own: Vec<f32> = own_vertices(&grid).collect();
+        assert_eq!(own.len(), (SIDE - 1) * (SIDE - 1));
+        assert_eq!((own[0], own[SIDE - 2], own[SIDE - 1]), (0.0, (SIDE - 2) as f32, SIDE as f32));
+        assert!(own.iter().all(|&v| (v as usize) % SIDE != SIDE - 1 && (v as usize) / SIDE != SIDE - 1));
+        assert_eq!(own_vertices(&grid[1..]).count(), 0);
+    }
+
+    /// Without world data (a test, the viewer) the ground is the camera's and nothing is read; no
+    /// camera yet, nothing is known. A worldspace read before gives its median whatever the camera,
+    /// and one read with no LAND heights the camera's.
+    #[test]
+    fn a_worldspace_read_before_keeps_its_ground() {
+        let mut work = CloudShadowWork::default();
+        assert_eq!(work.ground_now(Some(7), None, Some(5_000.0)), Some(5_120.0));
+        assert_eq!(work.ground_now(None, None, None), None);
+        assert!(work.ground_scan.is_none() && work.land.is_empty(), "nothing read without world data");
+        work.land.insert(7, Some(LandRelief { median: 9_000.0, min: 0.0, p99: 30_000.0, max: 40_000.0, cells: 1 }));
+        work.land.insert(8, None);
+        for camera in [Some(-3_000.0), Some(40_000.0), None] {
+            assert_eq!(work.ground_now(Some(7), None, camera), Some(9_216.0), "camera at {camera:?}");
+        }
+        assert_eq!(work.ground_now(Some(8), None, Some(40_000.0)), Some(39_936.0), "no land: the camera's");
+        assert_eq!(work.ground_now(Some(8), None, None), None);
     }
 
     #[test]

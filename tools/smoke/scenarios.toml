@@ -2842,7 +2842,7 @@ forbid = [
 
 [[scenario]]
 name = "volumetric-clouds"
-source = "[design, #2991] docs/design/graphics-enhanced.md §3.23 (a prototype), engine/nvforever/src/volumetric_clouds.rs, volumetric_clouds.wesl and volumetric_clouds_march.wesl: started with --graphics-only volumetric-clouds at Goodsprings at noon under a pinned weather with cloud textures (NVBlackMountainWeather), the producer of cloud_shadows.rs composes the weather's layers for the volume (Cloud shadows stays off: the sun visibility's cloud variant never turns on), the volume is drawn outdoors with a cover, and its material pipeline compiles and is ready, without a shader, pipeline or rendering error. The row's key alone is the level Normal (a third of the render size, the support probed at twice the spacing: docs/design/volumetric-medium.md, The levels). The look and the cost are checked in pictures and frame times by hand"
+source = "[design, #2991] docs/design/graphics-enhanced.md §3.23 (a prototype), engine/nvforever/src/volumetric_clouds.rs, volumetric_clouds.wesl and volumetric_clouds_march.wesl: started with --graphics-only volumetric-clouds at Goodsprings at noon under a pinned weather with cloud textures (NVBlackMountainWeather), the producer of cloud_shadows.rs composes the weather's layers for the volume (Cloud shadows stays off: the sun visibility's cloud variant never turns on), the volume is drawn outdoors with a cover, and its material pipeline compiles and is ready, without a shader, pipeline or rendering error. The plane's ground reference is the worldspace's LAND median, read once, not the camera's height at the start (#4727). The row's key alone is the level Normal (a third of the render size, the support probed at twice the spacing: docs/design/volumetric-medium.md, The levels). The look and the cost are checked in pictures and frame times by hand"
 areas = ["renderer", "graphics", "weather"]
 paths = ["engine/nvforever/src/volumetric_clouds*", "engine/nvforever/src/cloud_noise.rs", "engine/nvforever/src/cloud_shadows.rs", "engine/nvforever/src/medium*"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
@@ -2851,6 +2851,7 @@ run_seconds = 20
 expect = [
   { re = 'graphics: light glow, volumetric clouds$', label = "the switch is on from the start and the graphics line names it" },
   { text = "cloud shadows: layers", label = "the producer composed the weather's layers for the volume" },
+  { re = 'cloud shadows: ground reference -?\d+ from the worldspace.s land: median -?\d+ of \d+ cells, ', count = 1, label = "#4727: the plane stands over the worldspace's own ground, read once, not over where the game was loaded" },
   { re = 'volumetric clouds: on, slab -?\d+\.\.-?\d+ \(the cloud shadows. plane\), quality \d+ ', label = "the volume is drawn: outdoors, with the weather's cover" },
   { re = 'volumetric clouds: noise generated: base 128x128x128 R8 with 8 levels, erosion 32x32x32 RGBA8 with 6 levels, 2546541 bytes, \d+ workers, \d+ ms$', label = "#3032 stage 2b: the noise textures are generated once on the row's first activation (sizes, levels, bytes)" },
   { re = 'pipeline \d+ ready after \d+ ms: volumetric_clouds_pipeline', label = "volumetric_clouds.wesl and its march module compile: the pipeline is ready" },
@@ -2880,6 +2881,7 @@ forbid = [
   { text = "failed and will not be tried again", label = "a pipeline that failed for good with the volume on" },
   { text = "failed to process shader", label = "a shader that does not build (the volume's or its march module)" },
   { text = "sun visibility: cloud on", label = "the volume alone must not switch the cloud shadows' variant on" },
+  { text = "ground reference from the camera", label = "#4727: the Mojave has LAND heights, so the ground is never the camera's" },
 ]
 
 [[scenario]]
