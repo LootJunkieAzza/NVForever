@@ -894,20 +894,19 @@ pub fn compose_transmission(layers: &[ComposeLayer]) -> Vec<f32> {
             let r0 = &a[y0 * n..(y0 + 1) * n];
             let r1 = &a[y1 * n..(y1 + 1) * n];
             let dst = &mut t[y * n..(y + 1) * n];
-            for x in 0..first_len {
+            for (x, out_val) in dst[..first_len].iter_mut().enumerate() {
                 let c = ix + x;
                 let aw = f32::from(r0[c]) * w00 + f32::from(r0[c + 1]) * w01 + f32::from(r1[c]) * w10 + f32::from(r1[c + 1]) * w11;
-                dst[x] *= 1.0 - aw;
+                *out_val *= 1.0 - aw;
             }
             // Boundary texel wrapping c = n - 1 -> 0.
             {
                 let aw = f32::from(r0[n - 1]) * w00 + f32::from(r0[0]) * w01 + f32::from(r1[n - 1]) * w10 + f32::from(r1[0]) * w11;
                 dst[first_len] *= 1.0 - aw;
             }
-            for x in (first_len + 1)..n {
-                let c = x - first_len - 1;
+            for (c, out_val) in dst[(first_len + 1)..n].iter_mut().enumerate() {
                 let aw = f32::from(r0[c]) * w00 + f32::from(r0[c + 1]) * w01 + f32::from(r1[c]) * w10 + f32::from(r1[c + 1]) * w11;
-                dst[x] *= 1.0 - aw;
+                *out_val *= 1.0 - aw;
             }
         }
     }
@@ -1100,14 +1099,13 @@ fn sampled_alpha(l: &ComposeLayer) -> Option<Vec<f32>> {
         let row0 = &a[y0 * n..(y0 + 1) * n];
         let row1 = &a[y1 * n..(y1 + 1) * n];
         let dst = &mut out[y * n..(y + 1) * n];
-        for x in 0..first_len {
+        for (x, out_val) in dst[..first_len].iter_mut().enumerate() {
             let c = ix + x;
-            dst[x] = f32::from(row0[c]) * w00 + f32::from(row0[c + 1]) * w01 + f32::from(row1[c]) * w10 + f32::from(row1[c + 1]) * w11;
+            *out_val = f32::from(row0[c]) * w00 + f32::from(row0[c + 1]) * w01 + f32::from(row1[c]) * w10 + f32::from(row1[c + 1]) * w11;
         }
         dst[first_len] = f32::from(row0[n - 1]) * w00 + f32::from(row0[0]) * w01 + f32::from(row1[n - 1]) * w10 + f32::from(row1[0]) * w11;
-        for x in (first_len + 1)..n {
-            let c = x - first_len - 1;
-            dst[x] = f32::from(row0[c]) * w00 + f32::from(row0[c + 1]) * w01 + f32::from(row1[c]) * w10 + f32::from(row1[c + 1]) * w11;
+        for (c, out_val) in dst[(first_len + 1)..n].iter_mut().enumerate() {
+            *out_val = f32::from(row0[c]) * w00 + f32::from(row0[c + 1]) * w01 + f32::from(row1[c]) * w10 + f32::from(row1[c + 1]) * w11;
         }
     }
     Some(out)

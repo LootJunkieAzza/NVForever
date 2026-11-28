@@ -311,23 +311,20 @@ type Placed = (Or<(With<RefVisual>, With<crate::destroyed::StagedShape>)>, With<
 /// meshes that lack rare components (`StagedShape`, `NifBlendMaterial`, `BlendShape`,
 /// `RenderLayers`, `NotShadowReceiver`, `SkinnedMesh`, `PlayingMorph`, `MaterialOverride`)
 /// instead of evaluating a 13-branch `Or<...>` on every placed mesh every frame [design].
+type CommonMovedFilter = (
+    Placed,
+    Or<(
+        Added<RefVisual>,
+        Changed<Mesh3d>,
+        Changed<MeshMaterial3d<NifMaterial>>,
+        Changed<VisibilityRange>,
+        Changed<ChildOf>,
+    )>,
+);
+
 #[derive(SystemParam)]
 struct MovedQueries<'w, 's> {
-    common: Query<
-        'w,
-        's,
-        Entity,
-        (
-            Placed,
-            Or<(
-                Added<RefVisual>,
-                Changed<Mesh3d>,
-                Changed<MeshMaterial3d<NifMaterial>>,
-                Changed<VisibilityRange>,
-                Changed<ChildOf>,
-            )>,
-        ),
-    >,
+    common: Query<'w, 's, Entity, CommonMovedFilter>,
     staged: Query<'w, 's, Entity, (Placed, Added<crate::destroyed::StagedShape>)>,
     blend_mat: Query<'w, 's, Entity, (Placed, Changed<MeshMaterial3d<NifBlendMaterial>>)>,
     blend_shape: Query<'w, 's, Entity, (Placed, Changed<BlendShape>)>,
