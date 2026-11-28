@@ -945,6 +945,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.resurrect(a, false);
             if num(args, 0, 0.0) as i64 & 1 != 0 {
                 let _ = g.world.reset_inventory(a);
+                g.clear_npc_weapon_mods_roll(a);
+                g.maybe_apply_npc_weapon_mods(a);
             }
             one
         }

@@ -1497,3 +1497,58 @@ ignores the aids), `volumetric-light-row` (the row alone, without the shadows' r
 `volumetric-light-clouds` (with the clouds and their shadows), `volumetric-light-solid-cores`, and with
 `NVF_SMOKE_DEV_AIDS` set (an exe built with the feature) `-aid` (the light by its aid, the row off), `-picture` (the picture with and
 without it, measured), `-solid-cores-tank` and `-solid-cores-blend`.
+
+## Wind-blown dust: the rules (#3032 stage 4)
+
+[design] An addition of NVForever's own, an engineering choice for the enhanced look: not a fact
+about the original, never a parity item, and never to be used to explain a difference from its
+frames. **Only the rules are built** (`engine/nvforever/src/wind_dust.rs`, pure functions and a
+small state with unit tests): nothing is drawn, no system runs them, there is no row, aid or log
+line. The grid, the light on it and the row are later changes. Every number below is a start value
+[design] until stills with the drawing judge it.
+
+**What it follows: weather values alone.** No form IDs, editor IDs or file names decide anything, so a
+mod's weather gets what its own values say. A number that is not finite counts as 0 (none), but a
+wind direction that is not leaves the dust the velocity it had.
+
+- **How much.** The weather's wind speed byte, blended through a weather fade as the trees' wind
+  is, through straight lines: 0 up to byte 20, 1 at 50, 3 at 127, 3 above. Nearly every master
+  weather stores 50, HVDustStorm 127, NVHooverFinalBattle 130 [observed: the records,
+  `fnv_world::sky::Weather::wind_speed`]. So an ordinary day is 1 and strong wind 3: in a throwaway
+  prototype's stills 1 was barely seen, 3 clearly dust and 8 heavy [observed: NVForever's own
+  frames, 2026-11-25].
+- **None while drops fall.** A weather with the Rainy flag, the class Rainy or Snow (DATA
+  [documented: xEdit; GECK wiki GetWeatherTraitNumeric]) or a precipitation model has no dust. Through a
+  fade the dry share is a product of linear ramps of the fade's progress, by weather_fx.rs's own rule on
+  the fade bytes [hypothesis there]: the blend of the two weathers' shares; into a model, from 1 at
+  the fade's start to 0 where its precipitation begins; out of one, from 0 where it stops to 1 at the
+  fade's end. With a model on one side the product is a curve, not a straight line. A wet weather shown
+  with no fade left (ForceWeather) has none at once.
+- **Until the last drop.** None either while a precipitation model is placed or any drop of
+  precipitation is alive: one flag and one count from the caller, no timers. **Required of the next
+  slice:** tag in particles.rs every birth that comes from a weather's precipitation (the model's own
+  systems and its add-on nodes, whichever model gave it, also after it is taken down) and expose how
+  many tagged ones are alive after the simulation. A caller without the count passes 0 and no model, and
+  gets the weather's own rule only.
+- **No jump back.** The amount rises by at most 0.1 a second, whatever moved its target: the end of
+  rain, its last drop, a forced weather, a turned-round fade, a hitch (for the amount a frame counts
+  as 0.25 s at most). Ordinary dust is back ten seconds after the rain, a strong wind's after thirty. The wind's strength
+  glides at the same rate both ways; the amount falls by at most 3 a second except where drops cut
+  it to 0 at once. In an interior it is 0 and the rules go on with the weather outside, so a door
+  is no way round the glide. Only a load or a new game (`WindDust::arrive`) shows its target in the
+  first frame; a door, a cell change or a trip must not call it.
+- **Where it goes.** The trees' direction (fixed, or a script's SetWindDirection [documented: GECK wiki
+  SetWindDirection]) at 600 units a second for byte 255 (118 at 50); the velocity follows the wind's
+  with a time constant of two seconds, and the place is its exact integral in f64 (the closed form, over
+  the whole frame however long), so a turn, a cut or a stop changes the way from then on and never the
+  place, and the frame rate changes neither for a wind held through the frame (one that changes within it, as in a weather fade, is
+  taken once a frame). It wraps after 96,000 units, 48 cells of 2,000 and 160 of
+  600. **Required of the next slice:** its shader must hash both octaves' lattices periodically (every
+  48 and every 160 cells on each axis); only then is the wrap seamless.
+- **Colour.** The fog colour now, tinted by the hue of the light on it (ambient plus sunlight
+  over their luminance, 0 to 2 per channel), never a colour of ours. Under a black fog it is black.
+
+**What it does not cover.** Honest Hearts' rain is drawn by a script's activators while IsRaining
+(docs/spec-notes/world.md §6): the weather's Rainy flag cuts the dust there; those activators'
+drops are not counted. A fade redirected away from a wet weather that has no model may lower the
+amount within a second with no rain to see.

@@ -159,18 +159,22 @@ pub const NVF_FEATURES_KEYS: [&str; 16] = [
 pub const SECTIONS: &[Section] = &[
     // #2688's sound cover with the game's own rules (a bigger gameplay change: NVF Features is the
     // owner's call, recommended to them, not moved there).
-    section("Gameplay", Some("Game"), &["difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover"]),
+    section("Gameplay", Some("Game"), &["difficulty", "difficulty-player-damage", "difficulty-npc-damage", "difficulty-kill-xp", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "npc-weapon-mods", "sneak-bounding-box"]),
     // "V.A.T.S." as the data spells it (MESG `HelpVATS`).
     section("Gameplay", Some("V.A.T.S."), &["vats-style", "vats-slowdown", "kill-camera"]),
     section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-lower", "gore-shake", "field-of-view", "viewmodel-field-of-view"]),
     section("Gameplay", Some("Dialogue"), &["dialogue-zoom", "dialogue-look", "dialogue-recentre", "menu-pause", "dialogue-goodbye-hint", "lip-sync"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
+    section("Gameplay", Some("Combat"), &["localized-dt-dr"]),
+    section("Gameplay", Some("Menus"), &["quantity-select-short-keys"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
+    // Co-op, and its networking (docs/design/coop-networking.md §10).
+    section("Gameplay", Some("Co-op"), &["coop", "coop-connection", "coop-router-port", "coop-relay", "coop-ask"]),
     section("Display", Some("Screen"), &["monitor", "resolution", "hdr-output", "borderless"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
     section("Display", Some("Upscaling and Anti-Aliasing"), &["upscaler", "upscaler-quality", "dlss-model", "fsr-library", "anti-aliasing", "sharpen"]),
     section("Display", Some("Frame Generation and Latency"), &["frame-generation", "frame-generation-frames", "latency-reduction"]),
-    section("Display", Some("Interface"), &["language", "menu-font", "sneak-gauges", "dynamic-crosshair", "crosshair-style", "ui-scale", "menu-scale"]),
+    section("Display", Some("Interface"), &["language", "menu-font", "sneak-gauges", "caravan-tips", "dynamic-crosshair", "crosshair-style", "location-load-screens", "ui-scale", "menu-scale"]),
     section("Display", Some("Colours"), &["hud-colour", "hud-red", "hud-green", "hud-blue", "pipboy-colour", "pipboy-red", "pipboy-green", "pipboy-blue"]),
     section(
         "Display",
@@ -215,7 +219,7 @@ pub const SECTIONS: &[Section] = &[
     section(
         "Controls",
         Some("Actions"),
-        &["controls:bind:Activate", "controls:bind:Grab", "controls:bind:Menu Mode", "controls:bind:Rest", "controls:bind:Toggle POV", "controls:bind:QuickSave", "controls:bind:QuickLoad"],
+        &["controls:bind:Activate", "controls:bind:Grab", "controls:bind:Menu Mode", "controls:bind:Rest", "controls:bind:Toggle POV", "controls:bind:QuickSave", "controls:bind:QuickLoad", "controls:bind:Photo Mode"],
     ),
     section(
         "Controls",
@@ -264,7 +268,7 @@ pub const SECTIONS: &[Section] = &[
     // Shadow resolution sizes the flashlight's maps too, so it needs no Sun shadows (no NEEDS
     // line) (#2843).
     section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows", "terrain-shadows", "light-shadows"]),
-    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "volumetric-clouds", "light-shafts", "heat-haze", "desert-haze", "volumetric-light", "volumetric-light-strength", "aerial-perspective", "night-sky-detail", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
+    section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "volumetric-clouds", "light-shafts", "heat-haze", "desert-haze", "volumetric-light", "volumetric-light-strength", "aerial-perspective", "night-sky-detail", "physical-pbr", "tonemap-preset", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
     section("Graphics", Some("Water"), &["water-reflections", "water-mirror", "water-effects"]),
     section("Graphics", Some("Detail and Distance"), &["distant-lod", "full-detail", "distant-objects", "grass", "anisotropic", "authored-materials", "authored-reflections", "terrain-height-blend", "terrain-anti-tiling", "terrain-parallax", "mesh-terrain-blend", "occlusion-culling", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance", "tree-distance", "distant-lights"]),
     section("Graphics", Some("World and Animation"), &["head-tracking", "foot-ik", "sky-clock"]),
@@ -501,6 +505,7 @@ pub const SECTIONS: &[Section] = &[
             "tweak-repair-at-workbench",
             "tweak-modding-needs-skill",
             "tweak-barter-repair-discount",
+            "tweak-crafted-item-health-pct",
             "tweak-repair-xp",
             "tweak-free-item-price",
         ],
@@ -888,7 +893,7 @@ pub const SECTIONS: &[Section] = &[
     group_section(
         "Menus",
         "Keys and Mouse",
-        &["tweak-key-repeat-accel", "tweak-key-repeat-delay", "tweak-key-repeat-mult", "tweak-key-repeat-delay-alt", "tweak-key-repeat-mult-alt", "tweak-horizontal-look"],
+        &["tweak-key-repeat-accel", "tweak-key-repeat-delay", "tweak-key-repeat-mult", "tweak-key-repeat-delay-alt", "tweak-key-repeat-mult-alt", "tweak-wasd-as-arrow-keys", "tweak-horizontal-look"],
     ),
     // Tweaks > Hotkeys.
     group_section("Hotkeys", "Hide HUD Key", &["tweak-hide-hud-ammo", "tweak-hide-hud-needs", "tweak-hide-hud-compass", "tweak-hide-hud-on-load", "tweak-hide-hud-sneak"]),
@@ -1132,10 +1137,13 @@ pub const NEEDS_CHOICE: &[(&str, &str, &[&str], &str)] = &[
     ("dialogue-background-tint-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
     ("dialogue-frame-opacity-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
     ("dialogue-hints-v1", "dialogue-theme-v1", &["Field Notes"], "Available with the Field Notes theme."),
+    ("coop-router-port", "coop-connection", &["Automatic", "Direct only"], "Not with LAN only."),
+    ("coop-relay", "coop-connection", &["Automatic", "Direct only"], "Not with LAN only."),
 ];
 
 /// What a row needs of another row to apply: `parent` on (a switch on, a list past its first
-/// choice) when `choices` is empty, else `parent` on one of `choices` (by name). `why` is
+/// choice) when `choices` is empty, else `parent` on one of `choices` (by name; a switch's
+/// choices are "On" and "Off"). `why` is
 /// what the page says while it does not hold (English; the game shows it translated).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rule {

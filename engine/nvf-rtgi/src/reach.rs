@@ -3,7 +3,7 @@
 
 use crate::failed::{unavailable, Cancel, Failed, Reason};
 use crate::gather::Probe;
-use crate::grid::{point, Coverage, Grid, Place, Work};
+use crate::grid::{point, Classify, Coverage, Grid, Place, Work};
 use crate::light::{LightState, Lights};
 use crate::trace::{PreparedScene, MOST_THREADS};
 use crate::vec3::V3;
@@ -66,6 +66,12 @@ impl GatherConfig {
 
     /// The light as the rays ask for it. What may not be is refused before its table is made.
     pub(crate) fn lights<'a>(&self, light: &'a LightState, seeds: &[V3], cancel: Cancel) -> Result<Lights<'a>, Failed> {
+        self.admit(seeds)?;
+        Lights::new(light, cancel)
+    }
+
+    /// What the config and the seeds may not be, before anything is made.
+    fn admit(&self, seeds: &[V3]) -> Result<(), Failed> {
         self.check()?;
         let GatherLimits { points, seeds: most } = self.limits;
         if seeds.is_empty() {
@@ -77,14 +83,19 @@ impl GatherConfig {
         if points == 0 {
             return unavailable(Reason::TooManyPoints { limit: 0 });
         }
-        Lights::new(light, cancel)
+        Ok(())
     }
 
     /// The grid after its flood, and what is reached: one point at least. The config is one that gave the lights.
     pub(crate) fn flood<'a>(&self, world: &'a PreparedScene, lights: &'a Lights<'a>, seeds: &[V3], cancel: Cancel<'a>) -> Result<(Grid<'a>, BTreeSet<Place>, Coverage), Failed> {
+        self.flood_by(world, lights, seeds, None, cancel)
+    }
+
+    /// [`GatherConfig::flood`]; with `by`, its points made by what that says ([`Grid::flood_by`]).
+    fn flood_by<'a>(&self, world: &'a PreparedScene, lights: &'a Lights<'a>, seeds: &[V3], by: Option<&mut Classify>, cancel: Cancel<'a>) -> Result<(Grid<'a>, BTreeSet<Place>, Coverage), Failed> {
         let GatherConfig { spacing: space, rays, emission, limits, threads } = *self;
         let mut grid = Grid::new(Work { world, lights, emission, rays, space, threads, limit: limits.points, cancel });
-        let (reached, coverage) = grid.flood(seeds)?;
+        let (reached, coverage) = grid.flood_by(seeds, by)?;
         if reached.is_empty() {
             return unavailable(Reason::NothingReached { seeds: seeds.len() });
         }
@@ -117,6 +128,35 @@ impl Reached {
     }
 }
 
+/// The points that the seeds reach, their validity told by another ([`crate::reach_by`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReachedBy {
+    pub spacing: f32,
+    pub reached: BTreeSet<Place>,
+    pub coverage: Coverage,
+    /// Places that were classified, reached or not, and the classifier's calls: one each time the flood asks for
+    /// more (the seeds' points, the far seeds' and each wave of the flood), none for nothing new.
+    pub classified: usize,
+    pub calls: usize,
+}
+
+impl ReachedBy {
+    pub(crate) fn of(scene: &PreparedScene, seeds: &[V3], config: &GatherConfig, classify: &mut Classify, cancel: Cancel) -> Result<ReachedBy, Failed> {
+        config.admit(seeds)?;
+        // Nothing is lit: the table of no lamps.
+        let dark = LightState::default();
+        let lights = Lights::new(&dark, cancel)?;
+        let mut calls = 0;
+        let mut counted = |places: &[Place], points: &[V3]| {
+            calls += 1;
+            classify(places, points)
+        };
+        let (grid, reached, coverage) = config.flood_by(scene, &lights, seeds, Some(&mut counted), cancel)?;
+        let classified = grid.made().count();
+        Ok(ReachedBy { spacing: config.spacing, reached, coverage, classified, calls })
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -124,8 +164,9 @@ pub mod tests {
     use crate::gather::tests::{lamp, plain, rectangle, sides, state, traced_again, Part, AMBIENT};
     use crate::light::tests::lights_of;
     use crate::light::{Cone, Directional, Lamp};
-    use crate::reach;
     use crate::scene::{Cull, Material, SceneInput, Wrap};
+    use crate::solve::{Seeds, SolveConfig};
+    use crate::{classified, reach, reach_by, solve};
     use crate::texture::tests::rgba;
     use crate::trace::tests::{prepared, scene};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -255,6 +296,91 @@ pub mod tests {
         assert_eq!(why(&prepared(SceneInput::default(), 4), &light(), &[left()], &config()), Reason::NothingReached { seeds: 1 });
         let said = [Reason::NoSeeds, Reason::NothingReached { seeds: 7 }, Reason::TooManyPoints { limit: 8 }].map(|r| r.to_string());
         assert_eq!(said, ["no seeds", "no point of the grid is reached from 7 seeds", "more than 8 points"]);
+    }
+
+    /// With the CPU's own counts a reach by them is `reach()`'s and `solve()`'s, of the same coverage and within the same
+    /// limit of points, which stops it one point short as it stops them.
+    #[test]
+    fn reached_by_counts() {
+        let rays = directions(512);
+        let seeds = [left(), right(), V3::new(-300.0, 60.0, 60.0)];
+        for (input, light) in [(scene(walled(), Vec::new()), light()), furnished()] {
+            let world = prepared(input, 2);
+            let config = GatherConfig { emission: 0.25, ..config() };
+            let mut asked = Vec::new();
+            let mut classify = |places: &[Place], points: &[V3]| {
+                assert!(places.iter().zip(points).all(|(at, p)| *p == point(*at, config.spacing)));
+                asked.extend_from_slice(places);
+                classified(&world, points, &rays, 3, NEVER)
+            };
+            let by = reach_by(&world, &seeds, &config, &mut classify, NEVER).unwrap();
+            let lit = reach(&world, &light, &seeds, &config, NEVER).unwrap();
+            assert!(by.reached.iter().eq(lit.points.keys()) && by.coverage == lit.coverage && by.spacing == lit.spacing, "{by:?}");
+            assert!(by.classified == lit.gathered && by.classified == asked.len() && by.calls >= 3, "{by:?}");
+            let solved = solve(&world, &light, &Seeds::at(seeds.to_vec()), &SolveConfig { gather: config, ..SolveConfig::default() }, NEVER).unwrap();
+            assert_eq!(solved.counts.reached, by.reached.len());
+            let limited = GatherConfig { limits: GatherLimits { points: by.classified - 1, ..config.limits }, ..config };
+            let mut classify = |_: &[Place], points: &[V3]| classified(&world, points, &rays, 2, NEVER);
+            let short = Err(Failed::Unavailable(Reason::TooManyPoints { limit: by.classified - 1 }));
+            assert_eq!(reach_by(&world, &seeds, &limited, &mut classify, NEVER), short);
+            assert_eq!(reach(&world, &light, &seeds, &limited, NEVER).map(|_| ()), short.map(|_: ReachedBy| ()));
+        }
+    }
+
+    /// What `reach()` refuses for its config and seeds, in the same order; a classifier's wrong answers, failures and
+    /// panics; cancelling.
+    #[test]
+    fn reached_by_refuses() {
+        let world = prepared(scene(walled(), Vec::new()), 1);
+        let rays = directions(512);
+        let by = |seeds: &[V3], config: &GatherConfig, cancel: Cancel| {
+            let mut counts = |_: &[Place], points: &[V3]| classified(&world, points, &rays, 1, NEVER);
+            reach_by(&world, seeds, config, &mut counts, cancel).map(|r| r.reached.len())
+        };
+        let lit = |seeds: &[V3], config: &GatherConfig, cancel: Cancel| reach(&world, &light(), seeds, config, cancel).map(|r| r.points.len());
+        let limits = |points, seeds| GatherConfig { limits: GatherLimits { points, seeds }, ..config() };
+        let mut cases = vec![(vec![left()], limits(20, 1)), (vec![left()], limits(111, 1)), (vec![left()], limits(112, 1))];
+        cases.extend([0.0, -1.0, f32::from_bits(1), 9.9e-4, 1.1e6, f32::NAN, f32::INFINITY].map(|spacing| (vec![left()], GatherConfig { spacing, ..config() })));
+        cases.extend([-1.0, 1.001, f32::MAX, f32::NAN].map(|emission| (vec![left()], GatherConfig { emission, ..config() })));
+        for n in [0, MOST_RAYS + 1, usize::MAX] {
+            cases.extend([GatherConfig { rays: n, ..config() }, GatherConfig { threads: n, ..config() }].map(|c| (vec![left()], c)));
+        }
+        cases.extend([(vec![left(), left(), V3([f32::NAN; 3])], limits(1000, 2)), (vec![], config()), (vec![V3::new(0.0, f32::NAN, 0.0)], config())]);
+        cases.extend([(vec![left()], GatherConfig { spacing: f32::NAN, rays: 0, ..limits(0, 0) }), (vec![], limits(0, 1))]);
+        for (seeds, config) in &cases {
+            assert_eq!(by(seeds, config, NEVER), lit(seeds, config, NEVER), "{seeds:?} {config:?}");
+        }
+        assert_eq!(by(&[left()], &limits(112, 1), NEVER), Ok(112));
+        for config in [limits(0, 1), limits(20, 0)] {
+            assert!(matches!(by(&[left()], &config, &|| true), Err(Failed::Unavailable(_))), "before the cancel");
+        }
+        assert_eq!(by(&[left()], &config(), &|| true), Err(Failed::Cancelled));
+        // What a classifier says.
+        let told = |answer: &dyn Fn(usize) -> Result<Vec<[u32; 2]>, Failed>| {
+            let mut classify = |places: &[Place], _: &[V3]| answer(places.len());
+            reach_by(&world, &[left()], &GatherConfig { rays: 64, ..config() }, &mut classify, NEVER).map(|r| r.reached.len())
+        };
+        assert_eq!(told(&|n| Ok(vec![[64, 16]; n])), Ok(112), "a quarter hidden is valid");
+        assert_eq!(told(&|n| Ok(vec![[64, 64]; n])), Err(Failed::Unavailable(Reason::NothingReached { seeds: 1 })));
+        for wrong in [[65, 0], [3, 4]] {
+            assert_eq!(told(&|n| Ok(vec![wrong; n])), Err(Failed::Internal), "{wrong:?}");
+        }
+        assert_eq!(told(&|n| Ok(vec![[64, 0]; n + 1])), Err(Failed::Internal));
+        assert_eq!(told(&|_| Err(Failed::Cancelled)), Err(Failed::Cancelled));
+        assert_eq!(told(&|_| unavailable(Reason::Input("classifier"))), Err(Failed::Unavailable(Reason::Input("classifier"))));
+        assert_eq!(told(&|_| panic!("expected here")), Err(Failed::Internal));
+        // Cancelled before a call, between the pieces of the work, and not after its end.
+        let asked = AtomicUsize::new(0);
+        let until = |n: usize| {
+            asked.store(0, Ordering::Relaxed);
+            by(&[left()], &config(), &|| asked.fetch_add(1, Ordering::Relaxed) >= n)
+        };
+        assert_eq!(until(usize::MAX), Ok(112));
+        let times = asked.load(Ordering::Relaxed);
+        for n in [0, 1, times / 2, times - 1] {
+            assert_eq!(until(n), Err(Failed::Cancelled), "{n}");
+        }
+        assert_eq!(until(times), Ok(112));
     }
 
     /// A panic of the caller's check is a failure, not the caller's end, on the threads of the work too.

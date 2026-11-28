@@ -48,11 +48,14 @@ menu: scripts see it as open until the player leaves it.
   brackets after it when more than one is made ("Antivenom (2)"). NVForever's campfire
   list starts "Antivenom (2), Atomic Cocktail (4), Battle Brew, Bighorner Steak, Black
   Blood Sausage, Black Coffee", the same as the original's [observed, smoke `crafting`].
-- The arrows beside "RECIPES" filter the list by subcategory [hypothesis].
-- For the chosen recipe, at the right: "Made at ..." with its category's name; "Skill
-  Requirement" as "<skill> (<player's value>/<level>)"; "Ingredients" as
-  "<name> (<have>/<need>)".
-- Under the list: the first output's WG and VAL.
+- The arrows beside the list's title filter the list by subcategory [hypothesis].
+- For the chosen recipe, at the right: where it is made, with its category's name; the
+  skill as "<skill> (<player's value>/<level>)"; the ingredients as
+  "<name> (<have>/<need>)". NVForever's hand-built page writes the titles the file's
+  settings give (`sRecipes` in capitals, `sMadeAt`, `sSkillRequirement`, `sIngredients`),
+  as the tile page does [design, #4495: in place of the words read from the screen].
+- Under the list: the first output's WG and VAL. NVForever's cards read the settings
+  `sInventoryWeightUpper` and `sInventoryValue`, as the Pip-Boy's do [design, #4495].
 - Accept A) and Exit X).
 - **The shade** (2026-10-19) [observed: the owner's screenshot at 1920 x 1080,
   C:\fnv-private\references\crafting_repair\recipes.jpg; documented: `RM_Background`,

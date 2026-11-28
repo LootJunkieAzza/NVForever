@@ -275,12 +275,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             XVal::Num(((p[3] - p[0]).powi(2) + (p[4] - p[1]).powi(2) + (p[5] - p[2]).powi(2)).sqrt())
         }
         // Load-order override queries backed by `GameData::form_overrides`
-        // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden;
+        // [documented: GECK wiki GetFormOverrideIndex, IsFormOverridden ("overridden by a
+        // plugin lower in the load order than the calling script");
         // observed: plugins1, non-overridden Stimpak returns 0 and 0;
         // observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528,
-        // clean-room script probe jg_01_form_override_index_edge: overridden pistol=5,
-        // null=0, TempCloneForm=255, IsFormOverridden(clone)=0; no DLL or source consulted].
-        "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden(f))),
+        // clean-room script probe jg_01_form_override_index_edge (runtime CompileScript
+        // caller): overridden pistol GetFormOverrideIndex=5, null=0, TempCloneForm=255,
+        // IsFormOverridden(pistol)=0, IsFormOverridden(clone)=0; no DLL or source consulted].
+        "isformoverridden" => yes(form(args, 0).or(subject).is_some_and(|f| g.data.is_form_overridden_after(f, &g.other.plugin))),
         "getformoverrideindex" => {
             let Some(f) = form(args, 0).or(subject) else { return Some(Ok(XVal::Num(0.0))) };
             let idx = if let Some(i) = g.data.form_override_index(f) {
@@ -460,9 +462,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // `armor modelID(1-4) index3D`, success(0/1) [documented: ClearArmorAltTexture].
         // NVForever keeps no alternate textures on armour models [hypothesis], so there is
-        // nothing at any index to clear (0), while clearing them all (-1) succeeds
-        // [observed: plugin-odds, armour 00020423 model 1: index -1 gave 1, index 0 gave
-        // 0]; no form or a model ID outside 1-4 gives 0 [hypothesis].
+        // nothing at any index to clear (0), while clearing them all (-1) succeeds on
+        // modelID 1..=4 and fails (0) on modelID 0 or 5 or index 0 or 99 [observed:
+        // plugin-odds, armour 00020423 model 1: index -1 gave 1, index 0 gave 0; observed
+        // 2026-11-24: `w6t2_30_jg5_get_weapons_for_mod_and_armor_alt_tex`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `clr(1m1=1,10=0,4m1=1,0m1=0,5m1=0,199=0)`; zero DLL, PDB, or third-party source
+        // consulted]; no form gives 0 [hypothesis].
         "cleararmoralttexture" => {
             yes(form(args, 0).is_some() && (1.0..=4.0).contains(&num(args, 1, 0.0)) && num(args, 2, 0.0) == -1.0)
         }
@@ -470,7 +476,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setjohnnyonstartquesteventhandler" | "setjohnnyonstopquesteventhandler" => {
             let start = name == "setjohnnyonstartquesteventhandler";
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let quest = form(args, 3);
+            let quest = form(args, 3).filter(|&id| id != FormId(0x0000_003B));
             g.gaps.quest_handlers.retain(|(s, h, q)| !(*s == start && *h == f && *q == quest));
             if num(args, 0, 1.0) != 0.0 {
                 g.gaps.quest_handlers.push((start, f, quest));
@@ -620,10 +626,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.player.xp += num(args, 0, 0.0).trunc();
             zero
         }
-        // `set|remove function flag [code]` [documented: SetOnActorValueChangeEventHandler].
+        // `set|remove function flag [code]` [documented: SetOnActorValueChangeEventHandler;
+        // observed 2026-11-24: -1 is a wildcard like omitted].
         "setonactorvaluechangeeventhandler" => {
             let Some(f) = args.get(1).cloned() else { return Some(Ok(zero)) };
-            let code = args.get(3).and_then(|v| v.num().ok()).map(|c| c as u16);
+            let code = args.get(3).and_then(|v| v.num().ok()).filter(|&c| c >= 0.0).map(|c| c as u16);
             let exact = (num(args, 2, 0.0) as i64) & 1 != 0;
             g.gaps.av_handlers.retain(|(h, c, _)| !(*h == f && *c == code));
             if num(args, 0, 1.0) != 0.0 {

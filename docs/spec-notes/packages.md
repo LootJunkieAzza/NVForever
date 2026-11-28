@@ -1386,6 +1386,36 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   (`Game::end_timed_packages`), which a GameHour write does not move, and a held package
   (Must Complete, Must Reach Location until its goal) stays through the new choice. So the
   Goodsprings night stalkers of #2279 are not obviously fixed by this.
+- **Follow-up: Goodsprings night stalkers at 08:00 (issue #3041)** [observed: `fnvtool ai show`, `script decompile`, FalloutNV.esm]:
+  `VERStalkersSouth01` (`0x001617A2`, script `0x001616E8`, Start game enabled) moves 18
+  night stalkers from `VStalkerSouthRestMarker` (`0x001690EA`, a closed holding interior
+  cell with no doors) to exterior markers at 23:00 (`StalkersOn = 1`, `quest_delay = 18`).
+  Their night packages (`VSpecialIvanpahStalkerHuntersRaidMWF3`,
+  `VSpecialWBStalkerHuntersRaidMWF3`/`MWF4`/`MWF5`, scheduled 23:00–03:00, and
+  `ReturnMWF`, 03:00–08:00) all require `VERStalkersSouth01.StalkersOn == 1` and carry
+  `Must Reach Location`. When `VCG01` stage 200 sets `GameHour` to 8, none of the stalkers'
+  packages is in schedule, and up to 18 s later `VERStalkersSouth01`'s day branch moves
+  each stalker back to `VStalkerSouthRestMarker` (`MoveToMarkerWithFade`, one per 0.1 s)
+  and 1.8 s later sets `StalkersOn = 0` without calling `EvaluatePackage`. Three gaps kept
+  the 23:00–01:00 raid packages running from the holding cell on later Low-process updates
+  (`FAR_PROCESS_SECONDS = 120 s`):
+  1. `Game::select_package` kept the current list package when `check_package` returned
+     anything other than `ConditionsFail`; because `check_package` tests the schedule
+     first, a package that was both out of schedule (08:00) and failing its conditions
+     (`StalkersOn == 0`) returned `OutOfSchedule` and was kept [design: keep the existing
+     check and also evaluate the current package's own conditions directly. A package
+     ruled out by its schedule or a target problem stays current only while its own
+     conditions pass].
+  2. `Game::package_held` still held an unfinished `Must Complete` / `Must Reach Location`
+     package after a script relocated the actor (`MoveTo` / `MoveToMarkerWithFade`)
+     [design: `RefExtra::package_relocated` releases that hold once relocated; if the
+     package is still valid at the new spot, the choice keeps it unchanged].
+  3. `Ai::low_update` walked without first running `Game::update_package`, and
+     `Ai::relocate` left a Low-process actor's `owed` timer un-clamped so a far update
+     could fire during the 1.8 s `MoveTo` loop before `StalkersOn` was cleared [design:
+     `low_update` updates the package first when `runs_packages()` is true, and `relocate`
+     caps a non-`Coming` low-process actor's owed time to keep at least
+     `SCRIPT_MOVE_HOLD` (10 s) before its next far walk].
 
 ## 10. A Find package for the player: Cachino in Gomorrah (issue #2473)
 

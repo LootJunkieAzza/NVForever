@@ -168,6 +168,8 @@ const COVERAGE_SHADER: Handle<Shader> = uuid_handle!("5a1f8e3c-0d72-4b96-8c4e-e1
 
 /// first_person_depth.wesl.
 const FIRST_PERSON_DEPTH_SHADER: Handle<Shader> = uuid_handle!("9e4a7c12-58d3-4f6b-a0e1-2c7b5d8f3a64");
+/// tone_input.wesl: the tonemapper's input, shared with nvforever's sky and clouds.
+const TONE_INPUT_SHADER: Handle<Shader> = uuid_handle!("3c8f1e5a-7b2d-4a96-9e04-d61b8a2f5c37");
 
 /// Make a depth-only prepass pipeline of a crossfading mesh dither as the main pass does
 /// (module docs). Call from `MaterialExtension::specialize` of materials whose meshes
@@ -437,6 +439,67 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
     }
 }
 
+fn push_canopy_def(descriptor: &mut RenderPipelineDescriptor, name: &'static str) {
+    let def = ShaderDefVal::from(name);
+    if !descriptor.vertex.shader_defs.contains(&def) {
+        descriptor.vertex.shader_defs.push(def.clone());
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        if !fragment.shader_defs.contains(&def) {
+            fragment.shader_defs.push(def);
+        }
+    }
+}
+
+/// Canopy shading (part 3b of #3828's split, graphics-enhanced.md §3.25) on the game's own
+/// foliage materials (grass, SpeedTree leaf cards and billboards) outside prepass pipelines:
+/// `NVF_CANOPY` and `NVF_PHYSICAL_PBR`, under Physical lighting only.
+pub fn enable_foliage_canopy(descriptor: &mut RenderPipelineDescriptor) {
+    if descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) || !crate::authored::physical_pbr() {
+        return;
+    }
+    push_canopy_def(descriptor, "NVF_CANOPY");
+    push_canopy_def(descriptor, "NVF_PHYSICAL_PBR");
+}
+
+/// The shader def under which the lighting takes the bounce light of a probe volume
+/// (nvforever rtgi_volume.rs, #3009). Nothing in bevy_pbr pushes it: a NIF surface's pipeline
+/// takes it by [`reads_rtgi_volume`].
+pub const RTGI_VOLUME_DEF: &str = "NVF_RTGI_VOLUME";
+
+/// Whether the main-pass pipeline of a NIF surface reads the probe volume of a view that has
+/// one ([`MeshPipelineKey::NVF_RTGI_VOLUME`]): every opaque or alpha-tested shape of the world,
+/// solid decals and actors among them. Told by the material and the blend bits, not by the
+/// depth write, which the prepass coverage changes ([`prepass_coverage`]). Not blended, added
+/// or multiplied shapes (a cut-out drawn blended, [`NifSurface::depth_write`], among them),
+/// refracting ones, the first-person arms, weapon and Pip-Boy, or the landscape. Unlit shapes
+/// are in no lighting.
+pub fn reads_rtgi_volume(surface: &NifSurfaceKey, mesh_key: MeshPipelineKey) -> bool {
+    let blend = mesh_key.intersection(MeshPipelineKey::BLEND_RESERVED_BITS);
+    mesh_key.contains(MeshPipelineKey::NVF_RTGI_VOLUME)
+        && (blend == MeshPipelineKey::BLEND_OPAQUE || blend == MeshPipelineKey::BLEND_ALPHA_TO_COVERAGE)
+        && !(surface.refract || surface.first_person || surface.pipboy_screen || surface.add_linear || surface.depth_write || surface.terrain_layer)
+}
+
+/// Give a pipeline [`RTGI_VOLUME_DEF`] where [`reads_rtgi_volume`]; never in a prepass or a
+/// shadow pass.
+fn rtgi_volume_opt_in(descriptor: &mut RenderPipelineDescriptor, surface: &NifSurfaceKey, mesh_key: MeshPipelineKey) {
+    if !reads_rtgi_volume(surface, mesh_key) || descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        return;
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.push(RTGI_VOLUME_DEF.into());
+    }
+}
+
+/// Take [`RTGI_VOLUME_DEF`] from a pipeline again (the mesh terrain blend's, whose surface is
+/// partly the landscape's: nif_surface_blend.rs).
+pub(crate) fn rtgi_volume_opt_out(descriptor: &mut RenderPipelineDescriptor) {
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.retain(|d| *d != ShaderDefVal::from(RTGI_VOLUME_DEF));
+    }
+}
+
 /// The extension part: the falloff parameters, the alpha cut, the decal switch and the
 /// fragment shader.
 ///
@@ -590,8 +653,8 @@ pub struct NifSurface {
     /// How the environment map is read (`env_map::env_uniforms`): x the cube orientation
     /// (`env_map::Axes`, 0 #2669's lookup), y 1 when the reflection is scaled by the light
     /// the fragment receives (a debug switch's stand-in), 2 by the scene light, z 1 for a
-    /// window shape (the Window_Environment_Mapping flag), w 1 on every shape with an
-    /// environment map (a premultiplied one is premultiplied by it even where the
+    /// window shape (the Window_Environment_Mapping flag), w 1 on a shape with an
+    /// environment map read at the shading normal, 2 at the vertex normal (`env_map::EnvNormal`; a premultiplied one is premultiplied by it even where the
     /// reflection has faded out). All zero without an environment map.
     pub env_how: Vec4,
     /// The environment cube (texture-set slot 4), loaded as a cube map
@@ -873,6 +936,7 @@ impl MaterialExtension for NifSurface {
         } else if key.bind_group_data.terrain_layer {
             ambient_occlusion_opt_in(descriptor, key.mesh_key);
         }
+        rtgi_volume_opt_in(descriptor, &key.bind_group_data, key.mesh_key);
         if key.bind_group_data.refract {
             refraction_pipeline(descriptor);
         } else if key.bind_group_data.depth_write && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
@@ -900,10 +964,13 @@ impl MaterialExtension for NifSurface {
         let metallic_def: &[&str] = if crate::authored::metallic_debug() && !reflect { &["NVF_PBR_METALLIC"] } else { &[] };
         let mask_def: &[&str] = if crate::authored::parallax_mask() { &[PARALLAX_MASK_DEF] } else { &[] };
         let reflect_def: &[&str] = if reflect { &[crate::reflection_cube::REFLECT_DEF] } else { &[] };
+        // Physical lighting (graphics-enhanced.md §3.25): the shade-light mix, the hot light,
+        // the ambient highlight and the environment map's weight take their physical forms.
+        let physical_def: &[&str] = if crate::authored::physical_pbr() { &["NVF_PHYSICAL_PBR"] } else { &[] };
         let view_defs = crate::authored::view().shader_defs();
-        if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty() && reflect_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        if !(view_defs.is_empty() && metallic_def.is_empty() && mask_def.is_empty() && reflect_def.is_empty() && physical_def.is_empty()) && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
-                fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).chain(reflect_def).map(|d| ShaderDefVal::from(*d)));
+                fragment.shader_defs.extend(view_defs.iter().chain(metallic_def).chain(mask_def).chain(reflect_def).chain(physical_def).map(|d| ShaderDefVal::from(*d)));
             }
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
@@ -1174,6 +1241,7 @@ impl Plugin for NifMaterialPlugin {
         load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/nif_prepass.wesl"));
         load_internal_asset!(app, COVERAGE_SHADER, "coverage.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/coverage.wesl"));
         load_internal_asset!(app, FIRST_PERSON_DEPTH_SHADER, "first_person_depth.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/first_person_depth.wesl"));
+        load_internal_asset!(app, TONE_INPUT_SHADER, "tone_input.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/tone_input.wesl"));
         // Landscape anti-tiling (terrain_sampling.rs), imported by nvforever's terrain.wesl
         // and by this crate's nif_material.wesl only with TERRAIN_ANTI_TILING.
         load_internal_asset!(app, crate::terrain_sampling::SAMPLING_SHADER, "terrain_sampling.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/terrain_sampling.wesl"));
@@ -1472,6 +1540,33 @@ mod tests {
 
     const UPSTREAM_DEPTH: (Option<bool>, Option<CompareFunction>) = (Some(true), Some(CompareFunction::GreaterEqual));
     const EQUAL_DEPTH: (Option<bool>, Option<CompareFunction>) = (Some(false), Some(CompareFunction::Equal));
+
+    /// #3009: the bounce light's def goes to the fragment of a main-pass pipeline that reads the
+    /// volume, once, and to nothing else; the blend's opt-out leaves the descriptor as it was.
+    #[test]
+    fn the_rtgi_def_is_the_main_pass_fragments_alone() {
+        let key = NifSurfaceKey::with_hdr(&NifSurface::default(), false);
+        let bound = MeshPipelineKey::NVF_RTGI_VOLUME;
+        let opted = |d: &RenderPipelineDescriptor, key: &NifSurfaceKey, mesh_key| {
+            let mut d = d.clone();
+            rtgi_volume_opt_in(&mut d, key, mesh_key);
+            d
+        };
+        let main = main_pipeline(1, None);
+        let d = opted(&main, &key, bound);
+        assert_eq!(d.fragment.as_ref().unwrap().shader_defs, vec![ShaderDefVal::from(RTGI_VOLUME_DEF)]);
+        assert!(d.vertex.shader_defs.is_empty());
+        let mut back = d;
+        rtgi_volume_opt_out(&mut back);
+        assert_eq!(back, main);
+        assert_eq!(opted(&main, &key, MeshPipelineKey::NONE), main, "a view without the bindings");
+        assert_eq!(opted(&main, &NifSurfaceKey { refract: true, ..key }, bound), main);
+        // A prepass or a shadow pass, whatever the key, with a fragment or without.
+        let mut prepass = prepass_pipeline(1);
+        assert_eq!(opted(&prepass, &key, bound), prepass);
+        prepass.fragment = main.fragment.clone();
+        assert_eq!(opted(&prepass, &key, bound), prepass);
+    }
 
     #[test]
     fn depth_equal_only_in_the_main_pass_of_a_view_with_a_prepass() {

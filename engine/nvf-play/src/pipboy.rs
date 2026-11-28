@@ -159,8 +159,10 @@ pub enum Page {
 impl Page {
     pub const ALL: [Page; 3] = [Page::Stats, Page::Items, Page::Data];
 
-    /// The page's title at the screen's top left [observed: the owner's screenshots]: its
-    /// setting's text when the load order defines it (`labels`, #1443).
+    /// The page's title at the screen's top left: its setting's text when the load order
+    /// defines it (`labels`, #1443), else the setting's name in capitals [design: headings
+    /// in capitals are NVForever's choice, the words the settings' names, #2984; the
+    /// built-in table's `sInventoryItems` and `sData` follow these, #2212].
     pub fn title(self) -> &'static str {
         use labels::label;
         match self {
@@ -170,8 +172,9 @@ impl Page {
         }
     }
 
-    /// The page's tabs, left to right [observed: the owner's screenshots]: each one's
-    /// setting's text when the load order defines it (`labels`, #1443).
+    /// The page's tabs, left to right: each one's setting's text when the load order
+    /// defines it (`labels`, #1443), else the words of the setting's name [design, #2984;
+    /// "S.P.E.C.I.A.L." as the data's own text spells it, #1740].
     pub fn tabs(self) -> [&'static str; 5] {
         use labels::label;
         match self {
@@ -592,8 +595,7 @@ impl Plugin for PipBoyPlugin {
                     item_mod::keys.run_if(takes_keys).run_if(|hold: Res<hotkey_panel::HotkeyHold>| hold.controller.is_none()),
                     hotkey_panel::track,
                     items::keys.run_if(takes_keys),
-                    report_menu,
-                    advance,
+                    (report_menu, advance, sync_pipboy_mode).chain(),
                     camera_on,
                     (image_scale, flat_screen),
                     // With `MapMenu` on, the DATA page's preparation too, before the tile pages'
@@ -683,6 +685,38 @@ fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, modding: Res<it
         info!("pipboy: menu code {code}");
     }
 }
+
+/// The `GetPipBoyMode` transition override for the current Pip-Boy animation phase:
+/// `Some(2)` opening (`Phase::Raising`), `Some(4)` closing (`Phase::Lowering`), `Some(0)`
+/// while covered during hidden startup warming, and `None` in `Phase::Down`, `Phase::Up`,
+/// or `manual_pose` so `GetPipBoyMode` evaluates live `Game::menu_open(menus::PIPBOY)`
+/// (`3` / `0`) immediately on same-frame `TogglePipBoy` / `CloseAllMenus` calls
+/// [documented: GECK wiki GetPipBoyMode; observed: `w4c_b3_06_toggle_pipboy_tab`; design].
+pub fn pipboy_mode(pip: &PipBoy) -> Option<u8> {
+    if pip.warming.as_ref().is_some_and(|w| w.covered) {
+        return Some(0);
+    }
+    if pip.manual_pose {
+        return None;
+    }
+    match pip.phase {
+        Phase::Raising => Some(2),
+        Phase::Lowering => Some(4),
+        Phase::Down | Phase::Up => None,
+    }
+}
+
+/// Sync the Pip-Boy's animation phase into `fnv_game::Game` so scripts querying
+/// `GetPipBoyMode` see `2` while raising and `4` throughout the lowering/dismissal
+/// animation rather than dropping immediately to `0` when the menu closes, while resting
+/// phases defer to live `Game::menu_open(menus::PIPBOY)` [design].
+fn sync_pipboy_mode(pip: Res<PipBoy>, script: Option<ResMut<crate::script::ScriptState>>) {
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    rt.game.ui.pipboy_mode = pipboy_mode(&pip);
+}
+
+#[cfg(test)]
+mod mode_transition_tests;
 
 /// ResetPipboyManager (`fnv_game::functions::ui::reset_pipboy_manager`): the Pip-Boy's
 /// pages start again on their defaults (ITEMS, every page on its first tab) and its

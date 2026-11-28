@@ -19,6 +19,14 @@ desktop = [
 ]
 mobile = []
 
+# #4592: unsafe code only where the launcher calls Win32 (display.rs `monitors`, dlss.rs
+# `gpu_names`, each allowed there), and every unsafe block says why it is sound.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
 [dependencies]
 fnv-install = { path = "../fnv-install" }
 fnv-save = { path = "../fnv-save" }

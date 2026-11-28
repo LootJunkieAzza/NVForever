@@ -237,9 +237,22 @@ enum Leaving {
 pub struct Handoff(Leaving, Option<String>);
 
 impl Handoff {
-    /// Whether this run is handing over to a new run (from request until exit) (#3393).
+    /// The screen is covered for a load or the main menu, and a new run takes over, or is
+    /// about to start: what this run holds for others (the co-op host's port, `crate::coop`)
+    /// and exclusive full screen (`crate::window_mode`, #3393) go now. False again when the
+    /// new run failed and this one stays.
     pub fn leaving(&self) -> bool {
-        !matches!(self.0, Leaving::No)
+        match &self.0 {
+            Leaving::Covered(..) | Leaving::HandedOver(..) => true,
+            #[cfg(not(target_os = "android"))]
+            Leaving::Waiting(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether what it is leaving for is a load (not the main menu).
+    pub fn loading(&self) -> bool {
+        matches!(&self.0, Leaving::Covered(Some(_), _) | Leaving::Asked(Some(_)))
     }
 }
 
@@ -321,7 +334,7 @@ fn ready_file() -> PathBuf {
 #[allow(clippy::too_many_arguments)]
 pub fn leave(
     (mut asked, mut to_menu, mut refused): (MessageReader<LoadRequest>, MessageReader<nvf_play::pause::MainMenuRequest>, MessageReader<nvf_play::save::LoadRefused>),
-    writes: Res<SaveWrites>,
+    (writes, hold): (Res<SaveWrites>, Option<Res<crate::coop::HoldLeave>>),
     mut handoff: ResMut<Handoff>,
     (mut cover, mut uncover): (MessageWriter<CoverRequest>, MessageWriter<Uncover>),
     #[cfg(not(target_os = "android"))]
@@ -347,6 +360,9 @@ pub fn leave(
         Leaving::No => {}
         Leaving::HandedOver(file) => *h = Leaving::HandedOver(file),
         Leaving::Asked(r) if writes.busy() => *h = Leaving::Asked(r),
+        // A co-op guest going to the main menu saves its own game first (`crate::coop`;
+        // only a guest in a host's world holds).
+        Leaving::Asked(None) if hold.as_deref().is_some_and(|h| h.holds()) => *h = Leaving::Asked(None),
         Leaving::Asked(r) => {
             cover.write(CoverRequest { to: r.as_ref().and_then(|r| destination_of(r, *location)) });
             *h = Leaving::Covered(r, 0);
@@ -702,10 +718,20 @@ mod tests {
     fn leaving_and_released_reflect_handoff_state() {
         let mut h = Handoff::default();
         assert!(!h.leaving());
+        assert!(!h.loading());
+        // Asked waits for saves/co-op holds before covering the screen, so leaving() stays false.
         h.0 = Leaving::Asked(None);
-        assert!(h.leaving());
+        assert!(!h.leaving());
+        assert!(!h.loading());
+        h.0 = Leaving::Asked(Some(LoadRequest { path: PathBuf::from("save.nvfsave") }));
+        assert!(!h.leaving());
+        assert!(h.loading());
         h.0 = Leaving::Covered(None, 0);
         assert!(h.leaving());
+        assert!(!h.loading());
+        h.0 = Leaving::Covered(Some(LoadRequest { path: PathBuf::from("save.nvfsave") }), 0);
+        assert!(h.leaving());
+        assert!(h.loading());
         h.0 = Leaving::HandedOver(None);
         assert!(h.leaving());
 

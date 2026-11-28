@@ -31,7 +31,7 @@
 //! The output's picture and its effects (2026-10-19) [documented: `RM_ItemIcon` at the
 //! list box's left plus 22, 472 down, 256 square; the item stats display's EffectsInfo
 //! card in `RM_ItemData`; hypothesis: the effects text as the Pip-Boy's ITEMS page writes
-//! it, under the WG and VAL cards]: the first output's ICON, and an aid item's own effects
+//! it, under the weight and value cards]: the first output's ICON, and an aid item's own effects
 //! or an apparel's or a weapon's enchantment's ("HP +40, RAD -10").
 //!
 //! The look [documented: the original's `menus\recipe_menu.xml`, layout in its units:
@@ -328,7 +328,7 @@ fn lacks(rt: &mut crate::script::Runtime, r: &RecipeDef) -> Vec<fnv_game::crafti
     missing(r, 1, |_| skill, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
 }
 
-/// An output's weight as the WG card says it.
+/// An output's weight as the weight card says it.
 pub(crate) fn weight_text(w: f32) -> String {
     format!("{w:.1}").trim_end_matches(".0").to_string()
 }
@@ -418,7 +418,7 @@ pub(crate) fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &O
         let selected = open.selected.min(rows.len().saturating_sub(1));
         let subcategory = filter.map(|_| subs[open.filter - 1].0.clone());
         let title = match filter {
-            None => "RECIPES".to_string(),
+            None => crate::pipboy::labels::built_in_label("sRecipes").to_uppercase(),
             Some(_) => subs[open.filter - 1].0.to_uppercase(),
         };
         let chosen = shown.get(selected).copied();
@@ -552,11 +552,13 @@ fn keys(
                 to = crate::menu::model::amount_at(p.x + 0.5, most);
             }
         }
+        let wasd = rt.game.tweaks.wasd_as_arrow_keys;
         let wheel = scroll.as_ref().map_or(0.0, |s| s.delta.y);
         if keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::KeyD]) || wheel > 0.0 || act("more") {
             to += 1;
         }
-        if keys.just_pressed(KeyCode::ArrowLeft) || wheel < 0.0 || act("less") {
+        let less_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowLeft, KeyCode::KeyA] } else { &[KeyCode::ArrowLeft] };
+        if keys.any_just_pressed(less_keys.iter().copied()) || wheel < 0.0 || act("less") {
             to -= 1;
         }
         let other_changed=to!=amount || make || back;
@@ -589,7 +591,12 @@ fn keys(
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Back });
             return;
         }
-        if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || make || act("accept") {
+        let qty_accept: &[KeyCode] = if wasd {
+            &[KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]
+        } else {
+            &[KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]
+        };
+        if keys.any_just_pressed(qty_accept.iter().copied()) || make || act("accept") {
             open.quantity = None;
             let chosen = v.rows.get(open.selected.min(v.rows.len().saturating_sub(1))).map(|r| r.recipe);
             if let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) {
@@ -639,11 +646,14 @@ fn keys(
         open.pointer_pick = false;
         open.navigated = open.navigated.wrapping_add(1);
     }
+    let wasd = rt.game.tweaks.wasd_as_arrow_keys;
     let filters = v.filters + 1;
-    if keys.just_pressed(KeyCode::ArrowRight) || clicked == Some(RecipeButton::Right) || clicked == Some(RecipeButton::Title) || act("filter") {
+    let right_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowRight, KeyCode::KeyD] } else { &[KeyCode::ArrowRight] };
+    let left_keys: &[KeyCode] = if wasd { &[KeyCode::ArrowLeft, KeyCode::KeyA] } else { &[KeyCode::ArrowLeft] };
+    if keys.any_just_pressed(right_keys.iter().copied()) || clicked == Some(RecipeButton::Right) || clicked == Some(RecipeButton::Title) || act("filter") {
         filter_step(open,filters,1);
     }
-    if keys.just_pressed(KeyCode::ArrowLeft) || clicked == Some(RecipeButton::Left) {
+    if keys.any_just_pressed(left_keys.iter().copied()) || clicked == Some(RecipeButton::Left) {
         filter_step(open,filters,-1);
     }
     if let Some(RecipeButton::Row(r)) = clicked {
@@ -686,7 +696,12 @@ fn keys(
         next.set(crate::repair::after_close(&rt.game));
         return;
     }
-    if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(RecipeButton::Accept) || act("accept") {
+    let accept_keys: &[KeyCode] = if wasd {
+        &[KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]
+    } else {
+        &[KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]
+    };
+    if keys.any_just_pressed(accept_keys.iter().copied()) || clicked == Some(RecipeButton::Accept) || act("accept") {
         let chosen = v.rows.get(open.selected.min(n.saturating_sub(1))).map(|r| r.recipe);
         let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) else { return };
         // Any can be made: how many? (module notes)
@@ -743,12 +758,14 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             }
         }
         let mut added = Vec::new();
-        // The player's tweak: weapons and armour come out at a condition of the
-        // player's Repair [design: docs/design/tweaks.md].
-        let condition = rt.game.tweaks.repair_scales_crafting.then(|| {
-            let repair = fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR) as f32;
-            fnv_game::tweaks::crafted_condition(repair)
-        });
+        // The player's tweaks: Repair-scaled condition (`bRepairScalesCraftingCondition`)
+        // or fixed crafted condition percentage (`fCraftedItemHealthPct`) [design: docs/design/tweaks.md].
+        let repair = if rt.game.tweaks.repair_scales_crafting {
+            fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR) as f32
+        } else {
+            0.0
+        };
+        let condition = fnv_game::tweaks::crafted_output_condition(&rt.game.tweaks, repair);
         for &(i, k) in &recipe.outputs {
             let count = recipe_count(k).saturating_mul(times).min(i32::MAX as u32);
             if count == 0 {
@@ -758,7 +775,7 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             match condition.filter(|c| worn && *c < 1.0) {
                 Some(c) => {
                     rt.game.world.add_item_at_condition(FormId::PLAYER_REF, i, count as i32, Some(c)).map_err(|e| format!("{e:?}"))?;
-                    info!("recipe menu: made at {:.0} % condition (Repair tweak)", c * 100.0);
+                    info!("recipe menu: made at {:.0} % condition (crafting condition tweak)", c * 100.0);
                 }
                 None => {
                     rt.game.world.add_item(FormId::PLAYER_REF, i, count as i32).map_err(|e| format!("{e:?}"))?;
@@ -930,7 +947,7 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, presentation:(&View,crate::
                     m.spawn((at(ICON_AT.x, ICON_AT.y, ICON_SIZE, ICON_SIZE), ImageNode { color: amber(255.0), ..ImageNode::new(img) }));
                 }
             }
-            // Its effects, under the WG and VAL cards.
+            // Its effects, under the weight and value cards.
             if let Some(e) = v.effects.as_deref() {
                 m.spawn(at(340.0, 690.0, 290.0, 100.0)).with_children(|t| {
                     text(t, &look.row, "EFFECTS", 6.0, 0.0, bright);
@@ -940,7 +957,11 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, presentation:(&View,crate::
             // The output's weight and value.
             let wg = v.weight.map_or("--".to_string(), weight_text);
             let val = v.value.map_or("--".to_string(), |x| x.to_string());
-            for (k, (name, s)) in [("WG", wg), ("VAL", val)].into_iter().enumerate() {
+            // The cards' words: the item stats display's settings, as the Pip-Boy's cards
+            // read them [design, #4495: in place of the abbreviations read from the
+            // original's screen].
+            let words = ["sInventoryWeightUpper", "sInventoryValue"].map(crate::pipboy::labels::built_in_label);
+            for (k, (name, s)) in [(words[0], wg), (words[1], val)].into_iter().enumerate() {
                 let x = 340.0 + k as f32 * 150.0;
                 rule(m, x, 640.0, 140.0, LINE);
                 rule(m, x + 140.0 - LINE, 640.0, LINE, 30.0);
@@ -952,17 +973,23 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, presentation:(&View,crate::
             }
             // The recipe's box.
             let rx = RIGHT_AT.x;
-            let mw = look.title.width("Made at ...");
+            // The titles are the settings recipe_menu.xml names (`sMadeAt`,
+            // `sSkillRequirement`, `sIngredients`; the list's `sRecipes`): the load order's
+            // text, else NVForever's own label [design, #4495: in place of the words read
+            // from the original's screen].
+            let [made_at, skill_needed, ingredients] =
+                ["sMadeAt", "sSkillRequirement", "sIngredients"].map(crate::pipboy::labels::built_in_label);
+            let mw = look.title.width(made_at);
             brackets(m, rx, RIGHT_AT.y, BOX_WIDTH, RIGHT_AT.y + 515.0, (25.0, 50.0 + mw + 20.0));
             m.spawn(at(rx, RIGHT_AT.y - 28.0, BOX_WIDTH, 600.0)).with_children(|b| {
-                text(b, &look.title, "Made at ...", 50.0, 0.0, bright);
+                text(b, &look.title, made_at, 50.0, 0.0, bright);
                 text(b, &look.value, &v.made_at, 60.0, 78.0, bright);
                 if let Some((name, have, need)) = &v.skill {
-                    text(b, &look.title, "Skill Requirement", 50.0, 128.0, bright);
+                    text(b, &look.title, skill_needed, 50.0, 128.0, bright);
                     let ok = have >= need;
                     text(b, &look.value, &format!("{name} ({have}/{need})"), 60.0, 188.0, if ok { bright } else { amber(NOT_READY) });
                 }
-                text(b, &look.title, "Ingredients", 50.0, 238.0, bright);
+                text(b, &look.title, ingredients, 50.0, 238.0, bright);
                 let mut y = 298.0;
                 for (idx, (_, name, have, need)) in v.ingredients.iter().enumerate() {
                     let ok = have >= need;

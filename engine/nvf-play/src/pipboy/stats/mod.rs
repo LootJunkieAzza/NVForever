@@ -44,7 +44,7 @@ pub mod read;
 mod input_tests;
 
 use super::frame::{self, Align, Card, Ctx, Kit, DIMMED, FADE, FILL, LINE, THICK};
-use super::labels::label;
+use super::labels::{built_in_label, label};
 use super::{Page, PageBody, PipBoy, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at};
 use bevy::ecs::system::SystemParam;
@@ -622,10 +622,10 @@ pub fn draw(
     commands.entity(body).despawn_children().with_children(|p| {
         let value = figures;
         let cards = [
-            Card::new(LVL.0, LVL.1, label("sStatsLVLAbbrev", "LVL"), snap.level.map_or("--".into(), |l| l.to_string())),
-            Card::new(HP.0, HP.1, label("sStatsHP", "HP"), value(snap.hp)),
-            Card::new(AP.0, AP.1, label("sStatsAP", "AP"), value(snap.ap)),
-            Card::new(XP.0, XP.1, label("sStatsXP", "XP"), snap.xp_percent.map_or_else(|| value(snap.xp), |p| format!("{p:.0}%"))),
+            Card::new(LVL.0, LVL.1, built_in_label("sStatsLVLAbbrev"), snap.level.map_or("--".into(), |l| l.to_string())),
+            Card::new(HP.0, HP.1, built_in_label("sStatsHP"), value(snap.hp)),
+            Card::new(AP.0, AP.1, built_in_label("sStatsAP"), value(snap.ap)),
+            Card::new(XP.0, XP.1, built_in_label("sStatsXP"), snap.xp_percent.map_or_else(|| value(snap.xp), |p| format!("{p:.0}%"))),
         ];
         frame::heading(p, &mut c, Page::Stats.title(), &cards);
         match tab {
@@ -836,7 +836,7 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
     let o = STATUS.min;
     let h = c.line_height(2) + SUB_VERBUF;
     let mut spots = Vec::new();
-    let names = [label("sStatsCNDAbbrev", "CND"), label("sStatsRADAbbrev", "RAD"), label("sStatsEFFAbbrev", "EFF")];
+    let names = [built_in_label("sStatsCNDAbbrev"), built_in_label("sStatsRADAbbrev"), built_in_label("sStatsEFFAbbrev")];
     for (i, name) in names.iter().enumerate() {
         let r = Rect::new(o.x, o.y + h * i as f32, o.x + SUB_WIDTH, o.y + h * (i as f32 + 1.0));
         let selected = v.status == i;
@@ -1186,7 +1186,7 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
     }
     if !s.hide_reputation {
         // The switch: the other list's name [hypothesis], its key after it.
-        let name = if v.reputation { label("sStatsGeneral", "General") } else { "Reputation" };
+        let name = if v.reputation { built_in_label("sStatsGeneral") } else { "Reputation" };
         let size = text_box(c, name, HINT_HORBUF, HINT_VERBUF);
         let right = GENERAL.x + GENERAL_SWITCH.x;
         let top = GENERAL.y + GENERAL_SWITCH.y;
@@ -1297,7 +1297,9 @@ pub fn use_hints(
             if !allowed {
                 info!("pipboy stats: {name} not used: activation prevented by script");
                 if let Some(m) = active.0.as_mut().filter(|m| m.mode == crate::menu::model::Mode::Inventory) {
-                    let _ = m.refresh(&mut sim.world);
+                    if m.refresh(&mut sim.world).is_ok() {
+                        crate::menu::sync_ysi_model(m, &mut rt.game);
+                    }
                 }
                 continue;
             }
@@ -1314,6 +1316,8 @@ pub fn use_hints(
         if let Some(m) = active.0.as_mut().filter(|m| m.mode == crate::menu::model::Mode::Inventory) {
             if let Err(e) = m.refresh(&mut sim.world) {
                 warn!("pipboy stats: the inventory's lists: {e}");
+            } else if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                crate::menu::sync_ysi_model(m, &mut rt.game);
             }
         }
     }

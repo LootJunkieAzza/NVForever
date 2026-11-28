@@ -67,8 +67,8 @@ const CARD_GAP: f32 = 10.0;
 /// on the owner's ITEMS screenshot].
 pub const BUTTON_TEXT_Y: f32 = 15.0 / 2.0 + 10.0;
 
-/// One button hint of a page: its words, the key's part after them ("R)", with a
-/// controller "Y)"), and whether it is drawn dim (it does nothing now) (#1896, #1897).
+/// One button hint of a page: its words, the key's part after them ("[R]", with a
+/// controller "[Y]"), and whether it is drawn dim (it does nothing now) (#1896, #1897).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hint {
     pub word: &'static str,
@@ -81,7 +81,7 @@ impl Hint {
         Hint { word, key, dim }
     }
 
-    /// As drawn: "Repair R)"; the word alone when it has no key (a button only clicked).
+    /// As drawn: "Repair [R]"; the word alone when it has no key (a button only clicked).
     pub fn text(&self) -> String {
         if self.key.is_empty() {
             return self.word.to_string();
@@ -95,7 +95,7 @@ impl Hint {
     }
 }
 
-/// A page's hints for the log, in drawing order: "Repair R) (dim), Equip Enter)".
+/// A page's hints for the log, in drawing order: "Repair [R] (dim), Equip [Enter]".
 pub fn hints_line<'a>(hints: impl IntoIterator<Item = &'a Hint>) -> String {
     hints.into_iter().map(|h| if h.dim { format!("{} (dim)", h.text()) } else { h.text() }).collect::<Vec<_>>().join(", ")
 }

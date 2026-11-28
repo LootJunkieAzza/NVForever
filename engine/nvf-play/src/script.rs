@@ -573,6 +573,8 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
                 }
                 // The game INI text the extender's INI functions read (`--mo2`'s profile).
                 data.ini_texts = ini_texts();
+                // The co-op perks (fnv_game::coop_perks): NVForever's own records.
+                fnv_game::coop_perks::add(&mut data);
                 data
             }));
             info!("script build: the whole thread: {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
@@ -940,6 +942,7 @@ impl Runtime {
         if cell.is_some() && cell != self.player_cell {
             self.player_cell = cell;
             self.game.player_entered(cell);
+            self.triggers.prune_unloaded_projectile_zones(&self.game);
             debug!("script: player in cell {:?}; {} cells loaded for scripts", cell, self.game.loaded_cells.len());
             self.log_level_news();
         }
@@ -1118,6 +1121,10 @@ impl Runtime {
         };
         // An actor whose default action ran (no OnActivate block, or its block called
         // `Activate`) is talked to, if it has a greeting.
+        // The target's own OnActivate passing the activation on (`Activate`) is still the
+        // player's hand: held by the co-op story gate like any talk.
+        let talker = self.game.talker(target).0;
+        self.game.script_talks.retain(|t| *t != target && *t != talker);
         let r = match r {
             Ok(done) => Ok(self.talk_after(from).unwrap_or(done)),
             r => r,
@@ -1180,6 +1187,16 @@ impl Runtime {
         let mut done = None;
         for (i, actor) in wanted {
             let g = &mut self.game;
+            // Still saying its Goodbye greeting at the player: the line plays to its end and
+            // the activation does nothing, neither cutting it nor saying another
+            // [player report #4683: "New phrase should trigger only after previous phrase
+            // has ended"; dialogue.md §5].
+            if g.greets_player(actor) {
+                self.skip.insert(i);
+                info!("dialogue: the player talks to {}, still saying its greeting: it says it to the end", g.data.name(actor));
+                done = done.or(Some(ByHand::Greeted));
+                continue;
+            }
             // A teammate: the companion wheel opens instead (`crate::companion_wheel`).
             if g.has_companion_wheel(actor) {
                 if g.open_companion_wheel(actor) {
@@ -1200,7 +1217,11 @@ impl Runtime {
                 done = Some(ByHand::Woken);
                 continue;
             }
-            match g.start_dialogue(actor, None) {
+            // A script's `Activate Player` on it: the script's scene, not held by the
+            // co-op story gate (`Game::script_talks`).
+            let scripted = g.script_talks.iter().position(|t| *t == actor).map(|k| g.script_talks.remove(k)).is_some();
+            let started = if scripted { g.start_script_dialogue(actor, None) } else { g.start_dialogue(actor, None) };
+            match started {
                 Ok(info) => {
                     // The activation's own effect (the "nothing to say" line) is void.
                     self.skip.insert(i);
@@ -1218,10 +1239,17 @@ impl Runtime {
                     if g.is_out_cold(actor) {
                         self.skip.insert(i);
                     }
+                    // A co-op host's story NPC waiting for the other players
+                    // (`Game::story_gate`): the host's corner says so instead (`coop_progress::story_wait_notice`).
+                    if g.coop_story_wait.as_ref().is_some_and(|w| w.actor == g.talker(actor).0) {
+                        self.skip.insert(i);
+                    }
                     info!("dialogue: no conversation: {e}");
                 }
             }
         }
+        // None carried to a later activation by hand.
+        self.game.script_talks.clear();
         done
     }
 
@@ -2220,6 +2248,8 @@ type UsesAndLoads<'w> = (
     Option<ResMut<'w, crate::doors::Doors>>,
     MessageWriter<'w, crate::save::LoadRefused>,
     Option<Res<'w, crate::save::PendingEngine>>,
+    // A co-op guest's join in progress: its triggers are not fired (`crate::save::KeepSolo`).
+    Option<Res<'w, crate::save::KeepSolo>>,
     Option<Res<'w, crate::tweaks::TweakSettings>>,
 );
 
@@ -2284,7 +2314,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
-    (mut sit, mut terminals, mut doors, mut refused, pending_engine, tweak_settings): UsesAndLoads,
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine, joining, tweak_settings): UsesAndLoads,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
@@ -2463,9 +2493,10 @@ pub(crate) fn run_scripts(
     }
     if mods_ticks.frames > 0 {
         info!("scripts: the Mods page closed after {} MenuMode frames", mods_ticks.frames);
-        mods_ticks.frames = 0;
         if let Some(rt) = st.rt.as_mut() {
-            with_world(rt, &mut sim, |rt| rt.game.page_menu_event(fnv_game::game::menus::START, false));
+            with_world(rt, &mut sim, |rt| crate::tiles::mods::close(&mut rt.game, &mut mods_ticks));
+        } else {
+            *mods_ticks = Default::default();
         }
     }
     if paused.0 || screen.active() {
@@ -2674,7 +2705,7 @@ pub(crate) fn run_scripts(
         // `script_trigger::update`, #2571).
         rt.game.loading = loading;
         if !rt.game.paused() {
-            crate::script_trigger::update(rt, &play, &phys, player_capsule);
+            crate::script_trigger::update(rt, &play, &phys, player_capsule, joining.is_some());
         }
         rt.game.cfg.frame_seconds = dt;
         // Scripts' GetFallTimeElapsed (`fnv_game::nvse_gaps`).
@@ -2803,6 +2834,9 @@ pub(crate) fn run_scripts(
         }
     }
     let feet = phys.player.as_ref().map(|c| c.feet);
+    // A co-op guest's quests are the host's: the guest's game shows those messages
+    // (nvforever `coop`), not its own.
+    let guest = rt.game.coop_guest;
     for e in effects {
         // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
         let door = matches!(e, ScriptEffect::DoorTravel(_));
@@ -2859,6 +2893,9 @@ pub(crate) fn run_scripts(
                 }
                 info!("on screen: {}", note.text.trim().replace('\n', " / "));
                 corner.push(note);
+            }
+            ScriptEffect::Quest(n) if guest && !matches!(n, crate::script_events::QuestNotice::Discovered(_)) => {
+                debug!("quest message (this game's own, not shown to a co-op guest): {}", crate::quest_messages::describe(&n));
             }
             // ShowOff's ToggleQuestMessages 0: no quest line is shown (`UiRequests::quest_messages_off`).
             ScriptEffect::Quest(n) if rt.game.ui.quest_messages_off => info!("quest message dropped (ToggleQuestMessages 0): {}", crate::quest_messages::describe(&n)),

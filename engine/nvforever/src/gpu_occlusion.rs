@@ -32,7 +32,7 @@ pub const KEY: &str = "occlusion-culling";
 pub const LABEL: &str = "Occlusion culling";
 
 /// The row's note (at most 200 characters, settings-page.md §0 rule 7).
-pub const NOTE: &str = "On: hidden objects are skipped before drawing. Helps when the GPU limits the frame rate (high resolutions, dense towns); costs some CPU. Takes effect at the next start.";
+pub const NOTE: &str = "On: hidden objects are skipped before drawing. Helps when the GPU limits the frame rate; costs some CPU. Takes effect at the next start.";
 
 /// The test aid that overrides the saved row for a run (`1` on, `0` off).
 pub const ENV: &str = "NVF_OCCLUSION_CULLING";

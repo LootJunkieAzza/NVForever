@@ -6,7 +6,7 @@ fn streamer() -> crate::world::Streamer {
         settled: true, arrival: None, per_frame: 1, spawning: default(), dying: default(),
         ahead: default(), hide: default(), interior: None, light_scale: 1.0, managed: default(),
         manage_actors: false, stats: default(), buffer: default(), centre: None,
-        waiting: default(), model_overrides: default(), travels: 0 }
+        waiting: default(), model_overrides: default(), coop_areas: Vec::new(), travels: 0 }
 }
 fn app() -> App {
     let mut app = App::new();
