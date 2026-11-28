@@ -650,6 +650,18 @@ pub fn list_members(g: &Game, list: FormId) -> Vec<FormId> {
     v
 }
 
+/// Zero-allocation membership test for a form list: matches [`list_members`].contains(&item).
+#[inline]
+pub fn list_members_contains(g: &Game, list: FormId, item: FormId) -> bool {
+    if let Some(v) = g.list_edits.get(&list) {
+        return v.contains(&item);
+    }
+    if !g.form_lists.is_empty() && g.form_lists.get(&list).is_some_and(|v| v.contains(&item)) {
+        return true;
+    }
+    g.data.form_lists.get(&list).is_some_and(|v| v.contains(&item))
+}
+
 /// The items that can repair `item`: the members of its repair list (WEAP/ARMO `REPL`),
 /// authored, overridden by `SetRepairList`, and added at run time (docs/spec-notes/repair.md §5).
 pub fn repair_list(g: &Game, item: FormId) -> Vec<FormId> {
@@ -661,11 +673,10 @@ pub fn is_in_list(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let list = a.form(0)?;
     let b = base_of(g, r);
-    let m = list_members(g, list);
     // The base form only: a list holding the reference itself reads 0 [documented: GECK
     // wiki IsInList, "Will return False (0) if the form list contains the object's
     // reference itself, rather than its base form"].
-    yes(b.is_some_and(|b| m.contains(&b)))
+    yes(b.is_some_and(|b| list_members_contains(g, list, b)))
 }
 
 /// Inserts at index 0 [documented: catalogue summary]. A form a script added before moves
