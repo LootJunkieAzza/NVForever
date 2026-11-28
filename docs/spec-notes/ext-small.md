@@ -6,14 +6,14 @@ ClimateControl, Command Extender, HotReload, Overcharge, PostalOut, TTW, Stewie'
 hNVSE, yUI, and the catalogue's "Sandbox" row), CacheUI's last eight (#1013), Anh's last
 three (#1015, ext-anh.md) and NX_GetQVEVFL (#1017, ext-nx.md). Sources: the GECK wiki
 export [documented: the page named]. None of these plugins is installed in the probe
-game, so nothing here is `[observed]`. Changes last for the session.
+game except AnhNVSE (`GetCameraFOV` below), so nothing else here is `[observed]`. Changes last for the session.
 
 ## 1. Anh and NX
 
 | Function | NVForever |
 |---|---|
 | ArrayToString `array` | PrintVar's text of the array (`[1, 2]`, a map's `key: value`) [documented: "Returns the specified array variable as a string"; decision: the form, the page shows none]; "" for no array [hypothesis] |
-| GetCameraFOV `1stPerson` | the last SetCameraFOV's value, else the one the player set on the settings page (Field of view, Viewmodel field of view; `--fov`, `--viewmodel-fov`), which the engine tells the game state at start and after each change [decision: it stands for the original's INI values, which its FOV setting writes], else the INI's fDefaultWorldFOV / fDefault1stPersonFOV ([Display]), else 75 / 55 [documented: "Returns the FOV value for the camera"; hypothesis: the defaults] |
+| GetCameraFOV `1stPerson` | the last SetCameraFOV's value, else the one the player set on the settings page (Field of view, Viewmodel field of view; `--fov`, `--viewmodel-fov`), which the engine tells the game state at start and after each change [decision: it stands for the original's INI values, which its FOV setting writes], else the INI's fDefaultWorldFOV / fDefault1stPersonFOV ([Display]), else 75 / 55 [documented: "Returns the FOV value for the camera"; observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + AnhNVSE 131, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy, read-only, `w6d13_24_camera_fov_set_get_playercamfov_and_packed_fov_stub` (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`): `init(75.0,55.0,jg=75.0/55.0/55.0)\|90(90.0,60.0,jg=90.0/60.0)\|hi(160.0,160.0)\|neg(0.25,75.0)\|def(75.0,75.0)\|pk=-1.0` — initial world/1st-person FOV are `75.0`/`55.0`, `SetCameraFOV 90 60` round-trips through `GetCameraFOV` and `GetPlayerCamFOV`, high values clamp to `160.0`, and negative world FOV clamps to `0.25`; no DLL or source consulted] |
 | UpdateTubeMesh (QuitMeshinWithMeAndUpdateAlready) | 0 [decision: NVForever builds no tube mesh] |
 | NX_GetQVEVFL | 0 [decision: the page gives no arguments and leaves its use to an outside tutorial] |
 

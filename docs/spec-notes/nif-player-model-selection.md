@@ -92,7 +92,14 @@ asset, smoke and native acceptance remain unqualified.
 - [documented] `ModelHasBlock object blockName` accepts a base form or a
   reference, compares block names with case sensitivity, and includes nodes
   inserted into the model. Source:
-  <https://geckwiki.com/index.php?title=ModelHasBlock>.
+  <https://geckwiki.com/index.php?title=ModelHasBlock>. Case-sensitive block
+  matching on a base form (`ok=1` for exact name, `lo=0` for lowercase, `no=0`
+  for absent) is corroborated [observed: Fallout: New Vegas 1.4.0.525 (040020D0)
+  + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging
+  copy, read-only, `w6d13_42_nif_block_tree_insert_rename_remove_and_modelhasblock`
+  (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+  `mh(ok=1,lo=0,no=0,ov=0)`; no DLL or source consulted].
 - [design] For an admitted reference with a published `SceneMirror` tree, query
   that tree with exact name equality. An empty published tree is an available
   model with no matching nodes. Do not replace its answer with the base file's.

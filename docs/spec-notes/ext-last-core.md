@@ -19,7 +19,7 @@ the HUD captures in hud.md §14 [observed]. Changes last for the session unless 
 | SetRefCount `count` | a placed stack's count [documented]; an inventory reference's stack is left alone [hypothesis] | GetRefCount |
 | SetCurrentQuest `quest` | the active quest, "identical to ForceActiveQuest" [documented] | GetCurrentQuest |
 | SetStringGameSettingEx `"Name\|Value"` | a string game setting, as SetStringSetting [documented; the page calls it broken and its replacement working] | GetStringGameSetting |
-| SetAltControl `control button` | the control's mouse button, as SetControl with the mouse; not written to the INI [documented: "saved to the ini"; decision: NVForever never writes the game's INI files] | GetAltControl |
+| SetAltControl `control button` | the control's mouse button, as SetControl with the mouse; `SetControl c bare 1`, `SetControl c (256+bare) 1`, and `SetAltControl c bare` all round-trip through `GetControl c 1` (`256+bare`) and `GetAltControl c` (`bare`) [documented: "saved to the ini"; decision: NVForever never writes the game's INI files; observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy, read-only, `w6d13_17_setcontrol_setaltcontrol_roundtrip_and_restore` (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`): `init(k=44,m=-1,a=-1)\|k87=87\|mBare3(259,3)\|m260(260,4)\|alt4(260,4)\|rest(k=44,a=-1)`; no DLL or source consulted] | GetAltControl |
 
 ## 2. Input and menus
 
@@ -33,7 +33,16 @@ the HUD captures in hud.md §14 [observed]. Changes last for the session unless 
   ExcludeMenuRoot leaves out; a tile without the trait counts 0; any other trait as
   GetUIFloatAlt [documented: GetUIFloatInherited; observed: hud.md §14, the page's example
   gives -50, and 0 with ExcludeMenuRoot, though `radiation_text` has no `depth` in the
-  file]. Whether a parent without `locus` stops the sum is open [hypothesis: it does not].
+  file]. A parent with `<locus>0</locus>` is skipped without stopping the sum across
+  higher `<locus>1</locus>` ancestors (`2 + 7 + 100 = 109.0` for `x`, `1 + 3 + 40 = 44.0`
+  for `y`, `3 + 10 - 50 = -37.0` with `ExcludeMenuRoot=0` and `3 + 10 = 13.0` with
+  `ExcludeMenuRoot=1`, while non-inherited `alpha` stays `88.0` and missing paths return
+  `-999`) [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE
+  57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters,
+  isolated staging copy, read-only, `w6d13_02_uifloat_inherited_locus_chain_and_root_flag`
+  (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+  `inj=1|root(x=0.0,d=-50.0)|x(109.0,109.0)|y(44.0,44.0)|d(-37.0,13.0)|alp=88.0|mis=-999,-999`;
+  no DLL or source consulted].
 - GetFontFile `n`: fonts 1-8 and 10-89 [documented], the INI's `sFontFile_N` (category
   Fonts), else Fallout_default.ini's names for 1-8 [documented: Fallout_default.ini]; 9
   and fonts nothing names give "" [observed: jip-forms fontfile.2, fontfile.9].
