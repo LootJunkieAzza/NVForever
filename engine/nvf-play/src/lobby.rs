@@ -1171,9 +1171,9 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                         v.push(Line(n.clone(), Shade::Bright));
                     }
                     match (state.public, state.locked) {
-                        (true, true) => v.push(Line("Listed in the lobby browser, with a password.".into(), Shade::Dim)),
-                        (true, false) => v.push(Line("Listed in the lobby browser.".into(), Shade::Dim)),
-                        (false, true) => v.push(Line("Players need the password to join.".into(), Shade::Dim)),
+                        (true, true) => v.push(Line(tr("Listed in the lobby browser, with a password.").into(), Shade::Dim)),
+                        (true, false) => v.push(Line(tr("Listed in the lobby browser.").into(), Shade::Dim)),
+                        (false, true) => v.push(Line(tr("Players need the password to join.").into(), Shade::Dim)),
                         (false, false) => {}
                     }
                     players(&mut v, state);
@@ -1202,7 +1202,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     v.push(tabs(screen));
                     v.push(Line("Type the host's lobby code, or its address (ip:port):".into(), Shade::Bright));
                     v.push(Input(Act::CodeBox, screen.typed.clone()));
-                    v.push(Input(Act::JoinPasswordBox, format!("Password (if the lobby has one): {}", shown_password(&screen.join_password, screen.show_password))));
+                    v.push(Input(Act::JoinPasswordBox, trf("Password (if the lobby has one): {password}", &[("password", &shown_password(&screen.join_password, screen.show_password))])));
                     if let Joining::Failed(why) = &state.joining {
                         v.push(Line(why.clone(), Shade::Bright));
                     }
@@ -1223,13 +1223,13 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
 /// Visibility, Title and Password (typed characters hidden unless shown).
 fn host_options(v: &mut Vec<Piece>, screen: &LobbyScreen) {
     let o = &screen.host;
-    v.push(Piece::Button(Act::Public, format!("Visibility: {}", if o.public { "Public" } else { "Private" })));
-    v.push(Piece::Line(if o.public { "Public: listed in the lobby browser for anyone to ask to join." } else { "Private: only players with the code can join." }.into(), Shade::Dim));
-    let title = if o.title.trim().is_empty() { "(your name's game)".to_string() } else { o.title.clone() };
-    v.push(Piece::Input(Act::TitleBox, format!("Title: {title}")));
-    let pw = if o.password.is_empty() { "(none)".to_string() } else { shown_password(&o.password, screen.show_password) };
-    v.push(Piece::Input(Act::PasswordBox, format!("Password: {pw}")));
-    v.push(Piece::Button(Act::ShowPassword, if screen.show_password { "Hide Password" } else { "Show Password" }.into()));
+    v.push(Piece::Button(Act::Public, trf("Visibility: {state}", &[("state", &if o.public { tr("Public") } else { tr("Private") })])));
+    v.push(Piece::Line(if o.public { tr("Public: listed in the lobby browser for anyone to ask to join.") } else { tr("Private: only players with the code can join.") }.into(), Shade::Dim));
+    let title = if o.title.trim().is_empty() { tr("(your name's game)").to_string() } else { o.title.clone() };
+    v.push(Piece::Input(Act::TitleBox, trf("Title: {title}", &[("title", &title)])));
+    let pw = if o.password.is_empty() { tr("(none)").to_string() } else { shown_password(&o.password, screen.show_password) };
+    v.push(Piece::Input(Act::PasswordBox, trf("Password: {password}", &[("password", &pw)])));
+    v.push(Piece::Button(Act::ShowPassword, if screen.show_password { tr("Hide Password") } else { tr("Show Password") }.into()));
 }
 
 /// A password as the box shows it: as typed when shown, else a star a character.
@@ -1243,15 +1243,17 @@ fn shown_password(p: &str, show: bool) -> String {
 
 /// The Join screen's tabs.
 fn tabs(screen: &LobbyScreen) -> Piece {
-    Piece::Bar(vec![(Act::TabCode, "Code".into(), screen.tab == Tab::Code), (Act::TabBrowse, "Browse".into(), screen.tab == Tab::Browse)])
+    Piece::Bar(vec![(Act::TabCode, tr("Code").into(), screen.tab == Tab::Code), (Act::TabBrowse, tr("Browse").into(), screen.tab == Tab::Browse)])
 }
 
-/// On and Off for a toolbar's toggle.
-fn on_word(on: bool) -> &'static str {
-    if on {
-        "On"
-    } else {
-        "Off"
+/// A Browse heading's words.
+fn heading(by: Sort) -> &'static str {
+    match by {
+        Sort::Name => tr("Name"),
+        Sort::Location => tr("Location"),
+        Sort::Players => tr("Players"),
+        Sort::Ping => tr("Ping"),
+        Sort::Region => tr("Region"),
     }
 }
 
@@ -1266,14 +1268,16 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) -
     if let Some(r) = opened_row(screen, state) {
         v.push(Title(r.title.clone()));
         if screen.reporting {
-            v.push(Line("Report this lobby to the service? Enough reports from different players hide it from the browser.".into(), Shade::Bright));
-            v.push(Button(Act::ReportYes, "Report".into()));
-            v.push(Button(Act::ReportNo, "Cancel".into()));
+            v.push(Line(tr("Report this lobby to the service? Enough reports from different players hide it from the browser.").into(), Shade::Bright));
+            v.push(Button(Act::ReportYes, tr("Report").into()));
+            v.push(Button(Act::ReportNo, tr("Cancel").into()));
             return true;
         }
-        let ping = r.ping_ms.map_or_else(|| "unknown".to_string(), |p| format!("about {p} ms (estimated)"));
-        v.push(Line(format!("Host: {}. Location: {}. Players: {} of {}.", r.host_name, r.place, r.players, r.max_players), Shade::Bright));
-        v.push(Line(format!("Region: {}. Ping: {ping}. Friendly fire: {}.{}", if r.region.is_empty() { "unknown" } else { &r.region }, on_word(r.friendly_fire), if r.locked { " It has a password." } else { "" }), Shade::Dim));
+        let ping = r.ping_ms.map_or_else(|| tr("unknown").to_string(), |p| trf("about {ms} ms (estimated)", &[("ms", &p)]));
+        v.push(Line(trf("Host: {host}. Location: {place}. Players: {n} of {max}.", &[("host", &r.host_name), ("place", &r.place), ("n", &r.players), ("max", &r.max_players)]), Shade::Bright));
+        let region = if r.region.is_empty() { tr("unknown").to_string() } else { r.region.clone() };
+        let about = trf("Region: {region}. Ping: {ping}. Friendly fire: {state}.", &[("region", &region), ("ping", &ping), ("state", &on_off(r.friendly_fire))]);
+        v.push(Line(if r.locked { format!("{about}{}", tr(" It has a password.")) } else { about }, Shade::Dim));
         if let Some(why) = &r.cannot {
             v.push(Line(why.clone(), Shade::Bright));
         }
@@ -1285,25 +1289,25 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) -
         }
         if r.cannot.is_none() {
             if r.locked {
-                v.push(Input(Act::JoinPasswordBox, format!("Password: {}", shown_password(&screen.join_password, screen.show_password))));
+                v.push(Input(Act::JoinPasswordBox, trf("Password: {password}", &[("password", &shown_password(&screen.join_password, screen.show_password))])));
             }
-            v.push(Button(Act::JoinRow, "Join".into()));
+            v.push(Button(Act::JoinRow, tr("Join").into()));
         }
-        v.push(Button(Act::Favourite, if r.favourite { "Remove from Favourites" } else { "Add to Favourites" }.into()));
+        v.push(Button(Act::Favourite, if r.favourite { tr("Remove from Favourites") } else { tr("Add to Favourites") }.into()));
         if !reported(state, &r.code) {
-            v.push(Button(Act::Report, "Report".into()));
+            v.push(Button(Act::Report, tr("Report").into()));
         }
         return false;
     }
     v.push(tabs(screen));
     let f = screen.filters;
     v.push(Bar(vec![
-        (Act::Refresh, "Refresh".into(), false),
-        (Act::HideEmpty, format!("Hide empty: {}", on_word(f.hide_empty)), f.hide_empty),
-        (Act::HideFull, format!("Hide full: {}", on_word(f.hide_full)), f.hide_full),
-        (Act::AllVersions, format!("All versions: {}", on_word(f.all_versions)), f.all_versions),
+        (Act::Refresh, tr("Refresh").into(), false),
+        (Act::HideEmpty, trf("Hide empty: {state}", &[("state", &on_off(f.hide_empty))]), f.hide_empty),
+        (Act::HideFull, trf("Hide full: {state}", &[("state", &on_off(f.hide_full))]), f.hide_full),
+        (Act::AllVersions, trf("All versions: {state}", &[("state", &on_off(f.all_versions))]), f.all_versions),
     ]));
-    v.push(Input(Act::SearchBox, format!("Search: {}", screen.search)));
+    v.push(Input(Act::SearchBox, trf("Search: {text}", &[("text", &screen.search)])));
     v.push(Heads(
         Sort::ALL
             .iter()
@@ -1315,17 +1319,17 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) -
                 } else {
                     " ^"
                 };
-                (Act::SortBy(by), format!("{}{mark}", COLUMNS[by.column()]), by.column())
+                (Act::SortBy(by), format!("{}{mark}", heading(by)), by.column())
             })
             .collect(),
     ));
     let rows = shown_rows(screen, state);
     match &state.browse {
         Browse::Idle => {}
-        Browse::Loading => v.push(Line("Asking for the public lobbies...".into(), Shade::Dim)),
+        Browse::Loading => v.push(Line(tr("Asking for the public lobbies...").into(), Shade::Dim)),
         Browse::Failed(why) => v.push(Line(why.clone(), Shade::Bright)),
-        Browse::Ready(all) if rows.is_empty() && !all.is_empty() => v.push(Line("No public lobby here passes the filters.".into(), Shade::Dim)),
-        Browse::Ready(_) if rows.is_empty() => v.push(Line("No public lobbies right now. Host one, or join a friend's by code.".into(), Shade::Dim)),
+        Browse::Ready(all) if rows.is_empty() && !all.is_empty() => v.push(Line(tr("No public lobby here passes the filters.").into(), Shade::Dim)),
+        Browse::Ready(_) if rows.is_empty() => v.push(Line(tr("No public lobbies right now. Host one, or join a friend's by code.").into(), Shade::Dim)),
         Browse::Ready(_) => {}
     }
     if let Some(why) = failed {
@@ -1338,10 +1342,10 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) -
     };
     let first = chosen.saturating_sub(BROWSE_ROWS / 2).min(rows.len().saturating_sub(BROWSE_ROWS));
     if first > 0 {
-        v.push(Line(format!("  ({first} more above: Up and Down scroll)"), Shade::Dim));
+        v.push(Line(trf("  ({n} more above: Up and Down scroll)", &[("n", &first)]), Shade::Dim));
     }
     for (i, r) in rows.iter().enumerate().skip(first).take(BROWSE_ROWS) {
-        let ping = r.ping_ms.map_or_else(|| "?".to_string(), |p| format!("~{p} ms"));
+        let ping = r.ping_ms.map_or_else(|| "?".to_string(), |p| trf("~{ms} ms", &[("ms", &p)]));
         let cells = vec![
             if r.favourite { "*".into() } else { String::new() },
             r.title.clone(),
@@ -1349,12 +1353,12 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) -
             format!("{}/{}", r.players, r.max_players),
             ping,
             r.region.clone(),
-            if r.locked { "Lock".into() } else { String::new() },
+            if r.locked { tr("Lock").into() } else { String::new() },
         ];
         v.push(Cells(Act::Row(i), cells, if r.cannot.is_some() { Shade::Dim } else { Shade::Bright }));
     }
     if first + BROWSE_ROWS < rows.len() {
-        v.push(Line(format!("  ({} more below: Up and Down scroll)", rows.len() - first - BROWSE_ROWS), Shade::Dim));
+        v.push(Line(trf("  ({n} more below: Up and Down scroll)", &[("n", &(rows.len() - first - BROWSE_ROWS))]), Shade::Dim));
     }
     false
 }

@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 
 use bevy::prelude::*;
+use fnv_util::words::{tr, trf};
 use nvf_play::lobby::{Browse, BrowseQuery, HostOptions, PublicLobby};
 use nvf_signal::wire::{self, BrowseAnswer, Listing};
 
@@ -94,9 +95,9 @@ pub(super) fn rows(a: &BrowseAnswer, load_order: &str, favourites: &[String]) ->
         .iter()
         .map(|r| {
             let cannot = if r.protocol != nvf_coop::net::VERSION as u32 {
-                Some(format!("The host runs another version of NVForever ({}): both games need the same one.", r.build))
+                Some(trf("The host runs another version of NVForever ({build}): both games need the same one.", &[("build", &r.build)]))
             } else if !r.load_order_hash.is_empty() && !load_order.is_empty() && r.load_order_hash != load_order {
-                Some("The host runs a different load order: both games need the same plugins in the same order.".to_string())
+                Some(tr("The host runs a different load order: both games need the same plugins in the same order.").to_string())
             } else {
                 None
             };

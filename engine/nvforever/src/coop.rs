@@ -973,14 +973,14 @@ fn lobby(
                     coop.browse_job = Some(job);
                     coop.browse = Browse::Loading;
                 }
-                None => coop.browse = Browse::Failed("The lobby browser needs the matchmaking service: Co-op connection is LAN only, or the service is turned off.".into()),
+                None => coop.browse = Browse::Failed(tr("The lobby browser needs the matchmaking service: Co-op connection is LAN only, or the service is turned off.").into()),
             },
             LobbyRequest::Report { code } => match browse::report(code) {
                 Some(job) => {
                     coop.report_job = Some(job);
                     coop.report_code = code.clone();
                 }
-                None => coop.report_note = Some((code.clone(), "The report needs the matchmaking service.".into())),
+                None => coop.report_note = Some((code.clone(), tr("The report needs the matchmaking service.").into())),
             },
             LobbyRequest::Favourite { host_fp, on } => {
                 browse::set_favourite(&mut coop.favourites, host_fp, *on);
@@ -1045,8 +1045,8 @@ fn lobby(
     if let Some(r) = coop.report_job.as_ref().and_then(browse::report_done) {
         coop.report_job = None;
         let said = match r {
-            Ok(()) => "Lobby reported. Thank you.".to_string(),
-            Err(why) => format!("The report did not go through: {why}"),
+            Ok(()) => tr("Lobby reported. Thank you.").to_string(),
+            Err(why) => trf("The report did not go through: {why}", &[("why", &why)]),
         };
         coop.report_note = Some((coop.report_code.clone(), said));
     }
@@ -1125,10 +1125,17 @@ fn lobby(
 /// A guest's connection on the host's lobby list: how it is connected, and the reliable
 /// stream's round trip once measured [design: our own words].
 fn path_label(path: Option<nvf_coop::stack::Path>, rtt: Option<std::time::Duration>) -> String {
-    match (path, rtt) {
-        (Some(p), Some(r)) => format!(" ({}, {} ms)", p.word(), r.as_millis()),
-        (Some(p), None) => format!(" ({})", p.word()),
-        (None, Some(r)) => format!(" ({} ms)", r.as_millis()),
+    use nvf_coop::stack::Path;
+    let word = path.map(|p| match p {
+        Path::Lan => tr("local network"),
+        Path::Direct => tr("direct"),
+        Path::Relayed => tr("through another player"),
+        Path::HostedRelay => tr("through a relay"),
+    });
+    match (word, rtt) {
+        (Some(w), Some(r)) => trf(" ({path}, {ms} ms)", &[("path", &w), ("ms", &r.as_millis())]),
+        (Some(w), None) => format!(" ({w})"),
+        (None, Some(r)) => trf(" ({ms} ms)", &[("ms", &r.as_millis())]),
         (None, None) => String::new(),
     }
 }
