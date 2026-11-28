@@ -1118,6 +1118,10 @@ struct Body {
     /// AgeRace's and SexChange's change the body was built with (`ActorWorld::change`,
     /// `crate::appearance`).
     change: fnv_actor::Change,
+    /// Whether the third-person rig was built with `--first-person-body` arm splitting
+    /// (`PlayerBody::first_person_body`), so toggling the setting rebuilds the body cleanly
+    /// without splitting meshes for default players [design, #3227].
+    first_person_body: bool,
     female: bool,
     scale: f32,
     third: Rig,
@@ -1466,7 +1470,7 @@ impl PlayerBody {
         Self {
             body: Some(Body {
                 worn: Vec::new(), look: None, change: fnv_actor::Change::default(),
-                female: false, scale: 1.0, third: rig(third, View::Third),
+                first_person_body: false, female: false, scale: 1.0, third: rig(third, View::Third),
                 first: first.map(|r| rig(r, View::First)),
                 first_addons: Vec::new(),
             }),
@@ -1481,7 +1485,7 @@ impl PlayerBody {
         commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx,
         worn: &[FormId], look: Option<&fnv_actor::Look>,
     ) -> Result<Self, String> {
-        Ok(Self { body: Some(build(commands,parent,world,ctx,worn,look)?), ..Self::default() })
+        Ok(Self { body: Some(build(commands,parent,world,ctx,worn,look,false)?), ..Self::default() })
     }
 
     /// The clips heard (`anim_sounds.rs`): the animator of the rig in view (the
@@ -1955,7 +1959,8 @@ fn ensure_body(
     let change = world.change(FormId::PLAYER_REF.0);
     let look_changed = state.body.as_ref().is_some_and(|b| b.look != look || b.change != change);
     let look_due = look_changed && real.elapsed_secs() - *last_look >= LOOK_REBUILD;
-    if state.body.as_ref().is_none_or(|b| b.worn != worn) || look_due || force_body {
+    let fp_body = state.first_person_body;
+    if state.body.as_ref().is_none_or(|b| b.worn != worn || b.first_person_body != fp_body) || look_due || force_body {
         if look_due {
             *last_look = real.elapsed_secs();
             debug!("player body: the look changed; rebuilt");
@@ -1972,7 +1977,7 @@ fn ensure_body(
             }
         }
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        match build(&mut commands, world_root, &world, &mut ctx, &worn, look.as_ref()) {
+        match build(&mut commands, world_root, &world, &mut ctx, &worn, look.as_ref(), fp_body) {
             Ok(mut b) => {
                 // The new body goes on with the old one's clips and pose: no T-pose while
                 // its clips would fade in [owner 2026-10-17: "a few frames where the model
@@ -2171,7 +2176,7 @@ fn ensure_body(
 /// The least time between two body rebuilds for a changed look, seconds.
 const LOOK_REBUILD: f32 = 0.1;
 
-fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId], look: Option<&fnv_actor::Look>) -> Result<Body, String> {
+fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId], look: Option<&fnv_actor::Look>, first_person_body: bool) -> Result<Body, String> {
     let a = world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(worn), look)?;
     // The armour pieces drawn (an addon in the Backpack slot is left out while a weapon
     // with Hide Backpack is held).
@@ -2184,7 +2189,7 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
     }
     info!("player body: armour drawn {drawn:?}");
     let scale = a.race_height as f32;
-    let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
+    let third = build_rig(commands, parent, world, ctx, &a, View::Third, None, first_person_body)?;
     let vfs = ctx.models.data.vfs.clone();
     // A held weapon's own addons (WEAP BIPL, `equipped`) are worn by the first-person
     // arms only when the weapon has no model of its own for that view: the Bladed
@@ -2194,7 +2199,7 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
     let first_worn = first_person::first_person_worn(&world.actors, worn);
     let first_a = if first_worn.len() == worn.len() { None } else { Some(world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(&first_worn), look)?) };
     let (fa, shows) = first_person::appearance(&world.actors, first_a.as_ref().unwrap_or(&a), |p| vfs.exists(p));
-    let first = match build_rig(commands, parent, world, ctx, &fa, View::First, Some(&shows)) {
+    let first = match build_rig(commands, parent, world, ctx, &fa, View::First, Some(&shows), false) {
         Ok(r) => Some(r),
         Err(e) => {
             warn!("player body: no first-person rig ({e}); the third-person body's head gives the view");
@@ -2209,7 +2214,7 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
             .map(|x| world.actors.armors.get(&x).and_then(|x| x.edid.clone()).unwrap_or_else(|| x.to_string()))
             .collect()
     });
-    Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), female: a.female, scale, third, first, first_addons })
+    Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), first_person_body, female: a.female, scale, third, first, first_addons })
 }
 
 /// Select how an upper-body part's first-person arms are found (`by name`, `by partition`,
@@ -2268,7 +2273,9 @@ fn prepare_first_person_upper_body(u: &mut PartUse, skel: &PreparedSkeleton, mes
         let mut keep_whole = false;
         let mut keep_split: Option<Mesh> = None;
         match source {
-            ArmsSource::ByName => keep_whole = s.name.as_deref().is_some_and(is_first_person_shape),
+            // Preserve pre-#3227 `ByName` behaviour: only named non-first-person shapes are
+            // hidden; unnamed shapes stay drawn as before.
+            ArmsSource::ByName => keep_whole = s.name.as_deref().is_none_or(is_first_person_shape),
             ArmsSource::ByPartition | ArmsSource::ByWeights => {
                 if is_sleeve {
                     keep_whole = true;
@@ -2307,8 +2314,11 @@ fn prepare_first_person_upper_body(u: &mut PartUse, skel: &PreparedSkeleton, mes
 
 /// Split arm partitions or arm-weighted triangles out of `Show::Arms` third-person parts so
 /// `--first-person-body` hides the body's own arms while the arms rig is up without hiding
-/// the torso [design, #3227]. Returns `(arm_only_shapes, extra_arm_part_flags)`.
+/// the torso [design, #3227]. When `first_person_body` is `false`, returns empty markers
+/// with zero mesh splits or extra draws for default players. Returns
+/// `(arm_only_shapes, extra_arm_part_flags)`.
 fn prepare_third_person_upper_body(
+    first_person_body: bool,
     uses: &mut Vec<PartUse>,
     hide: &mut Vec<bool>,
     arms: &mut Vec<Option<Show>>,
@@ -2318,6 +2328,9 @@ fn prepare_third_person_upper_body(
     let orig_len = uses.len();
     let mut arm_shapes: HashSet<(usize, usize)> = HashSet::new();
     let mut extra_arm_part: Vec<bool> = vec![false; orig_len];
+    if !first_person_body {
+        return (arm_shapes, extra_arm_part);
+    }
     for p in 0..orig_len {
         if arms[p] != Some(Show::Arms) {
             continue;
@@ -2360,7 +2373,8 @@ fn prepare_third_person_upper_body(
 
 /// Spawn one rig of appearance `a` under `parent` (its transform set each frame).
 /// `shows` (first person): per part of `a`, how it shows.
-fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, a: &Appearance, view: View, shows: Option<&[Show]>) -> Result<Rig, String> {
+#[allow(clippy::too_many_arguments)]
+fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, a: &Appearance, view: View, shows: Option<&[Show]>, first_person_body: bool) -> Result<Rig, String> {
     let skel = ctx.skeleton(&a.skeleton).ok_or_else(|| format!("skeleton {} not loaded", a.skeleton))?;
     let mut stats = crate::actors::ActorStats::default();
     let mut uses = part_uses(a, world, ctx, &mut stats);
@@ -2409,7 +2423,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let mut part_index: Vec<usize> = uses.iter().map(|(i, _)| *i).collect();
     let mut uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
     let (arm_shapes, extra_arm_part) = if view == View::Third {
-        prepare_third_person_upper_body(&mut uses, &mut hide, &mut arms, &mut part_index, &mut ctx.models.meshes)
+        prepare_third_person_upper_body(first_person_body, &mut uses, &mut hide, &mut arms, &mut part_index, &mut ctx.models.meshes)
     } else {
         (HashSet::new(), vec![false; uses.len()])
     };
@@ -4749,7 +4763,7 @@ mod tests {
         let pb = PlayerBody {
             body: Some(Body {
                 worn: Vec::new(), look: None, change: fnv_actor::Change::default(),
-                female: false, scale: 1.0, third: third_rig, first: Some(first_rig), first_addons: Vec::new(),
+                first_person_body: false, female: false, scale: 1.0, third: third_rig, first: Some(first_rig), first_addons: Vec::new(),
             }),
             ..Default::default()
         };
@@ -4818,7 +4832,7 @@ mod tests {
         let pb = PlayerBody {
             body: Some(Body {
                 worn: Vec::new(), look: None, change: fnv_actor::Change::default(),
-                female: false, scale: 1.0,
+                first_person_body: false, female: false, scale: 1.0,
                 third: make_rig(third_root, View::Third, None),
                 // Cached as shown == Some(true), yet ECS Visibility was externally hidden.
                 first: Some(make_rig(first_root, View::First, Some(true))),
@@ -5307,7 +5321,27 @@ mod tests {
         let fp_mesh = meshes.get(fp_use.meshes[0].as_ref().expect("arm mesh handle")).expect("arm mesh");
         assert_eq!(mesh_indices_u32(fp_mesh), vec![3, 4, 5]);
 
-        // Third-person rig: splits torso (`arm: false`) from arms (`arm: true`).
+        // Third-person rig with `--first-person-body` OFF: no mesh split and no extra draws.
+        let mut tp_default_uses = vec![PartUse {
+            part: part.clone(),
+            materials: Vec::new(),
+            layers: Vec::new(),
+            meshes: Vec::new(),
+            hidden_shapes: Vec::new(),
+            hidden_indices: Vec::new(),
+            allow_partial_skin: false,
+            by_ancestor: false,
+        }];
+        let mut hide_off = vec![false];
+        let mut arms_off = vec![Some(Show::Arms)];
+        let mut part_index_off = vec![0usize];
+        let (arm_shapes_off, extra_arm_part_off) = prepare_third_person_upper_body(false, &mut tp_default_uses, &mut hide_off, &mut arms_off, &mut part_index_off, &mut meshes);
+        assert!(arm_shapes_off.is_empty());
+        assert_eq!(tp_default_uses.len(), 1, "default third-person build must not add companion draws");
+        assert!(tp_default_uses[0].meshes.is_empty(), "default third-person build must not split meshes");
+        assert_eq!(extra_arm_part_off, vec![false]);
+
+        // Third-person rig with `--first-person-body` ON: splits torso (`arm: false`) from arms (`arm: true`).
         let mut tp_uses = vec![PartUse {
             part,
             materials: Vec::new(),
@@ -5321,7 +5355,7 @@ mod tests {
         let mut hide = vec![false];
         let mut arms = vec![Some(Show::Arms)];
         let mut part_index = vec![0usize];
-        let (arm_shapes, extra_arm_part) = prepare_third_person_upper_body(&mut tp_uses, &mut hide, &mut arms, &mut part_index, &mut meshes);
+        let (arm_shapes, extra_arm_part) = prepare_third_person_upper_body(true, &mut tp_uses, &mut hide, &mut arms, &mut part_index, &mut meshes);
         assert!(arm_shapes.is_empty());
         assert_eq!(tp_uses.len(), 2, "companion arm PartUse created for mixed shape");
         assert_eq!(extra_arm_part, vec![false, true]);
@@ -5337,6 +5371,44 @@ mod tests {
         assert!(seen.part(&torso_drawn), "torso stays visible in first-person-body mode");
         assert!(!seen.part(&arm_drawn), "third-person body arms hide while first-person arms are up");
         assert!(Seen::upright(false, false, false).part(&arm_drawn), "third-person body arms return when holstered");
+    }
+
+    /// Regression test for #4176 review: `ArmsSource::ByName` keeps unnamed shapes drawn
+    /// (hiding only named non-first-person shapes), matching pre-#3227 behaviour.
+    #[test]
+    fn by_name_first_person_upper_body_preserves_unnamed_shapes() {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::mesh::{Indices, PrimitiveTopology};
+        use nvf_assets::actor::PartShape;
+
+        let make_cpu = || {
+            let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0, 0.0, 0.0]; 3]);
+            m.insert_indices(Indices::U32(vec![0, 1, 2]));
+            Arc::new(m)
+        };
+        let shapes = vec![
+            PartShape::skinned_cpu(Some("Arms:0".into()), make_cpu(), Vec::new(), Vec::new()),
+            PartShape::skinned_cpu(Some("UpperBody:0".into()), make_cpu(), Vec::new(), Vec::new()),
+            PartShape::skinned_cpu(None, make_cpu(), Vec::new(), Vec::new()),
+        ];
+        let part = Arc::new(PreparedPart { shapes, ..Default::default() });
+        let skel = PreparedSkeleton::default();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut fp_use = PartUse {
+            part,
+            materials: Vec::new(),
+            layers: Vec::new(),
+            meshes: Vec::new(),
+            hidden_shapes: Vec::new(),
+            hidden_indices: Vec::new(),
+            allow_partial_skin: false,
+            by_ancestor: false,
+        };
+        let (source, kept) = prepare_first_person_upper_body(&mut fp_use, &skel, &mut meshes);
+        assert_eq!(source, ArmsSource::ByName);
+        assert_eq!(kept, 2, "Arms:0 and the unnamed shape stay drawn");
+        assert_eq!(fp_use.hidden_indices, vec![1], "only named non-first-person UpperBody:0 is hidden");
     }
 }
 

@@ -154,9 +154,9 @@ impl Fixture {
             assert!(camera.tracks.iter().any(|(name, _)| name == "Camera1st"));
             assert!(ctx.clip("meshes/OwnedThird.kf").is_some());
             Body {
-                worn: Vec::new(), look: None, change: Default::default(), female: false, scale: 1.0,
-                third: build_rig(&mut commands, parent, &world, &mut ctx, &a, View::Third, None).unwrap(),
-                first: Some(build_rig(&mut commands, parent, &world, &mut ctx, &a, View::First, None).unwrap()),
+                worn: Vec::new(), look: None, change: Default::default(), first_person_body: false, female: false, scale: 1.0,
+                third: build_rig(&mut commands, parent, &world, &mut ctx, &a, View::Third, None, false).unwrap(),
+                first: Some(build_rig(&mut commands, parent, &world, &mut ctx, &a, View::First, None, false).unwrap()),
                 first_addons: Vec::new(),
             }
         }).unwrap();
