@@ -1,8 +1,8 @@
 # Interior window beams
 
-The first slice of [#4698](https://github.com/LootJunkieAzza/NVForever/issues/4698) identifies
-candidate window beams on static shapes in loaded interiors. The existing cards continue
-to draw.
+The experimental interior light beams row ([#4698](https://github.com/LootJunkieAzza/NVForever/issues/4698))
+replaces qualifying window ray cards with depth-tested shafts. High can be selected during
+play. Off is the default in every preset.
 
 ## Which shapes qualify
 
@@ -33,5 +33,30 @@ does not install systems or read ray meshes while the switch is off. Release bui
 without `dev-aids` omit the census.
 
 This slice covers static shapes streamed with the cell. Rigged, posed, morphing and
-billboard shapes stay outside the census. Later slices will handle script-drawn rays,
-the live settings row and rendering the beams in place of their cards.
+billboard shapes stay outside the census. Later slices will cover script-drawn rays
+and additional shape families.
+
+## Rendering on High
+
+The replacement uses the approved prototype look [design]. It draws separate shafts
+when the fit finds them, with peak strength 0.20 and no per-shaft boost. From each shape
+it reads the original card's weather-driven colour. It mixes 30% of the ambient hue at
+the same luminance, limits the phase gain to 1.6, and fades in over the first 96 units
+from the eye. A prism's narrow half-width is at least 35% of its wide half-width.
+The camera picks the nearest shapes that fit within 48 shafts. Very faint sources
+below one display step at peak strength keep their cards.
+
+The first pass sums optical depth in a floating-point target. A five-point
+Gauss-Legendre rule integrates the smooth density profile along each ray, clipped to
+the prism and to scene depth. It uses the nearest and farthest MSAA depth samples
+at edges. The second pass applies a single bound, `(1 - exp(-tau)) / (1 - exp(-1))`,
+before adding the result to the main HDR image. The default look follows the display
+addition used for the ray cards. Physical lighting adds in linear light.
+
+The main camera alone can request these passes. Near first-person depth keeps the
+beams behind the held weapon and arms. The original cards stay visible while the
+pipelines compile. With both pipelines and depth ready, the main camera's transparent
+phase skips the replaced cards for that frame. A shaft draws only when its card was
+in that phase. Other views and gameplay visibility continue to use the original
+entities. Pipelines and GPU buffers are prepared only for a view that requests shafts.
+Low quality, fog integration, broader room tests and cost tuning are follow-ups.

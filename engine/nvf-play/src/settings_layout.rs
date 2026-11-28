@@ -484,6 +484,7 @@ mod shared_table_tests {
         ("distant-lights", "Graphics"),
         ("volumetric-light", "Graphics"),
         ("volumetric-light-strength", "Graphics"),
+        ("interior-beams", "Graphics"),
         ("water-reflections", "Graphics"),
         ("water-effects", "Graphics"),
         ("water-mirror", "Graphics"),

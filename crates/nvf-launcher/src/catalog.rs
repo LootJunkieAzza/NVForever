@@ -335,6 +335,7 @@ pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
         ("ambient-occlusion", &["Off", "Performance", "Quality"][..]),
         // volumetric_clouds.rs `CLOUD_CHOICES` (2026-11-23); the engine also reads its older 1/0.
         ("volumetric-clouds", &["Off", "Performance", "Normal", "High"][..]),
+        ("interior-beams", &["Off", "High"][..]),
     ])
 }
 

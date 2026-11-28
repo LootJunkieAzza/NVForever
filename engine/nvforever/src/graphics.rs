@@ -276,6 +276,8 @@ pub struct Graphics {
     /// The sun's light in the air (medium_air_demand.rs; a prototype, off in every preset)
     /// [design, #3032 stage 3].
     pub volumetric_light: bool,
+    /// Depth-tested replacements for interior window cards [design, #4698].
+    pub interior_beams: bool,
 }
 
 /// The settings key of the Authored materials row (#2981).
@@ -287,7 +289,7 @@ pub const AUTHORED_REFLECTIONS_KEY: &str = "authored-reflections";
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing,
 /// shadow-filter, full-detail, distant-object and cloud-level choices that are not vanilla's, in the
 /// order of [`Graphics::describe`].
-pub const KEYS: [&str; 33] = [
+pub const KEYS: [&str; 34] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -317,6 +319,7 @@ pub const KEYS: [&str; 33] = [
     "volumetric-clouds-performance",
     "volumetric-clouds-high",
     "volumetric-light",
+    "interior-beams",
     "aerial-perspective",
     "night-sky-detail",
     "physical-pbr",
@@ -404,6 +407,7 @@ impl Graphics {
             physical_pbr: false,
             // Off in every preset: a prototype of our own [design, #3032 stage 3].
             volumetric_light: false,
+            interior_beams: false,
         }
     }
 
@@ -438,6 +442,7 @@ impl Graphics {
             AUTHORED_REFLECTIONS_KEY => &mut self.authored_reflections,
             "distant-lights" => &mut self.distant_lights,
             "volumetric-light" => &mut self.volumetric_light,
+            "interior-beams" => &mut self.interior_beams,
             _ => return None,
         })
     }
@@ -517,6 +522,7 @@ impl Graphics {
             (self.distant_objects != crate::distant_objects::DistantObjects::Off, self.distant_objects.describe()),
             (self.volumetric_clouds, "volumetric clouds"),
             (self.volumetric_light, "volumetric light"),
+            (self.interior_beams, "interior beams"),
             (self.aerial_perspective, "aerial perspective"),
             (self.night_sky_detail, "night sky detail"),
             (self.physical_pbr, "physical PBR lighting"),
@@ -1062,9 +1068,10 @@ fn apply(
     eye: Res<crate::eye_adapt::EyeCurve>,
     cutouts: Option<ResMut<nvf_assets::nif_material::BlendedCutouts>>,
     map: Option<Res<DirectionalLightShadowMap>>,
-    mut done: Local<Option<(Graphics, Msaa, bool, UpscalerChoice, Vec<Entity>, bool)>>,
+    mut done: Local<Option<(Graphics, Msaa, bool, UpscalerChoice, Vec<Entity>, bool, bool)>>,
     work: Option<ResMut<crate::quality_probe::Work>>,
     air: Option<Res<crate::medium_air_demand::AirWanted>>,
+    streamer: Option<Res<crate::world::Streamer>>,
 ) {
     let cam_count = cams.iter().count();
     if cam_count == 0 {
@@ -1090,7 +1097,8 @@ fn apply(
     // The light in the air (medium_air_demand.rs) is composed in the HDR picture too; absent
     // (tests, or before its plugin) it counts as off.
     let air = air.is_some_and(|a| a.0);
-    if aa_matches && done.as_ref().is_some_and(|(d, m, supported, effective, previous, was_air)| *d == *g && *m == msaa.0 && *supported == fsr_support.0 && *effective == upscaler && *previous == entities && *was_air == air) {
+    let beams = g.interior_beams && streamer.is_some_and(|s| s.interior.is_some());
+    if aa_matches && done.as_ref().is_some_and(|(d, m, supported, effective, previous, was_air, had_beams)| *d == *g && *m == msaa.0 && *supported == fsr_support.0 && *effective == upscaler && *previous == entities && *was_air == air && *had_beams == beams) {
         return;
     }
     let first = done.is_none();
@@ -1100,7 +1108,7 @@ fn apply(
     });
     let fsr_changed = done.as_ref().is_none_or(|(_, _, _, effective, ..)| effective.fsr() != fsr);
     let dlss_changed = done.as_ref().is_none_or(|(_, _, _, effective, ..)| effective.dlss() != dlss);
-    *done = Some((*g, msaa.0, fsr_support.0, upscaler, entities, air));
+    *done = Some((*g, msaa.0, fsr_support.0, upscaler, entities, air, beams));
     if let Some(mut work) = work {
         work.graphics += 1;
     }
@@ -1134,7 +1142,7 @@ fn apply(
         // the glow and the upscaler say [design, #3032 decision 10]; the light in the air of
         // stage 3 likewise.
         // Physical lighting works on linear light up to the tonemapper (§3.25).
-        if temporal || g.volumetric_clouds || crate::hdr::on() || air || nvf_assets::authored::physical_pbr() {
+        if temporal || g.volumetric_clouds || crate::hdr::on() || air || beams || nvf_assets::authored::physical_pbr() {
             e.insert(bevy::camera::Hdr);
         }
         // Eye adaptation (eye_adapt.rs) and the bright pass need the HDR view; each has

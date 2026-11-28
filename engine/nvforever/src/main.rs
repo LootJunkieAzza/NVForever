@@ -260,6 +260,8 @@ mod stress_sample;
 mod profile;
 mod perf_overlay;
 mod occlusion;
+mod room_beam;
+mod room_beam_pass;
 #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
 mod room_beam_census;
 mod rooms;
@@ -663,7 +665,7 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, volumetric-clouds, volumetric-light, aerial-perspective, night-sky-detail, distant-lights, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, volumetric-clouds, volumetric-light, interior-beams, aerial-perspective, night-sky-detail, distant-lights, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
     /// distant-objects-8 or distant-objects-12; volumetric-clouds-performance or
@@ -2091,6 +2093,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // without the row.
     .add_plugins(physical_ibl::PhysicalIblPlugin)
     .add_plugins(tone_presets::TonePresetsPlugin)
+    .add_plugins(room_beam::RoomBeamPlugin)
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
