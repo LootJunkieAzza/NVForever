@@ -439,14 +439,29 @@ impl Game<'_> {
         }
     }
 
-    /// An effect from a poison on the actor: an active effect whose source is an
-    /// ingestible all of whose effects are hostile and detrimental (GetIsPoison's rule,
-    /// `nvse_gaps`) [documented: GetIsPoisoned, "under the influence of a poison-type
-    /// effect"; hypothesis: the rule].
+    /// Whether the actor has an active poison or hostile+detrimental timed SPEL magic effect
+    /// (covering poison SPELs, ALCH poisons, and hostile+detrimental SPEL effects such as
+    /// SpellFlamerEffect while excluding beneficial or mixed non-poison ALCH ingestibles)
+    /// [documented: GetIsPoisoned; observed:
+    /// w6d12_38_getispoisoned_all_sources_and_antivenom_clear; design: ignoring inactive
+    /// (`!e.inactive`) and permanent (`!e.permanent`) effects and scoping the non-`is_poison`
+    /// Hostile+Detrimental branch to `SPEL` sources].
     fn jip4_poisoned(&self, a: FormId) -> bool {
-        self.effects.iter().filter(|e| e.target == a).any(|e| self.is_poison(e.source))
+        use crate::data::MagicEffectDef;
+        self.effects.iter().filter(|e| e.target == a && !e.inactive).any(|e| {
+            self.is_poison(e.source)
+                || (!e.permanent
+                    && self.data.sig(self.unclone(e.source)) == Some(*b"SPEL")
+                    && self
+                        .magic_effect_def(e.effect)
+                        .is_some_and(|m| m.has(MagicEffectDef::HOSTILE) && m.has(MagicEffectDef::DETRIMENTAL)))
+        })
     }
 }
+
+#[cfg(test)]
+#[path = "w6d12_getispoisoned_tests.rs"]
+mod w6d12_getispoisoned_tests;
 
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {

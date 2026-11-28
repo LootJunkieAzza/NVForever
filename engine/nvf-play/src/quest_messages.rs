@@ -191,6 +191,11 @@ impl Hidden {
 }
 
 impl QuestMessages {
+    /// Whether this line waits or is on screen now.
+    pub fn holds(&self, n: &QuestNotice) -> bool {
+        self.showing.as_ref().is_some_and(|(s, _)| s == n) || self.waiting.contains(n)
+    }
+
     /// Add a line behind those waiting. Objectives join a list of their own quest's that
     /// waits last; a line
     /// that says what the last one says is left out, and so is any when too many wait.

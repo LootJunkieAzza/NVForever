@@ -502,9 +502,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     let v = match name {
         // Outside a ShowOff:OnAdd handler none [documented: only inside one].
         "getaddeditemrefshowoff" => XVal::Ref(g.showoff.added.map_or(0, |r| r.0)),
-        // Outside a ShowOff:OnExplosionHit handler 0 and nothing [documented: unusable
-        // outside it].
-        "getexplosionhitdamage" => XVal::Num(g.showoff.explosion_damage.unwrap_or(0.0)),
+        // Outside a ShowOff:OnExplosionHit handler returns -1.0 [observed: 2026-11-24,
+        // Fallout: New Vegas 1.4.0.525, xNVSE 6.4.9, ShowOffNVSE 184, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters,
+        // `tools/capture/nvse/catalogs/wave6d1_get_explosion_hit_damage_outside.json`
+        // probe `w6d1_18_on_explosion_hit_armor_dt`:
+        // `dt50(dmg=100.0,loss=75.0)|set30(dmg=100.0,loss=9.0)|rad=192.0,srcP=0,out=-1.0`;
+        // no DLL, PDB, or third-party source consulted].
+        "getexplosionhitdamage" => XVal::Num(g.showoff.explosion_damage.unwrap_or(-1.0)),
         "setexplosionhitdamage" => {
             if g.showoff.explosion_damage.is_some() {
                 g.showoff.explosion_damage = Some(num(args, 0, 0.0));

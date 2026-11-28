@@ -140,9 +140,9 @@ pub const BUCKETS_MAX: usize = 256;
 pub const WORLD_XY: f32 = 1_000_000.0;
 pub const WORLD_Z: f32 = 100_000.0;
 /// The highest reliable item kind (an item's first byte, the `crate::repl` kind): any other
-/// is refused [design: piece 1's 0x00-0x0F and the world's 0x10-0x2F; a later piece raises it
-/// with its own range].
-pub const ITEM_KIND_MAX: u8 = 0x2F;
+/// is refused [design: piece 1's 0x00-0x0F, the world's 0x10-0x2F and shared progress's
+/// 0x30-0x3F; a later piece raises it with its own range].
+pub const ITEM_KIND_MAX: u8 = 0x3F;
 /// The longest an emote's clip time can be, seconds [design].
 pub const EMOTE_T_MAX: f32 = 3600.0;
 /// The fastest a player's feet move, game units a second [design: several times a

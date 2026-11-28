@@ -6,7 +6,10 @@
 //! `net` is the session (the messages and who talks to whom), `rel` the reliable ordered
 //! stream inside it, `repl` the kinds of item that stream carries, `guard` the host's
 //! checks on everything a guest sends, `world` the host's checks on the world's messages,
-//! and `seam` what carries the packets ([`seam::Transport`]) and who may join.
+//! `progress` shared progress on the reliable stream (quest rewards, stage offers, kill
+//! credit, the host's quest, level and `story`, with the host's checks on what a guest
+//! sends of it), and `seam` what carries the packets ([`seam::Transport`]) and who may
+//! join.
 //!
 //! Under the seam, the internet transport: `stack` (the transport the session is given),
 //! `sockets` (IPv4 and IPv6), `noise` (every packet sealed, a key per player), `online`
@@ -21,6 +24,7 @@ pub mod noise;
 pub mod online;
 pub mod portmap;
 pub mod prefs;
+pub mod progress;
 pub mod reach;
 pub mod rel;
 pub mod repl;
@@ -28,4 +32,5 @@ pub mod seam;
 pub mod signal_io;
 pub mod sockets;
 pub mod stack;
+pub mod story;
 pub mod world;
