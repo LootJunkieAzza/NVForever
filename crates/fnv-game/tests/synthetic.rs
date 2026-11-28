@@ -3749,6 +3749,64 @@ fn get_explosion_hit_damage_returns_minus_one_outside_handler() {
 }
 
 #[test]
+fn on_actor_equip_and_unequip_aliases_self_and_pre_unequip() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(
+            &format!("ref cbEq\nref cbUn\nint g1\nint g2\nint r1\nint r2\nint ok\nBegin Function {{ }}\n{body}\nEnd\n"),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let res = q(
+        &mut g,
+        "set TestGlobal to 0
+         TestNpcREF.AddItem TestWeapon 1 1
+         let cbEq := (Begin Function {ref a, ref it}
+           let TestGlobal := TestGlobal + 1000
+           if eval (GetSelfAlt == 0)
+             let TestGlobal := TestGlobal + 1
+           endif
+           if eval (GetCurrentEventName == \"onactorequip\")
+             let TestGlobal := TestGlobal + 2
+           endif
+         End)
+         let cbUn := (Begin Function {ref a, ref it}
+           let TestGlobal := TestGlobal + 2000
+           if eval (GetSelfAlt == 0)
+             let TestGlobal := TestGlobal + 10
+           endif
+           if eval (a.GetEquipped it)
+             let TestGlobal := TestGlobal + 100
+           endif
+           if eval (GetCurrentEventName == \"onactorunequip\")
+             let TestGlobal := TestGlobal + 200
+           endif
+         End)
+         SetEventHandler \"OnActorEquip\" cbEq
+         SetEventHandler \"OnActorUnequip\" cbUn
+         let g1 := Ar_Size (GetEventHandlers \"OnEquip\")
+         let g2 := Ar_Size (GetEventHandlers \"OnUnequip\")
+         TestNpcREF.EquipItem TestWeapon 0 1
+         let ok := (TestNpcREF.GetEquipped TestWeapon)
+         TestNpcREF.UnequipItem TestWeapon 0 1
+         let r1 := RemoveEventHandler \"OnEquip\" cbEq
+         let r2 := RemoveEventHandler \"OnUnequip\" cbUn
+         SetFunctionValue (ok * 10000 + (g1 == 1) * 1000 + (g2 == 1) * 100 + (r1 == 1) * 10 + (r2 == 1))",
+    );
+    assert!(
+        !g.events.iter().any(|e| matches!(e.kind, fnv_game::trace::EventKind::ScriptError { .. })),
+        "unexpected script error: {:?}",
+        g.events
+    );
+    assert_eq!(res, XVal::Num(11111.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3313.0);
+}
+
+#[test]
 fn dispatch_event_returns_one_and_overwrites_info_map_keys() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();
