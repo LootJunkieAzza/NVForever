@@ -514,8 +514,10 @@ struct Variants {
     publications: HashMap<AssetId<NifBlendMaterial>, crate::terrain_surface::PublishedSurface>,
     ordinary_seen: HashMap<Entity, u32>,
     materials: HashMap<AssetId<NifMaterial>, (Handle<NifBlendMaterial>, SourceStamp)>,
-    /// Monotonic revision bumped only when `materials` or `publications` keys change, so
-    /// `extract_readiness` skips rebuilding `ReadinessInput::ids` on steady frames [design].
+    /// Monotonic revision bumped when `materials` or `publications` keys change or when
+    /// `follow_coverage` / `restrict_clone` edits an existing clone in place, so
+    /// `extract_readiness` and `acknowledge_materials` re-check readiness while changed
+    /// clones are prepared or bound again [design].
     id_rev: u64,
     reported: Option<u64>,
     reported_census: Option<Census>,
@@ -698,18 +700,35 @@ fn install_readiness(app: &mut App, gate: MaterialGate) {
             .add_systems(Render, acknowledge_materials.run_if(move || gate.is_open()).in_set(RenderSystems::Cleanup));
     }
 }
+fn sync_readiness_input(
+    input: &mut ReadinessInput,
+    variants: &Variants,
+    any_modified: bool,
+    last_rev: &mut Option<u64>,
+) {
+    let rev_changed = *last_rev != Some(variants.id_rev);
+    if !rev_changed && !any_modified {
+        return;
+    }
+    if rev_changed {
+        *last_rev = Some(variants.id_rev);
+        input.ids.clear();
+        input.ids.extend(variants.materials.values().map(|(h, _)| h.id()).chain(variants.publications.keys().copied()));
+    }
+    input.ids_rev = input.ids_rev.wrapping_add(1);
+}
+
 fn extract_readiness(
     mut input: ResMut<ReadinessInput>,
     variants: bevy::render::Extract<Res<Variants>>,
+    blend_events: bevy::render::Extract<Option<Res<Messages<AssetEvent<NifBlendMaterial>>>>>,
+    mut cursor: Local<bevy::ecs::message::MessageCursor<AssetEvent<NifBlendMaterial>>>,
     mut last_rev: Local<Option<u64>>,
 ) {
-    if *last_rev == Some(variants.id_rev) {
-        return;
-    }
-    *last_rev = Some(variants.id_rev);
-    input.ids.clear();
-    input.ids.extend(variants.materials.values().map(|(h, _)| h.id()).chain(variants.publications.keys().copied()));
-    input.ids_rev = input.ids_rev.wrapping_add(1);
+    let any_modified = blend_events.as_ref().is_some_and(|events| {
+        cursor.read(events).any(|e| matches!(e, AssetEvent::Modified { .. }))
+    });
+    sync_readiness_input(&mut input, &variants, any_modified, &mut last_rev);
 }
 fn acknowledge_materials(
     mut input: ResMut<ReadinessInput>, shared: Res<BlendReadiness>,
@@ -1084,6 +1103,12 @@ fn follow_coverage(cache: &SurfaceCache, variants: &mut Variants, blends: &mut A
         }
         if done { *applied = Some(coverage); }
     }
+    if changed > 0 {
+        // In-place `get_mut` edits trigger re-prepare/re-bind on the renderer; bump
+        // `id_rev` so `extract_readiness` and `acknowledge_materials` invalidate
+        // `settled_state` and re-check readiness for the updated clones [design].
+        variants.id_rev = variants.id_rev.wrapping_add(1);
+    }
     changed
 }
 
@@ -1120,7 +1145,10 @@ fn apply_configured_variants(p: &mut Conversion, c: BlendConfig) {
     if variants.verify.on && restricted < clone_work {
         // The verify aid: the per-clone check of every recorded publication, as before.
         let restricted: usize = variants.publications.iter().map(|(id, publication)| restrict_clone(cache, blends, *id, publication)).sum();
-        if restricted > 0 { variants.verify.diverged(&format!("coverage-clones={restricted}")); }
+        if restricted > 0 {
+            variants.id_rev = variants.id_rev.wrapping_add(1);
+            variants.verify.diverged(&format!("coverage-clones={restricted}"));
+        }
     }
     let (changed, removed) = shapes_changed(shapes, removals, variants);
     let needed = pass_needed(variants, c, published, changed, materials);
