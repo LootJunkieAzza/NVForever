@@ -16,7 +16,7 @@ impl Game<'_> {
     /// picked up (deleted) only with `taken` [documented: GetFirstRef, IncludeTakenRefs].
     pub(crate) fn refs_in_cell(&self, cell: FormId, taken: bool) -> Vec<FormId> {
         let mut out: Vec<FormId> = self.world.placed.by_cell.get(&cell).into_iter().flatten().copied().collect();
-        out.extend(self.world.changed().filter(|(_, s)| s.cell == Some(cell)).map(|(r, _)| r));
+        self.world.changed_in_cell(cell, &mut out);
         out.sort();
         out.dedup();
         out.retain(|&r| self.cell_of(r) == Some(cell) && (taken || !self.world.peek(r).is_some_and(|s| s.deleted())));
@@ -74,25 +74,21 @@ impl Game<'_> {
             return self
                 .refs_in_cell(c, taken)
                 .into_iter()
+                // The player is not in the walk [observed: nvse-eighth, GetFirstRef 200 in the
+                // player's cell skips the player].
                 .filter(|&r| (open || self.persistent(r)) && r != FormId::PLAYER_REF && self.ref_of_type(r, code))
                 .collect();
         }
-        // Multi-cell walk: scan `world.changed()` once across all target cells instead of
-        // repeating a full `World::refs` scan for every cell in the grid (`depth = 2` is 25 cells).
-        let cell_set: std::collections::HashSet<FormId> = cells.iter().copied().collect();
-        let mut moved_by_cell: std::collections::HashMap<FormId, Vec<FormId>> = std::collections::HashMap::new();
-        for (r, s) in self.world.changed() {
-            if let Some(c) = s.cell.filter(|c| cell_set.contains(c)) {
-                moved_by_cell.entry(c).or_default().push(r);
-            }
-        }
+        // Multi-cell walk: query the O(1) incremental `World::changed_in_cell` index per
+        // cell instead of scanning every entry in `World::refs` [design].
         let mut out = Vec::new();
+        let mut changed_buf = Vec::new();
         for c in cells {
             let open = loaded.contains(&c);
             let mut in_cell: Vec<FormId> = self.world.placed.by_cell.get(&c).into_iter().flatten().copied().collect();
-            if let Some(extra) = moved_by_cell.remove(&c) {
-                in_cell.extend(extra);
-            }
+            changed_buf.clear();
+            self.world.changed_in_cell(c, &mut changed_buf);
+            in_cell.extend_from_slice(&changed_buf);
             in_cell.sort();
             in_cell.dedup();
             in_cell.retain(|&r| self.cell_of(r) == Some(c) && (taken || !self.world.peek(r).is_some_and(|s| s.deleted())));

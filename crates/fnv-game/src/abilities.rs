@@ -28,8 +28,12 @@
 //!   abilities'; docs/spec-notes/crippled-limbs.md §2].
 
 use crate::game::Game;
-use fnv_sim::FormId;
+use fnv_sim::form::{FormId, FormMap};
 use std::collections::BTreeSet;
+
+type ActiveAbilitiesMap = FormMap<Vec<FormId>>;
+type ActiveWornMap = FormMap<Vec<(FormId, FormId)>>;
+type IndexedEffects<'a> = (&'a ActiveAbilitiesMap, &'a ActiveWornMap);
 
 /// Incremental cache for [`Game::effects_actors`]: authored placements in loaded cells,
 /// placed actors whose `RefState.cell` differs from their placement, live created actors,
@@ -116,12 +120,29 @@ impl Game<'_> {
     /// processed, and its race's again after a race change. Not for references that are
     /// no actor. The effects follow in [`Game::sync_abilities`].
     pub fn give_abilities(&mut self, r: FormId) {
-        if r != FormId::PLAYER_REF && self.def_following(r, |d| d.template_spells).is_none() {
-            return;
+        let has_override = r != FormId::PLAYER_REF
+            && (self.extra.get(&r).is_some_and(|e| e.race.is_some()) || self.itr_race(r).is_some());
+        if r != FormId::PLAYER_REF {
+            if !has_override
+                && self
+                    .extra
+                    .get(&r)
+                    .is_some_and(|e| e.abilities_given && e.ability_race_matches_base)
+            {
+                return;
+            }
+            if self.def_following(r, |d| d.template_spells).is_none() {
+                return;
+            }
         }
         let race = self.ability_race(r);
         let (given, had_race) = self.extra.get(&r).map_or((false, None), |e| (e.abilities_given, e.ability_race));
         if given && had_race == race {
+            if r != FormId::PLAYER_REF && !has_override {
+                if let Some(e) = self.extra.get_mut(&r) {
+                    e.ability_race_matches_base = true;
+                }
+            }
             return;
         }
         let own = self.record_abilities(r);
@@ -135,6 +156,7 @@ impl Game<'_> {
         let e = self.extra.entry(r).or_default();
         e.abilities_given = true;
         e.ability_race = race;
+        e.ability_race_matches_base = r != FormId::PLAYER_REF && !has_override;
         e.spells.retain(|s| !gone.contains(s));
         for spell in add {
             if !e.spells.contains(&spell) {
@@ -388,20 +410,111 @@ impl Game<'_> {
     /// Every frame: the player, the actors in the loaded cells and those that still have
     /// abilities' or worn enchantments' effects (to end them when they leave).
     pub(crate) fn sync_loaded_actor_effects(&mut self) {
-        for a in self.effects_actors() {
-            self.sync_actor_effects(a);
+        if self.syncing_effects {
+            return;
         }
+        // Single-pass index of active permanent ability sources and worn enchantments per
+        // actor so steady-state frames avoid O(actors * spells * effects) scans and
+        // per-actor Vec allocations [design].
+        let mut active_abilities: ActiveAbilitiesMap = FormMap::default();
+        let mut active_worn: ActiveWornMap = FormMap::default();
+        for e in &self.effects {
+            if let Some(item) = e.worn {
+                let list = active_worn.entry(e.target).or_default();
+                let pair = (item, e.source);
+                if !list.contains(&pair) {
+                    list.push(pair);
+                }
+            } else if e.permanent && self.spell_type(e.source) == Some(SPELL_ABILITY) {
+                let list = active_abilities.entry(e.target).or_default();
+                if !list.contains(&e.source) {
+                    list.push(e.source);
+                }
+            }
+        }
+        let actors = self.effects_actors_with_indexed(&active_abilities, &active_worn);
+        self.syncing_effects = true;
+        for a in actors {
+            self.give_abilities(a);
+            if self.wants_perk_sync(a) {
+                self.sync_perk_abilities_of(a);
+            }
+            if a == FormId::PLAYER_REF {
+                self.sync_perk_weights();
+            }
+            let loaded = self.effects_loaded(a);
+            // Fast path for abilities: check against pre-indexed active ability sources.
+            let abilities_need_work = if !loaded {
+                active_abilities.contains_key(&a) || self.extra.get(&a).is_some_and(|x| !x.dispelled.is_empty())
+            } else if let Some(x) = self.extra.get(&a) {
+                let have = active_abilities.get(&a).map(Vec::as_slice).unwrap_or(&[]);
+                x.spells.iter().any(|&s| {
+                    self.spell_type(s) == Some(SPELL_ABILITY)
+                        && !x.dispelled.contains(&s)
+                        && !have.contains(&s)
+                })
+            } else {
+                false
+            };
+            if abilities_need_work {
+                self.sync_abilities(a);
+            }
+            // Fast path for worn enchantments: skip allocation when nothing is worn and no
+            // worn effect is active, or when the equipped enchanted armor matches active_worn.
+            let have_worn = active_worn.get(&a).map(Vec::as_slice).unwrap_or(&[]);
+            let worn_dispelled_nonempty = self.extra.get(&a).is_some_and(|x| !x.worn_dispelled.is_empty());
+            let worn_need_work = if !loaded {
+                !have_worn.is_empty() || worn_dispelled_nonempty
+            } else if worn_dispelled_nonempty {
+                true
+            } else {
+                let mut wanted_count = 0usize;
+                let mut mismatch = false;
+                if let Some(inv) = self.world.peek(a).and_then(|s| s.inventory.as_ref()) {
+                    for item in inv.equipped() {
+                        let orig = self.unclone(item);
+                        if self.data.sig(orig) != Some(*b"ARMO") {
+                            continue;
+                        }
+                        let ench = match self.object_effect_override(item) {
+                            Some(override_effect) => override_effect,
+                            None => self.data.armor_enchantments.get(&orig).copied(),
+                        };
+                        if let Some(ench) = ench.filter(|e| self.data.enchantment_types.get(e) == Some(&ENCHANTMENT_APPAREL) && self.data.effect_items.contains_key(e)) {
+                            wanted_count += 1;
+                            if !have_worn.contains(&(item, ench)) {
+                                mismatch = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                mismatch || wanted_count != have_worn.len()
+            };
+            if worn_need_work {
+                self.sync_worn(a);
+            }
+        }
+        self.syncing_effects = false;
     }
 
-    /// The actors [`Game::sync_loaded_actor_effects`] keeps up to date: the player, the
-    /// loaded ones among those the packages cover, the targets of abilities' and worn
-    /// enchantments' effects, and those with an ability dispelled while loaded (whose
-    /// dispel ends when they are not, `sync_abilities`).
-    ///
-    /// Not every actor that ever chose a package (#1992): [`Game::package_actors`] keeps
-    /// those for the periodic choice, so a long playthrough synced thousands of actors
-    /// out of the loaded area every frame, each a no-op once its effects had ended.
+    #[cfg(test)]
     pub(crate) fn effects_actors(&mut self) -> BTreeSet<FormId> {
+        self.effects_actors_inner(None)
+    }
+
+    fn effects_actors_with_indexed(
+        &mut self,
+        active_abilities: &ActiveAbilitiesMap,
+        active_worn: &ActiveWornMap,
+    ) -> BTreeSet<FormId> {
+        self.effects_actors_inner(Some((active_abilities, active_worn)))
+    }
+
+    fn effects_actors_inner(
+        &mut self,
+        indexed: Option<IndexedEffects<'_>>,
+    ) -> BTreeSet<FormId> {
         // The loaded part of `package_actors`, built without scanning every `RefExtra` or
         // created reference each frame: authored actors in loaded cells, placed actors
         // whose `RefState.cell` differs from their placement, moved/created actors, active
@@ -463,7 +576,12 @@ impl Game<'_> {
         }
         actors.retain(|r| self.effects_loaded(*r));
         actors.insert(FormId::PLAYER_REF);
-        actors.extend(self.effects.iter().filter(|e| e.worn.is_some() || self.is_ability_effect(e)).map(|e| e.target));
+        if let Some((active_abilities, active_worn)) = indexed {
+            actors.extend(active_abilities.keys().copied());
+            actors.extend(active_worn.keys().copied());
+        } else {
+            actors.extend(self.effects.iter().filter(|e| e.worn.is_some() || self.is_ability_effect(e)).map(|e| e.target));
+        }
         cache.dispelled_actors.retain(|r| self.extra.get(r).is_some_and(|x| !x.dispelled.is_empty()));
         actors.extend(cache.dispelled_actors.iter().copied());
         self.placed_effect_actors = Some(cache);
@@ -597,3 +715,7 @@ mod effects_sync_cost {
 #[cfg(test)]
 #[path = "abilities_fast_path_tests.rs"]
 mod fast_path_tests;
+
+#[cfg(test)]
+#[path = "actor_effects_index_tests.rs"]
+mod actor_effects_index_tests;

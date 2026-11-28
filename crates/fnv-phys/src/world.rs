@@ -483,8 +483,12 @@ pub struct PhysWorld {
     pub(crate) grip: Option<crate::grab::Grip>,
     /// New actors' hit volumes get colliders of no body (`crate::actors`; on by default).
     pub(crate) standalone_hit_volumes: bool,
-    /// Standalone hit-volume colliders written since the last refresh or step: (collider,
-    /// actor body, pose on the body), placed by `flush_hit_volumes`.
+    /// Hit-volume colliders inserted or removed since the last full broad-phase
+    /// registration (`detect`/`step`), requiring a full pass before fast `set_aabb`
+    /// updates may run [design].
+    pub(crate) hitvol_colliders_changed: bool,
+    /// Hit-volume colliders written since the last refresh or step: (collider, actor body,
+    /// pose on the body), placed by `flush_hit_volumes` / `flush_hit_volumes_fast`.
     pub(crate) hitvol_pending: Vec<(ColliderHandle, RigidBodyHandle, Pose)>,
     /// [`Stats::solver_us`], milliseconds.
     pub(crate) solver_ms: [f64; 6],
@@ -554,6 +558,7 @@ impl PhysWorld {
             water: Default::default(),
             grip: None,
             standalone_hit_volumes: true,
+            hitvol_colliders_changed: false,
             hitvol_pending: Vec::new(),
             solver_ms: [0.0; 6],
             before: Default::default(),
@@ -1121,6 +1126,7 @@ impl PhysWorld {
         }
         self.dirty_by = 0;
         self.dirty = false;
+        self.hitvol_colliders_changed = false;
         self.new_bodies.clear();
         self.struck.clear();
         // The positive step consumed the old changes. Keep any marks/new bodies
@@ -1167,6 +1173,20 @@ impl PhysWorld {
         if self.dirty {
             // Only when there is work: this is called before every query.
             let _span = tracing::info_span!("phys::query_refresh").entered();
+            // Hit-volume-only dirty marks (`NO_CONTACTS` capsules, standalone or attached)
+            // can update their BVH leaves directly via `BroadPhaseBvh::set_aabb` without
+            // running a full zero-dt narrow-phase and island repair pass [design].
+            if self.dirty_by == (1 << DirtyBy::HitVolume as u8)
+                && self.new_bodies.is_empty()
+                && self.pending_sleep.is_empty()
+                && self.struck.is_empty()
+                && self.flush_hit_volumes_fast()
+            {
+                self.count_refresh(by);
+                self.dirty = false;
+                self.dirty_by = 0;
+                return;
+            }
             self.count_refresh(by);
             // Standalone hit volumes written since the last refresh (`crate::actors`).
             self.flush_hit_volumes();
@@ -1256,6 +1276,7 @@ impl PhysWorld {
             self.new_bodies.clear();
             self.dirty = false;
             self.dirty_by = 0;
+            self.hitvol_colliders_changed = false;
             if !self.w.quarantine().is_empty() {
                 self.handle_quarantine();
             }
@@ -1411,6 +1432,7 @@ impl PhysWorld {
             water: self.water.clone(),
             grip: self.grip.clone(),
             standalone_hit_volumes: self.standalone_hit_volumes,
+            hitvol_colliders_changed: self.hitvol_colliders_changed,
             hitvol_pending: self.hitvol_pending.clone(),
             solver_ms: self.solver_ms,
             before: self.before.clone(),

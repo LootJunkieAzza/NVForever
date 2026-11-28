@@ -707,6 +707,9 @@ pub struct Agent {
     /// planned, from when (`Game::time`) it may be planned again, and how fast the
     /// target went before that plan, when known.
     following: Option<(Place, f64, Option<f32>)>,
+    /// Cooldown after arriving at the nearest navmesh point for a Follow target so an
+    /// off-navmesh target does not trigger 60 Hz replanning [design].
+    follow_cooldown: Option<(Place, f64)>,
     /// The number of the script's weapon use it carries out ([`Ai::weapon_step`]).
     pub(crate) weapon_order: Option<u64>,
     /// An Escort, Find, Use Item At, Ambush or Flee Not Combat package's progress
@@ -774,17 +777,22 @@ pub struct Ai {
     /// The scripts' navmesh switches last applied to the graph
     /// ([`Ai::apply_navmesh_switches`]).
     applied_switches: Option<BTreeMap<u32, bool>>,
-    /// The world's lock serial last brought into the graph ([`Ai::apply_door_locks`]).
-    applied_locks: Option<(u64, u64)>,
+    /// The world's epoch, lock serial, and presence serial last brought into the graph
+    /// ([`Ai::apply_door_locks`]).
+    applied_locks: Option<(u64, u64, u64)>,
     /// Doors the game has locked that are not in the world now: their locks are left out
     /// of the graph until they are enabled ([`Ai::apply_door_locks`]).
     withheld_locks: Vec<u32>,
-    /// The world's presence serial and the graph's obstacle stamp after the obstacles
-    /// were last brought into the graph ([`Ai::obstacles_in_line`]).
-    applied_obstacles: Option<(u64, u64)>,
-    /// The world's presence serial last brought into the graph's load doors
+    /// The world's epoch, presence serial, and the graph's obstacle stamp after the
+    /// obstacles were last brought into the graph ([`Ai::obstacles_in_line`]).
+    applied_obstacles: Option<(u64, u64, u64)>,
+    /// The world's epoch and presence serial last brought into the graph's load doors
     /// ([`Ai::apply_door_presence`]).
-    applied_presence: Option<u64>,
+    applied_presence: Option<(u64, u64)>,
+    /// Lazily-built reverse index of doors and obstacles by FormID and enable-parent
+    /// ancestors so presence ticks stay O(changed) instead of scanning every door/obstacle
+    /// in the world on dynamic or unrelated presence changes [design].
+    presence_index: Option<NavPresenceIndex>,
     /// Doors that open in place, closed, that an unreachable report named as closing a
     /// package's way ([`Ai::why_unreachable`]); one that opens brings the packages set
     /// aside back ([`Ai::apply_doors_opened`]).
@@ -838,6 +846,97 @@ struct Stall {
     to: Option<Place>,
 }
 
+/// Reverse index of navmesh doors and obstacles (plus their enable-parent ancestor chains)
+/// keyed by the graph/world topology snapshot [design].
+struct NavPresenceIndex {
+    nav_ptr: usize,
+    world_epoch: u64,
+    full_serial: u64,
+    doors_len: usize,
+    in_place_len: usize,
+    obstacle_count: usize,
+    doors: std::collections::HashSet<u32>,
+    door_dependents: std::collections::HashMap<FormId, Vec<u32>>,
+    obstacle_dependents: std::collections::HashMap<FormId, Vec<u32>>,
+}
+
+impl NavPresenceIndex {
+    fn build(game: &Game, nav: &NavGraph) -> Self {
+        let door_refs = nav.door_refs();
+        let mut doors = std::collections::HashSet::with_capacity(door_refs.len());
+        let mut door_dependents: std::collections::HashMap<FormId, Vec<u32>> = std::collections::HashMap::new();
+        for d in door_refs {
+            doors.insert(d);
+            let mut cur = FormId(d);
+            for _ in 0..16 {
+                let Some(ep) = game.world.enable_parent(cur) else { break };
+                door_dependents.entry(ep.reference).or_default().push(d);
+                cur = ep.reference;
+            }
+        }
+        let obstacle_count = nav.obstacles.len();
+        let mut obstacle_dependents: std::collections::HashMap<FormId, Vec<u32>> = std::collections::HashMap::new();
+        for &r in nav.obstacles.keys() {
+            let mut cur = FormId(r);
+            for _ in 0..16 {
+                let Some(ep) = game.world.enable_parent(cur) else { break };
+                obstacle_dependents.entry(ep.reference).or_default().push(r);
+                cur = ep.reference;
+            }
+        }
+        NavPresenceIndex {
+            nav_ptr: nav as *const NavGraph as usize,
+            world_epoch: game.world.presence_epoch(),
+            full_serial: game.world.presence_full_serial(),
+            doors_len: nav.doors.len(),
+            in_place_len: nav.in_place.len(),
+            obstacle_count,
+            doors,
+            door_dependents,
+            obstacle_dependents,
+        }
+    }
+
+    fn matches(&self, game: &Game, nav: &NavGraph) -> bool {
+        self.nav_ptr == (nav as *const NavGraph as usize)
+            && self.world_epoch == game.world.presence_epoch()
+            && self.full_serial == game.world.presence_full_serial()
+            && self.doors_len == nav.doors.len()
+            && self.in_place_len == nav.in_place.len()
+            && self.obstacle_count == nav.obstacles.len()
+    }
+
+    fn affected_doors(&self, changes: &[(u64, FormId)]) -> Vec<u32> {
+        let mut out = Vec::new();
+        for &(_, id) in changes {
+            if self.doors.contains(&id.0) {
+                out.push(id.0);
+            }
+            if let Some(deps) = self.door_dependents.get(&id) {
+                out.extend_from_slice(deps);
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn affected_obstacles(&self, nav: &NavGraph, changes: &[(u64, FormId)]) -> Vec<u32> {
+        let mut out = Vec::new();
+        for &(_, id) in changes {
+            if nav.obstacles.contains_key(&id.0) {
+                out.push(id.0);
+            }
+            if let Some(deps) = self.obstacle_dependents.get(&id) {
+                out.extend_from_slice(deps);
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
 /// An actor's speeds in the order [`Stall::gait`] counts them.
 fn gait_speeds(s: &ActorSpeeds) -> [f32; 4] {
     [s.calm.walk, s.calm.run, s.alert.walk, s.alert.run]
@@ -882,7 +981,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, closing_doors: Vec::new(), locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), talk_ended: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, presence_index: None, closing_doors: Vec::new(), locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), talk_ended: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -956,15 +1055,85 @@ impl Ai {
     /// 0x0D009B07 (lock level 255, no key, disabled when Death From Above gets there) made
     /// every path past it unreachable (issue #2766). Its lock comes back when it is
     /// enabled, so the world's presence serial is watched as well as the lock serial.
+    fn presence_index_for(&mut self, game: &Game, nav: &NavGraph) -> &NavPresenceIndex {
+        let rebuild = self.presence_index.as_ref().is_none_or(|idx| !idx.matches(game, nav));
+        if rebuild {
+            self.presence_index = Some(NavPresenceIndex::build(game, nav));
+        }
+        self.presence_index.as_ref().expect("just built")
+    }
+
     pub fn apply_door_locks(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
-        let serial = (game.world.lock_serial(), game.world.presence_serial());
+        let world_epoch = game.world.presence_epoch();
+        let serial = (world_epoch, game.world.lock_serial(), game.world.presence_serial());
         if self.applied_locks == Some(serial) {
             return None;
         }
+        let prev = self.applied_locks;
         // Only the presence moved (references enabled, disabled, created): the doors to
         // look at are those that hold a lock or have one withheld, not every door.
-        let locks_moved = self.applied_locks.is_none_or(|a| a.0 != serial.0);
+        let locks_moved = prev.is_none_or(|a| a.0 != serial.0 || a.1 != serial.1);
         self.applied_locks = Some(serial);
+        // Fast path when only presence_serial moved in the same world: check only doors
+        // (or enable-parent descendants) that actually changed presence.
+        if !locks_moved {
+            if let Some(prev_presence) = prev.map(|a| a.2) {
+                if let Some(changes) = game.world.placed_presence_changes_since(prev_presence) {
+                    if changes.is_empty() {
+                        return None;
+                    }
+                    let affected = self.presence_index_for(game, nav).affected_doors(changes);
+                    let relevant: Vec<u32> = affected
+                        .into_iter()
+                        .filter(|d| nav.door_locks.contains_key(d) || self.withheld_locks.contains(d))
+                        .collect();
+                    if relevant.is_empty() {
+                        return None;
+                    }
+                    let mut states = Vec::with_capacity(relevant.len());
+                    for id in relevant {
+                        let there = game.world.is_enabled(FormId(id)).is_err() || game.present(FormId(id));
+                        let lock = game.world.lock_of(FormId(id)).filter(|l| l.locked);
+                        if lock.is_some() && !there {
+                            if !self.withheld_locks.contains(&id) {
+                                self.withheld_locks.push(id);
+                            }
+                        } else {
+                            self.withheld_locks.retain(|&w| w != id);
+                        }
+                        states.push((id, lock.filter(|_| there).map(|l| fnv_nav::graph::DoorLock { level: l.level, key: l.key.map(|k| k.0) })));
+                    }
+                    let changes = nav.sync_door_locks(states);
+                    self.locked_doors = nav.door_locks.keys().copied().collect();
+                    self.locked_doors.sort_unstable();
+                    if changes.is_empty() {
+                        return None;
+                    }
+                    let mut again: Vec<FormId> = Vec::new();
+                    if !changes.unlocked.is_empty() {
+                        again.extend(game.unblock_packages());
+                    }
+                    if !changes.locked.is_empty() {
+                        again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.locked))).map(|(id, _)| *id));
+                    }
+                    again.sort();
+                    again.dedup();
+                    for actor in &again {
+                        if let Some(a) = self.agents.get_mut(actor) {
+                            a.walker.follower = None;
+                            a.walker.tri = fnv_nav::graph::NONE;
+                            a.activity = Activity::None;
+                            a.package = None;
+                            a.goal = None;
+                            a.sandbox = None;
+                            a.errand = None;
+                            a.following = None;
+                        }
+                    }
+                    return Some(again);
+                }
+            }
+        }
         // [design, #2538] Include cold load doors: their applicable lock can live on
         // the other side, even when this side has never been materialised.
         let doors: Vec<u32> = if locks_moved {
@@ -1034,14 +1203,44 @@ impl Ai {
     /// [design: as for a door locked and unlocked, [`Ai::apply_door_locks`]]. Returns the
     /// actors sent to plan again, `None` when no door changed.
     pub fn apply_door_presence(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
-        let serial = game.world.presence_serial();
+        let world_epoch = game.world.presence_epoch();
+        let serial = (world_epoch, game.world.presence_serial());
         if self.applied_presence == Some(serial) {
             return None;
         }
+        let prev = self.applied_presence;
         self.applied_presence = Some(serial);
+        // Fast path: inspect only doors (or their enable-parent descendants) that changed
+        // presence since `prev`, avoiding an O(all_doors) scan on dynamic or unrelated edits.
+        let doors_to_check: Vec<u32> = if let Some((prev_world, prev_serial)) = prev {
+            if prev_world == world_epoch {
+                if let Some(changes) = game.world.placed_presence_changes_since(prev_serial) {
+                    if changes.is_empty() {
+                        return None;
+                    }
+                    let affected = self.presence_index_for(game, nav).affected_doors(changes);
+                    if affected.is_empty() {
+                        return None;
+                    }
+                    affected
+                } else {
+                    let _ = self.presence_index_for(game, nav);
+                    nav.door_refs()
+                }
+            } else {
+                let _ = self.presence_index_for(game, nav);
+                nav.door_refs()
+            }
+        } else {
+            let _ = self.presence_index_for(game, nav);
+            nav.door_refs()
+        };
         // A door the world does not know (no placed reference) is left as the graph has it.
         // Doors that open in place too (#2405): one not there bars nothing.
-        let states: Vec<(u32, bool)> = nav.door_refs().into_iter().filter(|&d| game.world.is_enabled(FormId(d)).is_ok()).map(|d| (d, game.present(FormId(d)))).collect();
+        let states: Vec<(u32, bool)> = doors_to_check.into_iter().filter(|&d| game.world.is_enabled(FormId(d)).is_ok()).map(|d| (d, game.present(FormId(d)))).collect();
+        if states.is_empty() {
+            return None;
+        }
         let changes = nav.sync_door_presence(states);
         if changes.is_empty() {
             return None;
@@ -1099,9 +1298,40 @@ impl Ai {
             debug_assert!(nav.obstacles.iter().all(|(&r, o)| o.enabled == game.present(FormId(r))), "obstacle cache out of line with the game");
             return None;
         }
-        let states: Vec<(u32, bool)> = nav.obstacles.keys().map(|&r| (r, game.present(FormId(r)))).collect();
+        let world_epoch = game.world.presence_epoch();
+        let cur_serial = game.world.presence_serial();
+        let cur_stamp = nav.obstacles_stamp();
+        let obs_to_check: Option<Vec<u32>> = if let Some((prev_world, prev_serial, prev_stamp)) = self.applied_obstacles {
+            if prev_world == world_epoch && prev_stamp == cur_stamp {
+                if let Some(changes) = game.world.placed_presence_changes_since(prev_serial) {
+                    if changes.is_empty() {
+                        self.applied_obstacles = Some((world_epoch, cur_serial, cur_stamp));
+                        return None;
+                    }
+                    let affected = self.presence_index_for(game, nav).affected_obstacles(nav, changes);
+                    if affected.is_empty() {
+                        self.applied_obstacles = Some((world_epoch, cur_serial, cur_stamp));
+                        return None;
+                    }
+                    Some(affected)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let states: Vec<(u32, bool)> = match obs_to_check {
+            Some(ids) => ids.into_iter().map(|r| (r, game.present(FormId(r)))).collect(),
+            None => {
+                let _ = self.presence_index_for(game, nav);
+                nav.obstacles.keys().map(|&r| (r, game.present(FormId(r)))).collect()
+            }
+        };
         let changed = nav.sync_obstacles(states);
-        self.applied_obstacles = Some((game.world.presence_serial(), nav.obstacles_stamp()));
+        self.applied_obstacles = Some((world_epoch, cur_serial, nav.obstacles_stamp()));
         if changed.is_empty() {
             return None;
         }
@@ -1129,7 +1359,7 @@ impl Ai {
     /// learnt again or switched) are the ones seen after the last poll. [`Game::present`]
     /// reads nothing else, so a poll now would find every obstacle as the graph has it.
     pub fn obstacles_in_line(&self, game: &Game, nav: &NavGraph) -> bool {
-        self.applied_obstacles == Some((game.world.presence_serial(), nav.obstacles_stamp()))
+        self.applied_obstacles == Some((game.world.presence_epoch(), game.world.presence_serial(), nav.obstacles_stamp()))
     }
 
     /// Give `actor` speeds of its own; its walker turns at its own rate from now on, and
@@ -1215,7 +1445,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, no_way_to: None, face_to: None, following: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0, calm_at: None, held: false });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, no_way_to: None, face_to: None, following: None, follow_cooldown: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0, calm_at: None, held: false });
         Ok(())
     }
 
@@ -2120,7 +2350,16 @@ impl Ai {
             return;
         }
         if self.agents[&actor].activity == Activity::There && away > keep + FOLLOW_SLACK {
-            self.follow_plan(game, nav, actor, package, f, target, away, lead_away, None, true);
+            // If we already walked to the closest navmesh point for this same target
+            // position (e.g. target stands slightly off-navmesh or across a ledge), hold
+            // until the target moves > REPLAN_DISTANCE or REPLAN_SECONDS elapses instead
+            // of replanning A* and cycling physics bodies every frame [design].
+            let hold = self.agents[&actor].follow_cooldown.is_some_and(|(to, until)| {
+                to.space == target.space && goal::dist(to.pos, target.pos) <= REPLAN_DISTANCE && game.time < until
+            });
+            if !hold {
+                self.follow_plan(game, nav, actor, package, f, target, away, lead_away, None, true);
+            }
         }
     }
 
@@ -2193,6 +2432,7 @@ impl Ai {
                 }
                 a.activity = Activity::Travelling;
                 a.following = Some((target, game.time + REPLAN_SECONDS, target_pace));
+                a.follow_cooldown = None;
                 if first {
                     let away = away.is_finite().then_some(away);
                     self.log(game, actor, AiEvent::Follow { package, target: f.target, away, length, doors, running });
@@ -3403,9 +3643,11 @@ impl Ai {
             return;
         }
         // The end of the way to the one it follows: it stands until the target is away
-        // again (`follow_step`).
+        // again (`follow_step`), remembering the target position we just walked to with
+        // a replan cooldown so an off-navmesh target does not trigger 60 Hz replanning.
         if matches!(a.goal, Some(Goal::Follow(_))) {
             a.activity = Activity::There;
+            a.follow_cooldown = a.following.map(|(to, _, _)| (to, game.time + REPLAN_SECONDS));
             a.following = None;
             return;
         }

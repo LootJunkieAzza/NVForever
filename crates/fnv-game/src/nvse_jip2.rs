@@ -115,16 +115,18 @@ impl Game<'_> {
     /// `keyword` (case-insensitive, shared by `HasKeyword` and `HasKeywordCond`)
     /// [documented: GECK wiki HasKeyword, HasKeywordCond; observed: jip-n7].
     pub fn has_keyword(&self, form: FormId, keyword: &str) -> bool {
-        if keyword.is_empty() {
+        if keyword.is_empty() || self.jip2.keywords.is_empty() {
+            return false;
+        }
+        let b = crate::functions::base_of(self, form).unwrap_or(form);
+        let direct = self.jip2.keywords.get(&b);
+        let orig = self.unclone(b);
+        let inherited = (orig != b).then(|| self.jip2.keywords.get(&orig)).flatten();
+        if direct.is_none() && inherited.is_none() {
             return false;
         }
         let k = keyword.to_ascii_lowercase();
-        let b = crate::functions::base_of(self, form).unwrap_or(form);
-        if self.jip2.keywords.get(&b).is_some_and(|s| s.contains(&k)) {
-            return true;
-        }
-        let orig = self.unclone(b);
-        orig != b && self.jip2.keywords.get(&orig).is_some_and(|s| s.contains(&k))
+        direct.is_some_and(|s| s.contains(&k)) || inherited.is_some_and(|s| s.contains(&k))
     }
 
     /// GetActorVelocity's followed actors move on (`Game::tick`).

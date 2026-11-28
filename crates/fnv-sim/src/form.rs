@@ -5,8 +5,40 @@
 //! File-local FormIDs never leave the loaders (`forms`, `refs`).
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::HashMap;
 use std::fmt;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::str::FromStr;
+
+/// Fast non-cryptographic hasher for 32-bit [`FormId`] keys in read-heavy runtime lookup
+/// tables (`World::refs`, effect indexes), avoiding SipHash overhead on hot per-frame queries [design].
+#[derive(Default)]
+pub struct FastFormIdHasher(u64);
+
+impl Hasher for FastFormIdHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = self.0;
+        for &b in bytes {
+            h = h.wrapping_mul(0x517C_C1B7_2722_0A95).wrapping_add(b as u64);
+        }
+        self.0 = h;
+    }
+
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        let x = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        self.0 = x ^ (x >> 32);
+    }
+}
+
+/// [`HashMap`] keyed by [`FormId`] with [`FastFormIdHasher`].
+pub type FormMap<V> = HashMap<FormId, V, BuildHasherDefault<FastFormIdHasher>>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FormId(pub u32);

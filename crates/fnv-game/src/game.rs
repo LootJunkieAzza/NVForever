@@ -456,6 +456,11 @@ pub struct RefExtra {
     pub abilities_given: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub ability_race: Option<FormId>,
+    /// True once [`Game::give_abilities`] verified `ability_race` equals the actor's
+    /// unoverridden base race with no active race override; cleared whenever a race
+    /// override is applied and not serialized so save loads always re-verify once [design].
+    #[serde(skip)]
+    pub ability_race_matches_base: bool,
     /// Abilities a Dispel took off while the actor is loaded (they come back when it is
     /// loaded again), and worn items whose enchantment a Dispel took off (until the item
     /// is unequipped).
@@ -4190,10 +4195,8 @@ impl<'a> Game<'a> {
         self.evaluate_on(text, None)
     }
 
-    /// EvaluateString's test run on a reference (`this` and the functions without a
-    /// reference name it): kNVSE's AnimGroupOverride conditions
-    /// (`crate::nvse_anim_folders`). The compiled texts are EvaluateString's.
-    pub(crate) fn evaluate_on(&mut self, text: &str, on: Option<FormId>) -> Result<bool, String> {
+    /// Compile (or look up cached) `EvaluateString` condition text, returning its callable ID.
+    pub(crate) fn compile_condition(&mut self, text: &str) -> Result<u32, String> {
         let id = match self.pp.evaluated.get(text) {
             Some(&id) => id,
             None => {
@@ -4206,9 +4209,21 @@ impl<'a> Game<'a> {
                 id
             }
         };
-        let id = id.ok_or_else(|| format!("{text:?} does not compile"))?;
+        id.ok_or_else(|| format!("{text:?} does not compile"))
+    }
+
+    /// Evaluate a previously compiled `EvaluateString` callable ID on `on`.
+    pub(crate) fn evaluate_compiled_on(&mut self, id: u32, on: Option<FormId>) -> Result<bool, String> {
         let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
         Ok(self.run_function(&fnv_script::vm::XVal::Ref(id), on.map(|f| Value::Ref(f.0)), Vec::new(), None, ctx)?.truthy())
+    }
+
+    /// EvaluateString's test run on a reference (`this` and the functions without a
+    /// reference name it): kNVSE's AnimGroupOverride conditions
+    /// (`crate::nvse_anim_folders`). The compiled texts are EvaluateString's.
+    pub(crate) fn evaluate_on(&mut self, text: &str, on: Option<FormId>) -> Result<bool, String> {
+        let id = self.compile_condition(text)?;
+        self.evaluate_compiled_on(id, on)
     }
 
     /// A function script from source text, kept as CompileScript keeps its files; `None`

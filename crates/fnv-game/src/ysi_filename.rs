@@ -871,7 +871,7 @@ impl Rule {
             let list_id = FormId(((index as u32) << 24) | local);
             match g.data.sig(list_id) {
                 Some(sig) if &sig == b"FLST" => {
-                    if crate::functions::refs::list_members(g, list_id).contains(&item) {
+                    if crate::functions::refs::list_members_contains(g, list_id, item) {
                         Match::Yes
                     } else {
                         Match::No

@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::clock::{self, Calendar};
-use crate::form::FormId;
+use crate::form::{FormId, FormMap};
 use crate::forms::{BaseData, FormStore, ItemKind, LeveledEntry, SPECIAL};
 use crate::inventory::{unequipped, Extra, Inventory, Pick};
 use crate::leveled::{self, LeveledError};
@@ -554,6 +554,72 @@ pub struct TemporarySceneBase {
     pub model_override: Option<String>,
 }
 
+/// Lazy incremental cell -> materialised-refs index so `GetFirstRef`/`GetRefs` cell
+/// walks avoid scanning every materialised reference in `World::refs` [design].
+#[derive(Default)]
+struct ChangedCellIndex {
+    built: bool,
+    by_cell: FormMap<Vec<FormId>>,
+    ref_cell: FormMap<Option<FormId>>,
+    dirty: Vec<FormId>,
+}
+
+impl ChangedCellIndex {
+    #[inline]
+    fn mark_dirty(&mut self, id: FormId) {
+        if self.built {
+            self.dirty.push(id);
+        }
+    }
+
+    fn sync(&mut self, refs: &FormMap<RefState>) {
+        if !self.built {
+            self.by_cell.clear();
+            self.ref_cell.clear();
+            self.dirty.clear();
+            for (&id, s) in refs {
+                self.ref_cell.insert(id, s.cell);
+                if let Some(c) = s.cell {
+                    self.by_cell.entry(c).or_default().push(id);
+                }
+            }
+            self.built = true;
+            return;
+        }
+        if self.dirty.is_empty() {
+            return;
+        }
+        for id in self.dirty.drain(..) {
+            let new_cell = refs.get(&id).and_then(|s| s.cell);
+            let old_cell = self.ref_cell.get(&id).copied().flatten();
+            if old_cell == new_cell {
+                if new_cell.is_none() && !refs.contains_key(&id) {
+                    self.ref_cell.remove(&id);
+                }
+                continue;
+            }
+            if let Some(old) = old_cell {
+                if let Some(bucket) = self.by_cell.get_mut(&old) {
+                    if let Some(pos) = bucket.iter().position(|&x| x == id) {
+                        bucket.swap_remove(pos);
+                    }
+                    if bucket.is_empty() {
+                        self.by_cell.remove(&old);
+                    }
+                }
+            }
+            if let Some(new) = new_cell {
+                self.by_cell.entry(new).or_default().push(id);
+                self.ref_cell.insert(id, Some(new));
+            } else if refs.contains_key(&id) {
+                self.ref_cell.insert(id, None);
+            } else {
+                self.ref_cell.remove(&id);
+            }
+        }
+    }
+}
+
 pub struct World<'a> {
     pub forms: &'a FormStore,
     pub placed: &'a RefTable,
@@ -561,7 +627,13 @@ pub struct World<'a> {
     /// The player's level as item rolls read it ([`World::set_player_level`]); `None`:
     /// [`SimConfig::player_level`]. Not saved: the game sets it on a load and on each tick.
     roll_level: Option<u16>,
-    refs: BTreeMap<FormId, RefState>,
+    /// O(1) runtime reference table keyed by `FastFormIdHasher`; deterministic FormID-ordered
+    /// iteration (`changed`, `created`, `snapshot`, `restock_merchants`) walks `sorted_refs`
+    /// [design].
+    refs: FormMap<RefState>,
+    sorted_refs: std::collections::BTreeSet<FormId>,
+    /// Lazy incremental cell -> materialised-refs index synced on demand [design].
+    cell_index: std::sync::Mutex<ChangedCellIndex>,
     temporary_scene_bases: BTreeMap<FormId, TemporarySceneBase>,
     /// Globals set at run time (scripts, the clock); others keep their authored value.
     globals: BTreeMap<FormId, f32>,
@@ -647,7 +719,19 @@ pub struct World<'a> {
     /// `enabled` or `deleted`. Not saved; every
     /// world starts from a number no other world of this process used, as
     /// `lock_serial`.
+    /// Monotonic serial bumped on any change to a reference's `enabled` or `deleted` flag.
     presence_serial: u64,
+    /// Unique per-`World` epoch initialized alongside `presence_serial` so incremental
+    /// presence consumers detect a replaced `World` [design].
+    presence_epoch: u64,
+    /// Serial of the latest bulk or enable-parent-topology presence change; any incremental
+    /// consumer whose cursor is older than this falls back to a full scan [design].
+    presence_full_serial: u64,
+    /// Bounded monotonic log of `(presence_serial, id)` for placed (`id < FIRST_DYNAMIC`)
+    /// reference presence mutations so navmesh door/obstacle syncs stay O(changed) instead
+    /// of scanning every door/obstacle in the world when a dynamic or unrelated reference
+    /// toggles [design].
+    presence_log: Vec<(u64, FormId)>,
     /// Session-only `SetContainerRespawns` overrides: container base → whether it respawns,
     /// over its `CONT` record's `Respawns` flag (`World::container_respawns`,
     /// `World::set_container_respawns`). Kept for the session, not saved ([`WorldSession`])
@@ -671,6 +755,17 @@ pub struct World<'a> {
     /// References inserted into, removed from, or mutably borrowed via `World::refs` since
     /// the last [`World::take_touched_refs`].
     touched_refs: std::collections::BTreeSet<FormId>,
+    /// Unique per-world epoch for dynamic-reference caches (`dropped::sync_drawn`,
+    /// `mines::tick`), starting from `next_world_serial()` [design].
+    created_epoch: u64,
+    /// Monotonic counter bumped only for non-actor dynamic references (dropped items,
+    /// markers, thrown mines, etc.) so walking spawned NPCs do not invalidate
+    /// `dropped::sync_drawn` or `mines::tick` [design].
+    non_actor_created_gen: u64,
+    /// Candidate non-actor dynamic references (`>= FormId::FIRST_DYNAMIC`, not NPC_/CREA/LVLN/LVLC)
+    /// currently present in `self.refs`, so `dropped::sync_drawn` iterates O(non-actor drops)
+    /// instead of scanning thousands of dynamic actors [design].
+    non_actor_created: std::collections::BTreeSet<FormId>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
     /// Co-op replication: the references whose state was reached for writing
@@ -688,7 +783,9 @@ impl<'a> World<'a> {
             placed,
             cfg,
             roll_level: None,
-            refs: BTreeMap::new(),
+            refs: FormMap::default(),
+            sorted_refs: std::collections::BTreeSet::new(),
+            cell_index: std::sync::Mutex::new(ChangedCellIndex::default()),
             temporary_scene_bases: BTreeMap::new(),
             globals: BTreeMap::new(),
             fine_clock: clock::FineClock::default(),
@@ -717,12 +814,18 @@ impl<'a> World<'a> {
             deleted_created: BTreeMap::new(),
             lock_serial: serial,
             presence_serial: serial,
+            presence_epoch: serial,
+            presence_full_serial: serial,
+            presence_log: Vec::new(),
             container_respawns: BTreeMap::new(),
             zone_session: ZoneSession::default(),
             enable_parent_edits: BTreeMap::new(),
             own_enable: std::collections::BTreeSet::new(),
             instance_id: serial,
             touched_refs: std::collections::BTreeSet::new(),
+            created_epoch: serial,
+            non_actor_created_gen: 1,
+            non_actor_created: std::collections::BTreeSet::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
             touched: None,
@@ -806,6 +909,43 @@ impl<'a> World<'a> {
         self.cfg
     }
 
+    /// Unique per-world epoch for dynamic-reference caches [design].
+    pub fn created_epoch(&self) -> u64 {
+        self.created_epoch
+    }
+
+    /// Monotonic revision bumped whenever a non-actor dynamic reference is created or
+    /// mutated [design].
+    pub fn non_actor_created_gen(&self) -> u64 {
+        self.non_actor_created_gen
+    }
+
+    /// Dynamic references (`>= FormId::FIRST_DYNAMIC`) whose base is not an actor or
+    /// actor leveled list, for `dropped::sync_drawn` [design].
+    pub fn non_actor_created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
+        self.non_actor_created.iter().filter_map(|&id| self.refs.get(&id).map(|s| (id, s)))
+    }
+
+    #[inline]
+    fn is_actor_sig(&self, base: FormId) -> bool {
+        self.forms.sig(base).is_some_and(|s| matches!(&s, b"NPC_" | b"CREA" | b"LVLN" | b"LVLC"))
+    }
+
+    #[inline]
+    fn note_dynamic_touch(&mut self, id: FormId, base: Option<FormId>) {
+        if id >= FormId::FIRST_DYNAMIC {
+            let is_actor = base.is_some_and(|b| self.is_actor_sig(b));
+            if !is_actor {
+                self.non_actor_created_gen = self.non_actor_created_gen.wrapping_add(1);
+                if self.refs.contains_key(&id) || base.is_some() {
+                    self.non_actor_created.insert(id);
+                } else {
+                    self.non_actor_created.remove(&id);
+                }
+            }
+        }
+    }
+
     /// Hardcore mode turned on or off while the game runs (`fnv_game::Game::set_hardcore`,
     /// SetHardcore): ammunition weighs from then on, or no longer.
     pub fn set_hardcore(&mut self, on: bool) {
@@ -861,13 +1001,25 @@ impl<'a> World<'a> {
     }
 
     /// State of a reference that has already been materialised.
+    #[inline]
     pub fn peek(&self, id: FormId) -> Option<&RefState> {
         self.refs.get(&id)
     }
 
     /// Materialised references in FormID order.
-    pub fn changed(&self) -> impl Iterator<Item = (FormId, &RefState)> {
-        self.refs.iter().map(|(&k, v)| (k, v))
+    pub fn changed(&self) -> impl ExactSizeIterator<Item = (FormId, &RefState)> {
+        self.sorted_refs.iter().map(|&k| (k, &self.refs[&k]))
+    }
+
+    /// Materialised references currently residing in `cell`, appended to `out` (unsorted;
+    /// callers sort/dedup alongside placed refs). Uses an O(1) incremental cell index
+    /// instead of scanning all materialised refs [design].
+    pub fn changed_in_cell(&self, cell: FormId, out: &mut Vec<FormId>) {
+        let mut idx = self.cell_index.lock().unwrap_or_else(|e| e.into_inner());
+        idx.sync(&self.refs);
+        if let Some(bucket) = idx.by_cell.get(&cell) {
+            out.extend_from_slice(bucket);
+        }
     }
 
     /// [design, #2538] The applicable lock (`World::lock_source`), from runtime state
@@ -905,6 +1057,11 @@ impl<'a> World<'a> {
         if let Some(t) = self.touched.as_mut() {
             t.insert(id);
         }
+        if id >= FormId::FIRST_DYNAMIC {
+            if let Some(base) = self.refs.get(&id).map(|r| r.base) {
+                self.note_dynamic_touch(id, Some(base));
+            }
+        }
         if !self.refs.contains_key(&id) {
             if self.deleted_created.contains_key(&id) {
                 return Err(SimError::Deleted(id));
@@ -917,11 +1074,13 @@ impl<'a> World<'a> {
             // moves it.
             let as_placed = self.placed.get(id).is_some_and(|p| s.enabled() == !p.initially_disabled() && !s.deleted());
             self.refs.insert(id, s);
+            self.sorted_refs.insert(id);
             if !as_placed {
-                self.presence_serial += 1;
+                self.note_presence(Some(id));
             }
         }
         self.touched_refs.insert(id);
+        self.cell_index.get_mut().unwrap_or_else(|e| e.into_inner()).mark_dirty(id);
         Ok(self.refs.get_mut(&id).expect("inserted above"))
     }
 
@@ -1270,10 +1429,12 @@ impl<'a> World<'a> {
             return Ok(());
         };
         let due: Vec<(FormId, FormId)> = self
-            .refs
+            .sorted_refs
             .iter()
-            .filter(|&(&id, s)| !s.deleted() && self.restocks(id, s.base))
-            .map(|(&id, s)| (id, s.base))
+            .filter_map(|&id| {
+                let s = &self.refs[&id];
+                (!s.deleted() && self.restocks(id, s.base)).then_some((id, s.base))
+            })
             .collect();
         for (id, base) in due {
             let inv = self.roll_inventory(base, self.item_level(id))?;
@@ -1714,9 +1875,11 @@ impl<'a> World<'a> {
             };
             let id = FormId(self.next_dynamic);
             self.next_dynamic += 1;
-            self.presence_serial += 1;
+            self.note_presence(Some(id));
             self.touch(id);
             self.touched_refs.insert(id);
+            self.sorted_refs.insert(id);
+            self.cell_index.get_mut().unwrap_or_else(|e| e.into_inner()).mark_dirty(id);
             self.refs.insert(
                 id,
                 RefState {
@@ -1743,6 +1906,7 @@ impl<'a> World<'a> {
                     shot: false,
                 },
             );
+            self.note_dynamic_touch(id, Some(item));
             out.push(id);
         }
         Ok(out)
@@ -2080,29 +2244,54 @@ impl<'a> World<'a> {
             }
         };
         let start = own(self, id).ok_or(SimError::UnknownRef(id))?;
+        let first_parent = if !self.own_enable.is_empty() && self.own_enable.contains(&id) {
+            None
+        } else {
+            self.enable_parent(id)
+        };
+        let Some(mut ep) = first_parent else {
+            return Ok(start);
+        };
         let mut invert = false;
-        let mut cur = id;
-        let mut seen = vec![id];
+        let mut seen_inline = [FormId(0); 8];
+        seen_inline[0] = id;
+        let mut seen_len = 1usize;
+        let mut seen_overflow: Vec<FormId> = Vec::new();
         loop {
-            let parent = if self.own_enable.contains(&cur) { None } else { self.enable_parent(cur) };
-            let Some(ep) = parent else {
-                return Ok(own(self, cur).unwrap_or(start) ^ invert);
-            };
-            if seen.contains(&ep.reference) || own(self, ep.reference).is_none() {
+            let already_seen = seen_inline[..seen_len].contains(&ep.reference)
+                || (!seen_overflow.is_empty() && seen_overflow.contains(&ep.reference));
+            if already_seen || own(self, ep.reference).is_none() {
                 return Ok(start);
             }
             invert ^= ep.opposite;
-            seen.push(ep.reference);
-            cur = ep.reference;
+            if seen_len < seen_inline.len() {
+                seen_inline[seen_len] = ep.reference;
+                seen_len += 1;
+            } else {
+                seen_overflow.push(ep.reference);
+            }
+            let cur = ep.reference;
+            let parent = if !self.own_enable.is_empty() && self.own_enable.contains(&cur) {
+                None
+            } else {
+                self.enable_parent(cur)
+            };
+            match parent {
+                Some(next) => ep = next,
+                None => return Ok(own(self, cur).unwrap_or(start) ^ invert),
+            }
         }
     }
 
     /// A reference's enable parent: SetEnableParent's for the session, else its XESP.
+    #[inline]
     pub fn enable_parent(&self, id: FormId) -> Option<crate::refs::EnableParent> {
-        match self.enable_parent_edits.get(&id) {
-            Some(e) => *e,
-            None => self.placed.get(id).and_then(|p| p.enable_parent),
+        if !self.enable_parent_edits.is_empty() {
+            if let Some(e) = self.enable_parent_edits.get(&id) {
+                return *e;
+            }
         }
+        self.placed.get(id).and_then(|p| p.enable_parent)
     }
 
     /// SetEnableParent: `parent` (none: no parent) in place of the record's, not
@@ -2112,14 +2301,14 @@ impl<'a> World<'a> {
         let pop_in = self.enable_parent(id).is_some_and(|e| e.pop_in);
         self.enable_parent_edits.insert(id, parent.map(|reference| crate::refs::EnableParent { reference, opposite: false, pop_in }));
         self.own_enable.remove(&id);
-        self.presence_serial += 1;
+        self.note_presence(None);
     }
 
     /// DisableAlt / EnableAlt: from now on the reference's own flag counts, not its enable
     /// parent's state (`own_enable`).
     pub fn keep_own_enable(&mut self, id: FormId) {
         if self.own_enable.insert(id) {
-            self.presence_serial += 1;
+            self.note_presence(Some(id));
         }
     }
 
@@ -2308,9 +2497,13 @@ impl<'a> World<'a> {
             }
             self.refs.remove(id);
             self.touched_refs.insert(*id);
-            self.presence_serial += 1;
+            self.sorted_refs.remove(id);
+            self.cell_index.get_mut().unwrap_or_else(|e| e.into_inner()).mark_dirty(*id);
+            self.non_actor_created.remove(id);
+            self.note_presence(Some(*id));
             // Made anew: its level is fixed again when the cell is entered.
             self.ref_levels.remove(id);
+            self.note_dynamic_touch(*id, None);
         }
         reset
     }
@@ -2367,7 +2560,7 @@ impl<'a> World<'a> {
         let s = self.get(id)?;
         if s.enabled != enabled {
             s.enabled = enabled;
-            self.presence_serial += 1;
+            self.note_presence(Some(id));
         }
         Ok(())
     }
@@ -2381,7 +2574,7 @@ impl<'a> World<'a> {
         let s = self.get(id)?;
         if s.deleted != deleted {
             s.deleted = deleted;
-            self.presence_serial += 1;
+            self.note_presence(Some(id));
         }
         Ok(())
     }
@@ -2450,6 +2643,49 @@ impl<'a> World<'a> {
         self.presence_serial
     }
 
+    /// Unique per-`World` epoch for incremental presence consumers [design].
+    pub fn presence_epoch(&self) -> u64 {
+        self.presence_epoch
+    }
+
+    /// Latest presence serial that requires a full rescan (world creation, `set_enable_parent`,
+    /// or incremental log overflow) [design].
+    pub fn presence_full_serial(&self) -> u64 {
+        self.presence_full_serial
+    }
+
+    /// Placed (`id < FIRST_DYNAMIC`) reference IDs whose presence changed strictly after
+    /// `since_serial`, or `None` if a full rescan is required (new world, `set_enable_parent`,
+    /// or log overflow). Dynamic `0xFFxxxxxx` refs are omitted because they can never be
+    /// authored doors, navmesh obstacles, or authored XESP enable parents [design].
+    pub fn placed_presence_changes_since(&self, since_serial: u64) -> Option<&[(u64, FormId)]> {
+        if since_serial < self.presence_full_serial || since_serial > self.presence_serial {
+            return None;
+        }
+        let idx = self.presence_log.partition_point(|&(s, _)| s <= since_serial);
+        Some(&self.presence_log[idx..])
+    }
+
+    fn note_presence(&mut self, id: Option<FormId>) {
+        self.presence_serial += 1;
+        match id {
+            Some(r) if r < FormId::FIRST_DYNAMIC => {
+                const MAX_LOG: usize = 2048;
+                if self.presence_log.len() >= MAX_LOG {
+                    self.presence_log.clear();
+                    self.presence_full_serial = self.presence_serial;
+                } else {
+                    self.presence_log.push((self.presence_serial, r));
+                }
+            }
+            Some(_) => {}
+            None => {
+                self.presence_log.clear();
+                self.presence_full_serial = self.presence_serial;
+            }
+        }
+    }
+
     /// The access state of a door or container lock, as the in-game `GetLocked` reports
     /// it: 0 not locked, 1 locked. [documented: GECK wiki `GetLocked`, which also lists 2
     /// "locked out" for an impossible level or a broken lock; observed in game,
@@ -2505,9 +2741,11 @@ impl<'a> World<'a> {
         let mut inventory = self.roll_inventory(base, self.roll_level())?;
         // A created actor appears where the player is: it is outfitted at once.
         let outfitted = self.equip_default(base, &mut inventory);
-        self.presence_serial += 1;
+        self.note_presence(Some(id));
         self.touch(id);
         self.touched_refs.insert(id);
+        self.sorted_refs.insert(id);
+        self.cell_index.get_mut().unwrap_or_else(|e| e.into_inner()).mark_dirty(id);
         self.refs.insert(
             id,
             RefState {
@@ -2534,6 +2772,7 @@ impl<'a> World<'a> {
                 shot: false,
             },
         );
+        self.note_dynamic_touch(id, Some(base));
         Ok(id)
     }
 
@@ -2673,7 +2912,13 @@ impl<'a> World<'a> {
     /// References created at run time (drops), in FormID order, taken ones included
     /// (`RefState::deleted`).
     pub fn created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
-        self.refs.range(FormId::FIRST_DYNAMIC..).map(|(&k, v)| (k, v))
+        self.sorted_refs.range(FormId::FIRST_DYNAMIC..).map(|&k| (k, &self.refs[&k]))
+    }
+
+    /// Highest dynamic reference FormID currently in `self.refs`, in O(log N) via
+    /// `BTreeSet::range(..).next_back()` instead of scanning all dynamic refs [design].
+    pub fn last_created(&self) -> Option<FormId> {
+        self.sorted_refs.range(FormId::FIRST_DYNAMIC..).next_back().copied()
     }
 
     /// The created references `holder` dropped as it died ([`RefState::dropped_by`]) that
@@ -2686,11 +2931,14 @@ impl<'a> World<'a> {
     /// is still present (not taken, enabled). Scenarios name it `created:<item>`
     /// because the FormID the game gives a dropped item is not known in advance.
     pub fn newest_created(&self, base: FormId) -> Option<FormId> {
-        self.refs
+        self.sorted_refs
             .range(FormId::FIRST_DYNAMIC..)
             .rev()
-            .find(|(_, s)| s.base == base && !s.deleted() && s.enabled())
-            .map(|(&id, _)| id)
+            .copied()
+            .find(|&id| {
+                let s = &self.refs[&id];
+                s.base == base && !s.deleted() && s.enabled()
+            })
     }
 
     /// `actor` activates `target` itself (the player's own activation): an item
@@ -2907,7 +3155,13 @@ impl<'a> World<'a> {
         let mut w = World::new(forms, placed, s.config);
         w.rng.set_word_pos(pos);
         w.next_dynamic = s.next_dynamic;
-        w.refs = s.refs.clone();
+        w.refs = s.refs.iter().map(|(&k, v)| (k, v.clone())).collect();
+        w.sorted_refs = s.refs.keys().copied().collect();
+        for (&id, r) in s.refs.range(FormId::FIRST_DYNAMIC..) {
+            if !w.is_actor_sig(r.base) {
+                w.non_actor_created.insert(id);
+            }
+        }
         w.globals = s.globals.clone();
         if let Ok(stored) = w.calendar() {
             w.fine_clock = clock::FineClock::restored(s.clock_hour.as_deref(), s.clock_days_passed.as_deref(), &stored);
@@ -2942,10 +3196,14 @@ impl<'a> World<'a> {
     fn made_at_from_saved_place(&mut self) {
         let forms = self.forms;
         let actor = |base: FormId| matches!(forms.sig(base).as_ref(), Some(b"NPC_" | b"CREA" | b"LVLN" | b"LVLC"));
-        for (_, s) in self.refs.range_mut(FormId::FIRST_DYNAMIC..) {
-            if s.made_at.is_none() && !s.deleted && actor(s.base) {
+        for (&id, s) in &mut self.refs {
+            if id >= FormId::FIRST_DYNAMIC && s.made_at.is_none() && !s.deleted && actor(s.base) {
                 s.made_at = Some((s.cell, s.pos));
             }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "non_actor_created_tests.rs"]
+mod non_actor_created_tests;

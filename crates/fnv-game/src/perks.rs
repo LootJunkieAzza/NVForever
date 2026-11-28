@@ -385,12 +385,21 @@ impl Game<'_> {
     pub fn sync_perk_abilities_of(&mut self, actor: FormId) {
         let wanted = self.perk_abilities_of(actor);
         let data = self.data;
-        let have: Vec<FormId> = self.extra.get(&actor).map(|x| x.spells.clone()).unwrap_or_default();
+        let have_slice = self.extra.get(&actor).map(|x| x.spells.as_slice()).unwrap_or(&[]);
+        // Fast steady-state check: avoid cloning `x.spells` or allocating `stale`/`new`
+        // when every wanted ability is already present and no held spell is a stale perk ability.
+        let any_stale = have_slice
+            .iter()
+            .any(|s| data.perk_ability_spells.contains(s) && !wanted.iter().any(|w| w.1 == *s));
+        let any_new = wanted.iter().any(|w| !have_slice.contains(&w.1));
+        if !any_stale && !any_new {
+            return;
+        }
+        let have: Vec<FormId> = have_slice.to_vec();
         let stale: Vec<FormId> = have
             .iter()
             .copied()
-            .filter(|s| !wanted.iter().any(|w| w.1 == *s))
-            .filter(|s| data.perks.values().any(|p| p.entries.iter().any(|e| matches!(e.effect, PerkEffect::Ability(a) if a == *s))))
+            .filter(|s| data.perk_ability_spells.contains(s) && !wanted.iter().any(|w| w.1 == *s))
             .collect();
         let new: Vec<(FormId, FormId)> = wanted.into_iter().filter(|w| !have.contains(&w.1)).collect();
         if stale.is_empty() && new.is_empty() {
@@ -468,37 +477,101 @@ impl Game<'_> {
     /// the forms of the entry point's argument tabs 1 and 2 (`None`: none known here);
     /// `other`: the actor the owner's conditions take as their target.
     pub(crate) fn entry_point_entries(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], other: Option<FormId>) -> Vec<(FormId, PerkEntry)> {
-        // The player's perks, or a teammate's teammate perks ([`Self::held_perks`];
-        // `AddPerk` on another actor is refused).
-        let owned = self.held_perks(actor);
-        if owned.is_empty() {
+        // Fast zero-allocation pre-scan over the actor's held perks: most entry-point
+        // queries match zero perks, so avoid `held_perks` Vec/BTreeMap allocations and
+        // `PerkDef` clones unless an owned perk actually carries an entry for `point` [design].
+        let mut candidates: Vec<(FormId, u8)> = Vec::new();
+        let data = self.data;
+        let has_point = |perk: FormId, rank: u8| -> bool {
+            let Some(def) = self.lu3.perk_edits.get(&perk).or_else(|| data.perks.get(&perk)) else {
+                return false;
+            };
+            let max_r = rank.max(1);
+            def.entries
+                .iter()
+                .any(|e| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < max_r)
+        };
+        if actor == FormId::PLAYER_REF {
+            if self.player.perks.is_empty() {
+                return Vec::new();
+            }
+            for (&perk, &rank) in &self.player.perks {
+                if has_point(perk, rank) {
+                    candidates.push((perk, rank));
+                }
+            }
+        } else {
+            let own_empty = self.extra.get(&actor).is_none_or(|x| x.perks.is_empty());
+            let teammate = !self.player.teammate_perks.is_empty() && self.is_teammate(actor);
+            if own_empty && !teammate {
+                return Vec::new();
+            }
+            if !teammate {
+                if let Some(x) = self.extra.get(&actor) {
+                    for (&perk, &rank) in &x.perks {
+                        if has_point(perk, rank) {
+                            candidates.push((perk, rank));
+                        }
+                    }
+                }
+            } else {
+                for (perk, rank) in self.held_perks(actor) {
+                    if has_point(perk, rank) {
+                        candidates.push((perk, rank));
+                    }
+                }
+            }
+        }
+        if candidates.is_empty() {
             return Vec::new();
         }
-        let data = self.data;
         let mut found: Vec<(FormId, PerkEntry)> = Vec::new();
-        for (perk, rank) in owned {
+        for (perk, rank) in candidates {
             // A perk whose entries a script changed reads its session copy
             // (`crate::nvse_lu3`).
             let edited = self.lu3.perk_edits.get(&perk).cloned();
             let Some(def) = edited.as_ref().or_else(|| data.perks.get(&perk)) else { continue };
-            let at = |e: &&PerkEntry| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1);
+            let max_r = rank.max(1);
+            let at = |e: &&PerkEntry| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < max_r;
             let Some(top) = def.entries.iter().filter(at).map(|e| e.rank).max() else { continue };
             'entry: for e in def.entries.iter().filter(at).filter(|e| e.rank == top) {
                 let PerkEffect::EntryPoint(ep) = &e.effect else { continue };
                 let Some(conds) = ep.conditions.as_ref() else { continue };
-                let label = format!("{} entry point {point}", data.name(perk));
-                for tab in tab_order(conds) {
-                    let list: Vec<_> = conds.iter().filter(|(t, _)| *t == tab).map(|(_, c)| c.clone()).collect();
-                    let (subject, target) = match tab {
-                        0 => (Some(actor), other),
-                        t if t > 0 => match tabs.get(t as usize - 1).copied().flatten() {
-                            Some(f) => (Some(f), Some(actor)),
-                            None => continue 'entry,
-                        },
-                        _ => continue 'entry,
-                    };
-                    if !self.conditions_pass(&list, subject, target, &label) {
-                        continue 'entry;
+                if !conds.is_empty() {
+                    let label = format!("{} entry point {point}", data.name(perk));
+                    let mut tab_buf = [0i8; 4];
+                    let mut tab_len = 0usize;
+                    let mut tab_overflow: Option<Vec<i8>> = None;
+                    for (t, _) in conds {
+                        if let Some(v) = tab_overflow.as_mut() {
+                            if !v.contains(t) {
+                                v.push(*t);
+                            }
+                        } else if !tab_buf[..tab_len].contains(t) {
+                            if tab_len < tab_buf.len() {
+                                tab_buf[tab_len] = *t;
+                                tab_len += 1;
+                            } else {
+                                let mut v = tab_buf.to_vec();
+                                v.push(*t);
+                                tab_overflow = Some(v);
+                            }
+                        }
+                    }
+                    let tab_slice: &[i8] = tab_overflow.as_deref().unwrap_or(&tab_buf[..tab_len]);
+                    for &tab in tab_slice {
+                        let list: Vec<_> = conds.iter().filter(|(t, _)| *t == tab).map(|(_, c)| c.clone()).collect();
+                        let (subject, target) = match tab {
+                            0 => (Some(actor), other),
+                            t if t > 0 => match tabs.get(t as usize - 1).copied().flatten() {
+                                Some(f) => (Some(f), Some(actor)),
+                                None => continue 'entry,
+                            },
+                            _ => continue 'entry,
+                        };
+                        if !self.conditions_pass(&list, subject, target, &label) {
+                            continue 'entry;
+                        }
                     }
                 }
                 found.push((perk, e.clone()));
@@ -549,17 +622,6 @@ impl Game<'_> {
         }
         (v, applied)
     }
-}
-
-/// The tabs an entry's conditions name, in the order they first appear.
-fn tab_order(conds: &[(i8, crate::cond::Condition)]) -> Vec<i8> {
-    let mut tabs: Vec<i8> = Vec::new();
-    for (t, _) in conds {
-        if !tabs.contains(t) {
-            tabs.push(*t);
-        }
-    }
-    tabs
 }
 
 #[cfg(test)]
