@@ -1830,6 +1830,48 @@ impl Vm<'_, '_> {
             Some(e) => Some(self.xeval(e)?.value()?),
             None => None,
         };
+        const INLINE_ARGS: usize = 8;
+        let mut inline_buf: [std::mem::MaybeUninit<ArgValue>; INLINE_ARGS] =
+            [const { std::mem::MaybeUninit::uninit() }; INLINE_ARGS];
+        struct InlineArgs {
+            buf: [std::mem::MaybeUninit<ArgValue>; INLINE_ARGS],
+            len: usize,
+        }
+        impl Drop for InlineArgs {
+            fn drop(&mut self) {
+                for slot in &mut self.buf[..self.len] {
+                    // SAFETY: slots `0..self.len` were initialized in order.
+                    unsafe { slot.assume_init_drop() };
+                }
+            }
+        }
+        if c.args.len() <= INLINE_ARGS {
+            let mut args = InlineArgs { buf: inline_buf, len: 0 };
+            for (k, a) in c.args.iter().enumerate() {
+                let val = match a {
+                    XExpr::Enum { code } => ArgValue::Enum(*code),
+                    XExpr::Axis { c } => ArgValue::Axis(*c),
+                    other => match (self.xeval(other)?, self.table.param_enc(opcode, k)) {
+                        (XVal::Str(s), crate::table::ParamEnc::String) => ArgValue::Str(s),
+                        (XVal::Str(s), crate::table::ParamEnc::Enum(kind)) => {
+                            let code = self.table.enums.get(&kind).and_then(|m| m.iter().find(|(_, n)| n.eq_ignore_ascii_case(&s)).map(|(&c, _)| c));
+                            ArgValue::Enum(code.ok_or_else(|| VmError::Type(format!("no {kind} named {s:?}")))?)
+                        }
+                        (XVal::Str(s), crate::table::ParamEnc::Axis) => match s.to_ascii_uppercase().as_str() {
+                            a @ ("X" | "Y" | "Z") => ArgValue::Axis(a.chars().next().unwrap_or('X')),
+                            _ => return Err(VmError::Type(format!("no axis named {s:?}"))),
+                        },
+                        (v, _) => ArgValue::Value(v.value()?),
+                    },
+                };
+                args.buf[args.len].write(val);
+                args.len += 1;
+            }
+            // SAFETY: `args.buf[..args.len]` are initialized `ArgValue` elements.
+            let slice = unsafe { std::slice::from_raw_parts(args.buf.as_ptr().cast::<ArgValue>(), args.len) };
+            return Ok(XVal::from_value(self.host.call(opcode, on, slice).map_err(VmError::Host)?));
+        }
+        let _ = &mut inline_buf;
         let mut args = Vec::with_capacity(c.args.len());
         for (k, a) in c.args.iter().enumerate() {
             args.push(match a {
