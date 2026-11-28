@@ -201,8 +201,23 @@ actor meshes`]:
   forearm, plus a diamond (`Plane09:0`, `PimpBoyDiamond.dds`) on the case [observed:
   `fnvtool nif decode`]. So the sleeve shows the same way under either.
   The third-person body drawn in first person (`--first-person-body`, off by default)
-  still hides only the shapes the arms rig draws by name, so with such an outfit it keeps
-  its own arm partitions while its arms are hidden [open].
+  splits arm partitions (`ByPartition`, #2457) and arm-weighted triangles (`ByWeights`,
+  #3227) out of mixed upper-body shapes into companion `arm: true` draws so the body's
+  own arms move to `SHADOW_LAYER` while the first-person arms rig is up without hiding
+  the torso [design, #3227].
+- Outfits with neither `Arms…` shapes nor arm partitions (#3227). When an upper-body
+  model has no `Arms…` shape and no non-cap arm dismemberment partitions (for example a
+  mod outfit built as a single unnamed skinned shape without dismemberment partitions),
+  NVForever falls back to bone-weight selection (`fnv_actor::first_person::is_arm_bone`,
+  `partition_arm_triangles`): triangles of non-cap, non-sleeve skinned shapes whose
+  combined vertex weight on arm/hand bones (`Bip01 L/R UpperArm`, `UpArmTwistBone`,
+  `Forearm`, `ForeTwist*`, `Hand*`, `Thumb*`, `Finger*`; observed in
+  `meshes\characters\_male\skeleton.nif` and `meshes\characters\_1stperson\skeleton.nif`)
+  is positive and at least half their total weight are drawn on the first-person arms rig
+  (with weights on third-person-only bones such as `Bip01 L/RPauldron` or
+  `Bip01 R ForeTwistDriver` zeroed and re-normalised) and split into companion `arm: true`
+  draws on the third-person body [design, #3227]. Each upper-body model logs how its
+  first-person arms were found (`by name`, `by partition`, `by weights`, or `none`).
 - Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
   `beardmustachecurly.nif` [observed]; multiplied in, hair turns cyan. They are not
