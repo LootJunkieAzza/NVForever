@@ -1393,6 +1393,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     }
     // The run log and crash reports in NVForever's home (crash.rs).
     crash::install(args.data(), args.handoff.is_some());
+    let pre_window_start = std::time::Instant::now();
+    let mut pre_window = start_times::PreWindowTimes::default();
     reports::decide(developer_data, args.handoff.is_some());
     let fail = |e: String| {
         eprintln!("error: {e}");
@@ -1435,6 +1437,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // none, every mod folder is a layer in name order. Plugins come from the same layers,
     // highest first, then one left loose at the top of the mods folder, then Data, so a
     // turned-off folder's plugin is not opened and the list order picks between two copies.
+    let t0 = std::time::Instant::now();
     let mods_dir = mods.first().cloned().unwrap_or_default();
     let launcher_layers: Vec<PathBuf> = if mo2.is_some() {
         Vec::new()
@@ -1452,6 +1455,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         let link_into = mods_dir.is_dir().then_some(mods_dir.as_path());
         world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_layered(args.data(), &layered, link_into, n))
     };
+    pre_window.plugins = t0.elapsed().as_secs_f64();
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // Co-op's lobbies compare load orders by their hash (coop/connect.rs).
     coop::set_load_order(&args.plugins);
@@ -1478,16 +1482,21 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         eprintln!("load: {why}; opening the main menu");
     }
     let pending = match args.load.clone() {
-        Some(name) => match start_from_save(&name, &opened, &mut args, saves_dir.as_deref()) {
-            Ok(p) => Some(p),
-            Err(why) => {
-                eprintln!("load: {why}; opening the main menu");
-                load_failed = Some(why);
-                args.load = None;
-                args.menu = true;
-                None
+        Some(name) => {
+            let t0 = std::time::Instant::now();
+            let res = start_from_save(&name, &opened, &mut args, saves_dir.as_deref());
+            pre_window.save = Some(t0.elapsed().as_secs_f64());
+            match res {
+                Ok(p) => Some(p),
+                Err(why) => {
+                    eprintln!("load: {why}; opening the main menu");
+                    load_failed = Some(why);
+                    args.load = None;
+                    args.menu = true;
+                    None
+                }
             }
-        },
+        }
         None => None,
     };
     // NVForever.ini's `[Archive] SArchiveList`, in place of the shipped base list (#1142).
@@ -1567,6 +1576,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // mod folders are layers over Data. Loose files and archives in Data are still read.
     // The test aids' folders (the reflection mount pack, the ground pack), when asked for,
     // are the highest loose layers.
+    let t0 = std::time::Instant::now();
     let game = match &mo2 {
         Some(l) => {
             // The test aids' folders as the highest layers, for this run only.
@@ -1580,6 +1590,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             GameData::open_launcher_mods(args.data(), &mods_dir, &layers, &args.plugins, &args.nif_schema)
         }
     };
+    pre_window.archives = t0.elapsed().as_secs_f64();
     let game = match game {
         Ok(g) => g,
         Err(e) => return fail(e),
@@ -1619,7 +1630,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         Ok(w) => w,
         Err(e) => return fail(e),
     };
-    info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
+    pre_window.index = t0.elapsed().as_secs_f64();
     if let Some(s) = fos_start {
         if world.index.worldspaces.contains_key(&s.at) {
             world.set_world(s.at);
@@ -1795,6 +1806,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // Also for an interior start: LOD stays off inside and is switched on at the door out
     // (world::travel), with generated terrain for the start worldspace. Also with
     // --no-lod: the settings page can switch distant LOD on.
+    let t0 = std::time::Instant::now();
     let lodgen = if args.no_lodgen {
         None
     } else {
@@ -1804,8 +1816,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         }
     };
     let lod_origin = lod::grid_origin(&game, &world);
+    pre_window.lod = t0.elapsed().as_secs_f64();
+    let actors_t0 = (!args.no_actors).then(std::time::Instant::now);
     let actor_world = (!args.no_actors).then(|| {
-        let t0 = std::time::Instant::now();
         let mut a = actors::ActorWorld::build(world.lo, world.schema);
         a.facegen_enabled = !args.no_facegen;
         a.race_facegen = !args.no_race_facegen;
@@ -1818,7 +1831,6 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         if a.walk_test.is_some() && a.pose == actors::ActorPose::Bind {
             warn!("--actor-walk-test needs --actor-pose idle; actors stay in the bind pose");
         }
-        info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
     // The character creator's choices and sliders (nvf_play::creator), in play; it says
@@ -1827,6 +1839,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         .as_ref()
         .filter(|_| play.is_some())
         .map(|a| nvf_play::creator::CreatorData(std::sync::Arc::new(fnv_actor::creator::Creator::build(&a.actors, |p| game.read(p)))));
+    if let Some(t0) = actors_t0 {
+        pre_window.actors = Some(t0.elapsed().as_secs_f64());
+    }
     let open_doors = args.open_doors;
     // What the overlay system and the settings page go by.
     args.no_overlay |= args.frame_json.is_some() || (args.play && !args.overlay);
@@ -1857,21 +1872,25 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     let mut residents = if npc_packages.is_empty() {
         None
     } else {
+        let t0 = std::time::Instant::now();
         // Game hours per second: the sky's rate when it runs, else the NPCs' own.
         let rate = if sky_state.time_scale > 0.0 { sky_state.time_scale as f64 } else { args.npc_timescale.max(0.0) as f64 / 3600.0 };
         let clock = residents::Clock { hour: sky_state.hour, days_passed: start_day, rate };
-        match residents::Residents::build(&world, &npc_packages, clock, args.npc_speed, args.play) {
+        let built = match residents::Residents::build(&world, &npc_packages, clock, args.npc_speed, args.play) {
             Ok(mut r) => {
                 r.set_keep_apart(!args.actors_pass_through);
                 Some(r)
             }
             Err(e) => return fail(e),
-        }
+        };
+        pre_window.residents = Some(t0.elapsed().as_secs_f64());
+        built
     };
     // Furniture: used by the player in play mode and by --npc-sit travellers.
     let mut trips = args.npc_travel.clone();
     let furnishings = if args.play || !args.npc_sit.is_empty() || residents.is_some() {
-        match furniture::Furnishings::build(&world, &game, &args.npc_sit, trips.len()) {
+        let t0 = std::time::Instant::now();
+        let built = match furniture::Furnishings::build(&world, &game, &args.npc_sit, trips.len()) {
             Ok((mut f, sit_trips)) => {
                 trips.extend(sit_trips);
                 if let Some(r) = residents.as_mut() {
@@ -1880,17 +1899,22 @@ fn run_with_args(line: Vec<String>) -> AppExit {
                 Some(f)
             }
             Err(e) => return fail(e),
-        }
+        };
+        pre_window.furniture = Some(t0.elapsed().as_secs_f64());
+        built
     } else {
         None
     };
     let nav_state = if trips.is_empty() && !args.show_navmesh && residents.is_none() {
         None
     } else {
-        match nav::NavState::build(&world, &trips, args.npc_speed, args.npc_ledges, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
+        let t0 = std::time::Instant::now();
+        let built = match nav::NavState::build(&world, &trips, args.npc_speed, args.npc_ledges, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
             Ok(n) => Some(n),
             Err(e) => return fail(e),
-        }
+        };
+        pre_window.nav = Some(t0.elapsed().as_secs_f64());
+        built
     };
     let mut graphics = match &args.graphics_only {
         Some(keys) => match graphics::Graphics::only(keys) {
@@ -2074,7 +2098,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // Android handles controllers natively via ControllerDevices.java; gilrs does not support Android.
     #[cfg(target_os = "android")]
     let default_plugins = default_plugins.disable::<bevy::gilrs::GilrsPlugin>();
+    pre_window.total = pre_window_start.elapsed().as_secs_f64();
+    eprintln!("{}", pre_window.line());
     app.add_plugins(default_plugins)
+    .insert_resource(pre_window)
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, keep_awake::KeepAwakePlugin, hdr::HdrPlugin, photo_lights::PhotoLightsPlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
