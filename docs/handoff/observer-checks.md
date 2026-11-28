@@ -808,15 +808,37 @@ The numbers above stay put so links to them hold; each item here gives its own p
     pause the game, and effects do not change while it is paused.
 43. **Does a newly started quest's script run before its first delay?** (P2.) Old World
     Blues: wake in the Think Tank and talk to Dr. Klein at once. Do the Big Empty's random
-    encounters (NVDLC03Enc 10) start? (§10 stall 2.)
+    encounters (NVDLC03Enc 10) start? (§10 stall 2.) — answered 2026-11-26 (o34_43a/b/c,
+    save nvftest, #1113): **no**. After a console `StartQuest NVDLC03MQ01` its script first
+    ran 98-99 game loops later (about 1.65 s), in 4 launches of 4, counted from the start;
+    started and set to 100 on the next loop, the stopped quest's script never ran in 600
+    loops, so Act1XP and NVDLC03Enc 10 stayed unset [observed]. The older chains' stall is
+    the original's too: the data's own. Ours waits the quest's delay (5 s for 0) before the
+    first run; the original's first wait differs from quest to quest (VMS40Timer about
+    3.9 s, scripts.md "Script delay"), so it stays unmodelled.
 44. **What does `RemoveItem <item> 0` do?** — answered 2026-10-31 (o5_00, issue #1113):
     nothing, and the script goes on (12 Stimpaks and 21 caps stayed; the next line ran).
     Built (#1113): ours returns without removing anything (functions/items.rs
     `remove_item`).
 45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
-    stall 4.)
+    stall 4.) — answered 2026-11-26 (o34_45_nelson, o34_45b_probe, o34_45c_nelson, save
+    nvftest, VDeadSea 0, #1113): **only when the player walks within 512 units of him**,
+    and that conversation closes at once with nothing said (his only greeting, Say Once,
+    was said by explorer 01). With the player 1,224 units from explorer 01 nobody came in
+    200 s, though nvNelsonExplorerBarkSCRIPT calls `StartConversation Player` and `evp`
+    on its first GameMode; inside 512 units (nvNelsonExplorerBarkPackage, a Dialogue
+    package to the player) he stopped the player within 17 loops [observed]. Ours walks
+    the speaker up from any distance (`Game::walk_up_greet`, as the GECK wiki's
+    StartConversation says), so the far explorers' call differs: #4919.
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
-    (P3; §10 stall 5.)
+    (P3; §10 stall 5.) — answered 2026-11-26 (o34_46_fantastic, save nvftest, VMS03 10,
+    #1113): **yes**. The line is GOODBYE 0x000E360D (Goodbye, Say Once; GetIsID Fantastic,
+    VMS03 >= 10); its end script `AddNote VMS03HeliosTerminalWestPassword` names no
+    reference, and GetHasNote read 0 before it and 1 after, with or without `player.`
+    [observed]. Ours does the same (`functions/player.rs` `add_note` files the note with
+    the player whoever runs it). The walkthrough's stall was its own: it closed the talk
+    without the goodbye and counted the note with GetItemCount; mq-that-lucky-old-sun now
+    says goodbye and reads GetHasNote.
 47. **Does a talking activator's scripted `Activate player` start its conversation?** —
     answered 2026-10-31 (o9_02, owner save nvfTopsAmbush: Benny's own invitation taken,
     VMQTops 20, BennyAmbush 2, BennyGoToPresidential 0): **yes**. The trigger's script
@@ -830,7 +852,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     for the player instead (owner). (§11 stall 1.)
 48. **Can Oliver be talked into retreating on House's path?** (P3.) After "You will because
     the alternative is worse", which reply does he give (Topic065 has two lines with the same
-    conditions, 0x00159932 and 0x001596BD)? (§11 stall 2.)
+    conditions, 0x00159932 and 0x001596BD)? (§11 stall 2.) — answered 2026-11-26
+    (o34_48_oliver, save nvftest, #1113): **0x00159932, three times of three** (the topic
+    started by script; neither line is Random) [observed]. As ours: the first line whose
+    conditions pass wins, so 0x001596BD's retreat lines are unreachable from Topic065 in
+    the original too, the data's own. Not checked: reaching the topic from the earlier
+    line by hand, on House's path.
 49. **Does attacking Daniel during Flight from Zion start Chaos in Zion at once?** (P3; a hit
     starts no AI combat headless.) Also: attacked at the Northern Passage, does Jed go down
     unconscious, and does Happy Trails fail? (§11 stall 3.)
@@ -1163,7 +1190,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
     vMOSgtKilborn`], and talked to again he greets with 0x001754C6 and offers nothing.
     NVForever closes the conversation when the line ends (dialogue.md "When a line ends":
     with nothing to offer the conversation ends [hypothesis]). Does the original close it,
-    or does the menu stay open with nothing but a way out?
+    or does the menu stay open with nothing but a way out? — answered 2026-11-26
+    (o34_72_kilborn, save nvftest, #1113): **it closes by itself.** Started on Topic003 by
+    script, Kilborn said both responses; by 22 s the quest was at 100 and stopped and the
+    menu showed his face with no topics and no way out; by 26 s the game was back (menu 0),
+    with no input [observed]. As ours (dialogue.md "When a line ends").
 
 ## Added 2026-11-01 (the pause column MCM waits for, issue #976 T11)
 

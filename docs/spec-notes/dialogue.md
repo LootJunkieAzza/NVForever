@@ -658,7 +658,10 @@ All of it is in `GameSnapshot`.
   topics [documented: xEdit "Add Topics"; hypothesis on the moment and that they stay
   known afterwards]; a Goodbye line ends the conversation [documented]; else the first
   follow-up the actor can say is said (§3.4) [owner statement]; else choices are offered;
-  with nothing to offer the conversation ends [hypothesis]. A `StartConversation player`
+  with nothing to offer the conversation ends [observed: observer check 72, 2026-11-26,
+  Sergeant Kilborn's vNiptonVulpes Topic003 (INFO 0x00138E1A), whose end script stops
+  the quest: the menu showed no topics and closed by itself within about 4 s of the line's
+  end, with no input; #1113]. A `StartConversation player`
   in the end result of the line that ends the conversation (Goodbye, or nothing to offer)
   is held and starts right after the conversation closes; when the conversation goes on
   it is refused, as any StartConversation while one runs (`Game::hold_force_greet`)
