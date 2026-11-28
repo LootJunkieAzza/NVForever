@@ -133,6 +133,12 @@ impl Game<'_> {
         names.iter().position(|n| !n.is_empty() && n.eq_ignore_ascii_case(name)).map(|i| ADDED_VAR_BASE + i as u16)
     }
 
+    /// The name AddScriptVariable gave `index` in `script`, if that slot is active.
+    pub fn added_var_name(&self, script: FormId, index: u16) -> Option<&str> {
+        let slot = usize::from(index.checked_sub(ADDED_VAR_BASE)?);
+        self.other.jip10.added_vars.get(&script)?.get(slot).filter(|n| !n.is_empty()).map(String::as_str)
+    }
+
     /// Whether a script's blocks are not to run: SetScriptDisabled's script, or the
     /// event's block switched off for the instance's reference or its base
     /// (SetScriptEventDisabled), unless FakeScriptEvent runs it.

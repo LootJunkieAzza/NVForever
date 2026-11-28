@@ -424,3 +424,70 @@ fn script_runner_and_queries_resolve_placed_ref_vars() {
     );
     assert_eq!(compiled.errors().next().map(|e| e.kind), Some("unresolved_remote_variable"));
 }
+
+#[test]
+fn script_runner_and_queries_resolve_added_ref_vars() {
+    use fnv_game::mod_files::{set_roots, Roots};
+    use fnv_game::trace::EventKind;
+    let _guard = ROOTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let base = fresh_temp_dir("added-refvars");
+    let scripts = base.join("NVSE/Plugins/Scripts");
+    std::fs::create_dir_all(&scripts).unwrap();
+    std::fs::write(
+        scripts.join("ln_added_refvars.txt"),
+        "If SRDirectRef.MissingFlag == 1\r\n\
+         set SRRefRead to 99\r\n\
+         EndIf\r\n\
+         If SRDirectRef.DoOnceHired == 1\r\n\
+         set SRRefRead to 12\r\n\
+         set SRDirectRef.DoOnceHired to 2\r\n\
+         EndIf\r\n\
+         If SRTemplatedRef.TplFlag == 1\r\n\
+         set SRTplRead to 34\r\n\
+         EndIf\r\n",
+    )
+    .unwrap();
+
+    set_roots(Roots { read: vec![base.clone()], ..Roots::default() });
+    let f = fixture();
+    let mut g = game(&f);
+
+    // Add a runtime variable via AddScriptVariable and seed both refs.
+    g.run_query(
+        "Begin Function { }\n\
+         SRDirectRef.AddScriptVariable \"DoOnceHired\"\n\
+         SRDirectRef.SetVariable \"DoOnceHired\" 1\n\
+         set SRTemplatedRef.TplFlag to 1\n\
+         End\n",
+        Default::default(),
+    )
+    .unwrap();
+
+    let before = g.events.len();
+    let runs = g.run_script_runner(Moment::Load);
+    let rv = runs.iter().find(|r| r.path == "ln_added_refvars.txt").expect("ln_added_refvars.txt ran");
+    assert!(rv.result.is_ok(), "{rv:?}");
+    assert_eq!(value(&mut g, "SRRefRead"), 12.0, "runtime-added ref var read via dot-access");
+    assert_eq!(value(&mut g, "SRDirectRef.DoOnceHired"), 2.0, "runtime-added ref var written via dot-access");
+    assert_eq!(value(&mut g, "SRTplRead"), 34.0, "sibling ref block still executes after missing var guard");
+    assert!(
+        !g.events[before..].iter().any(|e| matches!(e.kind, EventKind::UndeclaredVariable { .. })),
+        "added script variables must not emit UndeclaredVariable events: {:?}",
+        &g.events[before..]
+    );
+    assert!(
+        g.events[before..].iter().any(|e| matches!(&e.kind, EventKind::VarSet { name: Some(n), .. } if n == "DoOnceHired")),
+        "VarSet event should carry the added variable name"
+    );
+
+    // Removing the added variable hides it from strict compilation again.
+    g.run_query("Begin Function { }\nSRDirectRef.RemoveScriptVariable \"DoOnceHired\"\nEnd\n", Default::default()).unwrap();
+    let compiled = fnv_script::compile::compile_runtime(
+        "Begin Function { }\nSetFunctionValue SRDirectRef.DoOnceHired\nEnd\n",
+        &f.data.table,
+        &fnv_game::game::GameEnv { g: &g },
+    );
+    assert_eq!(compiled.errors().next().map(|e| e.kind), Some("unresolved_remote_variable"));
+
+    std::fs::remove_dir_all(&base).ok();
+}
