@@ -86,7 +86,8 @@ pub enum Shared {
     /// The host's quest completed or failed (`nvf_coop::progress::Progress::QuestEnded`).
     QuestEnded { quest: u32, failed: bool },
     /// Joint progression (`fnv_game::coop_joint`): a guest's join choice and character.
-    JointChoice { character: u64, on: bool },
+    /// `sat_out`: the questlines it sits out (`fnv_game::coop_questlines::Mask`).
+    JointChoice { character: u64, on: bool, sat_out: u64 },
     /// The host set a claimable stage, for the players whose bit is set in `to`.
     Stage { quest: u32, stage: i32, line: u32, line_end: bool, prior: Vec<i32>, to: u8 },
     StageResult { quest: u32, stage: i32, taken: bool },
@@ -123,7 +124,7 @@ pub struct CoopProgress {
     pub joint_sent: bool,
     /// A guest: the join question is up, for the screen that asks it; and the answer it
     /// gave ([`joint_question`] takes it). Until a screen asks, [`JOINT_ENV`] or the
-    /// console's `coop.share` answer it, and nothing is claimed unanswered.
+    /// lobby's Quest Sync toggle answer it, and nothing is claimed unanswered.
     pub joint_ask: bool,
     pub joint_answer: Option<bool>,
     /// The host: the story hold the corner line was shown for (the NPC, when the hold began), so one
@@ -133,6 +134,18 @@ pub struct CoopProgress {
     pub syncing: bool,
     /// The host: each guest's character and choice ([`Shared::JointChoice`]), by id.
     pub joint_peers: std::collections::BTreeMap<u8, (u64, bool)>,
+    /// The host: the questlines each guest sits out ([`Shared::JointChoice`]), by id
+    /// (docs/design/coop-quest-sync.md §5).
+    pub joint_sat_out: std::collections::BTreeMap<u8, u64>,
+    /// A guest: the choice last sent to the host (sync on, lines sat out); sent again
+    /// when the lobby's toggle or Questlines menu changes it.
+    pub joint_sent_as: Option<(bool, u64)>,
+    /// A guest: when the last [`Shared::JointChoice`] went; the host lets one in a second
+    /// through ([`JOINT_EVERY`]), so a quicker change waits here and its latest goes.
+    pub joint_sent_at: Option<std::time::Instant>,
+    /// A guest: `NVF_COOP_JOINT` answered the join question this session (once, so the
+    /// lobby's toggle can change it after).
+    pub joint_env_taken: bool,
     /// The host: each other player's actor in this world, by id (nvforever `coop`).
     pub peer_actors: std::collections::BTreeMap<u8, FormId>,
     /// The other players in the session now, connected or not, and those heard from
@@ -464,7 +477,7 @@ impl Plugin for CoopProgressPlugin {
     fn build(&self, app: &mut App) {
         let mut p = CoopProgress::default();
         p.saves.last = std::env::var_os(SHARED_ENV).map(PathBuf::from).filter(|p| p.exists());
-        app.insert_resource(p).add_systems(Update, (take_inbox, joint_question, rewards, announce_saves, story_wait_notice, all_down, alone_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
+        app.insert_resource(p).add_systems(Update, (quest_sync_asks, take_inbox, joint_question, rewards, announce_saves, story_wait_notice, all_down, alone_down, quest_sync_view).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
     }
 }
 
@@ -549,6 +562,11 @@ fn take_inbox(
                 };
                 let name = rt.game.data.name(FormId(quest));
                 let host = host_name.as_deref().unwrap_or("The host").to_string();
+                // Sync off, or the quest's line sat out (docs/design/coop-quest-sync.md §3).
+                if !rt.game.coop_takes_quest((FormId(quest) != fnv_game::coop_rewards::SCRIPT_XP).then_some(FormId(quest))) {
+                    info!("co-op: the host's reward for {name} ({xp} XP, {caps} caps): not taken, this player does not sync it");
+                    continue;
+                }
                 // Completed in this player's own game: its reward was this player's then
                 // (`fnv_game::coop_rewards::REPEAT_DONE_REWARDS`).
                 if rt.game.coop_reward_done_here(FormId(quest)) {
@@ -582,6 +600,10 @@ fn take_inbox(
                     continue;
                 };
                 let name = item_label(&rt.game.data.full_names, FormId(item), || rt.game.data.name(FormId(item)));
+                if !rt.game.coop_takes_quest((quest != 0).then_some(FormId(quest))) {
+                    info!("co-op: the host's hand-out {name} ({count}): not taken, this player does not sync {}", rt.game.data.name(FormId(quest)));
+                    continue;
+                }
                 // Caravan cards (Ringo's deck: 54 of them) join the player's cards; one
                 // corner line for the first, not one per card.
                 let card = rt.game.data.caravan_cards.contains_key(&FormId(item));
@@ -623,6 +645,12 @@ fn take_inbox(
                     info!("co-op: the host {how} {name}: told already");
                     continue;
                 }
+                // Listed as the host's world has it, but not this player's quest to be told
+                // of (docs/design/coop-quest-sync.md §3).
+                if !rt.game.coop_takes_quest(Some(FormId(quest))) {
+                    info!("co-op: the host {how} {name}: no line, this player does not sync it");
+                    continue;
+                }
                 let quest_name = rt.game.data.quests.get(&FormId(quest)).and_then(|q| q.name.clone()).filter(|n| !n.trim().is_empty());
                 match (quest_lines.as_deref_mut(), quest_name) {
                     (Some(lines), Some(qn)) => {
@@ -653,10 +681,17 @@ fn take_inbox(
                 None => say(&mut corner, tr("Everyone is down, and this game has no shared save to go back to").into()),
             },
             // Joint progression (`fnv_game::coop_joint`; coop-shared-progress.md §3).
-            Shared::JointChoice { character, on } if p.role == Role::Host && id != 0 => {
-                info!("co-op: player {} shares quest progress: {} (character {character:016x})", id + 1, if on { "yes" } else { "no" });
-                p.joint_peers.retain(|other, (c, _)| *other == id || *c != character);
+            Shared::JointChoice { character, on, sat_out } if p.role == Role::Host && id != 0 => {
+                let out = fnv_game::coop_questlines::names(sat_out);
+                let sitting = if out.is_empty() { String::new() } else { format!(", sitting out {}", out.join(", ")) };
+                info!("co-op: player {} shares quest progress: {} (character {character:016x}){sitting}", id + 1, if on { "yes" } else { "no" });
+                let gone: Vec<u8> = p.joint_peers.iter().filter(|(other, (c, _))| **other != id && *c == character).map(|(o, _)| *o).collect();
+                for o in gone {
+                    p.joint_peers.remove(&o);
+                    p.joint_sat_out.remove(&o);
+                }
                 p.joint_peers.insert(id, (character, on));
+                p.joint_sat_out.insert(id, sat_out);
             }
             Shared::StageResult { quest, stage, taken } if p.role == Role::Host => {
                 info!("co-op: player {} {} {} stage {stage}", id + 1, if taken { "claimed" } else { "turned down" }, FormId(quest));
@@ -682,6 +717,13 @@ fn take_inbox(
                     continue;
                 };
                 let q = FormId(quest);
+                // A line this player sits out: its own save keeps its own stage (the host
+                // leaves it out of the offer; one sent before the choice reached it ends here).
+                if !rt.game.coop_takes_quest(Some(q)) {
+                    info!("co-op: the host set {} stage {stage}: not claimed (this player sits its line out)", rt.game.data.name(q));
+                    p.outbox.push(Shared::StageResult { quest, stage, taken: false });
+                    continue;
+                }
                 let offer = fnv_game::coop_joint::StageOffer { quest: q, stage, prior, line: (line != 0).then_some((FormId(line), line_end)), to: Vec::new() };
                 let name = rt.game.data.quests.get(&q).and_then(|d| d.name.clone()).filter(|n| !n.trim().is_empty());
                 let taken = rt.game.take_joint_offer(own, &offer);
@@ -767,35 +809,121 @@ fn gift_lines(host: &str, handed: &[(u32, String, i32)]) -> Vec<String> {
 /// `NVF_COOP_JOINT=1` / `0`: the join question answered without asking (test runs).
 pub const JOINT_ENV: &str = "NVF_COOP_JOINT";
 
-/// A guest's join question for joint progression (coop-shared-progress.md §3.1): asked
-/// once the syncing screen is down ([`CoopProgress::joint_ask`]), answered
-/// ([`CoopProgress::joint_answer`]); the answer holds while this run stays a guest. A host
-/// or a solo game forgets it, so the next join asks again.
-fn joint_question(mut p: ResMut<CoopProgress>) {
+/// A guest's quest progression sync (docs/design/coop-quest-sync.md §1). The join
+/// question (coop-shared-progress.md §3.1), asked once the syncing screen is down
+/// ([`CoopProgress::joint_ask`]) and answered ([`CoopProgress::joint_answer`]), is kept
+/// with the character (`QuestSync::on`): a character that answered is not asked again, and
+/// the lobby's toggle ([`quest_sync_asks`]) changes it at any time. A host or a solo game
+/// forgets this run's answer.
+fn joint_question(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
+    let mut script = script;
+    let rt = script.as_deref_mut().and_then(|s| s.rt.as_mut());
     if p.role != Role::Guest {
         p.joint_on = None;
+        p.joint_env_taken = false;
         p.joint_ask = false;
         p.joint_answer = None;
         return;
     }
-    if p.joint_on.is_some() {
-        return;
-    }
-    if let Some(v) = std::env::var(JOINT_ENV).ok().filter(|v| v == "0" || v == "1") {
-        info!("co-op: share quest progress: {} ({JOINT_ENV})", if v == "1" { "yes" } else { "no" });
-        p.joint_on = Some(v == "1");
-        return;
+    // The test aid answers the question once a join, as a pressed answer would; the
+    // lobby's toggle changes the choice after that.
+    if !p.joint_env_taken && rt.is_some() {
+        if let Some(on) = std::env::var(JOINT_ENV).ok().filter(|v| v == "0" || v == "1").map(|v| v == "1") {
+            info!("co-op: share quest progress: {} ({JOINT_ENV})", if on { "yes" } else { "no" });
+            p.joint_env_taken = true;
+            p.joint_answer = Some(on);
+        }
     }
     if let Some(yes) = p.joint_answer.take() {
         info!("co-op: share quest progress: {}", if yes { "yes" } else { "no" });
         p.joint_on = Some(yes);
         p.joint_ask = false;
+        match rt {
+            Some(rt) => rt.game.player.quest_sync.on = Some(yes),
+            None => warn!("co-op: share quest progress answered before the scripts run: for this session only"),
+        }
+        return;
+    }
+    // The character's own choice (an earlier answer, or the lobby's toggle just now).
+    if let Some(on) = rt.as_ref().and_then(|rt| rt.game.player.quest_sync.on) {
+        if p.joint_on != Some(on) {
+            info!("co-op: share quest progress: {} (this character's choice)", if on { "yes" } else { "no" });
+            p.joint_on = Some(on);
+        }
+        p.joint_ask = false;
+        return;
+    }
+    if p.joint_on.is_some() {
         return;
     }
     if !p.joint_ask && !p.syncing && p.my_id.is_some() {
         info!("co-op: asking whether to share quest progress this session");
         p.joint_ask = true;
     }
+}
+
+/// The lobby's Quest Sync toggle and Questlines menu (`crate::lobby`): kept on this
+/// guest's character (docs/design/coop-quest-sync.md §1), from where [`joint_question`] and
+/// [`rewards`] take them.
+fn quest_sync_asks(mut asks: MessageReader<crate::lobby::LobbyRequest>, p: Res<CoopProgress>, script: Option<ResMut<ScriptState>>) {
+    let mut script = script;
+    for ask in asks.read() {
+        let (on, line) = match ask {
+            crate::lobby::LobbyRequest::QuestSync(on) => (Some(*on), None),
+            crate::lobby::LobbyRequest::SitOut { line, out } => (None, Some((*line, *out))),
+            _ => continue,
+        };
+        if p.role != Role::Guest {
+            continue;
+        }
+        let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+            warn!("co-op: quest progression sync changed before the scripts run: not kept");
+            continue;
+        };
+        let sync = &mut rt.game.player.quest_sync;
+        if let Some(on) = on {
+            info!("co-op: quest progression sync {} (the lobby)", if on { "on" } else { "off" });
+            sync.on = Some(on);
+        }
+        if let Some((i, out)) = line {
+            sync.set_sat_out(i, out);
+            let name = fnv_game::coop_questlines::LINES.get(i).map_or("?", |l| l.name);
+            info!("co-op: questline {name}: {}", if out { "sitting out" } else { "synced" });
+        }
+    }
+}
+
+/// What the lobby's guest rows show ([`crate::lobby::QuestSyncView`]), while it is open:
+/// the choice, and the shared quests part way through for its warning (design §4).
+fn quest_sync_view(
+    p: Res<CoopProgress>,
+    screen: Option<Res<crate::lobby::LobbyScreen>>,
+    view: Option<ResMut<crate::lobby::QuestSyncView>>,
+    script: Option<Res<ScriptState>>,
+    solo: Option<Res<crate::save::SoloBase>>,
+) {
+    let Some(mut view) = view else { return };
+    let open = screen.is_some_and(|s| s.is_open());
+    let rt = script.as_deref().and_then(|s| s.rt.as_ref());
+    let next = match rt {
+        Some(rt) if open && p.role == Role::Guest => {
+            let empty = std::collections::BTreeMap::new();
+            let own = solo.as_deref().and_then(|s| s.0.as_deref()).map_or(&empty, |s| &s.game.quests);
+            let busy = rt.game.coop_sync_in_progress(own, 0);
+            let mut busy_by_line = Vec::new();
+            if !busy.is_empty() {
+                for i in 0..fnv_game::coop_questlines::LINES.len() {
+                    let n = rt.game.coop_sync_in_progress(own, fnv_game::coop_questlines::bit(i));
+                    if !n.is_empty() {
+                        busy_by_line.push((i, n));
+                    }
+                }
+            }
+            crate::lobby::QuestSyncView { guest: true, on: p.joint_on.or(rt.game.player.quest_sync.on), sat_out: rt.game.player.quest_sync.mask(), busy, busy_by_line }
+        }
+        _ => crate::lobby::QuestSyncView::default(),
+    };
+    view.set_if_neq(next);
 }
 
 /// The host: rewards of the quests it completed, for the guests.
@@ -811,17 +939,27 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut
     // character once; the host keeps the game's guest list current and sends its offers.
     if p.role != Role::Guest {
         p.joint_sent = false;
+        p.joint_sent_as = None;
+        p.joint_sent_at = None;
     }
     if p.role != Role::Host {
         p.joint_peers.clear();
+        p.joint_sat_out.clear();
         p.returns = Returns::default();
     }
     rt.game.coop_joint_on = p.role == Role::Guest && p.joint_on == Some(true);
-    if p.role == Role::Guest && !p.joint_sent && p.my_id.is_some() {
+    // Sent once, and again whenever the lobby changes it (docs/design/coop-quest-sync.md §5).
+    if p.role == Role::Guest && p.my_id.is_some() {
         if let Some(on) = p.joint_on {
-            let character = rt.game.ensure_character_id();
-            p.outbox.push(Shared::JointChoice { character, on });
-            p.joint_sent = true;
+            let sat_out = rt.game.player.quest_sync.mask();
+            let now = std::time::Instant::now();
+            if joint_choice_due(p.joint_sent, p.joint_sent_as, (on, sat_out), p.joint_sent_at, now) {
+                let character = rt.game.ensure_character_id();
+                p.outbox.push(Shared::JointChoice { character, on, sat_out });
+                p.joint_sent = true;
+                p.joint_sent_as = Some((on, sat_out));
+                p.joint_sent_at = Some(now);
+            }
         }
     }
     if !host {
@@ -846,6 +984,7 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut
         // Players that left: their entries go (their character waits in `returns`).
         let present = p.present.clone();
         p.joint_peers.retain(|id, _| present.contains(id));
+        p.joint_sat_out.retain(|id, _| present.contains(id));
     }
     rt.game.coop_joint_away = p.returns.away_sharing();
     let before = p.outbox.len();
@@ -853,7 +992,7 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut
         .joint_peers
         .iter()
         .filter(|(id, _)| p.connected.contains(id))
-        .filter_map(|(id, &(character, on))| p.peer_actors.get(id).map(|a| (*a, fnv_game::coop_joint::JointGuest { character, on })))
+        .filter_map(|(id, &(character, on))| p.peer_actors.get(id).map(|a| (*a, fnv_game::coop_joint::JointGuest { character, on, sat_out: p.joint_sat_out.get(id).copied().unwrap_or(0) })))
         .collect();
     for o in rt.game.take_joint_offers() {
         let to = o.to.iter().filter_map(|a| p.peer_actors.iter().find(|(_, x)| *x == a).map(|(id, _)| *id)).filter(|id| *id < 8).fold(0u8, |m, id| m | (1 << id));
@@ -1021,9 +1160,50 @@ fn alone_down(mut p: ResMut<CoopProgress>, time: Res<Time>, mut corner: Option<R
     }
 }
 
+/// The least time between a guest's [`Shared::JointChoice`] messages: the host's
+/// `JOINT_RATE` is a burst of 2 and then one a second, and a message over it is dropped.
+const JOINT_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Whether a guest sends its joint choice now: it has not sent one, or the lobby changed
+/// what it last sent, and the last one went at least [`JOINT_EVERY`] ago. A change that
+/// comes sooner is held (the choice read each frame is the latest) and goes when due, so
+/// the host never drops one and the guest never records one as sent that was not.
+fn joint_choice_due(sent: bool, sent_as: Option<(bool, u64)>, want: (bool, u64), sent_at: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    let changed = !sent || sent_as != Some(want);
+    changed && sent_at.is_none_or(|at| now.duration_since(at) >= JOINT_EVERY)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fast toggles of the lobby's Quest Sync: the guest sends at most one a second, the
+    /// latest one goes when due, and each is marked sent only when it goes.
+    #[test]
+    fn a_guests_fast_toggles_send_the_latest_once_a_second() {
+        use std::time::{Duration, Instant};
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let (mut sent, mut sent_as, mut sent_at) = (false, None, None);
+        let mut went = Vec::new();
+        // The lobby changes its choice every 100 ms for 3 s.
+        for step in 0..30u64 {
+            let want = (step % 2 == 0, step);
+            let now = at(step * 100);
+            if joint_choice_due(sent, sent_as, want, sent_at, now) {
+                sent = true;
+                sent_as = Some(want);
+                sent_at = Some(now);
+                went.push((step * 100, want.1));
+            }
+        }
+        assert_eq!(went, vec![(0, 0), (1000, 10), (2000, 20)], "one a second, and the choice read when it goes");
+        // A change held at the end of the second goes at once when it is due, then is not resent.
+        let want = (false, 30);
+        assert!(!joint_choice_due(sent, sent_as, want, sent_at, at(2900)));
+        assert!(joint_choice_due(sent, sent_as, want, sent_at, at(3000)));
+        assert!(!joint_choice_due(true, Some(want), want, Some(at(3000)), at(9000)), "unchanged: nothing to send");
+    }
 
     fn path(s: &str) -> PathBuf {
         PathBuf::from(s)

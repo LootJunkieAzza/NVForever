@@ -976,6 +976,10 @@ pub struct PlayerState {
     /// Quest stages this character claimed in co-op (`crate::coop_joint::ClaimLedger`).
     #[serde(skip_serializing_if = "crate::coop_joint::ClaimLedger::is_empty", default)]
     pub claims: crate::coop_joint::ClaimLedger,
+    /// This character's quest progression sync as a co-op guest and the questlines it
+    /// sits out (`crate::coop_questlines::QuestSync`; docs/design/coop-quest-sync.md).
+    #[serde(skip_serializing_if = "crate::coop_questlines::QuestSync::is_empty", default)]
+    pub quest_sync: crate::coop_questlines::QuestSync,
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
@@ -1878,6 +1882,9 @@ pub struct Game<'a> {
     /// This load order's quest prerequisites for joint progression, read on first use
     /// (`crate::coop_prereqs`). Not part of the saved state.
     pub coop_prereqs_cache: std::sync::OnceLock<crate::coop_prereqs::Prereqs>,
+    /// This load order's questlines a guest can sit out, read on first use
+    /// (`crate::coop_questlines`). Not part of the saved state.
+    pub coop_questlines_cache: std::sync::OnceLock<crate::coop_questlines::Questlines>,
     /// A co-op host's story NPC the host may not talk to yet: a player is not near it
     /// ([`Game::story_gate`]); the far players, and when it was last asked (game
     /// seconds). Not saved.
@@ -3089,6 +3096,7 @@ impl<'a> Game<'a> {
             coop_uniques_cache: std::sync::OnceLock::new(),
             coop_joint_on: false,
             coop_prereqs_cache: std::sync::OnceLock::new(),
+            coop_questlines_cache: std::sync::OnceLock::new(),
             guest_own_refs: BTreeMap::new(),
             guest_service: 0,
             coop_services: std::sync::OnceLock::new(),

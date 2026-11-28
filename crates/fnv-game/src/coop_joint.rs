@@ -8,8 +8,10 @@
 //!   choice, so a slot number never names a character across sessions [design:
 //!   coop-shared-progress.md §3.2].
 //! - **Host: presence.** [`Game::set_stage`] calls [`Game::coop_joint_stage`]: for a
-//!   claimable quest (not base-game main story, [`is_main_story`]) every connected guest
-//!   with joint progression on ([`Game::coop_joint_guests`]) is written into
+//!   claimable quest (any but a player's own, [`is_per_player`]; the base-game main story
+//!   too, docs/design/coop-quest-sync.md §2) every connected guest with joint progression
+//!   on that does not sit out the quest's line ([`JointGuest::sat_out`],
+//!   `crate::coop_questlines`) ([`Game::coop_joint_guests`]) is written into
 //!   [`SessionPresence`] (saved in the host's game), and one [`StageOffer`] is queued for
 //!   the engine to send ([`Game::take_joint_offers`]) [design: coop-shared-progress.md §3.1, §3.2].
 //! - **Guest: the check.** [`check`] decides from the guest's own game as it was at join
@@ -50,8 +52,9 @@ pub fn new_character_id() -> CharacterId {
     h.finish().max(1)
 }
 
-/// FalloutNV.esm's base-game main story: never claimable, host world only
-/// [design]. Read from the ESM's QUST records and the Fallout Wiki's main quests
+/// FalloutNV.esm's base-game main story. It is claimable like any other quest; a guest
+/// that wants it host only sits out its lines (docs/design/coop-quest-sync.md §2)
+/// [design]. Kept for the logs and tools. Read from the ESM's QUST records and the Fallout Wiki's main quests
 /// [observed: editor IDs in FalloutNV.esm; documented: wiki main-quest list, from memory,
 /// to recheck against an export]. Three use the side-quest prefix (VMS23,
 /// VMS29, VMS35), so the list is explicit. Support quests of the main story (timers, end
@@ -175,6 +178,9 @@ pub struct StageOffer {
 pub struct JointGuest {
     pub character: CharacterId,
     pub on: bool,
+    /// The questlines it sits out (`crate::coop_questlines::Mask`): no offer, no presence
+    /// for their quests.
+    pub sat_out: crate::coop_questlines::Mask,
 }
 
 /// Why a guest turned a stage down (coop-shared-progress.md §3.4), for its log and the host's.
@@ -275,10 +281,16 @@ impl Game<'_> {
     /// notes). Nothing while no guest has joint progression on and none that had it is
     /// away ([`Game::coop_joint_away`]).
     pub fn coop_joint_stage(&mut self, q: FormId, stage: i32) {
-        if self.coop_replaying || !(self.coop_joint_away || self.coop_joint_guests.values().any(|j| j.on)) || is_main_story(self, q) || is_per_player(self, q) {
+        if self.coop_replaying || !(self.coop_joint_away || self.coop_joint_guests.values().any(|j| j.on)) || is_per_player(self, q) {
             return;
         }
-        let to: Vec<FormId> = self.coop_joint_guests.iter().filter(|(_, j)| j.on).map(|(a, _)| *a).collect();
+        // The quest's lines, read only when a guest sits one out.
+        let lines = if self.coop_joint_guests.values().any(|j| j.on && j.sat_out != 0) { self.coop_questlines().lines_of(q) } else { 0 };
+        let to: Vec<FormId> = self.coop_joint_guests.iter().filter(|(_, j)| j.on && j.sat_out & lines == 0).map(|(a, _)| *a).collect();
+        // Every guest here sits it out and none sharing is away: nothing to offer.
+        if to.is_empty() && !self.coop_joint_away {
+            return;
+        }
         let who: Vec<CharacterId> = to.iter().filter_map(|a| self.coop_joint_guests.get(a)).map(|j| j.character).filter(|c| *c != 0).collect();
         // Nobody here (a sharing player away): no presence line for the stage.
         if !who.is_empty() {

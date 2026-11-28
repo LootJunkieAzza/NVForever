@@ -798,6 +798,7 @@ fn host_progress_rules(mut coop: ResMut<Coop>) {
     }
     let coop = &mut *coop;
     if let Some(link) = &coop.link {
+        coop.progress.checks.set_lines(fnv_game::coop_questlines::LINES.len());
         for (kind, rule) in coop.progress.checks.rules() {
             link.add_rule(kind, rule);
         }
@@ -806,7 +807,14 @@ fn host_progress_rules(mut coop: ResMut<Coop>) {
 }
 
 /// The lobby screens' asks, and what they show.
-fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<LobbyRequest>, mut state: ResMut<LobbyState>, switch: Res<CoopSwitch>) {
+fn lobby(
+    time: Res<Time<Real>>,
+    mut coop: ResMut<Coop>,
+    mut asks: MessageReader<LobbyRequest>,
+    mut state: ResMut<LobbyState>,
+    switch: Res<CoopSwitch>,
+    (progress, script): (Option<Res<nvf_play::coop_progress::CoopProgress>>, Option<Res<nvf_play::script::ScriptState>>),
+) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
     for ask in asks.read() {
@@ -831,6 +839,8 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
                 coop.stop_joining();
                 coop.start_joining(code);
             }
+            // A guest's quest sync choices: `nvf_play::coop_progress` keeps them.
+            LobbyRequest::QuestSync(_) | LobbyRequest::SitOut { .. } => {}
             LobbyRequest::Cancel => {
                 if coop.joining == Joining::Finding {
                     coop.stop_joining();
@@ -857,15 +867,44 @@ fn lobby(time: Res<Time<Real>>, mut coop: ResMut<Coop>, mut asks: MessageReader<
     };
     let mut players = Vec::new();
     if coop.link.is_some() {
-        players.push(if coop.is_host() { format!("{} (host, you)", coop.name) } else { format!("{} (you)", coop.name) });
+        // Who shares quest progress and the questlines each sits out
+        // (docs/design/coop-quest-sync.md §5): a guest knows its own, the host every guest's.
+        let own_sat_out = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(0, |rt| rt.game.player.quest_sync.mask());
+        let sharing = |id: Option<u8>| -> String {
+            let Some(p) = progress.as_deref() else { return String::new() };
+            let (on, sat_out) = match id {
+                None => (p.joint_on, own_sat_out),
+                Some(id) => (p.joint_peers.get(&id).map(|(_, on)| *on), p.joint_sat_out.get(&id).copied().unwrap_or(0)),
+            };
+            sharing_label(on, sat_out)
+        };
+        players.push(if coop.is_host() { format!("{}{}", coop.name, tr(" (host, you)")) } else { format!("{}{}{}", coop.name, tr(" (you)"), sharing(None)) });
         for (&id, p) in &coop.peers {
             let n = label(id, &p.name);
             // The host is player 0: marked on a guest's list.
-            let n = if id == 0 && coop.is_guest() && n != "The host" { format!("{n} (host)") } else { n };
-            players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
+            let n = if id == 0 && coop.is_guest() && n != tr("The host") { format!("{n}{}", tr(" (host)")) } else { n };
+            let n = if coop.is_host() { format!("{n}{}", sharing(Some(id))) } else { n };
+            players.push(if p.lost { format!("{n}{}", tr(" (reconnecting)")) } else { n });
         }
     }
     state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest() });
+}
+
+/// A player's quest sharing on the lobby list (docs/design/coop-quest-sync.md §5): sharing,
+/// and the questlines sat out (two by name, then how many more, so six players' lines stay
+/// on the screen); not sharing; or nothing before it chose [design: our own words].
+fn sharing_label(on: Option<bool>, sat_out: u64) -> String {
+    match on {
+        None => String::new(),
+        Some(false) => tr(" (not sharing quests)").into(),
+        Some(true) if sat_out == 0 => tr(" (sharing quests)").into(),
+        Some(true) => {
+            let names = fnv_game::coop_questlines::names(sat_out);
+            let shown = names.iter().take(2).map(|n| tr(n)).collect::<Vec<_>>().join(", ");
+            let more = if names.len() > 2 { format!(" +{}", names.len() - 2) } else { String::new() };
+            trf(" (sharing quests, sitting out {names})", &[("names", &format!("{shown}{more}"))])
+        }
+    }
 }
 
 fn label(id: u8, name: &str) -> String {
@@ -3559,6 +3598,20 @@ fn state_line(id: u8, s: &PlayerState) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The lobby list's quest sharing (docs/design/coop-quest-sync.md §5): the host sees
+    /// which questlines each guest sits out.
+    #[test]
+    fn the_lobby_list_names_the_questlines_a_player_sits_out() {
+        use fnv_game::coop_questlines::{bit, index};
+        let line = |k: &str| bit(index(k).unwrap());
+        assert_eq!(sharing_label(None, 0), "");
+        assert_eq!(sharing_label(Some(false), line("house")), " (not sharing quests)");
+        assert_eq!(sharing_label(Some(true), 0), " (sharing quests)");
+        assert_eq!(sharing_label(Some(true), line("house")), " (sharing quests, sitting out Mr. House)");
+        assert_eq!(sharing_label(Some(true), line("house") | line("ncr")), " (sharing quests, sitting out Mr. House, NCR)");
+        assert_eq!(sharing_label(Some(true), line("house") | line("ncr") | line("legion") | line("cass")), " (sharing quests, sitting out Mr. House, NCR +2)");
+    }
 
     /// With no transport plugged in, hosting opens nothing and joining says why.
     #[test]

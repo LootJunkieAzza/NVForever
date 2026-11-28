@@ -22,7 +22,7 @@ Code: `fnv_game::coop` (the host's story as a guest reads it, story gate, checkp
 
 | Part | Rule |
 |---|---|
-| Base-game main story | Host world only; not claimable. |
+| Base-game main story | Host world. Claimable like a side quest; a guest that wants it host only sits out its questlines (`coop-quest-sync.md` §2). |
 | Side quests, every DLC quest | Host world. With joint progression on, a guest that qualifies claims each stage the host sets (§3). |
 | World state | Host world. |
 | XP and level | Character: quest XP, script XP and a share of kill XP (§4.2). |
@@ -41,8 +41,9 @@ Code: `fnv_game::coop` (the host's story as a guest reads it, story gate, checkp
 A guest is asked once per join whether to share quest progress (the join question). A guest
 claims a stage the host sets when all of these hold:
 
-1. it said yes this session;
-2. the quest is not base-game main story;
+1. it said yes (its Quest Sync is on, `coop-quest-sync.md` §1);
+2. it does not sit out a questline the quest belongs to (`coop-quest-sync.md` §2-3), and
+   the quest is not one of each player's own (`coop_joint::PER_PLAYER`);
 3. it is connected when the host sets the stage;
 4. the quest's prerequisites hold in its own world (§3.3);
 5. continuity: it has every earlier stage of the host's path, claimed or done in its own world.
@@ -58,7 +59,8 @@ Joining late fills in nothing already set.
   (`coop_joint::SessionPresence`, an optional field of the save, absent in a solo save). A
   guest that left and came back resumes claiming from it.
 - The quest record has no main-story flag [observed: `schemas/fnv/gameplay.json` QUST], so the
-  base-game main story is told by editor ID (`coop_joint::MAIN_STORY`).
+  base-game main story is told by editor ID (`coop_joint::MAIN_STORY`, kept for the logs
+  and tools) and its questlines by roots (`coop_questlines::LINES`).
 
 ### 3.3 Prerequisites, from the data
 
