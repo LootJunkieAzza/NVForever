@@ -1402,7 +1402,7 @@ pub struct Game<'a> {
     compiled_files: Vec<&'a Compiled>,
     compiled_slots: std::collections::HashMap<u32, usize>,
     next_compiled: u32,
-    compiled_paths: std::collections::HashMap<String, u32>,
+    compiled_paths: std::collections::HashMap<String, Option<u32>>,
     compiled_origins: crate::jip_provenance::CompiledOrigins,
     /// Repeated script Console expressions compile once, separately from debug lines.
     console_sources: std::collections::HashMap<String, ConsoleSource<'a>>,
@@ -4159,23 +4159,29 @@ impl<'a> Game<'a> {
     /// CompileScript: the script a text file under `Data\NVSE\user_defined_functions`
     /// compiles to, cached by path unless `force` [documented: CompileScript, "cached for
     /// performance", forceRecompile]; `None` when the file is missing or does not compile
-    /// [hypothesis: the function then gives no form].
+    /// [hypothesis: the function then gives no form]. Failed lookups are cached alongside
+    /// compiled IDs so repeated non-forced calls do not re-read disk and re-warn every tick
+    /// [design: matches `compile_condition`].
     pub(crate) fn compile_file(&mut self, path: &str, force: bool) -> Option<u32> {
         let key = crate::mod_files::udf_data_path(path)?;
         if !force {
-            if let Some(&id) = self.compiled_paths.get(&key) {
-                return Some(id);
+            if let Some(&cached) = self.compiled_paths.get(&key) {
+                return cached;
             }
         }
         let Some(bytes) = crate::mod_files::read_data_file(&key) else {
             tracing::warn!("compile script: {path}: not found as {key}");
+            self.compiled_paths.insert(key, None);
             return None;
         };
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
-        let id = self.compile_source(&format!("CompileScript {path}"), src)?;
+        let Some(id) = self.compile_source(&format!("CompileScript {path}"), src) else {
+            self.compiled_paths.insert(key, None);
+            return None;
+        };
         self.compiled_origins.set(id, crate::jip_provenance::CompiledOrigin::File(crate::jip_provenance::Text::new(&key)));
-        self.compiled_paths.insert(key, id);
+        self.compiled_paths.insert(key, Some(id));
         Some(id)
     }
 
@@ -4314,7 +4320,7 @@ impl<'a> Game<'a> {
             let file = match self.compiled_origins.get(id) {
                 Some(crate::jip_provenance::CompiledOrigin::File(file)) => Some(file.single_line()),
                 Some(crate::jip_provenance::CompiledOrigin::Dynamic) => None,
-                None => self.compiled_paths.iter().find_map(|(path, &cid)| (cid == id).then(|| crate::jip_provenance::Text::new(path).single_line())),
+                None => self.compiled_paths.iter().find_map(|(path, &cid)| (cid == Some(id)).then(|| crate::jip_provenance::Text::new(path).single_line())),
             };
             return Some(match file {
                 Some(path) => format!("CompileScript {path} 0x{id:08X}"),
