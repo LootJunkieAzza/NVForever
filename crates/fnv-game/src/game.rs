@@ -976,6 +976,10 @@ pub struct PlayerState {
     /// Quest stages this character claimed in co-op (`crate::coop_joint::ClaimLedger`).
     #[serde(skip_serializing_if = "crate::coop_joint::ClaimLedger::is_empty", default)]
     pub claims: crate::coop_joint::ClaimLedger,
+    /// This character's quest progression sync as a co-op guest and the questlines it
+    /// sits out (`crate::coop_questlines::QuestSync`; docs/design/coop-quest-sync.md).
+    #[serde(skip_serializing_if = "crate::coop_questlines::QuestSync::is_empty", default)]
+    pub quest_sync: crate::coop_questlines::QuestSync,
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
@@ -1878,6 +1882,9 @@ pub struct Game<'a> {
     /// This load order's quest prerequisites for joint progression, read on first use
     /// (`crate::coop_prereqs`). Not part of the saved state.
     pub coop_prereqs_cache: std::sync::OnceLock<crate::coop_prereqs::Prereqs>,
+    /// This load order's questlines a guest can sit out, read on first use
+    /// (`crate::coop_questlines`). Not part of the saved state.
+    pub coop_questlines_cache: std::sync::OnceLock<crate::coop_questlines::Questlines>,
     /// A co-op host's story NPC the host may not talk to yet: a player is not near it
     /// ([`Game::story_gate`]); the far players, and when it was last asked (game
     /// seconds). Not saved.
@@ -3089,6 +3096,7 @@ impl<'a> Game<'a> {
             coop_uniques_cache: std::sync::OnceLock::new(),
             coop_joint_on: false,
             coop_prereqs_cache: std::sync::OnceLock::new(),
+            coop_questlines_cache: std::sync::OnceLock::new(),
             guest_own_refs: BTreeMap::new(),
             guest_service: 0,
             coop_services: std::sync::OnceLock::new(),
@@ -4569,19 +4577,33 @@ impl<'a> Game<'a> {
             }
             EventCall::Remove { event, func, pairs } => {
                 let event = canonical_event_name(&event);
-                let filters: Vec<(usize, XVal)> = pairs
-                    .into_iter()
-                    .filter_map(|(k, v)| match (key_text(&k).as_str(), &k) {
-                        ("first", _) => Some((1, v)),
-                        ("second", _) => Some((2, v)),
-                        (_, XVal::Num(i)) => Some((*i as usize, v)),
-                        _ => None,
-                    })
-                    .collect();
+                // Non-zero priority removes only that priority; 0 or omitted removes all
+                // [documented: RemoveEventHandler; observed: 2026-11-24, Fallout: New Vegas
+                // 1.4.0.525, xNVSE 6.4.9, JIP LN 57.30, GSDocMitchellHouse (0x00103DF9),
+                // 10 official base masters, `tools/capture/nvse/catalogs/wave6d1_remove_event_handler_priority.json`
+                // probe `w6d1_02_remove_event_handler_priority`:
+                // `PROBE|w6d1_02_remove_event_handler_priority|r5=1,0|keys=1,0,1|n=2|r0=1,sz0=0|rf=1,n100=0,n200=1|end=1,0`;
+                // no DLL, PDB, or third-party source consulted].
+                let mut priority: i32 = 0;
+                let mut filters: Vec<(usize, XVal)> = Vec::new();
+                for (k, v) in pairs {
+                    match (key_text(&k).as_str(), &k) {
+                        ("priority", _) => {
+                            priority = v.num().map_err(|e| e.to_string())? as i32;
+                        }
+                        ("first", _) => filters.push((1, v)),
+                        ("second", _) => filters.push((2, v)),
+                        (_, XVal::Num(i)) => filters.push((*i as usize, v)),
+                        _ => {}
+                    }
+                }
                 let before = self.handlers.len();
                 let ext = &mut self.ext;
                 self.handlers.retain(|h| {
-                    let hit = h.event == event && h.func == func && filters.iter().all(|f| h.filters.contains(f));
+                    let hit = h.event == event
+                        && h.func == func
+                        && (priority == 0 || h.priority == priority)
+                        && filters.iter().all(|f| h.filters.contains(f));
                     if hit {
                         for (_, v) in &h.filters {
                             ext.release(v);
