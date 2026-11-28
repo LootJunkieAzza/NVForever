@@ -4667,6 +4667,8 @@ dependencies = [
  "fnv-world",
  "half",
  "naga",
+ "nvf-rtgi",
+ "texpresso",
 ]
 
 [[package]]
@@ -4749,6 +4751,9 @@ dependencies = [
  "log",
  "naga",
  "nvf-rtgi",
+ "serde",
+ "serde_json",
+ "texpresso",
  "wgpu",
 ]
 

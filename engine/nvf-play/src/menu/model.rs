@@ -1025,6 +1025,9 @@ pub struct MenuModel {
     amount: Option<i32>,
     /// The container menu is picking a living actor's pocket ([`Steal`]).
     pub steal: Option<Steal>,
+    /// A co-op guest's container menu: quest items are the host's (it carries the
+    /// quests) and are not listed (design).
+    pub guest: bool,
     /// Inventory: the folder open, if any ([`Folder`]).
     pub folder: Option<Folder>,
     /// Inventory: active Pip-Boy ySI category & subfolder definitions (empty in vanilla or
@@ -1284,6 +1287,7 @@ impl MenuModel {
             quantity: None,
             amount: None,
             steal: None,
+            guest: false,
             folder: None,
             ysi_categories: fnv_game::yui_ini::YsiCategoryIndex::default(),
             ysi_folder_stack: Vec::new(),
@@ -1346,6 +1350,13 @@ impl MenuModel {
                 self.filtered[side as usize] = all - l.rows.len();
                 if side == Side::Container && self.steal.as_ref().is_some_and(|s| !s.worn) {
                     l.rows.retain(|r| !r.equipped);
+                }
+                if side == Side::Container && self.guest {
+                    let before = l.rows.len();
+                    l.rows.retain(|r| !r.quest);
+                    if l.rows.len() != before {
+                        bevy::log::info!("menu: {} quest item row(s) left out: the host's quests' (co-op guest)", before - l.rows.len());
+                    }
                 }
                 // The player's tweak keeps worn things out of a container's exchange [design: docs/design/tweaks.md].
                 if side == Side::Player && self.hide_equipped_containers && matches!(self.mode, Mode::Container(_)) {

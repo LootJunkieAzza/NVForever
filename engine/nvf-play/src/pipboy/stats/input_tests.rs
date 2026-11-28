@@ -301,7 +301,7 @@ fn cnd_draws_three_hints_in_the_existing_slots() {
     assert_eq!(Val::Vh(first), crate::interface::u(STATUS.min.y + HINT_Y));
     assert!(first < middle && middle < last);
     assert!((middle - first - (last - middle)).abs() < 1e-4, "{first} {middle} {last}");
-    for (labels, expected) in [(crate::pad::Labels::Keys, ["S)", "X)", "E)"]), (crate::pad::Labels::Xbox, ["A)", "X)", "Y)"]), (crate::pad::Labels::PlayStation, ["Cross)", "Square)", "Triangle)"])] {
+    for (labels, expected) in [(crate::pad::Labels::Keys, ["[S]", "[X]", "[E]"]), (crate::pad::Labels::Xbox, ["[A]", "[X]", "[Y]"]), (crate::pad::Labels::PlayStation, ["[Cross]", "[Square]", "[Triangle]"])] {
         crate::pad::set_labels(labels);
         assert_eq!([hint_key(&StatsView::default(), 0), hint_key(&StatsView::default(), SWITCH_LIMBS), hint_key(&StatsView::default(), 1)], expected);
     }
