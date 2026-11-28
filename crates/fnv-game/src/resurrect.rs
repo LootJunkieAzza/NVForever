@@ -104,6 +104,9 @@ impl Game<'_> {
             e.rolls += 1;
         }
         let rolls = e.rolls;
+        self.note_knocked_out(r, false);
+        self.note_fatigue_damaged(r, false);
+        self.wake_package_actor(r);
         if was_culled {
             self.script_looks.critical_changed.push(r);
         }

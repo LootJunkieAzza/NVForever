@@ -263,6 +263,7 @@ impl Game<'_> {
         let now = self.time;
         let facing_up = old.filter(|k| k.lying()).and_then(|k| k.facing_up);
         self.extra.entry(r).or_default().knocked_out = Some(KnockOut { cause, at: now, facing_up, held: false, rising: None, pushed, shove });
+        self.note_knocked_out(r, true);
         self.emit(EventKind::KnockedOut { actor: r, cause: cause.name() });
         // JIP's ragdoll handlers: knocked down, knocked out, out of fatigue or paralysed,
         // when the body was not already lying [documented: SetOnRagdollEventHandler;
@@ -388,6 +389,7 @@ impl Game<'_> {
         if let Some(e) = self.extra.get_mut(&r) {
             e.knocked_out = None;
         }
+        self.note_knocked_out(r, false);
     }
 
     /// Whether an actor in combat (not dead, not knocked out itself) stands within
@@ -408,12 +410,30 @@ impl Game<'_> {
     /// One frame of `dt` game seconds: fatigue returns, and the knocked out whose time
     /// has come begin to get up (see the module notes). Returns those who began to.
     pub fn tick_knockouts(&mut self, dt: f64) -> Vec<FormId> {
-        let tired: Vec<FormId> = self.extra.iter().filter(|(_, e)| e.av_damage.contains_key(&FATIGUE)).map(|(r, _)| *r).collect();
-        for r in tired {
-            actor::restore(self, r, FATIGUE, FATIGUE_RETURN * dt);
+        self.ensure_extra_index();
+        if !self.extra_index.fatigue_damaged.is_empty() {
+            let tired: Vec<FormId> = self
+                .extra_index
+                .fatigue_damaged
+                .iter()
+                .copied()
+                .filter(|r| self.extra.get(r).is_some_and(|e| e.av_damage.contains_key(&FATIGUE)))
+                .collect();
+            for r in tired {
+                actor::restore(self, r, FATIGUE, FATIGUE_RETURN * dt);
+            }
+        }
+        if self.extra_index.knocked_out.is_empty() {
+            return Vec::new();
         }
         let now = self.time;
-        let down: Vec<(FormId, KnockOut)> = self.extra.iter().filter_map(|(r, e)| e.knocked_out.map(|k| (*r, k))).collect();
+        let down: Vec<(FormId, KnockOut)> = self
+            .extra_index
+            .knocked_out
+            .iter()
+            .copied()
+            .filter_map(|r| self.extra.get(&r).and_then(|e| e.knocked_out).map(|k| (r, k)))
+            .collect();
         let mut up = Vec::new();
         for (r, k) in down {
             if self.is_dead(r) {

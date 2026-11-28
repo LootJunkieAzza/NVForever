@@ -155,6 +155,11 @@ impl Game<'_> {
         // pick is made again.
         let before = self.ref_script(r);
         self.extra.remove(&r);
+        self.clear_extra_index(r);
+        if self.package_schedule.initialized {
+            self.package_schedule.tracked.remove(&r);
+            self.wake_package_actor(r);
+        }
         if let Some(p) = self.world.placed.get(r) {
             let (cell, pos, rot) = (p.cell, p.pos, p.rot);
             if let Ok(s) = self.world.get(r) {

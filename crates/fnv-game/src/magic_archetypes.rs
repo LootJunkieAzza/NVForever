@@ -128,16 +128,20 @@ impl Game<'_> {
     /// One frame: an actor with an active Concussion effect whose head has just become
     /// crippled is concussed (see the module notes).
     pub fn tick_concussions(&mut self) {
+        self.ensure_extra_index();
         let mut able: Vec<FormId> =
             self.effects.iter().filter(|e| !e.inactive && self.magic_effect_def(e.effect).is_some_and(|m| m.archetype == ARCHETYPE_CONCUSSION)).map(|e| e.target).collect();
         able.sort();
         able.dedup();
         // Those no longer able forget their head (a crippling later counts as new).
-        let watched: Vec<FormId> = self.extra.iter().filter(|(_, x)| x.head_crippled).map(|(r, _)| *r).collect();
-        for r in watched {
-            if !able.contains(&r) {
-                if let Some(x) = self.extra.get_mut(&r) {
-                    x.head_crippled = false;
+        if !self.extra_index.head_crippled.is_empty() {
+            let watched: Vec<FormId> = self.extra_index.head_crippled.iter().copied().collect();
+            for r in watched {
+                if !able.contains(&r) {
+                    if let Some(x) = self.extra.get_mut(&r) {
+                        x.head_crippled = false;
+                    }
+                    self.note_head_crippled(r, false);
                 }
             }
         }
@@ -148,6 +152,7 @@ impl Game<'_> {
                 continue;
             }
             self.extra.entry(r).or_default().head_crippled = crippled;
+            self.note_head_crippled(r, crippled);
             if !crippled || self.is_dead(r) {
                 continue;
             }

@@ -981,7 +981,7 @@ impl Runtime {
 
     /// References newly marked for delete (no trace event for it).
     fn newly_marked(&mut self) -> Vec<FormId> {
-        let now: Vec<FormId> = self.game.extra.iter().filter(|(_, e)| e.marked_for_delete).map(|(r, _)| *r).collect();
+        let now = self.game.marked_for_delete_refs();
         now.into_iter().filter(|r| self.marked.insert(*r)).collect()
     }
 

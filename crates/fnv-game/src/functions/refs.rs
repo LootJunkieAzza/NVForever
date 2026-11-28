@@ -47,6 +47,7 @@ pub fn enable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String> 
     if still_disabled {
         g.emit(EventKind::RefEnabled { reference: r, fade });
         g.note_enabled(r);
+        g.wake_package_enable_parent(r);
     }
     none()
 }
@@ -523,6 +524,7 @@ pub fn get_parent_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
 pub fn mark_for_delete(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.extra.entry(r).or_default().marked_for_delete = true;
+    g.note_marked_for_delete(r);
     g.world.set_deleted(r, true).map_err(|e| e.to_string())?;
     none()
 }
