@@ -615,6 +615,32 @@ fn a_quest_started_again_runs_its_timer_from_the_start() {
     assert_eq!(g.var(key, 2), Value::Num(0.0), "ran out: fTimer {:?}", g.var(key, 1));
 }
 
+/// #4851 (Lucky 38's pod timer): the first run after a start counts the time since the
+/// start, as VMS40Timer's first drop did (layer5-captures.md §5.4), so a timer started
+/// again runs out at its time plus at most one quest delay, not one run later.
+#[test]
+fn a_quest_started_again_counts_its_first_run_from_the_start() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    g.frames(120);
+    g.stop_quest(q());
+    g.frames(600);
+    let key = InstKey::Quest { quest: q() };
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 1, Value::Num(1.0), "test", true);
+    g.store(key, Some(FormId(QUEST_SCRIPT)), 2, Value::Num(1.0), "test", true);
+    g.start_quest(q());
+    // Just past the first run (the quest delay is 0.5 s): it took off the half second
+    // since the start.
+    g.frames(32);
+    let Value::Num(left) = g.var(key, 1) else { panic!() };
+    assert!((0.4..=0.6).contains(&left), "first run after the start: fTimer {left}");
+    // Out by 1.0 s and one delay more (0.5 s), not a run later.
+    g.frames(64);
+    assert_eq!(g.var(key, 2), Value::Num(0.0), "ran out: fTimer {:?}", g.var(key, 1));
+}
+
 #[test]
 fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
     // OnTrigger runs every frame the player is inside; with `Game::trigger_frame` before
@@ -934,6 +960,83 @@ fn coop_players_round_trip_apart_from_the_player() {
     twice.coop.push(twice.coop[0].clone());
     let world = World::restore(&f.forms, &f.refs, &twice.sim).unwrap();
     assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
+}
+
+/// Network co-op's parts of a save (docs/design/coop-save.md §5) are optional: a solo game
+/// writes none of them, a load gives it none, and set they come back as they went (a
+/// character's ID and claim ledger, the host's presence record).
+#[test]
+fn network_co_ops_save_fields_are_absent_solo_and_round_trip_when_set() {
+    use fnv_game::coop_joint::ClaimedStage;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    let fields = ["\"character_id\"", "\"claims\"", "\"coop_presence\""];
+    let solo = g.snapshot();
+    let text = serde_json::to_string(&solo).unwrap();
+    assert!(fields.iter().all(|f| !text.contains(f)), "a solo save");
+    let world = World::restore(&f.forms, &f.refs, &solo.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &solo).unwrap();
+    let again = serde_json::to_string(&h.snapshot()).unwrap();
+    assert!(fields.iter().all(|f| !again.contains(f)), "a solo save after a load");
+    // Set: a guest's character, and what a host keeps.
+    let id = g.ensure_character_id();
+    assert_ne!(id, 0);
+    g.player.claims.stages.entry(FormId(QUEST)).or_default().push(ClaimedStage { stage: 10, line: None });
+    g.player.claims.markers.insert(FormId(0x0000_1234));
+    g.coop_presence.stages.entry(FormId(QUEST)).or_default().entry(10).or_default().insert(id);
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(fields.iter().all(|f| text.contains(f)));
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.player.character_id, id);
+    assert_eq!(h.player.claims, g.player.claims);
+    assert!(h.coop_presence.was_there(FormId(QUEST), 10, id));
+}
+
+/// A co-op guest's save: its own game as it was when it joined, with the
+/// character as it is in the host's world; the place, quests and time stay its own.
+#[test]
+fn a_guests_save_keeps_its_own_place_and_world_with_the_character_now() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    let solo = g.snapshot();
+    let p = FormId::PLAYER_REF;
+    let at_home = solo.sim.refs[&p].clone();
+    // In the host's world: elsewhere, a quest stage the host's story set, and progress.
+    g.set_stage(FormId(QUEST), 10);
+    let mut now = g.snapshot();
+    let actor = now.sim.refs.get_mut(&p).unwrap();
+    actor.pos = [5000.0, -3000.0, 120.0];
+    actor.rot = [0.0, 0.0, 1.5];
+    actor.inventory.get_or_insert_with(fnv_sim::Inventory::new).add(FormId(0x4242), 3);
+    now.player.xp = 750.0;
+    now.player.level = Some(4);
+    now.player.perks.insert(FormId(0xABC), 1);
+    now.extra.entry(p).or_default().av_damage.insert(16, 25.0);
+    now.time = solo.time + 600.0;
+    let merged = solo.clone().with_character_of(&now);
+    let me = &merged.sim.refs[&p];
+    assert_eq!((me.cell, me.pos, me.rot), (at_home.cell, at_home.pos, at_home.rot));
+    assert_eq!(me.inventory.as_ref().unwrap().count(FormId(0x4242)), 3);
+    assert_eq!(merged.player.xp, 750.0);
+    assert_eq!(merged.player.level, Some(4));
+    assert!(merged.player.perks.contains_key(&FormId(0xABC)));
+    assert_eq!(merged.extra[&p].av_damage.get(&16), Some(&25.0));
+    assert_eq!(merged.time, now.time);
+    assert_eq!(merged.quests, solo.quests);
+    assert_ne!(merged.quests, now.quests);
+    // It loads.
+    let world = World::restore(&f.forms, &f.refs, &merged.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &merged).unwrap();
+    assert_eq!(h.world.peek(p).unwrap().pos, at_home.pos);
+    assert_eq!(h.player.xp, 750.0);
 }
 
 /// A change that spoils a snapshot.
@@ -3618,6 +3721,34 @@ fn on_disable_and_on_enable_reentrancy_does_not_recurse_or_duplicate_events() {
 }
 
 #[test]
+fn get_explosion_hit_damage_returns_minus_one_outside_handler() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+    // SetExplosionHitDamage outside a handler is a no-op and does not change the -1.0 sentinel.
+    q(&mut g, "SetExplosionHitDamage 42");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+    // Inside a ShowOff:OnExplosionHit handler, GetExplosionHitDamage reads the live pre-armor
+    // damage (100.0) and SetExplosionHitDamage 30 returns 30.0; after exit it reverts to -1.0.
+    q(
+        &mut g,
+        "set TestGlobal to 0
+         SetEventHandler \"ShowOff:OnExplosionHit\" (Begin Function {ref target, ref source}
+           let TestGlobal := GetExplosionHitDamage
+           SetExplosionHitDamage 30
+         End)",
+    );
+    let out = g.explosion_hit(FormId::PLAYER_REF, 100.0);
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 100.0);
+    assert_eq!(out, 30.0);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+}
+
+#[test]
 fn on_actor_equip_and_unequip_aliases_self_and_pre_unequip() {
     use fnv_script::vm::XVal;
     let f = fixture();
@@ -4432,6 +4563,33 @@ fn player_control_locks_are_kept_per_plugin() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetPlayerControlsDisabled)"), XVal::Num(1.0), "the vanilla getter sees them");
     q(&mut g, "EnablePlayerControlsAlt");
     assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
+}
+
+/// Only a story script's locks hold a co-op host's guests [design: only story
+/// scenes; coop-replication.md §7.1]: a quest's lock is a story lock, an object
+/// script's on something the player uses is not, and EnablePlayerControls clears both.
+#[test]
+fn only_a_story_scripts_lock_is_a_story_lock() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str, ctx: fnv_game::game::RunCtx| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx).unwrap();
+    };
+    let own = fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    q(&mut g, "DisablePlayerControls 1 0 0 0", own);
+    assert!(g.controls_locked()[0], "the host is held");
+    assert_eq!(g.story_locks(), [false; 7], "an object script's lock is the host's own");
+    let story = fnv_game::game::RunCtx { quest: Some(FormId(0x901)), ..Default::default() };
+    q(&mut g, "DisablePlayerControls 0 1 0 0", story);
+    assert_eq!(g.story_locks(), [false, true, false, false, false, false, false], "a quest's lock goes to the guests");
+    q(&mut g, "EnablePlayerControls", fnv_game::game::RunCtx::default());
+    assert_eq!(g.story_locks(), [false; 7]);
+    assert_eq!(g.controls_locked(), [false; 7]);
+    // An NVForever mini-game's own lock (the drinking contest's) holds this game only.
+    g.other.alt_locks.insert(format!("{}drink_contest", fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX), [true; 7]);
+    assert_eq!(g.controls_locked(), [true; 7], "the player at the table is held");
+    assert_eq!(g.story_locks(), [false; 7], "a mini-game's lock is no scene for the guests");
+    assert_eq!(g.scene_locks(), [false; 7], "nor a scene that hides the other players here");
 }
 
 /// The runner's `created:<base>` names the newest reference made at run time from a
@@ -5544,6 +5702,32 @@ fn console_plm_clm_s1st_setvel_and_the_small_ones() {
     assert_eq!(g.ui.splatter.clears, 1);
     run(&mut g, "TestRaceSexTerimnal", &none, &[]).unwrap();
     assert_eq!(g.race_menu, fnv_game::game::RaceMenu::Creator);
+}
+
+/// A co-op guest takes a quest's reward the host completed: the XP as
+/// RewardXP gives it. On a host, caps that reach the player count towards the reward of
+/// a quest completed around then (`coop_rewards`). (The fixture has no caps form, so the
+/// caps go in as the event AddItem emits.)
+#[test]
+fn a_guest_takes_the_hosts_quest_reward() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let caps = fnv_game::coop_rewards::CAPS;
+    let xp0 = g.player.xp;
+    assert_eq!(g.take_coop_reward(250.0, 0).unwrap(), 250.0);
+    assert_eq!(g.player.xp, xp0 + 250.0);
+    let paid = |g: &mut Game| g.emit(fnv_game::trace::EventKind::ItemAdded { to: FormId::PLAYER_REF, item: caps, count: 40, silent: false });
+    // Off (a guest, a game alone): nothing kept.
+    paid(&mut g);
+    assert!(g.coop_rewards.due(u64::MAX).is_empty());
+    // A host: the caps a script gives count.
+    g.coop_rewards.on = true;
+    paid(&mut g);
+    let frame = g.frame;
+    g.coop_rewards.completed(frame, FormId(QUEST));
+    let due = g.coop_rewards.due(frame + fnv_game::coop_rewards::AFTER);
+    assert_eq!(due, [fnv_game::coop_rewards::QuestReward { quest: FormId(QUEST), xp: 0.0, caps: 40 }]);
 }
 
 // ---- TTW's extender functions (issue #1408, crate::nvse_ttw) -------------------------

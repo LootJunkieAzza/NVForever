@@ -250,6 +250,13 @@ passes and copies it once: three resolves and a copy where one resolve to the tr
 texture and one to the main texture are read. Without multisampling, with a resolution
 override, or when the transparent phase is empty, upstream's path runs unchanged.
 
+[documented: `bevy_pbr/src/material.rs`, `decal/forward.rs`, `transmission/`]
+A forward decal can opt into the scene color used for refraction. The transmission
+phase draws these decals over the opaque receivers before its first texture copy.
+The game selects this for submerged world marks so the water shades their color
+with the lakebed. Cameras without screen-space transmission use the decal's usual
+alpha blending.
+
 Both FSR changes are already in Bevy's `main`, written almost the same way: bevyengine/bevy#26235
 (transmission, merged 2026-10-26) and bevyengine/bevy#26236 (cluster lookup, merged
 2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first

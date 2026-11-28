@@ -17,6 +17,7 @@
 //! Path containment is checked on canonicalized paths, case-insensitively on Windows.
 
 pub mod mo2;
+pub mod mod_order;
 pub mod plugins;
 pub mod reports;
 pub mod steam;

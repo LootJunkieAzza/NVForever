@@ -495,7 +495,17 @@ pub(crate) fn open_menus(
                 Ok(m)
             })
         }
-        (None, Some(c)) => MenuModel::open_container(&mut sim.world, FormId(c.container)),
+        (None, Some(c)) => {
+            // A co-op guest's container: the host's quest items are not listed.
+            let guest = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.coop_guest);
+            MenuModel::open_container(&mut sim.world, FormId(c.container)).and_then(|mut m| {
+                if guest {
+                    m.guest = true;
+                    m.refresh(&mut sim.world)?;
+                }
+                Ok(m)
+            })
+        }
         (None, None) => MenuModel::open_inventory(&mut sim.world),
     };
     match opened {
