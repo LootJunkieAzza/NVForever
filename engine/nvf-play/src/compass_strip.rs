@@ -81,20 +81,67 @@ impl StripTexels {
     }
 }
 
+/// Precomputed per-column fade multipliers and edge spans where `fade < 1.0`.
+struct FadeLut {
+    /// Exact float alpha per column (for matching `bake`'s rounding).
+    alpha: Vec<f32>,
+    /// Columns in `0..left_end` have `alpha < 1.0`.
+    left_end: usize,
+    /// Columns in `right_start..columns` have `alpha < 1.0`.
+    right_start: usize,
+}
+
+impl FadeLut {
+    fn new(per: f32, columns: usize) -> Self {
+        let alpha: Vec<f32> = (0..columns).map(|x| fade((x as f32 + 0.5) / per)).collect();
+        let left_end = alpha.iter().position(|&a| a >= 1.0).unwrap_or(columns);
+        let right_start = alpha.iter().rposition(|&a| a >= 1.0).map_or(left_end, |i| (i + 1).max(left_end));
+        Self { alpha, left_end, right_start }
+    }
+}
+
+/// Write the window's `columns` texels of `strip` from `offset` into `out` (reusing its
+/// allocation), using contiguous `copy_from_slice` per row and applying alpha fade only
+/// along the faded left/right edges [design].
+fn bake_into(strip: &StripTexels, offset: usize, columns: usize, lut: &FadeLut, out: &mut Vec<u8>) {
+    let w = strip.width;
+    let start = offset % w;
+    let len = columns * strip.height * 4;
+    out.resize(len, 0);
+    for y in 0..strip.height {
+        let src_row = &strip.rgba[y * w * 4..(y + 1) * w * 4];
+        let dst_row = &mut out[y * columns * 4..(y + 1) * columns * 4];
+        let mut dst_col = 0;
+        let mut src_col = start;
+        while dst_col < columns {
+            let take = (columns - dst_col).min(w - src_col);
+            let sb = src_col * 4;
+            let db = dst_col * 4;
+            let bytes = take * 4;
+            dst_row[db..db + bytes].copy_from_slice(&src_row[sb..sb + bytes]);
+            dst_col += take;
+            src_col += take;
+            if src_col == w {
+                src_col = 0;
+            }
+        }
+        for (x, &alpha) in lut.alpha[..lut.left_end].iter().enumerate() {
+            let di = x * 4 + 3;
+            dst_row[di] = (f32::from(dst_row[di]) * alpha).round() as u8;
+        }
+        for (x, &alpha) in lut.alpha[lut.right_start..columns].iter().enumerate() {
+            let di = (lut.right_start + x) * 4 + 3;
+            dst_row[di] = (f32::from(dst_row[di]) * alpha).round() as u8;
+        }
+    }
+}
+
 /// The window's `columns` texels of `strip` from its texel `offset`, wrapping at the
 /// strip's end, each column's alpha times the fade at its middle.
 pub fn bake(strip: &StripTexels, offset: usize, columns: usize) -> Vec<u8> {
-    let per = strip.per_unit();
-    let alpha: Vec<f32> = (0..columns).map(|x| fade((x as f32 + 0.5) / per)).collect();
+    let lut = FadeLut::new(strip.per_unit(), columns);
     let mut out = Vec::with_capacity(columns * strip.height * 4);
-    for y in 0..strip.height {
-        let row = y * strip.width;
-        for (x, a) in alpha.iter().enumerate() {
-            let i = (row + (offset + x) % strip.width) * 4;
-            let t = &strip.rgba[i..i + 4];
-            out.extend_from_slice(&[t[0], t[1], t[2], (f32::from(t[3]) * a).round() as u8]);
-        }
-    }
+    bake_into(strip, offset, columns, &lut, &mut out);
     out
 }
 
@@ -103,6 +150,7 @@ pub struct StripWindow {
     strip: StripTexels,
     columns: usize,
     offset: usize,
+    lut: FadeLut,
     image: Handle<Image>,
     /// A SetUIAlphaMap mask over the window, its alpha times each baked texel's
     /// (`tiles::texmod::strip`, #1833).
@@ -120,12 +168,15 @@ impl StripWindow {
         }
         let columns = columns as usize;
         let offset = texel_offset(heading, strip.width);
+        let lut = FadeLut::new(strip.per_unit(), columns);
         let size = Extent3d { width: columns as u32, height: strip.height as u32, depth_or_array_layers: 1 };
+        let mut data = Vec::with_capacity(columns * strip.height * 4);
+        bake_into(&strip, offset, columns, &lut, &mut data);
         // Kept in the main world too, as it is re-baked in place.
-        let mut image = Image::new(size, TextureDimension::D2, bake(&strip, offset, columns), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
+        let mut image = Image::new(size, TextureDimension::D2, data, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
         // Linear across the stretched texels, as `crate::repeat`'s [design].
         image.sampler = ImageSampler::linear();
-        Some(StripWindow { strip, columns, offset, image: images.add(image), mask: None })
+        Some(StripWindow { strip, columns, offset, lut, image: images.add(image), mask: None })
     }
 
     /// The window under `mask` (none: as it is), stretched over its texels and kept for
@@ -133,10 +184,7 @@ impl StripWindow {
     pub fn masked(mut self, mask: Option<std::sync::Arc<crate::tiles::texmod::Texels>>, images: &mut Assets<Image>) -> StripWindow {
         if mask.is_some() {
             self.mask = mask;
-            let texels = self.texels_at(self.offset);
-            if let Some(mut image) = images.get_mut(&self.image) {
-                image.data = Some(texels);
-            }
+            self.rebake_image(images);
         }
         self
     }
@@ -149,20 +197,20 @@ impl StripWindow {
             return false;
         }
         self.strip = strip;
-        let texels = self.texels_at(self.offset);
-        if let Some(mut image) = images.get_mut(&self.image) {
-            image.data = Some(texels);
-        }
+        self.rebake_image(images);
         true
     }
 
-    /// The window's texels from the strip's texel `offset`, under the mask when it has one.
-    fn texels_at(&self, offset: usize) -> Vec<u8> {
-        let mut texels = bake(&self.strip, offset, self.columns);
-        if let Some(m) = &self.mask {
-            crate::tiles::texmod::masked(&mut texels, self.columns, &m.rgba, m.width);
+    /// Re-bake `self.image`'s pixel buffer in place at `self.offset`, reusing its `Vec<u8>`
+    /// allocation so heading turns never allocate on the main thread [design].
+    fn rebake_image(&self, images: &mut Assets<Image>) {
+        if let Some(mut image) = images.get_mut(&self.image) {
+            let buf = image.data.get_or_insert_with(|| Vec::with_capacity(self.columns * self.strip.height * 4));
+            bake_into(&self.strip, self.offset, self.columns, &self.lut, buf);
+            if let Some(m) = &self.mask {
+                crate::tiles::texmod::masked(buf, self.columns, &m.rgba, m.width);
+            }
         }
-        texels
     }
 
     pub fn image(&self) -> Handle<Image> {
@@ -188,10 +236,7 @@ impl StripWindow {
             return false;
         }
         self.offset = offset;
-        let texels = self.texels_at(offset);
-        if let Some(mut image) = images.get_mut(&self.image) {
-            image.data = Some(texels);
-        }
+        self.rebake_image(images);
         true
     }
 }

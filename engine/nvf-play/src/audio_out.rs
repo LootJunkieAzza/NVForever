@@ -220,14 +220,30 @@ pub struct KeepsSpeed;
 #[derive(Resource, Clone)]
 pub struct SoundVolumes(Arc<Levels>);
 
-struct Levels {
-    master: AtomicU32,
-    categories: [AtomicU32; 5],
+/// Cache-line-isolated meter counters so audio-thread `fetch_add` bursts never dirty
+/// the read-mostly volume sliders cache line [design].
+#[repr(align(64))]
+#[derive(Default)]
+struct MeterCounters {
     /// Stereo frames in which each category's mixer had sound.
     heard: [AtomicU64; 5],
     /// The same, after the category's volume and the master's.
     audible: [AtomicU64; 5],
 }
+
+#[repr(align(64))]
+struct Levels {
+    master: AtomicU32,
+    categories: [AtomicU32; 5],
+    /// Bumped whenever `master` or any category changes so [`Gain`] skips redundant
+    /// slider loads and easing math in the steady state [design].
+    gen: AtomicU64,
+    meters: MeterCounters,
+}
+
+/// Stereo frames accumulated locally in [`Gain`] before flushing `heard`/`audible`
+/// with a single relaxed `fetch_add` (cuts audio-thread atomic RMWs 128x) [design].
+const GAIN_METER_BATCH: u64 = 128;
 
 /// The volumes a new player starts with, in [`SoundCategory::ALL`]'s order: the
 /// original's (`fDefaultMusicVolume` 0.6, `fDefaultFootVolume` 0.5, `fDefaultVoiceVolume`
@@ -242,8 +258,8 @@ impl Default for SoundVolumes {
         SoundVolumes(Arc::new(Levels {
             master: level(1.0),
             categories: DEFAULT_VOLUMES.map(level),
-            heard: Default::default(),
-            audible: Default::default(),
+            gen: AtomicU64::new(1),
+            meters: MeterCounters::default(),
         }))
     }
 }
@@ -255,6 +271,7 @@ impl SoundVolumes {
 
     pub fn set_master(&self, v: f32) {
         self.0.master.store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.0.gen.fetch_add(1, Ordering::Release);
     }
 
     pub fn get(&self, c: SoundCategory) -> f32 {
@@ -263,6 +280,7 @@ impl SoundVolumes {
 
     pub fn set(&self, c: SoundCategory, v: f32) {
         self.0.categories[c.index()].store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.0.gen.fetch_add(1, Ordering::Release);
     }
 
     /// What a category's sound is played at: its volume times the master's.
@@ -278,21 +296,63 @@ struct Gain {
     volumes: SoundVolumes,
     category: SoundCategory,
     now: f32,
+    target: f32,
+    seen_gen: u64,
     /// Samples of the stereo frame being counted for the summary, and whether one had
     /// sound before and after the gain.
     counted: u16,
     heard: bool,
     audible: bool,
+    /// Local stereo-frame batch flushed every [`GAIN_METER_BATCH`] frames (and on drop)
+    /// to avoid per-frame atomic RMWs on the mixer thread [design].
+    batch_frames: u64,
+    heard_pending: u64,
+    audible_pending: u64,
 }
 
 impl Gain {
     fn new(inner: MixerSource, volumes: SoundVolumes, category: SoundCategory) -> Gain {
+        let seen_gen = volumes.0.gen.load(Ordering::Acquire);
         let now = volumes.gain(category);
-        Gain { inner, volumes, category, now, counted: 0, heard: false, audible: false }
+        Gain {
+            inner,
+            volumes,
+            category,
+            now,
+            target: now,
+            seen_gen,
+            counted: 0,
+            heard: false,
+            audible: false,
+            batch_frames: 0,
+            heard_pending: 0,
+            audible_pending: 0,
+        }
+    }
+
+    #[inline]
+    fn flush_meters(&mut self) {
+        let idx = self.category.index();
+        if self.heard_pending > 0 {
+            self.volumes.0.meters.heard[idx].fetch_add(self.heard_pending, Ordering::Relaxed);
+            self.heard_pending = 0;
+        }
+        if self.audible_pending > 0 {
+            self.volumes.0.meters.audible[idx].fetch_add(self.audible_pending, Ordering::Relaxed);
+            self.audible_pending = 0;
+        }
+        self.batch_frames = 0;
+    }
+}
+
+impl Drop for Gain {
+    fn drop(&mut self) {
+        self.flush_meters();
     }
 }
 
 /// The most a gain moves per sample ([`VOLUME_EASE`] for the whole way).
+#[inline]
 fn ease_step() -> f32 {
     1.0 / (VOLUME_EASE.as_secs_f32() * RATE as f32 * CHANNELS as f32)
 }
@@ -300,26 +360,35 @@ fn ease_step() -> f32 {
 impl Iterator for Gain {
     type Item = rodio::Sample;
 
+    #[inline]
     fn next(&mut self) -> Option<rodio::Sample> {
-        let target = self.volumes.gain(self.category);
-        let step = ease_step();
-        self.now += (target - self.now).clamp(-step, step);
+        let g = self.volumes.0.gen.load(Ordering::Acquire);
+        if g != self.seen_gen {
+            self.seen_gen = g;
+            self.target = self.volumes.gain(self.category);
+        }
+        let diff = self.target - self.now;
+        if diff != 0.0 {
+            let step = ease_step();
+            self.now += diff.clamp(-step, step);
+        }
         let s = self.inner.next().unwrap_or(0.0);
+        let out = s * self.now;
         self.heard |= s.abs() > HEARD;
-        self.audible |= (s * self.now).abs() > HEARD;
+        self.audible |= out.abs() > HEARD;
         self.counted += 1;
         if self.counted == CHANNELS {
-            if self.heard {
-                self.volumes.0.heard[self.category.index()].fetch_add(1, Ordering::Relaxed);
-            }
-            if self.audible {
-                self.volumes.0.audible[self.category.index()].fetch_add(1, Ordering::Relaxed);
-            }
+            self.heard_pending += u64::from(self.heard);
+            self.audible_pending += u64::from(self.audible);
             self.counted = 0;
             self.heard = false;
             self.audible = false;
+            self.batch_frames += 1;
+            if self.batch_frames >= GAIN_METER_BATCH {
+                self.flush_meters();
+            }
         }
-        Some(s * self.now)
+        Some(out)
     }
 }
 
@@ -907,6 +976,7 @@ pub(crate) struct DeclickSource<S> {
     /// The gain of the frame being played and the samples of it still to come.
     gain: f32,
     left: u16,
+    channels: u16,
     /// Fading (a stop was seen at a frame's start); ended (it never plays again).
     fading: bool,
     done: bool,
@@ -914,7 +984,8 @@ pub(crate) struct DeclickSource<S> {
 
 impl<S: Source> DeclickSource<S> {
     fn new(inner: S, control: &StopControl) -> DeclickSource<S> {
-        DeclickSource { inner, control: control.0.clone(), gain: 1.0, left: 0, fading: false, done: false }
+        let channels = inner.channels().get().max(1);
+        DeclickSource { inner, control: control.0.clone(), gain: 1.0, left: 0, channels, fading: false, done: false }
     }
 
     /// How much the gain falls in a frame of the source: [`DECLICK_FADE`] of playing time
@@ -954,7 +1025,7 @@ impl<S: Source> Iterator for DeclickSource<S> {
                 self.fading = true;
                 self.gain = (self.gain - self.step()).max(0.0);
             }
-            self.left = self.inner.channels().get().max(1);
+            self.left = self.channels;
         }
         self.left -= 1;
         if self.fading && self.gain <= 0.0 {
@@ -1410,10 +1481,10 @@ fn report(mut exit: MessageReader<AppExit>, out: Res<AudioOut>, volumes: Res<Sou
             frames as f64 / RATE as f64,
             frames.saturating_sub(s.frames_at_open.load(Ordering::Relaxed)) as f64 / RATE as f64,
         );
-        let heard = SoundCategory::ALL.map(|c| format!("{} {:.1} s", c.name(), volumes.0.heard[c.index()].load(Ordering::Relaxed) as f64 / RATE as f64));
+        let heard = SoundCategory::ALL.map(|c| format!("{} {:.1} s", c.name(), volumes.0.meters.heard[c.index()].load(Ordering::Relaxed) as f64 / RATE as f64));
         let levels = SoundCategory::ALL.map(|c| format!("{} {:.0}%", c.name(), volumes.get(c) * 100.0));
         info!("audio categories: {} heard; volumes master {:.0}%, {}", heard.join(", "), volumes.master() * 100.0, levels.join(", "));
-        let audible = SoundCategory::ALL.map(|c| format!("{} {:.1} s", c.name(), volumes.0.audible[c.index()].load(Ordering::Relaxed) as f64 / RATE as f64));
+        let audible = SoundCategory::ALL.map(|c| format!("{} {:.1} s", c.name(), volumes.0.meters.audible[c.index()].load(Ordering::Relaxed) as f64 / RATE as f64));
         info!("audio categories after volumes: {} audible", audible.join(", "));
         let m = s.mix();
         info!(
@@ -1472,8 +1543,8 @@ mod tests {
         // With nothing playing: silence, not the end.
         let rest = gain.by_ref().take(RATE as usize * 2).last();
         assert_eq!(rest, Some(0.0));
-        assert!(volumes.0.heard[SoundCategory::Music.index()].load(Ordering::Relaxed) > 0);
-        assert_eq!(volumes.0.heard[SoundCategory::Voice.index()].load(Ordering::Relaxed), 0);
+        assert!(volumes.0.meters.heard[SoundCategory::Music.index()].load(Ordering::Relaxed) > 0);
+        assert_eq!(volumes.0.meters.heard[SoundCategory::Voice.index()].load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -1485,8 +1556,8 @@ mod tests {
         radio.add(ones(RATE as usize));
         assert!(gain.by_ref().take(RATE as usize).all(|s| s == 0.0));
         let count = |c: &[AtomicU64; 5]| c[SoundCategory::Radio.index()].load(Ordering::Relaxed);
-        assert!(count(&volumes.0.heard) > 0);
-        assert_eq!(count(&volumes.0.audible), 0);
+        assert!(count(&volumes.0.meters.heard) > 0);
+        assert_eq!(count(&volumes.0.meters.audible), 0);
     }
 
     #[test]
