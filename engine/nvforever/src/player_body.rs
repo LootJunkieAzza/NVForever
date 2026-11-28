@@ -338,7 +338,13 @@ fn near_line(aabb: &bevy::camera::primitives::Aabb, at: &GlobalTransform, eye: V
 /// is squeezed in front of the world, so no wall, door or actor the camera stands against
 /// hides the arms or the weapon (`NifSurface::first_person`; `m` itself is shared with
 /// other actors and weapons).
-fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -> Handle<NifMaterial> {
+/// Marks entities attached to the player's third-person rig (`AttachModel` / `ANIO`) so
+/// [`sync_third_layers`] keeps them on `SHADOW_LAYER` while the camera is in first person
+/// and on `BODY_LAYER` in third person [design].
+#[derive(Component)]
+pub(crate) struct PlayerThirdLayer;
+
+pub(crate) fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -> Handle<NifMaterial> {
     let Some(mut copy) = materials.get(m).cloned() else { return m.clone() };
     copy.extension.shade_light = true;
     copy.extension.first_person = true;
@@ -1523,6 +1529,14 @@ impl PlayerBody {
             None => Some((&b.third.animator, false, &b.worn)),
         }
     }
+
+    /// The active render layer for entities attached to the player's third-person rig
+    /// (`BODY_LAYER` when the third-person body is seen by the camera or before the first
+    /// `show_rigs` pass; `SHADOW_LAYER` while hidden in first person) [design].
+    pub fn third_person_layer(&self) -> RenderLayers {
+        let on = self.body.as_ref().and_then(|b| b.third.seen).is_none_or(|s| s.body);
+        Seen::layer(on)
+    }
 }
 
 /// Seconds the first-person arms take to ease onto a looping clip again after its seam
@@ -1725,7 +1739,7 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<PlayerBlows>()
             .add_systems(Update, collect_blows.in_set(nvf_play::player::BodySet).before(drive_body))
             .init_resource::<crate::script_sequences::PlayerSequences>()
-            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
+            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, sync_runtime_extra, crate::script_sequences::prepare, drive_body, sync_third_layers, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(Update, toggle_iron_sights)
             .add_systems(PostUpdate, follow_script_nodes.after(crate::nif_mirror::MirrorSystems).before(bevy::transform::TransformSystems::Propagate))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
@@ -3512,6 +3526,80 @@ fn apply_anim_overrides(mut script: Option<ResMut<nvf_play::script::ScriptState>
             rig.overrides = current[i].1.clone();
             rig.clips.clear();
             rig.variants.clear();
+        }
+    }
+}
+
+/// Bind `InsertNode` and `AttachModel` descendants of the player's rigs into each rig's
+/// `Animator` (`set_runtime_extra`) so KF clips can drive attachment points and attached
+/// item sub-parts (e.g. B42 Inject's `B42AttachPointL`, `##Needle_B42`, `##Stim_B42`,
+/// `##Cap_B42`). Steady frames with no structural changes do zero walks [design].
+#[allow(clippy::type_complexity)]
+fn sync_runtime_extra(
+    mut state: ResMut<PlayerBody>,
+    children: Query<&Children>,
+    runtime_nodes: Query<(&Name, Option<&crate::nif_attachments::AttachedNode>), Or<(With<crate::nif_mirror::InsertedNode>, With<crate::nif_attachments::AttachedNode>)>>,
+    changed: Query<(), Or<(Added<crate::nif_mirror::InsertedNode>, Added<crate::nif_attachments::AttachedNode>, Changed<Name>)>>,
+    mut removed_inserted: RemovedComponents<crate::nif_mirror::InsertedNode>,
+    mut removed_attached: RemovedComponents<crate::nif_attachments::AttachedNode>,
+    mut last_roots: Local<[Option<Entity>; 2]>,
+) {
+    let dirty = !changed.is_empty()
+        || removed_inserted.read().next().is_some()
+        || removed_attached.read().next().is_some();
+    let Some(body) = state.body.as_mut() else {
+        *last_roots = [None, None];
+        return;
+    };
+    let rigs = [Some(&mut body.third), body.first.as_mut()];
+    for (i, rig) in rigs.into_iter().enumerate() {
+        let Some(rig) = rig else {
+            last_roots[i] = None;
+            continue;
+        };
+        let root_changed = last_roots[i] != Some(rig.root);
+        let stale = rig.animator.runtime_extra().iter().any(|x| runtime_nodes.get(x.entity).is_err());
+        if !dirty && !root_changed && !stale {
+            continue;
+        }
+        last_roots[i] = Some(rig.root);
+        let mut found = Vec::new();
+        let mut stack = vec![rig.root];
+        let mut steps = 0usize;
+        while let Some(e) = stack.pop() {
+            steps += 1;
+            if steps > 4096 {
+                break;
+            }
+            if e != rig.root {
+                if let Ok((name, attached)) = runtime_nodes.get(e) {
+                    let s = name.as_str();
+                    if !s.is_empty() {
+                        let bind = attached.map_or(Transform::IDENTITY, |a| a.source.local);
+                        found.push(ExtraNode { name: s.to_string(), entity: e, bind });
+                    }
+                }
+            }
+            if let Ok(ch) = children.get(e) {
+                stack.extend(ch.iter().rev());
+            }
+        }
+        rig.animator.set_runtime_extra(found);
+    }
+}
+
+/// Keep entities attached to the player's third-person rig (`AttachModel` / `ANIO`) on
+/// `SHADOW_LAYER` while the camera is in first person and on `BODY_LAYER` in third person
+/// so third-person hand attachments never float visibly in first-person view [design].
+fn sync_third_layers(
+    state: Res<PlayerBody>,
+    mut commands: Commands,
+    attached: Query<(Entity, Option<&RenderLayers>), With<PlayerThirdLayer>>,
+) {
+    let want = state.third_person_layer();
+    for (e, current) in &attached {
+        if current != Some(&want) {
+            commands.entity(e).insert(want.clone());
         }
     }
 }

@@ -927,8 +927,21 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let Some((target, what)) = spec.split_once('|') else { return Some(Ok(zero)) };
             // JIPPPLN's runtime node lists (`crate::nvse_jippp`) keep every well-formed call.
             crate::nvse_jippp::record(g, target_ref, name == "attachmodel", &spec, mode);
+            let player_both = target_ref == FormId::PLAYER_REF && g.scene.uses_separate_player_models();
             if name == "attachmodel" && mode.is_finite() && (0.0..=3.0).contains(&mode) && mode.fract() == 0.0 {
-                g.scene.attachment_change(target_ref, view, target, what, mode as u8);
+                // On the player with separate 1st/3rd-person models, AttachModel has no
+                // pcModel selector and applies to both models (matching InsertNode), so
+                // 1st-person mods (B42 Inject / Interact / Loot / Optics) attach and
+                // detach on both rigs wherever the target node exists [hypothesis:
+                // observed in gl_B42Inject.txt, ln_B42Interact.txt, ln_B42Loot.txt,
+                // ln_B42Optics.txt].
+                if player_both {
+                    for player_view in [ModelView::ThirdPerson, ModelView::FirstPerson] {
+                        g.scene.attachment_change(target_ref, player_view, target, what, mode as u8);
+                    }
+                } else {
+                    g.scene.attachment_change(target_ref, view, target, what, mode as u8);
+                }
             }
             if !add {
                 return Some(Ok(zero));
@@ -945,6 +958,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 };
                 g.scene.asked_again(target_ref, nm);
                 return Some(Ok(XVal::Num(f64::from(u8::from(g.scene.insert_node(target_ref, target, nm, as_parent))))));
+            }
+            if player_both {
+                let mut any = false;
+                for player_view in [ModelView::ThirdPerson, ModelView::FirstPerson] {
+                    if g.scene.tree_for(target_ref, player_view).is_some_and(|t| find(t, target).is_some()) {
+                        g.scene.queue_for(player_view, SceneEdit::Attach { r: target_ref, target: target.to_string(), model: what.to_string() });
+                        any = true;
+                    }
+                }
+                return Some(Ok(XVal::Num(f64::from(u8::from(any)))));
             }
             let Some(t) = g.scene.tree_for(target_ref, view) else { return Some(Ok(zero)) };
             if find(t, target).is_none() {

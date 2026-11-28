@@ -2,21 +2,32 @@
 //! placed-model rig, material and particle players with the actor idle's external KF.
 //! Attach at Prn (root fallback), remove on replacement, retain held CLAMP effects.
 
-use crate::idles::{ActorIdle, Playing};
+use crate::idles::{ActorIdle, IdleSlot, PlayerIdles, Playing};
 use crate::limbs::ActorRig;
+use crate::player_body::{arms_material, PlayerBody, PlayerThirdLayer};
 use crate::world::WorldData;
+use bevy::camera::visibility::RenderLayers;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use nvf_assets::actor::rigid_local;
-use nvf_assets::anim_play::{BoundClip, Playing as ModelPlaying};
+use nvf_assets::anim_play::{BoundClip, Clip, Playing as ModelPlaying};
 use nvf_assets::model::ModelCtx;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// [design] Player-held ANIO entities tracked per rig (first-person / third-person).
+struct PlayerHeld {
+    rig_root: Entity,
+    serial: u32,
+    entities: Vec<Entity>,
+}
 
 /// The animated objects by the IDLE they go with: (editor ID, model) of each.
 #[derive(Resource, Default)]
 pub struct AnimObjects {
     by_idle: HashMap<u32, Vec<(String, String)>>,
+    player_first: Option<PlayerHeld>,
+    player_third: Option<PlayerHeld>,
     stats: Stats,
     startup: Option<String>,
 }
@@ -43,7 +54,7 @@ impl AnimObjects {
             }
         }
         let startup = format!("anim objects: {} records, {usable} with an idle and a model, for {} idles", all.len(), by_idle.len());
-        AnimObjects { by_idle, stats: Stats::default(), startup: Some(startup) }
+        AnimObjects { by_idle, player_first: None, player_third: None, stats: Stats::default(), startup: Some(startup) }
     }
 }
 
@@ -59,11 +70,27 @@ fn clip_time(p: &Playing<Arc<BoundClip>>) -> f32 {
     p.clip.clip.start + p.play.time().min(p.play.keys.length)
 }
 
+fn player_clip_time(p: &Playing<Arc<Clip>>) -> f32 {
+    p.clip.start + p.play.time().min(p.play.keys.length)
+}
+
 /// [design, #2685] Keep outgoing props during the existing cross-fade, then remove
 /// them when that idle disappears from the slot.
 fn attachment_idle<'a>(idle: Option<&'a ActorIdle>, objects: &AnimObjects) -> Option<&'a Playing<Arc<BoundClip>>> {
     let has = |p: &&Playing<Arc<BoundClip>>| p.group.is_none() && objects.by_idle.contains_key(&p.idle);
     idle.and_then(|i| i.0.cur.as_ref().filter(has).or(i.0.prev.as_ref().filter(has)))
+}
+
+fn player_attachment_idle<'a>(slot: &'a IdleSlot<Arc<Clip>>, by_idle: &HashMap<u32, Vec<(String, String)>>) -> Option<&'a Playing<Arc<Clip>>> {
+    let has = |p: &&Playing<Arc<Clip>>| p.group.is_none() && by_idle.contains_key(&p.idle);
+    slot.cur.as_ref().filter(has).or(slot.prev.as_ref().filter(has))
+}
+
+#[derive(Clone)]
+enum AttachLayer {
+    World,
+    PlayerFirst,
+    PlayerThird(RenderLayers),
 }
 
 /// Read the records once the world data is there.
@@ -96,11 +123,18 @@ fn held_root_bind(skel: &nvf_assets::actor::PreparedSkeleton, b: usize, clip: &n
 }
 
 /// [design, #2685] Spawn one complete ANIO tree under Prn, falling back to root.
+#[allow(clippy::too_many_arguments)]
 fn attach_model(
     commands: &mut Commands, rig: &ActorRig, prepared: &nvf_assets::model::PreparedModel,
     model: &str, clip: &Arc<nvf_assets::anim_play::Clip>, prn: Option<&str>, time: f32,
+    layer: AttachLayer, materials: Option<&mut Assets<nvf_assets::NifMaterial>>,
 ) -> Option<(Entity, HashMap<String, Entity>, String)> {
-    let found = prn.and_then(|name| rig.skel.by_name.get(name)).copied();
+    let found = prn.and_then(|name| {
+        rig.skel
+            .by_name
+            .get(name)
+            .or_else(|| rig.skel.by_name.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v))
+    }).copied();
     if let (Some(name), None) = (prn, found) {
         warn!("anim object: {model}: its parent node {name} is not in the skeleton; hung from the root");
     }
@@ -111,7 +145,29 @@ fn attach_model(
     let part = prepared.rig.as_ref()?;
     // [design, #2685] Preparation also expands tracks to shapes sharing properties.
     let drawn_clip = part.idle.as_ref().unwrap_or(clip);
-    let (root, _, nodes) = part.spawn_playing(commands, parent, Transform::from_matrix(Mat4::from(local)), model, 0.0, Some(drawn_clip));
+    let (root, _, nodes, all_entities) = part.spawn_indexed(commands, parent, Transform::from_matrix(Mat4::from(local)), model, 0.0, Some(drawn_clip));
+    match layer {
+        AttachLayer::World => {}
+        AttachLayer::PlayerFirst => {
+            let arms = RenderLayers::layer(crate::sky::ARMS_LAYER);
+            for &entity in &all_entities {
+                commands.entity(entity).insert(arms.clone());
+            }
+            if let Some(mats) = materials {
+                for s in &part.shapes {
+                    if let Some(&entity) = all_entities.get(s.node) {
+                        let mat = arms_material(mats, &s.material);
+                        commands.entity(entity).insert(MeshMaterial3d(mat));
+                    }
+                }
+            }
+        }
+        AttachLayer::PlayerThird(third_layer) => {
+            for &entity in &all_entities {
+                commands.entity(entity).insert((third_layer.clone(), PlayerThirdLayer));
+            }
+        }
+    }
     let mut player = ModelPlaying::new(model, drawn_clip, |name| nodes.get(name).copied());
     player.time = time;
     player.held = true;
@@ -126,11 +182,14 @@ fn attach_model(
 }
 
 /// [design, #2685] Attach full model hierarchies and synchronize to the idle clock.
+#[allow(clippy::too_many_arguments)]
 pub fn hold(
     mut commands: Commands,
     mut objects: ResMut<AnimObjects>,
     mut models: ModelCtx,
     actors: Query<(Entity, &ActorRig, Option<&ActorIdle>, Option<&HeldObjects>)>,
+    player_body: Option<Res<PlayerBody>>,
+    player_idles: Option<Res<PlayerIdles>>,
     mut players: Query<&mut ModelPlaying>,
 ) {
     for (e, rig, idle, held) in &actors {
@@ -167,7 +226,7 @@ pub fn hold(
             };
             let strings = models.node_strings(&model, "Prn");
             let prn = part.nodes.first().and_then(|n| n.name.as_ref()).and_then(|name| strings.get(name));
-            let Some((root, nodes, bone_name)) = attach_model(&mut commands, rig, &prepared, &model, clip, prn.map(String::as_str), clip_time(p)) else { continue };
+            let Some((root, nodes, bone_name)) = attach_model(&mut commands, rig, &prepared, &model, clip, prn.map(String::as_str), clip_time(p), AttachLayer::World, None) else { continue };
             for (name, _) in clip.tracks.iter().filter(|(name, _)| nodes.contains_key(name)) {
                 info!("anim object: {:08X} {edid} node {name} follows the idle's track", rig.reference);
             }
@@ -176,6 +235,75 @@ pub fn hold(
             info!("anim object: {:08X} holds {model} on {bone_name} ({edid}, idle {idle:08X})", rig.reference);
         }
         commands.entity(e).insert(HeldObjects { serial, entities });
+    }
+    // [design] Player ANIOs on both first-person and third-person rigs (`PlayerIdles`).
+    let objects = &mut *objects;
+    for first in [true, false] {
+        let held = if first { &mut objects.player_first } else { &mut objects.player_third };
+        let rig = player_body.as_deref().and_then(|b| b.script_rig(first));
+        let playing = player_idles.as_deref().and_then(|pi| {
+            let slot = if first { &pi.first } else { &pi.third };
+            player_attachment_idle(slot, &objects.by_idle)
+        });
+        let want = rig.as_ref().zip(playing).map(|((rig_root, _), p)| (*rig_root, p.idle, p.serial));
+        if held.as_ref().map(|h| (h.rig_root, h.serial)) == want.map(|(r, _, s)| (r, s)) {
+            if let (Some(h), Some(p)) = (held.as_ref(), playing) {
+                for &root in &h.entities {
+                    if let Ok(mut player) = players.get_mut(root) {
+                        player.time = player_clip_time(p);
+                    }
+                }
+            }
+            continue;
+        }
+        if let Some(h) = held.take() {
+            for root in h.entities {
+                commands.entity(root).try_despawn();
+            }
+        }
+        let (Some((rig_root, rig)), Some(p)) = (rig, playing) else { continue };
+        let idle = p.idle;
+        let serial = p.serial;
+        objects.stats.idles += 1;
+        let mut entities = Vec::new();
+        let layer = if first {
+            AttachLayer::PlayerFirst
+        } else {
+            AttachLayer::PlayerThird(player_body.as_deref().map_or_else(|| RenderLayers::layer(crate::sky::BODY_LAYER), PlayerBody::third_person_layer))
+        };
+        for (edid, model) in objects.by_idle[&idle].clone() {
+            let clip = &p.clip;
+            let Some(prepared) = models.model_for_idle(&model, idle, clip) else {
+                objects.stats.failed += 1;
+                continue;
+            };
+            let Some(part) = &prepared.rig else {
+                objects.stats.failed += 1;
+                continue;
+            };
+            let strings = models.node_strings(&model, "Prn");
+            let prn = part.nodes.first().and_then(|n| n.name.as_ref()).and_then(|name| strings.get(name));
+            let Some((root, nodes, bone_name)) = attach_model(
+                &mut commands,
+                &rig,
+                &prepared,
+                &model,
+                clip,
+                prn.map(String::as_str),
+                player_clip_time(p),
+                layer.clone(),
+                Some(&mut models.materials),
+            ) else {
+                continue;
+            };
+            for (name, _) in clip.tracks.iter().filter(|(name, _)| nodes.contains_key(name)) {
+                info!("anim object: player ({}) {edid} node {name} follows the idle's track", if first { "first-person" } else { "third-person" });
+            }
+            entities.push(root);
+            objects.stats.drawn += 1;
+            info!("anim object: player ({}) holds {model} on {bone_name} ({edid}, idle {idle:08X})", if first { "first-person" } else { "third-person" });
+        }
+        *held = Some(PlayerHeld { rig_root, serial, entities });
     }
 }
 
@@ -276,7 +404,7 @@ mod tests {
         }), ..default() };
         let mut queue = CommandQueue::default();
         let (root, nodes, bone) = attach_model(&mut Commands::new(&mut queue, &world), &rig, &prepared,
-            "owned.nif", &clip, Some("OwnedBone"), 0.0).unwrap();
+            "owned.nif", &clip, Some("OwnedBone"), 0.0, AttachLayer::World, None).unwrap();
         queue.apply(&mut world);
         assert_eq!(bone, "OwnedBone");
         assert_eq!(world.get::<ChildOf>(root).unwrap().parent(), bones[1]);
@@ -304,9 +432,98 @@ mod tests {
         assert!(world.get_entity(root).is_err());
         assert!(world.get_entity(nodes["OwnedGlow"]).is_err());
         let (fallback, _, bone) = attach_model(&mut Commands::new(&mut queue, &world), &rig, &prepared,
-            "owned.nif", &clip, Some("MissingBone"), 0.0).unwrap();
+            "owned.nif", &clip, Some("MissingBone"), 0.0, AttachLayer::World, None).unwrap();
         queue.apply(&mut world);
         assert_eq!(bone, "Root");
         assert_eq!(world.get::<ChildOf>(fallback).unwrap().parent(), bones[0]);
+    }
+
+    #[test]
+    fn player_anio_attaches_with_first_and_third_person_layers_case_insensitive_prn_and_detaches() {
+        let mut world = World::new();
+        crate::particles::model_ctx_resources(&mut world);
+        let mat_handle = world.resource_mut::<Assets<nvf_assets::NifMaterial>>().add(nvf_assets::nif_material(StandardMaterial::default()));
+        let make_rig = |world: &mut World| {
+            let bones: Vec<_> = (0..2).map(|_| world.spawn(Transform::IDENTITY).id()).collect();
+            let skel = nvf_assets::actor::PreparedSkeleton {
+                names: vec![Some("Scene Root".into()), Some("Bip01 R Hand".into())],
+                by_name: HashMap::from([("Scene Root".into(), 0), ("Bip01 R Hand".into(), 1)]),
+                bind_world: vec![Affine3A::IDENTITY; 2], ..default()
+            };
+            (bones[0], ActorRig { reference: fnv_sim::FormId::PLAYER_REF.0, base: fnv_sim::FormId::PLAYER_BASE.0, body: fnv_sim::FormId::PLAYER_BASE.0, skeleton: "player.nif".into(), skel: Arc::new(skel), nodes: bones, base_scale: 1.0 })
+        };
+        let third = make_rig(&mut world);
+        let first = make_rig(&mut world);
+        let first_hand = first.1.nodes[1];
+        let third_hand = third.1.nodes[1];
+        let seq = Sequence {
+            block: 0, name: Some("PlayerUseItem".into()), start_time: 0.0, stop_time: 1.5,
+            frequency: 1.0, cycle_type: 2, accum_root_name: None, text_keys: Vec::new(), tracks: Vec::new(),
+        };
+        let clip = Arc::new(Clip::from_sequence(&seq));
+        let prepared = PreparedModel { particles: false, root: Affine3A::IDENTITY, rig: Some(Rig {
+            nodes: vec![
+                RigNode { name: Some("AnimObjectRoot".into()), parent: None, local: Transform::IDENTITY, hidden: false, billboard: None },
+                RigNode { name: Some("ItemShape".into()), parent: Some(0), local: Transform::IDENTITY, hidden: false, billboard: None },
+            ],
+            shapes: vec![RigShape { node: 1, mesh: default(), material: mat_handle.clone(), skin: None, morph: None,
+                look: ("ItemShape".into(), [0.0; 3], 1.0, 1.0), refraction: 0.0, animated: false }],
+            idle: None, door: None, groups: Vec::new(), effect: None,
+        }), ..default() };
+
+        // Case-insensitive Prn match + PlayerFirst layer + first_person/shade_light material flags.
+        let mut queue = CommandQueue::default();
+        let (first_root, first_nodes, bone) = {
+            let mut mats = world.remove_resource::<Assets<nvf_assets::NifMaterial>>().unwrap();
+            let res = attach_model(&mut Commands::new(&mut queue, &world), &first.1, &prepared,
+                "item.nif", &clip, Some("bip01 r hand"), 0.5, AttachLayer::PlayerFirst, Some(&mut mats)).unwrap();
+            world.insert_resource(mats);
+            res
+        };
+        queue.apply(&mut world);
+        assert_eq!(bone, "Bip01 R Hand");
+        assert_eq!(world.get::<ChildOf>(first_root).unwrap().parent(), first_hand);
+        let shape_e = first_nodes["ItemShape"];
+        assert_eq!(world.get::<RenderLayers>(shape_e).unwrap(), &RenderLayers::layer(crate::sky::ARMS_LAYER));
+        let shape_mat = world.get::<MeshMaterial3d<nvf_assets::NifMaterial>>(shape_e).unwrap().0.clone();
+        let mat = world.resource::<Assets<nvf_assets::NifMaterial>>().get(&shape_mat).unwrap();
+        assert!(mat.extension.first_person && mat.extension.shade_light, "1st-person ANIO must use arms_material flags");
+
+        // PlayerThird layer + PlayerThirdLayer marker.
+        let (third_root, third_nodes, _) = attach_model(&mut Commands::new(&mut queue, &world), &third.1, &prepared,
+            "item.nif", &clip, Some("Bip01 R Hand"), 0.5, AttachLayer::PlayerThird(RenderLayers::layer(crate::sky::BODY_LAYER)), None).unwrap();
+        queue.apply(&mut world);
+        assert_eq!(world.get::<ChildOf>(third_root).unwrap().parent(), third_hand);
+        assert_eq!(world.get::<RenderLayers>(third_nodes["ItemShape"]).unwrap(), &RenderLayers::layer(crate::sky::BODY_LAYER));
+        assert!(world.get::<PlayerThirdLayer>(third_nodes["ItemShape"]).is_some());
+
+        // Hold system updates ModelPlaying::time and despawns cleanly when PlayerIdles clears.
+        let play = IdlePlay::new(IdleKeys::read(0.0, 1.5, &[]), Some(1));
+        let mut pi = PlayerIdles::default();
+        let serial1 = pi.first.start_clip(fnv_game::idles::IdleSource::Script, clip.clone(), play);
+        pi.first.cur.as_mut().unwrap().idle = 42;
+        pi.first.cur.as_mut().unwrap().play.advance(0.75);
+        let serial3 = pi.third.start_clip(fnv_game::idles::IdleSource::Script, clip, play);
+        pi.third.cur.as_mut().unwrap().idle = 42;
+        pi.third.cur.as_mut().unwrap().play.advance(0.6);
+
+        world.insert_resource(PlayerBody::synthetic_script_models(third.clone(), Some(first.clone())));
+        world.insert_resource(pi);
+        world.insert_resource(AnimObjects {
+            by_idle: HashMap::from([(42, vec![("PlayerItem".into(), "item.nif".into())])]),
+            player_first: Some(PlayerHeld { rig_root: first.0, serial: serial1, entities: vec![first_root] }),
+            player_third: Some(PlayerHeld { rig_root: third.0, serial: serial3, entities: vec![third_root] }),
+            ..default()
+        });
+        world.run_system_once(hold).unwrap();
+        assert!((world.get::<ModelPlaying>(first_root).unwrap().time - 0.75).abs() < 1e-5);
+        assert!((world.get::<ModelPlaying>(third_root).unwrap().time - 0.6).abs() < 1e-5);
+
+        // Ending both player idles despawns both ANIO trees.
+        world.resource_mut::<PlayerIdles>().first.cur = None;
+        world.resource_mut::<PlayerIdles>().third.cur = None;
+        world.run_system_once(hold).unwrap();
+        assert!(world.get_entity(first_root).is_err());
+        assert!(world.get_entity(third_root).is_err());
     }
 }

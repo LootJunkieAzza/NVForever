@@ -1137,17 +1137,27 @@ fn invalid_model_specs_do_not_spawn_or_change_a_valid_neighbor() {
 }
 
 #[test]
-fn default_player_attachment_uses_third_rig_without_first_person_fallback() {
+fn player_attachment_attaches_and_detaches_on_both_first_and_third_person_rigs() {
     let (mut app, _files, _, _) = fixture(false);
-    fn player_rig(world: &mut World, label: &str) -> (Entity, ActorRig) {
+    fn player_rig(world: &mut World, label: &str, extra_bone: Option<&str>) -> (Entity, ActorRig) {
         let root = world
             .spawn((Transform::IDENTITY, Visibility::Inherited))
             .id();
         let bone = world.spawn((Transform::IDENTITY, ChildOf(root))).id();
+        let mut names = vec![Some(label.into()), Some("SharedBone".into())];
+        let mut parents = vec![None, Some(0)];
+        let mut nodes = vec![root, bone];
+        if let Some(extra) = extra_bone {
+            let e = world.spawn((Transform::IDENTITY, ChildOf(root))).id();
+            names.push(Some(extra.into()));
+            parents.push(Some(0));
+            nodes.push(e);
+        }
+        let locals = vec![Transform::IDENTITY; nodes.len()];
         let skel = nvf_assets::actor::PreparedSkeleton {
-            names: vec![Some(label.into()), Some("SharedBone".into())],
-            parents: vec![None, Some(0)],
-            locals: vec![Transform::IDENTITY; 2],
+            names,
+            parents,
+            locals,
             ..Default::default()
         };
         (
@@ -1158,15 +1168,16 @@ fn default_player_attachment_uses_third_rig_without_first_person_fallback() {
                 body: FormId::PLAYER_BASE.0,
                 skeleton: "authored-player".into(),
                 skel: Arc::new(skel),
-                nodes: vec![root, bone],
+                nodes,
                 base_scale: 1.,
             },
         )
     }
-    let third = player_rig(app.world_mut(), "ThirdRoot");
-    let first = player_rig(app.world_mut(), "FirstRoot");
+    let third = player_rig(app.world_mut(), "ThirdRoot", None);
+    let first = player_rig(app.world_mut(), "FirstRoot", Some("Camera1st"));
     let third_bone = third.1.nodes[1];
     let first_bone = first.1.nodes[1];
+    let camera_bone = first.1.nodes[2];
     app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(
         third,
         Some(first),
@@ -1174,26 +1185,60 @@ fn default_player_attachment_uses_third_rig_without_first_person_fallback() {
     query(&mut app, "PlayerREF.GetChildBlocks \"\" 1");
     query(&mut app, "PlayerREF.GetChildBlocks \"\" 2");
     app.update();
+    // AttachModel on PlayerREF targets both 3rd-person and 1st-person rigs (like InsertNode).
     assert_eq!(
         attach(&mut app, "PlayerREF", 3, "SharedBone", "unique.nif"),
         XVal::Num(1.)
     );
     app.update();
-    assert_eq!(meshes(&mut app).len(), 1);
+    let spawned = meshes(&mut app);
+    assert_eq!(spawned.len(), 2, "must attach to both 3rd-person and 1st-person rigs");
     assert_eq!(app.world().get::<Children>(third_bone).unwrap().len(), 1);
-    assert!(app.world().get::<Children>(first_bone).is_none());
+    assert_eq!(app.world().get::<Children>(first_bone).unwrap().len(), 1);
     assert_eq!(
         query(&mut app, "PlayerREF.GetNifScale \"UniqueShape_Owned\" 1"),
         XVal::Num(1.)
     );
     assert_eq!(
         query(&mut app, "PlayerREF.GetNifScale \"UniqueShape_Owned\" 2"),
+        XVal::Num(1.)
+    );
+    let mut saw_body = false;
+    let mut saw_arms = false;
+    for e in spawned {
+        let layer = app.world().get::<RenderLayers>(e).unwrap();
+        if layer == &RenderLayers::layer(crate::sky::BODY_LAYER) {
+            saw_body = true;
+            assert!(app.world().get::<crate::player_body::PlayerThirdLayer>(e).is_some());
+        } else if layer == &RenderLayers::layer(crate::sky::ARMS_LAYER) {
+            saw_arms = true;
+            let mat_handle = &app.world().get::<MeshMaterial3d<NifMaterial>>(e).unwrap().0;
+            let mat = app.world().resource::<Assets<NifMaterial>>().get(mat_handle).unwrap();
+            assert!(mat.extension.first_person && mat.extension.shade_light, "1st-person attachment uses arms_material");
+        }
+    }
+    assert!(saw_body && saw_arms, "expected one BODY_LAYER and one ARMS_LAYER mesh");
+
+    // Mode 2 detaches from both rigs cleanly.
+    assert_eq!(
+        attach(&mut app, "PlayerREF", 2, "SharedBone", "unique.nif"),
         XVal::Num(0.)
     );
-    let e = meshes(&mut app)[0];
+    app.update();
+    assert!(meshes(&mut app).is_empty(), "mode 2 must detach from both 1st and 3rd person");
+
+    // A first-person-only target bone (Camera1st) attaches cleanly to 1st-person without failing.
     assert_eq!(
-        app.world().get::<RenderLayers>(e).unwrap(),
-        &RenderLayers::layer(crate::sky::BODY_LAYER)
+        attach(&mut app, "PlayerREF", 3, "Camera1st", "unique.nif"),
+        XVal::Num(1.)
+    );
+    app.update();
+    let first_only = meshes(&mut app);
+    assert_eq!(first_only.len(), 1);
+    assert_eq!(app.world().get::<Children>(camera_bone).unwrap().len(), 1);
+    assert_eq!(
+        app.world().get::<RenderLayers>(first_only[0]).unwrap(),
+        &RenderLayers::layer(crate::sky::ARMS_LAYER)
     );
 }
 
