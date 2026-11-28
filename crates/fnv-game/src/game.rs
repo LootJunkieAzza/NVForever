@@ -2143,7 +2143,8 @@ pub struct Game<'a> {
     /// Living template-scripted actors of the loaded cells whose OnLoad runs at the first
     /// frame after a restore (`Game::queue_template_onloads`, #3228); each is checked again
     /// (present, loaded, alive) when its turn comes and dropped if a cell load ran its
-    /// OnLoad first. Not saved: a restore builds it again.
+    /// OnLoad first. Saved while waiting (`GameSnapshot::restored_onload`); a restore of a
+    /// save from before #3228 builds it (`Game::queue_template_onloads`).
     pub restored_onload: Vec<FormId>,
     /// OnLoad blocks of reference scripts entered so far (each block run, where the
     /// script runs it); not saved. A count for the engine's game digest test aid
@@ -2342,6 +2343,17 @@ pub struct GameSnapshot {
     pub time: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_onload: Vec<FormId>,
+    /// Template-scripted actors' OnLoad still waiting for the first frame after a load
+    /// (`Game::restored_onload`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restored_onload: Vec<FormId>,
+    /// Saved by a build that runs template-scripted actors' OnLoad when their cell loads
+    /// (#3228 on), so their OnLoad has run. Absent in older saves, whose living
+    /// placeholders may never have run it: a load of one queues them all
+    /// (`Game::queue_template_onloads`); a load of a newer save runs none again, as for
+    /// references scripted by their own base (#4820).
+    #[serde(default)]
+    pub template_onloads_run: bool,
     pub rng_word_pos: String,
     #[serde(default)]
     pub forms: FormChanges,
@@ -3350,15 +3362,18 @@ impl<'a> Game<'a> {
             s.running = true;
             s.since_run = 0.0;
             s.since_menu_run = 0.0;
-            // Its script's clock starts again: GetSecondsPassed in the first run after the
-            // start is 0, not the time since the run before it stopped [hypothesis: a
-            // stopped quest's script does not run, so that time is not "since it last
-            // ran"; #3465: VMS49's helper quest 0x00168A86, stopped since an earlier event,
-            // was started with a 20 s time-out that ran out on its first run, and Veronica
-            // dropped her confront-the-elder package 0.2 s after the trigger gave it].
+            // Its script's clock starts again at the start: GetSecondsPassed in the first
+            // run after it is the time since StartQuest, not the time since the run before
+            // it stopped [observed: VMS40Timer's first run came about 3.9 s after
+            // StartQuest with a drop of 3.95 s, layer5-captures.md §5.4; #3465: VMS49's
+            // helper quest 0x00168A86, stopped since an earlier event, was started with a
+            // 20 s time-out that ran out on its first run]. Not 0 either: Lucky 38's pod
+            // timer (L38TimerQuest, 15 s at the quest delay of 5 s) then took a run more
+            // than its time (#4851).
             if let Some(inst) = self.instances.get_mut(&InstKey::Quest { quest: q }) {
-                if let Some(last) = inst.run_last.take() {
-                    tracing::info!("quest: {q} started again; its script's GetSecondsPassed counts from its next run, not from its last run at {last:.2} s");
+                let now = functions::clock_now(self.time);
+                if let Some(last) = inst.run_last.replace(now) {
+                    tracing::info!("quest: {q} started again; its script's GetSecondsPassed counts from the start at {now:.2} s, not from its last run at {last:.2} s");
                 }
                 (inst.run_prev, inst.page_last, inst.page_prev) = (None, None, None);
             }
@@ -7940,6 +7955,8 @@ impl<'a> Game<'a> {
             frame: self.frame,
             time: self.time,
             pending_onload: self.pending_onload.clone(),
+            restored_onload: self.restored_onload.clone(),
+            template_onloads_run: true,
             rng_word_pos: self.rng.get_word_pos().to_string(),
             forms,
             effects: self.effects.clone(),
@@ -8059,6 +8076,7 @@ impl<'a> Game<'a> {
         g.frame = s.frame;
         g.time = s.time;
         g.pending_onload = s.pending_onload.clone();
+        g.restored_onload = s.restored_onload.clone();
         g.forms = s.forms.clone();
         g.refresh_actor_inventory_sources(true);
         g.effects = s.effects.clone();
@@ -8119,8 +8137,11 @@ impl<'a> Game<'a> {
         g.renew_regenerations();
         // Crime enmities an older save holds undated start their cooldown now (#2467).
         g.date_crimes();
-        // Template-scripted actors' OnLoad after a load (#3228).
-        g.queue_template_onloads();
+        // Template-scripted actors' OnLoad after a load of a save from before #3228; a
+        // newer save's ran at their cell load and run no second time (#4820).
+        if !s.template_onloads_run {
+            g.queue_template_onloads();
+        }
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)

@@ -273,7 +273,7 @@ impl Session {
         crate::pad::MenuAt { code: Some(MENU_CARAVAN), tab }
     }
 
-    /// The hint for the keys `keys` on this screen ("W)", with a controller "A)").
+    /// The hint for the keys `keys` on this screen ("[W]", with a controller "[A]").
     pub fn hint(&self, keys: &[KeyCode]) -> String {
         crate::pad::hint(keys, self.stage_at())
     }

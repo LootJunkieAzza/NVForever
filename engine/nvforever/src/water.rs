@@ -75,7 +75,7 @@ use fnv_world::land::{load_land, LandParts, SIDE};
 use fnv_world::sky::{srgb_to_linear, ColorType, Water};
 use fnv_world::CELL_SIZE;
 use nvf_assets::model::ModelCtx;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 /// Height of the noise texture's full range in game units: the record's "noise normals
 /// scale" [hypothesis] times this factor [tuned by eye against in-game screenshots].
@@ -92,7 +92,8 @@ impl Plugin for WaterPlugin {
             .init_resource::<WaterCache>()
             .init_resource::<DistantWater>()
             .init_resource::<WaterRemaps>()
-            .add_plugins(crate::underwater::UnderwaterFogPlugin);
+            .add_plugins(crate::underwater::UnderwaterFogPlugin)
+            .add_systems(PostUpdate, update_shot_rings.run_if(resource_exists::<nvf_play::combat::ShotVisuals>));
         add_update_systems(app);
     }
 }
@@ -134,6 +135,20 @@ pub struct WaterParams {
     pub seen_plane: Vec4,
     /// Direction toward the outdoor sun (Bevy axes) and daylight strength.
     pub water_sun: Vec4,
+    shot_rings: [ShotRingUniform; MAX_SHOT_RINGS],
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType)]
+struct ShotRingUniform {
+    /// Game x/y, surface height, and wrapped shader start time plus one. Empty slots are zero.
+    point_time: Vec4,
+    /// Unit projectile direction projected onto the surface, or the axis of a blast's fallout.
+    travel: Vec2,
+    receiver: u32,
+    /// 0 for a bullet, 1 for a heavy projectile crossing, 2 for a blast.
+    kind: u32,
+    /// Horizontal spread and vertical strength of a blast, relative to the authored column.
+    blast_scale: Vec2,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -207,6 +222,118 @@ pub struct WaterCache {
     plane: Option<Handle<Mesh>>,
     /// The water-pixel counter ([`WaterMaterial::seen`]), made with the first material.
     seen: Option<Handle<ShaderBuffer>>,
+}
+
+// Keep the newest crossings under automatic fire. The shader stops at the first empty slot.
+const MAX_SHOT_RINGS: usize = 8;
+const SHOT_RING_LIFETIME: f64 = 1.2;
+const BLAST_RING_LIFETIME: f64 = 3.4;
+const BLAST_RING: u32 = 2;
+
+/// Horizontal spread and strength of the surface wave [design].
+/// A deeper blast spreads and weakens as it reaches the surface. An airburst
+/// loses coupling as its height above the water grows.
+fn blast_surface_scale(blast: nvf_play::combat::SurfaceBlast) -> Vec2 {
+    // A conventional frag's 900-unit EXPL radius and a missile's 1000 both
+    // stay in the scaling range (docs/spec-notes/explosion-effects.md).
+    let size = (blast.radius.max(0.0) / 600.0).sqrt().clamp(0.55, 1.8);
+    let depth = (blast.depth / blast.reach.max(1.0)).clamp(-1.0, 1.0);
+    let width = size * (1.0 + 0.15 * depth.max(0.0));
+    let height = size * (1.0 - 0.56 * depth.max(0.0) - 0.75 * (-depth).max(0.0));
+    Vec2::new(width, height)
+}
+
+#[derive(Default)]
+struct ShotRings {
+    // Ordered by birth; the first value is its expiry on the unwrapped clock.
+    live: VecDeque<(f64, ShotRingUniform)>,
+    space: Option<(u32, Option<u32>)>,
+}
+
+impl ShotRings {
+    fn push(&mut self, entry: nvf_play::combat::ShotWaterEntry, now: f64, shader_time: f32) {
+        use nvf_play::combat::WaterImpact;
+        let (kind, lifetime, travel, blast_scale) = match entry.kind {
+            WaterImpact::Blast(blast) => {
+                let axis = Vec2::from_angle((entry.point[0] * 0.013 + entry.point[1] * 0.027 + shader_time).rem_euclid(std::f32::consts::TAU));
+                (BLAST_RING, BLAST_RING_LIFETIME, axis, blast_surface_scale(blast))
+            }
+            WaterImpact::HeavyEntry => (1, SHOT_RING_LIFETIME, Vec3::from_array(entry.direction).truncate(), Vec2::ZERO),
+            WaterImpact::Bullet => (0, SHOT_RING_LIFETIME, Vec3::from_array(entry.direction).truncate(), Vec2::ZERO),
+        };
+        if self.live.len() == MAX_SHOT_RINGS {
+            // A burst of pistol fire must not cut off a grenade's receding wave.
+            if let Some(index) = self.live.iter().position(|(_, ring)| ring.kind != BLAST_RING) {
+                self.live.remove(index);
+            } else if kind == BLAST_RING {
+                self.live.pop_front();
+            } else {
+                return;
+            }
+        }
+        self.live.push_back((now + lifetime, ShotRingUniform {
+            point_time: Vec3::from_array(entry.point).extend(shader_time + 1.0),
+            travel,
+            receiver: entry.receiver,
+            kind,
+            blast_scale,
+        }));
+    }
+
+    fn expire(&mut self, now: f64) {
+        self.live.retain(|(expires, _)| *expires > now);
+    }
+}
+
+/// Combat places each crossing at the waterline when the shot reaches it. The material
+/// only needs its start time: expanding the ring costs no per-frame asset changes.
+#[allow(clippy::too_many_arguments)]
+fn update_shot_rings(
+    time: Res<Time>,
+    graphics: Res<crate::graphics::Graphics>,
+    world: Res<WorldData>,
+    streamer: Res<Streamer>,
+    mut shots: ResMut<nvf_play::combat::ShotVisuals>,
+    mut rings: Local<ShotRings>,
+    cache: Res<WaterCache>,
+    mut materials: ResMut<Assets<WaterMaterial>>,
+) {
+    if rings.live.is_empty() && shots.water_entries.is_empty() {
+        return;
+    }
+    let space = (world.world, streamer.interior);
+    if !graphics.water_effects || rings.space != Some(space) {
+        rings.live.clear();
+        rings.space = Some(space);
+    }
+    let now = time.elapsed_secs_f64();
+    rings.expire(now);
+    if !shots.water_entries.is_empty() {
+        for entry in shots.water_entries.drain(..) {
+            if graphics.water_effects {
+                rings.push(entry, now, time.elapsed_secs_wrapped());
+                let point = entry.point;
+                let name = match entry.kind {
+                    nvf_play::combat::WaterImpact::Bullet => "shot ring",
+                    nvf_play::combat::WaterImpact::HeavyEntry => "heavy entry ring",
+                    nvf_play::combat::WaterImpact::Blast(_) => "blast wave",
+                };
+                debug!("water: {name} at ({:.0}, {:.0}, {:.0})", point[0], point[1], point[2]);
+            }
+        }
+    }
+    let mut packed = [ShotRingUniform::default(); MAX_SHOT_RINGS];
+    for (slot, (_, entry)) in packed.iter_mut().zip(&rings.live) {
+        *slot = *entry;
+    }
+    // This also seeds materials streamed in while a ring is still travelling.
+    for h in cache.materials.values() {
+        if materials.get(h).is_some_and(|m| m.params.shot_rings != packed) {
+            if let Some(mut m) = materials.get_mut(h) {
+                m.params.shot_rings = packed;
+            }
+        }
+    }
 }
 
 impl WaterCache {
@@ -669,6 +796,7 @@ pub fn water_params(w: &Water) -> WaterParams {
         edge: w.edge_falloff().map_or(Vec4::ZERO, |(a, b)| Vec4::new(a, b, 1.0, 0.0)),
         seen_plane: Vec4::ZERO,
         water_sun: Vec4::ZERO,
+        shot_rings: [ShotRingUniform::default(); MAX_SHOT_RINGS],
     }
 }
 
@@ -756,6 +884,59 @@ pub fn update_water_sky(sky: Res<SkyState>, graphics: Option<Res<crate::graphics
 #[cfg(test)]
 mod wet_tests {
     use super::*;
+
+    #[test]
+    fn shot_rings_keep_the_latest_entries_and_expire_across_the_shader_clock_wrap() {
+        let mut rings = ShotRings::default();
+        for i in 0..=MAX_SHOT_RINGS {
+            let now = 3599.0 + i as f64 * 0.1;
+            let entry = nvf_play::combat::ShotWaterEntry { point: [i as f32, 1.0, 2600.0], direction: [0.6, 0.0, -0.8], receiver: 0xff01_0000 + i as u32, kind: nvf_play::combat::WaterImpact::Bullet };
+            rings.push(entry, now, now as f32);
+        }
+        assert_eq!(rings.live.len(), MAX_SHOT_RINGS);
+        let first = rings.live.front().unwrap().1;
+        assert_eq!(first.point_time.xyz(), Vec3::new(1.0, 1.0, 2600.0));
+        assert_eq!(first.receiver, 0xff01_0001);
+        assert_eq!(first.travel, Vec2::new(0.6, 0.0));
+        rings.expire(3600.41);
+        assert_eq!(rings.live.front().unwrap().1.point_time.x, 3.0);
+        rings.expire(3601.1);
+        assert!(rings.live.is_empty());
+    }
+
+    #[test]
+    fn submerged_blast_is_wider_and_lower_and_airburst_loses_lift() {
+        use nvf_play::combat::SurfaceBlast;
+        let surface = SurfaceBlast { radius: 600.0, depth: 0.0, reach: 250.0 };
+        let on = blast_surface_scale(surface);
+        let below = blast_surface_scale(SurfaceBlast { depth: 180.0, ..surface });
+        let above = blast_surface_scale(SurfaceBlast { depth: -180.0, ..surface });
+        assert_eq!(on, Vec2::ONE);
+        assert!(below.x > on.x && below.y < on.y);
+        assert!(above.x == on.x && above.y < below.y);
+        assert!(blast_surface_scale(SurfaceBlast { radius: 800.0, ..surface }).x > on.x);
+    }
+
+    #[test]
+    fn blast_wave_survives_following_gunfire_and_uses_its_own_lifetime() {
+        use nvf_play::combat::{ShotWaterEntry, SurfaceBlast, WaterImpact};
+        let mut rings = ShotRings::default();
+        let blast = SurfaceBlast { radius: 200.0, depth: 80.0, reach: 250.0 };
+        let entry = ShotWaterEntry { point: [12.0, 34.0, 90.0], direction: [0.0; 3], receiver: 44, kind: WaterImpact::Blast(blast) };
+        rings.push(entry, 0.0, 0.0);
+        for _ in 0..MAX_SHOT_RINGS {
+            rings.push(ShotWaterEntry { kind: WaterImpact::HeavyEntry, ..entry }, 0.1, 0.1);
+        }
+        assert_eq!(rings.live.len(), MAX_SHOT_RINGS);
+        rings.expire(1.4);
+        assert_eq!(rings.live.len(), 1);
+        let wave = rings.live[0].1;
+        assert_eq!(wave.kind, BLAST_RING);
+        assert_eq!(wave.receiver, 44);
+        assert_eq!(wave.blast_scale, blast_surface_scale(blast));
+        rings.expire(BLAST_RING_LIFETIME);
+        assert!(rings.live.is_empty());
+    }
 
     #[test]
     fn baked_current_keeps_each_layer_downstream_against_strong_wind() {

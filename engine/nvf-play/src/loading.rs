@@ -375,6 +375,12 @@ impl Loading {
     pub fn placing_capped(&self) -> bool {
         self.placing_capped
     }
+
+    /// A start's screen that is up, and settling or not, for the tests of who follows it.
+    #[cfg(feature = "test-support")]
+    pub fn starting_for_test(settling: bool) -> Loading {
+        Loading { start: Some(StartHold { started: 0.0, ready: settling.then_some((0.0, 0)) }), ..default() }
+    }
 }
 
 /// The loading screens of the plugins.
@@ -719,7 +725,7 @@ fn missing(loading: &Loading, phys: Option<&PhysState>, scripts: Option<&crate::
         out.push("the Pip-Boy warm-up");
     }
     if loading.lamp_shadows_busy {
-        out.push("ALC shadows");
+        out.push("ALCS");
     }
     out
 }
@@ -991,7 +997,7 @@ mod tests {
     #[test]
     fn a_screen_waits_for_the_lamp_shadows_pre_draw() {
         let mut loading = Loading { lamp_shadows_busy: true, ..default() };
-        assert_eq!(missing(&loading, None, None, false), vec!["ALC shadows"]);
+        assert_eq!(missing(&loading, None, None, false), vec!["ALCS"]);
         loading.lamp_shadows_busy = false;
         assert!(missing(&loading, None, None, false).is_empty());
     }
