@@ -152,6 +152,7 @@ impl FsrResourceName {
         self,
         binding: u32,
         access_type: AccessType,
+        widen_spd_mips: bool,
     ) -> wgpu::BindGroupLayoutEntry {
         match (self, access_type) {
             (
@@ -233,7 +234,11 @@ impl FsrResourceName {
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
                         access,
-                        format: self.format(),
+                        format: if widen_spd_mips && matches!(self, FsrResourceName::SpdMips) {
+                            wgpu::TextureFormat::Rgba16Float
+                        } else {
+                            self.format()
+                        },
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
@@ -408,7 +413,7 @@ impl FsrResources {
             mip_level_count: half_max_render_size.max_mips(wgpu::TextureDimension::D2),
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rg16Float,
+            format: spd_mips_format(device),
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -715,4 +720,26 @@ impl<'a> From<&'a OwnedBindingResource> for wgpu::BindingResource<'a> {
             OwnedBindingResource::Sampler(s) => wgpu::BindingResource::Sampler(s),
         }
     }
+}
+
+/// Metal has no read-write storage for two-channel
+/// formats (its tier-2 read-write list is one- and four-channel only) [documented: Apple's Metal
+/// Feature Set Tables, "Read-write texture formats"; observed: wgpu refuses the SPD layout on
+/// Metal], and SPD reads and writes the `Rg16Float` mips. Off Vulkan they are `Rgba16Float`; the pyramid shaders' image type is
+/// retagged to match (`pass::widen_rg16f_images`), and MSL's storage textures carry no format.
+pub(crate) fn widen_spd_mips(device: &wgpu::Device) -> bool {
+    device.adapter_info().backend != wgpu::Backend::Vulkan
+}
+
+fn spd_mips_format(device: &wgpu::Device) -> wgpu::TextureFormat {
+    if widen_spd_mips(device) { wgpu::TextureFormat::Rgba16Float } else { wgpu::TextureFormat::Rg16Float }
+}
+
+/// The port's shaders through naga without its runtime
+/// bounds checks and loop bounding, as Vulkan's passthrough runs them [design; observed: on an
+/// Apple M5 Pro the checks cost FSR 9.7 against 6.2 ms a frame at 3024x1898]. `NVF_FSR_UNCHECKED=0`
+/// puts the checks back.
+pub(crate) fn unchecked_shaders() -> bool {
+    static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var("NVF_FSR_UNCHECKED").map_or(true, |v| v != "0"));
+    *ON
 }

@@ -125,6 +125,13 @@ libloading = "0.8.9"
 # (MIT/Apache-2.0).
 libc = "0.2"
 
+# MetalFX upscaling (metalfx.rs, NVF_METALFX), on the
+# objc2 versions wgpu-hal 30's Metal backend already uses.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat", "MTLResource", "MTLCommandBuffer"] }
+objc2-metal-fx = { version = "0.3", default-features = false, features = ["std", "MTLFXSpatialScaler", "MTLFXTemporalScaler"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 bevy = { workspace = true, features = ["android-native-activity"] }
 jni = "0.21"

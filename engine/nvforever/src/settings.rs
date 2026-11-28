@@ -1663,7 +1663,9 @@ fn model_dimmed(world: &World) -> Option<&'static str> {
 
 /// The Upscaler row's choices by the names the INI, the log and the test aids use (the page
 /// shows them by [`upscaler_label`]).
-const UPSCALERS: [(&str, Upscaler); 3] = [("Off", Upscaler::Off), ("FSR 3.1", Upscaler::Fsr), ("DLSS", Upscaler::Dlss)];
+/// MetalFX is listed on macOS only ([`upscaler_names`]); its name still reads everywhere, so an
+/// INI carried over from a Mac loads (and draws natively, with the reason in the log).
+const UPSCALERS: [(&str, Upscaler); 4] = [("Off", Upscaler::Off), ("FSR 3.1", Upscaler::Fsr), ("DLSS", Upscaler::Dlss), ("MetalFX", Upscaler::MetalFx)];
 
 /// The quality the Upscaling mode row holds while the upscaler is Off, when the request
 /// (`Graphics::upscaler`) has none: an upscaler chosen again takes it up.
@@ -1899,10 +1901,14 @@ fn upscaler_chosen(world: &World) -> String {
     UPSCALERS.iter().find(|(_, u)| *u == upscaler).map_or("Off", |(name, _)| *name).to_string()
 }
 
-/// The Upscaler row's choices: Off, FSR 3.1, DLSS, and Download DLSS… while DLSS's files are
-/// missing (`dlss_download`: picking it opens its dialog; #2250).
+/// The Upscaler row's choices: Off, FSR 3.1, DLSS, MetalFX on macOS, and Download DLSS… while
+/// DLSS's files are missing (`dlss_download`: picking it opens its dialog; #2250).
 fn upscaler_names(world: &World) -> Vec<String> {
-    let mut names: Vec<String> = UPSCALERS.iter().map(|(name, _)| (*name).to_string()).collect();
+    let mut names: Vec<String> = UPSCALERS
+        .iter()
+        .filter(|(_, u)| *u != Upscaler::MetalFx || crate::upscaler::metalfx_platform())
+        .map(|(name, _)| (*name).to_string())
+        .collect();
     if dlss_download_offered(world) {
         names.push(crate::dlss_download::CHOICE.to_string());
     }
@@ -1953,7 +1959,8 @@ fn load_quality(world: &mut World, value: &str) -> bool {
 fn render_share(upscaler: Upscaler, mode: UpscaleQuality) -> Option<u32> {
     match upscaler {
         Upscaler::Off => None,
-        Upscaler::Fsr => Some((100.0 / mode.ratio()).round() as u32),
+        // MetalFX draws at FSR's render sizes (it shares FSR's preparation).
+        Upscaler::Fsr | Upscaler::MetalFx => Some((100.0 / mode.ratio()).round() as u32),
         Upscaler::Dlss => Some(match mode {
             UpscaleQuality::NativeAa => 100,
             UpscaleQuality::Quality => 67,
@@ -1996,7 +2003,7 @@ fn upscaler_label(world: &World, name: &str) -> String {
                 "DLSS".to_string()
             }
         }
-        Some(Upscaler::Fsr) | None => name.to_string(),
+        Some(Upscaler::Fsr | Upscaler::MetalFx) | None => name.to_string(),
     }
 }
 
@@ -2518,12 +2525,13 @@ mod fsr_settings_tests {
         assert!(settings.index(LEGACY_KEY).is_none(), "the older row is no row of its own");
         let upscalers = settings.choices(u).expect("a native dropdown");
         let qualities = settings.choices(q).expect("a native dropdown");
-        assert_eq!((upscalers.names)(app.world()), ["Off", "FSR 3.1", "DLSS"]);
+        assert_eq!((upscalers.names)(app.world()), listed_upscalers());
         assert_eq!((qualities.names)(app.world()), ["Native AA", "Quality", "Balanced", "Performance", "Ultra Performance"]);
         assert_eq!(settings.older_key(u), Some(LEGACY_KEY));
         assert_eq!(chosen(&app), ("Off".to_string(), "Quality".to_string()), "off, the quality kept at Quality");
-        for upscaler in [Upscaler::Fsr, Upscaler::Dlss] {
-            let name = if upscaler == Upscaler::Fsr { "FSR 3.1" } else { "DLSS" };
+        let kinds: &[Upscaler] = if cfg!(target_os = "macos") { &[Upscaler::Fsr, Upscaler::Dlss, Upscaler::MetalFx] } else { &[Upscaler::Fsr, Upscaler::Dlss] };
+        for &upscaler in kinds {
+            let name = UPSCALERS.iter().find(|(_, u)| *u == upscaler).unwrap().0;
             assert!(nvf_play::settings::pick(app.world_mut(), u, name), "{name}");
             for quality in UpscaleQuality::ALL {
                 nvf_play::settings::pick(app.world_mut(), q, quality.name());
@@ -2630,6 +2638,28 @@ mod fsr_settings_tests {
         assert_eq!(label(&app, u, "DLSS"), "DLSS");
     }
 
+    /// The Upscaler row's choices on this platform, Download DLSS… aside: MetalFX on macOS only.
+    fn listed_upscalers() -> Vec<&'static str> {
+        if cfg!(target_os = "macos") { vec!["Off", "FSR 3.1", "DLSS", "MetalFX"] } else { vec!["Off", "FSR 3.1", "DLSS"] }
+    }
+
+    /// MetalFX in the Upscaler row: its quality row shows FSR's shares, it saves and loads by
+    /// name, and it is a whole request of its own (not FSR's).
+    #[test]
+    fn metalfx_is_an_upscaler_choice_with_fsrs_render_shares() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
+        let mut app = rows_app();
+        app.insert_resource(UpscalerStatus::new(READY));
+        let u = row(&app, UPSCALER_KEY);
+        assert_eq!(upscaler_named("metalfx"), Some(Upscaler::MetalFx), "the INI's name, any case");
+        assert_eq!(render_share(Upscaler::MetalFx, UpscaleQuality::Balanced), render_share(Upscaler::Fsr, UpscaleQuality::Balanced));
+        assert!(nvf_play::settings::pick(app.world_mut(), u, "MetalFX"));
+        assert_eq!(requested(&app), UpscalerChoice::MetalFx(UpscaleQuality::Quality));
+        assert_eq!(requested(&app).fsr(), None, "not FSR's own request");
+        assert_eq!(requested(&app).fsr_pipeline(), Some(UpscaleQuality::Quality), "drawn in FSR's pass");
+        assert_eq!(upscaler_chosen(app.world()), "MetalFX");
+    }
+
     /// Download DLSS… (#2250) is a choice of the Upscaler row only while DLSS's files are what is
     /// missing (on Windows, where that reason arises): picking it asks for its dialog and leaves
     /// the request as it is.
@@ -2643,7 +2673,7 @@ mod fsr_settings_tests {
         let u = row(&app, UPSCALER_KEY);
         let names = |app: &App| (app.world().resource::<Settings>().choices(u).unwrap().names)(app.world());
         if !cfg!(windows) {
-            assert_eq!(names(&app), ["Off", "FSR 3.1", "DLSS"], "DLSS, and its download, are Windows only");
+            assert_eq!(names(&app), listed_upscalers(), "DLSS, and its download, are Windows only");
             assert!(!pick_upscaler(app.world_mut(), CHOICE));
             return;
         }
@@ -2664,7 +2694,7 @@ mod fsr_settings_tests {
         ] {
             let mut app = rows_app();
             app.insert_resource(UpscalerStatus::new(session));
-            assert_eq!(names(&app), ["Off", "FSR 3.1", "DLSS"], "{session:?}");
+            assert_eq!(names(&app), listed_upscalers(), "{session:?}");
             assert!(!pick_upscaler(app.world_mut(), CHOICE), "{session:?}");
             assert!(!app.world().contains_resource::<Asked>());
         }

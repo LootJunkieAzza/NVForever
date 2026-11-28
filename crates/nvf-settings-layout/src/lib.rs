@@ -1113,7 +1113,7 @@ pub const CONTROLLER_DEVICE: &str = "Controller";
 /// (`nvf_play::settings::Settings::hidden`) and the launcher both go by this table: a row
 /// hidden by another row's choice is written here, not in code, so the two stay one.
 pub const SHOWN_WITH: &[(&str, &str, &[&str])] = &[
-    ("upscaler-quality", "upscaler", &["FSR 3.1", "DLSS"]),
+    ("upscaler-quality", "upscaler", &["FSR 3.1", "DLSS", "MetalFX"]),
     ("dlss-model", "upscaler", &["DLSS"]),
     ("fsr-library", "upscaler", &["FSR 3.1"]),
     ("anti-aliasing", "upscaler", &["Off"]),

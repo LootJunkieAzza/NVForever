@@ -5224,6 +5224,9 @@ dependencies = [
  "nvf-rtgi",
  "nvf-signal",
  "nvf-signal-server",
+ "objc2 0.6.5",
+ "objc2-metal 0.3.2",
+ "objc2-metal-fx",
  "png",
  "rapier3d",
  "rayon",
@@ -5520,6 +5523,17 @@ dependencies = [
  "block2 0.6.2",
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "objc2-metal-fx"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2db6f3a9d3b07481d9e5884f592aff6fd3f99e155423d1d1af3977e77a90ea0e"
+dependencies = [
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
+ "objc2-metal 0.3.2",
 ]
 
 [[package]]

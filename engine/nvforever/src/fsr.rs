@@ -70,11 +70,14 @@ impl FsrQuality {
 pub struct FsrUpscaling {
     pub quality: FsrQuality,
     pub sharpness: f32,
+    /// MetalFX reconstructs in FSR's place (`UpscalerChoice::MetalFx`, macOS; `metalfx.rs`):
+    /// FSR's preparation and pass as they are, Apple's scaler for the reconstruction.
+    pub metalfx: bool,
 }
 
 impl Default for FsrUpscaling {
     fn default() -> Self {
-        Self { quality: FsrQuality::Quality, sharpness: 0.2 }
+        Self { quality: FsrQuality::Quality, sharpness: 0.2, metalfx: false }
     }
 }
 
@@ -134,15 +137,24 @@ impl Plugin for FsrPlugin {
         let supported = app.get_sub_app(RenderApp).is_some_and(|render| {
             let world = render.world();
             let (Some(adapter), Some(device)) = (world.get_resource::<RenderAdapter>(), world.get_resource::<RenderDevice>()) else { return false };
-            let features = wgpu::Features::PASSTHROUGH_SHADERS | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+            // On Metal the port's SPIR-V goes through
+            // naga (wgpu-ffx `pass.rs`), so no passthrough is needed, and its only read-write
+            // `Rg16Float` (the SPD mips) is `Rgba16Float` there (wgpu-ffx `widen_spd_mips`):
+            // `Rg16Float` needs only write-only storage (the dilated motion vectors).
+            let backend = adapter.get_info().backend;
+            let metal = backend == wgpu::Backend::Metal;
+            let passthrough = if metal { wgpu::Features::empty() } else { wgpu::Features::PASSTHROUGH_SHADERS };
+            let features = passthrough | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
                 | wgpu::Features::FLOAT32_FILTERABLE | wgpu::Features::TEXTURE_FORMAT_16BIT_NORM | wgpu::Features::CLEAR_TEXTURE;
-            adapter.get_info().backend == wgpu::Backend::Vulkan && device.features().contains(features) && supports_limits(&device.limits())
+            (backend == wgpu::Backend::Vulkan || metal) && device.features().contains(features) && supports_limits(&device.limits())
                 && [wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::R16Float, wgpu::TextureFormat::Rg16Float,
                     wgpu::TextureFormat::Rgba16Float, wgpu::TextureFormat::Rgba32Float]
                     .into_iter().all(|format| {
                         let properties = adapter.get_texture_format_features(format);
+                        let read_write = metal && format == wgpu::TextureFormat::Rg16Float
+                            || properties.flags.contains(wgpu::TextureFormatFeatureFlags::STORAGE_READ_WRITE);
                         properties.allowed_usages.contains(wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING)
-                            && properties.flags.contains(wgpu::TextureFormatFeatureFlags::STORAGE_READ_WRITE)
+                            && read_write
                     })
         });
         app.insert_resource(FsrSupport(supported));
@@ -213,6 +225,9 @@ enum Upscaler {
     /// the colour image it is given, the dispatches that failed in a row, and the view's main
     /// textures the library has been given to write ([`Upscaler::first_output`]).
     Api { context: Mutex<crate::ffx_api::Upscaler>, depth: wgpu::Texture, failures: AtomicU32, outputs: Mutex<Vec<wgpu::Texture>> },
+    /// Apple MetalFX, `NVF_METALFX=temporal|spatial`.
+    #[cfg(target_os = "macos")]
+    MetalFx(crate::metalfx::Scaler),
 }
 
 impl Upscaler {
@@ -261,6 +276,9 @@ fn port_context(device: &wgpu::Device) -> FsrContext {
 #[derive(Component)]
 pub(crate) struct PreparedFsr {
     upscaler: Upscaler,
+    /// Whether MetalFX was asked for when it was made ([`metalfx_asked`]), whether or not its
+    /// scaler could be made: a change makes it again.
+    asked_metalfx: bool,
     /// The sizes it was made for (the prepared view's when it was made).
     pub(crate) render_size: UVec2,
     pub(crate) output_size: UVec2,
@@ -321,12 +339,12 @@ pub(crate) fn prepare(
         let offset = -jitter.offset;
         let (render_size, output_size) = (prepared.render_size, prepared.output_size);
         match old {
-            Some(old) if old.render_size == render_size && old.output_size == output_size && old.through_api() == crate::ffx_api::library().is_some() => {
+            Some(old) if old.render_size == render_size && old.output_size == output_size && old.through_api() == crate::ffx_api::library().is_some() && old.asked_metalfx == metalfx_asked(settings.metalfx) => {
                 queue.write_buffer(&old.mask_jitter, 0, &mask_jitter_bytes(offset));
             }
             _ => {
-                let fsr = PreparedFsr::new(&mut renderer.port, &device, &queue, render_size, output_size, offset);
-                let through = if fsr.through_api() { "FSR through the FidelityFX API" } else { "FSR 3.1.4" };
+                let fsr = PreparedFsr::new(&mut renderer.port, &device, &queue, render_size, output_size, offset, metalfx_asked(settings.metalfx));
+                let through = if fsr.through_api() { "FSR through the FidelityFX API" } else if fsr.through_metalfx() { "MetalFX" } else { "FSR 3.1.4" };
                 info!("{through}: {:?}, {}x{} -> {}x{}, frame generation {}", settings.quality, render_size.x, render_size.y, output_size.x, output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
                 commands.entity(entity).insert(fsr);
             }
@@ -367,6 +385,17 @@ pub(crate) fn fsr_textures(render_size: UVec2, output_size: UVec2) -> [Allocatio
     ]
 }
 
+/// Whether MetalFX should reconstruct the views now (no FidelityFX API library takes them):
+/// a prepared view made the other way is made again, so the setting switches at once.
+fn metalfx_asked(chosen: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    if crate::ffx_api::library().is_none() {
+        return crate::metalfx::mode_for(chosen).is_some();
+    }
+    let _ = chosen;
+    false
+}
+
 /// The colour copy of the corrected depth a FidelityFX API library is given
 /// (`prep::Pipelines::depth_as_color`).
 fn api_depth_texture(render_size: UVec2) -> Allocation {
@@ -386,8 +415,17 @@ impl PreparedFsr {
         matches!(self.upscaler, Upscaler::Api { .. })
     }
 
+    /// Whether Apple MetalFX reconstructs the view (macOS).
+    fn through_metalfx(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        return matches!(self.upscaler, Upscaler::MetalFx(_));
+        #[cfg(not(target_os = "macos"))]
+        false
+    }
+
     /// `port` is the port's context, made here when this is the first view to use it.
-    fn new(port: &mut Option<FsrContext>, device: &RenderDevice, queue: &RenderQueue, render_size: UVec2, output_size: UVec2, jitter: Vec2) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    fn new(port: &mut Option<FsrContext>, device: &RenderDevice, queue: &RenderQueue, render_size: UVec2, output_size: UVec2, jitter: Vec2, asked_metalfx: bool) -> Self {
         let device = device.wgpu_device();
         let [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma, dilated_depth, dilated_motion] = fsr_textures(render_size, output_size);
         let [opaque, reactive, composition, presence_0, presence_1, light_change, history_luma] =
@@ -406,6 +444,17 @@ impl PreparedFsr {
                 None
             }
         });
+        #[cfg(target_os = "macos")]
+        let api = api.or_else(|| {
+            let mode = crate::metalfx::mode_for(asked_metalfx).filter(|_| asked_metalfx)?;
+            match crate::metalfx::Scaler::new(device, mode, render_size, output_size) {
+                Ok(scaler) => Some(Upscaler::MetalFx(scaler)),
+                Err(why) => {
+                    warn!("MetalFX unavailable: {why}; FSR 3.1.4 instead");
+                    None
+                }
+            }
+        });
         let upscaler = api.unwrap_or_else(|| Upscaler::Port {
             view: Box::new(Mutex::new(port.get_or_insert_with(|| port_context(device)).create_view(queue, render_size.to_array(), output_size.to_array()))),
             dilated_depth: dilated_depth.create(device),
@@ -417,6 +466,7 @@ impl PreparedFsr {
         });
         Self {
             upscaler,
+            asked_metalfx,
             render_size, output_size,
             dispatch_logged: AtomicBool::new(false),
             reference_logged: AtomicBool::new(false),
@@ -434,6 +484,10 @@ impl PreparedFsr {
 
 fn capture_opaque(view: ViewQuery<(&ViewTarget, &PreparedFsr)>, mut ctx: RenderContext) {
     let (target, fsr) = view.into_inner();
+    // The opaque reference feeds FSR's masks only, which MetalFX is not given.
+    if fsr.through_metalfx() {
+        return;
+    }
     ctx.command_encoder().copy_texture_to_texture(
         target.main_texture().as_image_copy(), fsr.opaque.as_image_copy(),
         wgpu::Extent3d { width: fsr.render_size.x, height: fsr.render_size.y, depth_or_array_layers: 1 },
@@ -467,6 +521,9 @@ fn reference_sky_and_terrain_layers(
 ) {
     let view_entity = view.entity();
     let (camera, extracted, depth, fsr, resolution) = view.into_inner();
+    if fsr.through_metalfx() {
+        return;
+    }
     let Some(phase) = phases.get(&extracted.retained_view_entity) else { return };
     let sky = sky_range(phase.items.values().map(|item| item.distance));
     let layers = sort_first_range(phase.items.values().map(|item| item.distance));
@@ -563,7 +620,11 @@ pub(crate) fn fsr_pass(
     // around AMD's, to tell their cost apart.
     let inputs_span = diagnostics.time_span(encoder, "inputs");
     common.corrected_depth(device, encoder, prepared, &depth.texture.texture);
-    auxiliary.prepare_inputs(device, encoder, common, fsr, target.main_texture(), &motion.texture.texture, reset);
+    // FSR's reactive and composition masks (and the opaque copy they read) feed FSR only:
+    // MetalFX is given no masks, so they are not made for it.
+    if !fsr.through_metalfx() {
+        auxiliary.prepare_inputs(device, encoder, common, fsr, target.main_texture(), &motion.texture.texture, reset);
+    }
     inputs_span.end(encoder);
     let source = target.main_texture().deref().clone();
     let destination = target.main_texture_other().deref().clone();
@@ -598,6 +659,21 @@ pub(crate) fn fsr_pass(
             upscale_span.end(encoder);
             dispatched
         }
+        #[cfg(target_os = "macos")]
+        Upscaler::MetalFx(scaler) => {
+            // The render rectangle of the colour and motion, into MetalFX's render-sized inputs.
+            let rect = wgpu::Extent3d { width: prepared.render_size.x, height: prepared.render_size.y, depth_or_array_layers: 1 };
+            encoder.copy_texture_to_texture(source.as_image_copy(), scaler.color.as_image_copy(), rect);
+            if scaler.first_output(&destination) {
+                encoder.clear_texture(&destination, &wgpu::ImageSubresourceRange::default());
+            }
+            let upscale_span = diagnostics.time_span(encoder, "upscale");
+            let dispatched = scaler
+                .encode(device, &prepared.depth, &motion.texture.texture, &destination, jitter_offset, motion_vector_scale, prepared.render_size, reset)
+                .map(|commands| ctx.add_command_buffer(commands));
+            upscale_span.end(ctx.command_encoder());
+            dispatched
+        }
         Upscaler::Api { context, depth: api_depth, failures, outputs } => {
             common.depth_as_color(device, encoder, prepared, api_depth);
             if Upscaler::first_output(outputs, &destination) {
@@ -628,6 +704,7 @@ pub(crate) fn fsr_pass(
         }
     };
     let api = fsr.through_api();
+    let metalfx = fsr.through_metalfx();
     let encoder = ctx.command_encoder();
     match dispatched {
         Ok(()) => {
@@ -636,7 +713,7 @@ pub(crate) fn fsr_pass(
             // model): otherwise FSR's alpha of 1 is what the post passes expect, and the
             // display-sized pass is saved. What another upscaler behind the FidelityFX API
             // leaves in alpha is not known, so there the scene's own always comes back.
-            if prepared.camera.screen_mark || api {
+            if prepared.camera.screen_mark || api || metalfx {
                 common.restore_alpha(device, encoder, prepared, target);
             }
             target.post_process_write();
@@ -644,7 +721,7 @@ pub(crate) fn fsr_pass(
                 // The output is AMD's grid, not what FSR's history shows: a cleared history
                 // makes the next frame's light term skip (`DEBUG_VIEW`).
                 encoder.clear_texture(&fsr.history_luma, &wgpu::ImageSubresourceRange::default());
-            } else {
+            } else if !metalfx {
                 auxiliary.keep_history_luma(device, encoder, common, prepared, fsr, target);
             }
             after_span.end(encoder);
@@ -654,7 +731,8 @@ pub(crate) fn fsr_pass(
                     Some(library) => format!("FidelityFX API ({})", library.path),
                     None => "3.1.4".into(),
                 };
-                let shaders = if api { "the library's own upscaler" } else { "Vulkan source shaders" };
+                let through = if metalfx { "Apple MetalFX".to_string() } else { through };
+                let shaders = if metalfx { "MetalFX's own scaler" } else if api { "the library's own upscaler" } else if cfg!(target_os = "macos") { "SPIR-V through naga to MSL" } else { "Vulkan source shaders" };
                 info!("FSR dispatch active: {through}, {}x{} -> {}x{}, {shaders}, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
             }
         }

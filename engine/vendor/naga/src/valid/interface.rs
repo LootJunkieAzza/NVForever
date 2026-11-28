@@ -1134,8 +1134,18 @@ impl super::Validator {
             }
         }
 
+        // SPIR-V's `Coherent` on a storage image
+        // (HLSL `globallycoherent RWTexture2D`, FidelityFX SPD's mid mip) is accepted too; the
+        // MSL back end writes it as `memory_coherence_device` (MSL 3.2).
+        let coherent_storage_image = var.space == crate::AddressSpace::Handle
+            && var.memory_decorations == crate::MemoryDecorations::COHERENT
+            && matches!(
+                gctx.types[var.ty].inner,
+                crate::TypeInner::Image { class: crate::ImageClass::Storage { .. }, .. }
+            );
         if !var.memory_decorations.is_empty()
             && !matches!(var.space, crate::AddressSpace::Storage { .. })
+            && !coherent_storage_image
         {
             return Err(GlobalVariableError::InvalidMemoryDecorationsAddressSpace);
         }

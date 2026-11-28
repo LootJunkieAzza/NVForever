@@ -136,6 +136,8 @@ pub fn steps(key: &str) -> Option<Vec<String>> {
 pub fn named_choices(key: &str) -> Option<Vec<Choice>> {
     let names: &[&str] = match key {
         "button-style" => &["Auto", "Xbox", "PlayStation"],
+        // MetalFX (Apple's) is offered on macOS only, as the game's own list does.
+        "upscaler" if cfg!(target_os = "macos") => &["Off", "FSR 3.1", "DLSS", "MetalFX"],
         "upscaler" => &["Off", "FSR 3.1", "DLSS"],
         "upscaler-quality" => &["Native AA", "Quality", "Balanced", "Performance", "Ultra Performance"],
         "dlss-model" => &["Default", "K", "L", "M", "J"],
@@ -405,7 +407,7 @@ mod tests {
         }
         assert!(pad.contains("save: |w| w.resource::<ButtonStyle>().name().to_string()"));
         let st = engine("settings.rs");
-        assert!(st.contains("const UPSCALERS: [(&str, Upscaler); 3] = [(\"Off\", Upscaler::Off), (\"FSR 3.1\", Upscaler::Fsr), (\"DLSS\", Upscaler::Dlss)];"));
+        assert!(st.contains("const UPSCALERS: [(&str, Upscaler); 4] = [(\"Off\", Upscaler::Off), (\"FSR 3.1\", Upscaler::Fsr), (\"DLSS\", Upscaler::Dlss), (\"MetalFX\", Upscaler::MetalFx)];"));
         assert!(st.contains("save: upscaler_chosen,") && st.contains("save: quality_chosen,") && st.contains("save: model_chosen,"));
         assert!(st.contains("const FSR_LIBRARY_BUILT_IN: &str = \"Built-in\";") && st.contains("const FSR_LIBRARY_FOLDER: &str = \"Game folder\";"));
         assert!(st.contains("const FRAMES_CHOICES: [&str; 3] = [\"2x\", \"3x\", \"4x\"];"));

@@ -41,19 +41,23 @@ use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass};
 use bevy::prelude::*;
 use bevy::render::camera::{MipBias, TemporalJitter};
 
-/// The backend kind (`--upscaler off|fsr|dlss`).
+/// The backend kind (`--upscaler off|fsr|dlss|metalfx`). MetalFX (Apple's `MTLFXTemporalScaler`,
+/// `metalfx.rs`) runs on macOS only; it shares FSR's preparation and pass (`fsr.rs`), with Apple's
+/// scaler in place of FSR's reconstruction.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum Upscaler {
     #[default]
     Off,
     Fsr,
     Dlss,
+    #[value(name = "metalfx")]
+    MetalFx,
 }
 
 impl Upscaler {
     // The tests' list of every kind.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub const ALL: [Upscaler; 3] = [Upscaler::Off, Upscaler::Fsr, Upscaler::Dlss];
+    pub const ALL: [Upscaler; 4] = [Upscaler::Off, Upscaler::Fsr, Upscaler::Dlss, Upscaler::MetalFx];
 
     /// The name for log lines (not a settings label: those come from the language files).
     pub fn name(self) -> &'static str {
@@ -61,6 +65,7 @@ impl Upscaler {
             Self::Off => "Off",
             Self::Fsr => "FSR 3.1",
             Self::Dlss => "DLSS",
+            Self::MetalFx => "MetalFX",
         }
     }
 }
@@ -152,6 +157,8 @@ pub enum UpscalerChoice {
     Off,
     Fsr(UpscaleQuality),
     Dlss(UpscaleQuality),
+    /// Apple MetalFX Temporal at a quality (macOS): FSR's render sizes and preparation.
+    MetalFx(UpscaleQuality),
 }
 
 impl UpscalerChoice {
@@ -160,6 +167,7 @@ impl UpscalerChoice {
             Upscaler::Off => Self::Off,
             Upscaler::Fsr => Self::Fsr(quality),
             Upscaler::Dlss => Self::Dlss(quality),
+            Upscaler::MetalFx => Self::MetalFx(quality),
         }
     }
 
@@ -173,13 +181,14 @@ impl UpscalerChoice {
             Self::Off => Upscaler::Off,
             Self::Fsr(_) => Upscaler::Fsr,
             Self::Dlss(_) => Upscaler::Dlss,
+            Self::MetalFx(_) => Upscaler::MetalFx,
         }
     }
 
     pub fn quality(self) -> Option<UpscaleQuality> {
         match self {
             Self::Off => None,
-            Self::Fsr(q) | Self::Dlss(q) => Some(q),
+            Self::Fsr(q) | Self::Dlss(q) | Self::MetalFx(q) => Some(q),
         }
     }
 
@@ -195,6 +204,22 @@ impl UpscalerChoice {
     pub fn dlss(self) -> Option<UpscaleQuality> {
         match self {
             Self::Dlss(q) => Some(q),
+            _ => None,
+        }
+    }
+
+    /// The quality when this is MetalFX.
+    pub fn metalfx(self) -> Option<UpscaleQuality> {
+        match self {
+            Self::MetalFx(q) => Some(q),
+            _ => None,
+        }
+    }
+
+    /// The quality when FSR's preparation and pass draw it: FSR, or MetalFX in FSR's place.
+    pub fn fsr_pipeline(self) -> Option<UpscaleQuality> {
+        match self {
+            Self::Fsr(q) | Self::MetalFx(q) => Some(q),
             _ => None,
         }
     }
@@ -242,6 +267,9 @@ pub enum Unavailable {
     EvaluateFailed,
     /// FSR 3.1 cannot run here (not Vulkan, or the GPU lacks its formats and limits).
     FsrUnsupported,
+    /// MetalFX is Apple's: macOS with the Metal renderer only (or FSR's preparation, which it
+    /// shares, cannot run).
+    MetalFxUnsupported,
 }
 
 /// A signature check's refusal (`nvf-dlss-files` `security`) as the reason DLSS is unavailable.
@@ -268,6 +296,7 @@ impl Unavailable {
             Self::GpuNotSupported => "gpu-not-supported",
             Self::EvaluateFailed => "evaluate-failed",
             Self::FsrUnsupported => "fsr-unsupported",
+            Self::MetalFxUnsupported => "metalfx-unsupported",
         }
     }
 
@@ -285,6 +314,7 @@ impl Unavailable {
             Self::GpuNotSupported => "Not on this GPU or driver (DLSS needs an NVIDIA RTX card)",
             Self::EvaluateFailed => "DLSS stopped working this session; it is tried again at the next start",
             Self::FsrUnsupported => "FSR 3.1 cannot run on this GPU",
+            Self::MetalFxUnsupported => "MetalFX needs macOS and the Metal renderer",
         }
     }
 }
@@ -335,6 +365,7 @@ pub struct Resolution {
 ///   restart is pending.
 /// - FSR asked for: FSR draws at once where it can run (with Streamline loaded or not), else
 ///   native with the reason.
+/// - MetalFX asked for: as FSR, on macOS only (`MetalFxUnsupported` elsewhere).
 /// - Off: native at once.
 pub fn resolve(requested: UpscalerChoice, previous: Option<UpscalerChoice>, session: Session) -> Resolution {
     let now = |effective: UpscalerChoice, reason: Option<Unavailable>| Resolution { effective, restart_pending: false, reason };
@@ -351,8 +382,18 @@ pub fn resolve(requested: UpscalerChoice, previous: Option<UpscalerChoice>, sess
             None => now(requested, None),
             Some(why) => now(UpscalerChoice::Off, Some(why)),
         },
+        UpscalerChoice::MetalFx(_) => match session.fsr {
+            None if metalfx_platform() => now(requested, None),
+            _ => now(UpscalerChoice::Off, Some(Unavailable::MetalFxUnsupported)),
+        },
         UpscalerChoice::Off => now(UpscalerChoice::Off, None),
     }
+}
+
+/// Whether MetalFX can be built here at all: macOS (its scaler is made on the Metal device,
+/// `metalfx.rs`; on another backend it says so and FSR's port draws).
+pub fn metalfx_platform() -> bool {
+    cfg!(target_os = "macos")
 }
 
 /// The session's facts and what the requested choice comes to (docs/design/dlss-upscaling.md,
@@ -699,6 +740,26 @@ mod tests {
         Resolution { effective, restart_pending: false, reason: None }
     }
 
+    /// MetalFX draws where FSR's preparation can (macOS only), else natively with its reason;
+    /// whatever DLSS's state.
+    #[test]
+    fn metalfx_resolves_like_fsr_on_macos_only() {
+        let asked = UpscalerChoice::MetalFx(Balanced);
+        let fsr_ok = Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::NotWindows), fsr: None };
+        let got = resolve(asked, None, fsr_ok);
+        if cfg!(target_os = "macos") {
+            assert_eq!(got, Resolution { effective: asked, restart_pending: false, reason: None });
+        } else {
+            assert_eq!(got, Resolution { effective: UpscalerChoice::Off, restart_pending: false, reason: Some(Unavailable::MetalFxUnsupported) });
+        }
+        let no_fsr = Session { fsr: Some(Unavailable::FsrUnsupported), ..fsr_ok };
+        assert_eq!(resolve(asked, Some(asked), no_fsr).effective, UpscalerChoice::Off);
+        assert_eq!(resolve(asked, None, no_fsr).reason, Some(Unavailable::MetalFxUnsupported));
+        assert_eq!(asked.describe(), "MetalFX Balanced");
+        assert_eq!((asked.fsr(), asked.dlss(), asked.metalfx(), asked.fsr_pipeline()), (None, None, Some(Balanced), Some(Balanced)));
+        assert_eq!(UpscalerChoice::new(Upscaler::MetalFx, Performance), UpscalerChoice::MetalFx(Performance));
+    }
+
     #[test]
     fn off_is_the_default_everywhere() {
         assert_eq!(Upscaler::default(), Upscaler::Off);
@@ -711,7 +772,7 @@ mod tests {
 
     #[test]
     fn command_line_names_parse() {
-        for (name, upscaler) in [("off", Upscaler::Off), ("fsr", Upscaler::Fsr), ("dlss", Upscaler::Dlss)] {
+        for (name, upscaler) in [("off", Upscaler::Off), ("fsr", Upscaler::Fsr), ("dlss", Upscaler::Dlss), ("metalfx", Upscaler::MetalFx)] {
             assert_eq!(Upscaler::from_str(name, true), Ok(upscaler));
         }
         assert!(Upscaler::from_str("xess", true).is_err());

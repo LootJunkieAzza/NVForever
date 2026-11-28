@@ -33,9 +33,10 @@ FSR does its own anti-aliasing, so while it is on, the anti-aliasing row is dimm
 FXAA, SMAA or TAA) comes back when Upscaler is Off. The Sharpening switch drives FSR's own RCAS sharpening in place of the
 separate pass. The HUD and menus are drawn after FSR, at the window's resolution.
 
-FSR runs on wgpu's Vulkan backend only (SPIR-V passthrough). On another backend, or a GPU
-without the formats and limits it needs, the log says `FSR 3.1 unavailable: …` once, the
-frame is drawn natively, and the anti-aliasing row stays editable.
+FSR runs on wgpu's Vulkan backend (SPIR-V passthrough) and on Metal (macOS; "On Metal"
+below). On another backend, or a GPU without the formats and limits it needs, the log says
+`FSR 3.1 unavailable: …` once, the frame is drawn natively, and the anti-aliasing row stays
+editable.
 
 The performance overlay's Upscaling row (`fps-counter-upscaling`, off by default; #2242) shows
 the effective upscaler with the render and output size the render world drew the main camera
@@ -617,9 +618,67 @@ libraries' sources and headers.
   (entry-point owners, every call, a read-back of the output) used while the path was built
   and removed before review; it is in this branch's history (`ffx_api_trace.rs`).
 
+## On Metal (macOS) and MetalFX
+
+**FSR 3.1 on Metal.** Metal reports `PASSTHROUGH_SHADERS` too (for MSL), so the port's
+SPIR-V passthrough is used on Vulkan only; elsewhere the same SPIR-V goes through naga's
+SPIR-V front end and MSL back end. Four things stood in the way [observed 2026-11-28, MacBook
+Pro M5 Pro, macOS 27.2, wgpu 30]:
+
+- SPD's mip images are `globallycoherent` (SPIR-V `Coherent`). naga rejected the decoration
+  on a storage image; it is now accepted and written as MSL 3.2's
+  `memory_coherence::memory_coherence_device` (vendor/naga `valid/interface.rs`,
+  `back/msl/writer.rs`). Dropping it would compile but leave SPD's cross-workgroup mip read
+  unsynchronised.
+- Metal has no read-write storage for two-channel formats, so the SPD mips and the luma and
+  shading-change pyramids are `Rgba16Float` off Vulkan, and the SPIR-V's `Rg16f` image
+  declarations are retagged to match (vendor/wgpu-ffx `pass.rs` `widen_rg16f_images`,
+  `resources.rs` `widen_spd_mips`).
+- The FP16 accumulate pass converts floats to 16-bit integers, which naga's MSL writer had no
+  helper for (it panicked); `naga_f2i16` / `naga_f2u16` are added beside the 32- and 64-bit
+  ones.
+- naga's runtime bounds checks cost the port about a third of its time on Metal (9.7 → 6.2
+  ms a frame at 3024×1898, Quality); the port's modules are created unchecked as on Vulkan
+  (`create_shader_module_trusted`; `NVF_FSR_UNCHECKED=0` keeps the checks for comparisons).
+
+It draws clean (0 wgpu validation errors) and matches native exposure, but on the M5 Pro its
+6.2 ms a frame is more than it saves at Quality: 4–30 % slower than native 4x MSAA with the
+Enhanced preset, −16 % to +12 % at Performance [observed 2026-11-28].
+
+**MetalFX** (`UpscalerChoice::MetalFx`, macOS only; `metalfx.rs`). The Upscaler row's fourth
+choice, Apple's `MTLFXTemporalScaler` in place of FSR's reconstruction. It shares FSR's
+preparation: `graphics::apply` puts `FsrUpscaling { metalfx: true }` on the camera
+(`UpscalerChoice::fsr_pipeline`), so the render size of the mode, the jitter, mip bias,
+history cuts and the corrected reverse-Z depth are FSR's, and `fsr.rs` makes
+`Upscaler::MetalFx` instead of the port. The scaler is made on the raw `MTLDevice`
+(`wgpu::Device::as_hal`) and encoded into a wgpu encoder's raw `MTLCommandBuffer`
+(`as_hal_mut`), spliced into the frame with `RenderContext::add_command_buffer`, as the
+FidelityFX API path does on Vulkan; Metal's hazard tracking orders it against wgpu's passes.
+Inputs: the colour copied into a render-sized `Rgba16Float`, the `Depth32Float` depth
+(`depthReversed`), Bevy's display-sized motion vectors as they are
+(`inputContentWidth/Height` = render size; the prepass texture has no `COPY_SRC`), FSR's
+jitter and motion scale, auto exposure on. FSR's own opaque capture, reactive reference,
+masks and history luma are skipped for it (1.1 ms a frame less GPU at 3024×1898, Balanced).
+MetalFX sharpens nothing, so Sharpening runs as the separate pass for it. Off macOS the
+choice is not listed and a stored `MetalFX` draws natively (`metalfx-unsupported`).
+`NVF_METALFX=temporal|spatial|off` overrides the setting for tests; the spatial scaler is
+aliased (the view has no MSAA under an upscaler) and is not offered.
+
+Measured with the Enhanced preset at 3024×1898 [observed 2026-11-28, M5 Pro; Metal System
+Trace for the GPU times]: MetalFX's passes take 2.4 ms a frame; against native 4x MSAA it is
++42 % (Quality) to +69 % (Performance) on the Strip at night, +20 to +35 % walking through
+Goodsprings and +5 to +26 % over the long Mojave view; at a 60 fps cap the GPU draws 21 %
+(Quality) to 38 % (Performance) less power. At still poses Quality is the closest of the
+upscalers to native; screenshots mid-flight down the Strip with NPCs walking showed no
+ghosting on the NPCs, the Securitrons or the neon. Not checked: fast camera turns, smoke and
+fire (MetalFX is given no reactive mask; `reactiveMaskTextureEnabled` would take FSR's).
+Frame generation is not offered on Metal: FSR's needs format-less storage images naga cannot
+express and a Vulkan presenter; `MTLFXFrameInterpolator` would be the Metal route.
+
 ## Limits
 
-- **Backend and speed.** Vulkan only. AMD's FP16 variants only for the accumulate pass, and
+- **Backend and speed.** Vulkan and Metal ("On Metal (macOS) and MetalFX"). On Metal the
+  port is slower than the work it saves on Apple GPUs; MetalFX is the upscaler there. AMD's FP16 variants only for the accumulate pass, and
   only on GPUs with 16-bit shader floats and integers; frame generation's passes stay full
   precision. The gain depends on how busy the GPU is; a CPU-bound scene gains nothing, and a
   light one can cost more than it saves ("Performance").

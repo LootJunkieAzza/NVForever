@@ -526,6 +526,9 @@ impl Graphics {
         if self.fsr().is_some() {
             on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
             on.push("FSR 3.1 upscaling");
+        } else if self.upscaler.metalfx().is_some() {
+            on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
+            on.push("MetalFX upscaling");
         } else if self.upscaler.is_dlss() {
             on.retain(|n| !matches!(*n, "FXAA" | "SMAA" | "temporal anti-aliasing"));
             on.push("DLSS upscaling");
@@ -1071,7 +1074,8 @@ fn apply(
         return;
     }
     let upscaler = crate::upscaler::effective_temporal(g.fsr(), fsr_support.0, status.as_deref());
-    let (fsr, dlss) = (upscaler.fsr(), upscaler.dlss());
+    // FSR's preparation and pass draw FSR and MetalFX alike (`metalfx` picks the reconstruction).
+    let (fsr, dlss, metalfx) = (upscaler.fsr_pipeline(), upscaler.dlss(), upscaler.metalfx().is_some());
     let temporal = upscaler != UpscalerChoice::Off;
     // Blended shapes that draw the same as cut-outs (the corn rows) are cut-outs for a
     // temporal upscaler, which needs their depth and motion (nif_material::BlendedCutouts).
@@ -1080,7 +1084,7 @@ fn apply(
     }
     let want_msaa = if g.screen_aa == ScreenAa::Off && !temporal { msaa.0 } else { Msaa::Off };
     let aa_matches = cams.iter().all(|(_, actual_msaa, actual_fsr, actual_dlss, taa, fxaa, smaa)| {
-        *actual_msaa == want_msaa && actual_fsr.map(|f| f.quality) == fsr && actual_dlss.map(|d| d.quality) == dlss
+        *actual_msaa == want_msaa && actual_fsr.map(|f| (f.quality, f.metalfx)) == fsr.map(|q| (q, metalfx)) && actual_dlss.map(|d| d.quality) == dlss
             && taa == (g.screen_aa == ScreenAa::Taa && !temporal)
             && fxaa == (g.screen_aa == ScreenAa::Fxaa && !temporal)
             && smaa == (g.screen_aa == ScreenAa::Smaa && !temporal)
@@ -1098,7 +1102,7 @@ fn apply(
         let previous_effective = if previous.screen_aa == ScreenAa::Off && *effective == UpscalerChoice::Off { *saved } else { Msaa::Off };
         previous_effective != want_msaa || *saved != msaa.0
     });
-    let fsr_changed = done.as_ref().is_none_or(|(_, _, _, effective, ..)| effective.fsr() != fsr);
+    let fsr_changed = done.as_ref().is_none_or(|(_, _, _, effective, ..)| effective.fsr_pipeline() != fsr);
     let dlss_changed = done.as_ref().is_none_or(|(_, _, _, effective, ..)| effective.dlss() != dlss);
     *done = Some((*g, msaa.0, fsr_support.0, upscaler, entities, air));
     if let Some(mut work) = work {
@@ -1111,9 +1115,12 @@ fn apply(
         } else {
             e.remove::<AmbientOcclusion>();
         }
-        // FSR already runs its own RCAS sharpening; do not sharpen the picture twice.
-        if g.bloom || (g.sharpen && fsr.is_none()) {
-            e.insert(PostEffects::new_with_hdr_glow(g.bloom, g.sharpen && fsr.is_none(), nvf_assets::authored::physical_pbr() && g.glow));
+        // FSR already runs its own RCAS sharpening; do not sharpen the picture twice. MetalFX
+        // has no sharpening of its own here, so the separate pass runs for it as it does natively
+        // [design].
+        let post_sharpen = g.sharpen && upscaler.fsr().is_none();
+        if g.bloom || post_sharpen {
+            e.insert(PostEffects::new_with_hdr_glow(g.bloom, post_sharpen, nvf_assets::authored::physical_pbr() && g.glow));
         } else {
             e.remove::<PostEffects>();
         }
@@ -1160,7 +1167,7 @@ fn apply(
         }
         if let Some(quality) = fsr {
             e.insert((
-                FsrUpscaling { quality, sharpness: if g.sharpen { 0.2 } else { 0.0 } },
+                FsrUpscaling { quality, sharpness: if g.sharpen && !metalfx { 0.2 } else { 0.0 }, metalfx },
                 bevy::core_pipeline::prepass::DepthPrepass,
                 bevy::core_pipeline::prepass::MotionVectorPrepass,
                 TemporalJitter::default(),

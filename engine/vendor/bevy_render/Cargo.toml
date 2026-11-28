@@ -283,6 +283,12 @@ version = "30"
 features = ["noop"]
 default-features = false
 
+[target.'cfg(target_vendor = "apple")'.dependencies.wgpu]
+version = "30"
+# wgpu exposes the Vulkan API used by raw_vulkan_init on Apple with this feature.
+features = ["vulkan-portability"]
+default-features = false
+
 [target.'cfg(all(target_arch = "wasm32", target_feature = "atomics"))'.dependencies.send_wrapper]
 version = "0.6.0"
 

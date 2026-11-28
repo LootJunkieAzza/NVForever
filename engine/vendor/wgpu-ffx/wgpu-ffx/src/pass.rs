@@ -21,7 +21,11 @@ impl FsrPass {
         // NVForever wgpu 30 port (2026-11-05): declare the entry point explicitly.
         // The audited, bundled SPIR-V is the only source accepted here. Vulkan's
         // native path preserves the coherent storage-image semantics used by SPD.
-        let shader_module = if device.features().contains(wgpu::Features::PASSTHROUGH_SHADERS) {
+        // Metal also reports PASSTHROUGH_SHADERS, but
+        // only for MSL [observed: a SPIR-V-only passthrough module fails to be made on Metal]; there the SPIR-V goes through naga's SPIR-V front end instead.
+        let shader_module = if device.features().contains(wgpu::Features::PASSTHROUGH_SHADERS)
+            && device.adapter_info().backend == wgpu::Backend::Vulkan
+        {
             let workgroup_size = match kind {
                 FsrPassKind::LumaPyramid | FsrPassKind::ShadingChangePyramid => (256, 1, 1),
                 FsrPassKind::Rcas => (64, 1, 1),
@@ -38,12 +42,22 @@ impl FsrPass {
                 })
             }
         } else {
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(kind.label()),
-                source: wgpu::ShaderSource::SpirV(std::borrow::Cow::Borrowed(
-                    bytemuck::cast_slice(kind.shader(shaders)),
-                )),
-            })
+            let words: &[u32] = bytemuck::cast_slice(kind.shader(shaders));
+            let words = if crate::resources::widen_spd_mips(device)
+                && matches!(kind, FsrPassKind::LumaPyramid | FsrPassKind::ShadingChangePyramid)
+            {
+                std::borrow::Cow::Owned(widen_rg16f_images(words))
+            } else {
+                std::borrow::Cow::Borrowed(words)
+            };
+            let desc = wgpu::ShaderModuleDescriptor { label: Some(kind.label()), source: wgpu::ShaderSource::SpirV(words) };
+            if crate::resources::unchecked_shaders() {
+                // SAFETY: the vendored FSR shaders, run as Vulkan's passthrough runs them (no runtime
+                // checks) [design].
+                unsafe { device.create_shader_module_trusted(desc, wgpu::ShaderRuntimeChecks::unchecked()) }
+            } else {
+                device.create_shader_module(desc)
+            }
         };
 
         let resources = kind.resources(flags);
@@ -51,7 +65,7 @@ impl FsrPass {
         let bgl_entries: Vec<_> = resources
             .into_iter()
             .enumerate()
-            .map(|(i, access)| access.name.to_bgl_entry(i as u32, access.access_type))
+            .map(|(i, access)| access.name.to_bgl_entry(i as u32, access.access_type, crate::resources::widen_spd_mips(device)))
             .collect();
 
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -495,3 +509,26 @@ mod tests {
     }
 }
 
+
+/// Every `OpTypeImage` declared `Rg16f` becomes
+/// `Rgba16f`, for the SPD pyramids, whose only such image is the mips
+/// (`resources::widen_spd_mips`). Words after the 5-word header: (word count << 16 | opcode).
+pub(crate) fn widen_rg16f_images(words: &[u32]) -> Vec<u32> {
+    const OP_TYPE_IMAGE: u32 = 25;
+    const RG16F: u32 = 7;
+    const RGBA16F: u32 = 2;
+    let mut out = words.to_vec();
+    let mut i = 5;
+    while i < out.len() {
+        let count = (out[i] >> 16) as usize;
+        if count == 0 {
+            break;
+        }
+        // OpTypeImage: result, sampled type, dim, depth, arrayed, MS, sampled, format [, access].
+        if out[i] & 0xffff == OP_TYPE_IMAGE && count >= 9 && out[i + 8] == RG16F {
+            out[i + 8] = RGBA16F;
+        }
+        i += count;
+    }
+    out
+}
