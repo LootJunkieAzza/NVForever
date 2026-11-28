@@ -102,8 +102,9 @@ pixels (the font's glyphs start a little after their pen position).
   [hypothesis].
 - **A stack** shows the count after the name, "Stimpak (3)", and the figures of one
   item [hypothesis].
-- **The key's text** is "E)" for the Activate control's default key [hypothesis: where
-  the game gets the letter is not in the files].
+- **The key's text** is "[E]" for the Activate control's default key [design, #4495: the
+  original's "E)" was read from its screen; where the game gets the letter is not in the
+  files].
 - **Not built**: the sneak meter's
   "[HIDDEN]" and similar words, the extra lines the original adds for some targets
   (lock level, owned items in red, "Steal"), weapon damage and condition in the item

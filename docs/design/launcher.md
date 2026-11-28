@@ -59,20 +59,7 @@ without the launcher is the same as before.
   `[Settings]` key the game's menu does not place (an older build's) is not shown. A slider the player
   moves is fitted onto its steps as the game fits it (from 0, to the thousandth); one only
   drawn keeps the INI's value, so opening a tab changes nothing. Save writes only the changed keys over the file as it is on disk then.
-- **Mods**: NVForever's own `plugins.txt` (turn on/off with the box or a click on the name; drag a row anywhere but its box to move it, with a gold line where it lands; FalloutNV.esm stays first). A "New game start" card (`src/start.rs`, #2945) has the
-  start quest and intro film as free text with hints (`[General] sCharGenQuest`, `sIntroMovie`
-  of the INI, written by its Save start button over the file as it is on disk; an empty field
-  takes its line out, the game's default; "No intro film" writes `sIntroMovie=`). A **TTW on/off**
-  switch fills in TTW's values (`001FFFF8`, no film) or the base game's (`00102037` (VCG00),
-  `FNVIntro.bik`; docs/spec-notes/new-game-start.md), and the card warns while the start quest is TTW's
-  and `TaleOfTwoWastelands.esm` is off or not in the load order (`start::ttw_missing`, #3229).
-  The card is one line so the load order keeps the room (#4288): the title (its note as hover
-  text), the switch, a gold "custom" tag while the start is neither TTW's nor the base game's
-  (`start::Fields::is_custom`), Save start and Undo only while there is a change, and
-  **Custom…**, a window with the start quest, the intro film (a `.bik` file in `Data\Video`)
-  and "No intro film". Its OK puts them on the card for Save start; Cancel, Escape or a click
-  outside changes nothing. The values themselves are not shown on the card. The warning has a
-  line of its own while it applies. Opening the page runs
+- **Mods**: NVForever's own `plugins.txt` (turn on/off with the box or a click on the name; drag a row anywhere but its box to move it, with a gold line where it lands; FalloutNV.esm stays first). The new game's start is on the Game folder page (#4313). Opening the page runs
   `fnv_install::plugins::sync`, as the game's start does, so new plugins get their lines.
 - **Game folder**: `[Game] Path` with the required-files check, the program to start
   (`[Launcher] Exe`, else `nvforever(.exe)` beside the launcher, else this checkout's
@@ -85,7 +72,8 @@ without the launcher is the same as before.
   by Save.
   The same page holds the launcher's other NVForever.ini keys, which are not rows of the
   game's menu (#3483; the Settings page stays the game's own menu, maintainer decision
-  2026-11-24): an **NVForever.ini** card with `[Launcher] News`, `CloseOnPlay` and `Exe`
+  2026-11-24): an **NVForever.ini** card with the new game's start first (below),
+  `[Launcher] News`, `CloseOnPlay` and `Exe`
   (empty: the program beside the launcher), the game-written `[Controls] Input Device` shown but not changed, and the file's place. The
   card's Save writes the keys that changed over the file as it is on disk and leaves every
   other line; only a changed program is checked, so one that went missing does not stop the
@@ -94,6 +82,18 @@ without the launcher is the same as before.
   `~/Library/Application Support/NVForever` on macOS and `~/.local/share/nvforever` (or
   `$XDG_DATA_HOME/nvforever`) on Linux; `NVFOREVER_HOME` overrides all three
   (`fnv_install::EngineHome::default_root`).
+  The start's row (`src/start.rs`, #2945; on the Mods page until #4313) is `[General]
+  sCharGenQuest` and `sIntroMovie`, written by the card's Save only when it changed (an empty
+  field takes its line out, the game's default; "No intro film" writes `sIntroMovie=`). A
+  **TTW on/off** switch fills in TTW's values (`001FFFF8`, no film) or the base game's
+  (`00102037` (VCG00), `FNVIntro.bik`; docs/spec-notes/new-game-start.md); a gold "custom" tag
+  shows while the start is neither (`start::Fields::is_custom`); **Custom…** opens a window
+  with the start quest, the intro film (a `.bik` file in `Data\Video`) and "No intro film",
+  whose OK puts them on the card (Cancel, Escape or a click outside changes nothing; #4288).
+  The values are not shown on the card. Turning the switch back, or Cancel, undoes before
+  Save. The row warns while the start quest is TTW's and `TaleOfTwoWastelands.esm` is off or
+  not in the load order (`start::ttw_missing`, #3229); for it the page reads `plugins.txt`
+  as it is on disk, without the Mods page's sync, so opening the page writes nothing.
 - **Co-op**: what co-op is and how the game turns it on (the Co-op row of Settings, under Gameplay, off by default;
   `nvf_play::lobby`), and **Play Co-Op**, also on the bottom bar (every page). Play Co-Op starts the
   same program as Play, at its main menu (`--play --menu`), in the game's own home with its

@@ -1059,6 +1059,9 @@ pub struct GameData {
     /// The name the player sees (FULL) of every winning record that has one.
     pub full_names: HashMap<FormId, String>,
     pub sigs: HashMap<FormId, [u8; 4]>,
+    /// Lazy cache for [`GameData::forms_of_type`], keyed by form type code, populated on
+    /// first query so repeat `GetLoadedTypeArray` calls avoid scanning all `sigs` [design].
+    forms_by_type_cache: std::sync::RwLock<HashMap<i32, Vec<FormId>>>,
     /// The decoded subrecords of the record types JIP's trait getters read
     /// ([`FIELD_SIGS`]; jip-records.md), enums as their numbers, decoded on first use.
     pub record_fields: RecordFields,
@@ -2068,6 +2071,7 @@ impl GameData {
             form_flags,
             full_names: HashMap::new(),
             sigs: HashMap::new(),
+            forms_by_type_cache: std::sync::RwLock::new(HashMap::new()),
             ini_texts: Vec::new(),
             record_fields,
             scripted_by_cell: BTreeMap::new(),
@@ -2634,6 +2638,11 @@ impl GameData {
     /// Fists 1F4, then FalloutNV.esm's WEAP records as the file has them, the last
     /// plugin's last; hypothesis: the low forms' order].
     pub fn forms_of_type(&self, code: i32) -> Vec<FormId> {
+        if let Ok(cache) = self.forms_by_type_cache.read() {
+            if let Some(hit) = cache.get(&code) {
+                return hit.clone();
+            }
+        }
         let mut out: Vec<FormId> = self.sigs.iter().filter(|(_, s)| crate::functions::items::form_type_code(s) == Some(code)).map(|(&f, _)| f).collect();
         out.sort_by_key(|f| {
             if f.0 < 0x800 {
@@ -2645,6 +2654,9 @@ impl GameData {
                 }
             }
         });
+        if let Ok(mut cache) = self.forms_by_type_cache.write() {
+            cache.insert(code, out.clone());
+        }
         out
     }
 
