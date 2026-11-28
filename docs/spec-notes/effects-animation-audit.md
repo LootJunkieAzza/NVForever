@@ -185,3 +185,21 @@ on those attachments. Existing actor material posing continues to target creatur
 shapes. CLAMP effect idles hold their final values in memory; actor idle serialization
 remains a gap, whereas placed fog groups already restore at their end. [hypothesis]
 Original appearance and timing require observer check 212.
+
+## Held player weapon idle material tracks
+
+- **File** [observed: `fnvtool nif decode` on `meshes\weapons\1handmelee\shishkebab.nif`
+  in `Fallout - Meshes.bsa`]: `WeapShishkebab` carries no `NiParticleSystem`. Its blade
+  fire is `NiTriStrips 'FlameEffectMesh'` (under `##VisCtrl`, `BSShaderNoLightingProperty`
+  with `textures\effects\FXFireScroll.dds` and `NiAlphaProperty` flags 4109) driven by two
+  active, looping `NiTextureTransformController` blocks (flags `0x0048`): `TT_TRANSLATE_V`
+  from 0 to 1.0667 s and `TT_TRANSLATE_U` from 0 to 4.3667 s.
+- **Built** [design; `engine/nvforever/src/player_body.rs`, `engine/nvforever/src/actor_materials.rs`]:
+  `nvf_assets::model` already extracts a weapon NIF's active free material controllers into
+  `PreparedModel::rig.idle.materials`. When `player_body::ensure_body` spawns a player
+  weapon model (first- or third-person), it keeps that clip and an elapsed clock on the
+  rig, advances the clock while unpaused in `drive_body`, and `actor_materials::pose_player`
+  evaluates those tracks for any `(shape, target)` not already driven by an active actor
+  `.kf` clip (so clip overrides keep precedence).
+- **Not built**: NPC held weapons (`engine/nvforever/src/weapons.rs`) load `PreparedPart`
+  and do not play their own model-level free material controllers yet.

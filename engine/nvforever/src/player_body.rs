@@ -799,6 +799,10 @@ struct Rig {
     /// clip-driven emitter ([`crate::particles::ModelEmitter::held`]) and the systems'
     /// names (the dynamite's fuse sparks, [`drive_weapon_emitters`]).
     weapon_emitter: Option<(Entity, Vec<String>)>,
+    /// The weapon model's own idle/free material tracks (such as `shishkebab.nif`'s
+    /// looping `NiTextureTransformController`s on `FlameEffectMesh`), paired with the
+    /// elapsed play clock in seconds (`actor_materials::pose_player`) [design].
+    weapon_materials: Option<(Arc<Clip>, f32)>,
     /// The weapon model's shapes.
     weapon_parts: Vec<WeaponPart>,
     /// The weapon is in the hand with no draw, attack or reload clip playing, and the
@@ -1339,6 +1343,13 @@ pub struct PlayerBody {
     force_anim_refresh: bool,
 }
 
+/// Borrowed material-driving view of a player rig for `actor_materials::pose_player` [design].
+pub(crate) struct MaterialRig<'a> {
+    pub root: Entity,
+    pub animator: &'a Animator,
+    pub weapon_materials: Option<(&'a Clip, f32)>,
+}
+
 impl PlayerBody {
     /// [design: show_rigs] Add-ons follow the part at their attachment, with the body
     /// as the fallback for an attachment outside the known skeleton.
@@ -1360,11 +1371,31 @@ impl PlayerBody {
         self.body.as_ref().is_some_and(|b| b.third.animator.layers.iter().any(|l| l.tag == TAG_LAND && !l.finished()))
     }
 
-    /// The rigs built, root entity and animator (the body's, then the arms rig's): their
-    /// clips drive the materials of their shapes too (`actor_materials.rs`).
-    pub fn animators(&self) -> Vec<(Entity, &Animator)> {
+    /// The rigs built with their animators and any held weapon's own idle/free material
+    /// clip + elapsed clock (`actor_materials::pose_player`) [design].
+    pub(crate) fn material_rigs(&self) -> Vec<MaterialRig<'_>> {
         let Some(b) = self.body.as_ref() else { return Vec::new() };
-        std::iter::once((b.third.root, &b.third.animator)).chain(b.first.as_ref().map(|f| (f.root, &f.animator))).collect()
+        fn one(r: &Rig) -> MaterialRig<'_> {
+            MaterialRig {
+                root: r.root,
+                animator: &r.animator,
+                weapon_materials: r.weapon_materials.as_ref().map(|(c, t)| (c.as_ref(), *t)),
+            }
+        }
+        std::iter::once(one(&b.third)).chain(b.first.as_ref().map(one)).collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_weapon_materials(&mut self, first_person: bool, clip: Option<(Arc<Clip>, f32)>) {
+        if let Some(b) = self.body.as_mut() {
+            if first_person {
+                if let Some(f) = b.first.as_mut() {
+                    f.weapon_materials = clip;
+                }
+            } else {
+                b.third.weapon_materials = clip;
+            }
+        }
     }
 
     /// Whether the first-person rig is drawn (`pipboy_arm.rs`).
@@ -1484,7 +1515,7 @@ impl PlayerBody {
                 clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
                 eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None, script_used: None, translate: None,
                 weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
-                weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
+                weapon_model: None, weapon_emitter: None, weapon_materials: None, weapon_parts: Vec::new(),
                 idle_logged: false, sights_turned: None, muzzle: None, muzzle_entity: None,
                 casing: None, casing_entity: None, sighting: None, scope_eye: None, sight_relief: None,
                 use_lens: false, drawn: Vec::new(), spawned_forms: Vec::new(), shown: Some(false), seen: None,
@@ -2056,6 +2087,7 @@ fn ensure_body(
         }
         rig.animator.set_extra(Vec::new());
         rig.weapon_emitter = None;
+        rig.weapon_materials = None;
         rig.muzzle = None;
         rig.muzzle_entity = None;
         rig.casing = None;
@@ -2088,6 +2120,10 @@ fn ensure_body(
                         commands.entity(holder).insert(crate::particles::ModelEmitter::held(path.clone()));
                         rig.weapon_emitter = Some((holder, names));
                     }
+                }
+                if let Some(idle) = pm.rig.as_ref().and_then(|r| r.idle.as_ref()).filter(|c| !c.materials.is_empty()) {
+                    info!("player weapon model ({:?} person): {} idle material track(s)", rig.view, idle.materials.len());
+                    rig.weapon_materials = Some((Arc::new(idle.clone()), 0.0));
                 }
                 // A node of the model whose `UPB` string names a bone hangs its shapes
                 // from that bone instead [observed: the minigun's `Backpack` node says
@@ -2378,6 +2414,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         attached: weapon_parent,
         weapon_model: None,
         weapon_emitter: None,
+        weapon_materials: None,
         weapon_parts: Vec::new(),
         idle_logged: false,
         sights_turned: None,
@@ -3615,6 +3652,14 @@ fn drive_body(
     }
     // Turbo slows the world's clock, not the player's clips (magic-archetypes.md §2).
     let dt = time.delta_secs() * turbo.as_deref().map_or(1.0, |t| t.0);
+    if !paused.as_deref().is_some_and(|p| p.0) {
+        if let Some((_, clock)) = body.third.weapon_materials.as_mut() {
+            *clock += dt;
+        }
+        if let Some((_, clock)) = body.first.as_mut().and_then(|f| f.weapon_materials.as_mut()) {
+            *clock += dt;
+        }
+    }
     let m = &mut state.motion;
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
 
@@ -4629,7 +4674,7 @@ mod tests {
             clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
-            weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(), idle_logged: false,
+            weapon_model: None, weapon_emitter: None, weapon_materials: None, weapon_parts: Vec::new(), idle_logged: false,
             sights_turned: None, muzzle: None, muzzle_entity: None, casing: None, casing_entity: None,
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown: Some(false), seen: None, furniture: None,
@@ -4643,7 +4688,7 @@ mod tests {
             variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
-            weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(), idle_logged: false,
+            weapon_model: None, weapon_emitter: None, weapon_materials: None, weapon_parts: Vec::new(), idle_logged: false,
             sights_turned: None, muzzle: None, muzzle_entity: None, casing: None, casing_entity: None,
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown: Some(false), seen: None, furniture: None,
@@ -4714,7 +4759,7 @@ mod tests {
             clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), active_clip: None, head: None,
             eye_local: Vec3::ZERO, looking: None, camera: None, script_turn: None, posed_root: None,
             script_used: None, translate: None, weapon_node: None, weapon_parent: None, holstered_weapon: None, furniture_logged: None, attached: None,
-            weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(), idle_logged: false,
+            weapon_model: None, weapon_emitter: None, weapon_materials: None, weapon_parts: Vec::new(), idle_logged: false,
             sights_turned: None, muzzle: None, muzzle_entity: None, casing: None, casing_entity: None,
             sighting: None, scope_eye: None, use_lens: false, sight_relief: None, drawn: Vec::new(),
             spawned_forms: Vec::new(), shown, seen: None, furniture: None,

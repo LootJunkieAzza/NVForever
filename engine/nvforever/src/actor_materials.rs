@@ -206,21 +206,48 @@ pub fn pose(mut actors: Query<(Entity, &BlendPlayer, Option<&mut ActorMaterials>
     }
 }
 
+/// Append values from a held weapon model's own idle/free material tracks (such as
+/// `shishkebab.nif`'s looping `NiTextureTransformController`s on `FlameEffectMesh`) for
+/// any `(shape, target)` not already driven by a playing actor clip [design].
+pub(crate) fn append_weapon_material_values<'a>(
+    clip: &'a nvf_assets::anim_play::Clip,
+    clock: f32,
+    out: &mut Vec<(&'a str, MaterialTarget, [f32; 3], f32)>,
+) {
+    let clip_t = nvf_assets::anim_play::cycle_time(clip.start + clock, clip.start, clip.stop, clip.cycle_type);
+    for tr in &clip.materials {
+        let t = tr.cycle.map_or(clip_t, |c| c.time(clock));
+        let Some(v) = tr.values.at(t) else { continue };
+        if out.iter().any(|(s, target, ..)| *target == tr.target && s.eq_ignore_ascii_case(&tr.shape)) {
+            continue;
+        }
+        out.push((tr.shape.as_str(), tr.target, v, 0.0));
+    }
+}
+
 /// The same for the player's rigs (the body, and the first-person arms with the weapon
-/// in hand), whose clips an `Animator` plays (`player_body.rs`).
+/// in hand), whose clips an `Animator` plays (`player_body.rs`), plus any idle/free
+/// material tracks authored on the held weapon model itself.
 pub fn pose_player(body: Option<Res<crate::player_body::PlayerBody>>, mut posing: Posing, mut kept: ResMut<PlayerRigMaterials>) {
     let Some(body) = body else { return };
     let kept = &mut kept.0;
     let look_again = posing.tick();
-    let rigs = body.animators();
-    kept.retain(|e, _| rigs.iter().any(|(r, _)| r == e));
-    for (root, animator) in rigs {
+    let rigs = body.material_rigs();
+    kept.retain(|e, _| rigs.iter().any(|r| r.root == *e));
+    for rig in rigs {
         let mut values = Vec::new();
-        animator_material_values(animator, &mut values);
-        if values.is_empty() && !kept.contains_key(&root) {
+        animator_material_values(rig.animator, &mut values);
+        if let Some((clip, clock)) = rig.weapon_materials {
+            append_weapon_material_values(clip, clock, &mut values);
+        }
+        if values.is_empty() && !kept.contains_key(&rig.root) {
             continue;
         }
-        let am = kept.entry(root).or_default();
-        posing.pose(root, am, &values, look_again);
+        let am = kept.entry(rig.root).or_default();
+        posing.pose(rig.root, am, &values, look_again);
     }
 }
+
+#[cfg(test)]
+#[path = "actor_materials/weapon_idle_tests.rs"]
+mod weapon_idle_tests;
