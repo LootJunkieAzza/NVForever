@@ -2,7 +2,8 @@
 //! section 12's offline tests). It is `nvf_signal::standin::StandIn`, the same rules the
 //! Cloudflare Worker follows (`docs/design/coop-signal-wire.md`), behind one TCP port:
 //!
-//! - `POST /v1/lobbies`, `GET /v1/lobbies/{code}`: plain HTTP/1.1, one request a connection.
+//! - `POST /v1/lobbies`, `GET /v1/lobbies/{code}`, and the lobby browser's `GET /v1/browse` and
+//!   `POST /v1/lobbies/{code}/report`: plain HTTP/1.1, one request a connection.
 //! - `GET /v1/lobbies/{code}/ws`: the lobby WebSocket (`ws://`).
 //!
 //! No TLS: on loopback or a LAN the game takes `NVF_COOP_SIGNAL=http://host:port`; on the
@@ -172,8 +173,15 @@ fn handle(mut stream: TcpStream, s: &Shared) -> io::Result<()> {
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let (method, path, head_len, length) = peek_head(&stream)?;
-    let path = path.split('?').next().unwrap_or("").to_string();
+    let (path, query) = path.split_once('?').map(|(p, q)| (p.to_string(), q.to_string())).unwrap_or((path, String::new()));
     let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    // The lobby browser (wire 2).
+    if method == "GET" && parts == ["v1", "browse"] {
+        let mut buf = vec![0u8; head_len];
+        stream.read_exact(&mut buf)?;
+        let (status, out) = s.standin.lock().expect("stand-in lock").browse(&query, Instant::now());
+        return respond(stream, status, &out);
+    }
     if parts.len() < 2 || parts[0] != "v1" || parts[1] != "lobbies" {
         // Read what was sent first: closing on unread bytes resets the connection.
         let mut buf = vec![0u8; head_len];
@@ -196,6 +204,17 @@ fn handle(mut stream: TcpStream, s: &Shared) -> io::Result<()> {
             let mut buf = vec![0u8; head_len];
             stream.read_exact(&mut buf)?;
             let (status, out) = s.standin.lock().expect("stand-in lock").info(parts[2]);
+            respond(stream, status, &out)
+        }
+        ("POST", 4) if parts[3] == "report" => {
+            if length > MAX_BODY {
+                return respond(stream, 413, r#"{"error":"bad_request","message":"too large"}"#);
+            }
+            let mut buf = vec![0u8; head_len + length];
+            stream.read_exact(&mut buf)?;
+            let body = String::from_utf8_lossy(&buf[head_len..]).into_owned();
+            let reporter = stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or_default();
+            let (status, out) = s.standin.lock().expect("stand-in lock").report(parts[2], &reporter, &body);
             respond(stream, status, &out)
         }
         ("GET", 4) if parts[3] == "ws" => {

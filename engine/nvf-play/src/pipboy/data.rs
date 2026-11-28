@@ -62,7 +62,7 @@
 
 pub mod marker;
 pub mod touch_map;
-mod model;
+pub(crate) mod model;
 pub(crate) mod outline;
 pub(crate) mod read;
 pub mod travel;
@@ -437,7 +437,7 @@ pub struct DataState {
     cursor: [Option<Vec2>; 2],
     /// Map markers the player has been within the radius of.
     discovered: BTreeSet<u32>,
-    /// Markers found since `crate::compass` last took them (for "You have discovered").
+    /// Markers found since `crate::compass` last took them (for "Place found").
     newly_found: Vec<u32>,
     /// Markers found since this run started, not saved (the Color Recently Added Map
     /// Markers tweak) [design: docs/design/tweaks.md].
@@ -1389,7 +1389,7 @@ impl DataState {
         self.target_checks.iter().filter(|c| c.shown && Some(c.quest) == self.target_quest).copied().collect()
     }
 
-    /// A save's found markers: found already, so no "You have discovered" for them.
+    /// A save's found markers: found already, so no "Place found" for them.
     pub fn restore_discovered(world: &mut bevy::prelude::World, found: BTreeSet<u32>) {
         if !world.contains_resource::<DataState>() {
             world.init_resource::<DataState>();
@@ -6582,7 +6582,7 @@ mod tests {
 
         // Before discovery (#3468 check 252 + 2026-11-22 live map-marker probe for script
         // values; Pip-Boy drawing an undiscovered FNAM=3 marker as discovered with its own
-        // icon is [hypothesis]):
+        // icon follows `known_marker` above and docs/spec-notes/ext-lutana.md §9):
         // - Visible | Can Travel To (FNAM=3) is known and travelable (Some(true)).
         // - Visible alone (FNAM=1) is known as undiscovered (Some(false)).
         // - Can Travel To alone (FNAM=2) is unknown (None) and stays in unmapped_of (Hide Unmapped Places).

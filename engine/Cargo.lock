@@ -4670,6 +4670,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-coop"
+version = "0.8.1"
+dependencies = [
+ "getrandom 0.3.4",
+]
+
+[[package]]
 name = "nvf-dlss-files"
 version = "0.8.1"
 dependencies = [
@@ -4718,6 +4725,7 @@ dependencies = [
  "fnv-voice",
  "fnv-world",
  "infinitier_bik_decoder",
+ "jiff",
  "nvf-assets",
  "nvf-settings-layout",
  "png",
@@ -4727,6 +4735,21 @@ dependencies = [
  "serde",
  "serde_json",
  "swash",
+]
+
+[[package]]
+name = "nvf-rtgi"
+version = "0.8.1"
+
+[[package]]
+name = "nvf-rtgi-live"
+version = "0.8.1"
+dependencies = [
+ "bytemuck",
+ "log",
+ "naga",
+ "nvf-rtgi",
+ "wgpu",
 ]
 
 [[package]]
@@ -4791,15 +4814,19 @@ dependencies = [
  "libc",
  "libloading",
  "nvf-assets",
+ "nvf-coop",
  "nvf-dlss-files",
  "nvf-play",
+ "nvf-rtgi",
  "png",
+ "rapier3d",
  "rayon",
  "rfd",
  "serde_json",
  "sysinfo",
  "texpresso",
  "tiny-skia",
+ "toml",
  "tracy-client",
  "ureq",
  "uuid",

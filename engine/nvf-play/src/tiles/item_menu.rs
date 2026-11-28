@@ -46,6 +46,8 @@ pub struct RowShown {
     /// loads now ([`Row::loaded`]; #3442: the list drawn from tiles left that out, so the
     /// Ammo tab marked nothing).
     pub equipped: bool,
+    /// Ammo the weapon cannot fire: the row's text at half alpha ([`Row::dim`], #3442).
+    pub dim: bool,
     /// Resolved ySI tag/icon/template for this row when ySI is active (`None` otherwise).
     pub ysi: Option<fnv_game::ui_ysi::YsiItemDisplay>,
 }
@@ -98,7 +100,7 @@ pub fn rows_shown(rows: &[Row]) -> Vec<RowShown> {
     let mut out: Vec<RowShown> = Vec::with_capacity(rows.len());
     for (index, r) in rows.iter().enumerate() {
         let Some(key) = RowKey::at(rows, index) else { continue };
-        out.push(RowShown { key, name: r.name.clone(), text: look::row_text(r), equipped: r.equipped || r.loaded, ysi: r.ysi.clone() });
+        out.push(RowShown { key, name: r.name.clone(), text: look::row_text(r), equipped: r.equipped || r.loaded, dim: r.dim, ysi: r.ysi.clone() });
     }
     out
 }
@@ -177,7 +179,7 @@ pub fn write_lists(ui: &mut Ui, s: &Snapshot, st: &mut MenuTiles) {
         for (row, shown) in st.rows[i].iter().zip(&s.lists[i].rows) {
             if let Some(t) = list::child(ui, row.tile, st.paths.row_text) {
                 ui.set_trait(t, "string", Value::Str(shown.text.clone()));
-                ui.set_trait(t, "alpha", Value::Num(255.0));
+                ui.set_trait(t, "alpha", Value::Num(if shown.dim { 128.0 } else { 255.0 }));
             }
             if let Some(t) = list::child(ui, row.tile, st.paths.row_mark) {
                 ui.set_trait(t, "visible", on(shown.equipped));
@@ -205,6 +207,17 @@ pub fn settle(ui: &mut Ui, s: &Snapshot, st: &mut MenuTiles, write_sizes: &mut d
             break;
         }
         ui.update();
+    }
+    if s.ysi_icons {
+        let mut moved = false;
+        for side in SIDES {
+            for row in &st.rows[side as usize] {
+                moved |= fnv_game::ui_ysi::sync_row_icon_x(ui, row.tile);
+            }
+        }
+        if moved {
+            ui.update();
+        }
     }
     for side in SIDES {
         let i = side as usize;
@@ -413,13 +426,25 @@ pub fn hover_selects(moved: bool, wheel_holds: bool, already: bool) -> bool {
 /// row selected and shift, the stack; another row, it selected and acted on; the row selected,
 /// its action.
 pub fn row_commands(side: Side, index: usize, on_it: bool, shift: bool) -> Vec<crate::menu::model::Command> {
+    row_commands_with(side, index, on_it, shift, false)
+}
+
+/// [`row_commands`] with optional Shift/Ctrl quantity-select shortcut routing
+/// (`quantity-select-short-keys`, #3799) [design: Shift takes precedence over Ctrl when both
+/// are held].
+pub fn row_commands_with(side: Side, index: usize, on_it: bool, shift: bool, ctrl_single: bool) -> Vec<crate::menu::model::Command> {
     use crate::menu::model::Command;
-    match (on_it, shift) {
-        (true, true) => vec![Command::Stack],
-        (false, _) => vec![Command::Hover(side, index), if shift { Command::Stack } else { Command::One }],
-        (true, false) => vec![Command::Select(side, index)],
+    match (on_it, shift, ctrl_single) {
+        (true, true, _) => vec![Command::Stack],
+        (true, false, true) => vec![Command::OneSingle],
+        (false, _, _) => vec![Command::Hover(side, index), if shift { Command::Stack } else if ctrl_single { Command::OneSingle } else { Command::One }],
+        (true, false, false) => vec![Command::Select(side, index)],
     }
 }
+
+#[cfg(test)]
+#[path = "item_menu_ysi_tests.rs"]
+mod item_menu_ysi_tests;
 
 #[cfg(test)]
 mod tests {
@@ -445,6 +470,7 @@ mod tests {
             price: None,
             bartered: false,
             loaded,
+            dim: false,
             mods: 0,
             mods_value: 0,
             folder: None,

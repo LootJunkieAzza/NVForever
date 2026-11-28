@@ -53,19 +53,19 @@ pub struct OpenedPlugins {
     pub dropped: Vec<String>,
 }
 
-/// Open the plugins `names` (load order) for the game: from the mods folder `mods` when it
-/// has the file, else from `data_dir` (`fnv_install::plugins::plugin_path`). A plugin that cannot
+/// Open the plugins `names` (load order) for the game, each from the file `file_of` names
+/// (main: the enabled mod layers then Data, or `--mo2`'s folders then Data). A plugin that cannot
 /// be read or parsed (a truncated or broken mod) is left out, and then every plugin the
 /// load order would refuse: a missing master, a master that loads after it, a second
 /// copy, past the 255th (`fnv_esm::loadorder::drop_unloadable`). The game goes on without
 /// them; a line for each is printed now (the log is not up yet) and kept for the log.
-pub fn open_plugins(data_dir: &Path, mods: &[PathBuf], names: &[String]) -> OpenedPlugins {
+pub fn open_plugins(names: &[String], file_of: impl Fn(&str) -> PathBuf) -> OpenedPlugins {
     let mut dropped = Vec::new();
     let mut plugins = Vec::with_capacity(names.len());
     for n in names {
         // The file whatever its case on disk (a case-sensitive copy may hold
         // `deadmoney.esm`; #995); the plugin keeps the name the load order gives it.
-        let path = fnv_install::plugins::plugin_path_in(data_dir, mods, n);
+        let path = file_of(n);
         match EsmPlugin::open(path) {
             Ok(mut p) => {
                 p.name = n.clone();
@@ -265,6 +265,10 @@ pub struct Streamer {
     /// Destroyed references drawn with their destruction stage's replacement model
     /// (`destroyed.rs`): kept here so a cell drawn again draws them so.
     pub model_overrides: HashMap<u32, String>,
+    /// Co-op replication, the host's: its guests' surroundings, away from the host's own
+    /// (`coop::replication`). Not drawn here; their residents run in the high process as
+    /// those drawn do (`residents::simulated`).
+    pub coop_areas: Vec<fnv_ai::LoadedArea>,
     /// Door travels so far ([`travel`]): what drew the place left must go (the full-detail
     /// ring, full_detail.rs, clears itself when it changes).
     pub travels: u64,

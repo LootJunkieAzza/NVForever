@@ -344,12 +344,15 @@ impl Shown {
             device,
             figures,
             repair,
-            modify: tab == 0 && m.folder.is_none(),
-            modify_lit: selected.is_some(),
+            modify: tab == 0 && (m.folder.is_none() || matches!(m.folder, Some(crate::menu::model::Folder::Ysi(_)))),
+            modify_lit: selected.is_some_and(|r| r.folder.is_none()),
             ammo: selected.is_some_and(|r| r.kind == Some(ItemKind::Ammo)),
             equippable: selected.is_some_and(|r| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor | ItemKind::Aid)) && r.condition.is_none_or(|c| c > 0.0)),
             hotkey_lit: selected.is_some_and(|r| r.folder.is_none() && r.kind.is_some_and(crate::hotkeys::can_hold)),
-            keyring: m.folder.is_some(),
+            // Only vanilla Misc folders (Keyring / Caravan Cards) swap IM_RepairButton for
+            // IM_CancelButton (`_KeyringOpen`). Inside `Folder::Ysi(_)`, IM_RepairButton
+            // stays visible so the two buttons never overlap on the same slot [design].
+            keyring: matches!(m.folder, Some(crate::menu::model::Folder::Keys | crate::menu::model::Folder::Cards)),
             hints,
             condition_title,
             panel,
@@ -966,8 +969,10 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
         let last = p.tiles.written.shown.as_ref().and_then(|s| s.repair.word);
         let upkeep = crate::pipboy::labels::label(MAINTAIN_SETTING, REPAIR_UPKEEP);
         let word = repair_word(offer.as_ref().map(|o| fnv_game::repair::hint(o.gear, o.condition)), tab, last, upkeep);
-        // Inside a Misc folder Cancel stands in its place.
-        let repair = RepairButton { shown: m.folder.is_none(), usable: offer.as_ref().is_some_and(|o| o.usable()), word };
+        // Inside a vanilla Misc folder Cancel stands in Repair's place; inside a ySI category
+        // folder (e.g. Weapons/Apparel) Repair remains available for selected items [design].
+        let in_vanilla_misc_folder = matches!(m.folder, Some(crate::menu::model::Folder::Keys | crate::menu::model::Folder::Cards));
+        let repair = RepairButton { shown: !in_vanilla_misc_folder, usable: offer.as_ref().is_some_and(|o| o.usable()), word };
         let panel = hold.and_then(|h| h.slot);
         let game = &script.rt.as_ref()?.game;
         let words = (hints_of(game), fnv_game::ui_loading::game_string(game, CONDITION_TITLE));
@@ -1168,6 +1173,19 @@ fn send_on_row(out: &mut FeedOut<'_>, view: &MenuTiles, index: usize, on_it: boo
     }
 }
 
+/// What the tiled Drop button (click or R key) emits: with `quantity-select-short-keys`
+/// enabled (#3799), Shift drops the whole stack and Ctrl drops a single item without opening
+/// the quantity prompt [design: Shift takes precedence over Ctrl when both are held].
+pub(crate) fn tiled_drop_command(qtt_select_short_keys: bool, shift: bool, ctrl: bool) -> Command {
+    if qtt_select_short_keys && shift {
+        Command::DropStack
+    } else if qtt_select_short_keys && ctrl {
+        Command::DropSingle
+    } else {
+        Command::Drop
+    }
+}
+
 pub(crate) fn touch_target(tiles:&InventoryTiles,ui:&Ui,menu:TileId,point:Vec2,model:&crate::menu::model::MenuModel)->Option<crate::pipboy::touch_scroll::NativeTarget>{
     use crate::pipboy::touch_scroll::{NativeRow,NativeTarget};
     NativeTarget::at(ui,menu,point,|tile| {
@@ -1262,6 +1280,8 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         if let Some((touch,index))=touch.as_deref_mut().zip(index) {touch.capture_row(m,index);}
     }
     let shift = input.shift;
+    let ctrl = devices.keys.pressed(KeyCode::ControlLeft) || devices.keys.pressed(KeyCode::ControlRight);
+    let ctrl_single = m.qtt_select_short_keys && ctrl;
     let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::INVENTORY), tab: 0 };
     let physical = frame_keys(&mut input, &devices, game, pad_menu);
     let report = fnv_game::ui_input::step(game, &[menu], &input, &fnv_ui::input::no_measure);
@@ -1285,8 +1305,11 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     let mut pressed_marker = false;
     for c in report.clicks.iter().filter(|c| ui.is_live(c.tile)) {
         if let fnv_ui::input::By::Key(k) = &c.by {
-            // E has nothing to do on the hand-built page: in a folder, the file's Cancel has it.
-            let folder_e = m.folder.is_some() && k.eq_ignore_ascii_case("E");
+            // E has nothing to do on the hand-built page: in a vanilla Misc folder, the
+            // file's Cancel button has it (`_KeyringOpen`). Inside `Folder::Ysi(_)`,
+            // `IM_CancelButton` is hidden so `Back` / `Backspace` leaves the folder.
+            let folder_e = matches!(m.folder, Some(crate::menu::model::Folder::Keys | crate::menu::model::Folder::Cards))
+                && k.eq_ignore_ascii_case("E");
             if !folder_e && !key_acts(k, &physical) {
                 continue;
             }
@@ -1330,7 +1353,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
                 out.commands.write(MenuInput(Command::One));
             }
             ItemsTile::Button(Button::Drop) => {
-                out.commands.write(MenuInput(Command::Drop));
+                out.commands.write(MenuInput(tiled_drop_command(m.qtt_select_short_keys, shift, ctrl)));
             }
             ItemsTile::Button(Button::Repair) => {
                 out.repair.write(RepairInput::Open);
@@ -1338,9 +1361,13 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             ItemsTile::Button(Button::Mod) => {
                 out.modding.write(ModInput::Open);
             }
-            // It shows inside a Misc folder, where the hand-built page's way out is `Back`.
+            // It shows only inside a Misc folder (such as a keyring), where the hand-built
+            // page's way out is `Back`. Outside a folder the button is hidden and a script's
+            // `ClickMenuButton` on it must not close the Pip-Boy [design, #3915].
             ItemsTile::Button(Button::Cancel) => {
-                out.commands.write(MenuInput(if m.folder.is_some() { Command::Back } else { Command::Close }));
+                if matches!(m.folder, Some(crate::menu::model::Folder::Keys | crate::menu::model::Folder::Cards)) {
+                    out.commands.write(MenuInput(Command::Back));
+                }
             }
             ItemsTile::Button(Button::Hotkey) => {
                 // [design, #2312] The optional tile opens the same modal as pad RB.
@@ -1376,7 +1403,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         if let Some(ItemsTile::Row(index)) = state.under.and_then(|t| items_tile(ui, &tiles.view, tabs, t)) {
             if let Some(index) = tiles.view.row_at(m, Side::Player, index) {
                 row_acted = true;
-                send_on_row(&mut out, &tiles.view, index, false, &[Command::Hover(Side::Player, index), if shift { Command::DropStack } else { Command::Drop }]);
+                send_on_row(&mut out, &tiles.view, index, false, &[Command::Hover(Side::Player, index), if shift { Command::DropStack } else if ctrl_single { Command::DropSingle } else { Command::Drop }]);
             }
         }
     }
@@ -1491,7 +1518,7 @@ mod tests {
     const ROW_H: f64 = 40.0;
 
     fn row(item: u32, text: &str) -> item_menu::RowShown {
-        item_menu::RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: item == 1, ysi: None }
+        item_menu::RowShown { key: RowKey { units: (FormId(item), None, 0), reference: None, nth: 0 }, name: format!("Item {item}"), text: text.into(), equipped: item == 1, dim: false, ysi: None }
     }
 
     fn shown(rows: usize, selected: usize) -> Shown {
@@ -2101,7 +2128,7 @@ mod tests {
         let mut model=crate::menu::model::MenuModel::open_inventory(&mut sim.world).unwrap();model.apply(&mut sim.world,crate::menu::model::Command::SetCategory(Side::Player,Category::Aid));
         let mut drawing=shown(12,0);drawing.tab=2;drawing.list.lists[Side::Player as usize].category=Category::Aid;
         drawing.list.lists[Side::Player as usize].rows=model.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{
-            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,ysi:None}).collect();
+            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,dim:false,ysi:None}).collect();
         let (mut ui,mut tiles)=(tree(),InventoryTiles::default());let menu=run(&mut ui,Some(drawing),&mut tiles).unwrap();tiles.shown=Some(menu);
         let row_text=list::child(&ui,rows(&tiles)[0].tile,ROW_TEXT).unwrap();
         let tab_text=find_named(&ui,tiles.written.tabs.iter().find(|t|t.key==4).unwrap().tile,TAB_TEXT).unwrap();
@@ -2155,7 +2182,7 @@ mod tests {
         let mut drawing=shown(model.list(Side::Player).rows.len(),model.selected[Side::Player as usize]);
         drawing.tab=2;drawing.list.lists[Side::Player as usize].category=Category::Aid;
         drawing.list.lists[Side::Player as usize].rows=model.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{
-            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,ysi:None}).collect();
+            key:RowKey::at(&model.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,dim:false,ysi:None}).collect();
         let ui=&mut script.rt.as_mut().unwrap().game.ui_tree;
         let menu=run(ui,Some(drawing),tiles).unwrap();tiles.shown=Some(menu);
     }
@@ -2175,7 +2202,7 @@ mod tests {
         let tab=app.world().resource::<PipBoy>().tab();
         let drawing={let m=app.world().resource::<ActiveMenu>().0.as_ref().unwrap();let mut d=shown(m.list(Side::Player).rows.len(),m.selected[Side::Player as usize]);
             d.tab=tab;d.list.lists[Side::Player as usize].category=m.category[Side::Player as usize];d.list.pointer_pick=m.pointer_pick;d.list.navigated=m.navigated;
-            d.list.lists[Side::Player as usize].rows=m.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{key:RowKey::at(&m.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,ysi:None}).collect();d};
+            d.list.lists[Side::Player as usize].rows=m.list(Side::Player).rows.iter().enumerate().map(|(i,r)|item_menu::RowShown{key:RowKey::at(&m.list(Side::Player).rows,i).unwrap(),name:r.name.clone(),text:r.name.clone(),equipped:false,dim:false,ysi:None}).collect();d};
         let mut tiles=app.world_mut().remove_resource::<InventoryTiles>().unwrap();
         {let mut script=app.world_mut().resource_mut::<ScriptState>();let menu=run(&mut script.rt.as_mut().unwrap().game.ui_tree,Some(drawing),&mut tiles).unwrap();tiles.shown=Some(menu);}
         app.insert_resource(tiles);
@@ -2566,5 +2593,126 @@ mod tests {
         let mut ui = tree_changed(missing);
         assert_eq!(built(&ui, None), Tiled::No(format!("{ICON} missing")));
         assert_eq!(run(&mut ui, Some(shown(2, 0)), &mut InventoryTiles::default()), Err(format!("{ICON} missing")));
+    }
+
+    #[test]
+    fn tiled_drop_button_honors_qtt_select_short_keys() {
+        // Off by default (vanilla unchanged): Drop button always emits Command::Drop.
+        assert_eq!(tiled_drop_command(false, false, false), Command::Drop);
+        assert_eq!(tiled_drop_command(false, true, false), Command::Drop);
+        assert_eq!(tiled_drop_command(false, false, true), Command::Drop);
+        assert_eq!(tiled_drop_command(false, true, true), Command::Drop);
+
+        // Enabled (#3799): Shift drops stack, Ctrl drops single, Shift+Ctrl prefers Shift.
+        assert_eq!(tiled_drop_command(true, false, false), Command::Drop);
+        assert_eq!(tiled_drop_command(true, true, false), Command::DropStack);
+        assert_eq!(tiled_drop_command(true, false, true), Command::DropSingle);
+        assert_eq!(tiled_drop_command(true, true, true), Command::DropStack);
+    }
+
+    #[test]
+    fn script_click_on_cancel_button_exits_folder_and_is_noop_outside_folder() {
+        use crate::menu::model::Folder;
+        use fnv_script::vm::XVal;
+
+        let run_click = |folder: Option<Folder>, button_name: &str| -> Vec<Command> {
+            let mut app = App::new();
+            let mut state = ScriptState::over_no_plugins();
+            let game = &mut state.rt.as_mut().unwrap().game;
+            game.ui_files = Some(Box::new(MemSource::default()));
+            game.ui_tree = tree_changed(|xml| {
+                xml.replace(
+                    r#"<image name="IM_CancelButton">"#,
+                    r#"<image name="IM_CancelButton"><id>10</id>"#,
+                )
+                .replace(
+                    r#"<image name="IM_DropButton">"#,
+                    r#"<image name="IM_DropButton"><id>11</id>"#,
+                )
+            });
+            let mut s = shown(2, 0);
+            s.keyring = folder.is_some();
+            s.repair.shown = folder.is_none();
+            let mut t = InventoryTiles::default();
+            let menu = run(&mut game.ui_tree, Some(s), &mut t).unwrap();
+            t.ready = Some(menu);
+            t.shown = Some(menu);
+
+            let cancel_vis = at(&game.ui_tree, &button_path("IM_CancelButton"), "visible");
+            assert_eq!(cancel_vis, if folder.is_some() { 1.0 } else { 0.0 });
+
+            let click_path = format!("InventoryMenu\\GLOW_BRANCH\\IM_MainRect\\IM_ButtonRect\\{button_name}");
+            let clicked = fnv_game::ui_functions::call(game, "ClickMenuButton", &[XVal::Str(click_path)])
+                .expect("ClickMenuButton handled")
+                .expect("ClickMenuButton succeeded");
+            assert_eq!(clicked, XVal::Num(1.0));
+
+            let mut model = MenuModel::empty_inventory();
+            model.folder = folder;
+            let mut pip = PipBoy::default();
+            pip.page = Page::Items;
+            pip.phase = crate::pipboy::Phase::Up;
+
+            app.insert_resource(state)
+                .insert_resource(TileMenus { inventory: true, ..Default::default() })
+                .insert_resource(pip)
+                .insert_resource(PipBoyScreen { image: Handle::default(), camera: Entity::PLACEHOLDER, on_model: true, pointer: None, scale: 1.0 })
+                .insert_resource(PipBoyAid::default())
+                .insert_resource(ActiveMenu(Some(model)))
+                .insert_resource(t)
+                .init_resource::<HotkeyHold>()
+                .init_resource::<Hotkeys>()
+                .init_resource::<crate::pipboy::KeysTaken>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<ButtonInput<KeyCode>>()
+                .add_message::<PipBoyInput>()
+                .add_message::<TabHovered>()
+                .add_message::<MenuInput>()
+                .add_message::<RepairInput>()
+                .add_message::<ModInput>()
+                .add_systems(Update, feed);
+
+            app.update();
+            let mut reader = app.world_mut().resource_mut::<Messages<MenuInput>>().get_cursor();
+            let messages = app.world().resource::<Messages<MenuInput>>();
+            reader.read(messages).map(|m| m.0).collect()
+        };
+
+        // Outside a folder (IM_CancelButton hidden): script ClickMenuButton is a no-op and must NOT close the Pip-Boy.
+        assert_eq!(run_click(None, "IM_CancelButton"), Vec::<Command>::new());
+        // Inside a folder (IM_CancelButton shown): script ClickMenuButton emits Command::Back.
+        assert_eq!(run_click(Some(Folder::Keys), "IM_CancelButton"), vec![Command::Back]);
+        // Control: hidden buttons that still have an active top-level command (e.g. Drop) keep working via ClickMenuButton.
+        assert_eq!(run_click(None, "IM_DropButton"), vec![Command::Drop]);
+    }
+
+    #[test]
+    fn ysi_folder_keeps_repair_and_hides_cancel_mutually_exclusively() {
+        use crate::menu::model::Folder;
+
+        let check = |folder: Option<Folder>, tab: usize| {
+            let mut m = MenuModel::empty_inventory();
+            m.folder = folder;
+            let in_vanilla_misc = matches!(folder, Some(Folder::Keys | Folder::Cards));
+            let repair = RepairButton { shown: !in_vanilla_misc, usable: true, word: None };
+            let s = Shown::of(&m, None, tab, false, Default::default(), repair, (Hints::default(), String::new()), None);
+            // IM_RepairButton and IM_CancelButton occupy the same slot and must be mutually exclusive.
+            assert_ne!(s.repair.shown, s.keyring);
+            let mut ui = tree();
+            let mut t = InventoryTiles::default();
+            run(&mut ui, Some(s), &mut t).unwrap();
+            let repair_vis = at(&ui, &button_path("IM_RepairButton"), "visible");
+            let cancel_vis = at(&ui, &button_path("IM_CancelButton"), "visible");
+            let keyring_open = at(&ui, INVENTORY_MENU, "_KeyringOpen");
+            (repair_vis, cancel_vis, keyring_open)
+        };
+
+        // Inside a ySI category folder on Weapons tab: Repair shown, Cancel/_KeyringOpen hidden (no overlap).
+        assert_eq!(check(Some(Folder::Ysi(0)), 0), (1.0, 0.0, 0.0));
+        // Inside vanilla Misc Keyring / Caravan Cards: Cancel/_KeyringOpen shown, Repair hidden.
+        assert_eq!(check(Some(Folder::Keys), 3), (0.0, 1.0, 1.0));
+        assert_eq!(check(Some(Folder::Cards), 3), (0.0, 1.0, 1.0));
+        // Tab root: Repair shown, Cancel/_KeyringOpen hidden.
+        assert_eq!(check(None, 0), (1.0, 0.0, 0.0));
     }
 }
