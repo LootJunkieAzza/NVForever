@@ -37713,3 +37713,48 @@ expect = [
 forbid = [
   { re = 'room beam census:', label = "the census is idle" },
 ]
+
+[[scenario]]
+name = "interior-beams-high"
+source = "[design, #4698] docs/design/room-beams.md: switch the Saloon's depth-tested shafts on and back off while the cell is loaded"
+areas = ["rendering"]
+paths = ["engine/nvforever/src/room_beam*"]
+env = { NVF_PLAY_TEST_CONSOLE = "1:tm;1.25:close", NVF_PLAY_TEST_LOOK = "3:90:0", NVF_PLAY_TEST_PAUSE = "6:8,17:19", NVF_PLAY_TEST_SETTINGS = "7:interior-beams=High,18:interior-beams=Off", NVF_PLAY_TEST_SHOTS = "5:room-beams-before.png,15:room-beams-high.png,22:room-beams-restored.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--pos=100,-480,3456", "--heading", "90", "--no-actors", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+order = [[
+  "test aid NVF_PLAY_TEST_SETTINGS: interior-beams=High",
+  { re = 'room beam: both passes drawn \([1-9]\d* shafts replacing [1-9]\d* ray cards', label = "both passes draw over replaced ray cards" },
+  "test aid NVF_PLAY_TEST_SETTINGS: interior-beams=Off",
+  { text = "room beam: replacement cleared", label = "switching off clears the main camera's replacements" },
+]]
+forbid = [{ text = "room beam: a pipeline failed", label = "the beam shaders compiled" }]
+
+[[scenario]]
+name = "interior-beams-off"
+source = "[design, #4698] the default-Off row does not request room beam pipelines"
+areas = ["rendering"]
+paths = ["engine/nvforever/src/room_beam*"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages", "--graphics-only", "no-glow"]
+run_seconds = 14
+expect = [{ re = 'loading screen down after .*the start: cells, actors and scripts ready', label = "the interior loaded" }]
+forbid = [{ re = 'room beam:|pipeline \d+ asked: room_beam_', label = "the beam renderer was idle" }]
+
+[[scenario]]
+name = "interior-beams-night"
+source = "[design, #4698] High draws no shafts at night in the Saloon"
+areas = ["rendering"]
+paths = ["engine/nvforever/src/room_beam*"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_LOOK = "3:90:0" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "22", "--pos=100,-480,3456", "--heading", "90", "--no-actors", "--no-voice", "--no-messages", "--size", "1280x720", "--graphics-only", "interior-beams"]
+run_seconds = 14
+expect = [
+  { re = 'loading screen down after .*the start: cells, actors and scripts ready', label = "the interior loaded" },
+  { text = "test aid: look heading 90.0 pitch 0.0", label = "the camera looks toward the daylight test windows" },
+  { re = 'room beam: cell 0x[0-9A-F]+: requested 0 ray cards and 0 shafts', label = "there are no daylight beams at night" },
+]
+forbid = [
+  { re = 'room beam: cell .* requested (?:[1-9]\d* ray cards|\d+ ray cards and [1-9]\d* shafts)', label = "no card or shaft was requested at night" },
+  { re = 'room beam: (both passes drawn|a pipeline failed)|pipeline \d+ asked: room_beam_', label = "no beam pipeline was requested at night" },
+]

@@ -2155,6 +2155,18 @@ pub fn spawn_model(
     // Shapes below a billboard node go under an entity for it that turns to the camera
     // (#2549: a torch's glow card, else a flat sheet); a posed model stays as posed. Its
     // holder carries the reference's RefVisual, so moving and redrawing it take them along.
+    // [design, #4698] Keep the identity of room cards for a live Off / High switch.
+    #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+    let survey_rays = crate::room_beam_census::enabled();
+    #[cfg(not(any(test, debug_assertions, feature = "dev-aids")))]
+    let survey_rays = false;
+    let ray_cell = if !scenery && posed.is_none() && (p.emittance.is_some() || survey_rays) {
+        world.index.refs.get(&r).and_then(|reference| {
+            world.index.cells.get(&reference.cell).filter(|cell| cell.is_interior()).map(|cell| cell.form_id)
+        })
+    } else {
+        None
+    };
     let mut boards = nvf_assets::model::BakedBillboards::default();
     for (index, s) in model.shapes.iter().enumerate() {
         let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);
@@ -2199,12 +2211,16 @@ pub fn spawn_model(
         if scenery {
             commands.entity(e).insert(nvf_play::DrawOnly);
         }
-        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
-        if s.external_emittance && !scenery && !billboard && posed.is_none()
-            && crate::room_beam_census::enabled()
-            && !models.cache.morphs.ids().any(|id| id == s.mesh.id())
-        {
-            commands.entity(e).insert(crate::room_beam_census::RaySource::new(r, p.emittance, &path, s.block, rt * shape));
+        if let Some(cell) = ray_cell.filter(|_| {
+            s.external_emittance && !billboard && stages.is_none()
+                && models.materials.get(&s.material).is_some_and(|m| m.base.unlit && m.base.alpha_mode == AlphaMode::Add)
+                && !models.cache.morphs.ids().any(|id| id == s.mesh.id())
+        }) {
+            commands.entity(e).insert(crate::room_beam::RaySource {
+                #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+                reference: r,
+                cell, xemi: p.emittance, path: path.as_str().into(), block: s.block,
+            });
         }
         if let Some((tracked, original)) = blend {
             if tracked.reasons == 0 {

@@ -1153,6 +1153,19 @@ fn register_graphics(app: &mut App) {
         Setting { key: CLOUDS_KEY, group: GROUP_GRAPHICS, label: "Volumetric clouds (experimental)", note: CLOUDS_NOTE, switches: "--graphics-only", get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList { names: |_| CLOUD_CHOICES.iter().map(|c| (*c).to_string()).collect(), chosen: clouds_chosen, pick: take_clouds, save: clouds_chosen, load: take_clouds, ask_keep: false },
     );
+    add_choice_list(
+        app,
+        Setting {
+            key: "interior-beams", group: GROUP_GRAPHICS, label: "Interior light beams (experimental)",
+            note: "Daylight through windows shows as soft beams in the air indoors, in place of the flat ray cards.",
+            switches: "--graphics-only", get: |_| false, set: |_, _| {}, slider: None,
+        },
+        ChoiceList {
+            names: |_| ["Off", "High"].map(str::to_owned).into(),
+            chosen: interior_beams_chosen, pick: take_interior_beams,
+            save: interior_beams_chosen, load: take_interior_beams, ask_keep: false,
+        },
+    );
     let switches: [Switch; 26] = [
         (
             "fine-shadows",
@@ -1540,6 +1553,20 @@ fn take_ao(world: &mut World, text: &str) -> bool {
 }
 
 /// The Volumetric clouds row's key and note (volumetric_clouds.rs `CloudLevel`).
+fn interior_beams_chosen(world: &World) -> String {
+    if world.resource::<Graphics>().interior_beams { "High" } else { "Off" }.into()
+}
+
+fn take_interior_beams(world: &mut World, text: &str) -> bool {
+    let want = match text.trim() {
+        text if text.eq_ignore_ascii_case("High") => true,
+        text if text.eq_ignore_ascii_case("Off") => false,
+        _ => return false,
+    };
+    world.resource_mut::<Graphics>().interior_beams = want;
+    true
+}
+
 const CLOUDS_KEY: &str = "volumetric-clouds";
 const CLOUDS_NOTE: &str = "The weather's clouds drawn with depth and lit by the sun: Off, or Performance, Normal or High. A prototype. Not in the original.";
 

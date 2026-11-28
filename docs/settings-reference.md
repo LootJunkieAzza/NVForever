@@ -1310,6 +1310,13 @@ below cover them all.
 - 0 % to 200 % in steps of 10 %, 100 % by default; greyed while Volumetric light is off.
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `interior-beams`: Interior light beams (experimental)
+
+- On the page: Daylight through windows shows as soft beams in the air indoors, in place of the flat ray cards.
+- Choices: Off and High. Off is the default in every preset. The row takes effect in the current room.
+- Command line: `--graphics-only interior-beams` selects High for a run.
+
+
 ### `physical-pbr`: Physical lighting (experimental)
 
 - On the page: On: light, sky, fog and exposure follow physical rules instead of the
