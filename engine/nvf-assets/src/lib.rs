@@ -23,6 +23,7 @@ pub mod read_pool;
 pub mod reflection_cube;
 pub mod reflection_room;
 pub mod release;
+pub mod room_rays;
 pub mod nif_material;
 pub mod nif_spawn;
 pub mod tangents;

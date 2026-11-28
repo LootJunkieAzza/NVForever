@@ -2166,6 +2166,14 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   same driven material (2026-10-23): the Strip's 32 street lamp beams
   (`StripLightBeamAct`, enable parents 0x0013BAE1-3, switched on at night) name the light
   `stripStreetLight` (0x0012762B, colour (150, 198, 102), fade 4) and had drawn white.
+  The Prospector Saloon's window models `indfxlightrays01`, `indfxlightraysleft01` and
+  `indfxlightraysnleftsm01` contain unlit additive shapes with bit 29 set. Their flat cards
+  share a sweep direction. Vertex alpha rises from zero near the window, peaks around
+  0.10–0.12 near that end, and fades to zero at the far end [observed, 2026-11-24,
+  vertex positions and colours read from the NIFs in Fallout - Meshes.bsa]. The geometry
+  and emittance source are enough to identify beam candidates. See the [beam census
+  design](../design/room-beams.md) for this engine's selection rules.
+
   XEMI on light references [observed, `light_survey --xemi`]: 2,508 of 10,087 interior
   lights carry one (1,497 name a LIGH, 1,011 a REGN such as NVInteriorRegion or
   NewVegasRegion); outdoors 304 of 1,070 (246 REGN, mostly InvertedDaylightRegion). In

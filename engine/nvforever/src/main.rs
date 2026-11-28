@@ -260,6 +260,8 @@ mod stress_sample;
 mod profile;
 mod perf_overlay;
 mod occlusion;
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+mod room_beam_census;
 mod rooms;
 mod terrain;
 mod terrain_surface;
@@ -2496,6 +2498,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.add_plugins(anim_paths::AnimPathsPlugin);
         }
     }
+    #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+    room_beam_census::install(&mut app);
     if play.is_some() {
         app.add_systems(Update, (script_weather, worldspace::script_sky, sky::fade_cadence, sky_follows_game, sky::sync_weather_fog, sky::sync_weather_visuals).chain().before(sky::update_sky));
         #[cfg(any(test, debug_assertions, feature = "dev-aids"))]

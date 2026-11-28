@@ -62,6 +62,14 @@ pub struct EmittanceState {
     pub weather_daylight_luma: f32,
 }
 
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RoomRayEmittance {
+    Daylight,
+    OtherRegion,
+    Light,
+}
+
 enum Source {
     /// A region's weathers by form ID (those that load), and which one shows.
     Weather(RegionEmittance, HashMap<u32, Weather>),
@@ -146,6 +154,24 @@ impl EmittanceState {
             s.material(materials, h, 2);
         }
         s
+    }
+
+    /// Classify a placed ray's cached XEMI for the room beam census [design, #4698].
+    /// The material path resolves this source before attaching the census mark.
+    #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+    pub(crate) fn room_ray_emittance(&self, sky: &SkyState, xemi: u32) -> Option<RoomRayEmittance> {
+        match self.sources.get(&xemi)?.as_ref()? {
+            Source::Weather(region, weathers) => {
+                let weather = weathers.get(&region.best)?;
+                let sunlight = |hour| weather.color(&sky.climate, ColorType::Sunlight, hour).iter().sum::<f32>();
+                Some(if sunlight(12.0) > sunlight(0.0) {
+                    RoomRayEmittance::Daylight
+                } else {
+                    RoomRayEmittance::OtherRegion
+                })
+            }
+            Source::Color(..) => Some(RoomRayEmittance::Light),
+        }
     }
 
     /// Mark a light as driven by `xemi`, if that resolves.
