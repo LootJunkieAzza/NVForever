@@ -24,17 +24,21 @@ the native player spotlight described in `world.md` §8.)
   [documented: Better Flashlight NVSE v1.1.5 `Data\Config\BetterFlashlightNVSE.ini`
   `[Main] RenderEffects = 1` and `[Flashlight] Enabled = 1`
   (`";disable to turn the mod off entirely"`)], NVForever leaves its vanilla Pip-Boy
-  `SpotLight` (`COLOUR`, `BRIGHTNESS`, `RANGE`, `OUTER_DEG`, `INNER_DEG`, head/eye
-  `placement`) and toggle behavior completely unchanged [design: NVForever's own gate].
-- **Precedence vs. NVForever Tweaks Flashlight settings (`#3280`)** [design: NVForever's
-  own precedence policy]: when both an active `Data\Config\BetterFlashlightNVSE.ini`
+  `SpotLight` (the Tweaks Flashlight rows' light, `FlashlightLook`; at their defaults
+  `COLOUR_RGB`, `BRIGHTNESS`, `RANGE`, `OUTER_DEG`, `INNER_DEG`, head/eye `placement`) and toggle behavior completely unchanged [design: NVForever's own gate].
+- **Precedence vs. NVForever Tweaks Flashlight settings (`#3280`)** [design: #3280 review,
+  maintainer decision 2026-11-24]: when an active `Data\Config\BetterFlashlightNVSE.ini`
   (`[Main] RenderEffects = 1` and `[Flashlight] Enabled = 1`) and NVForever's Tweaks >
-  Quality of Life > Flashlight rows (`#3280`) are present, the active
-  `BetterFlashlightNVSE.ini` takes precedence over the Tweaks Flashlight rows so
-  installing the mod works out of the box without editing Tweaks; disabling the INI
-  (`RenderEffects = 0` or `Enabled = 0`) or removing it immediately restores the Tweaks
-  Flashlight settings. Whichever of `#3280` and `#3727` merges second will merge `main`
-  and cover this precedence boundary with a regression test.
+  Quality of Life > Flashlight rows both set the same thing, **the Tweaks rows win**,
+  because the player set them in game. A row the player has moved off its default keeps
+  its value: Colour (or Pip-Boy colour on) over `ColorR/G/B`, Range over `Distance`, Beam
+  width and Softness over `Angle` and `SpotSize`, Brightness over the interior and exterior
+  `Dimmer` × `Intensity`. Rows at their defaults take the INI's values. Type and Shadows
+  are the rows' alone (the INI has neither). The INI's battery, warm-up, flicker,
+  `AttachToWeapon` and offsets, which no row sets, always apply while it is active
+  (`flashlight.rs` `with_ini`; test `tweaks_rows_win_over_the_ini_where_both_set_the_same_thing`).
+  A row set back to its exact default cannot be told from one never moved, so it takes the
+  INI's value [design]. Disabling or removing the INI leaves the rows alone.
 - Parsing operates strictly on raw `&[u8]` slices (stripping optional UTF-8 BOM,
   CRLF/LF endings, `;`/`#` comments, ASCII case-insensitive section/key matching, and
   finite `f32` validation) with NVForever's own safety clamps (`Angle * SpotSize` clamped
@@ -64,10 +68,13 @@ Every stored field has a live consumer in `engine/nvforever/src/flashlight.rs`:
   uses half-angle or full-angle is a visual/shader boundary not stated in the INI
   comment]), `inner_angle` preserving NVForever's vanilla `14 / 30` softness ratio
   [design: NVForever's own inner-cone mapping], and `range` (`Distance`, game units).
-  `configured_spotlight` preserves `shadow_maps_enabled = true` and
-  `shadow_map_near_z = NEAR` so native wall shadow occlusion and `#3121` first-person
-  anti-washout scaling (`lights/display_shader.rs`) continue to apply [design: NVForever's
-  own renderer policy].
+  `flashlight.rs` `with_ini` and `made` keep `shadow_map_near_z = NEAR`, and shadows follow
+  the Tweaks Shadows row (on by default), so native wall shadow occlusion and `#3121`
+  first-person anti-washout scaling (`lights/display_shader.rs`) apply to the INI's light as
+  to the rows' [design: NVForever's own renderer policy]. The light's shadow depth bias is
+  Bevy's default times 70 (1.4 for a spot, 5.6 for a point light, game units) for every
+  flashlight, INI or not: it removes shadow stripes, and is a visible change from Bevy's
+  0.02 [design, #3279].
 - `[Flashlight] ColorR` (shipped `2`), `ColorG` (shipped `1.85`), `ColorB` (shipped `1.65`,
   `";color (values above 1.0 are HDR). lower the warm bias (R,G) or raise B for a cooler beam"`):
   [documented: Better Flashlight NVSE v1.1.5 `Data\Config\BetterFlashlightNVSE.ini`].
