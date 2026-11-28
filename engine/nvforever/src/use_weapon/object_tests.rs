@@ -237,3 +237,42 @@ fn undrawn_actor_target_gets_no_shots_and_leaves_the_fight_to_the_ordinary_attac
     assert_eq!(use_.fired, 0);
     assert!(!acts_on(use_, target_place(&script.rt.as_ref().unwrap().game, SHOOTER, TARGET).is_some()));
 }
+
+/// #3062: `use_weapon::shoot` solves the ballistic arc for a thrown gravity-affected
+/// weapon (such as a tomahawk) instead of aiming straight along `tchest - eyes`, and
+/// passes `sure: Some(target)` with `cone == 0.0` when `Always Hit` is set.
+#[test]
+fn always_hit_thrown_use_weapon_emits_ballistic_aim_and_sure_target() {
+    use fnv_combat::data::ProjectileStats;
+    let mut world = fixture(b"ACTI", Some([-20, -20, 0, 20, 20, 120]));
+    world.resource_mut::<Combat>().forms.projectiles.insert(
+        FormId(0x808),
+        ProjectileStats {
+            kind: Some("Missile".into()),
+            flags: vec!["Can Be Picked Up".into()],
+            speed: 1200.0,
+            gravity: 1.0,
+            range: 5000.0,
+            ..Default::default()
+        },
+    );
+    let mut use_ = WeaponUse::of_script(Some(GUN), None, TARGET, 2, false, false, true, false, None);
+    use_.in_place = true;
+    world.resource_mut::<ScriptState>().rt.as_mut().unwrap().game.weapon_uses.insert(SHOOTER, use_);
+    let shots = fire(&mut world);
+    assert_eq!(shots.len(), 2);
+    let eyes = [0.0, 0.0, EYE_HEIGHT];
+    let target_aim = [0.0, 500.0, 60.0];
+    let straight = vec::normalize(vec::sub(target_aim, eyes));
+    for shot in shots {
+        assert_eq!(shot.sure, Some(TARGET));
+        assert_eq!(shot.cone, 0.0);
+        assert!(!shot.harmless);
+        assert!(
+            shot.aim[2] > straight[2] + 0.05,
+            "ballistic throw must pitch above straight aim (got {:?} vs straight {:?})",
+            shot.aim,
+            straight
+        );
+    }
+}
