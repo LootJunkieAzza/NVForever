@@ -456,6 +456,11 @@ pub struct RefExtra {
     pub abilities_given: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub ability_race: Option<FormId>,
+    /// True once [`Game::give_abilities`] verified `ability_race` equals the actor's
+    /// unoverridden base race with no active race override; cleared whenever a race
+    /// override is applied and not serialized so save loads always re-verify once [design].
+    #[serde(skip)]
+    pub ability_race_matches_base: bool,
     /// Abilities a Dispel took off while the actor is loaded (they come back when it is
     /// loaded again), and worn items whose enchantment a Dispel took off (until the item
     /// is unequipped).
