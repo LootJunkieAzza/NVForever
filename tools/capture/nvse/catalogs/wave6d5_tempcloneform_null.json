@@ -1,0 +1,115 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_tempcloneform_null",
+  "description": "Wave 6D-5 read-only probe verifying TempCloneForm caller vs explicit form and explicit null fallback.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d5_tempcloneform_null",
+      "title": "TempCloneForm explicit null caller fallback",
+      "extender": "xNVSE / JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d5p3_27_tempcloneform_caller_clean",
+          "bucket": "clone_and_scene_bases",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/clone-calling-reference.md",
+          "spec_line": 21,
+          "functions_tested": [
+            "TempCloneForm",
+            "IsClonedForm",
+            "GetSourceModIndex",
+            "GetType",
+            "IsFormValid",
+            "CompileScript",
+            "Call",
+            "PrintToConsole"
+          ],
+          "claim": "Verify TempCloneForm caller vs explicit form, explicit null with valid caller, placed-ref caller with 0 args, base-form caller, bare 0-arg, and indexToCallingScript 0 vs 1.",
+          "expected": "Isolate 0-arg TempCloneForm forms into helpers.",
+          "script_lines": [
+            "ref rCaps = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "ref rPlaced = Player.PlaceAtMe rCaps 1",
+            "ref rNull = 0",
+            "ref rExp = rPlaced.TempCloneForm rStim",
+            "int tExp = GetType rExp",
+            "int vExp = IsFormValid rExp",
+            "ref rExpNull = rPlaced.TempCloneForm rNull",
+            "int vExpNull = IsFormValid rExpNull",
+            "ref fPlOnly = CompileScript \"w6d5p3_27_plonly.gek\"",
+            "ref fBaseCall = CompileScript \"w6d5p3_27_base.gek\"",
+            "ref fBare = CompileScript \"w6d5p3_27_bare.gek\"",
+            "int rPlOnly = -9",
+            "int rBaseCall = -9",
+            "int rBare = -9",
+            "if fPlOnly",
+            "  let rPlOnly := Call fPlOnly rPlaced",
+            "endif",
+            "if fBaseCall",
+            "  let rBaseCall := Call fBaseCall",
+            "endif",
+            "if fBare",
+            "  let rBare := Call fBare",
+            "endif",
+            "ref rIdx0 = TempCloneForm rCaps 0",
+            "ref rIdx1 = TempCloneForm rCaps 1",
+            "int smi0 = GetSourceModIndex rIdx0",
+            "int smi1 = GetSourceModIndex rIdx1",
+            "int ic0 = IsClonedForm rIdx0",
+            "int ic1 = IsClonedForm rIdx1",
+            "int icOrig = IsClonedForm rCaps",
+            "rPlaced.Disable",
+            "rPlaced.MarkForDelete",
+            "PrintToConsole \"PROBE|w6d5p3_27_tempcloneform_caller_clean|exp(%g:t=%g)|expNull=%g|plOnly(%g:%g)|baseCall(%g:%g)|bare(%g:%g)|idx0(smi=%g,ic=%g)|idx1(smi=%g,ic=%g)|origIc=%g\" vExp tExp vExpNull (fPlOnly != 0) rPlOnly (fBaseCall != 0) rBaseCall (fBare != 0) rBare smi0 ic0 smi1 ic1 icOrig"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5p3_27_plonly.gek": [
+              "begin Function {ref rRef}",
+              "ref rC = rRef.TempCloneForm",
+              "SetFunctionValue (GetType rC)"
+            ],
+            "w6d5p3_27_base.gek": [
+              "ref rCaps = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+              "ref rC = rCaps.TempCloneForm",
+              "SetFunctionValue (GetType rC)"
+            ],
+            "w6d5p3_27_bare.gek": [
+              "ref rC = TempCloneForm",
+              "SetFunctionValue (IsFormValid rC)"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

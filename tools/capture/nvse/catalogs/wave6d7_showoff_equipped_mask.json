@@ -1,0 +1,104 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d7_showoff_equipped_mask",
+  "description": "Wave 6D-7 read-only console probe for ShowOff GetEquippedItems mask filtering, GetEquippedItemRefs, and GetNumBrokenEquippedItems.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)",
+    "ShowOffNVSE Plugin": "184"
+  },
+  "batches": [
+    {
+      "id": "w6d7_showoff_equipped_mask",
+      "title": "Wave 6D-7: GetEquippedItems nonzero high-bit mask returns empty",
+      "extender": "JIP LN NVSE / ShowOffNVSE",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "ShowOffNVSE.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d7p2_32_showoff_equipped_items_fixed",
+          "bucket": "equipment_slots",
+          "extender": "JIP LN NVSE / ShowOffNVSE",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "ShowOffNVSE.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/actors.md",
+          "spec_line": 365,
+          "functions_tested": [
+            "GetEquippedItems",
+            "GetEquippedWeaponRef",
+            "GetEquippedItemRefForItem",
+            "GetNumBrokenEquippedItems",
+            "GetEquippedEx",
+            "AddItemHealthPercent"
+          ],
+          "claim": "SD-11 & SD-12: Settled & fixed test of ShowOff GetEquippedItems (default, 0x4, 0x20, bit 20), GetEquippedWeaponRef, GetEquippedItemRefForItem, GetNumBrokenEquippedItems (0/50/100 on 40%-cond gear), and GetEquippedEx.",
+          "expected": "Record array sizes, ref validity, broken item counts at 0/50/100, and GetEquippedEx matching.",
+          "script_lines": [
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rWep = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+            "Player.AddItemHealthPercent rLth 1 0.40 1",
+            "Player.AddItemHealthPercent rWep 1 0.40 1",
+            "Player.EquipItem rLth 0 1",
+            "Player.EquipItem rWep 0 1"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "s1_report",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+                "ref rWep = GetFormFromMod \"FalloutNV.esm\" \"434F\"",
+                "array_var aAll = Player.GetEquippedItems",
+                "array_var aUp = Player.GetEquippedItems 4",
+                "array_var aWp = Player.GetEquippedItems 32",
+                "array_var aHi = Player.GetEquippedItems 1048576",
+                "int iNAll = ar_Size aAll",
+                "int iNUp = ar_Size aUp",
+                "int iNWp = ar_Size aWp",
+                "int iNHi = ar_Size aHi",
+                "ref rWRef = Player.GetEquippedWeaponRef",
+                "ref rLRef = Player.GetEquippedItemRefForItem rLth",
+                "int iWRefV = IsFormValid rWRef",
+                "int iLRefV = IsFormValid rLRef",
+                "int iBr0 = Player.GetNumBrokenEquippedItems 0",
+                "int iBr50 = Player.GetNumBrokenEquippedItems 50",
+                "int iBr100 = Player.GetNumBrokenEquippedItems 100",
+                "ref rExL = Player.GetEquippedEx rLth",
+                "int iExL = rExL == rLth",
+                "Player.UnequipItem rLth 0 1",
+                "Player.UnequipItem rWep 0 1",
+                "Player.RemoveItem rLth 1 1",
+                "Player.RemoveItem rWep 1 1",
+                "string_var sOut = sv_Construct \"PROBE|w6d7p2_32_showoff_equipped_items_fixed|eqItems(all=%g,up=%g,wp=%g,hi20=%g)|refs(w=%g,l=%g)|brk(t0=%g,t50=%g,t100=%g)|ex=%g\" iNAll iNUp iNWp iNHi iWRefV iLRefV iBr0 iBr50 iBr100 iExL",
+                "PrintToConsole \"%z\" sOut"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

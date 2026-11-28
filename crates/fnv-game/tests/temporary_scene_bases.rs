@@ -402,3 +402,24 @@ fn retired_alias_cannot_also_be_a_live_or_deleted_reference_identity() {
         assert!(restore_scene(&f, &malformed).is_err(), "retired alias used as a reference key: deleted={deleted}");
     }
 }
+
+#[test]
+fn isclonedform_returns_true_for_both_cloned_base_and_its_placed_reference() {
+    let f = fixture();
+    let mut g = game(&f);
+    let out = retired_query(
+        &mut g,
+        r#"ref cBase
+let cBase := TempCloneForm OwnedSceneBase 1
+ref pRef
+let pRef := player.PlaceAtMe cBase 1
+int icBase
+let icBase := IsClonedForm cBase
+int icRef
+let icRef := IsClonedForm pRef
+int icOrig
+let icOrig := IsClonedForm OwnedSceneBase
+SetFunctionValue (icBase * 100 + icRef * 10 + icOrig)"#,
+    );
+    assert_eq!(out, XVal::Num(110.0), "cloned base=1, placed ref of clone=1, original base=0");
+}

@@ -126,6 +126,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let set = name.starts_with("set");
             let a = subject.unwrap_or(FormId(0));
             let slot = int(args, usize::from(set), -1);
+            // Out-of-bounds equipment slots return 100000.0 on GetEquippedCurrentHealth,
+            // while valid empty slots return 0.0 [observed: 2026-11-25,
+            // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+            // xNVSE 6.4.9 + JIP LN 57.30, `w6d4_03_current_and_equipped_health_edges` and
+            // `w6d4p2_03_equipped_health_full_and_oob` (`wave6d4_equipped_health_oob.json`):
+            // `init(s5=79.9,s2=149.9,s0=0.0,neg=100000.0,oob=100000.0)`; hypothesis: exact
+            // valid slot upper bound is 0..20 matching the 20 Fallout biped/equip slots,
+            // and OOB slots short-circuit before subject validation].
+            if !set && !(0..20).contains(&slot) {
+                return Some(Ok(XVal::Num(100_000.0)));
+            }
             let item = equipped_in_slot(g, a, slot);
             let Some(item) = item else { return Some(Ok(XVal::Num(0.0))) };
             let full = g.full_health(item);
@@ -198,11 +209,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "removemeir" => {
             let Some((c, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(XVal::Num(0.0))) };
             let n = g.world.inventory_mut(c).map(|inv| inv.count(item)).unwrap_or(0);
-            // The whole stack; with a target it moves there and the call gives 1, without
-            // one 0 [observed: nvse-fourth].
+            // The whole stack; returns 1 on successful removal both when moving to a
+            // target container and when deleting without a target [observed: 2026-11-25,
+            // `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+            // xNVSE 6.4.9 + JIP LN 57.30, `w6d4p3_10b_uifloat_inherited_and_copyir`
+            // (`wave6d4_remove_me_ir.json`): `ui(x=-999.0/-999.0,v=-999.0/-999.0)|copy(r=1,d=0->1,altV=1,d=2)|rm(r=1,d=2,p=8)|eq(0,0,del=1,g=1)`].
             let gone = g.world.remove_item(c, item, n).unwrap_or(0);
             match (form(args, 0), gone > 0) {
                 (Some(to), true) => XVal::Num(f64::from(u8::from(g.world.add_item(to, item, gone).is_ok()))),
+                (None, true) => XVal::Num(1.0),
                 _ => XVal::Num(0.0),
             }
         }
@@ -230,18 +245,53 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             Some(f) => XVal::Ref(g.temp_ref(FormId(0), base(g, f)).0),
             None => XVal::Ref(0),
         },
-        // [documented: BuildRef; GetLocalRefIndex].
+        // [documented: BuildRef; GetLocalRefIndex; observed:
+        // `w6d11_08_form_resolution_gffm_buildref_sourcemod`, `br(c=1,p=1,dm=1,z=1,m=0,dyn=1)`]
+        // resolves loaded plugin records, PlayerRef, and dynamic 0xFF world references.
         "buildref" => {
-            let id = ((int(args, 0, -1) as u32) << 24) | (int(args, 1, 0) as u32 & 0x00FF_FFFF);
-            let ok = int(args, 0, -1) >= 0 && (g.data.sig(FormId(id)).is_some() || id == FormId::PLAYER_REF.0);
+            let m = int(args, 0, -1);
+            let id = ((m as u32) << 24) | (int(args, 1, 0) as u32 & 0x00FF_FFFF);
+            let fid = FormId(id);
+            let ok = m >= 0
+                && (g.data.sig(fid).is_some()
+                    || id == FormId::PLAYER_REF.0
+                    || g.world.get(fid).is_ok());
             XVal::Ref(if ok { id } else { 0 })
         }
         "getlocalrefindex" => XVal::Num(f64::from(form(args, 0).or(subject).map_or(0, |f| f.0 & 0x00FF_FFFF))),
         // [documented: GetSelfAlt] the calling reference, or none.
         "getselfalt" => XVal::Ref(ctx.self_ref.map_or(0, |r| r.0)),
-        // [documented: GetAgeClass; observed: nvse-fourth, -1 for Doc Mitchell and Sunny]
-        // -1 [hypothesis: the same for every actor the base game ships].
-        "getageclass" => XVal::Num(-1.0),
+        // Age class from the NPC's race `ONAM` (older) / `YNAM` (younger) chain:
+        // Adult = 1 (`ONAM` & `YNAM`), Old = 2 (`YNAM` only), loaded non-actor = -1
+        // [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas
+        // 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, `w6d4_06_headparts_lev_refs_age_grids_ingrid`
+        // (`age(1,2)`) and `w6d4p3_06b_age_class_races` (`p=1,doc=2,sun=1,tru=0,dog=0,dr=-1`,
+        // `wave6d4_age_class.json`): Player/SunnyRef Adult=1, DocMitchellREF Old=2,
+        // DocMitchellDresserRef=-1; `0x00104E8A`/`0x00104E86` in `w6d4p3_06b` are non-persistent
+        // unloaded `STAT` refs rather than Trudy/Cheyenne so `GetFormFromMod` resolved them to
+        // null `00000000` and the null-ref calls returned `0`]. Child = 0 (`ONAM` only),
+        // ageless `RACE` / `CREA` = -1 (unprobed), and optional `actor` arg remain [hypothesis].
+        "getageclass" => {
+            let target = form(args, 0).or(subject);
+            let age = target.and_then(|r| {
+                let b = base(g, r);
+                if g.data.sig(g.unclone(b)) != Some(*b"NPC_") {
+                    return None;
+                }
+                let race = g.unclone(g.actor_race(r)?);
+                let has_older = g.other.unlisted2.race_sets.contains_key(&(race, false, false))
+                    || g.data.race_older.contains_key(&race);
+                let has_younger = g.other.unlisted2.race_sets.contains_key(&(race, false, true))
+                    || g.data.race_younger.contains_key(&race);
+                match (has_older, has_younger) {
+                    (true, false) => Some(0.0),
+                    (true, true) => Some(1.0),
+                    (false, true) => Some(2.0),
+                    (false, false) => None,
+                }
+            });
+            XVal::Num(age.unwrap_or(-1.0))
+        }
         // [documented: GetHeadParts; observed: Doc 2, [0] 0B5BEA, the record's last] the
         // NPC's PNAM head parts, from the last back.
         "getheadparts" => {
@@ -280,20 +330,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 _ => false,
             })
         }
-        // [documented: GetHeadingAngleX] the angle from the reference's heading to the
-        // target, -180 to 180 [hypothesis: as GetHeadingAngle, on any reference].
+        // Vertical pitch angle in degrees (`-atan2(dz, hypot(dx, dy))`, negative above,
+        // positive below, independent of the calling reference's X angle) [observed:
+        // 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + JIP LN 57.30, `w6d4p3_02_heading_angle_x_placed_weap` (placed weapon ~100u above:
+        // `-44.66` at caller X=0, +30, -30) and `w6d4p4_02b_heading_angle_x_exact_coords`
+        // (`doc` dz=-0.7 -> +0.05 / rev -0.05, `dr` dz=+98.3 -> -6.59, `ch` dz=+38.0 -> -1.76,
+        // `do` dz=-0.5 -> +0.23; `wave6d4_heading_angle_x.json`); design: zero-distance
+        // self-target returns 0.0 rather than `-nan(ind)` and `+ 0.0` normalizes `-0.0`].
         "getheadinganglex" => {
             let (Some(r), Some(t)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
             let (Some(a), Some(b)) = (g.ref_pos_rot(r), g.ref_pos_rot(t)) else { return Some(Ok(XVal::Num(0.0))) };
-            let to = (b.0[0] - a.0[0]).atan2(b.0[1] - a.0[1]).to_degrees();
-            let mut d = to - a.1[2].to_degrees();
-            while d > 180.0 {
-                d -= 360.0;
-            }
-            while d < -180.0 {
-                d += 360.0;
-            }
-            XVal::Num(f64::from(d))
+            let dz = f64::from(b.0[2] - a.0[2]);
+            let horiz = f64::from(b.0[0] - a.0[0]).hypot(f64::from(b.0[1] - a.0[1]));
+            let deg = if horiz == 0.0 && dz == 0.0 { 0.0 } else { -dz.atan2(horiz).to_degrees() + 0.0 };
+            XVal::Num(deg)
         }
         // [documented: GetLevCharacterRefs; GetLevCreatureRefs] the leveled list's entries
         // as an array of forms [hypothesis: forms only, without levels].
@@ -384,3 +435,11 @@ fn equipped_in_slot(g: &mut Game, actor: FormId, slot: i64) -> Option<FormId> {
         _ => false,
     })
 }
+
+#[cfg(test)]
+#[path = "w6d11_buildref_tests.rs"]
+mod w6d11_buildref_tests;
+
+#[cfg(test)]
+#[path = "w6d_nvse_items_rest_parity_tests.rs"]
+mod w6d_nvse_items_rest_parity_tests;

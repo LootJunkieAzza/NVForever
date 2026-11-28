@@ -146,6 +146,11 @@ fn numbers_points_and_words() {
     assert_eq!((n(&mut g, "Round 37.4"), n(&mut g, "Round 37.8")), (37.0, 38.0));
     assert_eq!(n(&mut g, "RoundAlt 37.55 1 0"), 37.5);
     assert_eq!(n(&mut g, "RoundAlt 37.665654 3 1"), f64::from(37.666f32));
+    // Only mode == 1 rounds; mode 0 and mode 2 truncate [observed: w6d4_27].
+    assert_eq!(n(&mut g, "RoundAlt 2.345 2 0"), f64::from(2.34f32));
+    assert_eq!(n(&mut g, "RoundAlt 2.345 2 1"), f64::from(2.35f32));
+    assert_eq!(n(&mut g, "RoundAlt 2.345 2 2"), f64::from(2.34f32));
+    assert_eq!(n(&mut g, "RoundAlt 2.349 2 2"), f64::from(2.34f32));
     assert_eq!(n(&mut g, "IsNumberNAN 2.5"), 0.0);
     assert_eq!(q(&mut g, "float f\nlet f := IsNumberNAN\nSetFunctionValue (IsNumberNAN f)"), XVal::Num(1.0));
     assert_eq!(n(&mut g, "GetDistanceBetweenPoints 0 0 0 3 4 12"), 13.0);

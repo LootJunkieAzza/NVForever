@@ -404,14 +404,21 @@ fn weather_visual_and_worldspace_imagespace_tokens_track_live_edits_and_isolate_
     q(&mut g, "SetWeatherRGBColor OwnedWeatherA 1 1 200100050");
     assert_eq!(g.weather_visual_sync_token().1, vis_rev1);
 
-    // SetWeatherImageSpaceMod (assign and explicit clear to 0) bumps weather_visual_revision.
+    // SetWeatherImageSpaceMod (assign and omitted clear to 0) bumps weather_visual_revision;
+    // non-IMAD forms and explicit null 0 are no-ops [observed: w6d2p2_17_weather_traits_rgb_imad_textures].
     q(&mut g, "SetWeatherImageSpaceMod OwnedWeatherA 1 OwnedCartoAdpt");
     let vis_rev2 = g.weather_visual_sync_token().1;
     assert!(vis_rev2 > vis_rev1);
     assert_eq!(g.weather_adapter_overrides()[&WTHR_A][1], Some(IMAD_A));
     q(&mut g, "SetWeatherImageSpaceMod OwnedWeatherA 1 OwnedCartoAdpt");
     assert_eq!(g.weather_visual_sync_token().1, vis_rev2);
+    q(&mut g, "SetWeatherImageSpaceMod OwnedWeatherA 1 OwnedWeatherA");
+    assert_eq!(g.weather_visual_sync_token().1, vis_rev2);
+    assert_eq!(g.weather_adapter_overrides()[&WTHR_A][1], Some(IMAD_A));
     q(&mut g, "SetWeatherImageSpaceMod OwnedWeatherA 1 0");
+    assert_eq!(g.weather_visual_sync_token().1, vis_rev2);
+    assert_eq!(g.weather_adapter_overrides()[&WTHR_A][1], Some(IMAD_A));
+    q(&mut g, "SetWeatherImageSpaceMod OwnedWeatherA 1");
     let vis_rev3 = g.weather_visual_sync_token().1;
     assert!(vis_rev3 > vis_rev2);
     assert_eq!(g.weather_adapter_overrides()[&WTHR_A][1], Some(0));

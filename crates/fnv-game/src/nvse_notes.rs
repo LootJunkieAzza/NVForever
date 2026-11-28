@@ -8,6 +8,10 @@ use crate::game::Game;
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 
+#[cfg(test)]
+#[path = "w6d9_note_snam_type_gate_tests.rs"]
+mod w6d9_note_snam_type_gate_tests;
+
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
     match args.get(k)? {
         XVal::Ref(0) => None,
@@ -88,9 +92,12 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
         "getnoteread" => yes(note.is_some_and(|n| def.is_some() && g.note_read(n))),
         // DATA [documented: GetNoteType, 0 Sound, 1 Text, 2 Image, 3 Voice].
         "getnotetype" => XVal::Num(def.map_or(0.0, |d| f64::from(d.kind))),
-        // SNAM, one field for both [documented: xEdit, a union by type; hypothesis: each
-        // getter reads it whatever the type, as the field is one].
-        "getnotesound" | "getnotespeaker" => reff(def.and_then(|d| d.snam)),
+        // SNAM is gated by note type: GetNoteSound reads only Type 0 (Sound) notes and
+        // GetNoteSpeaker reads only Type 3 (Voice) notes [observed: 2026-11-25, FNV
+        // 1.4.0.525 + JG 528, w6d9p2_18_note_sound_speaker_types:
+        // t0(r=1,snd=1,spk=0)|t3(r=1,spk=1,snd=0)|spkOnT1=0].
+        "getnotesound" => reff(def.filter(|d| d.kind == 0).and_then(|d| d.snam)),
+        "getnotespeaker" => reff(def.filter(|d| d.kind == 3).and_then(|d| d.snam)),
         // TNAM of a Voice note [documented: GetNoteTopic; a Text note's TNAM is its text].
         "getnotetopic" => reff(def.and_then(|d| d.topic)),
         // XNAM [documented: GetNoteImage]; "" without one.
@@ -108,10 +115,16 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
             let ok = (0.0..=3.0).contains(&k) && note.is_some_and(|n| g.edit_note(n, |d| d.kind = k as u8));
             yes(ok)
         }
-        // Both set the one SNAM; the type says which it is (`NoteDef::sound`, `speaker`).
+        // Type-gated SNAM setters: SetNoteSound succeeds only on Type 0 (Sound) notes
+        // and SetNoteSpeaker only on Type 3 (Voice) notes; mismatched types return 0
+        // without mutating SNAM [observed: w6d9_18_notes_add_remove_itemcount_read_and_fields,
+        // w6d9p2_18_note_sound_speaker_types].
         "setnotesound" | "setnotespeaker" => {
+            let want_kind = if name == "setnotesound" { 0 } else { 3 };
             let s = form(args, 1);
-            yes(note.is_some_and(|n| g.edit_note(n, |d| d.snam = s)))
+            let ok = def.is_some_and(|d| d.kind == want_kind)
+                && note.is_some_and(|n| g.edit_note(n, |d| d.snam = s));
+            yes(ok)
         }
         "setnotetopic" => {
             let t = form(args, 1);
@@ -121,26 +134,25 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
             let t = text(args, 1);
             yes(note.is_some_and(|n| g.edit_note(n, |d| d.texture = Some(t).filter(|t| !t.is_empty()))))
         }
-        // [documented: AddNoteQuest, RemoveNoteQuest] a quest already there is not added
-        // twice [hypothesis].
+        // [documented: AddNoteQuest, RemoveNoteQuest] validates that the 2nd argument is
+        // a QUST; AddNoteQuest appends without deduplication, and RemoveNoteQuest removes
+        // all matching entries and returns 1 for any valid (NOTE, QUST) pair even when
+        // absent [observed: 2026-11-25, FNV 1.4.0.525 + JG 528,
+        // w6d9_19_note_quest_list_add_remove_dedup: n0=0|add1(r=1,n=1)|add2(r=1,n=2)|abad=0|rm1(r=1,n=0)|rm2=1|rbad=0;
+        // w6d9p3_19_note_quest_nonquest_check: n0=0|addStim(r=0,n=0)|rmStim(r=0,n=0)].
         "addnotequest" => {
-            let q = form(args, 1);
+            let q = form(args, 1).filter(|q| g.data.quests.contains_key(q));
             yes(match (note, q) {
-                (Some(n), Some(q)) => g.edit_note(n, |d| {
-                    if !d.quests.contains(&q) {
-                        d.quests.push(q);
-                    }
-                }),
+                (Some(n), Some(q)) => g.edit_note(n, |d| d.quests.push(q)),
                 _ => false,
             })
         }
         "removenotequest" => {
-            let q = form(args, 1);
-            let had = def.is_some_and(|d| q.is_some_and(|q| d.quests.contains(&q)));
-            if let (true, Some(n), Some(q)) = (had, note, q) {
-                g.edit_note(n, |d| d.quests.retain(|x| *x != q));
-            }
-            yes(had)
+            let q = form(args, 1).filter(|q| g.data.quests.contains_key(q));
+            yes(match (note, q) {
+                (Some(n), Some(q)) => g.edit_note(n, |d| d.quests.retain(|x| *x != q)),
+                _ => false,
+            })
         }
         // [documented: SetNoteRead] `serialize` 1 keeps the change in the save; without
         // it the change lasts for the session. Returns nothing ("void").
@@ -164,3 +176,7 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d9_note_quests_tests.rs"]
+mod w6d9_note_quests_tests;

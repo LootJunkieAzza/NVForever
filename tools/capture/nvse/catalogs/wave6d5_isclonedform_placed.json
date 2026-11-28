@@ -1,0 +1,110 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_isclonedform_placed",
+  "description": "Wave 6D-5 read-only probe verifying IsClonedForm on placed references of cloned bases and PlaceAtMe scene-base clones.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d5_isclonedform_placed",
+      "title": "IsClonedForm on placed references of temporary clones",
+      "extender": "xNVSE / JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d5_28_tempcloneform_scene_bases_placeatme",
+          "bucket": "clone_and_scene_bases",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/temporary-scene-bases.md",
+          "spec_line": 15,
+          "functions_tested": [
+            "TempCloneForm",
+            "PlaceAtMe",
+            "SetModelPath",
+            "GetModelPath",
+            "GetBaseObject",
+            "IsClonedForm",
+            "IsReference",
+            "PrintToConsole"
+          ],
+          "claim": "SD-11: Verify PlaceAtMe on TempCloneForm clones of STAT (0x9DD), MSTT (0x17738A), PROJ (0x2CD5F), ACTI (0x1B), and MISC (0xF): placement validity, IsReference, GetBaseObject == clone, IsClonedForm on placed ref vs base, and pre-placement SetModelPath retention.",
+          "expected": "NVForever objects.rs:43-63 only admits STAT/MSTT/PROJ clones (refusing ACTI) and keeps the clone alias as RefState.base.",
+          "script_lines": [
+            "ref rStat = GetFormFromMod \"FalloutNV.esm\" \"9DD\"",
+            "ref rMstt = GetFormFromMod \"FalloutNV.esm\" \"17738A\"",
+            "ref rProj = GetFormFromMod \"FalloutNV.esm\" \"2CD5F\"",
+            "ref rActi = GetFormFromMod \"FalloutNV.esm\" \"1B\"",
+            "ref rMisc = GetFormFromMod \"FalloutNV.esm\" \"F\"",
+            "ref cStat = TempCloneForm rStat",
+            "SetModelPath \"w6d5_cl_stat.nif\" cStat",
+            "ref pStat = Player.PlaceAtMe cStat 1",
+            "int okStat = (IsFormValid pStat) && (IsReference pStat) && (pStat.GetBaseObject == cStat)",
+            "int icRefS = IsClonedForm pStat",
+            "int icBasS = IsClonedForm (pStat.GetBaseObject)",
+            "string_var mStat = GetModelPath (pStat.GetBaseObject)",
+            "ref cMstt = TempCloneForm rMstt",
+            "ref pMstt = Player.PlaceAtMe cMstt 1",
+            "int okMstt = (IsFormValid pMstt) && (pMstt.GetBaseObject == cMstt)",
+            "ref cProj = TempCloneForm rProj",
+            "ref pProj = Player.PlaceAtMe cProj 1",
+            "int okProj = (IsFormValid pProj) && (pProj.GetBaseObject == cProj)",
+            "ref cActi = TempCloneForm rActi",
+            "ref pActi = Player.PlaceAtMe cActi 1",
+            "int okActi = (IsFormValid pActi) && (pActi.GetBaseObject == cActi)",
+            "ref cMisc = TempCloneForm rMisc",
+            "ref pMisc = Player.PlaceAtMe cMisc 1",
+            "int okMisc = (IsFormValid pMisc) && (pMisc.GetBaseObject == cMisc)",
+            "if pStat",
+            "  pStat.Disable",
+            "  pStat.MarkForDelete",
+            "endif",
+            "if pMstt",
+            "  pMstt.Disable",
+            "  pMstt.MarkForDelete",
+            "endif",
+            "if pProj",
+            "  pProj.Disable",
+            "  pProj.MarkForDelete",
+            "endif",
+            "if pActi",
+            "  pActi.Disable",
+            "  pActi.MarkForDelete",
+            "endif",
+            "if pMisc",
+            "  pMisc.Disable",
+            "  pMisc.MarkForDelete",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5_28_tempcloneform_scene_bases_placeatme|stat(ok=%g,icR=%g,icB=%g,m=[%z])|mstt=%g|proj=%g|acti=%g|misc=%g\" okStat icRefS icBasS mStat okMstt okProj okActi okMisc"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

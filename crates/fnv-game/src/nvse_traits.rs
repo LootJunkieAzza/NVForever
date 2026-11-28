@@ -436,8 +436,10 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         }
         "getsoundsourcefile" => XVal::Str(g.sound_source_override(x).map(str::to_string).unwrap_or_else(|| g.sub(x, *b"FNAM").and_then(Json::as_str).unwrap_or("").to_string())),
         "setsoundsourcefile" => {
-            if let Some(XVal::Str(p)) = args.get(1) {
-                g.traits.sources.insert(x, p.clone());
+            if g.data.sig(g.unclone(x)) == Some(*b"SOUN") {
+                if let Some(XVal::Str(p)) = args.get(1) {
+                    g.traits.sources.insert(x, p.clone());
+                }
             }
             zero
         }
@@ -470,13 +472,18 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             if name == "getweatherrgbcolor" {
                 XVal::Num(changed(g, COLOR, slot).unwrap_or_else(|| weather_color(g, x, t, time, layer)))
             } else {
-                // RRRGGGBBB [observed: rgb-ui, 31 values fit]: above 255255255 the call is
-                // ignored; the parts are packed unmasked as R + G·256 + B·65536 and read
-                // back as bytes, the rest carried into B (100999999 reads 100232002).
-                let v = num(args, 3, 0.0).max(0.0) as i64;
-                if v > 255_255_255 {
+                // RRRGGGBBB [observed: rgb-ui, 31 values fit; observed: Fallout: New Vegas
+                // 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25,
+                // `w6d10_15_weather_rgb_color_nam0_pnam_layers_and_packing`:
+                // `set(ok=120200050,cry=100232002,ov=100232002,neg=100232002,p2=10020030)`]:
+                // negative values and values above 255255255 are ignored without overwriting;
+                // the parts are packed unmasked as R + G·256 + B·65536 and read back as
+                // bytes, the rest carried into B (100999999 reads 100232002).
+                let raw = num(args, 3, -1.0);
+                if !raw.is_finite() || raw < 0.0 || raw > 255_255_255.0 {
                     return Some(Ok(zero));
                 }
+                let v = raw as i64;
                 let w = v / 1_000_000 + (v / 1000 % 1000) * 256 + (v % 1000) * 65536;
                 let (r, gg, b) = (w & 255, (w >> 8) & 255, w >> 16);
                 let packed = (r * 1_000_000 + gg * 1000 + b) as f64;
@@ -497,10 +504,17 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
         }
         "setweatherimagespacemod" => {
             let time = num(args, 1, -1.0) as i64;
-            let id = form(args, 2).map_or(0, |f| f.0);
-            let prev = g.traits.ism.insert((x, time), id);
-            if prev != Some(id) && (0..=5).contains(&time) {
-                g.traits.note_weather_visual_change();
+            if g.data.sig(g.unclone(x)) == Some(*b"WTHR") && (0..=5).contains(&time) {
+                let next = match args.get(2) {
+                    None => Some(0),
+                    Some(_) => form(args, 2).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"IMAD")).map(|f| f.0),
+                };
+                if let Some(id) = next {
+                    let prev = g.traits.ism.insert((x, time), id);
+                    if prev != Some(id) {
+                        g.traits.note_weather_visual_change();
+                    }
+                }
             }
             zero
         }
@@ -526,3 +540,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
     };
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_weatherrgb_neg_tests.rs"]
+mod w6d10_weatherrgb_neg_tests;

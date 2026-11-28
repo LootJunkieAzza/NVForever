@@ -171,10 +171,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [observed: plugins1, Toughness's first entry].
         "getnthperkentryvalue2" | "setnthperkentryvalue2" => XVal::Num(-1.0),
         // [observed: plugins1, Recipe127mm 4 inputs, the first 00140AAA; category
-        // 00153621, subcategory 0013E44E]
+        // 00153621, subcategory 0013E44E; w6d2p2_29_lutana_list_getters_empty_and_types:
+        // non-RCPE returns ar_Null (-1)]. Returning ar_Null on an empty valid RCPE is [hypothesis].
         "getrecipeinputforms" => {
-            let ins: Vec<XVal> = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)).map(|r| r.ingredients.iter().map(|(f, _)| XVal::Ref(f.0)).collect()).unwrap_or_default();
-            list(g, ins)
+            let Some(r) = form(args, 0).and_then(|f| crate::nvse_lutana::recipe(g, f)) else { return Some(Ok(XVal::Array(0))) };
+            let ins: Vec<XVal> = r.ingredients.iter().map(|(f, _)| XVal::Ref(f.0)).collect();
+            // [hypothesis: empty valid RCPE returns ar_Null]
+            if ins.is_empty() { XVal::Array(0) } else { list(g, ins) }
         }
         "getrecipecategory" | "getrecipesubcategory" => {
             let f = form(args, 0).unwrap_or(FormId(0));
@@ -358,9 +361,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let rec = g.world.placed.get(r).and_then(|p| p.marker_reputation);
             XVal::Ref(g.gaps.marker_reputations.get(&r).copied().unwrap_or(rec).map_or(0, |f| f.0))
         }
+        // Omitted argument clears the marker reputation; passing a valid REPU sets it;
+        // passing 0 or a non-REPU form is a no-op that preserves the prior reputation
+        // [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE
+        // 57.30 (5730), 2026-11-25, `w6d10_37_mapmarker_name_type_oob_and_reputation`:
+        // `rep(0=00104C22,nov=1,badEqNov=1,nullZ=0,omitZ=1)`].
         "setmapmarkerrep" => {
             if let Some(r) = subject {
-                g.gaps.marker_reputations.insert(r, form(args, 0));
+                if args.is_empty() {
+                    g.gaps.marker_reputations.insert(r, None);
+                } else if let Some(rep) = form(args, 0).filter(|&f| g.data.sig(f) == Some(*b"REPU")) {
+                    g.gaps.marker_reputations.insert(r, Some(rep));
+                }
             }
             zero
         }
@@ -444,7 +456,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // gr_10mmP.txt]. A model argument that is no form (an empty reference, a missing
         // master's form) changes nothing, as before [hypothesis: the original's no-op].
         "setweapon1stpersonmodel" => {
-            let Some(w) = form(args, 0) else { return Some(Ok(zero)) };
+            let Some(w) = form(args, 0).filter(|&w| g.data.sig(g.unclone(w)) == Some(*b"WEAP")) else { return Some(Ok(zero)) };
             let sub = match num(args, 1, -1.0) as i64 {
                 0 => "WNAM/".to_string(),
                 k @ 1..=7 => format!("WNM{k}/"),
@@ -452,7 +464,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             };
             let model = match args.get(2) {
                 None => 0,
-                Some(_) => match form(args, 2) {
+                Some(_) => match form(args, 2).filter(|&m| g.data.sig(g.unclone(m)) == Some(*b"STAT")) {
                     Some(m) => m.0,
                     None => return Some(Ok(zero)),
                 },
@@ -583,12 +595,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 form(args, 1).map(|s| crate::functions::list_members(g, s)).unwrap_or_default()
             };
             let mut members = crate::functions::list_members(g, l);
-            let at = num(args, 2, 0.0);
-            if at < 0.0 || at as usize > members.len() {
+            let at = num(args, 2, 0.0) as i64;
+            let insert_at = if at == -2 {
+                members.len()
+            } else if at < 0 || at as usize > members.len() {
                 return Some(Ok(zero));
-            }
+            } else {
+                at as usize
+            };
             for (k, f) in add.into_iter().enumerate() {
-                members.insert(at as usize + k, f);
+                members.insert(insert_at + k, f);
             }
             g.list_edits.insert(l, members);
             XVal::Num(1.0)
@@ -756,3 +772,11 @@ mod tests {
         assert_eq!([f("bounce", 0), f("bounce", 1), f("bounce", 2)], [273.0, 4726.0, 1171.0]);
     }
 }
+
+#[cfg(test)]
+#[path = "w6d10_mapmarker_rep_tests.rs"]
+mod w6d10_mapmarker_rep_tests;
+
+#[cfg(test)]
+#[path = "w6d11_listaddarray_tests.rs"]
+mod w6d11_listaddarray_tests;

@@ -1215,6 +1215,10 @@ fn same(a: &XVal, b: &XVal) -> bool {
     }
 }
 
+#[cfg(test)]
+#[path = "w6d11_sv_set_tests.rs"]
+mod w6d11_sv_set_tests;
+
 /// A copy of an array; nested arrays shared (Ar_Copy) or copied all the way down
 /// (Ar_DeepCopy) [documented: Ar Copy; Ar DeepCopy].
 /// An array that holds itself, directly or through others, is copied with the same shape:
@@ -2662,6 +2666,19 @@ impl Vm<'_, '_> {
         Ok(Some(match n {
             // [documented: Sv Construct] a new string from the format and its values.
             "sv_construct" => XVal::Str(self.format_arg(c, 0)?.0),
+            // [documented: Sv Set; observed: nvse-fifth (uninitialized target stays empty)
+            // and `w6d11_24_sv_replace_searchlen_maxcount_and_sv_set` (`set=[val=42]` on an
+            // initialized string_var)]: formats text into an initialized string variable.
+            "sv_set" => {
+                let (formatted, k) = self.format_arg(c, 0)?;
+                if let Some(var) = self.string_var_arg(c.args.get(k))? {
+                    let id = self.host.get_var(&var).map_err(VmError::Host)?.num() as u32;
+                    if self.store()?.text(id).is_some() {
+                        self.write_var(&var, XVal::Str(formatted))?;
+                    }
+                }
+                XVal::Num(0.0)
+            }
             // [documented: Sv Length] -1 for an invalid string.
             "sv_length" => {
                 // A destructed or never-set string variable is not a valid string: -1
@@ -3695,6 +3712,15 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "getsystemcoloralt" | "getpixelfrombmp" => &[1, 2, 3],
         // [documented: GetLinearVelocity and GetCurrentSkyColor, three script variables].
         "getlinearvelocity" | "getcurrentskycolor" => &[1, 2, 3],
+        // [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+        // `w6d4_13_get_world_map_pos_mults_outvars` & `w6d4p3_13c_world_map_pos_mults_4markers`
+        // (`wave6d4_world_map_pos_mults.json`): `ref.GetWorldMapPosMults fX fY` writes normalized
+        // `(u, v)` into both float out-vars on exterior refs and leaves them unchanged on interiors].
+        "getworldmapposmults" => &[0, 1],
+        // [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+        // `w6d4_14_get_camera_movement_outvars` (`wave6d4_camera_movement.json`):
+        // `GetCameraMovement fZ fY` returns 0 and writes 2 float out-vars `(0.0, 0.0)` at rest].
+        "getcameramovement" => &[0, 1],
         _ => return None,
     })
 }

@@ -115,9 +115,12 @@ impl SoundState {
     }
 }
 
-/// Number of documented `SOUN` `SNDD`/`SNDX` flag IDs (`0..=13`) [documented: GECK wiki
-/// GetSoundFlag, SetSoundFlag; xEdit wbDefinitionsFNV.pas SOUN].
-pub const SOUND_FLAG_COUNT: u8 = 14;
+/// Number of addressable `SOUN` `SNDD`/`SNDX` flag bits (`0..=31`); documented wiki IDs
+/// cover `0..=13`, original FNV + JIP LN 57.30 also accepts bits `14` and `15` [documented:
+/// GECK wiki GetSoundFlag, SetSoundFlag; xEdit wbDefinitionsFNV.pas SOUN; observed:
+/// `w6d2_08_sound_flag_oob_and_clone`], and upper bits `16..=31` follow the 32-bit `u32`
+/// flag field [design].
+pub const SOUND_FLAG_COUNT: u8 = 32;
 
 impl Game<'_> {
     /// The session `SetSoundFlag` bitmask override directly stored for `sound` (including
@@ -145,14 +148,14 @@ impl Game<'_> {
         Some(raw as u32)
     }
 
-    /// Effective value of `SOUN` flag bit `flag_id` (`0..=13`) (`GetSoundFlag`).
+    /// Effective value of `SOUN` flag bit `flag_id` (`0..=31`) (`GetSoundFlag`).
     pub fn sound_flag(&self, sound: FormId, flag_id: u8) -> bool {
         flag_id < SOUND_FLAG_COUNT && self.sound_flags(sound).is_some_and(|bits| (bits & (1u32 << flag_id)) != 0)
     }
 
-    /// Override `SOUN` flag bit `flag_id` (`0..=13`) on `sound` for the session
+    /// Override `SOUN` flag bit `flag_id` (`0..=31`) on `sound` for the session
     /// (`SetSoundFlag`). Returns `true` when `sound` resolves to a `SOUN` and
-    /// `flag_id < 14`; returns `false` without mutating state otherwise.
+    /// `flag_id < 32`; returns `false` without mutating state otherwise.
     pub fn set_sound_flag(&mut self, sound: FormId, flag_id: u8, on: bool) -> bool {
         if flag_id >= SOUND_FLAG_COUNT {
             return false;
@@ -226,8 +229,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // sound1, a PlaySound3D on the player still playing 6 frames on; hypothesis: it
         // stops only sounds the game attached to the reference itself].
         "stopsoundalt" => zero,
-        // JIP's `sound flagID [newValue]` (`0..=13`, SNDD/SNDX flags) [documented: GECK
-        // wiki GetSoundFlag, SetSoundFlag; observed: gaps4, SetSoundFlag returns 0].
+        // JIP's `sound flagID [newValue]` (`0..=31`, SNDD/SNDX flags; `0..=13` documented,
+        // `14`/`15` observed in `w6d2_08_sound_flag_oob_and_clone`, `16..=31` [design])
+        // [documented: GECK wiki GetSoundFlag, SetSoundFlag; observed: gaps4, SetSoundFlag
+        // returns 0].
         "getsoundflag" => {
             let (Some(s), Some(bit)) = (form(args, 0), flag_id(args, 1)) else { return Some(Ok(zero)) };
             yes(g.sound_flag(s, bit))

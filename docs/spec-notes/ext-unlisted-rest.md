@@ -268,9 +268,12 @@ original's answer and changes nothing.
   saved"]. ScriptedNVR2's Script Runner file calls it 1,436 times at the game restart.
 - **GetCasinoDeckTexture** `casino index` (JohnnyGuitar): the deck's back texture, the
   casino's ICO2 entries in order (`terminals\NV_PlayingCards\DeckB\cardB_Back.dds` for the
-  Atomic Wrangler) [observed: rest4.casinodeck.0; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_37_casino_deck_and_switch_node (GetCasinoDeckTexture/GetSwitchNodeIndex): terminals\NV_PlayingCards\DeckB\cardB_Back.dds,0; no DLL or source consulted]. **SetCasinoDeckTexture** was not probed:
-  NVForever answers 1, as JohnnyGuitar's other setters did, and changes nothing, so
-  GetCasinoDeckTexture keeps reading the casino's own deck [hypothesis].
+  Atomic Wrangler) [observed: rest4.casinodeck.0; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 with the 10 official base masters, clean-room script probe jg_37_casino_deck_and_switch_node (GetCasinoDeckTexture/GetSwitchNodeIndex): terminals\NV_PlayingCards\DeckB\cardB_Back.dds,0; no DLL or source consulted]. **SetCasinoDeckTexture** `casino index path` (JohnnyGuitar): returns `1` and updates
+  the texture read back by `GetCasinoDeckTexture` for the session [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`,
+  `w6d9_44_casino_traits_chip_decks_payout_reels_and_decktex`:
+  `PROBE|w6d9_44_casino_traits_chip_decks_payout_reels_and_decktex|s17(0->1)|pay(1.50->2.50)|max=9000,d=3,sh=0.20|reel(1=2->9,0=-1,8=-1)|chip(ok=1,bad=1)|tex(l=46,st=2,r=1,chg=1)`;
+  no DLL, PDB, or third-party source consulted]. Non-`CSNO` forms and negative indices were
+  not probed and return `0` without mutating state `[design]`.
 - **GetSwitchNodeIndex** `node [flag]` (JohnnyGuitar): 0 for Doc's `Bip01 Head`, not a
   switch node [observed: rest4.switchnode; observed: jg_37_casino_deck_and_switch_node: 0]. NVForever answers 0 [hypothesis: the index of
   a switch node's shown child, 0 for any other node].
@@ -318,11 +321,17 @@ commands that touch the menus, the sky or the minimap ran one per launch].
   1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room
   script probe jip_52_race_age_voice_setters (GetRaceAgeRace/SetRaceAgeRace/GetRaceVoice/SetRaceVoice):
   0,1,000042C2; no DLL or source consulted].
-- **GetEquippedArmorRefs**: the actor's equipped armour, 3 for the player and 1 for Doc.
-  The original returns inventory references (`FFxxxxxx`) [observed: Fallout: New Vegas
-  1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room
-  script probe jip_53_equipped_armor_refs_kind (GetEquippedArmorRefs): 2,FF001342; no DLL
-  or source consulted]; NVForever currently lists the base forms [design: follow-up].
+- **GetEquippedArmorRefs**: returns the actor's equipped armour as temporary inventory
+  references (`g.temp_ref`; `0xFFxxxxxx` in original FNV, NOT base forms), including
+  equipped `TempCloneForm` armor
+  (`g.unclone(f)` resolves `ARMO` signature) [observed: Fallout: New Vegas 1.4.0.525 +
+  xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, `rest5.equippedarmor.*`,
+  `jip_53_equipped_armor_refs_kind` (`2,FF001342`), and 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), isolated clean-room staging copy (read-only `PrintToConsole` probe; zero
+  writes to game install or Saves), `w6d4_18_hit_node_collision_nodes_cloned_armor`
+  (`tools/capture/nvse/catalogs/wave6d4_equipped_armor_refs.json`):
+  `PROBE|w6d4_18_hit_node_collision_nodes_cloned_armor|hn(d=[NULL],p=[NULL])|col(sz=18,n0=[Bip01 NonAccum])|eqArm(sz=2,id=FF00131F,isBase=0)`;
+  zero DLL, PDB, or third-party source consulted].
 - **GetArrayValue** `array index`: the element (20 for index 1 of [10 20 30]); 0 for a
   reference given instead of an array.
 - **SetContainerOpenSound / SetContainerCloseSound** `sound [container]`: the container's
@@ -367,11 +376,13 @@ commands that touch the menus, the sky or the minimap ran one per launch].
   door" (`DOOR` with attached script), plus exact clearing rules on `ContainerMenu` close,
   cell unload, or unprobed reference types].
 
+- **ToggleHitEffects** `[enable]`: starts enabled (`1`), returns the previous enabled state (`1` or `0`), and when given an argument updates the session toggle (`0` disables, non-zero enables; `rest5.toggle.hiteffects` had probed only the initial `1`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, read-only `PrintToConsole` probe `w6d12_23_toggle_hit_effects_and_highlight_bodypart_alt` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `hit(q0=1,off=1,qOff=0,on=0,qOn=1)|hlDone=1`; no DLL or source consulted]. NVForever currently tracks only the script-visible session toggle state and return value in `Unlisted2State::hit_effects_disabled`; visual hit-effect suppression in the renderer is not yet wired [design].
+
 **Constant answers** (each [observed] for the inputs probed; what each changes is not seen):
 
 | Answer | Commands |
 |---|---|
-| 1 | GetQuestTargetsChanged, ToggleHitEffects |
+| 1 | GetQuestTargetsChanged |
 | 0 | GetScriptBlockDisabled, SetScriptBlockDisabled, IsAttackQueued, GetRecipeMenuNumSubcategories, SetWaterTrait, ToggleDepthClear, ToggleNoMovementCombat, ToggleNoZPosReset, ToggleNodeCollision, SuppressQuestMessages, UnlockRecipeMenuQuantity, SetItemFilter, InitItemFilter, SetTextureTransformKey, ClearModelAltTextures, InitRockItLauncher, EnableImprovedRecipeMenu, SetWindSpeedMult, SwapObjectLOD, ScrollMouseWheel, InitMiniMap, UpdateMiniMap, ReloadCharController, ReloadCloudTextures, ResetClouds, ShowLevelUpMenuEx |
 | no array | GetObjectiveTeleportLinks (quest VMS01, objective 10) |
 
@@ -386,9 +397,29 @@ commands that touch the menus, the sky or the minimap ran one per launch].
   future lab result may differ. This is not renderer or native-call qualification.
 - **GetBodyPartVATSTarget** did not compile into a number; NVForever gives "".
 
+- **GetCameraMovement** `GetCameraMovement fZ fY`: returns integer `0` (not `string_var`)
+  and writes two float out-variables `(0.0, 0.0)` at rest [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30,
+  probe `w6d4_14_get_camera_movement_outvars` (`tools/capture/nvse/catalogs/wave6d4_camera_movement.json`):
+  `PROBE|w6d4_14_get_camera_movement_outvars|r=0|z=0.0000,y=0.0000`]. Live moving-camera
+  per-frame deltas are not yet wired from the renderer, so NVForever writes `(0.0, 0.0)` [design].
+
+- **GetWorldMapPosMults** `ref.GetWorldMapPosMults fX fY`: returns `0` and writes the
+  reference's normalized world-map coordinates `(u, v)` into the two float out-variables
+  for exterior references (matching `WorldMap::uv` with `MAP_SPAN = 51/64` and `CELL =
+  4096.0` over `WRLD MNAM` cell bounds), while leaving caller out-variables untouched on
+  interior references [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30, probes
+  `w6d4_13_get_world_map_pos_mults_outvars` and `w6d4p3_13c_world_map_pos_mults_4markers`
+  (`tools/capture/nvse/catalogs/wave6d4_world_map_pos_mults.json`):
+  `PROBE|w6d4_13_get_world_map_pos_mults_outvars|p(r=0,-9.0000,-9.0000)|d(r=0,-9.0000,-9.0000)|m(r=0,0.3323,0.5636)`
+  and
+  `PROBE|w6d4p3_13c_world_map_pos_mults_4markers|gs(-70992,2560->0.3323,0.5636)|nel(34322,125976->0.6682,0.1701)|srch(26319,-96652->0.6427,0.8800)|nov(22205,-32624->0.6296,0.6758)`].
+  Child worldspace `ONAM` map-scale/offset inheritance and worldspaces lacking `MNAM`
+  bounds leaving caller out-vars unchanged remain [hypothesis]; clamping degenerate
+  cell spans to `>= 1` is [design].
+
 **No argument pattern compiled**, so the shape is unknown. These get optional arguments
-and answer 0 or "": CCCTaskPackageFlags, GetCameraMovement, GetTranslatedPos,
-GetWorldMapPosMults, TransformWorldToLocal.
+and answer 0 or "": CCCTaskPackageFlags, GetTranslatedPos,
+TransformWorldToLocal.
 
 ## 10. Where this leaves the catalogue
 

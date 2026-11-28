@@ -1,0 +1,114 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_world_map_pos_mults",
+  "description": "Clean-room read-only Wave 6D-4 probes for JIP LN GetWorldMapPosMults out-var UVs and interior preservation.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "JIP LN": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d4_world_map_pos_mults",
+      "title": "Wave 6D-4: JIP LN GetWorldMapPosMults out-var UV coordinates",
+      "extender": "JIP LN",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4_13_get_world_map_pos_mults_outvars",
+          "bucket": "unlisted_jip_edges",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-unlisted-rest.md",
+          "spec_line": 376,
+          "functions_tested": [
+            "GetWorldMapPosMults"
+          ],
+          "claim": "SD-01 (P0, 20 active mod calls): Verify GetWorldMapPosMults with parenthesized out-vars (fx) (fy) on Player (interior), DocMitchellREF (interior), and GSMapMarker (0xCDF51, exterior WastelandNV).",
+          "expected": "NVForever hardcodes GetWorldMapPosMults to 0.0 and does not populate (fx) (fy); original computes normalized [0..1] world-map coordinates.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rMark = GetFormFromMod \"FalloutNV.esm\" \"CDF51\"",
+            "float px = -9.0",
+            "float py = -9.0",
+            "int rP = Player.GetWorldMapPosMults (px) (py)",
+            "float dx = -9.0",
+            "float dy = -9.0",
+            "int rD = rDoc.GetWorldMapPosMults (dx) (dy)",
+            "float mx = -9.0",
+            "float my = -9.0",
+            "int rM = rMark.GetWorldMapPosMults (mx) (my)",
+            "PrintToConsole \"PROBE|w6d4_13_get_world_map_pos_mults_outvars|p(r=%g,%.4f,%.4f)|d(r=%g,%.4f,%.4f)|m(r=%g,%.4f,%.4f)\" rP px py rD dx dy rM mx my"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        },
+        {
+          "id": "w6d4p3_13c_world_map_pos_mults_4markers",
+          "bucket": "unlisted_jip_edges",
+          "extender": "JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-unlisted-rest.md",
+          "spec_line": 376,
+          "functions_tested": [
+            "GetWorldMapPosMults"
+          ],
+          "claim": "SD-01: Measure GetWorldMapPosMults (fx) (fy) and (GetPos X, GetPos Y) on 4 real WastelandNV map marker REFRs (Goodsprings 0xCDF51, Nellis 0xCDEFA, Camp Searchlight 0xCDF02, Novac 0x9289B).",
+          "expected": "Derive exact WastelandNV world-to-map-mult linear transform to 4 decimal places.",
+          "script_lines": [
+            "ref rM1 = GetFormFromMod \"FalloutNV.esm\" \"CDF51\"",
+            "ref rM2 = GetFormFromMod \"FalloutNV.esm\" \"CDEFA\"",
+            "ref rM3 = GetFormFromMod \"FalloutNV.esm\" \"CDF02\"",
+            "ref rM4 = GetFormFromMod \"FalloutNV.esm\" \"9289B\"",
+            "float x1 = -9.0",
+            "float y1 = -9.0",
+            "rM1.GetWorldMapPosMults (x1) (y1)",
+            "float x2 = -9.0",
+            "float y2 = -9.0",
+            "rM2.GetWorldMapPosMults (x2) (y2)",
+            "float x3 = -9.0",
+            "float y3 = -9.0",
+            "rM3.GetWorldMapPosMults (x3) (y3)",
+            "float x4 = -9.0",
+            "float y4 = -9.0",
+            "rM4.GetWorldMapPosMults (x4) (y4)",
+            "string_var s1 = sv_Construct \"gs(%.0f,%.0f->%.4f,%.4f)|nel(%.0f,%.0f->%.4f,%.4f)\" (rM1.GetPos X) (rM1.GetPos Y) x1 y1 (rM2.GetPos X) (rM2.GetPos Y) x2 y2",
+            "string_var s2 = sv_Construct \"srch(%.0f,%.0f->%.4f,%.4f)|nov(%.0f,%.0f->%.4f,%.4f)\" (rM3.GetPos X) (rM3.GetPos Y) x3 y3 (rM4.GetPos X) (rM4.GetPos Y) x4 y4",
+            "PrintToConsole \"PROBE|w6d4p3_13c_world_map_pos_mults_4markers|%z|%z\" s1 s2"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

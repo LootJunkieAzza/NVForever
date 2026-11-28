@@ -1,0 +1,117 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_set_eyes",
+  "description": "Clean-room read-only Wave 6D-4 probe verifying xNVSE SetEyes accepts TempCloneForm NPCs and rejects non-EYES forms.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "JIP LN": "57.30"
+  },
+  "batches": [
+    {
+      "id": "w6d4_set_eyes",
+      "title": "Wave 6D-4: xNVSE SetEyes TempCloneForm NPC acceptance and EYES validation",
+      "extender": "xNVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4p3_07_set_eyes_and_nth_package_placed",
+          "bucket": "xnvse_core_rest",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-last-core.md",
+          "spec_line": 13,
+          "functions_tested": [
+            "SetEyes",
+            "GetEyes",
+            "GetPackageCount",
+            "GetNthPackage",
+            "SetNthPackage",
+            "AddAnimation",
+            "GetNthAnimation",
+            "DelAnimations",
+            "TempCloneForm"
+          ],
+          "claim": "Verify SetEyes (valid EYES vs non-EYES Stimpak) and SetNthPackage (valid/OOB/neg/non-PACK) on placed TempCloneForm NPC, plus DelAnimations on placed TempCloneForm creature.",
+          "expected": "Confirm SetEyes unclone + EYES validation, SetNthPackage ref return + non-PACK check, and DelAnimations.",
+          "script_lines": [
+            "ref rDocBase = GetFormFromMod \"FalloutNV.esm\" \"104C0C\"",
+            "ref rCrea = GetFormFromMod \"FalloutNV.esm\" \"1CF6D\"",
+            "ref rNpcC = TempCloneForm rDocBase 0",
+            "ref rCreaC = TempCloneForm rCrea 0",
+            "ref rPlNpc = Player.PlaceAtMe rNpcC 1",
+            "ref rPlCrea = Player.PlaceAtMe rCreaC 1",
+            "Player.AuxVarSetRef \"*w6_pn\" rPlNpc",
+            "Player.AuxVarSetRef \"*w6_pc\" rPlCrea",
+            "Player.AuxVarSetRef \"*w6_bc\" rCreaC"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "read",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rEye = GetFormFromMod \"FalloutNV.esm\" \"4CB10\"",
+                "ref rStim = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+                "ref rPack = GetFormFromMod \"FalloutNV.esm\" \"3939\"",
+                "ref rPlNpc = Player.AuxVarGetRef \"*w6_pn\"",
+                "ref rPlCrea = Player.AuxVarGetRef \"*w6_pc\"",
+                "ref rCreaC = Player.AuxVarGetRef \"*w6_bc\"",
+                "ref e0 = rPlNpc.GetEyes",
+                "int rOk = rPlNpc.SetEyes rEye",
+                "ref e1 = rPlNpc.GetEyes",
+                "int m1 = (e1 == rEye)",
+                "int rBad = rPlNpc.SetEyes rStim",
+                "ref e2 = rPlNpc.GetEyes",
+                "int m2 = (e2 == rEye)",
+                "int pc0 = rPlNpc.GetPackageCount",
+                "ref pk0 = rPlNpc.GetNthPackage 0",
+                "ref oldOk = rPlNpc.SetNthPackage rPack 0",
+                "ref pk1 = rPlNpc.GetNthPackage 0",
+                "int mPk = (pk1 == rPack)",
+                "int mOld = (oldOk == pk0)",
+                "ref oldOob = rPlNpc.SetNthPackage rPack 99",
+                "ref oldNeg = rPlNpc.SetNthPackage rPack -1",
+                "ref oldBad = rPlNpc.SetNthPackage rStim 0",
+                "ref pkAfterBad = rPlNpc.GetNthPackage 0",
+                "int aAdd = AddAnimation \"w6d4_anim.kf\" rCreaC",
+                "string_var sA0 = GetNthAnimation 0 rCreaC",
+                "int aDelPl = rPlCrea.DelAnimations",
+                "string_var sA1 = GetNthAnimation 0 rCreaC",
+                "rPlNpc.Disable",
+                "rPlNpc.MarkForDelete",
+                "rPlCrea.Disable",
+                "rPlCrea.MarkForDelete",
+                "string_var s1 = sv_Construct \"eyes(e0=%i,ok=%g,m1=%g,bad=%g,m2=%g)|pkg(cnt=%g,mPk=%g,mOld=%g)\" e0 rOk m1 rBad m2 pc0 mPk mOld",
+                "string_var s2 = sv_Construct \"pkgBad(oob=%i,neg=%i,bad=%i,kept=%g)|anim(add=%g,a0=[%z],del=%g,a1Len=%g)\" oldOob oldNeg oldBad (pkAfterBad == rPack) aAdd sA0 aDelPl (sv_Length sA1)",
+                "PrintToConsole \"PROBE|w6d4p3_07_set_eyes_and_nth_package_placed|%z|%z\" s1 s2"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

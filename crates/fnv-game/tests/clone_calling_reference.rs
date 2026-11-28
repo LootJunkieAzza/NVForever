@@ -57,7 +57,11 @@ fn no_form_and_no_calling_reference_still_returns_no_clone() {
 }
 
 #[test]
-fn an_explicit_null_base_keeps_its_existing_no_clone_result() {
+fn an_explicit_null_base_falls_back_to_the_calling_references_base() {
     let f = fixture(); let mut g = game(&f);
-    assert_eq!(q(&mut g, "ref ownCaller\nlet ownCaller := player.PlaceAtMe OwnedFirstBase\nSetFunctionValue (ownCaller.TempCloneForm 0)"), XVal::Ref(0));
+    let XVal::Ref(clone) = q(&mut g, "ref ownCaller\nlet ownCaller := player.PlaceAtMe OwnedFirstBase\nSetFunctionValue (ownCaller.TempCloneForm 0)") else { panic!("clone result") };
+    assert_ne!(clone, 0, "explicit null form falls back to calling reference base");
+    assert_ne!(clone, 0xD00);
+    assert_eq!(g.unclone(FormId(clone)), FormId(0xD00));
+    assert_eq!(q(&mut g, "SetFunctionValue (TempCloneForm 0)"), XVal::Ref(0), "explicit null without caller still returns 0");
 }

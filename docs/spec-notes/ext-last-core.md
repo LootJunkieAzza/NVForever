@@ -10,13 +10,13 @@ the HUD captures in hud.md §14 [observed]. Changes last for the session unless 
 
 | Function | What it changes | Read back by |
 |---|---|---|
-| SetEyes `eyes` | the NPC base's eyes (ENAM), so every reference of it; 1 when set [documented: "Returns 1 for success", "affects their baseform"] | GetEyes |
+| SetEyes `eyes` | the NPC base's eyes (ENAM), including placed `TempCloneForm` NPCs; returns `1` when `eyes` is an `EYES` form and `0` without mutating on non-`EYES` forms (`Stimpak`) [documented: "Returns 1 for success", "affects their baseform"; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, JIP LN 57.30, probe `w6d4p3_07_set_eyes_and_nth_package_placed` (`tools/capture/nvse/catalogs/wave6d4_set_eyes.json`): `PROBE\|w6d4p3_07_set_eyes_and_nth_package_placed\|eyes(e0=00004253,ok=1,m1=1,bad=0,m2=1)\|pkg(cnt=9,mPk=1,mOld=1)\|pkgBad(oob=00000000,neg=00104C1D,bad=00000000,kept=1)\|anim(add=0,a0=[w6d4_anim.kf],del=0,a1Len=12)`]; cloned `EYES` acceptance via `g.unclone(e)` and non-`NPC_` subject rejection (returning `0` without mutating) remain [hypothesis] | GetEyes |
 | SetHairLength `length [npc]` | the NPC base's LNAM [documented] | GetHairLength |
 | SetNPCWeight `weight [npc]` | the NPC base's NAM7 [documented] | GetNPCWeight |
 | SetActorBaseFlagsHigh `flags [npc]` | the ACBS flags' high 16 bits, the low ones kept, reaching `fnv-game` actor-flag consumers (§10) [documented; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `b3_core_01_hair_weight_flags_high` (`tools/capture/nvse/catalogs/wave4b_extenders.json`, #3678 / PR #3679), round-tripping `SetHairLength 0.75`, `SetNPCWeight 0.42`, and `SetActorBaseFlagsHigh (SetBit fh0 0)` on Doc Mitchell base `0x00104C0C`: `hair=0.29->0.75|wt=0.00->0.42|flH=0->1`; no DLL or source consulted] | GetActorBaseFlagsHigh |
 | SetOwningFactionRequiredRank `rank` | the rank a reference's owning faction needs (XRNK) [documented; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe `core_26_owning_faction_req_rank` (`tools/capture/nvse/catalogs/wave4a_extenders.json`, #3678 / PR #3679), calling `SetOwningFactionRequiredRank 3` and reading `GetOwningFactionRequiredRank` then restoring on door `0x00103E61`: `0,3`; no DLL or source consulted], carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetOwningFactionRequiredRank, `Game::ownership`, IsOwned, HasOwnership |
 | SetPackageTargetDistance `package value` (alias SetPackageTargetCount) | the package target's count or distance, for every reader, the AI too (`Game::package_def`) [documented]; authored package edits (`SetPackageFlag`, `SetPackageLocation*`, `SetPackageTarget*`) are carried across same-run loads in `Game::Session` and not saved [hypothesis] | GetPackageTargetDistance |
-| SetRefCount `count` | a placed stack's count [documented]; an inventory reference's stack is left alone [hypothesis] | GetRefCount |
+| SetRefCount `count` | a placed stack's count [documented]; counts `<= 0` (`0`, `-5`) are ignored and preserve the prior count [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_07_placeatme_count_dist_dir_and_refcount_edges` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_07_placeatme_count_dist_dir_and_refcount_edges|item(dN=5,rc0=1,dist=111.0)|setRC(10=10,z=10,neg=10)|pers(0,1,0)|xmk(dN=3,rc=1)`; zero DLL, PDB, or third-party source consulted]; an inventory reference's stack is left alone [hypothesis] | GetRefCount |
 | SetCurrentQuest `quest` | the active quest, "identical to ForceActiveQuest" [documented] | GetCurrentQuest |
 | SetStringGameSettingEx `"Name\|Value"` | a string game setting, as SetStringSetting [documented; the page calls it broken and its replacement working] | GetStringGameSetting |
 | SetAltControl `control button` | the control's mouse button, as SetControl with the mouse; not written to the INI [documented: "saved to the ini"; decision: NVForever never writes the game's INI files] | GetAltControl |
@@ -85,9 +85,19 @@ nvfairport; goldens private). They read to eight or ten decimals, more than the 
   package at the index of the actor's base list is replaced, for the AI too, and the result
   is the package it replaced; an index past the end changes nothing [observed: Doc's 9
   packages, index 0 15ED62 became 10B756 and back, the count stayed 9; index 99 left 9;
-  the result 15ED62]. Only `let x := ref.SetNthPackage p i` compiled in the game; the
-  statement forms did not. The catalogue takes its parameters from the generator's
-  observed table (`OBSERVED_PARAMS`, tools/capture/script_functions.py).
+  the result 15ED62]. Index `-1` replaces the last entry of a non-empty list and returns the
+  replaced package, and non-`PACK` forms return `00000000` without mutating the list
+  [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging
+  copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL,
+  PDB, or third-party source consulted, probe `w6d4p7_08_set_nth_package_isolated`
+  (`tools/capture/nvse/catalogs/wave6d4_set_nth_package.json`):
+  `PROBE|w6d4p7_08_set_nth_package_isolated|cnt=9|ok(m=1,old=1)|oob=00000000|neg(oldEqLast=1,newEq=1)|bad(ret=00000000,kept=1)`].
+  Negative indices `< -1` and index `-1` on an empty package list returning `0` remain
+  [hypothesis]; omitting the index argument or passing a non-finite (`NaN`/`inf`) index
+  returning `0` without mutating is [design]. Only `let x := ref.SetNthPackage p i`
+  compiled in the game; the statement forms did not. The catalogue takes its parameters
+  from `PARAM_FIXES` (`tools/capture/script_functions.py`).
 - **FATan / FATan2** are the game's own approximation, not the exact angle: an odd
   polynomial of degree 11 in 32-bit floats of min(|y|,|x|)/max(|y|,|x|), then π/2 less it
   when |y| is the larger, π less it when x is negative, negated when y is negative; π and
@@ -114,6 +124,61 @@ The highlighted tile's name, printed on the console [documented: PrintActiveTile
 name of highlighted UI component"]; nothing with none [hypothesis]. The highlighted tile
 is the tile tree's pointer's (`Game::ui_pointer`, #957), as GetActiveUIComponentName reads
 it. The console's exact line is not documented: the name alone [hypothesis].
+
+## 5a. `GetHeadingAngleX` (`nvse_items.rs`)
+
+`ref.GetHeadingAngleX target` returns the vertical pitch angle in degrees
+`-atan2(dz, hypot(dx, dy))` (negative when the target is above the calling reference,
+positive when below), independent of the calling reference's own X angle [observed:
+Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, probes `w6d4p3_02_heading_angle_x_placed_weap` and
+`w6d4p4_02b_heading_angle_x_exact_coords` (`tools/capture/nvse/catalogs/wave6d4_heading_angle_x.json`):
+`PROBE|w6d4p3_02_heading_angle_x_placed_weap|ang(0.0,270.0)|up(x=-44.66,z=3.56)|dn(x=-24.75)|e(x=-36.99,z=11.99)|p30(up=-44.66,doc=0.07)|pm30(up=-44.66)`
+and
+`PROBE|w6d4p4_02b_heading_angle_x_exact_coords|p(2352.0,1603.6,7360.4)|doc(2285.0,2265.4,7359.7,x=0.05,rev=-0.05)|dr(2042.7,810.5,7458.7,x=-6.59)|ch(1171.6,1971.1,7398.4,x=-1.76)|door(2430.0,1536.0,7359.9,x=0.23)`].
+On a coincident/self target (`dx = dy = dz = 0`), NVForever returns `0.0` rather than
+propagating `-nan(ind)`, and normalizes `-0.0` to `0.0` [design].
+
+## 5b. `GetEquippedCurrentHealth` out-of-bounds slots (`nvse_items.rs`)
+
+`actor.GetEquippedCurrentHealth slot` returns `100000.0` for out-of-bounds equipment
+slots (`-1`, `99`), `0.0` for a valid empty slot (`0`), and the equipped item's current
+health points for occupied slots (`2`, `5`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, probes
+`w6d4_03_current_and_equipped_health_edges` and `w6d4p2_03_equipped_health_full_and_oob`
+(`tools/capture/nvse/catalogs/wave6d4_equipped_health_oob.json`):
+`PROBE|w6d4_03_current_and_equipped_health_edges|gun(79.9,r=0,50.0,hi=80.0,neg=0.0)|stim(0.0,r=0,0.0)|eq(r=0,s5=0.0,s2=0.0,neg=100000.0,oob=100000.0)`
+and
+`PROBE|w6d4p2_03_equipped_health_full_and_oob|init(s5=79.9,s2=149.9,s0=0.0,neg=100000.0,oob=100000.0)|set(r=0,b=40.0,hi=80.0,lo=0.0)`].
+The exact valid slot upper bound (`0..20`, matching Fallout's 20 equipment slots) and
+short-circuiting out-of-bounds slots before subject validation remain [hypothesis].
+
+## 5c. `GetAgeClass` (`nvse_items.rs`)
+
+`actor.GetAgeClass` returns the actor's race age class rather than constant `-1`: Adult
+(`1`, race has both `ONAM` older and `YNAM` younger links) on `Player` and `SunnyRef`,
+Old (`2`, race has `YNAM` only) on `DocMitchellREF`, and `-1` on loaded non-actor
+references (`DocMitchellDresserRef`), superseding the earlier `nvse-fourth` `-1` stub
+[observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25,
+`GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging
+copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL,
+PDB, or third-party source consulted, probes `w6d4_06_headparts_lev_refs_age_grids_ingrid`
+and `w6d4p3_06b_age_class_races` (`tools/capture/nvse/catalogs/wave6d4_age_class.json`):
+`PROBE|w6d4_06_headparts_lev_refs_age_grids_ingrid|hp(2,0)|lvln(2,0)|lvlc(2,0)|age(1,2)|grids=5|inG(1,1)`
+and `PROBE|w6d4p3_06b_age_class_races|p=1,doc=2,sun=1,tru=0,dog=0,dr=-1`]. In
+`w6d4p3_06b_age_class_races`, `0x00104E8A` and `0x00104E86` are non-persistent unloaded
+`STAT` references rather than Trudy or Cheyenne, so `GetFormFromMod` resolved both to null
+(`00000000`) and calling `.GetAgeClass` on a null reference evaluated to `0` (`tru=0,dog=0`).
+Returning `0` for Child (`ONAM` only), `-1` for ageless `RACE` / `CREA` forms (unprobed by
+`w6d4p3_06b_age_class_races`), and accepting the optional `actor` parameter remain [hypothesis].
+
+## 5d. `RemoveMeIR` return value (`nvse_items.rs`)
+
+`invRef.RemoveMeIR [targetContainer]` removes the inventory stack and returns `1` both
+when transferring to `targetContainer` and when deleting without a target container
+(superseding the earlier `nvse-fourth` no-target `0` assumption) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
+probe `w6d4p3_10b_uifloat_inherited_and_copyir` (`tools/capture/nvse/catalogs/wave6d4_remove_me_ir.json`):
+`PROBE|w6d4p3_10b_uifloat_inherited_and_copyir|ui(x=-999.0/-999.0,v=-999.0/-999.0)|copy(r=1,d=0->1,altV=1,d=2)|rm(r=1,d=2,p=8)|eq(0,0,del=1,g=1)`].
+Returning `0` when the inventory reference has no remaining items (`gone == 0`) or the
+target transfer fails remains [hypothesis].
 
 ## 6. Not a function
 

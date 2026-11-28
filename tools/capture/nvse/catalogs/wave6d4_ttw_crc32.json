@@ -1,0 +1,63 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d4_ttw_crc32",
+  "description": "Clean-room read-only Wave 6D-4 probe proving TTW_CRC32 returns -1 for missing plugin files.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9",
+    "TTW NVSE": "333"
+  },
+  "batches": [
+    {
+      "id": "w6d4_ttw_crc32",
+      "title": "Wave 6D-4: TTW_CRC32 missing file returns -1",
+      "extender": "TTW NVSE",
+      "required_plugins": [
+        "ttw_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d4p7_23b_ttw_crc32_isolated",
+          "bucket": "small_extenders_ttw",
+          "extender": "ttw_nvse",
+          "required_plugins": [
+            "ttw_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": false,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-small.md",
+          "spec_line": 54,
+          "functions_tested": [
+            "TTW_CRC32"
+          ],
+          "claim": "Verify TTW_CRC32 case-insensitivity on CaravanPack.esm and -1 return on missing plugin filename.",
+          "expected": "Mixed/lower filenames return identical non-zero CRC32; missing plugin returns -1.",
+          "script_lines": [
+            "int crc1 = TTW_CRC32 \"CaravanPack.esm\"",
+            "int crc2 = TTW_CRC32 \"caravanpack.esm\"",
+            "int crcMiss = TTW_CRC32 \"NoSuchW6D4.esm\"",
+            "PrintToConsole \"PROBE|w6d4p7_23b_ttw_crc32_isolated|eq=%g,nz=%g,miss=%g\" (crc1 == crc2) (crc1 != 0) crcMiss"
+          ],
+          "wait_ticks_after": 1,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

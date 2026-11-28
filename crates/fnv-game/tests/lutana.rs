@@ -312,6 +312,12 @@ AddRecipeInputForm TestRecipe ItemC 2");
     assert_eq!(n(&mut g, "GetRecipeInputCount TestRecipe ItemC"), 0.0);
     // The recipe no longer takes ItemA.
     assert_eq!(forms(&mut g, "GetFormRecipes ItemA"), vec![RCPE2]);
+    // Empty/invalid list getters return ar_Null (-1) while empty GetFormRecipes returns 0
+    // [observed: w6d2p2_29, w6d2p5_03].
+    assert_eq!(n(&mut g, "ar_Size (GetRecipeInputForms ItemA)"), -1.0);
+    assert_eq!(n(&mut g, "ar_Size (GetRecipeOutputForms ItemA)"), -1.0);
+    assert_eq!(n(&mut g, "ar_Size (GetFormRecipes ItemC)"), 0.0);
+    assert_eq!(n(&mut g, "ar_Size (GetFormRecipeOutputs ItemC)"), -1.0);
 }
 
 #[test]

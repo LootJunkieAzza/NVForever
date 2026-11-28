@@ -25,12 +25,13 @@ NVForever's `AddItemToLeveledList` converts finite levels via `(level as i64) as
 non-finite inputs map to `0` [design], and `count` below `1` remains clamped to `1`
 [hypothesis].
 
-[hypothesis] For actor lists (`AddNPCToLeveledList` / `AddCreatureToLeveledList`, not directly
-probed by `w4d_41`), NVForever currently accepts integral levels `1` through `65535` and ignores
-invalid forms, the wrong actor family, missing arguments, nonfinite numbers and levels outside
-that range. A direct LVLN/LVLC capture must establish the original's actor-list level/invalid-input
-behavior and duplicate-entry ordering. Appending preserves the order of all existing entries and
-permits duplicate additions.
+For actor lists (`AddNPCToLeveledList` / `AddCreatureToLeveledList`), finite level clamping
+(`0 -> 1`) and 16-bit wrapping (`65535`/`-1 -> 65535`, `70000 -> 4464`) are now [observed]
+below (`### Level clamping and 16-bit wrapping (w6d7_35)`); rejecting nonfinite level numbers
+remains a [design] guard. [hypothesis] Invalid forms, the wrong actor family, missing arguments,
+and duplicate-entry ordering remain unprobed on `LVLN`/`LVLC`; NVForever ignores invalid forms,
+wrong-family actors, and missing arguments, while appending preserves the order of all existing
+entries and permits duplicate additions.
 
 [hypothesis] Existing generated inventories keep their contents; subsequent
 actor template selection and newly generated inventories see additions.
@@ -79,3 +80,6 @@ list as (level, form) pairs in the saved form changes, a level held as 16 bits;
 the Inventory-chain walk used by resurrection stops after 32 steps and at a
 repeated form; the renderer's actor-list copy is updated only for lists whose
 effective definition changed, including removal after a load.
+
+### Level clamping and 16-bit wrapping (`w6d7_35`)
+- **Level edge values accepted** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, committed probe `w6d7_35_add_npc_and_creature_to_leveled_list_edges` in `tools/capture/nvse/catalogs/wave6d7_actor_leveled_list_levels.json`]: both `AddNPCToLeveledList` and `AddCreatureToLeveledList` accept `0` (stored as `1`), `65535` (`0xFFFF`, read as `-1` by `GetNthLevItemLevel`), `70000` (wrapped mod `65536` to `4464`), and `-1` (`0xFFFF`, `-1`) (`PROBE|w6d7_35_add_npc_and_creature_to_leveled_list_edges|lvln(n=3->4/5/6/7,lv=1,4464,-1,-1)|lvlc(n=1->2/3/4,lv=1,4464,-1)`).

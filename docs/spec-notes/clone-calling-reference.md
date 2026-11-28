@@ -32,3 +32,7 @@ evidence only. This current-main port has not been compiled, listed, executed or
 linted. Its four fixtures are registered in the existing integration binary.
 Scene placement of clones, renderer admission, IDLE animation, clone-of-clone
 semantics, full B42 behavior and native parity remain separate work.
+
+### Wave 6D-5 observation: explicit null form fallback to calling reference
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p3_27_tempcloneform_caller_clean` (`tools/capture/nvse/catalogs/wave6d5_tempcloneform_null.json`); zero DLL, PDB, or third-party source consulted] On a placed reference, `rPlaced.TempCloneForm rStim` clones the explicit form (`ALCH`, type `47`), while `rPlaced.TempCloneForm rNull` falls back to cloning `rPlaced`'s base (`expNull=1`), superseding the earlier `[hypothesis]` that explicit null suppressed caller fallback: `PROBE|w6d5p3_27_tempcloneform_caller_clean|exp(1:t=47)|expNull=1|plOnly(0:-9)|baseCall(0:-9)|bare(0:-9)|idx0(smi=255,ic=1)|idx1(smi=255,ic=1)|origIc=0`.

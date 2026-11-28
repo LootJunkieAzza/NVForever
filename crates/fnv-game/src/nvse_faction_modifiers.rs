@@ -33,9 +33,12 @@ fn change(g: &mut Game<'_>, args: &[XVal]) -> Result<(), String> {
         .ok_or_else(|| "ModFactionReaction requires two faction forms".to_string())?;
     // Exclusive upper bound: i64::MAX as f64 rounds up to 2^63. Never saturate a cast.
     let storage_range = (i64::MIN as f64)..-(i64::MIN as f64);
+    // Fractional finite deltas truncate toward zero without aborting the script
+    // [observed: 2026-11-25, FNV 1.4.0.525, w6d8p2_24_modfactionreaction_float_var:
+    // from 15, +0.5 then +1.9 completed (st=2) with r1=16].
     let delta = match args.get(2) {
-        Some(XVal::Num(n)) if n.is_finite() && n.fract() == 0.0 && storage_range.contains(n) => *n as i64,
-        _ => return Err("ModFactionReaction currently requires a finite integral i64 delta; fractional behavior is unqualified".into()),
+        Some(XVal::Num(n)) if n.is_finite() && storage_range.contains(&n.trunc()) => n.trunc() as i64,
+        _ => return Err("ModFactionReaction requires a finite delta representable in i64 storage".into()),
     };
     if delta == 0 {
         return Ok(());
@@ -59,3 +62,7 @@ pub(crate) fn call(g: &mut Game<'_>, name: &str, args: &[XVal]) -> Option<Result
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "w6d8_modfactionreaction_tests.rs"]
+mod w6d8_modfactionreaction_tests;

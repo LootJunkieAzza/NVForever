@@ -19,6 +19,7 @@ const TACT: u32 = 0x801;
 const FOOD: u32 = 0x802;
 const ARMO: u32 = 0x803;
 const FLST: u32 = 0x804;
+const WEAP: u32 = 0x805;
 const ROOM: u32 = 0x900;
 const MARKER: u32 = 0x910;
 const RADIO: u32 = 0x911;
@@ -42,6 +43,7 @@ fn fixture() -> Fixture {
     let alch = record(b"ALCH", 0, FOOD, &[sub(b"EDID", z("TestFood")), sub(b"ENIT", enit)]);
     let armo = record(b"ARMO", 0, ARMO, &[sub(b"EDID", z("TestArmor"))]);
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("TestFormList"))]);
+    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("TestPistol"))]);
     let room = record(b"CELL", 0, ROOM, &[sub(b"EDID", z("TestRoom")), sub(b"DATA", vec![1])]);
     let marker = record(
         b"REFR",
@@ -115,6 +117,7 @@ fn fixture() -> Fixture {
         top(b"ALCH", &alch),
         top(b"ARMO", &armo),
         top(b"FLST", &flst),
+        top(b"WEAP", &weap),
         top(b"NPC_", &record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))])),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[room, children].concat()))),
     ]
@@ -259,7 +262,10 @@ fn map_markers_and_radio_stations_from_their_data() {
     // Name and reputation accessors reflect SetMapMarkerName / SetMapMarkerRep.
     q(&mut g, "TestMarkerRef.SetMapMarkerName \"Owned Outpost\"");
     assert_eq!(g.map_marker_name_override(FormId(MARKER)), Some("Owned Outpost"));
+    // Passing 0 leaves the reputation untouched; omitting the arg clears it [observed: w6d10_37].
     q(&mut g, "TestMarkerRef.SetMapMarkerRep 0");
+    assert_eq!(g.map_marker_reputation_override(FormId(MARKER)), None);
+    q(&mut g, "TestMarkerRef.SetMapMarkerRep");
     assert_eq!(g.map_marker_reputation_override(FormId(MARKER)), Some(None));
     // XRDO [documented: GetRadioRadius's example reads 6000, GetRadioStatic 15].
     assert_eq!(n(&mut g, "TestRadioRef.IsRadioRef"), 1.0);
@@ -274,11 +280,12 @@ fn map_markers_and_radio_stations_from_their_data() {
     assert_eq!(n(&mut g, "TestRadioRef.GetRadioRadius"), 2000.0);
     assert_eq!(n(&mut g, "TestRadioRef.GetRadioBroadcastType"), 1.0);
     assert_eq!(n(&mut g, "TestRadioRef.GetRadioPosRef"), f64::from(MARKER));
-    // OOB broadcast types (outside 0..=4) and static percentages (outside 0..=100) are
-    // rejected without mutating prior values [observed: w6d2_33].
+    // OOB broadcast types (outside 0..=4) and negative static percentages are rejected
+    // without mutating prior values, while static values > 100 store unclamped
+    // [observed: w6d2_33, w6d9_21, w6d9p2_20_radio_xrdo_radius_mode].
     q(&mut g, "TestRadioRef.SetRadioBroadcastType 9\nTestRadioRef.SetRadioBroadcastType -1\nTestRadioRef.SetRadioStatic 150\nTestRadioRef.SetRadioStatic -5");
     assert_eq!(n(&mut g, "TestRadioRef.GetRadioBroadcastType"), 1.0);
-    assert_eq!(n(&mut g, "TestRadioRef.GetRadioStatic"), 15.0);
+    assert_eq!(n(&mut g, "TestRadioRef.GetRadioStatic"), 150.0);
 }
 
 #[test]
@@ -324,6 +331,35 @@ fn hotkeys_ini_writers_and_forms() {
         q(&mut g, "array_var a\nlet a := GetFormMods TestFood\nSetFunctionValue a[0]"),
         XVal::Str("Lutana2Test.esm".into())
     );
+    // GetFormMods returns ar_Null (-1) on null 0, empty array (0) on TempCloneForm;
+    // empty GetAllItemRefs returns ar_Null (-1) [observed: w6d2p2_29].
+    assert_eq!(n(&mut g, "ar_Size (GetFormMods 0)"), -1.0);
+    assert_eq!(n(&mut g, "ref rCl\nlet rCl := TempCloneForm TestFood 0\nSetFunctionValue (ar_Size (GetFormMods rCl))"), 0.0);
+    assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetAllItemRefs 99)"), -1.0);
+}
+
+/// `SetWeapon1stPersonModel` accepts `STAT` models (and `TempCloneForm` `WEAP` isolation),
+/// ignores non-`STAT` forms and explicit null `0`, and clears on omitted arg
+/// [observed: `w6d2_01_weapon_1st_person_model_edges`].
+#[test]
+fn set_weapon_1st_person_model_validates_stat_null_omit_and_clone() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, "SetWeapon1stPersonModel TestPistol 0 TestStatic");
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), f64::from(STAT));
+    // Explicit null 0 and non-STAT (ALCH) are no-ops.
+    q(&mut g, "SetWeapon1stPersonModel TestPistol 0 0");
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), f64::from(STAT));
+    q(&mut g, "SetWeapon1stPersonModel TestPistol 0 TestFood");
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), f64::from(STAT));
+    // TempCloneForm isolation.
+    let XVal::Ref(cl) = q(&mut g, "SetFunctionValue (TempCloneForm TestPistol 0)") else { panic!("clone") };
+    q(&mut g, &format!("SetWeapon1stPersonModel (StringToRef \"{cl:08X}\") 0"));
+    assert_eq!(n(&mut g, &format!("GetWeapon1stPersonModel (StringToRef \"{cl:08X}\") 0")), 0.0);
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), f64::from(STAT));
+    // Omitted 3rd arg clears.
+    q(&mut g, "SetWeapon1stPersonModel TestPistol 0");
+    assert_eq!(n(&mut g, "GetWeapon1stPersonModel TestPistol 0"), 0.0);
 }
 
 /// `SetBipedModelList` validates `ARMO` + `FLST`, treats non-`FLST` and explicit `0` as

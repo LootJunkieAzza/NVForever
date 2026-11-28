@@ -6604,14 +6604,25 @@ mod tests {
             assert_eq!(local.marks[0].picture(), "Interface\\Icons\\Owned\\custom_alpha.dds");
         }
 
-        // Clearing custom icon with "" restores SetMapMarkerType's icon (Vault); clearing rep with 0
-        // hides the reputation line; SetMapMarkerVisible 0 + SetMapMarkerHidden 1 hides Marker B
+        run(
+            world.resource_mut::<crate::script::ScriptState>().as_mut(),
+            "OwnedMarkerA.SetMapMarkerRep 0",
+        );
+        {
+            let game = state.get_mut(&mut world).unwrap();
+            let shown = world_map(&mut st, &game, None, false);
+            assert_eq!(shown.detail.as_deref(), Some("Canyon Guild: Neutral"), "explicit zero preserves the reputation line");
+        }
+
+        // Clearing custom icon with "" restores SetMapMarkerType's icon (Vault).
+        // Omitting the reputation argument hides the line.
+        // SetMapMarkerVisible 0 + SetMapMarkerHidden 1 hides Marker B
         // even under ShowAllMapMarkers 1 1 1 (skipHidden = 1).
         run(
             world.resource_mut::<crate::script::ScriptState>().as_mut(),
             r#"
             SetCustomMapMarkerIcon OwnedMarkerA ""
-            OwnedMarkerA.SetMapMarkerRep 0
+            OwnedMarkerA.SetMapMarkerRep
             OwnedMarkerB.SetMapMarkerVisible 0
             OwnedMarkerB.SetMapMarkerHidden 1
             ShowAllMapMarkers 1 1 1
@@ -6625,7 +6636,7 @@ mod tests {
             let shown = world_map(&mut st, &game, None, false);
             assert_eq!(shown.marks.len(), 1, "Hidden Marker B is skipped by ShowAllMapMarkers(skipHidden=1)");
             assert_eq!(shown.marks[0].picture(), model::marker_icon(14, true));
-            assert_eq!(shown.detail, None, "SetMapMarkerRep 0 clears reputation line");
+            assert_eq!(shown.detail, None, "SetMapMarkerRep without an argument clears the reputation line");
             assert_eq!(shown.marks[0].detail, None);
         }
     }

@@ -158,9 +158,17 @@ not decode yet.
   in older records), bits the schema names the same way. EMTMedicalBeep01: loop (4) 1,
   2D (6) 0. `SetSoundFlag` stores per-`SOUN` session bitmask overrides
   (`Game::sound_flags`, `Game::sound_flag`, `Game::set_sound_flag`,
-  `Game::sound_flags_override`, `Game::snapshot_sound_flags`) [design] with
-  `TempCloneForm` snapshotting and post-clone isolation [hypothesis: also session-only
-  lifetime and rejection of fractional/out-of-range flag IDs and non-`SOUN` forms].
+  `Game::sound_flags_override`, `Game::snapshot_sound_flags`) [design] across all 32
+  flag bits (`0..=31`; bits `14` and `15` store/read back `1`, `-1` and non-`SOUN` are
+  rejected, and `TempCloneForm` snapshots/isolates overrides [observed: Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only
+  probe; zero writes to game install or Saves), `w6d2_08_sound_flag_oob_and_clone`
+  (`tools/capture/nvse/catalogs/wave6d2_sound_flag_32bit.json`):
+  `PROBE|w6d2_08_sound_flag_oob_and_clone|init=1,0|oob=1,1,0|bad=0|cl=1,1`; zero DLL,
+  PDB, or third-party source consulted]; upper bits `16..=31` (and `>= 32` rejection)
+  following the 32-bit `u32` field are [design]; session-only lifetime and
+  fractional-index rejection remain [hypothesis]).
 
 ### 9.1 `TempCloneForm` SOUN aliases and engine sound overrides
 
@@ -169,11 +177,17 @@ not decode yet.
   original sound's `FNAM` path and `SNDD` traits. Session overrides via
   `SetSoundSourceFile` and `SetSoundTraitNumeric` apply to the target FormID without
   mutating the original.
-- [hypothesis] Pre-clone `SetSoundSourceFile` and `SetSoundTraitNumeric` (`0..=11`) edits
-  on an original or parent clone carry onto newly created `TempCloneForm` `SOUN` clones,
+- [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room
+  staging copy (read-only probe; zero writes to game install or Saves),
+  `w6d2p3_07_sound_source_file_and_clone`
+  (`tools/capture/nvse/catalogs/wave6d2_set_sound_source_soun_check.json`):
+  `PROBE|w6d2p3_07_sound_source_file_and_clone|len0=39,badLen=0|cl1Pre=[w6d2_pre.wav]/-12.0|origEmp=[sEmpty]|cl1Post=[w6d2_pre.wav]/-12.0|cl2Post=[w6d2_pre.wav]`;
+  zero DLL, PDB, or third-party source consulted] `SetSoundSourceFile` rejects non-`SOUN`
+  forms (`badLen=0`); pre-clone `SetSoundSourceFile` and `SetSoundTraitNumeric` edits on
+  an original or parent clone carry onto newly created `TempCloneForm` `SOUN` clones,
   while post-clone edits on the original or parent clone stay isolated from
-  already-created clones (e.g., silencing an original `SOUN` with trait `3 = -99` after
-  cloning a playable copy).
+  already-created clones (including clone-of-clone isolation).
 - [design] `TempCloneForm` snapshots the source form's active `SetSoundSourceFile` and
   `SetSoundTraitNumeric` (`0..=11`) overrides onto the new clone at creation time
   (`Game::snapshot_sound_traits`), and `Game::sound_source_override` /
