@@ -1,6 +1,6 @@
 //! Per-reference AttachModel producer. See docs/spec-notes/nif-attachments.md.
 use crate::nif_mirror::{
-    bound_entity, concrete_view, find, rig_names, root_of, NodeQuery, Rigs, Visuals,
+    bound_entity, concrete_view, find, rig_names, NodeQuery, Rigs, Visuals,
 };
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -57,6 +57,12 @@ pub(crate) struct State {
     instances: HashMap<Key, Instance>,
     next: u64,
     removed: HashSet<Entity>,
+}
+
+impl State {
+    pub(crate) fn has_active(&self) -> bool {
+        !self.intents.is_empty() || !self.instances.is_empty()
+    }
 }
 
 pub(crate) fn install(app: &mut App) {
@@ -128,12 +134,14 @@ fn intact(
 
 // Compute teardown to a fixed point before publication: a second owned instance
 // attached below a retiring one must not survive as an orphan for one frame.
+#[allow(clippy::too_many_arguments)]
 fn retire_instances(
     state: &mut State,
     retiring: &mut Vec<Instance>,
     owned: &Owned,
     rigs: &Rigs,
     visuals: &Visuals,
+    visual_cache: Option<&crate::nif_mirror::VisualRootCache>,
     nodes: &NodeQuery,
     parents: &Query<&ChildOf>,
 ) {
@@ -142,7 +150,13 @@ fn retire_instances(
             .instances
             .iter()
             .filter_map(|(key, instance)| {
-                let alive = root_of(key.reference, key.view, rigs, visuals) == Some(instance.root)
+                let alive = crate::nif_mirror::root_of_cached(
+                    key.reference,
+                    key.view,
+                    rigs,
+                    visuals,
+                    visual_cache,
+                ) == Some(instance.root)
                     && nodes.get(instance.root).is_ok()
                     && nodes.get(instance.parent).is_ok()
                     && intact(instance.root, instance.parent, parents, &state.removed)
@@ -332,6 +346,7 @@ pub(crate) fn produce(
     models: Option<ModelCtx>,
     rigs: Rigs,
     visuals: Visuals,
+    visual_cache: Option<Res<crate::nif_mirror::VisualRootCache>>,
     nodes: NodeQuery,
     parents: Query<&ChildOf>,
     layers: Query<&RenderLayers>,
@@ -341,19 +356,47 @@ pub(crate) fn produce(
         .as_deref_mut()
         .and_then(|s| s.rt.as_mut())
         .map(|rt| &mut rt.game);
-    produce_game(
-        game, &mut state, commands, models, rigs, visuals, nodes, parents, layers, owned,
+    produce_game_with_cache(
+        game,
+        &mut state,
+        commands,
+        models,
+        rigs,
+        visuals,
+        visual_cache.as_deref(),
+        nodes,
+        parents,
+        layers,
+        owned,
     );
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn produce_game(
+    game: Option<&mut fnv_game::Game<'_>>,
+    state: &mut State,
+    commands: Commands,
+    models: Option<ModelCtx>,
+    rigs: Rigs,
+    visuals: Visuals,
+    nodes: NodeQuery,
+    parents: Query<&ChildOf>,
+    layers: Query<&RenderLayers>,
+    owned: Owned,
+) {
+    produce_game_with_cache(game, state, commands, models, rigs, visuals, None, nodes, parents, layers, owned);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn produce_game_with_cache(
     game: Option<&mut fnv_game::Game<'_>>,
     state: &mut State,
     mut commands: Commands,
     mut models: Option<ModelCtx>,
     rigs: Rigs,
     visuals: Visuals,
+    visual_cache: Option<&crate::nif_mirror::VisualRootCache>,
     nodes: NodeQuery,
     parents: Query<&ChildOf>,
     layers: Query<&RenderLayers>,
@@ -388,6 +431,7 @@ pub(crate) fn produce_game(
         &owned,
         &rigs,
         &visuals,
+        visual_cache,
         &nodes,
         &parents,
     );
@@ -418,8 +462,14 @@ pub(crate) fn produce_game(
             };
             let deferred = (change.mode == 1)
                 .then(|| {
-                    root_of(key.reference, key.view, &rigs, &visuals)
-                        .filter(|root| captured == Some(root.to_bits()))
+                    crate::nif_mirror::root_of_cached(
+                        key.reference,
+                        key.view,
+                        &rigs,
+                        &visuals,
+                        visual_cache,
+                    )
+                    .filter(|root| captured == Some(root.to_bits()))
                 })
                 .flatten();
             if change.mode == 1 {
@@ -449,6 +499,7 @@ pub(crate) fn produce_game(
             &owned,
             &rigs,
             &visuals,
+            visual_cache,
             &nodes,
             &parents,
         );
@@ -461,9 +512,14 @@ pub(crate) fn produce_game(
         if intent.stale || state.instances.contains_key(key) {
             continue;
         }
-        let Some(root) =
-            root_of(key.reference, key.view, &rigs, &visuals).filter(|e| nodes.get(*e).is_ok())
-        else {
+        let Some(root) = crate::nif_mirror::root_of_cached(
+            key.reference,
+            key.view,
+            &rigs,
+            &visuals,
+            visual_cache,
+        )
+        .filter(|e| nodes.get(*e).is_ok()) else {
             continue;
         };
         if intent.deferred == Some(root) {

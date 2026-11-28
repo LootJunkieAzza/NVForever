@@ -32,14 +32,47 @@ impl Plugin for NifMirrorPlugin {
         attach_model_probe::install(app);
         crate::camera_overlay::install(app);
         crate::nif_attachments::install(app);
-        app.add_systems(
+        app.init_resource::<VisualRootCache>().add_systems(
             PostUpdate,
-            (crate::camera_overlay::sync, crate::nif_attachments::produce, mirror)
+            (
+                sync_visual_root_cache,
+                crate::camera_overlay::sync,
+                crate::nif_attachments::produce,
+                mirror,
+            )
                 .chain()
                 .in_set(MirrorSystems)
                 .before(TransformSystems::Propagate),
         );
     }
+}
+
+/// Keeps the shared [`VisualRootCache`] resource incrementally synchronized before
+/// `nif_attachments::produce`, `mirror`, and `extra_camera::sync` run so none of them
+/// fall back to an O(N) scan across `RefVisual` entities, while preserving idle/`rt-None`
+/// suspension so unused frames drain `RemovedComponents` without scanning queries [design].
+fn sync_visual_root_cache(
+    script: Option<Res<ScriptState>>,
+    attachments: Option<Res<crate::nif_attachments::State>>,
+    mut cache: ResMut<VisualRootCache>,
+    visuals: Visuals,
+    mut changes: VisualChanges,
+) {
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else {
+        cache.mirror_has_holds = false;
+        cache.suspend(&mut changes);
+        return;
+    };
+    let needed = cache.mirror_has_holds
+        || rt.game.scene.watched().next().is_some()
+        || rt.game.scene.wanted_vertices().next().is_some()
+        || !rt.game.extra_cameras().is_empty()
+        || attachments.as_deref().is_some_and(|s| s.has_active());
+    if !needed {
+        cache.suspend(&mut changes);
+        return;
+    }
+    cache.sync(&visuals, &mut changes);
 }
 
 /// [design] The scripted NIF edits ([`mirror`]), for systems that must see their material
@@ -82,10 +115,6 @@ struct Memory {
     props: HashMap<String, HashMap<String, Props>>,
     /// Each model's node tree as its file holds it, for items drawn as flat shapes.
     files: HashMap<String, Vec<FileNode>>,
-    /// Incremental index of root `RefVisual` entities keyed by reference FormID, kept in
-    /// sync from Bevy change detection so frames with undrawn watched refs avoid scanning
-    /// every `RefVisual` entity in the world [design].
-    visual_cache: VisualRootCache,
     /// Monotonic revision bumped whenever `held` or `materials` changes, used to skip
     /// rebuilding unchanged `drawn_flat` model trees every frame [design].
     flat_revision: u64,
@@ -101,11 +130,12 @@ struct Memory {
 }
 
 /// Incremental `RefVisual(r) -> root Entity` index maintained across frames via Bevy
-/// change detection (`Added`/`Changed`/`RemovedComponents`) instead of scanning all
-/// `RefVisual` entities every frame when undrawn references remain in `watched` [design].
-#[derive(Default)]
-struct VisualRootCache {
+/// change detection (`Added`/`Changed`/`RemovedComponents`) and shared across
+/// `nif_mirror`, `nif_attachments`, and `extra_camera` [design].
+#[derive(Resource, Default)]
+pub(crate) struct VisualRootCache {
     initialized: bool,
+    mirror_has_holds: bool,
     roots: HashMap<u32, Vec<Entity>>,
     entity_ref: HashMap<Entity, u32>,
 }
@@ -304,6 +334,23 @@ impl VisualRootCache {
             }
             self.promote_children(e, visuals, &changes.children);
         }
+    }
+
+    pub(crate) fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Read-only lookup of the live root entity for `r` without mutating the cache,
+    /// for sibling systems (`nif_attachments`, `extra_camera`) running after
+    /// `sync_visual_root_cache` [design].
+    pub(crate) fn get_live_ref(&self, r: u32, visuals: &Visuals) -> Option<Entity> {
+        let list = self.roots.get(&r)?;
+        list.iter().copied().find(|&e| {
+            visuals
+                .get(e)
+                .ok()
+                .is_some_and(|(_, v, p)| v.0 == r && Self::is_root(r, p, visuals))
+        })
     }
 
     /// Look up the live root entity for `r`, defensively pruning any stale entry.
@@ -692,6 +739,31 @@ pub(crate) fn root_of(r: u32, view: ModelView, rigs: &Rigs, visuals: &Visuals) -
     }
     if r == FormId::PLAYER_REF.0 { return None; }
     visuals.iter().filter(|(_, v, _)| v.0 == r).find(|(_, _, p)| p.is_none_or(|p| visuals.get(p.parent()).map_or(true, |(_, v, _)| v.0 != r))).map(|(e, _, _)| e)
+}
+
+/// Cached root lookup for sibling systems (`nif_attachments`, `extra_camera`), falling back
+/// to [`root_of`] when [`VisualRootCache`] is absent or not yet initialized [design].
+pub(crate) fn root_of_cached(
+    r: u32,
+    view: ModelView,
+    rigs: &Rigs,
+    visuals: &Visuals,
+    cache: Option<&VisualRootCache>,
+) -> Option<Entity> {
+    if let Some((e, _)) = rig_of(r, view, rigs) {
+        return Some(e);
+    }
+    if r == FormId::PLAYER_REF.0 {
+        return None;
+    }
+    if let Some(cache) = cache.filter(|c| c.is_initialized()) {
+        return cache.get_live_ref(r, visuals);
+    }
+    visuals
+        .iter()
+        .filter(|(_, v, _)| v.0 == r)
+        .find(|(_, _, p)| p.is_none_or(|p| visuals.get(p.parent()).map_or(true, |(_, v, _)| v.0 != r)))
+        .map(|(e, _, _)| e)
 }
 
 /// Zero-clone view of an actor's skeleton node names for per-frame mirror walks [design].
@@ -1142,7 +1214,7 @@ fn mirror(
     mut script: Option<ResMut<ScriptState>>,
     rigs: Rigs,
     visuals: Visuals,
-    mut visual_changes: VisualChanges,
+    mut visual_cache: Option<ResMut<VisualRootCache>>,
     parents: Query<&ChildOf>,
     nodes: NodeQuery,
     changed_nodes: ChangedNodes,
@@ -1155,7 +1227,9 @@ fn mirror(
     dropped: Dropped,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
-        mem.visual_cache.suspend(&mut visual_changes);
+        if let Some(cache) = visual_cache.as_deref_mut() {
+            cache.mirror_has_holds = false;
+        }
         removed_nodes.drain();
         mem.published_models.clear();
         mem.flat_published.clear();
@@ -1175,7 +1249,7 @@ fn mirror(
         shapes,
         extra,
         dropped,
-        Some(&mut visual_changes),
+        visual_cache.as_deref_mut(),
     );
 }
 
@@ -1216,7 +1290,7 @@ fn mirror_game_impl(
     (shapes, meshes): Shapes,
     (globals, boxes, mut particles, world, sim): Extra,
     dropped: Dropped,
-    visual_changes: Option<&mut VisualChanges>,
+    mut visual_cache: Option<&mut VisualRootCache>,
 ) {
     let Memory {
         logged,
@@ -1234,7 +1308,6 @@ fn mirror_game_impl(
         attachment_stencil,
         props,
         files,
-        visual_cache,
         flat_revision,
         flat_published,
         bounds_scratch,
@@ -1281,14 +1354,10 @@ fn mirror_game_impl(
     wanted_refs.extend(bound_held.keys().map(|(r, _, _)| *r));
     wanted_refs.extend(watched.iter().map(|r| r.0));
     wanted_refs.extend(wanted.iter().map(|(r, _)| r.0));
-    let index = if let Some(visual_changes) = visual_changes {
-        if wanted_refs.is_empty() {
-            visual_cache.suspend(visual_changes);
-            MirrorIndex::default()
-        } else {
-            visual_cache.sync(&visuals, visual_changes);
-            MirrorIndex::build_from_cache(&wanted_refs, &rigs, &visuals, &dropped, visual_cache)
-        }
+    let index = if wanted_refs.is_empty() {
+        MirrorIndex::default()
+    } else if let Some(visual_cache) = visual_cache.as_deref_mut().filter(|c| c.is_initialized()) {
+        MirrorIndex::build_from_cache(&wanted_refs, &rigs, &visuals, &dropped, visual_cache)
     } else {
         MirrorIndex::build(&wanted_refs, &rigs, &visuals, &dropped)
     };
@@ -1818,6 +1887,10 @@ fn mirror_game_impl(
                 _ => None,
             });
         game.scene.set_vertices(r, &node, verts);
+    }
+    if let Some(cache) = visual_cache {
+        cache.mirror_has_holds =
+            !held.is_empty() || !pending_held.is_empty() || !bound_held.is_empty();
     }
 }
 

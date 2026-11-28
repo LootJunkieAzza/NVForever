@@ -101,7 +101,7 @@ pub(crate) struct Swapping<'w, 's> {
     swapped: ResMut<'w, Swapped>,
     #[allow(clippy::type_complexity)]
     drawn: Query<'w, 's, (Entity, &'static RefVisual, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>, Option<&'static ShapeName>, Option<&'static Fading>, Option<&'static nvf_assets::nif_material::MaterialOverride>)>,
-    added: Query<'w, 's, (), NewSwapTargets>,
+    added: Query<'w, 's, Option<&'static RefVisual>, NewSwapTargets>,
 }
 
 /// What makes the retained swaps apply again: a reference's mesh drawn anew, as on main,
@@ -113,7 +113,15 @@ type NewSwapTargets = Or<(Added<RefVisual>, (Added<MeshMaterial3d<NifMaterial>>,
 impl Swapping<'_, '_> {
     pub(crate) fn sync(&mut self, swaps: &fnv_game::functions::misc::TextureSwaps, sim: &SimState, world: &WorldData) {
         let Self { commands, models, swapped, drawn, added } = self;
-        if swaps.by_ref.is_empty() || (swaps.generation == swapped.generation && added.is_empty()) {
+        if swaps.by_ref.is_empty() {
+            return;
+        }
+        let gen_changed = swaps.generation != swapped.generation;
+        if !gen_changed
+            && !added
+                .iter()
+                .any(|rv| rv.is_none_or(|r| swaps.by_ref.contains_key(&fnv_sim::FormId(r.0))))
+        {
             return;
         }
         swapped.generation = swaps.generation;

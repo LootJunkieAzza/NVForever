@@ -7,7 +7,7 @@
 //! registered in `Game::extra_cameras`, the system exits immediately with zero queries or
 //! allocations [design].
 
-use crate::nif_mirror::{rig_names, root_of, MirrorSystems, RenamedNifNode, RigNames, Rigs, Visuals};
+use crate::nif_mirror::{rig_names, root_of_cached, MirrorSystems, RenamedNifNode, RigNames, Rigs, VisualRootCache, Visuals};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::{RenderLayers, VisibilitySystems};
 use bevy::camera::{CameraUpdateSystems, Hdr, ImageRenderTarget, RenderTarget};
@@ -237,9 +237,16 @@ fn view_order(r: u32, rigs: &Rigs) -> &'static [ModelView] {
     }
 }
 
-fn resolve_node(r: u32, node: Option<&str>, rigs: &Rigs, visuals: &Visuals, nodes: &NodesRead) -> Option<Entity> {
+fn resolve_node(
+    r: u32,
+    node: Option<&str>,
+    rigs: &Rigs,
+    visuals: &Visuals,
+    cache: Option<&VisualRootCache>,
+    nodes: &NodesRead,
+) -> Option<Entity> {
     for &view in view_order(r, rigs) {
-        let Some(root) = root_of(r, view, rigs, visuals) else { continue };
+        let Some(root) = root_of_cached(r, view, rigs, visuals, cache) else { continue };
         match node {
             None => return Some(root),
             Some(name) => {
@@ -331,6 +338,7 @@ fn sync(
     commands: Commands,
     rigs: Rigs,
     visuals: Visuals,
+    visual_cache: Option<Res<VisualRootCache>>,
     nodes: NodesRead,
     globals: Query<&GlobalTransform, Without<ExtraCameraTag>>,
     drawn: DrawnMaterials,
@@ -349,12 +357,13 @@ fn sync(
         return;
     };
     let (Some(images), Some(materials)) = (images, materials) else { return };
-    sync_game(
+    sync_game_with_cache(
         &rt.game,
         &mut state,
         commands,
         &rigs,
         &visuals,
+        visual_cache.as_deref(),
         &nodes,
         &globals,
         &drawn,
@@ -368,12 +377,32 @@ fn sync(
 /// Core extra-camera reconciler separated from `ScriptState` so headless ECS tests can
 /// exercise the full attach -> project -> update -> detach -> session-reset pipeline.
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn sync_game(
+    game: &fnv_game::game::Game<'_>,
+    state: &mut ExtraCameraState,
+    commands: Commands,
+    rigs: &Rigs,
+    visuals: &Visuals,
+    nodes: &NodesRead,
+    globals: &Query<&GlobalTransform, Without<ExtraCameraTag>>,
+    drawn: &DrawnMaterials,
+    main_cam: &MainCamQuery,
+    live_cams: LiveCameras,
+    images: ResMut<Assets<Image>>,
+    materials: ResMut<Assets<NifMaterial>>,
+) {
+    sync_game_with_cache(game, state, commands, rigs, visuals, None, nodes, globals, drawn, main_cam, live_cams, images, materials);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sync_game_with_cache(
     game: &fnv_game::game::Game<'_>,
     state: &mut ExtraCameraState,
     mut commands: Commands,
     rigs: &Rigs,
     visuals: &Visuals,
+    visual_cache: Option<&VisualRootCache>,
     nodes: &NodesRead,
     globals: &Query<&GlobalTransform, Without<ExtraCameraTag>>,
     drawn: &DrawnMaterials,
@@ -433,8 +462,8 @@ pub(crate) fn sync_game(
             continue;
         };
         let order = EXTRA_CAMERA_BASE_ORDER - idx as isize;
-        let anchor_entity = resolve_node(cam.reference.0, cam.parent_node.as_deref(), rigs, visuals, nodes);
-        let target_entity = resolve_node(target_ref.0, Some(target_node.as_str()), rigs, visuals, nodes);
+        let anchor_entity = resolve_node(cam.reference.0, cam.parent_node.as_deref(), rigs, visuals, visual_cache, nodes);
+        let target_entity = resolve_node(target_ref.0, Some(target_node.as_str()), rigs, visuals, visual_cache, nodes);
         let cam_tf = anchor_entity.and_then(|e| globals.get(e).ok()).and_then(safe_camera_transform);
 
         let (Some(cam_tf), Some(target_entity)) = (cam_tf, target_entity) else {
@@ -704,7 +733,7 @@ mod tests {
             let kept = shapes.map(|e| (w.entity(e).archetype().id(), w.get::<Children>(e).map(|c| c.to_vec())));
             let found = w
                 .run_system_once(|rigs: Rigs, visuals: Visuals, nodes: NodesRead| {
-                    [None, Some("Tank"), Some("Lens")].map(|n| resolve_node(STAT_REF, n, &rigs, &visuals, &nodes))
+                    [None, Some("Tank"), Some("Lens")].map(|n| resolve_node(STAT_REF, n, &rigs, &visuals, None, &nodes))
                 })
                 .unwrap();
             (kept, found)
