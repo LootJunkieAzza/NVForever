@@ -140,6 +140,86 @@ fn put_out(world: &mut fnv_sim::World, id: FormId) -> Result<(), fnv_sim::world:
 }
 
 /// Place thrown mines, set off, burn and explode mines (module notes).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct MinesIdleKey {
+    epoch: u64,
+    presence_serial: u64,
+    non_actor_gen: u64,
+    phys_rev: u64,
+    disabled_count: Option<u64>,
+}
+
+pub(crate) fn mines_idle_key(sim: &SimState, phys: &PhysState, disabled_count: Option<u64>) -> MinesIdleKey {
+    MinesIdleKey {
+        epoch: sim.world.created_epoch(),
+        presence_serial: sim.world.presence_serial(),
+        non_actor_gen: sim.world.non_actor_created_gen(),
+        phys_rev: phys.ref_cell_or_created_rev(),
+        disabled_count,
+    }
+}
+
+/// Collect live mines in loaded cells and consume any `DisableAllMines` request before
+/// caching an idle-empty result, so invoking `DisableAllMines` in a mine-free cell never
+/// leaks into a later cell [design].
+fn scan_and_apply_disable_all_mines(
+    m: &mut Mines,
+    sim: &mut SimState,
+    phys: &PhysState,
+    asked: Option<u64>,
+    had_settled: bool,
+    idle_key: &mut Option<MinesIdleKey>,
+    mut emit_changed: impl FnMut(RefChanged),
+) -> Option<HashMap<FormId, V3>> {
+    let cur_idle_key = mines_idle_key(sim, phys, asked);
+    if !had_settled && m.live.is_empty() && m.burning.is_empty() && *idle_key == Some(cur_idle_key) {
+        return None;
+    }
+
+    let kinds = m.kinds.as_ref().expect("initialized before scan");
+    // The live mines of the loaded cells: iterate loaded dynamic physics bodies directly
+    // instead of scanning every created reference in `sim.world` [design].
+    let created = phys.created.keys().filter_map(|&raw| {
+        let id = FormId(raw);
+        let r = sim.world.peek(id)?;
+        (!r.deleted() && kinds.contains(&r.base)).then_some(id)
+    });
+    let mut live: HashMap<FormId, V3> = HashMap::new();
+    for id in m.placed.iter().copied().filter(|id| phys.ref_cell.contains_key(&id.0)).chain(created) {
+        if !sim.present(id.0) {
+            continue;
+        }
+        let pos = sim.world.peek(id).map(|r| r.pos).or_else(|| sim.refs.get(id).map(|p| p.pos));
+        if let Some(pos) = pos {
+            live.insert(id, pos);
+        }
+    }
+    // Fallout 3's DisableAllMines (`fnv_game::functions::fo3`): the live mines of the
+    // player's cell are disabled, fuses and all. Consume the request before any empty-cell
+    // early return so it cannot retroactively disable mines in a later cell.
+    if let Some(n) = asked.filter(|&n| n != m.disabled_count) {
+        m.disabled_count = n;
+        let here = sim.world.peek(FormId::PLAYER_REF).and_then(|a| a.cell);
+        let cell_of = |id: FormId| sim.world.peek(id).and_then(|r| r.cell).or_else(|| sim.refs.get(id).and_then(|p| p.cell));
+        let off: Vec<FormId> = live.keys().copied().filter(|&id| here.is_some() && cell_of(id) == here).collect();
+        for &id in &off {
+            if let Err(e) = put_out(&mut sim.world, id) {
+                warn!("mines: mine {id} could not be disabled: {e}");
+            }
+            emit_changed(RefChanged::new(id.0));
+            live.remove(&id);
+            m.burning.remove(&id);
+        }
+        info!("mines: {} mine(s) of the player's cell disabled (DisableAllMines)", off.len());
+    }
+    if live.is_empty() && m.live.is_empty() && m.burning.is_empty() {
+        *idle_key = Some(cur_idle_key);
+        return None;
+    }
+    *idle_key = None;
+    Some(live)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn tick(
     time: Res<Time>,
@@ -152,6 +232,7 @@ pub(crate) fn tick(
     sfx: Option<Res<Sfx>>,
     mut sounds: MessageWriter<PlaySound>,
     mut changed: MessageWriter<RefChanged>,
+    mut idle_key: Local<Option<MinesIdleKey>>,
 ) {
     let dt = time.delta_secs();
     let m = &mut *mines;
@@ -167,10 +248,11 @@ pub(crate) fn tick(
         info!("mines: {} mine projectile(s), {} placed mine(s)", kinds.len(), m.placed.len());
         m.kinds = Some(kinds);
     }
-    let kinds = m.kinds.as_ref().expect("read above");
 
     // Thrown mines that came to rest: in the world, owned by who put them down.
-    for s in c.take_settled() {
+    let settled = c.take_settled();
+    let had_settled = !settled.is_empty();
+    for s in settled {
         let cell = sim.world.peek(s.actor).and_then(|a| a.cell).or_else(|| sim.world.peek(FormId::PLAYER_REF).and_then(|a| a.cell));
         match sim.world.place(s.proj, cell, s.point, [0.0, 0.0, heading(s.dir)], 1) {
             Ok(id) => {
@@ -190,36 +272,12 @@ pub(crate) fn tick(
         }
     }
 
-    // The live mines of the loaded cells.
-    let created: Vec<FormId> = sim.world.created().filter(|(id, r)| !r.deleted() && kinds.contains(&r.base) && phys.created.contains_key(&id.0)).map(|(id, _)| id).collect();
-    let mut live: HashMap<FormId, V3> = HashMap::new();
-    for id in m.placed.iter().copied().filter(|id| phys.ref_cell.contains_key(&id.0)).chain(created) {
-        if !sim.present(id.0) {
-            continue;
-        }
-        let pos = sim.world.peek(id).map(|r| r.pos).or_else(|| sim.refs.get(id).map(|p| p.pos));
-        if let Some(pos) = pos {
-            live.insert(id, pos);
-        }
-    }
-    // Fallout 3's DisableAllMines (`fnv_game::functions::fo3`): the live mines of the
-    // player's cell are disabled, fuses and all.
     let asked = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.ui.mines_disabled);
-    if let Some(n) = asked.filter(|&n| n != m.disabled_count) {
-        m.disabled_count = n;
-        let here = sim.world.peek(FormId::PLAYER_REF).and_then(|a| a.cell);
-        let cell_of = |id: FormId| sim.world.peek(id).and_then(|r| r.cell).or_else(|| sim.refs.get(id).and_then(|p| p.cell));
-        let off: Vec<FormId> = live.keys().copied().filter(|&id| here.is_some() && cell_of(id) == here).collect();
-        for &id in &off {
-            if let Err(e) = put_out(&mut sim.world, id) {
-                warn!("mines: mine {id} could not be disabled: {e}");
-            }
-            changed.write(RefChanged::new(id.0));
-            live.remove(&id);
-            m.burning.remove(&id);
-        }
-        info!("mines: {} mine(s) of the player's cell disabled (DisableAllMines)", off.len());
-    }
+    let Some(live) = scan_and_apply_disable_all_mines(m, &mut sim, &phys, asked, had_settled, &mut idle_key, |ev| {
+        changed.write(ev);
+    }) else {
+        return;
+    };
     // Gone since the last frame: taken by the player's activation (disarmed), or
     // disabled (it went off, or a blast or a shot destroyed it).
     for (&id, &pos) in &m.live {
@@ -459,5 +517,55 @@ mod tests {
     fn heading_is_compass() {
         assert!(heading([0.0, 1.0, 0.0]).abs() < 1e-5);
         assert!((heading([1.0, 0.0, 0.0]) - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+    }
+
+    #[test]
+    fn disable_all_mines_in_empty_cell_is_consumed_and_does_not_disable_mines_in_later_cell() {
+        const CELL_EMPTY: u32 = 0x0001_0001;
+        const CELL_MINED: u32 = 0x0001_0002;
+        const MINE: u32 = 0x0008_424C;
+        const MINE_PROJ: u32 = 0x0008_0001;
+
+        let mine_ref = fnv_sim::refs::PlacedRef {
+            base: FormId(MINE_PROJ),
+            sig: *b"PGRE",
+            cell: Some(FormId(CELL_MINED)),
+            ..crate::sim::placed_ref(MINE)
+        };
+        let mut sim = SimState::over_placed([mine_ref]);
+        sim.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(CELL_EMPTY));
+
+        let mut mines = Mines {
+            kinds: Some(HashSet::from([FormId(MINE_PROJ)])),
+            placed: vec![FormId(MINE)],
+            ..Default::default()
+        };
+        let mut phys = PhysState::default();
+        let mut idle_key = None;
+        let mut changed = Vec::new();
+
+        // 1) Invoke DisableAllMines (asked = 1) while in a mine-free cell: must consume
+        //    disabled_count = 1 even though live is empty.
+        let res1 = scan_and_apply_disable_all_mines(&mut mines, &mut sim, &phys, Some(1), false, &mut idle_key, |ev| changed.push(ev.form_id));
+        assert!(res1.is_none());
+        assert_eq!(mines.disabled_count, 1);
+        assert!(changed.is_empty());
+
+        // 2) Enter a cell containing a live mine with asked still 1: the mine must stay
+        //    armed and must NOT be retroactively disabled.
+        sim.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(CELL_MINED));
+        phys.insert_ref_cell_for_test(MINE, crate::phys::cells::PhysCell::Interior(CELL_MINED));
+        let res2 = scan_and_apply_disable_all_mines(&mut mines, &mut sim, &phys, Some(1), false, &mut idle_key, |ev| changed.push(ev.form_id));
+        let live2 = res2.expect("live mine should be detected in mined cell");
+        assert!(live2.contains_key(&FormId(MINE)));
+        assert!(sim.present(MINE), "prior empty-cell DisableAllMines must not disable later cell's mines");
+        assert!(changed.is_empty());
+
+        // 3) A fresh DisableAllMines (asked = 2) in the mined cell disables the live mine.
+        let res3 = scan_and_apply_disable_all_mines(&mut mines, &mut sim, &phys, Some(2), false, &mut idle_key, |ev| changed.push(ev.form_id));
+        assert!(res3.is_none());
+        assert_eq!(mines.disabled_count, 2);
+        assert!(!sim.present(MINE));
+        assert_eq!(changed, vec![MINE]);
     }
 }

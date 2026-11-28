@@ -683,6 +683,17 @@ pub struct World<'a> {
     /// References inserted into, removed from, or mutably borrowed via `World::refs` since
     /// the last [`World::take_touched_refs`].
     touched_refs: std::collections::BTreeSet<FormId>,
+    /// Unique per-world epoch for dynamic-reference caches (`dropped::sync_drawn`,
+    /// `mines::tick`), starting from `next_world_serial()` [design].
+    created_epoch: u64,
+    /// Monotonic counter bumped only for non-actor dynamic references (dropped items,
+    /// markers, thrown mines, etc.) so walking spawned NPCs do not invalidate
+    /// `dropped::sync_drawn` or `mines::tick` [design].
+    non_actor_created_gen: u64,
+    /// Candidate non-actor dynamic references (`>= FormId::FIRST_DYNAMIC`, not NPC_/CREA/LVLN/LVLC)
+    /// currently present in `self.refs`, so `dropped::sync_drawn` iterates O(non-actor drops)
+    /// instead of scanning thousands of dynamic actors [design].
+    non_actor_created: std::collections::BTreeSet<FormId>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
     /// Co-op replication: the references whose state was reached for writing
@@ -738,6 +749,9 @@ impl<'a> World<'a> {
             own_enable: std::collections::BTreeSet::new(),
             instance_id: serial,
             touched_refs: std::collections::BTreeSet::new(),
+            created_epoch: serial,
+            non_actor_created_gen: 1,
+            non_actor_created: std::collections::BTreeSet::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
             touched: None,
@@ -819,6 +833,43 @@ impl<'a> World<'a> {
 
     pub fn config(&self) -> SimConfig {
         self.cfg
+    }
+
+    /// Unique per-world epoch for dynamic-reference caches [design].
+    pub fn created_epoch(&self) -> u64 {
+        self.created_epoch
+    }
+
+    /// Monotonic revision bumped whenever a non-actor dynamic reference is created or
+    /// mutated [design].
+    pub fn non_actor_created_gen(&self) -> u64 {
+        self.non_actor_created_gen
+    }
+
+    /// Dynamic references (`>= FormId::FIRST_DYNAMIC`) whose base is not an actor or
+    /// actor leveled list, for `dropped::sync_drawn` [design].
+    pub fn non_actor_created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
+        self.non_actor_created.iter().filter_map(|&id| self.refs.get(&id).map(|s| (id, s)))
+    }
+
+    #[inline]
+    fn is_actor_sig(&self, base: FormId) -> bool {
+        self.forms.sig(base).is_some_and(|s| matches!(&s, b"NPC_" | b"CREA" | b"LVLN" | b"LVLC"))
+    }
+
+    #[inline]
+    fn note_dynamic_touch(&mut self, id: FormId, base: Option<FormId>) {
+        if id >= FormId::FIRST_DYNAMIC {
+            let is_actor = base.is_some_and(|b| self.is_actor_sig(b));
+            if !is_actor {
+                self.non_actor_created_gen = self.non_actor_created_gen.wrapping_add(1);
+                if self.refs.contains_key(&id) || base.is_some() {
+                    self.non_actor_created.insert(id);
+                } else {
+                    self.non_actor_created.remove(&id);
+                }
+            }
+        }
     }
 
     /// Hardcore mode turned on or off while the game runs (`fnv_game::Game::set_hardcore`,
@@ -919,6 +970,11 @@ impl<'a> World<'a> {
     pub fn get(&mut self, id: FormId) -> Result<&mut RefState, SimError> {
         if let Some(t) = self.touched.as_mut() {
             t.insert(id);
+        }
+        if id >= FormId::FIRST_DYNAMIC {
+            if let Some(base) = self.refs.get(&id).map(|r| r.base) {
+                self.note_dynamic_touch(id, Some(base));
+            }
         }
         if !self.refs.contains_key(&id) {
             if self.deleted_created.contains_key(&id) {
@@ -1758,6 +1814,7 @@ impl<'a> World<'a> {
                     shot: false,
                 },
             );
+            self.note_dynamic_touch(id, Some(item));
             out.push(id);
         }
         Ok(out)
@@ -2326,6 +2383,7 @@ impl<'a> World<'a> {
             self.note_presence(Some(*id));
             // Made anew: its level is fixed again when the cell is entered.
             self.ref_levels.remove(id);
+            self.note_dynamic_touch(*id, None);
         }
         reset
     }
@@ -2592,6 +2650,7 @@ impl<'a> World<'a> {
                 shot: false,
             },
         );
+        self.note_dynamic_touch(id, Some(base));
         Ok(id)
     }
 
@@ -2966,6 +3025,11 @@ impl<'a> World<'a> {
         w.rng.set_word_pos(pos);
         w.next_dynamic = s.next_dynamic;
         w.refs = s.refs.clone();
+        for (&id, r) in w.refs.range(FormId::FIRST_DYNAMIC..) {
+            if !w.is_actor_sig(r.base) {
+                w.non_actor_created.insert(id);
+            }
+        }
         w.globals = s.globals.clone();
         if let Ok(stored) = w.calendar() {
             w.fine_clock = clock::FineClock::restored(s.clock_hour.as_deref(), s.clock_days_passed.as_deref(), &stored);
@@ -3007,3 +3071,7 @@ impl<'a> World<'a> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "non_actor_created_tests.rs"]
+mod non_actor_created_tests;
