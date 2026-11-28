@@ -36,3 +36,6 @@ pub use goal::{Ambush, Escort, Find, Flee, Follow, Goal, Route, Talk, Trigger, U
 pub use process::{LoadedArea, ProcessLevel, ProcessStats, FAR_PROCESS_SECONDS, LOW_PROCESS_SECONDS};
 pub use sandbox::{Allowed, Doing, Sandbox};
 pub use social::Chat;
+
+#[cfg(test)]
+mod nav_presence_fast_path_tests;

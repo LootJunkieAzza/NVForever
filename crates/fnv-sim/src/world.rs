@@ -647,7 +647,19 @@ pub struct World<'a> {
     /// `enabled` or `deleted`. Not saved; every
     /// world starts from a number no other world of this process used, as
     /// `lock_serial`.
+    /// Monotonic serial bumped on any change to a reference's `enabled` or `deleted` flag.
     presence_serial: u64,
+    /// Unique per-`World` epoch initialized alongside `presence_serial` so incremental
+    /// presence consumers detect a replaced `World` [design].
+    presence_epoch: u64,
+    /// Serial of the latest bulk or enable-parent-topology presence change; any incremental
+    /// consumer whose cursor is older than this falls back to a full scan [design].
+    presence_full_serial: u64,
+    /// Bounded monotonic log of `(presence_serial, id)` for placed (`id < FIRST_DYNAMIC`)
+    /// reference presence mutations so navmesh door/obstacle syncs stay O(changed) instead
+    /// of scanning every door/obstacle in the world when a dynamic or unrelated reference
+    /// toggles [design].
+    presence_log: Vec<(u64, FormId)>,
     /// Session-only `SetContainerRespawns` overrides: container base → whether it respawns,
     /// over its `CONT` record's `Respawns` flag (`World::container_respawns`,
     /// `World::set_container_respawns`). Kept for the session, not saved ([`WorldSession`])
@@ -717,6 +729,9 @@ impl<'a> World<'a> {
             deleted_created: BTreeMap::new(),
             lock_serial: serial,
             presence_serial: serial,
+            presence_epoch: serial,
+            presence_full_serial: serial,
+            presence_log: Vec::new(),
             container_respawns: BTreeMap::new(),
             zone_session: ZoneSession::default(),
             enable_parent_edits: BTreeMap::new(),
@@ -918,7 +933,7 @@ impl<'a> World<'a> {
             let as_placed = self.placed.get(id).is_some_and(|p| s.enabled() == !p.initially_disabled() && !s.deleted());
             self.refs.insert(id, s);
             if !as_placed {
-                self.presence_serial += 1;
+                self.note_presence(Some(id));
             }
         }
         self.touched_refs.insert(id);
@@ -1714,7 +1729,7 @@ impl<'a> World<'a> {
             };
             let id = FormId(self.next_dynamic);
             self.next_dynamic += 1;
-            self.presence_serial += 1;
+            self.note_presence(Some(id));
             self.touch(id);
             self.touched_refs.insert(id);
             self.refs.insert(
@@ -2112,14 +2127,14 @@ impl<'a> World<'a> {
         let pop_in = self.enable_parent(id).is_some_and(|e| e.pop_in);
         self.enable_parent_edits.insert(id, parent.map(|reference| crate::refs::EnableParent { reference, opposite: false, pop_in }));
         self.own_enable.remove(&id);
-        self.presence_serial += 1;
+        self.note_presence(None);
     }
 
     /// DisableAlt / EnableAlt: from now on the reference's own flag counts, not its enable
     /// parent's state (`own_enable`).
     pub fn keep_own_enable(&mut self, id: FormId) {
         if self.own_enable.insert(id) {
-            self.presence_serial += 1;
+            self.note_presence(Some(id));
         }
     }
 
@@ -2308,7 +2323,7 @@ impl<'a> World<'a> {
             }
             self.refs.remove(id);
             self.touched_refs.insert(*id);
-            self.presence_serial += 1;
+            self.note_presence(Some(*id));
             // Made anew: its level is fixed again when the cell is entered.
             self.ref_levels.remove(id);
         }
@@ -2367,7 +2382,7 @@ impl<'a> World<'a> {
         let s = self.get(id)?;
         if s.enabled != enabled {
             s.enabled = enabled;
-            self.presence_serial += 1;
+            self.note_presence(Some(id));
         }
         Ok(())
     }
@@ -2381,7 +2396,7 @@ impl<'a> World<'a> {
         let s = self.get(id)?;
         if s.deleted != deleted {
             s.deleted = deleted;
-            self.presence_serial += 1;
+            self.note_presence(Some(id));
         }
         Ok(())
     }
@@ -2450,6 +2465,49 @@ impl<'a> World<'a> {
         self.presence_serial
     }
 
+    /// Unique per-`World` epoch for incremental presence consumers [design].
+    pub fn presence_epoch(&self) -> u64 {
+        self.presence_epoch
+    }
+
+    /// Latest presence serial that requires a full rescan (world creation, `set_enable_parent`,
+    /// or incremental log overflow) [design].
+    pub fn presence_full_serial(&self) -> u64 {
+        self.presence_full_serial
+    }
+
+    /// Placed (`id < FIRST_DYNAMIC`) reference IDs whose presence changed strictly after
+    /// `since_serial`, or `None` if a full rescan is required (new world, `set_enable_parent`,
+    /// or log overflow). Dynamic `0xFFxxxxxx` refs are omitted because they can never be
+    /// authored doors, navmesh obstacles, or authored XESP enable parents [design].
+    pub fn placed_presence_changes_since(&self, since_serial: u64) -> Option<&[(u64, FormId)]> {
+        if since_serial < self.presence_full_serial || since_serial > self.presence_serial {
+            return None;
+        }
+        let idx = self.presence_log.partition_point(|&(s, _)| s <= since_serial);
+        Some(&self.presence_log[idx..])
+    }
+
+    fn note_presence(&mut self, id: Option<FormId>) {
+        self.presence_serial += 1;
+        match id {
+            Some(r) if r < FormId::FIRST_DYNAMIC => {
+                const MAX_LOG: usize = 2048;
+                if self.presence_log.len() >= MAX_LOG {
+                    self.presence_log.clear();
+                    self.presence_full_serial = self.presence_serial;
+                } else {
+                    self.presence_log.push((self.presence_serial, r));
+                }
+            }
+            Some(_) => {}
+            None => {
+                self.presence_log.clear();
+                self.presence_full_serial = self.presence_serial;
+            }
+        }
+    }
+
     /// The access state of a door or container lock, as the in-game `GetLocked` reports
     /// it: 0 not locked, 1 locked. [documented: GECK wiki `GetLocked`, which also lists 2
     /// "locked out" for an impossible level or a broken lock; observed in game,
@@ -2505,7 +2563,7 @@ impl<'a> World<'a> {
         let mut inventory = self.roll_inventory(base, self.roll_level())?;
         // A created actor appears where the player is: it is outfitted at once.
         let outfitted = self.equip_default(base, &mut inventory);
-        self.presence_serial += 1;
+        self.note_presence(Some(id));
         self.touch(id);
         self.touched_refs.insert(id);
         self.refs.insert(
