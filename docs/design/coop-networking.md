@@ -515,3 +515,18 @@ The follow-ups §16 listed, ported onto main's seam and Co-op screens [design]:
   path offline (smoke `coop-online-local-duo-browse`).
 - **Not ported**: split screen's relay (split screen is not on main; #4845 brings it).
 
+What was run [observed, 2026-11-28, this PC only]: `cargo test -p nvf-coop` (153, the round
+trip's test with them), the nvforever co-op tests (79: the browser's rows and listing, the
+favourites file, the lobby's environment there and back, the load order hash), the nvf-play
+lobby tests (12: the host's choices, the Browse tab's sort, filters, row, Report and fit),
+the whole engine test suite, engine clippy, engine cargo deny, the smoke runner's tests, and
+the smoke scenarios the change calls for (35 pass, 8 skipped for want of `NVF_DLSS_DIR` or a
+lighting home), the new `coop-online-local-duo-browse` among them: the service in the game,
+a public locked lobby, the test guest let in with the password, the Browse tab listing,
+opening, sorting and reporting it. `physics-rate-fps` failed twice, the second time run
+alone: the game held 49 and then 57 fps before the scenario's frame hold began, with
+another session's build running on the machine, so Match FPS stepped down early; the
+change touches that run only by noting the load order [hypothesis: machine load; to run
+again on a quiet machine]. **Not run**: a load's restart with real guests in the lobby, and
+any two-machine run through coop.nv-forever.com.
+
