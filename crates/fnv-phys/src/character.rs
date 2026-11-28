@@ -346,6 +346,9 @@ const SPOT_RAYS: usize = 3;
 /// a ray finds the support under the feet's middle; a cone that wide standing on a stair
 /// rests on the next step's edge, higher than that, as it does walking there].
 const SPOT_LIFTS: [f32; 3] = [0.0, 0.5, 1.0];
+/// A ray up from the landscape meets a skin laid on it at its top within this, game units
+/// ([`PhysWorld::character_spot`]) [design, #4826: the same triangle met from below].
+const SKIN_SAME: f32 = 0.5;
 
 /// Why [`PhysWorld::character_spot`] found no place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -505,14 +508,12 @@ impl PhysWorld {
         let filter = crate::world::Filter { exclude_layers: c.ignore_layers, no_dynamic: true, no_actors: true, ..Default::default() };
         let q = self.queries();
         let (mut top, bottom) = (at[2] + SPOT_UP, at[2] - SPOT_DOWN);
-        let mut support: Option<(f32, f32)> = None;
+        // Walkable surfaces met: (rest height, distance from `at`, the hit).
+        let mut supports: Vec<(f32, f32, crate::world::RayHit)> = Vec::new();
         for _ in 0..SPOT_RAYS {
             let hits = q.ray_all([at[0], at[1], top], [0.0, 0.0, -1.0], top - bottom, &filter);
             for hit in hits.iter().filter(|h| h.normal[2] >= p.max_slope_deg.to_radians().cos()) {
-                let off = (hit.point[2] - at[2]).abs();
-                if support.is_none_or(|(_, best)| off < best) {
-                    support = Some((hit.point[2] + p.rest_gap(hit.shell), off));
-                }
+                supports.push((hit.point[2] + p.rest_gap(hit.shell), (hit.point[2] - at[2]).abs(), *hit));
             }
             let Some(nearest) = hits.first() else { break };
             top = nearest.point[2] - 0.5;
@@ -520,12 +521,30 @@ impl PhysWorld {
                 break;
             }
         }
-        let Some((z, _)) = support else { return Err(SpotRefused::NoSupport) };
-        SPOT_LIFTS
-            .iter()
-            .map(|share| [at[0], at[1], z + share * p.step_height])
-            .find(|&feet| q.character_overlap(c, feet).is_empty())
-            .ok_or(SpotRefused::NoRoom)
+        let Some(&(z, _, low)) = supports.iter().min_by(|a, b| a.1.total_cmp(&b.1)) else { return Err(SpotRefused::NoSupport) };
+        let fits = |z: f32| SPOT_LIFTS.iter().map(|share| [at[0], at[1], z + share * p.step_height]).find(|&feet| q.character_overlap(c, feet).is_empty());
+        if let Some(feet) = fits(z) {
+            return Ok(feet);
+        }
+        // The landscape under a skin laid on it (a road or path mesh over the ground): the
+        // skin's top, when the first thing over the landscape there is that very surface
+        // [design, #4826: a navmesh triangle is coarse and runs under a road; on the
+        // landscape below the road a body overlaps the road, so the place was refused and
+        // a follower stuck at the road's edge was left to the navmesh surface, under the
+        // road. A slab, table or upper floor has its underside below its top, a space a
+        // body would be put into: those still leave no room, the level asked for kept].
+        if matches!(low.owner, crate::world::Owner::Terrain { .. }) {
+            let skin = supports.iter().filter(|s| s.2.point[2] > low.point[2] && !matches!(s.2.owner, crate::world::Owner::Terrain { .. })).min_by(|a, b| a.2.point[2].total_cmp(&b.2.point[2]));
+            if let Some(&(z, _, upper)) = skin {
+                let rise = upper.point[2] - low.point[2];
+                let over = q.ray([at[0], at[1], low.point[2] + 0.1], [0.0, 0.0, 1.0], rise + 1.0, &filter);
+                let laid_on = over.is_some_and(|h| h.owner == upper.owner && (h.point[2] - upper.point[2]).abs() < SKIN_SAME);
+                if laid_on {
+                    return fits(z).ok_or(SpotRefused::NoRoom);
+                }
+            }
+        }
+        Err(SpotRefused::NoRoom)
     }
 
     /// One fixed step of character movement (call once per [`PhysWorld::step`], before

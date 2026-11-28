@@ -520,6 +520,11 @@ mod shared_table_tests {
         ("send-reports", "Reports"),
         ("reports-delete", "Reports"),
         ("coop", "Gameplay"),
+        // The co-op connection rows (nvforever `coop/net_settings.rs`).
+        ("coop-connection", "Gameplay"),
+        ("coop-router-port", "Gameplay"),
+        ("coop-relay", "Gameplay"),
+        ("coop-ask", "Gameplay"),
         // #3280's flashlight rows, as on the desktop page.
         ("flashlight-shadows", "Flashlight"),
         ("flashlight-type", "Flashlight"),

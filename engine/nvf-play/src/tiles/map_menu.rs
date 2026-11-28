@@ -2731,7 +2731,7 @@ mod tests {
     }
 
     fn x_hint() -> HintShown {
-        HintShown { slot: Slot::X, kind: ButtonKind::ShowLocation, word: "Look There".into(), key: "X)".into(), dim: false }
+        HintShown { slot: Slot::X, kind: ButtonKind::ShowLocation, word: "Look There".into(), key: "[X]".into(), dim: false }
     }
 
     /// Quests `n` of them, the first active and the last done, `sel` selected and boxed, with `objectives`
@@ -2812,12 +2812,12 @@ mod tests {
         assert_eq!((at(&ui, &button_path("MM_ButtonA"), "visible"), at(&ui, &button_path("MM_ButtonY"), "visible")), (0.0, 0.0));
         let x = button_path("MM_ButtonX");
         assert_eq!((at(&ui, &x, "visible"), at(&ui, &x, "target")), (1.0, 1.0));
-        assert_eq!((words(&ui, &x, "string"), words(&ui, &x, "_PCButtonText")), ("Look There".to_string(), "X)".to_string()));
+        assert_eq!((words(&ui, &x, "string"), words(&ui, &x, "_PCButtonText")), ("Look There".to_string(), "[X]".to_string()));
         // Measured and checked: three rows whole, the objectives' window from what clips them.
         assert_eq!((t.written.counted.rows, t.written.counted.rows_in_clip), (3, 3));
         let pane = t.written.counted.pane.expect("the objectives' window");
         assert_eq!((pane.min.x, pane.min.y, pane.width(), pane.height()), (490.0, 240.0, 380.0, 200.0));
-        assert!(describe(&t.written).contains("tab quests, 3 rows, \"Quest 1\" selected, 2 objectives, hints: X Look There X)"), "{}", describe(&t.written));
+        assert!(describe(&t.written).contains("tab quests, 3 rows, \"Quest 1\" selected, 2 objectives, hints: X Look There [X]"), "{}", describe(&t.written));
     }
 
     #[test]
@@ -2877,7 +2877,7 @@ mod tests {
         // A controller's set: A then X, whatever their order; a dim hint is no target.
         let (mut ui, mut t) = (tree(), MapTiles::default());
         let mut s = shown(2, 1, 0);
-        s.hints = vec![x_hint(), HintShown { slot: Slot::A, kind: ButtonKind::MakeActive, word: "Pick".into(), key: "A)".into(), dim: true }];
+        s.hints = vec![x_hint(), HintShown { slot: Slot::A, kind: ButtonKind::MakeActive, word: "Pick".into(), key: "[A]".into(), dim: true }];
         run(&mut ui, Some(s), &mut t).unwrap();
         let a = button_path("MM_ButtonA");
         assert_eq!((at(&ui, &a, "visible"), at(&ui, &a, "target"), words(&ui, &a, "string")), (1.0, 0.0, "Pick".to_string()));
@@ -2965,7 +2965,7 @@ mod tests {
             rows: (0..n).map(|i| RowShown { key: 500 + i as u32, text: format!("Item {i}"), filled: false, done: list == ListKind::Challenges && i == 1 }).collect(),
             selected: (n > 0).then_some(sel),
             pane,
-            hints: vec![hint(Slot::X, ButtonKind::NotesFilter, "Fewer", "X)"), hint(Slot::Y, ButtonKind::Challenges, "Feats", "R)")],
+            hints: vec![hint(Slot::X, ButtonKind::NotesFilter, "Fewer", "[X]"), hint(Slot::Y, ButtonKind::Challenges, "Feats", "[R]")],
             ..shown(0, 0, 0)
         }
     }
@@ -3004,8 +3004,8 @@ mod tests {
         assert_eq!((pane.min.x, pane.min.y, pane.width(), pane.height()), (500.0, 245.0, 360.0, 150.0));
         // The hints: the filter on X, the challenges toggle on Y.
         assert_eq!((words(&ui, &button_path("MM_ButtonX"), "string"), words(&ui, &button_path("MM_ButtonY"), "string")), ("Fewer".to_string(), "Feats".to_string()));
-        assert_eq!(words(&ui, &button_path("MM_ButtonY"), "_PCButtonText"), "R)");
-        assert!(describe(&t.written).contains("tab misc notes, 3 rows, \"Item 1\" selected, text, hints: X Fewer X), Y Feats R)"), "{}", describe(&t.written));
+        assert_eq!(words(&ui, &button_path("MM_ButtonY"), "_PCButtonText"), "[R]");
+        assert!(describe(&t.written).contains("tab misc notes, 3 rows, \"Item 1\" selected, text, hints: X Fewer [X], Y Feats [R]"), "{}", describe(&t.written));
         // Further than it can go: held at its end; a page and the wheel are the pane's (data).
         s.pane_first = 500.0;
         run(&mut ui, Some(s), &mut t).unwrap();
@@ -4066,7 +4066,7 @@ mod tests {
 
     #[test]
     fn the_prepared_page_is_read_as_the_tile_page_writes_it() {
-        let hint = |kind, word: &'static str, dim| data::Button { hint: Hint::new(word, "K)".into(), dim), kind };
+        let hint = |kind, word: &'static str, dim| data::Button { hint: Hint::new(word, "[K]".into(), dim), kind };
         let row = |text: &str, mark, done| data::Row { text: text.into(), mark, done };
         let view = data::View {
             tab: data::QUESTS,

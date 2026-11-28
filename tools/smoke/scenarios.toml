@@ -3840,7 +3840,7 @@ order = [[
   "settings: anti-aliasing TAA",
   "settings: ambient-occlusion Quality",
   "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
-  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: on main (2026-11-27, this machine alone) the TAA and Quality AO change leaves 15 pipelines pending at the 15 s cap" },
+  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$', known_failing = "#4773: fails on the first run of a new build: an unattended run keeps no pipeline cache and the driver's is cold, so the start's pipelines outlast the loading screen's 15 s cap on the 2-thread compile pool and the TAA and AO pipelines queue behind them (16 pending at the cap); a second run passes (4.75 s, pending 0)" },
   { re = 'pause menu: resume$' },
 ]]
 expect = [
@@ -3848,7 +3848,7 @@ expect = [
   { re = 'pause menu: resume$', count = 1, label = "one actual release" },
 ]
 forbid = [
-  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on main" },
+  { text = "capped true", label = "the graphics-resume cap", known_failing = "#4773: the same cap, reached on the first run of a new build (cold pipeline caches)" },
   { text = "Caught rendering error", label = "a rendering validation error" },
   { text = "failed and will not be tried again", label = "a failed pipeline" },
   { text = "and no longer waited for", label = "a pipeline over its retry cap" },
@@ -4432,6 +4432,43 @@ expect = [
 ]
 
 [[scenario]]
+name = "pilot-ai-due"
+source = "issue #2365 (spooknik's coverage review): the quest pilot's steps left to the AI (`patrol_point`, an actor entering a trigger) succeeded at once and nothing looked whether the actor did it. They are checked afterwards: done once the actor is within 256 units of the point, an `ai_not_done` finding after 180 s or when the chain ends first"
+note = "A tiny chain kept beside the smoke tests (tools/smoke/pilot/ai-due.actions.json)"
+areas = ["quests", "ai"]
+paths = ["engine/nvforever/src/pilot.rs", "tools/smoke/pilot/ai-due.actions.json"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "900", NVF_PLAY_TEST_UNATTENDED = "1" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-music", "--pilot", "{repo}/tools/smoke/pilot/ai-due.actions.json"]
+run_seconds = 90
+ends = "pilot: done:"
+order = [[
+  { re = 'pilot: step \d+: the AI did what step 1 left to it: SunnyRef reaching SunnyRef', label = "a step the AI has done is said done" },
+  { re = 'pilot: finding ai_not_done: .*step 2 left to the AI: SunnyRef reaching VERGSCoyote6REF, the chain ended first', label = "one it never did is a finding at the chain's end" },
+  { re = 'pilot: done: 1 chain\(s\), 4 steps \(0 failed\)', label = "the run ends with no failed step" },
+]]
+
+[[scenario]]
+name = "pilot-sshq-stairs"
+source = "issue #2365 (from #3473): in the Sunset Sarsaparilla HQ the prize room, its corridor and stairs are a navmesh of their own (0x0010489C) that no link joins to the cell's main navmesh; the original's followers do not cross there (observer check 279), a player walks the stairs. The quest pilot walks to the near end of the gap and steps across on its own movement, down to Allen Marks' holotape and back up to Festus, instead of an unreachable finding"
+note = "A tiny chain kept beside the smoke tests (tools/smoke/pilot/sshq-stairs.actions.json): VMS09a 10 is set and the two doors on the way are unlocked by script"
+areas = ["quests", "ai"]
+paths = ["engine/nvforever/src/pilot.rs", "crates/fnv-nav/src/graph.rs", "tools/smoke/pilot/sshq-stairs.actions.json"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "900", NVF_PLAY_TEST_UNATTENDED = "1" }
+args = ["--cell", "SSHQ01", "--play", "--hour", "12", "--no-voice", "--no-music", "--pilot", "{repo}/tools/smoke/pilot/sshq-stairs.actions.json"]
+run_seconds = 180
+ends = "pilot: done:"
+order = [[
+  { re = 'pilot: step 5: no navmesh link joins the player.s part of Interior', label = "the walk down finds the two navmeshes unjoined" },
+  { re = 'pilot: step 5: stepped across in ', label = "the player steps down onto the prize room's navmesh" },
+  { re = 'pilot: step 7: stepped across in ', label = "and back up the stairs onto the main navmesh" },
+  { re = 'pilot: done: 1 chain\(s\), 8 steps \(0 failed\)', label = "the run ends with no failed step" },
+]]
+expect = [
+  { text = "pilot: finding unreachable", count = 0, label = "no unreachable finding" },
+  { text = "pilot: finding no_navmesh_way", count = 0, label = "no fast-travel stand-in across the gap" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]
@@ -4910,7 +4947,7 @@ args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", 
 messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "main 2026-10-23 (origin/main cd54601d+, 13 blows): the add-ons' load message boxes hold the game for about 8 s of the 30 (list 7 W4: 12 and 14 on its branch)" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [100, 170], label = "the dogs bite from their reach and body, (RNAM 48 + 62 for the Dog skeleton) x 1.2 = 132 at most, not from inside the player (the original's dogs began a median 133 units away; ours 121 on 2026-10-17; npc-behaviour-compare.md §3, #1334)" },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
@@ -6437,11 +6474,11 @@ run_seconds = 15
 order = [[
   "settings: quick-loot on",
   { re = 'language: ru', label = "the language is Russian" },
-  { re = 'quick loot: drawn "Refrigerator" \(.*keys "E\) Взять \| R\) Взять всё \| T\) Обыскать"\): no overlaps', label = "the keys in Russian, nothing overlapping" },
+  { re = 'quick loot: drawn "Refrigerator" \(.*keys "\[E\] Взять \| \[R\] Взять всё \| \[T\] Обыскать"\): no overlaps', label = "the keys in Russian, nothing overlapping" },
 ]]
 forbid = [
   { re = 'quick loot: drawn .*overlaps: ', label = "something overlaps" },
-  { re = 'quick loot: drawn "Refrigerator" .*keys "E\) Take', label = "the keys stayed English after the language changed" },
+  { re = 'quick loot: drawn "Refrigerator" .*keys "\[E\] Take', label = "the keys stayed English after the language changed" },
 ]
 
 [[scenario]]
@@ -6993,6 +7030,18 @@ expect = [
   { re = 'anim sounds summary:.*\b3 reload keys' },
   { re = 'anim sounds summary:.*\b5 door sounds \(2 from door records\)', known_failing = "main 2026-10-23 (301f062d): 9 door sounds (2 from door records): --open-doors opened 10 doors, more of Goodsprings' doors are drawn in the run since the streaming changes; the door records' 2 hold" },
   { re = 'anim sounds summary:.*\b0 keys without a SOUN' },
+]
+
+[[scenario]]
+name = "footsteps-walk-again"
+source = "issue #4827 (engine/nvforever/src/anim_sounds.rs player_layer_heard): the player walks 3 s, stops 3 s and walks 3 s again; both walks step. Before the fix the walk clip coming in was heard only from half its layer's weight, and the second walk was silent (6 footsteps in all, all in the first walk; 13 with the fix, 2026-11-27)"
+areas = ["anim-sounds", "audio"]
+paths = ["engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,11:0:0,14:1:0,17:0:0" }
+args = ["--play", "--pos=-70720,-85587,6500", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'anim sounds summary:.*\((?P<n>\d+) by the player', range = [10, 18], label = "both walks step: about 6 footsteps each" },
 ]
 
 [[scenario]]
@@ -9990,7 +10039,7 @@ args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", 
 run_seconds = 130
 expect = [
   { re = 'npc combat: 0x000(F36F|15CE)\S* 0x\S+ fights (FiendCookCookRef|0x000F9CE)', label = "the NCR troopers fight the Fiends" },
-  { re = 'battle: .* killed by ', min = 3, label = "three or more killed" },
+  { re = 'battle: .* killed by ', min = 3, label = "three or more killed", known_failing = "#1162: the fight's own course: 2 killed in some runs (1 of 4 runs on 2026-11-27; about 1 in 7 when the issue was opened), on main as on branches; the Fiends that stand are fighting on when the run ends at 120 s" },
   { re = 'battle summary: 2 sides, (?P<n>\d+) actors', range = [5, 12], label = "battle summary: 2 sides" },
 ]
 
@@ -10037,8 +10086,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', range = [26, 1000], all = true, label = "every cover spot has room for the capsule" },
-  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek (?P<n>\d+)', range = [26, 1000], all = true, label = "every peek point has room for the capsule" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', label = "a fighter takes cover in the battle", known_failing = "#1162: in about 1 run of 3 nobody reaches cover before the fight is over (0 cover taken, the battle resolved in 43-53 s; Take Cover Chance is rolled every 10 s), so no cover spot is there to measure; the room round each spot that is taken is checked by the forbid lines below" },
   { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the battle" },
   { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the battle is over full scale" },
   { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
@@ -10046,7 +10094,11 @@ expect = [
   { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
   { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no sound of the battle cut mid-waveform (each stop fades out)" },
 ]
-forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
+forbid = [
+  { re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot ([0-9]|1[0-9]|2[0-5])(\D|$)', label = "a cover spot with less room than the capsule needs (26)" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek ([0-9]|1[0-9]|2[0-5])(\D|$)', label = "a peek point with less room than the capsule needs (26)" },
+]
 
 [[scenario]]
 name = "person-armour-pace"
@@ -11420,10 +11472,10 @@ expect = [{ re = 'provocation summary: .*aggro radius: (?P<n>\d+) warnings, (?P<
 [[scenario]]
 name = "aggro-spawned-no-warning"
 source = "#1341 (crates/fnv-game/src/aggro.rs \"Spawned actors do not warn\", docs/design/combat-ai.md §13.1): an actor created at run time (PlaceAtMe) attacks a player inside its aggro radius at once, without the placed one's warnings; the original's CrCoyote did so at the placed coyote's spot, 700 of 1,024 units off (capture o25_coyote, 2026-11-06)"
-note = "the setup of aggro-radius (the player about 600 units from VERGSCoyote6REF 0x00157B38, past half its 1,024 radius, where a placed one warns); the six Goodsprings coyotes are disabled and a CrCoyote (the first created reference, 0xFF0000xx) is PlaceAtMe'd at coyote 6's spot at 3 s"
+note = "the setup of aggro-radius (the player about 600 units from VERGSCoyote6REF 0x00157B38, past half its 1,024 radius, where a placed one warns); the six Goodsprings coyotes are disabled and a CrCoyote (the first created reference, 0xFF0000xx) is PlaceAtMe'd at coyote 6's spot at 3 s. Coyote 6 is first set back on its editor place (-58705, -753, 8838), 595 units from the player [observed: fnvtool world refs]: it wanders in the 2.5 s before it is disabled, and the spawn followed it out of the band in 2 of 4 runs (#1162)"
 areas = ["combat", "alert"]
 paths = ["crates/fnv-game/src/aggro.rs", "engine/nvforever/src/provoked.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,3:call:VERGSCoyote6REF:PlaceAtMe:CrCoyote:1" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,2.6:call:VERGSCoyote6REF:SetPos:x:-58705,2.7:call:VERGSCoyote6REF:SetPos:y:-753,2.8:call:VERGSCoyote6REF:SetPos:z:8838,3:call:VERGSCoyote6REF:PlaceAtMe:CrCoyote:1" }
 args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 25
 expect = [{ re = 'provocation: .*0xFF0000[0-9A-F]{2} attacks the player, who stayed inside its aggro radius \((?P<n>\d+) of 1024 units\)', range = [513, 1024], label = "the spawned coyote attacks past half its radius" }]
@@ -12742,7 +12794,7 @@ run_seconds = 25
 expect = [
   { re = 'pipboy items: 10mm Pistol selected: .*dps: None', label = "no DPS card on the ITEMS page" },
   { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("[^"]*weap_skill_icon_sm_arms\.dds"\), skill_req: Some\(\d+\)', label = "the Guns badge and the skill the pistol needs" },
-  { re = 'pipboy items: 10mm Pistol Modify X\)', label = "Modify X) for a weapon with mod slots" },
+  { re = 'pipboy items: 10mm Pistol Modify \[X\]', label = "Modify [X] for a weapon with mod slots" },
   "pipboy repair: clicked row 1",
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "the click on the chosen part repairs the pistol" },
 ]
@@ -12834,7 +12886,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-repair-home", NV
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 23
 expect = [
-  { re = 'pipboy items: 10mm Pistol Repair R\)(?! \(dim)', label = "the worn pistol shows Repair R), bright (another pistol can repair it)" },
+  { re = 'pipboy items: 10mm Pistol Repair \[R\](?! \(dim)', label = "the worn pistol shows Repair [R], bright (another pistol can repair it)" },
   { re = 'pipboy repair: open 10mm Pistol at [34]0% \(Repair \d+\): 10mm Pistol [34]0%', label = "R lists the other pistol as the part" },
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "using it repairs the pistol" },
   { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "a repair plays UIRepairWeapon" },
@@ -12866,13 +12918,13 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-repair-full-home
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 23
 expect = [
-  { text = "pipboy items: 10mm Pistol Maintain R) (dim)", label = "the pistol's hint is dim: at AddItem's 99.9 % it counts as full" },
+  { text = "pipboy items: 10mm Pistol Maintain [R] (dim)", label = "the pistol's hint is dim: at AddItem's 99.9 % it counts as full" },
   { re = 'pipboy repair: 10mm Pistol at \d+%: nothing to repair it with \(full condition\)', label = "R refuses it as full" },
 ]
 forbid = [
   { text = "pipboy repair: open", label = "the repair list opening on an item that counts as full" },
   { re = 'pipboy repair: 10mm Pistol \d+% with 10mm Pistol', label = "a pistol scrapped to raise the other from 99.9 %" },
-  { re = 'pipboy items: 10mm Pistol Maintain R\)(?! \(dim)', label = "the hint bright on an item that counts as full" },
+  { re = 'pipboy items: 10mm Pistol Maintain \[R\](?! \(dim)', label = "the hint bright on an item that counts as full" },
 ]
 
 [[scenario]]
@@ -12928,7 +12980,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 25
 expect = [
-  { re = 'pipboy items: 10mm Pistol Modify X\)(?! \(dim)', label = "Modify X) bright: the player carries a mod that fits" },
+  { re = 'pipboy items: 10mm Pistol Modify \[X\](?! \(dim)', label = "Modify [X] bright: the player carries a mod that fits" },
   { re = 'pipboy mod: open 10mm Pistol \(flags 0\): 10mm Pistol Extended Mags \(slot 1\)', label = "X lists the extended magazines for slot 1" },
   { text = "pipboy: menu code 1061", label = "MenuMode 1061 while the mod menu is open" },
   { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "attaching sets the slot's flag" },
@@ -12946,7 +12998,7 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-right-click-drop
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 21
 expect = [
-  { re = 'pipboy items: 10mm Pistol Modify X\)', label = "the pistol's Modify X) shows: a weapon with mod slots" },
+  { re = 'pipboy items: 10mm Pistol Modify \[X\]', label = "the pistol's Modify [X] shows: a weapon with mod slots" },
   { text = "test aid: pipboy clicked the screen", label = "the right click lands on the screen" },
   { re = 'menu: Drop: Dropped 10mm Pistol x1', label = "the right click drops the pistol" },
   { text = "pipboy mod: open", count = 0, label = "the mod menu stays closed" },
@@ -15087,13 +15139,13 @@ run_seconds = 32
 expect = [
   { text = "controls: input device Controller", label = "the Controls tab's first row picks the controller" },
   { text = "hints: Xbox labels", label = "the hints take the controller's names" },
-  { re = 'caravan: hints: Auto Match Y\), Raise RT\), Accept A\), Exit B\); help: \S.* \[B\]', label = "the bet screen under its help box: the buttons, and B closes the box" },
-  { text = "caravan: hints: Auto Match Y), Raise RT), Accept A), Exit B)", label = "the bet screen's buttons once the help box is closed" },
-  { re = 'caravan: hints: Randomize Caravan Deck Y\), Add A\), Remove X\), Play Caravan RT\)', label = "the deck builder's buttons" },
-  { re = 'caravan: hints: Select Card A\), Discard Card X\), Discard Track Y\), Cancel B\)', label = "the game's buttons" },
+  { re = 'caravan: hints: Auto Match \[Y\], Raise \[RT\], Accept \[A\], Exit \[B\]; help: \S.* \[B\]', label = "the bet screen under its help box: the buttons, and B closes the box" },
+  { text = "caravan: hints: Auto Match [Y], Raise [RT], Accept [A], Exit [B]", label = "the bet screen's buttons once the help box is closed" },
+  { re = 'caravan: hints: Randomize Caravan Deck \[Y\], Add \[A\], Remove \[X\], Play Caravan \[RT\]', label = "the deck builder's buttons" },
+  { re = 'caravan: hints: Select Card \[A\], Discard Card \[X\], Discard Track \[Y\], Cancel \[B\]', label = "the game's buttons" },
   { re = 'caravan: hints: [^;]* [WQFRS]\)', max = 0, label = "no keyboard key left in a caravan hint" },
 ]
-order = [["controls: input device Controller", "caravan: hints: Auto Match Y)", "caravan: hints: Randomize Caravan Deck Y)", "caravan: hints: Select Card A)"]]
+order = [["controls: input device Controller", "caravan: hints: Auto Match [Y]", "caravan: hints: Randomize Caravan Deck [Y]", "caravan: hints: Select Card [A]"]]
 
 [[scenario]]
 name = "controller-playstation-hints"
@@ -15107,10 +15159,10 @@ run_seconds = 32
 expect = [
   { text = "controller: button style PlayStation", label = "the settings page's Button style picks the PlayStation names" },
   { text = "hints: PlayStation labels", label = "the hints take them" },
-  { re = 'caravan: hints: Auto Match Triangle\), Raise R2\), Accept Cross\), Exit Circle\); help: \S.* \[Circle\]', label = "the bet screen under its help box, Circle closing the box" },
-  { re = 'caravan: hints: Randomize Caravan Deck Triangle\), Add Cross\), Remove Square\), Play Caravan R2\)', label = "the deck builder's buttons" },
-  { re = 'caravan: hints: Select Card Cross\), Discard Card Square\), Discard Track Triangle\), Cancel Circle\)', label = "the game's buttons" },
-  { re = 'caravan: hints: [^;]* (?:[WQFRSAXYB]|RT)\)', max = 0, label = "no keyboard key or Xbox name left in a caravan hint" },
+  { re = 'caravan: hints: Auto Match \[Triangle\], Raise \[R2\], Accept \[Cross\], Exit \[Circle\]; help: \S.* \[Circle\]', label = "the bet screen under its help box, Circle closing the box" },
+  { re = 'caravan: hints: Randomize Caravan Deck \[Triangle\], Add \[Cross\], Remove \[Square\], Play Caravan \[R2\]', label = "the deck builder's buttons" },
+  { re = 'caravan: hints: Select Card \[Cross\], Discard Card \[Square\], Discard Track \[Triangle\], Cancel \[Circle\]', label = "the game's buttons" },
+  { re = 'caravan: hints: [^;]* \[(?:[WQFRSAXYB]|RT)\]', max = 0, label = "no keyboard key or Xbox name left in a caravan hint" },
 ]
 
 [[scenario]]
@@ -20604,6 +20656,34 @@ args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "
 run_seconds = 14
 expect = [
   { re = 'combat: .* melee impacts, (?P<n>\d+) water splashes', range = [2, 2], label = "both shots splash going into the lake" },
+]
+
+[[scenario]]
+name = "water-shot-rings"
+source = "Enhanced Water effects: two timed bullet entries disturb the surface above their lakebed impacts."
+note = "At Boulder Beach the player aims down into shallow water, then turns for the second shot."
+areas = ["combat", "graphics"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/water.rs", "engine/nvforever/src/water.wesl"]
+env = { RUST_LOG = "info,nvforever::water=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_CONSOLE = "1:tdetect;1.25:close", NVF_PLAY_TEST_LOOK = "4:60:-48,7.75:82:-48", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7:fire,7.2:fire,8:fire,8.2:fire" }
+args = ["--play", "--pos=57130,37565,2700", "--heading", "60", "--hour", "12", "--graphics-only", "water-effects", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { text = "water: shot ring at (", count = 2, label = "one ring per crossing" },
+  { re = 'combat: 2 shots .* 2 world hits .* 2 water splashes, 0 water blasts', label = "both shots splash and continue to the bed" },
+]
+
+[[scenario]]
+name = "water-blast-waves"
+source = "Enhanced Water effects: the 40mm crossing and the near-surface detonation have distinct surface responses."
+areas = ["combat", "particles", "graphics"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/water.rs", "engine/nvforever/src/water.wesl"]
+env = { RUST_LOG = "info,nvforever::water=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:4", NVF_PLAY_TEST_LOOK = "4:90:-12", NVF_PLAY_TEST_CONTROL = "3:weapon,7:fire" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--graphics-only", "water-effects", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { text = "water: heavy entry ring at (", count = 1, label = "one entry wave" },
+  { text = "water: blast wave at (", count = 1, label = "one detonation wave" },
+  { text = "1 water surfaces thrown up", label = "the authored water column draws" },
 ]
 
 [[scenario]]
@@ -28285,6 +28365,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "knvse-npc-weapon-replace"
+source = "#1461: an NPC's attack clips come from its kNVSE replacement files (AnimGroupOverride folders, SetActorAnimationPath) where one has the clip's file name (engine/nvforever/src/attack_anims.rs, anim_paths::ActorAnimFiles). Here SetActorAnimationPath names the first-person folder's 2haattack3.kf, a file the base archives hold under the same name as the third-person one, so the shot's clip must be read from it"
+areas = ["scripts", "actors", "combat"]
+paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/anim_paths.rs", "crates/fnv-game/src/nvse_anim.rs", "crates/fnv-game/src/nvse_anim_folders.rs"]
+note = "WeapNVServiceRifle is a 2ha weapon whose attack is Attack3 (2haattack3.kf). Run by hand on A Blue Moon's merged Data (2026-11-27) the folders load (471 entries) and Ringo plays 4 replaced locomotion moves, but he never holds the rifle there, so the weapon folder (WWPSR) is not shown by that run"
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 600 0;9.5:RingoRef.AddItem WeapNVServiceRifle 1;RingoRef.AddItem Ammo556mm 200;RingoRef.EquipItem WeapNVServiceRifle;10:PrintC \"nvf set %g\", (RingoRef.SetActorAnimationPath 0 1 \"characters\\_1stperson\\2haattack3.kf\");10.5:close;12:RingoRef.StartCombat player;12.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'script: print "nvf set 1"', label = "the file is there: the setter gives 1" },
+  { re = 'attack anims: 00104C7D plays meshes.characters._1stperson.2haattack3[.]kf', label = "Ringo's shots play the replacement of 2haattack3.kf" },
+  { re = 'attack anims: 00104C7D plays meshes.characters._male.2haattack3[.]kf', count = 0, label = "never the folder's own clip while it is replaced" },
+]
+
+[[scenario]]
 name = "knvse-player-sequences"
 source = "kNVSE on the player (docs/design/knvse-anim.md §5): PlayAnimationPath's and ActivateAnim's sequences are requests the player's rigs play beside locomotion (script_sequences.rs, #2395); DeactivateAnim takes each back"
 areas = ["scripts", "player"]
@@ -32537,17 +32632,17 @@ env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-items-hints-home
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
 run_seconds = 26
 expect = [
-  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Modify X\)$', label = "Weapons: Repair, then Mod, nothing else" },
-  { re = 'pipboy hints: items Apparel: (Repair|Maintain) R\)( \(dim\))?$', label = "Apparel: the repair hint alone" },
-  { re = 'pipboy hints: items Aid: Repair R\) \(dim\)$', label = "Aid: Repair alone, dim" },
-  { re = 'pipboy hints: items Misc: Repair R\) \(dim\)$', label = "Misc: Repair alone, dim" },
-  { re = 'pipboy hints: items Ammo: Repair R\) \(dim\)$', label = "Ammo: Repair alone, dim" },
-  { re = 'pipboy hints: items \w+: .*(Enter\)|Right Mouse\)|1-8\))', max = 0, label = "no equip, drop or hotkey hint with the keyboard" },
-  { text = "pipboy hints: mod menu: Modify Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
-  { re = 'pipboy hints: mod menu: Modify Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
-  { re = 'pipboy items: 10mm Pistol Modify X\)(?! \(dim)', label = "the pistol's own Modify X) line, bright" },
+  { re = 'pipboy hints: items Weapons: (Repair|Maintain) \[R\]( \(dim\))?, Modify \[X\]$', label = "Weapons: Repair, then Mod, nothing else" },
+  { re = 'pipboy hints: items Apparel: (Repair|Maintain) \[R\]( \(dim\))?$', label = "Apparel: the repair hint alone" },
+  { re = 'pipboy hints: items Aid: Repair \[R\] \(dim\)$', label = "Aid: Repair alone, dim" },
+  { re = 'pipboy hints: items Misc: Repair \[R\] \(dim\)$', label = "Misc: Repair alone, dim" },
+  { re = 'pipboy hints: items Ammo: Repair \[R\] \(dim\)$', label = "Ammo: Repair alone, dim" },
+  { re = 'pipboy hints: items \w+: .*(\[Enter\]|\[Right Mouse\]|\[1-8\])', max = 0, label = "no equip, drop or hotkey hint with the keyboard" },
+  { text = "pipboy hints: mod menu: Modify [Enter] (dim), Exit [E]", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Modify \[Enter\](?! \(dim), Exit \[E\]', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Modify \[X\](?! \(dim)', label = "the pistol's own Modify [X] line, bright" },
 ]
-order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify Enter) (dim), Exit E)"]]
+order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify [Enter] (dim), Exit [E]"]]
 
 [[scenario]]
 name = "pipboy-items-hints-pad"
@@ -32561,16 +32656,16 @@ run_seconds = 26
 expect = [
   { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller" },
   { text = "hints: Xbox labels", label = "the hints take the Xbox names before the Pip-Boy opens" },
-  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\), Modify LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
-  { re = 'pipboy hints: items Apparel: (Equip|Unequip) A\)( \(dim\))?, Drop X\)( \(dim\))?, (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\)$', label = "Apparel: the set without Mod" },
-  { re = 'pipboy hints: items Aid: Use A\), Drop X\), Repair Y\) \(dim\), Hotkey RB\)$', label = "Aid: Use; Repair dim" },
-  { re = 'pipboy hints: items Misc: Equip A\) \(dim\), Drop X\)( \(dim\))?, Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
-  { re = 'pipboy hints: items Ammo: Equip A\) \(dim\), Drop X\), Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
-  { text = "pipboy hints: mod menu: Modify A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
-  { re = 'pipboy hints: mod menu: Modify A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
-  { re = 'pipboy items: 10mm Pistol Modify LB\)(?! \(dim)', label = "the pistol's own Modify LB) line, bright" },
+  { re = 'pipboy hints: items Weapons: (Equip|Unequip) \[A\], Drop \[X\], (Repair|Maintain) \[Y\]( \(dim\))?, Hotkey \[RB\], Modify \[LB\]$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
+  { re = 'pipboy hints: items Apparel: (Equip|Unequip) \[A\]( \(dim\))?, Drop \[X\]( \(dim\))?, (Repair|Maintain) \[Y\]( \(dim\))?, Hotkey \[RB\]$', label = "Apparel: the set without Mod" },
+  { re = 'pipboy hints: items Aid: Use \[A\], Drop \[X\], Repair \[Y\] \(dim\), Hotkey \[RB\]$', label = "Aid: Use; Repair dim" },
+  { re = 'pipboy hints: items Misc: Equip \[A\] \(dim\), Drop \[X\]( \(dim\))?, Repair \[Y\] \(dim\), Hotkey \[RB\] \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
+  { re = 'pipboy hints: items Ammo: Equip \[A\] \(dim\), Drop \[X\], Repair \[Y\] \(dim\), Hotkey \[RB\] \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
+  { text = "pipboy hints: mod menu: Modify [A] (dim), Exit [B]", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Modify \[A\](?! \(dim), Exit \[B\]', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Modify \[LB\](?! \(dim)', label = "the pistol's own Modify [LB] line, bright" },
 ]
-order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify A) (dim), Exit B)"]]
+order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Modify [A] (dim), Exit [B]"]]
 
 [[scenario]]
 name = "pipboy-data-hints"
@@ -32584,8 +32679,8 @@ run_seconds = 24
 expect = [
   { re = 'pipboy hints: data local map: Place Marker$', label = "Local Map: Place Marker alone with the keyboard, no key, bright (#1954)" },
   { re = 'pipboy hints: data world map: Place Marker$', label = "World Map: Place Marker alone with the keyboard (Travel is the controller's)" },
-  { re = 'pipboy hints: data quests: Show Location X\)$', label = "Quests: Show Location alone, with its key (the make-active hint is the controller's)" },
-  { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', label = "Misc: the notes' filter and Challenges with their keys" },
+  { re = 'pipboy hints: data quests: Show Location \[X\]$', label = "Quests: Show Location alone, with its key (the make-active hint is the controller's)" },
+  { re = 'pipboy hints: data misc: Active Notes \[X\], Challenges \[R\]$', label = "Misc: the notes' filter and Challenges with their keys" },
   { re = 'pipboy hints: data radio: none$', label = "Radio: no hint with the keyboard (Tune is the controller's)" },
 ]
 order = [["pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc", "pipboy hints: data radio"]]
@@ -32602,12 +32697,12 @@ run_seconds = 25
 expect = [
   { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller before the DATA steps" },
   { text = "hints: Xbox labels", label = "the DATA hints take the Xbox names before the Pip-Boy opens" },
-  { re = 'pipboy hints: data local map: Place Marker X\)$', label = "Local Map: Place Marker with its button, bright (#1954)" },
-  { re = 'pipboy hints: data world map: Travel A\)( \(dim\))?, Place Marker X\)$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
-  { re = 'pipboy hints: data quests: Set Active A\), Show Location X\)$', label = "Quests: the make-active hint and Show Location with their buttons" },
-  { re = 'pipboy hints: data misc: Play A\), Active Notes X\), Challenges Y\)$', label = "Misc: Play on the audio note, the notes' filter and Challenges" },
-  { re = 'pipboy hints: data misc: Stop A\), Active Notes X\), Challenges Y\)$', label = "Misc: Stop while the picked audio note plays" },
-  { re = 'pipboy hints: data radio: Tune In A\)$', label = "Radio: the tune hint with its button" },
+  { re = 'pipboy hints: data local map: Place Marker \[X\]$', label = "Local Map: Place Marker with its button, bright (#1954)" },
+  { re = 'pipboy hints: data world map: Travel \[A\]( \(dim\))?, Place Marker \[X\]$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
+  { re = 'pipboy hints: data quests: Set Active \[A\], Show Location \[X\]$', label = "Quests: the make-active hint and Show Location with their buttons" },
+  { re = 'pipboy hints: data misc: Play \[A\], Active Notes \[X\], Challenges \[Y\]$', label = "Misc: Play on the audio note, the notes' filter and Challenges" },
+  { re = 'pipboy hints: data misc: Stop \[A\], Active Notes \[X\], Challenges \[Y\]$', label = "Misc: Stop while the picked audio note plays" },
+  { re = 'pipboy hints: data radio: Tune In \[A\]$', label = "Radio: the tune hint with its button" },
 ]
 order = [["controls: input device Controller", "pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc: Play", "pipboy hints: data misc: Stop", "pipboy hints: data radio"]]
 
@@ -32623,11 +32718,11 @@ run_seconds = 30
 expect = [
   { re = 'tiles: \[UI\] TileMenus=MapMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): MapMenu drawn from tiles', label = "the switch is read from the test aid" },
   { text = "tiles: MapMenu draws quests from tiles", min = 2, label = "Quests is drawn from its file, and again back from the World Map" },
-  { re = 'tiles: MapMenu page from tiles: tab quests, [1-9]\d* rows, "[^"]+" selected, [1-9]\d* objectives, hints: X Show Location X\), device$', min = 1, label = "the quest, its objectives and the keyboard's one hint written, on the device" },
+  { re = 'tiles: MapMenu page from tiles: tab quests, [1-9]\d* rows, "[^"]+" selected, [1-9]\d* objectives, hints: X Show Location \[X\], device$', min = 1, label = "the quest, its objectives and the keyboard's one hint written, on the device" },
   { re = 'tiles: MapMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', count = 1, label = "structure only, no pixels: the menu goes to the painter once for the run: its rows outlast the tab changes and the reopening" },
   { re = '''tiles: MapMenu set out for the Pip-Boy's image: [1-9]\d* pieces, [1-9]\d* row names''', min = 1, label = "structure only, logs cannot prove pixels (the shots do): pieces of the file go to the painter, the quests' and objectives' names among them" },
   { text = "MapMenu drawn by hand", count = 0, label = "the file has every name the page needs" },
-  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "the hints' rules stay the hand-built page's (#1952)" },
+  { re = 'pipboy hints: data quests: Show Location \[X\]$', min = 1, label = "the hints' rules stay the hand-built page's (#1952)" },
   { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the quest acted once, through its tile" },
   { re = 'pipboy data: active quest ', min = 1, label = "the click made the quest active, the hand-built page's rule" },
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the click on the Show Location hint, through its tile" },
@@ -32664,7 +32759,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 30
 expect = [
   { re = 'tiles: MapMenu|MapMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
-  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "switch off: the Quests hint as before" },
+  { re = 'pipboy hints: data quests: Show Location \[X\]$', min = 1, label = "switch off: the Quests hint as before" },
   { re = 'pipboy data: active quest ', min = 1, label = "switch off: the click on the quest makes it active, as before" },
   { text = "pipboy: DATA World Map", min = 1, label = "switch off: the Show Location hint's click shows the World Map, as before" },
 ]
@@ -32700,7 +32795,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 29
 expect = [
   { text = "tiles: MapMenu draws misc from tiles", min = 1, label = "Misc is drawn from its file" },
-  { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, audio, hints: X [^,]+ X\), Y [^,]+ R\), device$', min = 1, label = "the two notes, the audio note's pane, the filter and Challenges hints, written" },
+  { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, audio, hints: X [^,]+ \[X\], Y [^,]+ \[R\], device$', min = 1, label = "the two notes, the audio note's pane, the filter and Challenges hints, written" },
   { re = 'pipboy data: note .+ \(0x001618BF\) picked', min = 1, label = "the aid picks the voice note" },
   { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ', min = 1, label = "Down selects the text note: its text from the file" },
   { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the first note acted once, through its tile" },
@@ -32711,7 +32806,7 @@ expect = [
   { re = 'tiles: MapMenu page from tiles: tab misc challenges, \d+ rows, ', min = 1, label = "the challenges written in their list" },
   { text = "pipboy data: notes shown", count = 1, label = "and the notes again" },
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the notes' filter's click, through its tile" },
-  { re = 'pipboy hints: data misc: All Notes X\)', min = 1, label = "the filter acted once: its hint now offers all the notes" },
+  { re = 'pipboy hints: data misc: All Notes \[X\]', min = 1, label = "the filter acted once: its hint now offers all the notes" },
   { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "Radio is drawn from its file too since #1513's Radio slice (tiles-data-radio); before: it kept the hand-built page" },
   { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Misc needs, and its panes show (a challenge's short text without a scroll bar)" },
   { re = 'MapMenu: Button\(.\) does not take the pointer', count = 0, label = "the hints take the pointer at their words, not their keys beside the box" },
@@ -32729,7 +32824,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 29
 expect = [
   { re = 'tiles: MapMenu|MapMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
-  { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', min = 1, label = "switch off: Misc's hints as before" },
+  { re = 'pipboy hints: data misc: Active Notes \[X\], Challenges \[R\]$', min = 1, label = "switch off: Misc's hints as before" },
   { re = 'pipboy data: note .+ \(0x001618BF\) picked', min = 1, label = "switch off: the aid picks the voice note, as before" },
   { text = "pipboy data: challenges shown", count = 1, label = "switch off: the Challenges hint's click, as before" },
   { text = "pipboy data: notes shown", count = 1, label = "switch off: and the notes again" },
@@ -32976,7 +33071,7 @@ run_seconds = 27
 expect = [
   { text = "MapMenu drawn by hand: MM_ListMarkerTemplate missing", count = 1, label = "the template cut, by hand: the reason, once" },
   { text = "tiles: MapMenu leaves quests hand-built: MM_ListMarkerTemplate missing", min = 1, label = "the draw state's line" },
-  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "the hand-built page draws meanwhile, its hints as before" },
+  { re = 'pipboy hints: data quests: Show Location \[X\]$', min = 1, label = "the hand-built page draws meanwhile, its hints as before" },
   { text = "test aid: NVF_PLAY_TEST_MAP_TILE_CUT over", count = 1, label = "the aid stops" },
   { re = 'test aid: MapMenu built again from \S', count = 1, label = "the tree changes: the menu built again from its file" },
   { re = 'tiles: MapMenu page from tiles: tab quests', min = 1, label = "and the page comes from its tiles" },
@@ -33455,6 +33550,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "run-end-session"
+source = "#2755: a run something outside ends says so in its run log as it happens (run_end.rs); Windows sends a top-level window WM_ENDSESSION when it shuts down, restarts or signs the user out [documented: Microsoft, WM_ENDSESSION]. The test aid sends the game's hidden window that message; the game goes on (only the line is written)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/run_end.rs", "engine/nvforever/src/crash.rs"]
+# Windows only, as the window is.
+requires = ["WINDIR"]
+env = { NVF_PLAY_TEST_END_SESSION = "4" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 10
+expect = [
+  { re = 'run log: ended from outside: shutdown \(Windows is shutting down or restarting\)', count = 1, label = "the shutdown is written once into the run log" },
+]
+
+[[scenario]]
 name = "native-crash-exit-code"
 source = "#2755: a watcher process adds the process's exit code to the end of the run log of a run that did not exit normally, and the next start names it (engine/nvforever/src/exit_watch.rs, crash.rs)"
 areas = ["crash"]
@@ -33630,13 +33739,13 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 16
 order = [[
   { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens with the keyboard" },
-  { re = 'tutorial menu: hints [^,]+ A\), [^,]+ S\), [^,]+ E\)', label = "its hints name the keys: Close E)" },
+  { re = 'tutorial menu: hints [^,]+ \[A\], [^,]+ \[S\], [^,]+ \[E\]', label = "its hints name the keys: Close [E]" },
   { text = "controls: input device Controller", label = "the controller is picked" },
   { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens again" },
-  { re = 'tutorial menu: hints [^,]+ RT\), [^,]+ LT\), [^,]+ B\)', label = "its hints name the buttons: Close B)" },
+  { re = 'tutorial menu: hints [^,]+ \[RT\], [^,]+ \[LT\], [^,]+ \[B\]', label = "its hints name the buttons: Close [B]" },
 ]]
 expect = [
-  { re = 'tutorial menu: hints .*\[', max = 0, label = "no hint in square brackets" },
+  { re = 'tutorial menu: hints .*\b(?:[A-Z]|RT|LT)\)', max = 0, label = "no hint in the old X) shape (#4495)" },
 ]
 
 [[scenario]]
@@ -33882,7 +33991,7 @@ order = [[
   { re = 'pause menu: inspect: Gameplay,', label = "the Gameplay tab is inspected" },
   { re = 'pause menu: inspect: back Back$', label = "Back alone with the keyboard" },
   { text = "controls: input device Controller", label = "the controller is picked" },
-  { re = 'pause menu: inspect: back \S+  B\)', label = "Back names the controller's B" },
+  { re = 'pause menu: inspect: back \S+  \[B\]', label = "Back names the controller's B" },
 ]]
 
 [[scenario]]
@@ -35836,7 +35945,7 @@ run_seconds = 46
 expect = [
   "controls: input device Controller",
   { text = "pipboy hotkeys: controller opened, key 1 chosen", count = 2 },
-  { re = 'pipboy hints: items Weapons: .*Hotkey RB\)', min = 1 },
+  { re = 'pipboy hints: items Weapons: .*Hotkey \[RB\]', min = 1 },
   "pipboy hotkeys: controller key 2 chosen",
   { re = 'hotkeys: slot 2 is Ammo Swap: \.357 Magnum Revolver not assigned', count = 1 },
   "pipboy hotkeys: controller key 3 chosen",
@@ -37548,6 +37657,7 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error in the clustering passes" },
 ]
+
 [[scenario]]
 name = "physical-lighting"
 source = "[design, #3827 part 5] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/lights.rs `physical_patched`, physical_ibl.rs, fog.rs, eye_adapt.rs): with --graphics-only physical-pbr at Goodsprings at noon, the run's switch is on, the physical light loop is installed and the sky's image-based light is made, without a pipeline or rendering error. Whether the look is right is checked in pictures by hand"
@@ -37589,3 +37699,42 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
+[[scenario]]
+name = "dawn-leaves-night-before-sunrise"
+source = "[hypothesis, fitted] docs/spec-notes/world.md §6 'Night key beyond sunrise and sunset' (#2916): the night key lies a third of the transition before sunrise begins (5:20 for the Mojave's 6:00-8:00), so at 06:00 the grade is already part of the way to the sunrise adapter (saturation under the night's and the day's 1.10), as the original's picture under Lake Mead is at 06:00 (observer job o35_uw_dawn)"
+areas = ["renderer", "sky"]
+paths = ["crates/fnv-world/src/sky.rs", "crates/fnv-world/src/imagespace.rs"]
+args = ["--explore", "--cell", "28,16", "--pos=116992,66816,2420", "--heading", "0", "--pitch", "0", "--hour", "6", "--weather", "NVWastelandClear"]
+run_seconds = 14
+expect = [
+  { re = 'sky: 06:0\d  climate NVDefaultClimate  weather NVWastelandClear .*grade: saturation 1\.0[0-5]', label = "at 06:00 the grade is well on to the sunrise's (1.01 here; the old keys gave 1.09-1.10 at 06:02)" },
+]
+forbid = ["Caught rendering error"]
+
+[[scenario]]
+name = "coop-online-local-duo-browse"
+source = "[design, #3795] docs/design/coop-networking.md section 12 (the online duo offline) and docs/design/coop-lobby-browser.md section 9 (a public host browsed): the matchmaking service runs in the game (NVF_COOP_SIGNAL=local) and a guest with no window joins (NVF_COOP_TEST_GUEST), so one launch needs no second game and no internet"
+note = "Hosts a public lobby with a title and a password on UDP port 27997 (NVF_COOP_HOST, the variable a load's restart carries the lobby in). The test guest joins by its online code through the service with the password, the host lets it in (join approval's Let In), and they connect on loopback. Then the Browse tab lists the lobby, a row opens, the Players heading sorts and the row's Report reaches the service"
+areas = ["coop", "menus"]
+paths = ["engine/nvf-coop/src/**", "engine/nvforever/src/coop/connect.rs", "engine/nvforever/src/coop/browse.rs", "engine/nvforever/src/coop/test_service.rs", "engine/nvforever/src/coop/net_settings.rs", "engine/nvf-play/src/lobby.rs", "crates/nvf-signal/**", "crates/nvf-signal-server/**", "crates/nvf-nat/**"]
+env = { NVF_PLAY_TEST_COOP = "on", NVF_COOP_HOST = "27997", NVF_COOP_SIGNAL = "local", NVF_COOP_TEST_GUEST = "SmokeGuest", NVF_COOP_PUBLIC = "1", NVF_COOP_TITLE = "Smoke lobby", NVF_COOP_PASSWORD = "smoke", NVF_PLAY_TEST_LOBBY = "10:admit,13:admit,16:admit,19:admit,22:admit,25:admit,28:admit,32:browse,36:row=0,37:sort=players,38:report,39:report-yes" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 48
+expect = [
+  { re = 'co-op: test aid NVF_COOP_SIGNAL=local: the matchmaking service runs in this game at http://127\.0\.0\.1:\d+', label = "the service runs in the game" },
+  { re = 'co-op: hosting on UDP port 27997 \(encrypted', label = "the lobby opens on the port the environment names" },
+  { re = 'co-op: lobby code \w{3}-\w{3}', label = "the host's lobby has an online code" },
+  { re = 'lobby: LetIn\(\d+\)', label = "the host lets the guest in (join approval)" },
+  { re = "co-op connect: side=guest path=(lan|direct|ipv6) ", label = "the guest finds a direct path on loopback (IPv6 loopback counts)" },
+  { re = 'co-op test guest: SmokeGuest welcomed as player 2', label = "the guest joins as player 2, with the password" },
+  { re = '''co-op: online: guest \d+'s path: (lan|direct)''', label = "the host names the guest's path" },
+  { re = 'co-op: the lobby browser lists 1 public lobbies', label = "the Browse tab lists the public lobby" },
+  { re = 'lobby: Browse row 0: Smoke lobby \(\w{3}-\w{3}\)', label = "the row opened is the host's own, by its title" },
+  { text = "lobby: SortBy(Players)", label = "the Players heading sorts the table" },
+  { re = 'co-op: reported public lobby \S+', label = "the opened row's Report reaches the service" },
+]
+forbid = [
+  { text = "panicked", label = "no panic" },
+  { text = "co-op test guest: SmokeGuest failed to join", label = "the guest is not refused (the password matches)" },
+  { text = "co-op: the lobby browser:", label = "the Browse request does not fail" },
+]

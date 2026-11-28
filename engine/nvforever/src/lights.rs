@@ -419,6 +419,29 @@ pub struct SessionLight {
     seen: Option<u64>,
 }
 
+#[cfg(test)]
+impl SessionLight {
+    pub(crate) fn test_stub() -> Self {
+        Self {
+            base: 0,
+            original: fnv_world::lighting::LightData {
+                radius: 128.0,
+                color: [255, 255, 255],
+                flags: 0,
+                falloff_exponent: 1.0,
+                fov: 90.0,
+                fade: 1.0,
+            },
+            radius_offset: None,
+            scale: 1.0,
+            model_color: None,
+            model_driven: false,
+            seed: 0.0,
+            seen: None,
+        }
+    }
+}
+
 struct LightValues {
     shown: [f32; 3],
     intensity: f32,

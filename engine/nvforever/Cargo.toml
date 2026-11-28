@@ -35,6 +35,11 @@ nvf-play.workspace = true
 # The bounce light volume the lighting reads, and its read on the CPU (rtgi_volume.rs, #3009).
 nvf-rtgi.workspace = true
 nvf-coop.workspace = true
+# Online lobby codes as players type them (co-op's join screen, coop/connect.rs).
+nvf-signal = { path = "../../crates/nvf-signal" }
+# The matchmaking service run inside the game for offline tests (NVF_COOP_SIGNAL=local,
+# coop/test_service.rs): the stand-in with the Worker's rules on a loopback port.
+nvf-signal-server = { path = "../../crates/nvf-signal-server" }
 fnv-actor.workspace = true
 fnv-sim.workspace = true
 fnv-combat.workspace = true
@@ -110,7 +115,7 @@ rfd = { version = "0.15", default-features = false, features = ["common-controls
 # HDR output (src/hdr.rs): the screen's peak brightness from DXGI
 # (IDXGIOutput6::GetDesc1); a version already in the build; MIT/Apache-2.0.
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Power", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Power", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Win32_System_Console"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # [design, #2249] Optional NVML at runtime; reuse engine/Cargo.lock's libloading.

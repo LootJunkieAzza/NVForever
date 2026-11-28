@@ -7,8 +7,12 @@ pub mod display;
 #[cfg(feature = "desktop")]
 mod dlss;
 #[cfg(feature = "desktop")]
+mod fomod;
+#[cfg(feature = "desktop")]
 mod fonts;
 pub mod launch;
+#[cfg(feature = "desktop")]
+mod modlist;
 #[cfg(any(feature = "mobile", test))]
 pub mod mobile;
 pub mod news;
