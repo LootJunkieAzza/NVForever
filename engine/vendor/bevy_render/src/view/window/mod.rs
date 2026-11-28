@@ -586,12 +586,16 @@ pub fn prepare_windows(
                         of your Linux GPU driver, so it can be safely ignored."
                 );
             }
-            // NVForever (2026-11-13): while a hold is on, marked for `create_surfaces` instead,
-            // and the window gets no image this frame.
-            wgpu::CurrentSurfaceTexture::Outdated if hold.as_ref().is_some_and(|h| h.0) => {
+            // NVForever (2026-11-13, updated 2026-11-25 #3393): while a hold is on, marked for
+            // `create_surfaces` instead, and the window gets no image this frame; treat `Lost`
+            // the same as `Outdated` (matching `SurfaceGuard::acquire`) so a mode switch or
+            // handoff loss reconfigures the surface instead of leaving it unconfigured.
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost
+                if hold.as_ref().is_some_and(|h| h.0) =>
+            {
                 surface_data.hold_back();
             }
-            wgpu::CurrentSurfaceTexture::Outdated => {
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 render_device.configure_surface(surface, &surface_data.configuration);
                 let frame = match surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(surface_texture)
