@@ -50,6 +50,10 @@ pub(crate) const F2I32_FUNCTION: &str = "naga_f2i32";
 pub(crate) const F2U32_FUNCTION: &str = "naga_f2u32";
 pub(crate) const F2I64_FUNCTION: &str = "naga_f2i64";
 pub(crate) const F2U64_FUNCTION: &str = "naga_f2u64";
+// 16-bit integer targets (SHADER_I16; FSR 3.1's FP16
+// accumulate pass), clamped like the others.
+pub(crate) const F2I16_FUNCTION: &str = "naga_f2i16";
+pub(crate) const F2U16_FUNCTION: &str = "naga_f2u16";
 pub(crate) const IMAGE_LOAD_EXTERNAL_FUNCTION: &str = "nagaTextureLoadExternal";
 pub(crate) const IMAGE_SIZE_EXTERNAL_FUNCTION: &str = "nagaTextureDimensionsExternal";
 pub(crate) const IMAGE_SAMPLE_BASE_CLAMP_TO_EDGE_FUNCTION: &str =
@@ -474,11 +478,21 @@ impl TypedGlobalVariable<'_> {
             }
         };
 
-        let ty = format!(
+        let mut ty = format!(
             "{coherent}{space}{}{ty_name}{}{access}{reference}",
             if space.is_empty() { "" } else { " " },
             if access.is_empty() { "" } else { " " },
         );
+        // A coherent storage image (SPIR-V `Coherent`,
+        // HLSL `globallycoherent`) keeps its writes visible to other threadgroups of the same
+        // dispatch: MSL 3.2's `memory_coherence_device` texture template argument.
+        if var.space == crate::AddressSpace::Handle
+            && var.memory_decorations.contains(crate::MemoryDecorations::COHERENT)
+            && ty.ends_with('>')
+        {
+            ty.pop();
+            ty.push_str(", metal::memory_coherence::memory_coherence_device>");
+        }
 
         Ok(TypedGlobalVariableParts {
             ty_name: ty,
@@ -2975,6 +2989,8 @@ impl<W: Write> Writer<W> {
                             (crate::ScalarKind::Uint, Some(4)) => F2U32_FUNCTION,
                             (crate::ScalarKind::Sint, Some(8)) => F2I64_FUNCTION,
                             (crate::ScalarKind::Uint, Some(8)) => F2U64_FUNCTION,
+                            (crate::ScalarKind::Sint, Some(2)) => F2I16_FUNCTION,
+                            (crate::ScalarKind::Uint, Some(2)) => F2U16_FUNCTION,
                             _ => unreachable!(),
                         };
                         write!(self.out, "{fun_name}(")?;
@@ -6277,6 +6293,8 @@ template <typename A>
             crate::Scalar::U32 => F2U32_FUNCTION,
             crate::Scalar::I64 => F2I64_FUNCTION,
             crate::Scalar::U64 => F2U64_FUNCTION,
+            crate::Scalar::I16 => F2I16_FUNCTION,
+            crate::Scalar::U16 => F2U16_FUNCTION,
             _ => unreachable!(),
         };
 
