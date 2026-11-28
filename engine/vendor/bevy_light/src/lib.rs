@@ -418,12 +418,29 @@ pub fn check_dir_light_mesh_visibility(
         let view_mask = maybe_view_mask.unwrap_or_default();
 
         for (view, view_frusta) in &frusta.frusta {
-            // NVForever small casters: per cascade, the bounding radius below which a
-            // caster is left out of its map (0: none).
-            let mut min_radius = [0.0f32; 8];
+            // NVForever small casters: per cascade, squared bounding radius below which a
+            // caster is left out of its map (0: none), avoiding 4 sqrts per mesh [design].
+            let mut min_radius_sq = [0.0f32; 8];
+            // NVForever fast ortho X/Y pre-reject: light-space orthographic rows 0 and 1
+            // from `Cascade::clip_from_world` so far meshes reject in 4 SIMD dots before
+            // full 6-plane OBB frustum intersection [design].
+            let mut ortho_xy: [Option<(Vec3A, f32, Vec3A, f32)>; 8] =
+                [None; 8];
             if let Some(cs) = cascades.and_then(|c| c.cascades.get(view)) {
-                for (r, c) in min_radius.iter_mut().zip(cs) {
-                    *r = small_texels * c.texel_size;
+                for (idx, c) in cs.iter().enumerate().take(8) {
+                    let r = small_texels * c.texel_size;
+                    min_radius_sq[idx] = r * r;
+                    let m = c.clip_from_world;
+                    let r3 = m.row(3);
+                    if (r3 - bevy_math::Vec4::W).length_squared() < 1e-6 {
+                        let r0 = m.row(0);
+                        let r1 = m.row(1);
+                        let r0_xyz = Vec3A::new(r0.x, r0.y, r0.z);
+                        let r1_xyz = Vec3A::new(r1.x, r1.y, r1.z);
+                        if r0_xyz.length_squared() > 0.0 && r1_xyz.length_squared() > 0.0 {
+                            ortho_xy[idx] = Some((r0_xyz, r0.w, r1_xyz, r1.w));
+                        }
+                    }
                 }
             }
             // Resize any per-thread buffer left at a stale state from a prior frame.
@@ -469,10 +486,18 @@ pub fn check_dir_light_mesh_visibility(
 
                     if let (Some(aabb), Some(transform)) = (maybe_aabb, maybe_transform) {
                         let mut visible = false;
-                        // NVForever small casters: the caster's bounding radius in the world.
+                        // NVForever small casters: squared world bounding radius, hoisted affine.
                         let affine = transform.affine();
-                        let radius = aabb.half_extents.length()
-                            * affine.matrix3.x_axis.length().max(affine.matrix3.y_axis.length()).max(affine.matrix3.z_axis.length());
+                        let ax = affine.matrix3.x_axis;
+                        let ay = affine.matrix3.y_axis;
+                        let az = affine.matrix3.z_axis;
+                        let scale_sq = ax
+                            .length_squared()
+                            .max(ay.length_squared())
+                            .max(az.length_squared());
+                        let radius_sq = aabb.half_extents.length_squared() * scale_sq;
+                        let world_c = affine.transform_point3a(aabb.center);
+                        let h = aabb.half_extents;
                         for (cascade, (frustum, frustum_visible_entities)) in view_frusta
                             .iter()
                             .zip(view_visible_entities_local_queue.iter_mut())
@@ -480,12 +505,34 @@ pub fn check_dir_light_mesh_visibility(
                         {
                             // NVForever small casters: under about a texel of this cascade's
                             // map, a caster's shadow is filtered away; it is left out.
-                            if !has_no_frustum_culling && radius < min_radius.get(cascade).copied().unwrap_or(0.0) {
+                            if !has_no_frustum_culling
+                                && radius_sq < min_radius_sq.get(cascade).copied().unwrap_or(0.0)
+                            {
                                 continue;
+                            }
+                            // NVForever fast ortho X/Y pre-reject before 6-plane OBB test [design].
+                            if !has_no_frustum_culling
+                                && let Some(Some((r0_xyz, r0_w, r1_xyz, r1_w))) =
+                                    ortho_xy.get(cascade)
+                            {
+                                let cx = r0_xyz.dot(world_c) + *r0_w;
+                                let rx = r0_xyz.dot(ax).abs() * h.x
+                                    + r0_xyz.dot(ay).abs() * h.y
+                                    + r0_xyz.dot(az).abs() * h.z;
+                                if cx.abs() > 1.0001 + rx {
+                                    continue;
+                                }
+                                let cy = r1_xyz.dot(world_c) + *r1_w;
+                                let ry = r1_xyz.dot(ax).abs() * h.x
+                                    + r1_xyz.dot(ay).abs() * h.y
+                                    + r1_xyz.dot(az).abs() * h.z;
+                                if cy.abs() > 1.0001 + ry {
+                                    continue;
+                                }
                             }
                             // Disable near-plane culling, as a shadow caster could lie before the near plane.
                             if !has_no_frustum_culling
-                                && !frustum.intersects_obb(aabb, &transform.affine(), false, true)
+                                && !frustum.intersects_obb(aabb, &affine, false, true)
                             {
                                 continue;
                             }
