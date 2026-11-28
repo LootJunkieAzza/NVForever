@@ -69,6 +69,8 @@ const STEP: f32 = 30.0;
 pub const LOBBY_PLAYERS: usize = 6;
 /// The longest code or address typed.
 const MAX_TYPED: usize = 64;
+/// The Co-op screen's title (the pause menu's entry's name), shown through `tr`.
+const TITLE: &str = "Co-op";
 /// The Questlines menu's rows shown at once; Up and Down scroll the rest [design].
 const LINE_ROWS: usize = 12;
 /// The code box's place among the Code tab's buttons ([`join_acts`]): chosen as the
@@ -1134,7 +1136,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
     match screen.mode {
         None => {}
         Some(Mode::Host) if state.guest => {
-            v.push(Title(tr("Co-op").into()));
+            v.push(Title(tr(TITLE).into()));
             v.push(Line(format!("{} ({})", coop_label(true), coop_held(state).unwrap_or_default()), Shade::Dim));
             in_lobby(&mut v, state);
             if screen.sync.guest {
@@ -1145,7 +1147,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
             }
         }
         Some(Mode::Host) => {
-            v.push(Title(tr("Co-op").into()));
+            v.push(Title(tr(TITLE).into()));
             let held = coop_held(state);
             match held {
                 Some(why) => v.push(Line(format!("{} ({why})", coop_label(true)), Shade::Dim)),
