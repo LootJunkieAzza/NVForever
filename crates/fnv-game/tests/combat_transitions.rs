@@ -1064,3 +1064,46 @@ fn what_measures_nothing_loses_nothing() {
     }
     assert!(danger(&g, raider));
 }
+
+#[test]
+fn abandon_unreachable_alert_suppresses_noticed_until_timeout_or_detection() {
+    // #3031: abandoning an unreachable Alert drops its alarm and suppresses Band::Noticed
+    // for Timers::alarm seconds, while Band::Detected still enters Combat immediately.
+    let f = fixture();
+    let mut g = game(&f);
+    let (raider, player) = (FormId(RAIDER_REF), FormId::PLAYER_REF);
+    let noticed = Detection { value: -10.0, band: Band::Noticed, ..Detection::default() };
+    let detected = Detection { value: 50.0, band: Band::Detected, ..Detection::default() };
+
+    g.observe_threat(raider, player, &noticed, [5000.0, 5000.0, 1000.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(raider), State::Alert);
+
+    g.abandon_unreachable_alert(raider, player);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(raider), State::Normal);
+
+    // Within the cooldown, Band::Noticed does not re-enter Alert.
+    g.time += 5.0;
+    g.observe_threat(raider, player, &noticed, [5000.0, 5000.0, 1000.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(raider), State::Normal);
+
+    // Real detection clears the suppression immediately and enters Combat.
+    g.observe_threat(raider, player, &detected, [100.0, 0.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(raider), State::Combat);
+
+    // After cooldown expires (without detection), Band::Noticed can alert again.
+    g.stop_combat(raider);
+    g.observe_threat(raider, player, &noticed, [5000.0, 5000.0, 1000.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(raider), State::Alert);
+    g.abandon_unreachable_alert(raider, player);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(raider), State::Normal);
+    g.time += fnv_game::awareness::Timers::default().alarm + 1.0;
+    g.observe_threat(raider, player, &noticed, [5000.0, 5000.0, 1000.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(raider), State::Alert);
+}
