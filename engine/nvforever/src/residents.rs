@@ -2120,11 +2120,22 @@ impl Core {
     /// Crimson Caravan).
     fn process_levels(&mut self, game: &Game, world: &WorldData, streamer: &Streamer) {
         // A far walk stops where it comes into the loaded area (`fnv_ai::process`).
-        let loaded = match streamer.interior {
-            Some(c) => fnv_ai::LoadedArea { space: Space::Interior(c), cells: Default::default() },
-            None => fnv_ai::LoadedArea { space: Space::World(world.world), cells: streamer.loaded.keys().copied().collect() },
+        // Compare against `self.ai.loaded()` in place before allocating a new `LoadedArea`
+        // (avoids per-frame `HashSet` allocation + hashing on steady frames) [design].
+        let loaded_same = match (self.ai.loaded(), streamer.interior) {
+            (Some(prev), Some(c)) => prev.space == Space::Interior(c) && prev.cells.is_empty(),
+            (Some(prev), None) => {
+                prev.space == Space::World(world.world)
+                    && prev.cells.len() == streamer.loaded.len()
+                    && streamer.loaded.keys().all(|k| prev.cells.contains(k))
+            }
+            (None, _) => false,
         };
-        if self.ai.loaded() != Some(&loaded) {
+        if !loaded_same {
+            let loaded = match streamer.interior {
+                Some(c) => fnv_ai::LoadedArea { space: Space::Interior(c), cells: Default::default() },
+                None => fnv_ai::LoadedArea { space: Space::World(world.world), cells: streamer.loaded.keys().copied().collect() },
+            };
             self.ai.set_loaded(Some(loaded));
         }
         if let Ok(c) = game.world.calendar() {

@@ -4,6 +4,7 @@
 //! `ScriptState.rt == None` frame gaps, and zero-stale-entity parity with [`root_of`].
 
 use super::*;
+use bevy::ecs::system::RunSystemOnce;
 
 #[derive(Resource, Default)]
 struct TestCache {
@@ -407,4 +408,53 @@ fn visual_root_cache_handles_thousands_of_undrawn_watched_refs_incrementally() {
     run_step(&mut app, &watched);
     assert_eq!(app.world().resource::<TestCache>().results[&drawn_ref], None);
     assert_eq!(app.world().resource::<TestCache>().results[&late_ref], Some(late_entity));
+}
+
+#[test]
+fn sync_visual_root_cache_suspends_when_idle_and_serves_root_of_cached() {
+    const R_SHARED: u32 = 0x9001;
+
+    let mut app = App::new();
+    app.init_resource::<VisualRootCache>();
+    app.add_systems(Update, sync_visual_root_cache);
+
+    let root = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_SHARED))).id();
+    let _child = app.world_mut().spawn((Transform::IDENTITY, RefVisual(R_SHARED), ChildOf(root))).id();
+
+    // No ScriptState -> stays suspended.
+    app.update();
+    assert!(!app.world().resource::<VisualRootCache>().is_initialized());
+
+    // ScriptState with active runtime but zero watched/cameras/attachments/holds -> stays suspended.
+    app.insert_resource(nvf_play::script::fixtures::over_plugins(&[]));
+    app.update();
+    assert!(!app.world().resource::<VisualRootCache>().is_initialized());
+
+    // Watch a reference -> shared cache initializes and serves O(1) root_of_cached.
+    app.world_mut()
+        .resource_mut::<ScriptState>()
+        .rt
+        .as_mut()
+        .unwrap()
+        .game
+        .scene
+        .watch(FormId(R_SHARED));
+    app.update();
+    assert!(app.world().resource::<VisualRootCache>().is_initialized());
+
+    let found = app
+        .world_mut()
+        .run_system_once(|rigs: Rigs, visuals: Visuals, cache: Res<VisualRootCache>| {
+            root_of_cached(R_SHARED, ModelView::Reference, &rigs, &visuals, Some(&cache))
+        })
+        .unwrap();
+    assert_eq!(found, Some(root));
+
+    // When runtime becomes None again, shared cache suspends and clears its maps.
+    app.world_mut().resource_mut::<ScriptState>().rt = None;
+    app.update();
+    let cache = app.world().resource::<VisualRootCache>();
+    assert!(!cache.is_initialized());
+    assert!(cache.roots.is_empty());
+    assert!(cache.entity_ref.is_empty());
 }

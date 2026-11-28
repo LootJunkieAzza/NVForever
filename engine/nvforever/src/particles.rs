@@ -572,10 +572,23 @@ impl Default for Particles {
     }
 }
 
+/// The set of placed reference FormIDs that currently own at least one live particle system
+/// instance (`crate::nif_mirror`), built once per frame so watched references without
+/// particles skip scanning `instance_refs` and `systems` [design].
+pub(crate) fn placed_ref_set(p: &Particles) -> HashSet<u32> {
+    if p.systems.is_empty() || p.instance_refs.is_empty() {
+        return HashSet::new();
+    }
+    p.instance_refs.values().copied().collect()
+}
+
 /// The live systems of placed reference `r`'s models (each model instance's own,
 /// particles.md §7.1), for JohnnyGuitar's particle functions (`crate::nif_mirror`).
 pub(crate) fn placed_systems(p: &mut Particles, r: u32) -> Vec<&mut ParticleSystemDef> {
     let mine: HashSet<Entity> = p.instance_refs.iter().filter(|(_, &v)| v == r).map(|(e, _)| *e).collect();
+    if mine.is_empty() {
+        return Vec::new();
+    }
     p.systems
         .iter_mut()
         .filter(|(k, _)| k.instance.is_some_and(|e| mine.contains(&e)))
