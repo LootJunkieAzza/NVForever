@@ -1,7 +1,7 @@
-//! A new game's start, as a card on the Mods page (#2945): the start quest and the intro film
-//! the game reads from NVForever.ini's `[General]` (`sCharGenQuest`, `sIntroMovie`;
-//! docs/design/install-layout.md, nvf-play game_start.rs), typed in so a start mod's
-//! values need no hand edit of the file. A TTW on/off switch writes Tale of Two Wastelands'
+//! A new game's start, a row of the Game folder page's NVForever.ini card (#2945, #4313): the
+//! start quest and the intro film the game reads from NVForever.ini's `[General]`
+//! (`sCharGenQuest`, `sIntroMovie`; docs/design/install-layout.md, nvf-play game_start.rs),
+//! typed in so a start mod's values need no hand edit of the file. A TTW on/off switch writes Tale of Two Wastelands'
 //! values or the base game's (docs/spec-notes/new-game-start.md).
 
 use fnv_install::{ini_get, ini_set};

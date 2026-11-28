@@ -1350,8 +1350,8 @@ fn register_graphics(app: &mut App) {
         ),
         (
             "water-effects",
-            "Water caustics and river flow",
-            "Sunlight shifts across shallow beds. Deeper water looks murkier from shore and underwater. Selected rivers drift downstream.",
+            "Enhanced water effects",
+            "Sunlight shifts across shallow beds. Deeper water looks murkier. Selected rivers flow, shorelines lap, and shots and blasts disturb the surface.",
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().water_effects,
             |w, on| w.resource_mut::<Graphics>().water_effects = on,

@@ -35,6 +35,7 @@ use std::sync::Arc;
 
 pub use fnv_world::alt_textures::AltTexture;
 mod attachment;
+pub mod geometry;
 pub use attachment::ModelObject;
 
 #[derive(Debug, Clone)]
@@ -70,6 +71,9 @@ pub struct PreparedShape {
     /// The diffuse texture the shape names when it could not be loaded (as the NIF names
     /// it), so its material has no base texture: nvforever's distant LOD logs it (#3096).
     pub missing_diffuse: Option<String>,
+    /// The number of its block in the file, the same in every variant of the model
+    /// ([`geometry`]).
+    pub block: u32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -338,6 +342,8 @@ pub struct RigShape {
     pub animated: bool,
     /// [design, #2685] Manager morphs bound by sequence name, sampled per instance.
     pub morph: Option<Arc<crate::morph::SequenceMorph>>,
+    /// As [`PreparedShape::block`].
+    pub block: u32,
 }
 
 impl RigShape {
@@ -1971,7 +1977,7 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
                 let animated = animated_shapes.contains(&shape_name);
                 let (e, m) = props.emissive_parts();
                 let look = (shape_name.clone(), e, m, props.alpha_part());
-                r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, look, refraction: props.refraction_part(), animated, morph: managed_morph });
+                r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, look, refraction: props.refraction_part(), animated, morph: managed_morph, block: o.block as u32 });
             }
         }
         // A shape only a visibility track shows is the rig's alone.
@@ -1995,6 +2001,7 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
                 crate::material_anim::Look::stored(e, m, props.alpha_part())
             },
             missing_diffuse,
+            block: o.block as u32,
         });
         out.triangles += tris;
     }
@@ -2122,6 +2129,7 @@ mod tests {
             external_emittance: false,
             look: crate::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
             missing_diffuse: None,
+            block: 0,
         };
         let mut cache = ModelCache::default();
         cache.map.insert("a.nif".into(), Some(Arc::new(PreparedModel { shapes: vec![shape.clone()], ..default() })));

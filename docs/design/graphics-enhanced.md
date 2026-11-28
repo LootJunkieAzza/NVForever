@@ -711,7 +711,23 @@ its own set of the sun's cascades (Bevy's renderer needs them for every view the
 emptying their caster lists was tried and saved 0.12 ms of shadow-pass GPU time and nothing of
 the frame, so the reflected world keeps its shadows.
 
-### 3.8.2 Water caustics and river flow (`water-effects`)
+### 3.8.2 Enhanced water effects (`water-effects`)
+
+[design] A nonexplosive missile crossing the surface can also disturb the reflected and
+refracted image. Each crossing starts a short pair of expanding crests at its timed
+entry point. The water material keeps up to eight recent crossings. The weapon's impact
+set still supplies its splash model and sound. Explosive projectiles make a heavier
+entry. A qualifying near-surface blast keeps the authored water column and drives a
+broader surface wave scaled by its radius and depth. A light crest and dark trough
+help the leading wave remain visible as the plume falls and the bright splash
+clears. The existing blast rules resolve damage, force and sound.
+Smoke scenarios: `water-shot-rings` and `water-blast-waves`.
+
+[design, #2988] Shoreline wash uses the undistorted bed depth to
+soften wind waves and vary sparse patches of wash over time. The wash uses world
+coordinates for breakup and fades on steep receivers and toward distant water.
+Its shallow-depth gate leaves deep water and placed pools out of this effect. The vanilla preset keeps
+the switch off.
 
 [design, #2674] Graphics > Water offers this switch on its own. The enhanced look enables
 it. From above the surface, the water shader reconstructs the position of the opaque
@@ -4668,6 +4684,24 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
 - The weather sources' daylight brightness (the window light rays' weather regions) is kept
   for the indoor image-based light's day lift (`emittance.rs` `weather_daylight_luma`); the
   rays themselves are drawn as in the display-value look.
+
+- *Canopy shading* (part 3b, #4266): SpeedTree leaf normals form a dome
+  around the crown's lowered core (35 % of its height): out from that core, with an upward
+  part of three quarters of the leaf's height above it plus a quarter of the crown's reach
+  (fnv-spt `canopy_normals`, applied in tree.rs only under this row), so a crown is lit as one
+  rounded mass instead of card by card [design]. Without the row trees keep the
+  original-look rule, out of the crown and tilted up 45° (speedtree.md §6). Under the
+  row too (`NVF_CANOPY`, nvf_assets `enable_foliage_canopy`) [design, tuned by eye on
+  #3828's branch]:
+  - leaf cards darkest at the crown's core (0.60 of their colour) out to whole at its rim
+    (tree.rs), their normals bent out toward the card's corners (tree.wesl);
+  - grass tufts' normals from the ground's at the root to radial at the tips (grass.rs
+    `grass_canopy_normal`), leaning with the wind; each plant's brightness and hue varied
+    by its foot; the root darker (occlusion 0.32, colour 0.68 at the foot); and the sun's
+    whole light in place of grass.md §5's weights (grass.wesl).
+
+  Still to come: canopy normals on placed plants, which need the foliage detection of
+  §3.24 (#4193).
 
 | Constant | Value | Tag and basis |
 |---|---|---|

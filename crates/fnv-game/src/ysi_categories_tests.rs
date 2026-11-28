@@ -19,6 +19,7 @@ fn icon_rule(priority: i64, tag: &str, obj: Json) -> Rule {
 fn parses_flat_categories_priority_overrides_and_game_string_names() {
     let book = Book {
         tags: Vec::new(),
+        icons_by_tag: std::collections::HashMap::new(),
         icons: vec![
             // Base ySI.json Misc categories (priority 100)
             icon_rule(
@@ -109,6 +110,7 @@ fn parses_flat_categories_priority_overrides_and_game_string_names() {
 fn resolves_nested_subfolders_inheriting_tab_and_rejects_cycles() {
     let book = Book {
         tags: Vec::new(),
+        icons_by_tag: std::collections::HashMap::new(),
         icons: vec![
             // Top-level Weapons parent category
             icon_rule(
