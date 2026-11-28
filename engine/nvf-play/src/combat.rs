@@ -2581,9 +2581,6 @@ fn disarm(
 const LIVE_DROP_SPEED: f32 = 0.05;
 const LIVE_DROP_HEIGHT: f32 = 60.0;
 
-/// Whether `weapon` is a grenade: of the animation type "Grenade Throw (1 Hand)"
-/// [documented: GECK wiki Weapons, Animation Type] and its projectile explodes (as
-/// nvforever's `npc_grenades::carried`).
 /// The share of its PROJ speed a grenade the player throws leaves with: half, and the
 /// other half by how much of the wind-up (attack pressed to the clip's `Hit` key,
 /// `wind_up` s) attack was held, all of it when attack is still held as the throw leaves
@@ -2600,6 +2597,9 @@ fn throw_hold_share(held: f32, wind_up: f32, holding: bool) -> f32 {
     0.5 + 0.5 * (held.max(0.0) / wind_up).min(1.0)
 }
 
+/// Whether `weapon` is a grenade: of the animation type "Grenade Throw (1 Hand)"
+/// [documented: GECK wiki Weapons, Animation Type] and its projectile explodes (as
+/// nvforever's `npc_grenades::carried`).
 fn is_grenade(forms: &fnv_combat::data::CombatForms, weapon: FormId) -> bool {
     forms.weapons.get(&weapon).is_some_and(|w| w.anim_type.as_deref() == Some("Grenade Throw (1 Hand)"))
         && forms.chain(weapon, None).and_then(|ch| ch.projectile).and_then(|p| forms.projectiles.get(&p)).and_then(|p| p.explodes()).and_then(|e| forms.explosions.get(&e)).is_some_and(|e| e.radius > 0.0)
