@@ -55,7 +55,7 @@ use crate::player_body::PlayerBody;
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
 use fnv_actor::anim_sounds::{
-    Side, armour_foley, armour_step, clip_gait, footstep_candidates, footstep_family, foley_for, land_texture_material, parse, passed, worn_foley, ArmourStep, FoleySound, KeySound,
+    Side, armour_foley, armour_step, clip_gait, footstep_candidates, footstep_family, foley_for, land_texture_material, parse, parse_script_line, passed, worn_foley, ArmourStep, FoleySound, KeySound,
 };
 use fnv_combat::rng::SplitMix;
 use fnv_phys::{layers, Filter, Key, Owner};
@@ -166,6 +166,14 @@ pub struct AnimSounds {
     /// The footsteps played this frame and whose they are, for IsSoundPlaying
     /// ([`tell_game`]).
     told: Vec<(FormId, FormId)>,
+    /// Clip time last frame for KF `ScriptLine:` text keys (tracked independently of
+    /// audio `HEARD_WEIGHT` and `Sfx` availability so blend-in/blend-out script keys
+    /// never drop) [design].
+    script_last: HashMap<Playing, f32>,
+    /// Distinct `ScriptLine:` commands that failed to compile or run, logged once each.
+    script_failed: HashSet<String>,
+    /// Total KF `ScriptLine:` text-key commands executed this session.
+    script_lines_run: u32,
     /// Landscape: per exterior cell, its texture coverage; per LTEX its material.
     land: HashMap<(u32, i32, i32), Option<Arc<Coverage>>>,
     ltex: HashMap<u32, Option<u32>>,
@@ -194,6 +202,9 @@ impl Default for AnimSounds {
             worn: HashMap::new(),
             actor_worn: HashMap::new(),
             told: Vec::new(),
+            script_last: HashMap::new(),
+            script_failed: HashSet::new(),
+            script_lines_run: 0,
             land: HashMap::new(),
             ltex: HashMap::new(),
             unknown: HashSet::new(),
@@ -475,6 +486,130 @@ fn player_keys(
             }
         }
         sound_heard(s, &mut out, None, &mut phys, &d, location.world, Heard { who, clip, key }, None, player.feet, exclude.clone(), &foley, swimming, FormId::PLAYER_REF);
+    }
+}
+
+/// Like [`keys_of`], for KF `ScriptLine:` keys: allows a slightly wider initial start
+/// window (0.5 s) and always reads from clip start on a brand-new `Once` clip so early
+/// keys (e.g. `t = 0.033s` during `BlendIn:1`) never miss on slow frames [design].
+fn script_keys_of<'a>(
+    last: &HashMap<Playing, f32>,
+    seen: &mut Vec<(Playing, f32)>,
+    playing: Playing,
+    clip: &'a Clip,
+    now: f32,
+    once: bool,
+) -> Vec<&'a str> {
+    seen.push((playing, now));
+    let from = match last.get(&playing) {
+        Some(&t) if once && now < t => None,
+        Some(&t) => Some(t),
+        None if once || now - clip.start <= 0.5 => None,
+        None => return Vec::new(),
+    };
+    if from == Some(now) {
+        return Vec::new();
+    }
+    passed(&clip.text_keys, clip.start, from, now).collect()
+}
+
+/// Execute kNVSE `ScriptLine:` KF animation text keys passed on the player's rigs and
+/// drawn NPCs (e.g. B42 Inject / B42 Interact / B42 Loot attach/detach/sound triggers).
+/// Runs independently of audio (`Sfx`) and without the `HEARD_WEIGHT` audio threshold so
+/// keys near `BlendIn` or `BlendOut` always fire [design].
+fn run_script_lines(
+    mut s: ResMut<AnimSounds>,
+    body: Option<Res<PlayerBody>>,
+    actors: Query<(Entity, &BlendPlayer, &ActorRig)>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut sim: Option<ResMut<SimState>>,
+    mut seen: Local<Vec<(Playing, f32)>>,
+) {
+    let Some(rt) = script.as_deref_mut().and_then(|st| st.rt.as_mut()) else { return };
+    let s = &mut *s;
+    seen.clear();
+    let mut queued: Vec<(FormId, String)> = Vec::new();
+    let mut collect_animator = |a: &nvf_assets::anim_blend::Animator, who: Who, special_only: bool| {
+        for l in &a.layers {
+            if l.weight <= 0.0 || (l.ease <= 0.0 && l.is_leaving()) {
+                continue;
+            }
+            if special_only && !(l.tag >= crate::player_body::TAG_SPECIAL && l.tag < 0x4000_0000) {
+                continue;
+            }
+            if !l.clip.text_keys.iter().any(|(_, k)| parse_script_line(k).is_some()) {
+                continue;
+            }
+            let playing = (who, Arc::as_ptr(&l.clip) as usize, l.tag);
+            let now = l.sample_time(a.phase);
+            for k in script_keys_of(&s.script_last, &mut seen, playing, &l.clip, now, l.mode == Mode::Once) {
+                if let Some(cmd) = parse_script_line(k) {
+                    queued.push((FormId::PLAYER_REF, cmd.to_string()));
+                }
+            }
+        }
+    };
+    if let Some(body) = body.as_deref() {
+        let (first, third, first_shown) = body.script_animators();
+        if first_shown {
+            if let Some(a) = first {
+                collect_animator(a, Who::Player(true), false);
+            }
+            if let Some(a) = third {
+                collect_animator(a, Who::Player(false), true);
+            }
+        } else {
+            if let Some(a) = third {
+                collect_animator(a, Who::Player(false), false);
+            }
+            if let Some(a) = first {
+                collect_animator(a, Who::Player(true), true);
+            }
+        }
+    }
+    for (e, bp, rig) in &actors {
+        let who = Who::Actor(e);
+        for (slot_idx, layer) in bp.layers.iter().enumerate() {
+            let Some(l) = layer else { continue };
+            if l.weight <= 0.0 {
+                continue;
+            }
+            let clip = &l.clip.clip;
+            if !clip.text_keys.iter().any(|(_, k)| parse_script_line(k).is_some()) {
+                continue;
+            }
+            let now = clip.start + l.phase.clamp(0.0, 1.0) * clip.length();
+            let playing = (who, Arc::as_ptr(clip) as usize, slot_idx as u32);
+            let once = clip.cycle_type == 2;
+            for k in script_keys_of(&s.script_last, &mut seen, playing, clip, now, once) {
+                if let Some(cmd) = parse_script_line(k) {
+                    queued.push((FormId(rig.reference), cmd.to_string()));
+                }
+            }
+        }
+    }
+    s.script_last.clear();
+    s.script_last.extend(seen.drain(..));
+    if queued.is_empty() {
+        return;
+    }
+    let run_all = |game: &mut fnv_game::Game<'_>| {
+        for (actor, cmd) in queued {
+            match game.run_anim_script_line(actor, &cmd) {
+                Ok(_) => {
+                    s.script_lines_run += 1;
+                }
+                Err(err) => {
+                    if s.script_failed.insert(cmd.clone()) {
+                        debug!("anim scriptline failed on {:08X}: {cmd:?}: {err}", actor.0);
+                    }
+                }
+            }
+        }
+    };
+    match sim.as_deref_mut() {
+        Some(sim) => nvf_play::script::with_world(rt, sim, |rt| run_all(&mut rt.game)),
+        None => run_all(&mut rt.game),
     }
 }
 
@@ -881,7 +1016,7 @@ impl Plugin for AnimSoundsPlugin {
         app.init_resource::<AnimSounds>()
             .add_systems(
                 Update,
-                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), actor_jumps, door_sounds.after(nvf_play::doors::DoorSystems), creature_hits, tell_game).chain().before(nvf_play::sfx::SfxSet),
+                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), run_script_lines.after(BodySet).after(crate::locomotion::drive), actor_jumps, door_sounds.after(nvf_play::doors::DoorSystems), creature_hits, tell_game).chain().before(nvf_play::sfx::SfxSet),
             )
             .add_systems(
                 Update,
@@ -1098,5 +1233,38 @@ mod tests {
         // from its start, not round its end.
         let last: HashMap<Playing, f32> = [(p, 0.6)].into();
         assert_eq!(parsed(keys_of(&last, &mut seen, p, &c, 0.05, true)), vec![KeySound::Sound("A")]);
+    }
+
+    #[test]
+    fn script_keys_fire_from_start_through_blend_out_on_b42_stimpak_timeline() {
+        let mut c = clip(&[
+            (0.0, "start"),
+            (0.0333, r#"ScriptLine: Goo1.AuxVarSetStr "*_InjMP" "B42Inject\Stimpak01.nif""#),
+            (0.1000, r#"ScriptLine: Goo1.AuxVarSetFlt "*_InjM" 1"#),
+            (1.5667, r#"ScriptLine: Goo1.AuxVarSetFlt "*_InjM" 3"#),
+            (1.6333, "End"),
+        ]);
+        c.stop = 1.6333;
+        let p: Playing = (Who::Player(true), 7, 1001);
+        let mut last = HashMap::new();
+        let mut seen = Vec::new();
+        let step = |last: &mut HashMap<Playing, f32>, seen: &mut Vec<(Playing, f32)>, t: f32| -> Vec<String> {
+            seen.clear();
+            let out: Vec<String> = script_keys_of(last, seen, p, &c, t, true)
+                .into_iter()
+                .filter_map(parse_script_line)
+                .map(str::to_string)
+                .collect();
+            *last = seen.iter().copied().collect();
+            out
+        };
+        assert_eq!(
+            step(&mut last, &mut seen, 0.05),
+            vec![r#"Goo1.AuxVarSetStr "*_InjMP" "B42Inject\Stimpak01.nif""#]
+        );
+        assert_eq!(step(&mut last, &mut seen, 0.12), vec![r#"Goo1.AuxVarSetFlt "*_InjM" 1"#]);
+        assert!(step(&mut last, &mut seen, 1.00).is_empty());
+        assert_eq!(step(&mut last, &mut seen, 1.60), vec![r#"Goo1.AuxVarSetFlt "*_InjM" 3"#]);
+        assert!(step(&mut last, &mut seen, 1.6333).is_empty());
     }
 }

@@ -18,6 +18,7 @@ mod actor_base_flags;
 mod actor_values;
 mod aid;
 mod ammo_overrides;
+mod anim_script_line;
 mod appearance;
 mod area_effects;
 mod armo_overrides;

@@ -1412,6 +1412,9 @@ pub struct Game<'a> {
     console_locals: ConsoleLocals,
     /// JIP's Script Runner: its files and their units (`crate::script_runner`).
     pub(crate) sr: crate::script_runner::SrState<'a>,
+    /// Compiled `ScriptLine:` KF animation text-key lines (kNVSE), cached for the session
+    /// under a bounded budget so repeated animation triggers do not recompile every pass.
+    anim_script_lines: std::collections::HashMap<String, ConsoleSource<'a>>,
     /// A lambda already made, by its unit, its number in the unit and whose variables it
     /// shares ([`LambdaKey`]).
     lambda_ids: std::collections::HashMap<LambdaKey, u32>,
@@ -2921,6 +2924,7 @@ impl<'a> Game<'a> {
             console_locals: Default::default(),
             combat_style_edits: Default::default(),
             sr: Default::default(),
+            anim_script_lines: Default::default(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
             handler_seq: 0,
@@ -3847,6 +3851,43 @@ impl<'a> Game<'a> {
         let (unit, warnings) = compiled?;
         let from = self.events.len();
         if !self.run_statements(unit, ctx) {
+            let error = self.events[from..].iter().find_map(|event| match &event.kind {
+                EventKind::ScriptError { error, .. } => Some(error.as_str()),
+                _ => None,
+            }).unwrap_or("statement evaluation failed");
+            return Err(format!("{src:?}: {error}"));
+        }
+        Ok(warnings)
+    }
+
+    /// Compile and run one `ScriptLine:` KF animation text-key statement on `actor`
+    /// (kNVSE text-key script execution; e.g. B42 Inject / B42 Interact / B42 Loot).
+    /// Compiled units are cached for the session under a bounded budget (1024 distinct
+    /// lines) using mod-runtime syntax and an empty plugin identity so public `*` AuxVars
+    /// and reference/extender calls work without inventing a private AuxVar namespace
+    /// [design].
+    pub fn run_anim_script_line(&mut self, actor: FormId, src: &str) -> Result<Vec<String>, String> {
+        let src = src.trim();
+        if src.is_empty() {
+            return Ok(Vec::new());
+        }
+        if src.len() > 16 * 1024 {
+            return Err("animation ScriptLine exceeds the 16 KiB safety budget".into());
+        }
+        let compiled = match self.anim_script_lines.get(src) {
+            Some(compiled) => compiled.clone(),
+            None => {
+                if self.anim_script_lines.len() >= 1024 {
+                    return Err("animation ScriptLine cache exceeds 1024 distinct lines in one game".into());
+                }
+                let compiled = self.compile_statements(src, "", "KF");
+                self.anim_script_lines.insert(src.to_string(), compiled.clone());
+                compiled
+            }
+        };
+        let (unit, warnings) = compiled?;
+        let from = self.events.len();
+        if !self.run_statements(unit, RunCtx { self_ref: Some(actor), ..Default::default() }) {
             let error = self.events[from..].iter().find_map(|event| match &event.kind {
                 EventKind::ScriptError { error, .. } => Some(error.as_str()),
                 _ => None,

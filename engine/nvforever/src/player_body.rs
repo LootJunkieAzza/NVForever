@@ -190,7 +190,7 @@ pub fn arms_magnification(view_vfov: f32, arms_fov: f32) -> f32 {
 }
 /// Idles (`idles.rs`): one role per idle started, so an idle keeps its layer while the
 /// next one fades in over it.
-const TAG_SPECIAL: u32 = 1000;
+pub(crate) const TAG_SPECIAL: u32 = 1000;
 
 /// Biped slots of headgear hidden in first person when the third-person body has to stand
 /// in for the first-person rig: Head, Hair, Headband, Hat, Eye Glasses, Nose Ring,
@@ -1468,6 +1468,14 @@ impl PlayerBody {
             base_scale: 1.0,
         };
         Some((r.root, rig))
+    }
+
+    /// Both player rig animators `(first, third)` and whether the first-person rig is
+    /// currently shown, for KF `ScriptLine:` text-key dispatch (`anim_sounds.rs`) [design].
+    pub(crate) fn script_animators(&self) -> (Option<&Animator>, Option<&Animator>, bool) {
+        let Some(b) = self.body.as_ref() else { return (None, None, false) };
+        let first_shown = b.first.as_ref().is_some_and(|f| f.shown == Some(true));
+        (b.first.as_ref().map(|f| &f.animator), Some(&b.third.animator), first_shown)
     }
 
     /// Authored CPU-only rigs for the real scene-mirror pipeline controls. This
