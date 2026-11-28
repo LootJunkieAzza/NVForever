@@ -1392,6 +1392,35 @@ impl Ui {
         }
     }
 
+    /// Gives a tile's trait the operators `ops`, making the trait when it is not there (the
+    /// engine's own expression writes: an adapter that moves a mod's expression-driven place
+    /// keeps the file's operators working). The value is worked out afresh on the next
+    /// [`Ui::update`]; until then the trait keeps the value it had [design]. Nothing for an
+    /// id whose tile is unloaded.
+    #[track_caller]
+    pub fn set_trait_expr(&mut self, tile: TileId, name: &str, ops: Vec<crate::expr::Op>) {
+        self.entered("set_trait_expr");
+        if !self.is_live(tile) {
+            return;
+        }
+        let k = self.trait_or_new(tile, name);
+        self.gen += 1;
+        let gen = self.gen;
+        let write_serial = self.next_write_serial();
+        let slot = self.slot(tile).expect("a loaded tile");
+        let tr = &mut self.tiles[slot].traits[k];
+        tr.expr = Some(ops);
+        tr.changed = gen;
+        tr.write_serial = write_serial;
+        tr.evaluated = 0;
+        tr.built_in_label = None;
+        tr.sources.clear();
+        tr.struct_deps.clear();
+        tr.seen_valid = false;
+        self.tiles[slot].mark_expr_trait(k as u32);
+        self.dirty = true;
+    }
+
     /// [design] The setting whose built-in label `name` of `tile` still holds as the file wrote
     /// it: a value a plugin, a mod's file or a script chose answers none.
     pub fn built_in_label(&self, tile: TileId, name: &str) -> Option<&str> {

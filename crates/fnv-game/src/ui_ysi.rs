@@ -13,6 +13,7 @@
 //! renderer-side icon drawing.
 
 use crate::game::menus;
+use fnv_ui::expr::{Arg, Op, OpKind, Src};
 use fnv_ui::{xml::Node, Source, TileId, Ui};
 
 /// Canonical VFS path of ySI's XML fragment.
@@ -27,8 +28,11 @@ pub const YSI_NO_TAG_TEMPLATE: &str = "ySINoTag";
 pub const YSI_IMAGE_TILE: &str = "ySIImage";
 /// Private trait tracking which template built an instantiated [`YSI_IMAGE_TILE`] child.
 const YSI_TEMPLATE_TRAIT: &str = "_ysi_template";
-/// Private trait recording a row's `ListItemText` base `x` prior to ySI icon spacing.
+/// Private trait recording a row's `ListItemText` base `x` prior to ySI icon spacing: the
+/// file's literal value, or the file's own operators when `x` is an expression.
 const YSI_BASE_X_TRAIT: &str = "_ysi_base_x";
+/// Private trait holding how far an expression-driven `ListItemText/x` is moved right.
+const YSI_X_SHIFT_TRAIT: &str = "_ysi_x_shift";
 
 /// Resolved ySI sorting tag, icon texture filename, and XML template name for an item form
 /// [design: `docs/spec-notes/ysi-filename.md`].
@@ -349,12 +353,16 @@ pub fn apply_row_icon(
     true
 }
 
-/// Position `ySIImage`'s `x` and shift `ListItemText`'s literal `x` according to the
+/// Position `ySIImage`'s `x` and shift `ListItemText`'s `x` according to the
 /// `ySI` rect's `_ySIWidth` / `_ySISpaceLeft` (`user0`) / `_ySISpaceRight` (`user1`) /
-/// `_ySIBlanks` traits [documented: Sorting Icons 1.4b package, `menus/ySI/ySI.xml`;
-/// no ySI/yUI DLL or source code was consulted; design: idempotent literal `ListItemText/x`
-/// shifting via private `_ysi_base_x` while preserving expression-driven `ListItemText/x`
-/// on custom UI overhauls untouched].
+/// `_ySIBlanks` traits [documented: Sorting Icons 1.4b package, `menus/ySI/ySI.xml`: the
+/// icon's `x` is "set in code", `user0` is the "additional space left between equip square
+/// and icon" and `user1` the "additional space left between icon and text"; no ySI/yUI DLL
+/// or source code was consulted]. A literal `ListItemText/x` is shifted idempotently via
+/// the private `_ysi_base_x` [design]. An expression-driven `ListItemText/x` (UI overhauls
+/// that place the text from the font and the equip square, such as VUI+) keeps the file's
+/// operators: they move to `_ysi_base_x` and `x` becomes that plus `_ysi_x_shift`, so the
+/// text moves past the icon once however often the row is written [design].
 fn position_row_icon(ui: &mut Ui, row_tile: TileId, icon_tile: TileId, has_icon: bool) {
     let Some(text_tile) = has_direct_child(ui, row_tile, "ListItemText") else {
         return;
@@ -384,34 +392,73 @@ fn position_row_icon(ui: &mut Ui, row_tile: TileId, icon_tile: TileId, has_icon:
         .or_else(|| icon_num("user1"))
         .unwrap_or(0.0);
 
-    let text_x_has_expr = ui
+    let (icon_x, text_shift) = if width > 0.0 {
+        (space_left, space_left + width + space_right)
+    } else {
+        (0.0, 0.0)
+    };
+    let base_x = shift_list_text(ui, text_tile, text_shift);
+    ui.set_trait(icon_tile, "x", fnv_ui::Value::Num(base_x + icon_x));
+}
+
+/// The operators of a shifted expression-driven `ListItemText/x`: its own expression
+/// (kept in `_ysi_base_x`) plus `_ysi_x_shift`.
+fn shifted_x_ops() -> Vec<Op> {
+    let me = |name: &str| Arg::Ref { src: Src::Me, name: name.to_string() };
+    vec![
+        Op { kind: OpKind::Copy, arg: me(YSI_BASE_X_TRAIT) },
+        Op { kind: OpKind::Add, arg: me(YSI_X_SHIFT_TRAIT) },
+    ]
+}
+
+/// Moves `ListItemText` (`text_tile`) `shift` units right of its base place, and answers
+/// the base place: the file's literal `x` (kept in `_ysi_base_x`), or for an expression the
+/// value the file's operators work out. Writing the same shift again changes nothing.
+fn shift_list_text(ui: &mut Ui, text_tile: TileId, shift: f64) -> f64 {
+    let x_expr = ui
         .tile(text_tile)
         .trait_index("x")
-        .is_some_and(|idx| ui.tile(text_tile).traits[idx].expr.is_some());
-
-    let base_x = if text_x_has_expr {
-        ui.tile(text_tile).get("x").map_or(0.0, fnv_ui::Value::num)
-    } else if let Some(saved) = ui.tile(text_tile).get(YSI_BASE_X_TRAIT) {
-        saved.num()
-    } else {
-        let initial = ui.tile(text_tile).get("x").map_or(0.0, fnv_ui::Value::num);
-        ui.set_trait(text_tile, YSI_BASE_X_TRAIT, fnv_ui::Value::Num(initial));
-        initial
-    };
-
-    if width > 0.0 {
-        ui.set_trait(icon_tile, "x", fnv_ui::Value::Num(base_x + space_left));
-        if !text_x_has_expr {
-            ui.set_trait(
-                text_tile,
-                "x",
-                fnv_ui::Value::Num(base_x + space_left + width + space_right),
-            );
+        .and_then(|idx| ui.tile(text_tile).traits[idx].expr.clone());
+    match x_expr {
+        Some(ops) => {
+            if ops != shifted_x_ops() {
+                // Seed `_ysi_base_x` with the already-evaluated `x` so `ySIImage/x` lands
+                // at the right spot on the first frame (before the next `ui.update()`
+                // evaluates `_ysi_base_x`), then move the file's operators there and wrap
+                // `x` to add `_ysi_x_shift`.
+                let initial = ui.tile(text_tile).get("x").cloned().unwrap_or(fnv_ui::Value::Num(0.0));
+                ui.set_trait(text_tile, YSI_BASE_X_TRAIT, initial);
+                ui.set_trait_expr(text_tile, YSI_BASE_X_TRAIT, ops);
+                ui.set_trait_expr(text_tile, "x", shifted_x_ops());
+            }
+            ui.set_trait(text_tile, YSI_X_SHIFT_TRAIT, fnv_ui::Value::Num(shift));
+            ui.tile(text_tile).get(YSI_BASE_X_TRAIT).map_or(0.0, fnv_ui::Value::num)
         }
-    } else {
-        ui.set_trait(icon_tile, "x", fnv_ui::Value::Num(base_x));
-        if !text_x_has_expr {
-            ui.set_trait(text_tile, "x", fnv_ui::Value::Num(base_x));
+        None => {
+            let base_x = match ui.tile(text_tile).get(YSI_BASE_X_TRAIT) {
+                Some(saved) => saved.num(),
+                None => {
+                    let initial = ui.tile(text_tile).get("x").map_or(0.0, fnv_ui::Value::num);
+                    ui.set_trait(text_tile, YSI_BASE_X_TRAIT, fnv_ui::Value::Num(initial));
+                    initial
+                }
+            };
+            ui.set_trait(text_tile, "x", fnv_ui::Value::Num(base_x + shift));
+            base_x
+        }
+    }
+}
+
+/// Takes a row's `ySIImage` off (icons switched off, `yUI.ini` `bAddInventoryIcons=0`) and
+/// puts its `ListItemText` back at its base place. Nothing for a row without one.
+pub fn remove_row_icon(ui: &mut Ui, row_tile: TileId) {
+    let Some(icon) = has_direct_child(ui, row_tile, YSI_IMAGE_TILE) else {
+        return;
+    };
+    ui.unload_tile(icon);
+    if let Some(text_tile) = has_direct_child(ui, row_tile, "ListItemText") {
+        if ui.tile(text_tile).get(YSI_BASE_X_TRAIT).is_some() {
+            shift_list_text(ui, text_tile, 0.0);
         }
     }
 }
@@ -634,19 +681,20 @@ mod tests {
         let row_lit = ui.find_tile("InventoryMenu/RowLiteral").unwrap();
         let row_expr = ui.find_tile("InventoryMenu/RowExpr").unwrap();
 
-        // Calling apply_row_icon on an expression-driven row BEFORE ui.update() must not
-        // freeze base_x at the unevaluated 0.0; once ui.update() evaluates ListItemText/x
-        // to 55.0, the next apply_row_icon updates ySIImage/x to 55.0 + (-5.0) = 50.0.
+        // An expression-driven row: the file's operators keep working out the base place
+        // (55) and the text moves past the icon: 55 + (-5) + 32 + 5 = 87, the icon at
+        // 55 + (-5) = 50. (Before, the text stayed at 55 and the icon drew over it.)
+        // Calling apply_row_icon before ui.update() must not freeze the base at the
+        // unevaluated 0.0.
         assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/x"), Some(0.0));
         assert!(apply_row_icon(&mut ui, &src, row_expr, Some(&tagged)));
-        let expr_text = ui.find_tile("InventoryMenu/RowExpr/ListItemText").unwrap();
-        assert!(ui.tile(expr_text).get(YSI_BASE_X_TRAIT).is_none());
         ui.update();
-        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/x"), Some(55.0));
+        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/_ysi_base_x"), Some(55.0));
+        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/x"), Some(87.0));
         assert!(apply_row_icon(&mut ui, &src, row_expr, Some(&tagged)));
         ui.update();
         assert_eq!(ui.get_float("InventoryMenu/RowExpr/ySIImage/x"), Some(50.0));
-        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/x"), Some(55.0));
+        assert_eq!(ui.get_float("InventoryMenu/RowExpr/ListItemText/x"), Some(87.0));
 
         // Repeated calls are idempotent: icon x = 40 + (-5) = 35, text x = 40 - 5 + 32 + 5 = 72.
         assert!(apply_row_icon(&mut ui, &src, row_lit, Some(&tagged)));
