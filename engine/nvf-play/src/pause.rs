@@ -664,6 +664,8 @@ const MODS_LABEL: &str = "Mods";
 /// The Console entry's word [design: our own].
 const CONSOLE_LABEL: &str = "Console";
 
+type PendingThumbTask = (usize, PathBuf, bevy::tasks::Task<Option<(u32, u32, Vec<u8>)>>);
+
 /// The saves the load or save page lists, newest first, and the chosen one's thumbnail.
 #[derive(Resource, Default)]
 struct LoadList {
@@ -674,7 +676,7 @@ struct LoadList {
     thumb: Option<(usize, Option<Handle<Image>>)>,
     /// In-flight background thumbnail read + decode for row `usize` so browsing saves never
     /// blocks the main thread [design].
-    pending_thumb: Option<(usize, PathBuf, bevy::tasks::Task<Option<(u32, u32, Vec<u8>)>>)>,
+    pending_thumb: Option<PendingThumbTask>,
     /// Decoded thumbnails cached for the current open of the load/save page [design].
     thumb_cache: std::collections::HashMap<PathBuf, Option<Handle<Image>>>,
 }

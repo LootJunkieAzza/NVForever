@@ -125,13 +125,13 @@ fn bake_into(strip: &StripTexels, offset: usize, columns: usize, lut: &FadeLut, 
                 src_col = 0;
             }
         }
-        for x in 0..lut.left_end {
+        for (x, &alpha) in lut.alpha[..lut.left_end].iter().enumerate() {
             let di = x * 4 + 3;
-            dst_row[di] = (f32::from(dst_row[di]) * lut.alpha[x]).round() as u8;
+            dst_row[di] = (f32::from(dst_row[di]) * alpha).round() as u8;
         }
-        for x in lut.right_start..columns {
-            let di = x * 4 + 3;
-            dst_row[di] = (f32::from(dst_row[di]) * lut.alpha[x]).round() as u8;
+        for (x, &alpha) in lut.alpha[lut.right_start..columns].iter().enumerate() {
+            let di = (lut.right_start + x) * 4 + 3;
+            dst_row[di] = (f32::from(dst_row[di]) * alpha).round() as u8;
         }
     }
 }
