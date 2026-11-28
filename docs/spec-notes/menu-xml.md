@@ -481,8 +481,12 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   this change lines × the font's size); the layout uses it for a text tile without its
   own `height` (§3.1.1), and the code writes no text tile's `height` into the tree
   [design: not yet needed].
-- [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
-  when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
+- [hypothesis] Colour: a tile's own `systemcolor`; else its own non-black
+  `red`/`green`/`blue` when it sets any; else the nearest tile above's `systemcolor` (so
+  child prefabs that copy missing `red`/`green`/`blue` traits from a parent — evaluating to
+  0/0/0 — still inherit an enclosing menu's `systemcolor`, while `&nosystemcolor;` /
+  `&uselocalcolor;` / `0` on the tile or ancestor yields local RGB); else its own
+  `red`/`green`/`blue` when no ancestor sets `systemcolor`; else system colour 1, the
   HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always
   assign"; T12c: until then its own, white, which drew `AmmoTypeLabel`, a menu child with
   no colour above it, white].

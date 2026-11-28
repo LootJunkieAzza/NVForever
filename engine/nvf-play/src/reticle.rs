@@ -5,7 +5,7 @@
 //!   something under it the player can use, `glow_crosshair_filled.dds`, the same arrows
 //!   in a box [documented: the HUD's template names the two; observed: the owner's
 //!   screenshots, §2, §3].
-//! - Under it, the key and the action ("E) Take"), the target's name, and for an item a
+//! - Under it, the key and the action ("[E] Take"), the target's name, and for an item a
 //!   line across with its weight and value either side of a stem (§3). [`layout`] sets
 //!   them out (pure, tested) from the measurements of §3, in the HUD's font 7.
 //! - **Spread**: while a weapon with a firing cycle is drawn the plain crosshair's two
@@ -107,11 +107,11 @@ const WEIGHT_END: f32 = -21.0;
 const VAL_X: f32 = 9.5;
 const VALUE_END: f32 = 135.0;
 
-/// The key that activates when no binding says [hypothesis: the key's name and ")", as
-/// the screenshots show for E, the Activate control's default (bindings.rs)]. The prompt
-/// names the Activate control's own key, or its controller button while a controller
-/// works the controls (`crate::bindings::Bindings::prompt`: "A)").
-const KEY: &str = "E)";
+/// The key that activates when no binding says: E, the Activate control's default
+/// (bindings.rs), in brackets as every hint is [design, #4495]. The prompt names the
+/// Activate control's own key, or its controller button while a controller works the
+/// controls (`crate::bindings::Bindings::prompt`: "[A]").
+const KEY: &str = "[E]";
 /// The least room between a figure's word and the figure, when a long word or figure
 /// would otherwise meet it [design].
 const FIGURE_GAP: f32 = 8.0;
@@ -137,7 +137,7 @@ pub struct Prompt {
     pub figures: Option<[String; 2]>,
     /// Drawn in the crime colour: someone else owns the target (`crate::crime`).
     pub crime: bool,
-    /// The Activate control's key or button and ")"; empty: [`KEY`].
+    /// The Activate control's key or button in brackets; empty: [`KEY`].
     pub key: String,
     /// A line under the name: [`EMPTY`] for a container or body with nothing in it.
     pub note: Option<String>,
@@ -249,8 +249,9 @@ pub fn value_text(v: Option<i32>) -> String {
 pub struct Layout {
     pub texts: Vec<Set>,
     pub divider: Option<Vec2>,
-    /// A PlayStation face button's glyph in the key's place ("Cross)" drawn as the cross
-    /// and ")"): the glyph, its top left corner and its side [design, #1452].
+    /// A PlayStation face button's glyph in the key's place ("[Cross]" drawn as "[", the
+    /// cross and "]"): the glyph, its top left corner and its side [design, #1452]. The
+    /// "[" is the last of [`Layout::texts`].
     pub glyph: Option<(crate::pad::Glyph, Vec2, f32)>,
 }
 
@@ -258,10 +259,10 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let line = |s: &str| font.lines(s, None).into_iter().next().unwrap_or_default();
     let set = |line: Line, x: f32, base: f32| Set { line, x, base };
     let action = line(&p.action);
-    // A face button under the PlayStation names: its glyph, then ")" [design, #1452]. The
+    // A face button under the PlayStation names: "[", its glyph, "]" [design, #1452]. The
     // labelled buttons (L1, Select…) are drawn by the menu hints, not the crosshair.
-    let glyph = p.key_text().strip_suffix(')').and_then(crate::pad::Glyph::named).filter(|g| g.is_face()).filter(|_| !p.action.is_empty());
-    let key = line(if glyph.is_some() { ")" } else { p.key_text() });
+    let glyph = p.key_text().strip_prefix('[').and_then(|k| k.strip_suffix(']')).and_then(crate::pad::Glyph::named).filter(|g| g.is_face()).filter(|_| !p.action.is_empty());
+    let key = line(if glyph.is_some() { "]" } else { p.key_text() });
     let name = line(&p.name);
     let action_x = ACTION_X - action.width / 2.0;
     let name_base = ACTION_BASE + LINE_PITCH;
@@ -299,13 +300,15 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let glyph = glyph.map(|g| {
         let side = font.size * GLYPH_SHARE;
         let x = action_x - KEY_GAP - key.width - GLYPH_GAP - side;
+        let open = line("[");
+        texts.push(set(open.clone(), x - GLYPH_GAP - open.width, ACTION_BASE));
         (g, Vec2::new(x, ACTION_BASE - side * GLYPH_RISE), side)
     });
     Layout { texts, divider, glyph }
 }
 
 /// A glyph's side as a share of the font's size, how much of it stands above the line
-/// and the room between it and its ")" [design, #1452].
+/// and the room between it and its brackets [design, #1452].
 const GLYPH_SHARE: f32 = 0.7;
 const GLYPH_RISE: f32 = 0.92;
 const GLYPH_GAP: f32 = 0.5;
@@ -778,15 +781,18 @@ mod tests {
         assert_eq!((note.x + note.line.width / 2.0, note.base), (NAME_X, name.base + LINE_PITCH));
         assert_eq!(layout(&prompt("Open", "Footlocker", None), &font()).texts.len(), 3);
         assert_eq!(layout(&prompt("Open", "Footlocker", None), &font()).glyph, None);
-        // A PlayStation face button: its glyph left of a lone ")" (#1452).
-        let ps = Prompt { key: "Cross)".into(), ..prompt("Open", "Footlocker", None) };
+        // A PlayStation face button: its glyph between a "[" and a "]" (#1452).
+        let ps = Prompt { key: "[Cross]".into(), ..prompt("Open", "Footlocker", None) };
         let l = layout(&ps, &font());
         let (g, corner, side) = l.glyph.expect("a glyph");
         assert_eq!(g, crate::pad::Glyph::Cross);
-        assert_eq!(l.texts[0].line.text(), ")");
+        assert_eq!(l.texts[0].line.text(), "]");
         assert!(corner.x + side <= l.texts[0].x && side > 0.0);
-        // "L2)" has no glyph: written as it is.
-        let l2 = Prompt { key: "L2)".into(), ..prompt("Open", "Footlocker", None) };
+        let open = l.texts.last().unwrap();
+        assert_eq!(open.line.text(), "[");
+        assert!(open.x + open.line.width <= corner.x);
+        // "[L2]" has no glyph: written as it is.
+        let l2 = Prompt { key: "[L2]".into(), ..prompt("Open", "Footlocker", None) };
         assert_eq!(layout(&l2, &font()).glyph, None);
     }
 
