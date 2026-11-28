@@ -1171,8 +1171,16 @@ pub(crate) fn activate(
 
 // ---- visual sync -----------------------------------------------------------------
 
-type NewVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility), Added<RefVisual>>;
-type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility)>;
+type NewVisuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, &'static mut Visibility), Added<RefVisual>>;
+type AllVisuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, &'static mut Visibility)>;
+
+/// Incremental `form_id -> Vec<Entity>` index for [`sync_visuals`] so `RefChanged` events
+/// update matching visuals in O(1) instead of scanning all ~40k `RefVisual` entities [design].
+#[derive(Default)]
+pub struct RefVisualIndex {
+    seeded: bool,
+    by_form: HashMap<u32, Vec<Entity>>,
+}
 
 /// Whether a reference is drawn: present in the simulation ([`SimState::present`]) and not
 /// culled by its critical stage (GooEnd, DisintegrateEnd: `fnv_game::Game::culled`). A
@@ -1200,10 +1208,21 @@ pub fn sync_visuals(
     script: Option<Res<crate::script::ScriptState>>,
     mut changes: MessageReader<RefChanged>,
     mut visuals: ParamSet<(NewVisuals, AllVisuals)>,
+    mut index: Local<RefVisualIndex>,
 ) {
     let script = script.as_deref();
+    if !index.seeded {
+        index.seeded = true;
+        for (entity, r, _) in &visuals.p1() {
+            index.by_form.entry(r.0).or_default().push(entity);
+        }
+    }
     let mut present: HashMap<u32, bool> = HashMap::new();
-    for (r, mut v) in &mut visuals.p0() {
+    for (entity, r, mut v) in &mut visuals.p0() {
+        let list = index.by_form.entry(r.0).or_default();
+        if !list.contains(&entity) {
+            list.push(entity);
+        }
         if !*present.entry(r.0).or_insert_with(|| drawn(&sim, script, r.0)) {
             v.set_if_neq(Visibility::Hidden);
         }
@@ -1218,10 +1237,22 @@ pub fn sync_visuals(
     if changed.is_empty() {
         return;
     }
-    for (r, mut v) in &mut visuals.p1() {
-        if let Some((n, _)) = changed.get_mut(&r.0) {
-            v.set_if_neq(if drawn(&sim, script, r.0) { Visibility::Inherited } else { Visibility::Hidden });
-            *n += 1;
+    let mut all = visuals.p1();
+    for (&id, (n, _)) in &mut changed {
+        let Some(entities) = index.by_form.get_mut(&id) else {
+            continue;
+        };
+        let target_vis = if drawn(&sim, script, id) { Visibility::Inherited } else { Visibility::Hidden };
+        entities.retain(|&entity| match all.get_mut(entity) {
+            Ok((_, r, mut v)) if r.0 == id => {
+                v.set_if_neq(target_vis);
+                *n += 1;
+                true
+            }
+            _ => false,
+        });
+        if entities.is_empty() {
+            index.by_form.remove(&id);
         }
     }
     let mut restored_unloaded = 0usize;
