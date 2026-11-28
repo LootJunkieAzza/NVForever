@@ -30,6 +30,9 @@
 //! as not ended normally: the game did not save or write its summary.
 //! `NVF_RUN_END=0` installs neither.
 
+// The listeners are Windows only; elsewhere only `said` (reading an old run log) is used.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 /// What the line says before the reason.
 pub const LINE: &str = "run log: ended from outside: ";
 
@@ -114,21 +117,19 @@ fn off() -> bool {
 
 /// Start the session-end window (Windows only). Call after the run log is open.
 pub fn install() {
-    if off() {
-        return;
-    }
     #[cfg(windows)]
-    win::install();
+    if !off() {
+        win::install();
+    }
 }
 
 /// Add the console control handler (Windows only): a Startup system, so that it is added
 /// after Bevy's own and is called before it.
 pub fn console_handler() {
-    if off() {
-        return;
-    }
     #[cfg(windows)]
-    win::console_handler();
+    if !off() {
+        win::console_handler();
+    }
 }
 
 #[cfg(windows)]

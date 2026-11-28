@@ -400,6 +400,7 @@ fn alloc_failed(size: usize) {
 /// A line in the run log at once, written straight to the file and flushed, from any
 /// thread, and to the console: for a run that is about to be ended (run_end.rs). The log's lock is waited on
 /// for at most 200 ms (Windows gives a closing console about 5 s).
+#[cfg_attr(not(windows), allow(dead_code))] // run_end.rs's listeners are Windows only
 pub(crate) fn write_now(level: &str, target: &str, text: &str) {
     let line = format!("{}  {level} {target}: {text}", stamp(now_secs()));
     if let Some(log) = RUN_LOG.get() {
