@@ -1068,7 +1068,7 @@ fn lobby(
         } else if connect::waited_too_long(coop, since, now) {
             coop.link = None;
             coop.control = None;
-            coop.fail("No answer from the host: check the code, and that their lobby is open.");
+            coop.fail(tr("No answer from the host: check the code, and that their lobby is open."));
         }
     }
     let hosting = match (&coop.code, coop.is_host()) {

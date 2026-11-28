@@ -64,8 +64,6 @@ const TOP: f32 = 150.0;
 const PAD: f32 = 24.0;
 /// Small print's line step.
 const STEP: f32 = 30.0;
-/// The Co-op screen's title (the pause menu's entry's name).
-const TITLE: &str = "Co-op";
 /// Players a lobby takes: the host and `nvf_coop::net::MAX_GUESTS` guests (nvforever's
 /// co-op tests check the two agree).
 pub const LOBBY_PLAYERS: usize = 6;
@@ -630,9 +628,9 @@ fn host_acts(state: &LobbyState) -> Vec<Act> {
 /// game is a guest (see the module notes).
 fn coop_held(state: &LobbyState) -> Option<&'static str> {
     if state.guest {
-        Some("leave the lobby to turn it off")
+        Some(tr("leave the lobby to turn it off"))
     } else if state.hosting != Hosting::Off {
-        Some("close the lobby to turn it off")
+        Some(tr("close the lobby to turn it off"))
     } else {
         None
     }
@@ -1116,7 +1114,7 @@ fn on_off(on: bool) -> &'static str {
 
 /// The Co-op switch's button.
 fn coop_label(on: bool) -> String {
-    format!("Co-op: {}", on_off(on))
+    trf("Co-op: {state}", &[("state", &on_off(on))])
 }
 
 fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
@@ -1136,7 +1134,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
     match screen.mode {
         None => {}
         Some(Mode::Host) if state.guest => {
-            v.push(Title(TITLE.into()));
+            v.push(Title(tr("Co-op").into()));
             v.push(Line(format!("{} ({})", coop_label(true), coop_held(state).unwrap_or_default()), Shade::Dim));
             in_lobby(&mut v, state);
             if screen.sync.guest {
@@ -1147,7 +1145,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
             }
         }
         Some(Mode::Host) => {
-            v.push(Title(TITLE.into()));
+            v.push(Title(tr("Co-op").into()));
             let held = coop_held(state);
             match held {
                 Some(why) => v.push(Line(format!("{} ({why})", coop_label(true)), Shade::Dim)),
@@ -1155,18 +1153,18 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
             }
             match &state.hosting {
                 Hosting::Off if !screen.coop && held.is_none() => {
-                    v.push(Line("Turn co-op on to open a lobby.".into(), Shade::Bright));
-                    v.push(Off("Create Lobby".into()));
+                    v.push(Line(tr("Turn co-op on to open a lobby.").into(), Shade::Bright));
+                    v.push(Off(tr("Create Lobby").into()));
                 }
                 Hosting::Off => {
-                    v.push(Line("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.".into(), Shade::Bright));
+                    v.push(Line(tr("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.").into(), Shade::Bright));
                     host_options(&mut v, screen);
-                    v.push(Button(Act::Create, "Create Lobby".into()));
+                    v.push(Button(Act::Create, tr("Create Lobby").into()));
                 }
                 Hosting::Open { code, note } => {
-                    v.push(Line("Lobby code:".into(), Shade::Dim));
+                    v.push(Line(tr("Lobby code:").into(), Shade::Dim));
                     v.push(Big(code.clone()));
-                    v.push(Line("Tell your friends this code. It is also in lobby-code.txt in the NVForever folder.".into(), Shade::Dim));
+                    v.push(Line(tr("Tell your friends this code. It is also in lobby-code.txt in the NVForever folder.").into(), Shade::Dim));
                     if let Some(n) = note {
                         v.push(Line(n.clone(), Shade::Bright));
                     }
@@ -1178,20 +1176,20 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     }
                     players(&mut v, state);
                     for (peer, name) in &state.asks {
-                        v.push(Line(format!("{name} asks to join:"), Shade::Bright));
-                        v.push(Button(Act::LetIn(*peer), format!("Let {name} In")));
-                        v.push(Button(Act::TurnAway(*peer), format!("Turn {name} Away")));
+                        v.push(Line(trf("{name} asks to join:", &[("name", name)]), Shade::Bright));
+                        v.push(Button(Act::LetIn(*peer), trf("Let {name} In", &[("name", name)])));
+                        v.push(Button(Act::TurnAway(*peer), trf("Turn {name} Away", &[("name", name)])));
                     }
                     for (id, name) in &state.guests {
-                        v.push(Button(Act::Kick(*id), format!("Kick {name}")));
-                        v.push(Button(Act::Ban(*id), format!("Ban {name}")));
+                        v.push(Button(Act::Kick(*id), trf("Kick {name}", &[("name", name)])));
+                        v.push(Button(Act::Ban(*id), trf("Ban {name}", &[("name", name)])));
                     }
-                    v.push(Button(Act::Close, "Close Lobby".into()));
+                    v.push(Button(Act::Close, tr("Close Lobby").into()));
                 }
             }
         }
         Some(Mode::Join) => {
-            v.push(Title("Join Lobby".into()));
+            v.push(Title(tr("Join Lobby").into()));
             match &state.joining {
                 Joining::Idle | Joining::Failed(_) if screen.tab == Tab::Browse => {
                     if browse_pieces(&mut v, screen, state) {
@@ -1200,15 +1198,15 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                 }
                 Joining::Idle | Joining::Failed(_) => {
                     v.push(tabs(screen));
-                    v.push(Line("Type the host's lobby code, or its address (ip:port):".into(), Shade::Bright));
+                    v.push(Line(tr("Type the host's lobby code, or its address (ip:port):").into(), Shade::Bright));
                     v.push(Input(Act::CodeBox, screen.typed.clone()));
                     v.push(Input(Act::JoinPasswordBox, trf("Password (if the lobby has one): {password}", &[("password", &shown_password(&screen.join_password, screen.show_password))])));
                     if let Joining::Failed(why) = &state.joining {
                         v.push(Line(why.clone(), Shade::Bright));
                     }
-                    v.push(Button(Act::Join, "Join".into()));
+                    v.push(Button(Act::Join, tr("Join").into()));
                 }
-                Joining::Finding => v.push(Line("Looking for the host...".into(), Shade::Bright)),
+                Joining::Finding => v.push(Line(tr("Looking for the host...").into(), Shade::Bright)),
                 Joining::Found => in_lobby(&mut v, state),
             }
         }
@@ -1366,9 +1364,9 @@ fn browse_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, state: &LobbyState) -
 /// A guest's view of the lobby it is in: whose it is, who is there, and Leave Lobby.
 fn in_lobby(v: &mut Vec<Piece>, state: &LobbyState) {
     let host = state.players.iter().find_map(|p| p.strip_suffix(tr(" (host)")));
-    v.push(Piece::Line(host.map_or_else(|| "You are in another player's lobby.".to_string(), |h| format!("You are in {h}'s lobby.")), Shade::Bright));
+    v.push(Piece::Line(host.map_or_else(|| tr("You are in another player's lobby.").to_string(), |h| trf("You are in {host}'s lobby.", &[("host", &h)])), Shade::Bright));
     players(v, state);
-    v.push(Piece::Button(Act::Leave, "Leave Lobby".into()));
+    v.push(Piece::Button(Act::Leave, tr("Leave Lobby").into()));
 }
 
 /// The Questlines menu (docs/design/coop-quest-sync.md §1-2): every line under its kind's
@@ -1425,7 +1423,7 @@ fn confirm_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, c: Confirm) {
 
 /// Who is in the lobby, one a line (the host and this player marked by the network side).
 fn players(v: &mut Vec<Piece>, state: &LobbyState) {
-    v.push(Piece::Line(format!("Players ({} of {LOBBY_PLAYERS}):", state.players.len()), Shade::Dim));
+    v.push(Piece::Line(trf("Players ({n} of {max}):", &[("n", &state.players.len()), ("max", &LOBBY_PLAYERS)]), Shade::Dim));
     for p in &state.players {
         v.push(Piece::Line(format!("  {p}"), Shade::Bright));
     }
