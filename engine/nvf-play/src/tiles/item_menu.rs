@@ -186,8 +186,8 @@ pub fn write_lists(ui: &mut Ui, s: &Snapshot, st: &mut MenuTiles) {
             }
             if s.ysi_icons {
                 fnv_game::ui_ysi::apply_row_icon(ui, &fnv_ui::MemSource::default(), row.tile, shown.ysi.as_ref());
-            } else if let Some(existing) = list::child(ui, row.tile, fnv_game::ui_ysi::YSI_IMAGE_TILE) {
-                ui.unload_tile(existing);
+            } else {
+                fnv_game::ui_ysi::remove_row_icon(ui, row.tile);
             }
         }
         set(ui, st.paths.titles[i], "string", Value::Str(s.titles[i].clone()));

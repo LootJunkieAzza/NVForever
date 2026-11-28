@@ -790,6 +790,10 @@ impl Runtime {
         let mut restored = Game::restore(data, world, cfg, &s)?;
         let session = self.game.take_session();
         restored.put_session(session);
+        // Preserve the live window surface size across save loads so load-time scripts
+        // calling `GetCursorPos` / `SetCursorPos` (`nvse_jip9::window`) see the current
+        // window bounds immediately before the next frame's refresh [design].
+        restored.other.jip9.window = self.game.other.jip9.window;
         self.game = restored;
         // The engine's seats are not saved, so a load stands the player and every NPC up
         // (docs/design/save-load.md §3.4): `Game::restore` clears each saved furniture use,
@@ -3527,3 +3531,6 @@ mod stewie_profile_tests;
 
 #[cfg(test)]
 mod clearance_tests;
+
+#[cfg(test)]
+mod window_size_restore_tests;

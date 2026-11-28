@@ -248,13 +248,16 @@ pub struct StatsView {
     /// the others; the file gives its list the area's height, 542 from 100 down, which would
     /// reach the tab line].
     rows_shown: [usize; 5],
+    /// Optional explicit max scroll step per tab (from `list::counts` when variable-height
+    /// wrapped rows scroll on the tiled page); `None` uses `lens - rows_shown` [design].
+    scroll_most: [Option<usize>; 5],
     /// How many of the status page's buttons the view that draws it has.
     status_pages: usize,
 }
 
 impl Default for StatsView {
     fn default() -> StatsView {
-        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, cycled: false, keep_limb: false, lens: [0; 5], desc_max: 0, rows_shown: [VISIBLE; 5], status_pages: 3 }
+        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, cycled: false, keep_limb: false, lens: [0; 5], desc_max: 0, rows_shown: [VISIBLE; 5], scroll_most: [None; 5], status_pages: 3 }
     }
 }
 
@@ -283,9 +286,10 @@ impl StatsView {
         self.top[tab] = (self.top[tab] as i32 + by).clamp(0, most as i32) as usize;
     }
 
-    /// The furthest a tab's list scrolls: the first row shown when the last row is.
+    /// The furthest a tab's list scrolls: the first row shown when the last row is,
+    /// or the tiled scrollbar's `list::counts` maximum for variable-height lists [design].
     pub fn list_most(&self, tab: usize) -> usize {
-        self.lens[tab].saturating_sub(self.rows_shown[tab])
+        self.scroll_most[tab].unwrap_or_else(|| self.lens[tab].saturating_sub(self.rows_shown[tab]))
     }
     pub fn list_page(&self, tab: usize) -> usize { self.rows_shown.get(tab).copied().unwrap_or(1) }
 
@@ -293,6 +297,13 @@ impl StatsView {
     /// with the description's bound, and what is scrolled stays within it.
     pub fn set_rows_shown(&mut self, tab: usize, rows: usize) {
         self.rows_shown[tab] = rows.max(1);
+        self.top[tab] = self.top[tab].min(self.list_most(tab));
+    }
+
+    /// Explicit scroll bound for a tab's tiled list (when variable-height wrapped rows make
+    /// the scrollbar's step count differ from `lens - rows_shown`) [design].
+    pub fn set_scroll_most(&mut self, tab: usize, most: Option<usize>) {
+        self.scroll_most[tab] = most;
         self.top[tab] = self.top[tab].min(self.list_most(tab));
     }
 

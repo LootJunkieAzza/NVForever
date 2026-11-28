@@ -6461,6 +6461,7 @@ forbid = [
   { re = 'pickpocket: open on 0x00104C79', label = "E opened the full pickpocket menu" },
 ]
 
+
 [[scenario]]
 name = "quick-loot-language"
 source = "[design] #2933 (the sixth look): Quick Loot's own words follow the Language row (lang/*.toml): its keys, column heads and Empty"
@@ -11618,6 +11619,7 @@ expect = [
   "menu pause: the picture runs again",
 ]
 
+
 [[scenario]]
 name = "photo-mode-lights"
 source = "[design] photo mode lights: Hue and Saturation sliders, brightness, range, point or spot, a direction and a width the player sets, shadows; a new light drops at the camera; the camera stands still while a light is edited and comes back exactly; the lights go when photo mode closes (docs/design/photo-mode.md)"
@@ -11644,6 +11646,7 @@ expect = [
   "photo mode: closed, the view is back on the player",
 ]
 
+
 [[scenario]]
 name = "photo-mode-options"
 source = "[design] photo mode's camera is free (not locked to the player) and it has the options photo modes commonly have: depth of field, warmth, vignette, grain, letterbox, grid, hide player (docs/design/photo-mode.md)"
@@ -11669,6 +11672,7 @@ expect = [
   "test aid NVF_PLAY_TEST_PHOTO: Camera Orbit",
   "photo mode: closed, the view is back on the player",
 ]
+
 
 [[scenario]]
 name = "console-toggles"
@@ -12622,6 +12626,24 @@ expect = [
 order = [["main menu: Settings", "main menu: New Game", "pointer: hidden (the intro film)", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
 
 [[scenario]]
+name = "main-menu-no-3d"
+source = "#4918 (player report R-5NDGPRFB): the main menu draws no 3D behind its slideshow; the world camera over the held new game is off while it is open (engine/nvforever/src/menu_view.rs) and on again once New Game closes it, with no render error. On the bench (RTX 4070, 2026-11-28) the menu's private memory went from 2.42-2.45 GB to 1.94 GB and its GPU memory from 1.93-2.02 GB to 1.65-1.69 GB"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/menu_view.rs"]
+env = { NVFOREVER_HOME = "menu-no-3d-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "6:new", NVF_PLAY_TEST_INTRO_SKIP = "8" }
+args = ["--play", "--menu", "--no-voice"]
+run_seconds = 20
+expect = [
+  { text = "main menu: 3D view off (1 cameras)", label = "the world camera is off behind the menu" },
+  { text = "main menu: 3D view on again (1 cameras)", label = "New Game switches it on again" },
+  "intro: the opening begins",
+]
+order = [["main menu: 3D view off (1 cameras)", "main menu: New Game", "main menu: 3D view on again (1 cameras)", "intro: the opening begins"]]
+forbid = [
+  { re = 'ERROR .*(InvalidViewQuery|panic)', label = "no render error when the 3D view comes back" },
+]
+
+[[scenario]]
 name = "main-menu-no-args"
 source = "owner 2026-10-18 (release v0.2.0): nvforever with no argument that chooses a world or a mode opens on the main menu, as --play --menu (engine/nvforever/src/main.rs, MODE_ARGS); the release launchers pass only the schemas"
 areas = ["main-menu", "release"]
@@ -13058,8 +13080,26 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQ
 args = ["--cell", "Goodsprings", "--pos=37000,-117160,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 13
 expect = [
-  { re = 'combat: projectile GrenadeFragProjectile left .*first touched .* after (?P<n>[\d.]+) s', range = [0.5, 0.7], label = "it lands after about as long as the original's (0.58 s)" },
-  { re = 'combat: projectile GrenadeFragProjectile went off after 2\.\d+ s .*, (?P<n>\d+) units across the ground from where it left, after rolling', range = [1000, 2500], label = "it rolls on and goes off on its fuse (ours throws at the PROJ's 1,200 units/s, the original's about 950: the distance is not the original's 1,206, issue #1785; about 1,880 expected: at most 1,200 x 0.7 s in the air plus 0.9 x 1,200 / 0.66 rolling is under 2,500)" },
+  { re = 'combat: WeapGrenadeFrag thrown after a hold of 0\.[45]\d s of its 0\.87 s wind-up: x (?P<n>[\d.]+) of its speed', range = [0.76, 0.80], label = "held 0.5 s of its 0.87 s wind-up, it leaves at about 0.78 of its speed (the original's 30 loops: 0.76-0.79, #1785)" },
+  { re = 'combat: projectile GrenadeFragProjectile left \S+ \S+ \S+ at (?P<n>\d+) units/s', range = [900, 980], label = "it leaves at the original's speed for that hold (912-952 units/s, o32_throw, #1785)" },
+  { re = 'combat: projectile GrenadeFragProjectile left .*first touched .* after (?P<n>[\d.]+) s', range = [0.5, 0.7], label = "it lands after about as long as the original's (0.55-0.58 s)" },
+  { re = 'combat: projectile GrenadeFragProjectile left .*first touched .* after [\d.]+ s, (?P<n>\d+) units across the ground', range = [480, 600], label = "it first touches down about as far out as the original's (513-514 units; 553 on 2026-11-28)" },
+  { re = 'combat: projectile GrenadeFragProjectile went off after 2\.\d+ s .*, (?P<n>\d+) units across the ground from where it left, after rolling', range = [1150, 1500], label = "it rolls on and goes off on its fuse about as far out as the original's 30-loop throws (1,267-1,313 units, o32_throw; ours 1,403 on 2026-11-28)" },
+]
+
+[[scenario]]
+name = "frag-grenade-tap"
+source = "#1785: a frag grenade thrown with a tap of attack leaves at about half its PROJ speed; the original's at 5 and 10 game loops held flew at 627 and 715 units/s of 1,200 (o32_throw, 2026-11-26), a FireWeapon throw with no hold at 554-601"
+note = "as frag-grenade-roll (Searchlight Airport runway, aimed level), attack pressed at 6 s and let go a few frames later"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/projectile.rs", "crates/fnv-combat/src/tuning.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_GIVE = "00004330:3", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_LOOK = "2:75:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.1:fire" }
+args = ["--cell", "Goodsprings", "--pos=37000,-117160,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 13
+expect = [
+  { re = 'combat: WeapGrenadeFrag thrown after a hold of [\d.]+ s of its 0\.87 s wind-up: x (?P<n>[\d.]+) of its speed', range = [0.5, 0.6], label = "a tap throws at a little over half its speed (the original's 5-10 loops: 0.52-0.60)" },
+  { re = 'combat: projectile GrenadeFragProjectile left \S+ \S+ \S+ at (?P<n>\d+) units/s', range = [600, 720], label = "it leaves at the original's tap speed (627-715 units/s for 5-10 loops)" },
+  { re = 'combat: projectile GrenadeFragProjectile went off after 2\.\d+ s .*, (?P<n>\d+) units across the ground from where it left', range = [700, 1050], label = "it goes off about as far out as the original's 5-10 loop throws (745-969 units; ours 894 on 2026-11-28)" },
 ]
 
 [[scenario]]
@@ -16535,7 +16575,8 @@ order = [[
   "test aid calls AddScriptPackage on TrudyRef",
   "test aid calls GetOffersServicesNow on TrudyRef = 0",
   "barter: TrudyRef sells Alcohol, Food (its services)",
-  "barter: 0x00104C6D holds back 1 item(s) outside its services: 9mm Pistol (Weapons)",
+  # #3350: her own .357 lying loose in the saloon is offered too (menu::model::owned_loose), and held back as a weapon.
+  "barter: 0x00104C6D holds back 2 item(s) outside its services: .357 Magnum Revolver (Weapons), 9mm Pistol (Weapons)",
   "menu: close",
 ]]
 
@@ -18450,6 +18491,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "wind-tumbleweeds-storm"
+source = "#1401 (observer check 94, docs/spec-notes/wind.md §2.1): in a dust storm (HVDustStorm, WTHR DATA wind speed 127) the original's tumbleweeds rolled no faster than under the usual 50 (median 126, at most about 190 units a second); ours rolls them at the same 200 units a second in any weather with wind"
+areas = ["physics"]
+paths = ["engine/nvforever/src/tumble.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--weather", "HVDustStorm", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'wind summary: (?P<n>\d+) bodies respond to the wind', range = [1, 100], label = "the tumbleweeds near Goodsprings respond to the wind" },
+  { re = 'wind summary: .*the farthest went [0-9A-F]{8} (?P<n>\d+) units', range = [100, 1600], label = "one rolls away, no farther than a 3 s gust at 200 units a second and its settling allow (about 1,000; at 508 a second, as before, it went farther)" },
+]
+
+[[scenario]]
 name = "detection-pipboy-light"
 source = "Sneak audit (docs/design/detection.md §9): at night in Goodsprings the Pip-Boy light, switched on at 16 s, counts as the game's PipboyLight640 at the player's chest and lights the player near the top of the light term"
 note = "the light goes on after the add-ons' start-up scripts: their ResetPipboyManager turns it off (pipboy.rs reset_manager), at 5-10 s from the start"
@@ -19392,6 +19445,20 @@ expect = [
   { text = "grab: nothing under the crosshair to pick up", label = "Z finds nothing to pick up on the plant" },
 ]
 forbid = [{ text = "grab: picked up loose object White Horse Nettle", label = "the plant comes off the ground" }]
+
+[[scenario]]
+name = "plant-walked-through-stays-rooted"
+source = "#4917 (player report: harvested White Horse Nettles were knocked over when walked into and clinked like glass); observer check 278: nothing moved the original's nettles, and its body met nothing (fnv_phys world.rs `rooted`) [design]"
+note = "the nettle 0016AF22 south of Goodsprings (placed at -68223, -3810, 8109.7, upright); the player starts 110 north of it, faces south and runs through it for 2.5 s, then the console reads its place and tilt"
+areas = ["physics"]
+paths = ["crates/fnv-phys/src/world.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "5.8:-68223:-3720:8200", NVF_PLAY_TEST_LOOK = "6:180:0", NVF_PLAY_TEST_MOVE = "7:1:0,9.5:0:0", NVF_PLAY_TEST_CONSOLE = "5:0016AF22.activate player;5.5:close;10.5:player.getpos y;11:0016AF22.getpos z;11.2:0016AF22.getangle x;11.4:0016AF22.getangle y;11.6:close" }
+args = ["--play", "--pos=-68223,-3700,8110", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'console: GetPos on 0x0016AF22 >> 8109\.', label = "the nettle is where it was placed" },
+  { re = 'console: GetAngle on 0x0016AF22 >> -?0(\.0+)?$', min = 2, label = "it still stands upright (tilt 0 about x and y)" },
+]
 
 [[scenario]]
 name = "grab-skull"
@@ -24249,7 +24316,7 @@ name = "mq-that-lucky-old-sun"
 kind = "tool"
 source = "headless walkthrough crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json: That Lucky Old Sun (VMS03): Haggerty (5), Fantastic (10), terminals, generator, tower console, Fantastic thanked (completed)"
 areas = ["quests", "scripts", "dialogue"]
-paths = ["crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+paths = ["crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/that-lucky-old-sun.actions.json"]]
 expect = [
   { json = "observations.?label=milestone: VMS03 5.running", equals = true, label = "that-lucky-old-sun, milestone: VMS03 5: running = true" },
@@ -24260,6 +24327,8 @@ expect = [
   { json = "observations.?label=final: VMS03 10.done.10", equals = true, label = "that-lucky-old-sun, final: VMS03 10: done.10 = true" },
   { json = "observations.?label=final: VMS03 10.objective.20.displayed", equals = true, label = "that-lucky-old-sun, final: VMS03 10: objective.20.displayed = true" },
   { json = "observations.?label=final: VMS03 10.objective.30.displayed", equals = true, label = "that-lucky-old-sun, final: VMS03 10: objective.30.displayed = true" },
+  { json = "observations.?label=fantastic goodbye.info", equals = "0x000E360D", label = "that-lucky-old-sun: saying goodbye, Fantastic says his password line (GOODBYE 0x000E360D, observer check 46, #1113)" },
+  { json = "observations.?label=west password.value", equals = 1.0, label = "that-lucky-old-sun: the player has the west terminal's password note (its AddNote names no reference; check 46)" },
   { json = "observations.?label=final: VMS03 completed.completed", equals = true, label = "that-lucky-old-sun, final: VMS03 completed: completed = true" },
   { json = "observations.?label=final: VMS03 completed.objective.80.completed", equals = true, label = "that-lucky-old-sun, final: VMS03 completed: objective.80.completed = true" },
   { json = "steps.*.error", count = 0, label = "that-lucky-old-sun: no step fails" },
@@ -35748,6 +35817,7 @@ expect = [
   { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "one stay, one refusal" },
 ]
 
+
 [[scenario]]
 name = "use-weapon-silo-mainframe"
 source = "[design, #2652] Player activation and button 1 give ED-E its mainframe package; its Always Hit / Do No Damage shot must run OnHit ED-E and set NVDLC04MQ01a 55. Record chain: #2652; launch-code preparation: crates/fnv-game/walkthrough/lonesome-road.actions.json."
@@ -35926,6 +35996,7 @@ expect = [
 ]
 order = [["controller opened", "controller key 2 chosen", "slot 2 is Ammo Swap", "controller key 3 chosen", "hotkeys: slot 3 holds", "controller closed", "controller opened", "controller key 8 chosen", "controller closed", "hotkeys: slot 3: equipped"]]
 
+
 [[scenario]]
 name = "tiles-items-hotkey-pad"
 source = "[design, #2312] controller.md section 3: RB opens the existing ITEMS hotkey panel, D-pad steps all eight slots, A assigns, B cancels; provisional selection method pending observer check 211"
@@ -35987,6 +36058,7 @@ expect = [
 forbid = [
   { re = 'VHDRangerKimballGuard0[12]REF: cannot reach', label = "both guards reach their nearby stage markers" },
 ]
+
 
 [[scenario]]
 name = "scene-kimball-guard-natural-heading"
@@ -36221,6 +36293,7 @@ order = [[
 forbid = [
   { re = 'idle: Lucky38MrHouseREF plays MrHouseTalk', label = "the screen never plays the pod's talk idles" },
 ]
+
 
 [[scenario]]
 name = "quality-main-menu-measure"
@@ -36922,7 +36995,6 @@ forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error" },
 ]
 note = "The same start, spot search and poses as terrain-parallax-ground-pack (round 2, 2026-11-22), not yet checked by a run. The shots are saved as terrain-parallax-ground-pack-off-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png."
-
 [[scenario]]
 name = "light-shafts-msaa"
 source = "[design] docs/design/graphics-enhanced.md §3.7 (engine/nvforever/src/shafts.wesl `sky_depth_at`): with --graphics-only light-shafts and 4x multisampling (FSR off, so the INI's upscaler does not turn it off) at Goodsprings in the late afternoon, the shafts' pipelines (the source pass reading every sample of the multisampled depth) are made and used without a pipeline or validation error. Whether a silhouette's edge against the sun still leaks into the shafts is checked in pictures by hand"
@@ -37646,7 +37718,6 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-25 (the split of #3828); first run 2026-11-26 on vanilla data: PASS."
-
 [[scenario]]
 name = "physical-lighting-volumetric"
 source = "[design, agreed with the volumetric work 2026-11-26] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/sky.rs `physical_cloud_light`, volumetric_clouds.rs `compose_uniform`): started with --graphics-only physical-pbr,volumetric-clouds-high,volumetric-light at Goodsprings at 17:30, the volumetric rows run under Physical lighting: the graphics line names both, the light in the air is wanted, and nothing fails to compile"
@@ -37667,7 +37738,6 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
-
 [[scenario]]
 name = "dawn-leaves-night-before-sunrise"
 source = "[hypothesis, fitted] docs/spec-notes/world.md §6 'Night key beyond sunrise and sunset' (#2916): the night key lies a third of the transition before sunrise begins (5:20 for the Mojave's 6:00-8:00), so at 06:00 the grade is already part of the way to the sunrise adapter (saturation under the night's and the day's 1.10), as the original's picture under Lake Mead is at 06:00 (observer job o35_uw_dawn)"
@@ -37706,6 +37776,20 @@ forbid = [
   { text = "panicked", label = "no panic" },
   { text = "co-op test guest: SmokeGuest failed to join", label = "the guest is not refused (the password matches)" },
   { text = "co-op: the lobby browser:", label = "the Browse request does not fail" },
+]
+[[scenario]]
+name = "barter-owned-loose-items"
+source = "#3350 (observer check 256 and its follow-up, 2026-11-28; docs/spec-notes/barter-menu.md §5.1): a merchant's barter menu offers the items it owns lying loose in its cell, as well as its stock; Blake at the Crimson Caravan sells the two medical books Bitter Springs Infirmary Blues asks for, which lie owned by him on the ground and are in no container"
+note = "Fresh game beside Blake (NVBlakeREF 0x000F1866); ShowBarterMenu at 4 s. With the change: 23 owned loose items, the two books among them (2026-11-28); on main the line does not exist and the books are not offered."
+areas = ["barter", "menus"]
+paths = ["engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "4:call:NVBlakeREF:ShowBarterMenu" }
+args = ["--world", "WastelandNV", "--pos=13316,17266,9939", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { text = "a script opens the barter menu with 0x000F1866", label = "Blake's barter menu opens" },
+  { re = 'barter: 0x000F1866 also offers (?P<n>\d+) owned loose item', range = [23, 23], label = "his 23 owned loose items in his cell are offered (Purified Water x7, Whiskey x4, ...)" },
+  { re = 'barter: 0x000F1866 also offers .*Pediatric Medicine.*Modern Refugee', label = "the two books of Bitter Springs Infirmary Blues among them" },
 ]
 
 [[scenario]]

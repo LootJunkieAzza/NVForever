@@ -1088,6 +1088,126 @@ fn take_reference(world: &mut World<'_>, r: FormId, picked: &mut Vec<FormId>) ->
     }
 }
 
+/// The merchant's own items lying loose beside it, which its barter menu offers as well
+/// as its stock: the item references in the merchant's cell owned by it (its base or its
+/// reference), enabled and not taken, however far from it [observed: observer checks 256
+/// and its follow-up, 2026-11-28, #3350: Blake's barter menu listed `VBSPsychologyBook`
+/// and `VBSPediatricsBook`, persistent references owned by him on the Crimson Caravan's
+/// ground, and also his owned loose beer (one row of 8) and 0x00032C75 (one row of 4),
+/// which are not persistent; none of them was in his merchant container or his own
+/// inventory. Hypothesis: the reach is his cell, by the counts (more units than lie
+/// within 320 units of him); ownership by his faction or by the cell is not counted, as
+/// it was not checked].
+pub fn owned_loose(world: &World<'_>, merchant: FormId) -> Vec<FormId> {
+    let placed = world.placed;
+    let (cell, base) = match world.peek(merchant) {
+        Some(s) => (s.cell, s.base),
+        None => match placed.get(merchant) {
+            Some(p) => (p.cell, p.base),
+            None => return Vec::new(),
+        },
+    };
+    let Some(cell) = cell else { return Vec::new() };
+    let owns = |o: Option<FormId>| o.is_some_and(|o| o == base || o == merchant);
+    placed
+        .by_cell
+        .get(&cell)
+        .into_iter()
+        .flatten()
+        .copied()
+        .filter(|&r| {
+            let Some(p) = placed.get(r) else { return false };
+            let (item, gone, owner) = match world.peek(r) {
+                Some(s) => (s.base, s.deleted(), s.extra.owner),
+                None => (p.base, false, p.owner),
+            };
+            !gone && owns(owner) && world.forms.item(item).is_some() && world.is_enabled(r).unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Add the merchant's owned loose items ([`owned_loose`]) to its column: one row per
+/// item, its units added to a row of the same units (stock or loose) if there is one
+/// [observed: Blake's eight loose beers are one row, observer follow-up to check 256].
+fn add_owned_loose(world: &World<'_>, merchant: FormId, l: &mut Listing) {
+    let forms = world.forms;
+    let mut added = false;
+    for r in owned_loose(world, merchant) {
+        let (item, count) = match world.peek(r) {
+            Some(s) => (s.base, s.count.max(1)),
+            None => match world.placed.get(r) {
+                Some(p) => (p.base, p.count.unwrap_or(1).max(1)),
+                None => continue,
+            },
+        };
+        if !shown(forms, item, false) {
+            continue;
+        }
+        let it = forms.item(item);
+        l.weight += f64::from(it.and_then(|i| i.weight).unwrap_or(0.0)) * f64::from(count);
+        l.value += it.and_then(|i| i.worth()).unwrap_or(0) as i64 * count as i64;
+        if let Some(row) = l.rows.iter_mut().find(|row| row.item == item && row.at.is_none() && row.mods == 0) {
+            row.count += count;
+            continue;
+        }
+        l.rows.push(Row {
+            item,
+            at: None,
+            name: display_name(forms, item),
+            count,
+            weight: it.and_then(|i| i.weight),
+            value: it.and_then(|i| i.worth()),
+            kind: it.map(|i| i.kind),
+            equipped: false,
+            quest: world.is_quest_item(item),
+            condition: None,
+            icon: it.and_then(|i| i.icon.clone()),
+            price: None,
+            bartered: false,
+            loaded: false,
+            dim: false,
+            mods: 0,
+            mods_value: 0,
+            folder: None,
+            reference: Some(r),
+            live: false,
+            ysi: None,
+        });
+        added = true;
+    }
+    if added {
+        sort_rows(&mut l.rows);
+    }
+}
+
+/// Buy `left` units of `item` from the merchant's owned loose items ([`owned_loose`]):
+/// each reference goes into the player's inventory (owned by no one: bought, not
+/// stolen) and leaves the world, as a pick-up there would. Returns the units moved.
+fn buy_owned_loose(world: &mut World<'_>, merchant: FormId, item: FormId, mut left: i32, picked: &mut Vec<FormId>) -> Result<i32, SimError> {
+    let mut moved = 0;
+    for r in owned_loose(world, merchant) {
+        if left <= 0 {
+            break;
+        }
+        let s = world.get(r)?;
+        if s.base != item {
+            continue;
+        }
+        let have = s.count.max(1);
+        let n = have.min(left);
+        if n < have {
+            s.count = have - n;
+        }
+        world.add_item(PLAYER, item, n)?;
+        if n == have {
+            world.set_deleted(r, true)?;
+        }
+        picked.push(r);
+        (moved, left) = (moved + n, left - n);
+    }
+    Ok(moved)
+}
+
 /// The container menu on a living actor's inventory while the player sneaks: each take
 /// or placement rolls against its chance ([`Steal::chance`], `fnv_game::pickpocket`);
 /// a failed roll moves nothing and closes the menu ([`Applied::caught`]). Equipped items
@@ -1765,7 +1885,10 @@ impl MenuModel {
         let mut weights = [0.0; 2];
         for side in [Side::Container, Side::Player] {
             let i = side as usize;
-            let l = listing(world, t.holder(side))?;
+            let mut l = listing(world, t.holder(side))?;
+            if side == Side::Container {
+                add_owned_loose(world, t.merchant, &mut l);
+            }
             weights[i] = l.weight;
             t.purse[i] = world.item_count(t.holder(side), t.caps)?;
             let mult = t.mult(side);
@@ -1779,7 +1902,9 @@ impl MenuModel {
                 // `HideItemBarterEx` (`t.is_hidden`) stay off the requested side(s).
                 .filter(|r| {
                     r.item != t.caps
-                        && !r.quest
+                        // A merchant's owned loose item is offered though it is a quest
+                        // item (observer check 256: Blake's two books, `owned_loose`).
+                        && (!r.quest || r.reference.is_some())
                         && !r.live
                         && r.kind != Some(ItemKind::Key)
                         && world.resolve_item(r.item).is_none_or(|i| i.kind != ItemKind::Key)
@@ -2466,7 +2591,11 @@ impl MenuModel {
             world.transfer_at(PLAYER, t.stock, u.0, n, units_pick(u))?;
         }
         for (u, &n) in &t.offered[merchant] {
-            world.transfer_at(t.stock, PLAYER, u.0, n, units_pick(u))?;
+            // From its stock first, then from its owned loose items (`owned_loose`).
+            let moved = world.transfer_at(t.stock, PLAYER, u.0, n, units_pick(u))?;
+            if moved < n && u.1.is_none() && u.2 == 0 {
+                buy_owned_loose(world, t.merchant, u.0, n - moved, &mut out.picked)?;
+            }
         }
         let paid = t.paid();
         match paid {
