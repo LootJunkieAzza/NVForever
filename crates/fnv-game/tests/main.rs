@@ -201,6 +201,7 @@ mod preactivation_events;
 mod preactivation_mutation;
 mod stewie_945_960_970_qualification;
 mod worldspace_climate_imagespace;
+mod w6d_johnnyguitar_parity;
 
 // The co-op shared-progress test files.
 mod coop_guest_doctor_data;

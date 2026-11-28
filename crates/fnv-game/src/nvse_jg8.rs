@@ -113,10 +113,12 @@ impl Game<'_> {
             if !pass {
                 continue;
             }
-            // NPCs' actor values go as whole numbers unless flag bit 0 asks for floats
-            // [documented: SetOnNPCActorValueChangeEventHandler].
+            // NPCs' actor values truncate toward zero unless flag bit 0 asks for floats
+            // [documented: SetOnNPCActorValueChangeEventHandler; observed: w6d3p3_17c,
+            // positive 64.40 -> 63.80 reports 64.0 -> 63.0; hypothesis: negative values
+            // also use trunc toward zero rather than floor].
             let args = if ev == Ev::NpcActorValue && h.flag & 1 == 0 {
-                args.iter().map(|a| if let XVal::Num(n) = a { XVal::Num(n.round()) } else { a.clone() }).collect()
+                args.iter().map(|a| if let XVal::Num(n) = a { XVal::Num(n.trunc()) } else { a.clone() }).collect()
             } else {
                 args.clone()
             };
@@ -488,6 +490,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 .enumerate()
                 .map(|(k, a)| match a {
                     XVal::Ref(0) => None,
+                    // XMarker (0x0000003B) acts as a wildcard on form filter slots (also observed
+                    // on SetOnNPCActorValueChangeEventHandler slot 0: w6d3_17_npc_av_change_trunc_and_xmarker,
+                    // xm=2,pSeen=0).
                     XVal::Ref(XMARKER) if !numeric.contains(&k) => None,
                     XVal::Num(n) if !numeric.contains(&k) && *n == 0.0 => None,
                     XVal::Num(n) if ev == Ev::KeyboardSelection && *n <= 0.0 => None,
@@ -559,20 +564,32 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 },
             }))
         }
-        // `path rOut gOut bOut x y` (the VM passes path, x, y) [documented]; 0 0 0 when
-        // the file or the pixel is not there [hypothesis].
+        // `path rOut gOut bOut x y` (the VM passes path, x, y) [documented]; returns 0
+        // and leaves caller output variables untouched for missing files
+        // (`Data\W6D3_NoSuch.bmp`) [observed: w6d3p3_13_get_pixel_from_bmp_missing_only];
+        // preserving caller output variables for unreadable existing BMPs or out-of-range
+        // pixel coordinates is [hypothesis] / [design].
         "getpixelfrombmp" => {
             let px = text(args, 0).and_then(|p| game_file(&p)).and_then(|b| bmp_pixel(&b, num(args, 1, 0.0) as i64, num(args, 2, 0.0) as i64));
-            let c = px.unwrap_or([0; 3]);
-            return Some(Ok(outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])])));
+            return Some(Ok(match px {
+                Some(c) => outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])]),
+                None => outputs(g, 0.0, &[]),
+            }));
         }
         // ---- arrays [documented: Ar_Shuffle, a new shuffled array; Ar_SortEditor, a new
         // array of the forms by editor ID, `reverse` the other way; observed: IDs compared
         // without case in `jg_30_ar_sort_editor_case_order` (`wave4a_extenders.json`),
         // see docs/spec-notes/ext-jg8.md §2; hypothesis: forms without an editor ID first].
         "ar_shuffle" => {
-            let Some(XVal::Array(id)) = args.first() else { return Some(Ok(zero)) };
+            // Empty array returns ar_Null (ar_Size == -1)
+            // [observed: w6d3p5_15_ar_shuffle_var_one_empty: emp=-1]; invalid, non-array,
+            // or ar_Null arguments also returning ar_Null (XVal::Array(0)) is
+            // [hypothesis] / [design].
+            let Some(XVal::Array(id)) = args.first() else { return Some(Ok(XVal::Array(0))) };
             let mut vals: Vec<XVal> = g.ext.array(*id).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect()).unwrap_or_default();
+            if vals.is_empty() {
+                return Some(Ok(XVal::Array(0)));
+            }
             for i in (1..vals.len()).rev() {
                 let j = (g.rng.next_u32() as usize) % (i + 1);
                 vals.swap(i, j);
@@ -604,6 +621,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // `ext-jg8.md` §2)].
         "getsystemcolor" => XVal::Num(system_colour(g, num(args, 0, 0.0) as i64).map_or(0.0, |c| f64::from((u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])))),
         "getsystemcoloralt" => {
+            // Invalid type -1 and SetSystemColor readback on type 1 also verified
+            // leaving caller out-variables untouched [observed: 2026-11-25,
+            // `w6d3p2_20_get_system_color_alt_edges_and_set`
+            // (`tools/capture/nvse/catalogs/wave6d3_get_system_color_alt_preserve_outvars.json`)].
             return Some(Ok(match system_colour(g, num(args, 0, 0.0) as i64) {
                 Some(c) => outputs(g, 0.0, &[f64::from(c[0]), f64::from(c[1]), f64::from(c[2])]),
                 None => outputs(g, 0.0, &[]),

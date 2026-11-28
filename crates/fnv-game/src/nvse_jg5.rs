@@ -117,7 +117,16 @@ pub fn alt_textures(g: &Game, form: FormId, sub: [u8; 4]) -> Vec<AltTexture> {
     if let Some(v) = g.other.jg5.alt_textures.get(&(form, sub)) {
         return v.clone();
     }
-    let Some(Json::Array(rows)) = g.data.record_fields.get(&form).and_then(|f| f.iter().find(|(s, _)| *s == sub)).map(|(_, v)| v) else { return Vec::new() };
+    let orig = g.unclone(form);
+    // Inheriting a source form's session alt-texture overrides when a TempCloneForm has no
+    // clone-local entry yet, and isolating clone writes from the source form, are
+    // [hypothesis] / [design] (w6d3_26 verified clone write/readback without re-reading source).
+    if orig != form {
+        if let Some(v) = g.other.jg5.alt_textures.get(&(orig, sub)) {
+            return v.clone();
+        }
+    }
+    let Some(Json::Array(rows)) = g.data.record_fields.get(&orig).and_then(|f| f.iter().find(|(s, _)| *s == sub)).map(|(_, v)| v) else { return Vec::new() };
     rows.iter()
         .filter_map(|r| {
             let shape = r.get("shape_name").and_then(Json::as_str).unwrap_or_default().to_string();
@@ -132,7 +141,7 @@ pub fn alt_textures(g: &Game, form: FormId, sub: [u8; 4]) -> Vec<AltTexture> {
 /// (MO4S) [documented: GetArmorAltTextures's model IDs; the subrecords: the models'
 /// order in ARMO, as `setbipedmodelpath` reads them (MODL, MOD3, MOD2, MOD4)].
 fn alt_sub(g: &Game, f: FormId, model: Option<i64>) -> Option<[u8; 4]> {
-    match (g.data.sig(f)?, model) {
+    match (g.data.sig(g.unclone(f))?, model) {
         (s, _) if &s == b"WEAP" => Some(*b"MODS"),
         (s, Some(1)) if &s == b"ARMO" => Some(*b"MODS"),
         (s, Some(2)) if &s == b"ARMO" => Some(*b"MO3S"),
@@ -269,6 +278,8 @@ pub(crate) fn region_map_name(g: &Game, cell: FormId) -> Option<String> {
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let zero = XVal::Num(0.0);
     let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(f) == Some(*sig));
+    // Scoped unclone helper for alt-texture and FaceGen commands only (do not widen shared `of_sig`).
+    let uncloned_of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*sig));
     let field = |g: &Game, f: FormId, sub: &str, path: &str| crate::nvse::record_value(g, f, sub, path);
     let v = match name {
         // ---- alternate textures ----
@@ -280,10 +291,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             // lists 0, 1, 2]; an armour model outside 1-4 gives no array [observed: jg5,
             // models 0 and 5 read ar_Size -1].
             let f = form(args, 0);
-            if name == "getarmoralttextures" && of_sig(g, f, b"ARMO").is_some() && !(1..=4).contains(&index(args, 1).unwrap_or(0)) {
+            if name == "getarmoralttextures" && uncloned_of_sig(g, f, b"ARMO").is_some() && !(1..=4).contains(&index(args, 1).unwrap_or(0)) {
                 return Some(Ok(XVal::Array(0)));
             }
-            let sub = f.and_then(|f| alt_sub(g, f, index(args, 1)).filter(|_| (name == "getweaponalttextures") == (g.data.sig(f) == Some(*b"WEAP"))));
+            let sub = f.and_then(|f| alt_sub(g, f, index(args, 1)).filter(|_| (name == "getweaponalttextures") == (g.data.sig(g.unclone(f)) == Some(*b"WEAP"))));
             let mut rows = match (f, sub) {
                 (Some(f), Some(sub)) => alt_textures(g, f, sub),
                 _ => Vec::new(),
@@ -293,12 +304,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `form [model]`: a map from each 3D index to its texture set [documented:
         // GetAltTexturesEx]; an armour without a model ID reads model 3, the male world
-        // model [observed: jg5, MS18RangerBattlearmor and the radiation suit], and a model
-        // outside 1-4 gives no array [observed: jg5, models 0 and 5].
+        // model [observed: jg5, MS18RangerBattlearmor and the radiation suit; see
+        // ext-jg5.md row 24 for w6d3_26/w6d3p2_26b ArmorCombat def=-1 note], and a model
+        // outside 1-4 gives no array [observed: jg5, models 0 and 5]. Accepting
+        // TempCloneForm forms here is [hypothesis] / [design].
         "getalttexturesex" => {
             let f = form(args, 0);
             let model = index(args, 1).unwrap_or(3);
-            if of_sig(g, f, b"ARMO").is_some() && !(1..=4).contains(&model) {
+            if uncloned_of_sig(g, f, b"ARMO").is_some() && !(1..=4).contains(&model) {
                 return Some(Ok(XVal::Array(0)));
             }
             let rows: Vec<AltTexture> = f.and_then(|f| Some((f, alt_sub(g, f, Some(model))?))).map(|(f, s)| alt_textures(g, f, s)).unwrap_or_default();
@@ -309,10 +322,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // index takes the texture set, or a new one is added for it [documented:
         // SetWeaponAltTexture, SetArmorAltTexture and their notes]; 1 when done. A new
         // entry has no shape name, and a form that is not a texture set changes nothing
-        // (see docs/spec-notes/ext-jg5.md).
+        // (see docs/spec-notes/ext-jg5.md). TempCloneForm write/readback [observed: w6d3_26]; clone isolation
+        // from the source form [hypothesis] / [design].
         "setweaponalttexture" | "setarmoralttexture" => {
             let armor = name == "setarmoralttexture";
-            let f = of_sig(g, form(args, 0), if armor { b"ARMO" } else { b"WEAP" });
+            let f = uncloned_of_sig(g, form(args, 0), if armor { b"ARMO" } else { b"WEAP" });
             let k = usize::from(armor);
             let sub = f.and_then(|f| alt_sub(g, f, if armor { index(args, 1) } else { None }));
             let (Some(f), Some(sub), Some(at), Some(set)) = (f, sub, index(args, k + 1), of_sig(g, form(args, k + 2), b"TXST")) else { return Some(Ok(zero)) };
@@ -347,7 +361,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Get/SetFacegenModelFlag; the subrecords: schema common.json].
         "getfacegenmodelflag" | "setfacegenmodelflag" => {
             let f = form(args, 0).or(subject).map(|f| base(g, f));
-            let (Some(f), Some(bit @ 0..=3)) = (of_sig(g, f, b"ARMO"), index(args, 1)) else { return Some(Ok(zero)) };
+            let (Some(f), Some(bit @ 0..=3)) = (uncloned_of_sig(g, f, b"ARMO"), index(args, 1)) else { return Some(Ok(zero)) };
             let sub = if num(args, 2, 0.0) != 0.0 { "MOSD" } else { "MODD" };
             let flags = match field(g, f, sub, "") {
                 Some(XVal::Num(x)) => x as u64,
@@ -361,15 +375,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 zero
             }
         }
-        // `path female form`: the male (ICON) or female (ICO2) icon, read by
-        // GetBipedIconPath [documented: SetBipedIconPathAlt].
+        // `path female form`: the male (ICON) or female (ICO2) icon of an ARMO (including
+        // TempCloneForm), read by GetBipedIconPath [documented: SetBipedIconPathAlt];
+        // returns 1 on valid ARMO/clone and does not mutate non-ARMO forms
+        // [observed: w6d3p2_25]; returning 0 on non-ARMO and source-record clone isolation
+        // are [hypothesis].
         "setbipediconpathalt" => {
-            let f = form(args, 2).or(subject).map(|f| base(g, f));
+            let f = form(args, 2).or(subject).map(|f| base(g, f)).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"ARMO"));
             if let (Some(path), Some(f)) = (text(args, 0), f) {
                 let sub = if num(args, 1, 0.0) != 0.0 { "ICO2" } else { "ICON" };
                 g.field_overrides.insert((f, format!("{sub}/")), XVal::Str(path));
+                XVal::Num(1.0)
+            } else {
+                zero
             }
-            zero
         }
         // ---- worldspaces ----
         // `world [path]`: the map texture (WRLD ICON), under Data\Textures [documented:

@@ -1,0 +1,91 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-set-biped-icon-path-alt-validate-and-ret",
+  "description": "Read-only clean-room probe verifying SetBipedIconPathAlt validates ARMO (including TempCloneForm), returns 1 on success, and rejects non-ARMO forms.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_set_biped_icon_path_alt_validate_and_ret",
+      "title": "Wave 6D-3: SetBipedIconPathAlt ARMO validation and return value",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_25_biped_icon_path_alt_and_message_icon",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg5.md",
+          "spec_line": 28,
+          "functions_tested": [
+            "SetBipedIconPathAlt",
+            "GetBipedIconPath",
+            "GetMessageIconPath",
+            "SetMessageIconPath",
+            "TempCloneForm"
+          ],
+          "claim": "Verify GetBipedIconPath codes 0..3 vs GetMessageIconPath (SD-01), SetBipedIconPathAlt empty & clone, and SetMessageIconPath.",
+          "expected": "Confirm GetBipedIconPath 2 reads MICO vs ICON and SetBipedIconPathAlt behavior on clone & non-ARMO.",
+          "script_lines": [
+            "ref rLth = GetFormFromMod \"FalloutNV.esm\" \"20423\"",
+            "ref rSt = GetFormFromMod \"FalloutNV.esm\" \"15169\"",
+            "string_var sEmpty = \"\"",
+            "string_var sB0 = GetBipedIconPath 0 rLth",
+            "string_var sB1 = GetBipedIconPath 1 rLth",
+            "string_var sB2 = GetBipedIconPath 2 rLth",
+            "string_var sB3 = GetBipedIconPath 3 rLth",
+            "string_var sM0 = GetMessageIconPath rLth 0",
+            "string_var sM1 = GetMessageIconPath rLth 1",
+            "int iB2M0 = 0",
+            "if sB2 == sM0",
+            "  let iB2M0 := 1",
+            "endif",
+            "int iB2B0 = 0",
+            "if sB2 == sB0",
+            "  let iB2B0 := 1",
+            "endif",
+            "ref rCl = TempCloneForm rLth",
+            "int iAltM = SetBipedIconPathAlt \"icons\\w6d3_m.dds\" 0 rCl",
+            "int iAltF = SetBipedIconPathAlt \"icons\\w6d3_f.dds\" 1 rCl",
+            "string_var sClM = GetBipedIconPath 0 rCl",
+            "string_var sClF = GetBipedIconPath 1 rCl",
+            "SetBipedIconPathAlt sEmpty 1 rCl",
+            "string_var sClFE = GetBipedIconPath 1 rCl",
+            "SetMessageIconPath \"icons\\w6d3_mm.dds\" rCl 0",
+            "SetMessageIconPath \"icons\\w6d3_mf.dds\" rCl 1",
+            "string_var sClMM = GetMessageIconPath rCl 0",
+            "string_var sClMF = GetMessageIconPath rCl 1",
+            "SetBipedIconPathAlt \"icons\\w6d3_st.dds\" 0 rSt",
+            "string_var sStB0 = GetBipedIconPath 0 rSt",
+            "PrintToConsole \"PROBE|w6d3p2_25_biped_icon_path_alt_and_message_icon|len=%g,%g,%g,%g|b2m0=%g,b2b0=%g|ret=%g/%g|cl=[%z]/[%z]/e=[%z]|msg=[%z]/[%z]|st=%g\" (sv_Length sB0) (sv_Length sB1) (sv_Length sB2) (sv_Length sB3) iB2M0 iB2B0 iAltM iAltF sClM sClF sClFE sClMM sClMF (sv_Length sStB0)"
+          ]
+        }
+      ]
+    }
+  ]
+}

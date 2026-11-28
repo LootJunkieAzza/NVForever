@@ -47,6 +47,7 @@ fn plugin_bytes() -> Vec<u8> {
     let snam = |rank: u8| sub(b"SNAM", [le(FACT), vec![rank, 0, 0, 0]].concat());
     let npcs = [npc_player, edid(b"NPC_", NPC_A, "MemberA", &[snam(0)]), edid(b"NPC_", NPC_B, "MemberB", &[snam(1)]), edid(b"NPC_", NPC_C, "NotMember", &[])].concat();
     let fact = edid(b"FACT", FACT, "TestFaction", &[]);
+    let book = edid(b"BOOK", 0x934, "TestBook", &[sub(b"DATA", vec![0; 10])]);
     let idle = [edid(b"IDLE", IDLE1, "TestIdle1", &[]), edid(b"IDLE", IDLE2, "TestIdle2", &[]), edid(b"IDLE", IDLE3, "TestIdle3", &[])].concat();
     // Run in sequence (1), 2 animations, a 5 s timer.
     let idlm = edid(b"IDLM", IDLM, "TestMarker", &[sub(b"IDLF", vec![1]), sub(b"IDLC", vec![2, 0, 0, 0]), sub(b"IDLT", 5.0f32.to_le_bytes().to_vec()), sub(b"IDLA", u32s(&[IDLE1, IDLE2]))]);
@@ -66,6 +67,7 @@ fn plugin_bytes() -> Vec<u8> {
         tes4(),
         top(b"GLOB", &glob),
         top(b"FACT", &fact),
+        top(b"BOOK", &book),
         top(b"RACE", &race),
         top(b"NPC_", &npcs),
         top(b"IDLE", &idle),
@@ -165,6 +167,10 @@ SetIdleMarkerTraitNumeric TestMarker 2 f");
     // Any form is listed, an idle or not [observed: jg4].
     q(&mut g, "SetIdleMarkerAnimation TestMarker 0 TestRace");
     assert_eq!(forms(&mut g, "GetIdleMarkerAnimations TestMarker"), vec![RACE, IDLE3]);
+    // Accepts non-IDLE forms alongside IDLE forms (probed [IDLE, ALCH] in w6d3p2_29b;
+    // generalizing to all valid form entries and dropping non-form elements [hypothesis/design]).
+    q(&mut g, "array_var a\nlet a := ar_List TestIdle1 TestRace\nSetIdleMarkerAnimations TestMarker a");
+    assert_eq!(forms(&mut g, "GetIdleMarkerAnimations TestMarker"), vec![IDLE1, RACE]);
     q(&mut g, "array_var a\nlet a := ar_List TestIdle2 TestIdle3 TestIdle1\nSetIdleMarkerAnimations TestMarker a");
     assert_eq!(forms(&mut g, "GetIdleMarkerAnimations TestMarker"), vec![IDLE2, IDLE3, IDLE1]);
     assert_eq!(n(&mut g, "GetIdleMarkerTraitNumeric TestMarker 3"), 3.0, "the count follows");
@@ -190,11 +196,14 @@ fn region_weather_lists() {
     // The weather block's header, not the map block's before it.
     assert_eq!(n(&mut g, "GetRegionWeatherOverride TestRegion"), 1.0);
     assert_eq!(n(&mut g, "GetRegionWeatherPriority TestRegion"), 40.0);
-    q(&mut g, "AddRegionWeather TestRegion TestWeather3 25 TestGlobal");
+    q(&mut g, "AddRegionWeather TestRegion TestWeather3 150 TestGlobal");
     q(&mut g, "AddRegionWeather TestRegion TestWeather3 99");
-    // Listed first, once [observed: jg4].
+    // Listed first, once [observed: jg4]; positive chance > 100 stored unclamped
+    // (150 -> 150) [observed: w6d3_29]; negative-chance signed i32 storage/readback
+    // [hypothesis/design].
     assert_eq!(forms(&mut g, "GetRegionWeathers TestRegion"), vec![WTHR3, WTHR1, WTHR2]);
     assert_eq!(n(&mut g, "GetNthRegionWeatherChance TestRegion 1"), 70.0);
+    assert_eq!(fnv_game::nvse_jg4::region_weathers(&g, FormId(REGN)).unwrap().list[0].chance, 150);
     q(&mut g, "RemoveRegionWeather TestRegion TestWeather1");
     assert_eq!(forms(&mut g, "GetRegionWeathers TestRegion"), vec![WTHR3, WTHR2]);
     q(&mut g, "SetRegionWeatherOverride TestRegion 0");
@@ -228,4 +237,16 @@ fn race_flags_and_faction_members() {
     // jg_11_faction_members_neg_rank, JohnnyGuitarNVSE 528].
     assert!(forms(&mut g, "GetFactionMembers TestFaction -2").is_empty());
     assert!(forms(&mut g, "GetFactionMembers TestFaction -5").is_empty());
+    // SetBookFlags maps 257 -> 1 and -1 -> 255, and SetFactionFlags preserves 65792 and
+    // prints 4.29497e+09 for -1 via %g [observed: w6d3p2_31a_books_factions_races_containers];
+    // exact u32::MAX (0xFFFFFFFF) for -1 and general `.trunc() as i64 as u32` wrapping are
+    // [hypothesis].
+    q(&mut g, "SetBookFlags TestBook 257");
+    assert_eq!(n(&mut g, "GetBookFlags TestBook"), 1.0);
+    q(&mut g, "SetBookFlags TestBook -1");
+    assert_eq!(n(&mut g, "GetBookFlags TestBook"), 255.0);
+    q(&mut g, "SetFactionFlags TestFaction 65792");
+    assert_eq!(n(&mut g, "GetFactionFlags TestFaction"), 65_792.0);
+    q(&mut g, "SetFactionFlags TestFaction -1");
+    assert_eq!(n(&mut g, "GetFactionFlags TestFaction"), f64::from(u32::MAX));
 }

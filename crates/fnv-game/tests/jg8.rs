@@ -197,6 +197,16 @@ fn handlers_hear_the_game() {
     let before = g.other.jg8.handlers.len();
     q(&mut g, "ref h\nlet h := (begin function {int m}\nlet TestGlobal := TestGlobal + 99\nend)\nSetOnKBCTrlUIDeltaHandler 1 h 0 1002\nSetOnKBCTrlUIDeltaHandler 0 h 0 1002");
     assert_eq!(g.other.jg8.handlers.len(), before);
+    // [observed: w6d3p3_17c_npc_av_trunc_multitick & w6d3_17_npc_av_change_trunc_and_xmarker]
+    // flag & 1 == 0 truncates positive values toward zero (64.40 -> 63.80 reports 64.0 -> 63.0,
+    // not 64 -> 64), and XMarker (XVal::Ref(0x3B)) acts as a wildcard on the actor form filter
+    // slot while still excluding the player through the real jg8_actor_value dispatch path.
+    q(&mut g, "TestNpcRef.ForceActorValue Health 64.4\nPlayerREF.ForceActorValue Health 80");
+    q(&mut g, "let TestGlobal := 0\nSetOnNPCActorValueChangeEventHandler 1 (begin function {ref rA, int iAv, float fOld, float fNew}\nlet TestGlobal := fOld * 1000 + fNew\nend) 0 XMarker 16");
+    q(&mut g, "PlayerREF.DamageActorValue Health 1");
+    assert_eq!(global(&mut g), 0.0, "XMarker wildcard must still exclude PlayerREF");
+    q(&mut g, "TestNpcRef.DamageActorValue Health 0.6");
+    assert_eq!(global(&mut g), 64_063.0, "integer mode truncates 64.40->64 and 63.80->63 via real XMarker wildcard and jg8_actor_value");
 }
 
 #[test]
@@ -228,6 +238,16 @@ fn files_and_headers() {
     assert_eq!(bmp_pixel(&bmp, 1, 0), Some([0, 255, 0]));
     assert_eq!(bmp_pixel(&bmp, 1, 1), Some([0, 0, 255]));
     assert_eq!(bmp_pixel(&bmp, 2, 0), None);
+    // Missing BMP file returns 0 and leaves caller (r, g, b) untouched [observed: w6d3p3_13].
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(
+        s(
+            &mut g,
+            "float fR\nfloat fG\nfloat fB\nint iRet\nlet fR := 111\nlet fG := 222\nlet fB := 333\nlet iRet := GetPixelFromBMP \"Data\\nvseprobe_no_such.bmp\" fR fG fB 0 0\nSetFunctionValue (sv_Construct \"%g:%g,%g,%g\" iRet fR fG fB)"
+        ),
+        "0:111,222,333"
+    );
 }
 
 #[test]
@@ -237,9 +257,11 @@ fn arrays_colours_and_menus() {
     // [documented: Ar_SortEditor by editor ID, reverse with 1].
     assert_eq!(s(&mut g, "array_var a\nlet a := Ar_SortEditor (Ar_List ZuluThing, AlphaThing)\nSetFunctionValue (GetEditorID a[0])"), "AlphaThing");
     assert_eq!(s(&mut g, "array_var a\nlet a := Ar_SortEditor (Ar_List AlphaThing, ZuluThing) 1\nSetFunctionValue (GetEditorID a[0])"), "ZuluThing");
-    // [documented: Ar_Shuffle keeps the elements].
+    // [documented: Ar_Shuffle keeps the elements; observed: w6d3p5_15 empty -> ar_Null (-1)].
     assert_eq!(n(&mut g, "Ar_Size (Ar_Shuffle (Ar_List 1, 2, 3, 4, 5))"), 5.0);
     assert_eq!(q(&mut g, "array_var a\nlet a := Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)\nSetFunctionValue (a[0] + a[1] + a[2] + a[3] + a[4])"), XVal::Num(15.0));
+    assert_eq!(n(&mut g, "Ar_Size (Ar_Shuffle (Ar_List 77))"), 1.0);
+    assert_eq!(n(&mut g, "Ar_Size (Ar_Shuffle (Ar_Construct \"array\"))"), -1.0);
     // [documented: GetSystemColor / GetSystemColorAlt, SetSystemColor's colour, amber
     // before].
     // [observed: probe set jg8, 1/4/5 FFB642, 2 FF432A, 3 21E779].
@@ -251,6 +273,8 @@ fn arrays_colours_and_menus() {
     // Invalid ids return 0 and preserve output variables unchanged [observed: w6_t1_08_jg_system_color_alt].
     assert_eq!(s(&mut g, "int r = 111\nint gg = 222\nint b = 333\nGetSystemColorAlt 0 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "111 222 333");
     assert_eq!(s(&mut g, "int r = 111\nint gg = 222\nint b = 333\nGetSystemColorAlt 6 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "111 222 333");
+    // Invalid type leaves caller variables untouched [observed: w6d3p2_20].
+    assert_eq!(s(&mut g, "int r\nint gg\nint b\nlet r := 111\nlet gg := 222\nlet b := 333\nGetSystemColorAlt -1 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "111 222 333");
     assert_eq!(n(&mut g, "GetSystemColor 6"), 0.0);
     // [documented: GetSleepWaitMenuState 0 closed, 1 wait, 2 sleep].
     assert_eq!(n(&mut g, "GetSleepWaitMenuState"), 0.0);

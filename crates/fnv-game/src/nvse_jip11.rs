@@ -546,7 +546,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `index` into GetTempEffects' list: that effect is dispelled [documented].
         "removenthtempeffect" => {
             let (Some(r), Some(i)) = (subject, num(args, 0)) else { return Some(Ok(zero)) };
-            let temp: Vec<u32> = g.effects.iter().filter(|e| e.target == r && !e.permanent && e.duration > 0.0).map(|e| e.id).collect();
+            let temp: Vec<u32> = g.effects.iter().filter(|e| e.target == r && !e.permanent && !e.inactive && e.duration > 0.0 && e.effect != crate::aid::USAGE_MONITOR).map(|e| e.id).collect();
             let Some(&id) = usize::try_from(i as i64).ok().and_then(|i| temp.get(i)) else { return Some(Ok(zero)) };
             yes(g.dispel(r, None, |e| e.id == id) > 0)
         }

@@ -178,8 +178,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getbookflags" => XVal::Num(of_sig(g, form(args, 0), b"BOOK").and_then(|b| field(g, b, "DATA", "flags")).and_then(|v| v.num().ok()).unwrap_or(0.0)),
         "setbookflags" => {
             if let Some(b) = of_sig(g, form(args, 0), b"BOOK") {
-                // DATA's flags are one byte [documented: xEdit BOOK DATA].
-                g.field_overrides.insert((b, "DATA/flags".into()), XVal::Num(f64::from(num(args, 1, 0.0).max(0.0) as u32 & 0xFF)));
+                // DATA's flags are one byte; 257 -> 1 and -1 -> 255
+                // [documented: xEdit BOOK DATA; observed: w6d3p2_31a_books_factions_races_containers
+                // (`bf=0,1,255`)]; general `.trunc() as i64 as u32` wrapping for fractional or
+                // other overflow inputs is [hypothesis].
+                let byte = (num(args, 1, 0.0).trunc() as i64 as u32) & 0xFF;
+                g.field_overrides.insert((b, "DATA/flags".into()), XVal::Num(f64::from(byte)));
             }
             zero
         }
@@ -207,14 +211,24 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `faction flags`.
         "getfactionflags" => {
             let Some(f) = of_sig(g, form(args, 0), b"FACT") else { return Some(Ok(zero)) };
+            if let Some(XVal::Num(v)) = g.field_overrides.get(&(f, "DATA/flags32".into())) {
+                return Some(Ok(XVal::Num(*v)));
+            }
             let b = |k: &str| field(g, f, "DATA", k).and_then(|v| v.num().ok()).unwrap_or(0.0) as u32;
             XVal::Num(f64::from(b("flags1") | (b("flags2") << 8)))
         }
         "setfactionflags" => {
             if let Some(f) = of_sig(g, form(args, 0), b"FACT") {
-                let m = num(args, 1, 0.0).max(0.0) as u32;
+                // 65792 round-trips and -1 prints 4.29497e+09 via %g
+                // [observed: w6d3p2_31a_books_factions_races_containers (`ff=256,65792,4.29497e+09`)].
+                // Exact u32::MAX (0xFFFFFFFF) for -1 (since %g shows 6 sig figs) and general
+                // `.trunc() as i64 as u32` wrapping for fractional/other overflow inputs are
+                // [hypothesis]; storing the 32-bit override under `DATA/flags32` alongside
+                // `DATA/flags1`/`flags2` is [design].
+                let m = num(args, 1, 0.0).trunc() as i64 as u32;
                 g.field_overrides.insert((f, "DATA/flags1".into()), XVal::Num(f64::from(m & 0xFF)));
                 g.field_overrides.insert((f, "DATA/flags2".into()), XVal::Num(f64::from((m >> 8) & 0xFF)));
+                g.field_overrides.insert((f, "DATA/flags32".into()), XVal::Num(f64::from(m)));
             }
             zero
         }
@@ -251,15 +265,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // MOD4), "" for the 10mm pistol, the combat knife and the nail board, which have
         // none]; SetWeaponWorldModelPath `weapon path`, relative to Data\Meshes
         // [documented].
-        "getweaponworldmodelpath" => XVal::Str(match of_sig(g, form(args, 0), b"WEAP").and_then(|w| field(g, w, "MOD4", "")) {
+        "getweaponworldmodelpath" => XVal::Str(match form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"WEAP")).and_then(|w| field(g, w, "MOD4", "")) {
             Some(XVal::Str(s)) => s,
             _ => String::new(),
         }),
         "setweaponworldmodelpath" => {
-            if let Some(w) = of_sig(g, form(args, 0), b"WEAP") {
+            // Returns 1 on base WEAP and accepts TempCloneForm WEAP with clone isolation
+            // [observed: w6d3p2_23_weapon_world_model_path_and_clone, w6d3p5_25b];
+            // returning 0 on non-WEAP and 1 on cloned WEAP are [hypothesis].
+            if let Some(w) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"WEAP")) {
                 g.field_overrides.insert((w, "MOD4/".into()), XVal::Str(text(args, 1)));
+                XVal::Num(1.0)
+            } else {
+                zero
             }
-            zero
         }
         // `music type`: the file (FNAM) under Data\Music, and dB (ANAM), -6 when the record
         // has none [documented: GetMusicTypePath, "Data/Music/Special/Success.mp3";
@@ -302,9 +321,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `template trait [value]` [documented: Get/SetLightingTemplateTraitNumeric].
         "getlightingtemplatetraitnumeric" | "setlightingtemplatetraitnumeric" => {
-            let (Some(t), Some((sub, path))) = (of_sig(g, form(args, 0), b"LGTM"), lighting_trait(num(args, 1, 0.0))) else { return Some(Ok(zero)) };
+            let trait_id = num(args, 1, 0.0);
+            let (Some(t), Some((sub, path))) = (of_sig(g, form(args, 0), b"LGTM"), lighting_trait(trait_id)) else { return Some(Ok(zero)) };
             if name.starts_with("set") {
-                let value = num(args, 2, 0.0);
+                let raw = num(args, 2, 0.0);
+                // Ambient-R (trait 1) truncates and wraps mod 256 as u8, matching
+                // SetInteriorLightingTraitNumeric [observed: w6d3p2_27, 300->44.0, 25.5->25.0,
+                // -10->246.0]; sibling RGB colour channels (traits 2..=9, sharing the LGTM DATA
+                // u8 RGB schema) apply the same mod-256 wrap [hypothesis].
+                let value = if (1..=9).contains(&(trait_id as i64)) {
+                    (raw.trunc() as i64).rem_euclid(256) as f64
+                } else {
+                    raw
+                };
                 let prev = g.field_overrides.insert((t, format!("{sub}/{path}")), XVal::Num(value));
                 let same = matches!(prev, Some(XVal::Num(p)) if p.to_bits() == value.to_bits());
                 if !same {

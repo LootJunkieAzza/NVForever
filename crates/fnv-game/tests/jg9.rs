@@ -125,9 +125,14 @@ fn sounds_from_files_and_holotapes() {
     assert_eq!(n(&mut g, r#"PlaySoundFile "Data\Sound\fx\nosuch.wav""#), 1.0);
     assert_eq!(n(&mut g, r#"PlaySoundFile "..\escape.wav""#), 1.0);
     assert_eq!(g.other.jg9.path_sounds.len(), before_paths);
-    // PlaySoundFade: a SOUN at the player, faded in.
+    // StopSoundFile returns 1 even when idle; bare PlaySound3DFromPath returns 1 (playing
+    // nothing [hypothesis]); PlaySoundFade rejects non-SOUN forms returning 0 [observed: w6d3_39].
+    assert_eq!(n(&mut g, "StopSoundFile"), 1.0);
+    assert_eq!(n(&mut g, "StopSoundFile"), 1.0);
+    assert_eq!(n(&mut g, r#"PlaySound3DFromPath "Data\Sound\fx\test.wav""#), 1.0);
     assert_eq!(n(&mut g, "player.PlaySoundFade TestSound 2"), 1.0);
     assert_eq!(g.sound_requests.last().map(|r| (r.sound, r.at)), Some((FormId(SOUN), Some(FormId::PLAYER_REF))));
+    assert_eq!(n(&mut g, "player.PlaySoundFade TestTerminal 2"), 0.0);
     // Holotapes: a form that is no note plays nothing; StopHolotape plays its sound.
     assert_eq!(n(&mut g, "PlayHolotape TestSound"), 0.0);
     assert_eq!(n(&mut g, "StopHolotape"), 1.0);
@@ -174,15 +179,22 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "AudioMarkerGetCurrent"), f64::from(FormId::PLAYER_REF.0));
     assert_eq!(n(&mut g, "player.AudioMarkerGetProperty 0"), 1500.0);
     assert!((n(&mut g, "player.AMKGetProp 2") - 0.67).abs() < 1e-6);
-    assert_eq!(n(&mut g, "player.AudioMarkerSetProperty 0 900"), 1.0);
+    // AudioMarkerSetProperty (probed on prop 0 and OOB 3; props 1/2 [hypothesis]) and
+    // AudioMarkerSetController return 0 on success while applying the edit [observed: w6d3p2_38].
+    assert_eq!(n(&mut g, "player.AudioMarkerSetProperty 0 900"), 0.0);
     assert_eq!(n(&mut g, "player.AudioMarkerGetProperty 0"), 900.0);
+    assert_eq!(n(&mut g, "player.AudioMarkerSetController TestSound"), 0.0);
+    assert_eq!(n(&mut g, "player.AudioMarkerGetController"), f64::from(SOUN));
     assert!(g.other.jg9.markers_changed);
     assert_eq!(n(&mut g, "player.AudioMarkerSetProperty 3 1"), 0.0, "no property 3");
     // The moves, for the engine.
     let _ = q(&mut g, "player.Jump");
-    let _ = q(&mut g, "SetAutoMove 1");
-    let _ = q(&mut g, "SetPlayerMovementFlags 513");
-    let _ = q(&mut g, "player.SetVelEx 10 20 300");
+    assert_eq!(n(&mut g, "SetAutoMove 1"), 1.0);
+    // [observed: w6d3_40: SetPlayerMovementFlags 0 -> 1 and rDoc.SetVelEx 0 0 0 -> 1;
+    // hypothesis: non-zero args also return 1, negative/missing SetPlayerMovementFlags and
+    // bare SetVelEx return 0].
+    assert_eq!(n(&mut g, "SetPlayerMovementFlags 513"), 1.0);
+    assert_eq!(n(&mut g, "player.SetVelEx 10 20 300"), 1.0);
     let st = &g.other.jg9;
     assert_eq!(st.jumps, vec![FormId::PLAYER_REF]);
     assert_eq!(st.auto_move, Some(true));
@@ -221,6 +233,9 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 75.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 55.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 55.0, "first person until the engine tells");
+    // 1P Player.GetPlayerCamFOV 3 returns 55.0 [observed: w6d3_40]; generalizing to active
+    // camera FOV in 3P and for all other OOB, negative, or omitted args is [hypothesis].
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 3"), 55.0);
     g.other.jg9.third_person = true;
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 75.0);
     // The settings page's values once the engine tells them (at start, then after a

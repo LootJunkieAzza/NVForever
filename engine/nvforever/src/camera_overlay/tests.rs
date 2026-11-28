@@ -1019,7 +1019,7 @@ fn attached_overlay_particle_consumer_reads_mutates_and_isolates_from_placed_sys
             &mut app,
             "ref rCam\nlet rCam := EditorIDToFormID \"JG_CameraOverlayRef_PreIS\"\nSetFunctionValue (rCam.SetNiPSysModifierValue \"OverlayEmitter\" 14 6)"
         ),
-        1.0
+        0.0
     );
     app.update();
 

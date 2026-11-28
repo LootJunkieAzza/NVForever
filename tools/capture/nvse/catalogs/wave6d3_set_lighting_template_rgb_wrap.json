@@ -1,0 +1,86 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-set-lighting-template-rgb-wrap",
+  "description": "Read-only clean-room probe verifying SetLightingTemplateTraitNumeric RGB colour traits 1..=9 truncate and wrap modulo 256.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_set_lighting_template_rgb_wrap",
+      "title": "Wave 6D-3: SetLightingTemplateTraitNumeric RGB mod-256 wrap",
+      "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+      "required_plugins": [
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3p2_27_lighting_template_and_interior_lighting_wrap",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JohnnyGuitar 528",
+          "required_plugins": [
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg1.md",
+          "spec_line": 28,
+          "functions_tested": [
+            "GetLightingTemplateTraitNumeric",
+            "SetLightingTemplateTraitNumeric",
+            "GetInteriorLightingTraitNumeric",
+            "SetInteriorLightingTraitNumeric",
+            "GetLightingTemplateCell",
+            "SetLightingTemplateCell"
+          ],
+          "claim": "Verify SetLightingTemplateTraitNumeric RGB wrapping (300, 25.5, -10), SetInteriorLightingTraitNumeric (-10, 300), and Get/SetLightingTemplateCell.",
+          "expected": "Confirm whether SetLightingTemplateTraitNumeric wraps RGB channels mod 256 like SetInteriorLightingTraitNumeric.",
+          "script_lines": [
+            "ref rLt = GetFormFromMod \"FalloutNV.esm\" \"177550\"",
+            "ref rCell = GetFormFromMod \"FalloutNV.esm\" \"D70E2\"",
+            "ref rDocC = GetFormFromMod \"FalloutNV.esm\" \"103DF9\"",
+            "float fLt1 = GetLightingTemplateTraitNumeric rLt 1",
+            "float fLt0 = GetLightingTemplateTraitNumeric rLt 0",
+            "float fLt17 = GetLightingTemplateTraitNumeric rLt 17",
+            "SetLightingTemplateTraitNumeric rLt 1 300",
+            "float fLt300 = GetLightingTemplateTraitNumeric rLt 1",
+            "SetLightingTemplateTraitNumeric rLt 1 25.5",
+            "float fLtFr = GetLightingTemplateTraitNumeric rLt 1",
+            "SetLightingTemplateTraitNumeric rLt 1 -10",
+            "float fLtNeg = GetLightingTemplateTraitNumeric rLt 1",
+            "SetLightingTemplateTraitNumeric rLt 1 fLt1",
+            "float fIc0 = GetInteriorLightingTraitNumeric rCell 0",
+            "float fIc16 = GetInteriorLightingTraitNumeric rCell 16",
+            "SetInteriorLightingTraitNumeric rCell 0 -10",
+            "float fIcNeg = GetInteriorLightingTraitNumeric rCell 0",
+            "SetInteriorLightingTraitNumeric rCell 0 300",
+            "float fIc300 = GetInteriorLightingTraitNumeric rCell 0",
+            "SetInteriorLightingTraitNumeric rCell 0 fIc0",
+            "ref rLc0 = GetLightingTemplateCell rLt",
+            "SetLightingTemplateCell rLt rDocC",
+            "ref rLc1 = GetLightingTemplateCell rLt",
+            "SetLightingTemplateCell rLt rLc0",
+            "PrintToConsole \"PROBE|w6d3p2_27_lighting_template_and_interior_lighting_wrap|lt(0=%.0f,17=%.0f,300=%.1f,fr=%.1f,neg=%.1f)|ic(16=%.0f,neg=%.1f,300=%.1f)|ltc=%g->%g\" fLt0 fLt17 fLt300 fLtFr fLtNeg fIc16 fIcNeg fIc300 (rLc0 == 0) (rLc1 == rDocC)"
+          ]
+        }
+      ]
+    }
+  ]
+}

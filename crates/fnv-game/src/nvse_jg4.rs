@@ -154,8 +154,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `marker array`: the idles become the array's, in its order; the count follows
-        // [documented: SetIdleMarkerAnimations and the note on the count]. Entries that
-        // are not idles are left out (see docs/spec-notes/ext-jg4.md).
+        // [documented: SetIdleMarkerAnimations and the note on the count]; accepts mixed
+        // [IDLE, ALCH] without dropping the non-IDLE entry [observed: w6d3p2_29b:
+        // idm(orig=3,one=1,mix=2)]; generalizing to all valid form entries and filtering
+        // out non-form array elements via `filter_map(form)` [hypothesis/design].
         "setidlemarkeranimations" => {
             let id = match args.get(1) {
                 Some(XVal::Array(id)) => Some(*id),
@@ -164,7 +166,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             };
             let rows: Option<Vec<XVal>> = id.and_then(|id| g.ext.array(id)).map(|a| a.entries.iter().map(|(_, v)| v.clone()).collect());
             if let (Some(m), Some(rows)) = (form(args, 0), rows) {
-                let idles: Vec<FormId> = rows.iter().filter_map(|v| of_sig(g, form(std::slice::from_ref(v), 0), b"IDLE")).collect();
+                // Keep all valid form entries and drop non-form elements [hypothesis/design;
+                // mixed [IDLE, ALCH] observed in w6d3p2_29b].
+                let idles: Vec<FormId> = rows.iter().filter_map(|v| form(std::slice::from_ref(v), 0)).collect();
                 if let Some(c) = marker_mut(g, m) {
                     c.idles = idles;
                 }
@@ -204,7 +208,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "addregionweather" => {
             let weather = of_sig(g, form(args, 1), b"WTHR");
             let global = of_sig(g, form(args, 3), b"GLOB");
-            let chance = num(args, 2, 0.0).clamp(0.0, 100.0) as i32;
+            // Positive values > 100 are stored unclamped (150 at index 1 reads back 150)
+            // [observed: w6d3_29: ch=0/150/100]; signed i32 storage/readback for negative
+            // chance values [hypothesis/design: w6d3_29 only read index 1 (150), not the
+            // negative entry at index 0].
+            let chance = num(args, 2, 0.0).trunc() as i32;
             if let (Some(r), Some(weather)) = (of_sig(g, form(args, 0), b"REGN"), weather) {
                 if let Some(ws) = weathers_mut(g, r) {
                     if !ws.list.iter().any(|e| e.weather == weather) {
@@ -240,12 +248,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `region [priority]`: RDAT's priority byte [documented: Get/
-        // SetRegionWeatherPriority]; a priority outside 0-255 changes nothing [observed:
-        // jg4 regn.setpriority.gs.300 and .neg kept 100].
+        // SetRegionWeatherPriority]; a priority outside 0-100 changes nothing [observed:
+        // jg4 regn.setpriority.gs.300 and .neg kept 100; observed: Fallout: New Vegas
+        // 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-25,
+        // `w6d10_41_region_weather_override_priority_and_no_block`:
+        // `prSet(77=77,150=77,255=77,256=77,-1=77)`].
         "getregionweatherpriority" => XVal::Num(form(args, 0).and_then(|r| region_weathers(g, r)).map_or(0.0, |w| f64::from(w.priority))),
         "setregionweatherpriority" => {
-            let p = num(args, 1, 0.0);
-            if (0.0..=255.0).contains(&p) {
+            let p = num(args, 1, -1.0);
+            if (0.0..=100.0).contains(&p) {
                 if let Some(ws) = form(args, 0).and_then(|r| weathers_mut(g, r)) {
                     ws.priority = p as u8;
                 }
@@ -302,3 +313,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let _ = (ctx, subject);
     Some(Ok(v))
 }
+
+#[cfg(test)]
+#[path = "w6d10_region_priority_tests.rs"]
+mod w6d10_region_priority_tests;

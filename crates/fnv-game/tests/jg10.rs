@@ -25,6 +25,8 @@ const ALCH_STIM: u32 = 0x916;
 const MISC_CAP: u32 = 0x917;
 const MGEF_POISON: u32 = 0x918;
 const MGEF_HEAL: u32 = 0x919;
+const WEAP_UNSCOPED: u32 = 0x91A;
+const WEAP_MELEE: u32 = 0x91B;
 
 fn edid(sig: &[u8; 4], fid: u32, name: &str) -> Vec<u8> {
     record(sig, 0, fid, &[sub(b"EDID", z(name))])
@@ -64,7 +66,18 @@ fn alch_with_effect(fid: u32, name: &str, mgef_id: u32) -> Vec<u8> {
 fn plugin_bytes() -> Vec<u8> {
     let fggs: Vec<u8> = (0..50).flat_map(|i| (i as f32 * 0.5).to_le_bytes()).collect();
     let npc = record(b"NPC_", 0, NPC, &[sub(b"EDID", z("TestFace")), sub(b"FGGS", fggs)]);
-    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("TestScoped")), sub(b"MOD3", z("interface\\hud\\testscope.nif"))]);
+    let mut gun_dnam = vec![0u8; 204];
+    gun_dnam[0..4].copy_from_slice(&3u32.to_le_bytes());
+    gun_dnam[104..108].copy_from_slice(&41u32.to_le_bytes()); // Guns
+    let mut melee_dnam = vec![0u8; 204];
+    melee_dnam[0..4].copy_from_slice(&1u32.to_le_bytes());
+    melee_dnam[104..108].copy_from_slice(&38u32.to_le_bytes()); // Melee Weapons
+    let weap = [
+        record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("TestScoped")), sub(b"MOD3", z("interface\\hud\\testscope.nif")), sub(b"DNAM", gun_dnam)]),
+        record(b"WEAP", 0, WEAP_MELEE, &[sub(b"EDID", z("TestBlade")), sub(b"DNAM", melee_dnam)]),
+    ]
+    .concat();
+    let weap_unscoped = edid(b"WEAP", WEAP_UNSCOPED, "TestUnscoped");
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("TestHairList")), sub(b"LNAM", HAIR_A.to_le_bytes().to_vec())]);
     // MGEF flags: 1 Hostile | 4 Detrimental -> poison; 0 -> non-poison aid (Stimpak).
     let mgefs = [mgef(MGEF_POISON, "TestVenomMgef", 1 | 4), mgef(MGEF_HEAL, "TestHealMgef", 0)].concat();
@@ -77,7 +90,7 @@ fn plugin_bytes() -> Vec<u8> {
         tes4(),
         top(b"MGEF", &mgefs),
         top(b"NPC_", &[edid(b"NPC_", 0x7, "Player"), npc].concat()),
-        top(b"WEAP", &weap),
+        top(b"WEAP", &[weap, weap_unscoped].concat()),
         top(b"FLST", &flst),
         top(b"HAIR", &[edid(b"HAIR", HAIR_A, "TestHairA"), edid(b"HAIR", HAIR_B, "TestHairB")].concat()),
         top(b"ALCH", &alchs),
@@ -187,13 +200,35 @@ fn weapons_and_scopes() {
     // [documented: the weapon's own scope when a weapon is given].
     q(&mut g, "SetWeaponScopeUIModel \"ignored.nif\" TestScoped");
     assert_eq!(g.script_scope(), (Some("interface\\hud\\testscope.nif"), None));
-    q(&mut g, "ToggleWeaponScopeUIModel 0");
+    // [observed: w6d3p2_42: ToggleWeaponScopeUIModel 0 returns 1; hypothesis: visible != 0
+    // or omitted argument also returns 1].
+    assert_eq!(n(&mut g, "ToggleWeaponScopeUIModel 0"), 1.0);
     assert_eq!(g.script_scope().1, Some(false));
     q(&mut g, "ClearWeaponScopeUIModel");
     assert_eq!(g.script_scope(), (Some(""), Some(false)));
-    // [documented: RemoveScopeModelPath, "isSuccess"].
+    // [documented: RemoveScopeModelPath; observed: w6d3p2_24 returns 1 even on repeated
+    // remove for a scoped WEAP and works on TempCloneForm with clone isolation, returning 0
+    // on unscoped WEAP and non-WEAP; hypothesis/design: has_scope_flag || has_authored_mod3].
+    assert_eq!(n(&mut g, "RemoveScopeModelPath TestUnscoped"), 0.0, "unscoped weapon returns 0");
+    assert_eq!(n(&mut g, "RemoveScopeModelPath TestCap"), 0.0, "non-WEAP returns 0");
+    // Clone isolation: removing MOD3 on a TempCloneForm clears the clone's scope path
+    // while leaving TestScoped's scope path intact.
+    assert_eq!(
+        q(
+            &mut g,
+            "ref rCl\nstring_var sCl\nlet rCl := TempCloneForm TestScoped\nif RemoveScopeModelPath rCl == 1\n  let sCl := GetScopeModelPath rCl\n  SetFunctionValue sCl\nendif"
+        ),
+        XVal::Str(String::new()),
+        "clone remove returns 1 and clears clone MOD3",
+    );
+    assert_eq!(
+        q(&mut g, "SetFunctionValue (GetScopeModelPath TestScoped)"),
+        XVal::Str("interface\\hud\\testscope.nif".into()),
+        "clone remove leaves original weapon MOD3 intact",
+    );
     assert_eq!(n(&mut g, "RemoveScopeModelPath TestScoped"), 1.0);
-    assert_eq!(n(&mut g, "RemoveScopeModelPath TestScoped"), 0.0, "nothing left to remove");
+    assert_eq!(n(&mut g, "RemoveScopeModelPath TestScoped"), 1.0, "repeat remove on scoped weapon returns 1");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetScopeModelPath TestScoped)"), XVal::Str(String::new()));
     // A poison only on an equipped weapon (the player has none equipped yet).
     assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestPoison"), 0.0);
     assert_eq!(g.weapon_poison(FormId::PLAYER_REF), None);
@@ -201,7 +236,12 @@ fn weapons_and_scopes() {
     // (returns 1), and rejects non-poison ALCH (returns 0) [observed:
     // w4h_09_apply_weapon_poison_stimpak]; non-ALCH and preserving an existing poison on
     // rejection (see docs/spec-notes/ext-jg10.md).
+    // Ranged guns reject weapon poisons [observed: w6d6p2_32_weapon_poison_classes_settled].
     q(&mut g, "PlayerREF.AddItem TestScoped 1 1\nPlayerREF.EquipItem TestScoped 0 1");
+    assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestPoison"), 0.0, "ranged gun rejects poison");
+    assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponPoison"), 0.0);
+    // Melee weapons accept weapon poisons.
+    q(&mut g, "PlayerREF.AddItem TestBlade 1 1\nPlayerREF.EquipItem TestBlade 0 1");
     assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestPoison"), 1.0);
     assert_eq!(n(&mut g, "PlayerREF.GetEquippedWeaponPoison"), f64::from(ALCH));
     assert_eq!(n(&mut g, "PlayerREF.ApplyWeaponPoison TestCap"), 0.0);
@@ -233,8 +273,11 @@ fn faces_highlights_land_and_menus() {
     assert_eq!(n(&mut g, "FaceGenSetNthProperty TestFace 1 30 1"), 1.0, "OOB index on valid type returns 1");
     assert_eq!(n(&mut g, "FaceGenGetNthProperty TestFace 1 30"), 0.0);
     assert_eq!(n(&mut g, "FaceGenSetNthProperty TestFace 9 0 0.5"), 0.0, "invalid type returns 0");
-    q(&mut g, "PlayerREF.FaceGenRefreshAppearance");
+    // [observed: w6d3_41: FaceGenRefreshAppearance returns 1 on an actor;
+    // hypothesis: bare / non-actor calls return 0].
+    assert_eq!(n(&mut g, "PlayerREF.FaceGenRefreshAppearance"), 1.0);
     assert_eq!(g.take_appearance_changes().len(), 1);
+    assert_eq!(n(&mut g, "FaceGenRefreshAppearance"), 0.0);
     // [documented: one actor at a time; no part is everything but the weapon].
     q(&mut g, "PlayerREF.HighlightBodyPartAlt");
     assert_eq!(g.body_part_highlight(), Some((FormId::PLAYER_REF, -1)));

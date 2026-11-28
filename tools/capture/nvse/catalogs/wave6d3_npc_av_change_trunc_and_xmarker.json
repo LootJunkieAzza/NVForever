@@ -1,0 +1,246 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d3-npc-av-change-trunc-and-xmarker",
+  "description": "Read-only clean-room probes verifying SetOnNPCActorValueChangeEventHandler truncation in integer mode (flag & 1 == 0) and XMarker (0x3B) form-filter wildcard.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "jip_nvse.dll": "57.30",
+    "johnnyguitar.dll": "528"
+  },
+  "batches": [
+    {
+      "id": "w6d3_npc_av_change_trunc_and_xmarker",
+      "title": "Wave 6D-3: SetOnNPCActorValueChangeEventHandler truncation & XMarker wildcard",
+      "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+      "required_plugins": [
+        "jip_nvse.dll",
+        "johnnyguitar.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d3_17_npc_av_change_trunc_and_xmarker",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 32,
+          "functions_tested": [
+            "SetOnNPCActorValueChangeEventHandler",
+            "DamageActorValueAlt",
+            "RestoreActorValueAlt"
+          ],
+          "claim": "Verify SetOnNPCActorValueChangeEventHandler (direct twin of confirmed P0 T2-P0-05; SD-15): truncation vs rounding on 0.6/0.6 fractional Health damage on Doc Mitchell, XMarker (0x3B) & -1 wildcards, and Player exclusion.",
+          "expected": "Confirm whether flag=0 truncates (like SetOnActorValueChangeEventHandler) vs NVForever's n.round(), whether XMarker (0x3B) and -1 wildcard work, and Player is excluded.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rXM = GetFormFromMod \"FalloutNV.esm\" \"3B\"",
+            "ref rFnI = CompileScript \"w6d3_17_int.gek\"",
+            "ref rFnF = CompileScript \"w6d3_17_flt.gek\"",
+            "ref rFnX = CompileScript \"w6d3_17_xm.gek\"",
+            "Player.AuxVarSetFlt \"*w6d3_17_ni\" 0",
+            "Player.AuxVarSetFlt \"*w6d3_17_nf\" 0",
+            "Player.AuxVarSetFlt \"*w6d3_17_nx\" 0",
+            "Player.AuxVarSetFlt \"*w6d3_17_iold\" -999",
+            "Player.AuxVarSetFlt \"*w6d3_17_inew\" -999",
+            "Player.AuxVarSetFlt \"*w6d3_17_fold\" -999",
+            "Player.AuxVarSetFlt \"*w6d3_17_fnew\" -999",
+            "Player.AuxVarSetFlt \"*w6d3_17_pseen\" 0",
+            "SetOnNPCActorValueChangeEventHandler 1 rFnI 0 rDoc 16",
+            "SetOnNPCActorValueChangeEventHandler 1 rFnF 1 rDoc 16",
+            "SetOnNPCActorValueChangeEventHandler 1 rFnX 0 rXM -1",
+            "float h0 = rDoc.GetAV Health",
+            "Player.AuxVarSetFlt \"*w6d3_17_h0\" h0",
+            "Player.DamageActorValueAlt 16 1.0",
+            "Player.RestoreActorValueAlt 16 1.0",
+            "rDoc.DamageActorValueAlt 16 0.6"
+          ],
+          "wait_ticks_after": 2,
+          "extra_steps": [
+            {
+              "suffix": "step2",
+              "wait_ticks": 2,
+              "script_lines": [
+                "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+                "Player.AuxVarSetFlt \"*w6d3_17_ni1\" (Player.AuxVarGetFlt \"*w6d3_17_ni\")",
+                "Player.AuxVarSetFlt \"*w6d3_17_i1o\" (Player.AuxVarGetFlt \"*w6d3_17_iold\")",
+                "Player.AuxVarSetFlt \"*w6d3_17_i1n\" (Player.AuxVarGetFlt \"*w6d3_17_inew\")",
+                "Player.AuxVarSetFlt \"*w6d3_17_nf1\" (Player.AuxVarGetFlt \"*w6d3_17_nf\")",
+                "Player.AuxVarSetFlt \"*w6d3_17_f1o\" (Player.AuxVarGetFlt \"*w6d3_17_fold\")",
+                "Player.AuxVarSetFlt \"*w6d3_17_f1n\" (Player.AuxVarGetFlt \"*w6d3_17_fnew\")",
+                "rDoc.DamageActorValueAlt 16 0.6"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+                "ref rXM = GetFormFromMod \"FalloutNV.esm\" \"3B\"",
+                "ref rFnI = CompileScript \"w6d3_17_int.gek\"",
+                "ref rFnF = CompileScript \"w6d3_17_flt.gek\"",
+                "ref rFnX = CompileScript \"w6d3_17_xm.gek\"",
+                "SetOnNPCActorValueChangeEventHandler 0 rFnI 0 rDoc 16",
+                "SetOnNPCActorValueChangeEventHandler 0 rFnF 1 rDoc 16",
+                "SetOnNPCActorValueChangeEventHandler 0 rFnX 0 rXM -1",
+                "rDoc.RestoreActorValueAlt 16 1.2",
+                "float h0 = Player.AuxVarGetFlt \"*w6d3_17_h0\"",
+                "int ni1 = Player.AuxVarGetFlt \"*w6d3_17_ni1\"",
+                "float i1o = Player.AuxVarGetFlt \"*w6d3_17_i1o\"",
+                "float i1n = Player.AuxVarGetFlt \"*w6d3_17_i1n\"",
+                "int ni2 = Player.AuxVarGetFlt \"*w6d3_17_ni\"",
+                "float i2o = Player.AuxVarGetFlt \"*w6d3_17_iold\"",
+                "float i2n = Player.AuxVarGetFlt \"*w6d3_17_inew\"",
+                "int nf1 = Player.AuxVarGetFlt \"*w6d3_17_nf1\"",
+                "float f1o = Player.AuxVarGetFlt \"*w6d3_17_f1o\"",
+                "float f1n = Player.AuxVarGetFlt \"*w6d3_17_f1n\"",
+                "int nx = Player.AuxVarGetFlt \"*w6d3_17_nx\"",
+                "int pSeen = Player.AuxVarGetFlt \"*w6d3_17_pseen\"",
+                "PrintToConsole \"PROBE|w6d3_17_npc_av_change_trunc_and_xmarker|h0=%.1f|s1(ni=%g:%.1f->%.1f,nf=%g:%.2f->%.2f)|s2(ni=%g:%.1f->%.1f)|xm=%g,pSeen=%g\" h0 ni1 i1o i1n nf1 f1o f1n ni2 i2o i2n nx pSeen"
+              ]
+            }
+          ],
+          "helper_scripts": {
+            "w6d3_17_int.gek": [
+              "begin Function {ref rAct, int iCode, float fOld, float fNew}",
+              "Player.AuxVarSetFlt \"*w6d3_17_ni\" ((Player.AuxVarGetFlt \"*w6d3_17_ni\") + 1)",
+              "Player.AuxVarSetFlt \"*w6d3_17_iold\" fOld",
+              "Player.AuxVarSetFlt \"*w6d3_17_inew\" fNew",
+              "if rAct == Player",
+              "  Player.AuxVarSetFlt \"*w6d3_17_pseen\" 1",
+              "endif"
+            ],
+            "w6d3_17_flt.gek": [
+              "begin Function {ref rAct, int iCode, float fOld, float fNew}",
+              "Player.AuxVarSetFlt \"*w6d3_17_nf\" ((Player.AuxVarGetFlt \"*w6d3_17_nf\") + 1)",
+              "Player.AuxVarSetFlt \"*w6d3_17_fold\" fOld",
+              "Player.AuxVarSetFlt \"*w6d3_17_fnew\" fNew"
+            ],
+            "w6d3_17_xm.gek": [
+              "begin Function {ref rAct, int iCode, float fOld, float fNew}",
+              "Player.AuxVarSetFlt \"*w6d3_17_nx\" ((Player.AuxVarGetFlt \"*w6d3_17_nx\") + 1)",
+              "if rAct == Player",
+              "  Player.AuxVarSetFlt \"*w6d3_17_pseen\" 1",
+              "endif"
+            ]
+          }
+        },
+        {
+          "id": "w6d3p3_17c_npc_av_trunc_multitick",
+          "bucket": "A",
+          "extender": "xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitar 528",
+          "required_plugins": [
+            "jip_nvse.dll",
+            "johnnyguitar.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": true,
+          "requires_fixture": false,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-jg8.md",
+          "spec_line": 32,
+          "functions_tested": [
+            "SetOnNPCActorValueChangeEventHandler",
+            "DamageActorValueAlt",
+            "RestoreActorValueAlt"
+          ],
+          "claim": "Verify SetOnNPCActorValueChangeEventHandler integer truncation vs rounding across 2 multi-tick -0.6 Health changes on Doc Mitchell (reading before restore).",
+          "expected": "Confirm flag=0 truncates 65.0->64.4 to 65->64 and 64.4->63.8 to 64->63, and flag=1 passes floats.",
+          "script_lines": [
+            "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+            "ref rFnI = CompileScript \"w6d3p3_17c_int.gek\"",
+            "ref rFnF = CompileScript \"w6d3p3_17c_flt.gek\"",
+            "Player.AuxVarSetFlt \"*w6d3p3_17_ni\" 0",
+            "Player.AuxVarSetFlt \"*w6d3p3_17_nf\" 0",
+            "Player.AuxVarSetFlt \"*w6d3p3_17_io\" -999",
+            "Player.AuxVarSetFlt \"*w6d3p3_17_in\" -999",
+            "Player.AuxVarSetFlt \"*w6d3p3_17_fo\" -999",
+            "Player.AuxVarSetFlt \"*w6d3p3_17_fn\" -999",
+            "SetOnNPCActorValueChangeEventHandler 1 rFnI 0 rDoc 16",
+            "SetOnNPCActorValueChangeEventHandler 1 rFnF 1 rDoc 16",
+            "Player.AuxVarSetFlt \"*w6d3p3_17_h0\" (rDoc.GetAV Health)",
+            "rDoc.DamageActorValueAlt 16 0.6"
+          ],
+          "wait_ticks_after": 3,
+          "extra_steps": [
+            {
+              "suffix": "s2",
+              "wait_ticks": 3,
+              "script_lines": [
+                "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+                "Player.AuxVarSetFlt \"*w6d3p3_17_ni1\" (Player.AuxVarGetFlt \"*w6d3p3_17_ni\")",
+                "Player.AuxVarSetFlt \"*w6d3p3_17_i1o\" (Player.AuxVarGetFlt \"*w6d3p3_17_io\")",
+                "Player.AuxVarSetFlt \"*w6d3p3_17_i1n\" (Player.AuxVarGetFlt \"*w6d3p3_17_in\")",
+                "Player.AuxVarSetFlt \"*w6d3p3_17_nf1\" (Player.AuxVarGetFlt \"*w6d3p3_17_nf\")",
+                "Player.AuxVarSetFlt \"*w6d3p3_17_f1o\" (Player.AuxVarGetFlt \"*w6d3p3_17_fo\")",
+                "Player.AuxVarSetFlt \"*w6d3p3_17_f1n\" (Player.AuxVarGetFlt \"*w6d3p3_17_fn\")",
+                "rDoc.DamageActorValueAlt 16 0.6"
+              ]
+            },
+            {
+              "suffix": "done",
+              "wait_ticks": 0,
+              "script_lines": [
+                "ref rDoc = GetFormFromMod \"FalloutNV.esm\" \"104C0F\"",
+                "ref rFnI = CompileScript \"w6d3p3_17c_int.gek\"",
+                "ref rFnF = CompileScript \"w6d3p3_17c_flt.gek\"",
+                "int iNi2 = Player.AuxVarGetFlt \"*w6d3p3_17_ni\"",
+                "float fI2o = Player.AuxVarGetFlt \"*w6d3p3_17_io\"",
+                "float fI2n = Player.AuxVarGetFlt \"*w6d3p3_17_in\"",
+                "int iNf2 = Player.AuxVarGetFlt \"*w6d3p3_17_nf\"",
+                "float fF2o = Player.AuxVarGetFlt \"*w6d3p3_17_fo\"",
+                "float fF2n = Player.AuxVarGetFlt \"*w6d3p3_17_fn\"",
+                "SetOnNPCActorValueChangeEventHandler 0 rFnI 0 rDoc 16",
+                "SetOnNPCActorValueChangeEventHandler 0 rFnF 1 rDoc 16",
+                "rDoc.RestoreActorValueAlt 16 1.2",
+                "float fH0 = Player.AuxVarGetFlt \"*w6d3p3_17_h0\"",
+                "int iNi1 = Player.AuxVarGetFlt \"*w6d3p3_17_ni1\"",
+                "float fI1o = Player.AuxVarGetFlt \"*w6d3p3_17_i1o\"",
+                "float fI1n = Player.AuxVarGetFlt \"*w6d3p3_17_i1n\"",
+                "int iNf1 = Player.AuxVarGetFlt \"*w6d3p3_17_nf1\"",
+                "float fF1o = Player.AuxVarGetFlt \"*w6d3p3_17_f1o\"",
+                "float fF1n = Player.AuxVarGetFlt \"*w6d3p3_17_f1n\"",
+                "PrintToConsole \"PROBE|w6d3p3_17c_npc_av_trunc_multitick|h0=%.1f|s1(i=%g:%.1f->%.1f,f=%g:%.2f->%.2f)|s2(i=%g:%.1f->%.1f,f=%g:%.2f->%.2f)\" fH0 iNi1 fI1o fI1n iNf1 fF1o fF1n iNi2 fI2o fI2n iNf2 fF2o fF2n"
+              ]
+            }
+          ],
+          "helper_scripts": {
+            "w6d3p3_17c_int.gek": [
+              "begin Function {ref rAct, int iCode, float fOld, float fNew}",
+              "Player.AuxVarSetFlt \"*w6d3p3_17_ni\" ((Player.AuxVarGetFlt \"*w6d3p3_17_ni\") + 1)",
+              "Player.AuxVarSetFlt \"*w6d3p3_17_io\" fOld",
+              "Player.AuxVarSetFlt \"*w6d3p3_17_in\" fNew"
+            ],
+            "w6d3p3_17c_flt.gek": [
+              "begin Function {ref rAct, int iCode, float fOld, float fNew}",
+              "Player.AuxVarSetFlt \"*w6d3p3_17_nf\" ((Player.AuxVarGetFlt \"*w6d3p3_17_nf\") + 1)",
+              "Player.AuxVarSetFlt \"*w6d3p3_17_fo\" fOld",
+              "Player.AuxVarSetFlt \"*w6d3p3_17_fn\" fNew"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
