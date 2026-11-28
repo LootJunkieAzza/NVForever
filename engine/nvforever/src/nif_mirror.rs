@@ -47,6 +47,16 @@ impl Plugin for NifMirrorPlugin {
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct MirrorSystems;
 
+/// Cache key for the last published drawn-tree snapshot of `(ref, view)` [design].
+#[derive(Clone, Copy, PartialEq)]
+struct PublishedModelKey {
+    root: Entity,
+    root_told: Option<Transform>,
+    node_count: usize,
+    has_data: bool,
+    has_placed_particles: bool,
+}
+
 /// What the mirror keeps between frames: the references it logged, the held transforms,
 /// the models' material values, the scripts' material values and the shapes drawn with
 /// their own material since.
@@ -76,6 +86,18 @@ struct Memory {
     /// sync from Bevy change detection so frames with undrawn watched refs avoid scanning
     /// every `RefVisual` entity in the world [design].
     visual_cache: VisualRootCache,
+    /// Monotonic revision bumped whenever `held` or `materials` changes, used to skip
+    /// rebuilding unchanged `drawn_flat` model trees every frame [design].
+    flat_revision: u64,
+    /// Last `(model, flat_revision)` published to `game.scene` for each `drawn_flat` ref [design].
+    flat_published: HashMap<u32, (String, u64)>,
+    /// Reusable per-node sphere buckets for `compute_node_bounds` to avoid allocating
+    /// hundreds of `Vec`s per watched rig each frame [design].
+    bounds_scratch: Vec<Vec<(Vec3, f32)>>,
+    /// Last published drawn-tree key per `(ref, view)` so watched rigs/models whose node
+    /// transforms/hierarchy/visibility did not change skip `compute_node_bounds` and
+    /// `Vec<SceneNode>` rebuilding [design].
+    published_models: HashMap<(u32, ModelView), PublishedModelKey>,
 }
 
 /// Incremental `RefVisual(r) -> root Entity` index maintained across frames via Bevy
@@ -407,40 +429,74 @@ fn property_table(data: &GameData, model: &str) -> HashMap<String, Props> {
     out
 }
 
-/// The world-space bounding sphere of `node` and what lies under it: of its shapes'
-/// boxes, or the node's own place (radius 0) without any.
-fn node_bound(at: usize, tree: &[(Entity, Option<usize>)], globals: &Query<&GlobalTransform>, boxes: &Query<&Aabb>) -> Option<[f32; 4]> {
-    let mut spheres: Vec<(Vec3, f32)> = Vec::new();
-    for (k, (e, _)) in tree.iter().enumerate() {
-        // k under `at` (or `at` itself).
-        let mut up = Some(k);
-        let mut under = false;
-        while let Some(i) = up {
-            if i == at {
-                under = true;
-                break;
+/// Zero-allocation ASCII case-insensitive `&str` key for deduplicating sibling/node names
+/// during `nif_mirror` scene publishing [design].
+#[derive(Clone, Copy)]
+struct CiStr<'a>(&'a str);
+
+impl PartialEq for CiStr<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq_ignore_ascii_case(other.0)
+    }
+}
+
+impl Eq for CiStr<'_> {}
+
+impl std::hash::Hash for CiStr<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for b in self.0.bytes() {
+            state.write_u8(b.to_ascii_lowercase());
+        }
+        state.write_u8(0xff);
+    }
+}
+
+/// The world-space bounding sphere of every node in `tree` and what lies under it: of its
+/// shapes' boxes, or the node's own place (radius 0) without any. Computes all nodes in one
+/// `O(N + S * depth)` pass (only visiting entities that actually carry an `Aabb`) and reuses
+/// `buckets` across rigs to avoid per-node heap allocations [design].
+fn compute_node_bounds(
+    tree: &[(Entity, Option<usize>)],
+    globals: &Query<&GlobalTransform>,
+    boxes: &Query<&Aabb>,
+    buckets: &mut Vec<Vec<(Vec3, f32)>>,
+) -> Vec<Option<[f32; 4]>> {
+    if buckets.len() < tree.len() {
+        buckets.resize_with(tree.len(), Vec::new);
+    }
+    for b in buckets.iter_mut().take(tree.len()) {
+        b.clear();
+    }
+    for (k, &(e, _)) in tree.iter().enumerate() {
+        if let (Ok(b), Ok(g)) = (boxes.get(e), globals.get(e)) {
+            let aff = g.affine();
+            let c = Vec3::from(aff.transform_point3a(b.center));
+            let m = aff.matrix3;
+            let s = m.x_axis.length().max(m.y_axis.length()).max(m.z_axis.length());
+            let sphere = (c, Vec3::from(b.half_extents).length() * s);
+            let mut up = Some(k);
+            while let Some(i) = up {
+                buckets[i].push(sphere);
+                up = tree[i].1;
             }
-            up = tree[i].1;
-        }
-        if !under {
-            continue;
-        }
-        if let (Ok(b), Ok(g)) = (boxes.get(*e), globals.get(*e)) {
-            let c = g.transform_point(Vec3::from(b.center));
-            let s = g.compute_transform().scale.abs().max_element();
-            spheres.push((c, Vec3::from(b.half_extents).length() * s));
         }
     }
-    let own = globals.get(tree.get(at)?.0).ok()?.translation();
-    let (centre, radius) = if spheres.is_empty() {
-        (own, 0.0)
-    } else {
-        let (lo, hi) = spheres.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(lo, hi), (c, r)| (lo.min(*c - *r), hi.max(*c + *r)));
-        let mid = (lo + hi) / 2.0;
-        (mid, spheres.iter().map(|(c, r)| c.distance(mid) + r).fold(0.0, f32::max))
-    };
-    let g = nvf_play::space::to_game(centre);
-    Some([g[0], g[1], g[2], radius])
+    tree.iter()
+        .enumerate()
+        .map(|(at, &(e, _))| {
+            let own = globals.get(e).ok()?.translation();
+            let spheres = &buckets[at];
+            let (centre, radius) = if spheres.is_empty() {
+                (own, 0.0)
+            } else {
+                let (lo, hi) = spheres.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(lo, hi), (c, r)| (lo.min(*c - *r), hi.max(*c + *r)));
+                let mid = (lo + hi) / 2.0;
+                (mid, spheres.iter().map(|(c, r)| c.distance(mid) + r).fold(0.0, f32::max))
+            };
+            let g = nvf_play::space::to_game(centre);
+            Some([g[0], g[1], g[2], radius])
+        })
+        .collect()
 }
 
 /// What the mirror reads beside the nodes: their places in the world and boxes (bounds),
@@ -636,6 +692,48 @@ pub(crate) fn root_of(r: u32, view: ModelView, rigs: &Rigs, visuals: &Visuals) -
     }
     if r == FormId::PLAYER_REF.0 { return None; }
     visuals.iter().filter(|(_, v, _)| v.0 == r).find(|(_, _, p)| p.is_none_or(|p| visuals.get(p.parent()).map_or(true, |(_, v, _)| v.0 != r))).map(|(e, _, _)| e)
+}
+
+/// Zero-clone view of an actor's skeleton node names for per-frame mirror walks [design].
+#[derive(Default)]
+struct RigNamesRef<'a> {
+    root: Option<Entity>,
+    names: HashMap<Entity, &'a str>,
+}
+
+fn walk_ref(root: Entity, nodes: &NodeQuery, rig: &RigNamesRef<'_>) -> Vec<(Entity, Option<usize>)> {
+    let mut out = Vec::new();
+    let mut stack: Vec<(Entity, Option<usize>)> = Vec::new();
+    let top = if rig.root == Some(root) {
+        out.push((root, None));
+        Some(0)
+    } else {
+        None
+    };
+    if let Ok((_, _, Some(ch), _, _, _)) = nodes.get(root) {
+        stack.extend(ch.iter().rev().map(|c| (c, top)));
+    }
+    while let Some((e, parent)) = stack.pop() {
+        let at = out.len();
+        out.push((e, parent));
+        if let Ok((_, _, Some(ch), _, _, _)) = nodes.get(e) {
+            stack.extend(ch.iter().rev().map(|c| (c, Some(at))));
+        }
+    }
+    out
+}
+
+fn name_of_ref<'a>(e: Entity, nodes: &'a NodeQuery, rig: &RigNamesRef<'a>) -> &'a str {
+    let node = nodes.get(e).ok();
+    if let Some(name) = node.as_ref().filter(|n| n.4).and_then(|n| n.0) {
+        return name.as_str();
+    }
+    if rig.root == Some(e) {
+        if let Some(&n) = rig.names.get(&e) {
+            return n;
+        }
+    }
+    node.and_then(|n| n.0.map(|n| n.as_str())).or_else(|| rig.names.get(&e).copied()).unwrap_or("")
 }
 
 /// The node entities under `root`, depth first, with their parent's index; an actor's
@@ -942,6 +1040,20 @@ impl<'a> MirrorIndex<'a> {
             .unwrap_or_default()
     }
 
+    fn rig_names_ref(&self, r: u32, view: ModelView) -> RigNamesRef<'_> {
+        self.rig_of(r, view)
+            .map(|(root, a)| {
+                let mut names = HashMap::with_capacity(a.nodes.len());
+                for (e, n) in a.nodes.iter().zip(&a.skel.names) {
+                    if let Some(n) = n.as_deref() {
+                        names.insert(*e, n);
+                    }
+                }
+                RigNamesRef { root: Some(root), names }
+            })
+            .unwrap_or_default()
+    }
+
     fn drawn_flat(&self, r: u32) -> Option<&str> {
         self.flat_by_ref.get(&r).map(String::as_str)
     }
@@ -980,6 +1092,51 @@ fn drawn_flat(r: u32, (roots, nested): &Dropped) -> Option<String> {
 /// The shapes' meshes, for SUP's NifBlockGetVerticles.
 type Shapes<'w, 's> = (Query<'w, 's, &'static Mesh3d>, Option<Res<'w, Assets<Mesh>>>);
 
+type ChangedNodes<'w, 's> = Query<
+    'w,
+    's,
+    (),
+    Or<(
+        Changed<Children>,
+        Changed<NifHidden>,
+        Changed<Name>,
+        Changed<RenamedNifNode>,
+        Changed<crate::nif_attachments::AttachedNode>,
+        Changed<GlobalTransform>,
+        Changed<Aabb>,
+    )>,
+>;
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct RemovedNodes<'w, 's> {
+    hidden: RemovedComponents<'w, 's, NifHidden>,
+    children: RemovedComponents<'w, 's, Children>,
+    attached: RemovedComponents<'w, 's, crate::nif_attachments::AttachedNode>,
+    aabb: RemovedComponents<'w, 's, Aabb>,
+    name: RemovedComponents<'w, 's, Name>,
+    renamed: RemovedComponents<'w, 's, RenamedNifNode>,
+}
+
+impl RemovedNodes<'_, '_> {
+    fn drain_into(&mut self, out: &mut HashSet<Entity>) {
+        out.extend(self.hidden.read());
+        out.extend(self.children.read());
+        out.extend(self.attached.read());
+        out.extend(self.aabb.read());
+        out.extend(self.name.read());
+        out.extend(self.renamed.read());
+    }
+
+    fn drain(&mut self) {
+        self.hidden.read().for_each(drop);
+        self.children.read().for_each(drop);
+        self.attached.read().for_each(drop);
+        self.aabb.read().for_each(drop);
+        self.name.read().for_each(drop);
+        self.renamed.read().for_each(drop);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn mirror(
     mut script: Option<ResMut<ScriptState>>,
@@ -988,6 +1145,8 @@ fn mirror(
     mut visual_changes: VisualChanges,
     parents: Query<&ChildOf>,
     nodes: NodeQuery,
+    changed_nodes: ChangedNodes,
+    mut removed_nodes: RemovedNodes,
     commands: Commands,
     mut mem: Local<Memory>,
     materials: Materials,
@@ -997,6 +1156,9 @@ fn mirror(
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
         mem.visual_cache.suspend(&mut visual_changes);
+        removed_nodes.drain();
+        mem.published_models.clear();
+        mem.flat_published.clear();
         return;
     };
     mirror_game_impl(
@@ -1005,6 +1167,8 @@ fn mirror(
         visuals,
         parents,
         nodes,
+        Some(&changed_nodes),
+        Some(&mut removed_nodes),
         commands,
         &mut mem,
         materials,
@@ -1017,7 +1181,8 @@ fn mirror(
 
 /// The real mirror producer, separated from ScriptState acquisition so authored
 /// CPU controls can exercise the PlayerBody-to-script-to-ECS pipeline without a
-/// game-data loader or renderer. This is also the production mirror's implementation.
+/// game-data loader or renderer.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(not(test), allow(dead_code))]
 fn mirror_game(
@@ -1033,7 +1198,7 @@ fn mirror_game(
     extra: Extra,
     dropped: Dropped,
 ) {
-    mirror_game_impl(game, rigs, visuals, parents, nodes, commands, mem, materials, shapes, extra, dropped, None);
+    mirror_game_impl(game, rigs, visuals, parents, nodes, None, None, commands, mem, materials, shapes, extra, dropped, None);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1043,6 +1208,8 @@ fn mirror_game_impl(
     visuals: Visuals,
     parents: Query<&ChildOf>,
     mut nodes: NodeQuery,
+    changed_nodes: Option<&ChangedNodes>,
+    removed_nodes: Option<&mut RemovedNodes>,
     mut commands: Commands,
     mem: &mut Memory,
     (data, drawn, mut assets): Materials,
@@ -1051,9 +1218,43 @@ fn mirror_game_impl(
     dropped: Dropped,
     visual_changes: Option<&mut VisualChanges>,
 ) {
-    let Memory { logged, held, bound_held, pending_held, edit_order, tables, materials, alpha_props, stencil_props, owned, attachment_materials, attachment_alpha, attachment_stencil, props, files, visual_cache } = mem;
+    let Memory {
+        logged,
+        held,
+        bound_held,
+        pending_held,
+        edit_order,
+        tables,
+        materials,
+        alpha_props,
+        stencil_props,
+        owned,
+        attachment_materials,
+        attachment_alpha,
+        attachment_stencil,
+        props,
+        files,
+        visual_cache,
+        flat_revision,
+        flat_published,
+        bounds_scratch,
+        published_models,
+    } = mem;
     game.scene.use_separate_player_models();
     let edits = game.scene.take_targeted_edits();
+    let mut dirty_refs: HashSet<u32> = HashSet::with_capacity(edits.len());
+    for queued in &edits {
+        if let Some(r) = edit_ref(&queued.edit) {
+            dirty_refs.insert(r.0);
+        }
+    }
+    dirty_refs.extend(held.keys().map(|(r, _, _)| *r));
+    dirty_refs.extend(pending_held.keys().map(|(r, _, _)| *r));
+    dirty_refs.extend(bound_held.keys().map(|(r, _, _)| *r));
+    let mut removed_entities: HashSet<Entity> = HashSet::new();
+    if let Some(removed) = removed_nodes {
+        removed.drain_into(&mut removed_entities);
+    }
     // Collect watched refs and wanted vertices upfront so a single per-frame pass
     // indexes rigs, flat drops, and RefVisual roots for every ref touched this frame.
     let mut watched: Vec<FormId> = game.scene.watched().collect();
@@ -1100,7 +1301,11 @@ fn mirror_game_impl(
         // transforms are remembered even when no RefVisual root can be resolved,
         // and non-transforms still reach the original name-based handlers below.
         if queued.target == SceneTarget::Legacy && index.drawn_flat(r.0).is_some() {
-            if !remember_transform(view, &edit, held) { edits_rest.push((view, edit, None)); }
+            if remember_transform(view, &edit, held) {
+                *flat_revision = flat_revision.wrapping_add(1);
+            } else {
+                edits_rest.push((view, edit, None));
+            }
             continue;
         }
         // Never wrap chronology and let an old entity request beat a later one.
@@ -1189,6 +1394,7 @@ fn mirror_game_impl(
                     commands.entity(entity).insert((Name::new(to.clone()), RenamedNifNode));
                     if let Some(value) = held.remove(&(r.0, view, node)) {
                         held.insert((r.0, view, to), value);
+                        *flat_revision = flat_revision.wrapping_add(1);
                     }
                 }
             }
@@ -1197,7 +1403,9 @@ fn mirror_game_impl(
                     commands.entity(entity).despawn();
                     bound_held.retain(|(reference, model, identity), _| !(*reference == r.0 && *model == view && identity.node == entity.to_bits()));
                 }
-                held.remove(&(r.0, view, node));
+                if held.remove(&(r.0, view, node)).is_some() {
+                    *flat_revision = flat_revision.wrapping_add(1);
+                }
             }
             SceneEdit::Insert { name, as_parent, .. } => {
                 let Some(t) = entity else { continue };
@@ -1278,6 +1486,7 @@ fn mirror_game_impl(
                     let Some(&start) = table.get(&node).or_else(|| table.get(&base)) else { continue };
                     let vals = materials.entry((r.0, view, node.clone())).or_insert(start);
                     vals[id] = v;
+                    *flat_revision = flat_revision.wrapping_add(1);
                     *vals
                 };
                 let Some(e) = entity else { continue };
@@ -1399,8 +1608,14 @@ fn mirror_game_impl(
     // set's first reads of the player, of Doc's copy and of the pistol, #2132]. Any other
     // reference is told from the frame after a script first asks about it. A game whose
     // scripts never use them walks no tree here.
+    let placed_particle_refs: HashSet<u32> = particles.as_deref().map(crate::particles::placed_ref_set).unwrap_or_default();
     for r in watched {
         if let Some(model) = index.drawn_flat(r.0) {
+            if flat_published.get(&r.0).is_some_and(|(m, rev)| m == model && *rev == *flat_revision)
+                && game.scene.has_tree(r, ModelView::Reference)
+            {
+                continue;
+            }
             let Some(d) = data.as_deref() else { continue };
             let file = files.entry(model.to_string()).or_insert_with(|| file_tree(d, model));
             let table = tables.entry(model.to_string()).or_insert_with(|| material_table(d, model));
@@ -1409,8 +1624,10 @@ fn mirror_game_impl(
                 info!("nif mirror: {:08X} told from its model file {model:?} (drawn flat), {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
             game.scene.set_tree(r, tree);
+            flat_published.insert(r.0, (model.to_string(), *flat_revision));
             continue;
         }
+        flat_published.remove(&r.0);
         let views: &[ModelView] = if r == FormId::PLAYER_REF {
             &[ModelView::ThirdPerson, ModelView::FirstPerson]
         } else { &[ModelView::Reference] };
@@ -1419,49 +1636,16 @@ fn mirror_game_impl(
                 if logged.insert(r.0) {
                     info!("nif mirror: {:08X} watched, not drawn", r.0);
                 }
+                published_models.remove(&(r.0, view));
                 game.scene.forget_model(r, view);
                 continue;
             };
             // A rig resource can outlive the root's drawable Transform query.
             // Observing that absence must not publish authority for a later node.
             if nodes.get(root).is_err() {
+                published_models.remove(&(r.0, view));
                 game.scene.forget_model(r, view);
                 continue;
-            }
-            let rig = index.rig_names(r.0, view);
-            let mut seen: HashMap<String, u32> = HashMap::new();
-            // Per-view cache keys do not establish per-view file ownership. Until
-            // the first-person model's actual shape source is supplied, metadata
-            // from MODL/placed systems of the reference is unavailable for that rig.
-            let model = if view == ModelView::FirstPerson { None }
-                else { fnv_game::nif_blocks::model_of(game, r) };
-            if let (Some(d), Some(model)) = (data.as_deref(), model.as_deref()) {
-                if !tables.contains_key(model) {
-                    tables.insert(model.to_string(), material_table(d, model));
-                }
-                if !props.contains_key(model) {
-                    props.insert(model.to_string(), property_table(d, model));
-                }
-            }
-            let table = model.as_deref().and_then(|m| tables.get(m));
-            let prop_table = model.as_deref().and_then(|m| props.get(m));
-            let systems: Vec<(String, Option<String>, [f32; 21])> = if view == ModelView::FirstPerson { Vec::new() } else { particles
-                .as_deref_mut()
-                .map(|p| crate::particles::placed_systems(p, r.0).into_iter().map(|d| (d.name.clone(), d.emitter.object.clone(), crate::particles::script_values(d))).collect())
-                .unwrap_or_default() };
-            let walked = walk(root, &nodes, &rig);
-            let mut attached_emitters: HashMap<Entity, Vec<EmitterSummary>> = HashMap::new();
-            if let Some(p) = particles.as_deref_mut() {
-                for &(e, _) in &walked {
-                    if let Some(owner) = nodes.get(e).ok().and_then(|n| n.5).and_then(|a| a.emitter_owner) {
-                        attached_emitters.entry(owner).or_insert_with(|| {
-                            crate::particles::instance_systems(p, owner)
-                                .into_iter()
-                                .map(|d| (d.name.clone(), d.emitter.object.clone(), crate::particles::script_values(d)))
-                                .collect()
-                        });
-                    }
-                }
             }
             // A player rig's root is told in the reference's own frame (its position and
             // angles), as the world positions compose it back (`fnv_game::nif_blocks::
@@ -1475,17 +1659,77 @@ fn mirror_game_impl(
                 let rr = Quat::from_euler(EulerRot::ZYX, ra[2], ra[1], ra[0]);
                 Transform { translation: rr.inverse() * (p.translation - Vec3::from(rp)), rotation: rr.inverse() * p.rotation, scale: p.scale }
             });
+            let rig = index.rig_names_ref(r.0, view);
+            let walked = walk_ref(root, &nodes, &rig);
+            // Fast path: when no edits/holds touched `r`, no particle systems live on `r`,
+            // the same root/root_told/node-count/data-availability were already published to
+            // `game.scene`, and no node in the subtree changed Transform/GlobalTransform/Aabb/
+            // Children/Hidden/Name/AttachedNode (or had those components removed) this frame,
+            // keep the previously published `SceneNode` tree intact [design].
+            let has_placed_particles = view != ModelView::FirstPerson && placed_particle_refs.contains(&r.0);
+            let publish_key = PublishedModelKey {
+                root,
+                root_told,
+                node_count: walked.len(),
+                has_data: data.is_some(),
+                has_placed_particles,
+            };
+            let can_skip = changed_nodes.is_some_and(|changed| {
+                !has_placed_particles
+                    && !dirty_refs.contains(&r.0)
+                    && published_models.get(&(r.0, view)) == Some(&publish_key)
+                    && game.scene.has_tree(r, view)
+                    && !walked.iter().any(|&(e, _)| {
+                        changed.contains(e)
+                            || removed_entities.contains(&e)
+                            || nodes.get_mut(e).ok().is_some_and(|n| {
+                                n.1.is_changed() || n.5.and_then(|a| a.emitter_owner).is_some()
+                            })
+                    })
+            });
+            if can_skip {
+                continue;
+            }
+            // Per-view cache keys do not establish per-view file ownership. Until
+            // the first-person model's actual shape source is supplied, metadata
+            // from MODL/placed systems of the reference is unavailable for that rig.
+            let model = if view == ModelView::FirstPerson { None }
+                else { fnv_game::nif_blocks::model_of(game, r) };
+            if let (Some(d), Some(m)) = (data.as_deref(), model.as_deref()) {
+                tables.entry(m.to_string()).or_insert_with(|| material_table(d, m));
+                props.entry(m.to_string()).or_insert_with(|| property_table(d, m));
+            }
+            let table = model.as_deref().and_then(|m| tables.get(m));
+            let prop_table = model.as_deref().and_then(|m| props.get(m));
+            let systems: Vec<(String, Option<String>, [f32; 21])> = if !has_placed_particles { Vec::new() } else { particles
+                .as_deref_mut()
+                .map(|p| crate::particles::placed_systems(p, r.0).into_iter().map(|d| (d.name.clone(), d.emitter.object.clone(), crate::particles::script_values(d))).collect())
+                .unwrap_or_default() };
+            let bounds = compute_node_bounds(&walked, &globals, &boxes, bounds_scratch);
+            let mut attached_emitters: HashMap<Entity, Vec<EmitterSummary>> = HashMap::new();
+            if let Some(p) = particles.as_deref_mut() {
+                for &(e, _) in &walked {
+                    if let Some(owner) = nodes.get(e).ok().and_then(|n| n.5).and_then(|a| a.emitter_owner) {
+                        attached_emitters.entry(owner).or_insert_with(|| {
+                            crate::particles::instance_systems(p, owner)
+                                .into_iter()
+                                .map(|d| (d.name.clone(), d.emitter.object.clone(), crate::particles::script_values(d)))
+                                .collect()
+                        });
+                    }
+                }
+            }
+            let mut seen: HashMap<CiStr<'_>, u32> = HashMap::with_capacity(walked.len());
             let tree: Vec<SceneNode> = walked
                 .iter()
                 .enumerate()
-                .map(|(k, &(e, parent))| (k, e, parent))
-                .filter_map(|(k, e, parent)| {
-                    let base = name_of(e, &nodes, &rig);
+                .filter_map(|(k, &(e, parent))| {
+                    let base = name_of_ref(e, &nodes, &rig);
                     let (_, t, _, hidden, _, attached) = nodes.get(e).ok()?;
                     let t = root_told.filter(|_| k == 0 && rig.root == Some(e)).unwrap_or(*t);
                     // A name seen before gets ":0", ":1" … [observed: "Object", "Object:0"].
-                    let n = seen.entry(base.to_ascii_lowercase()).or_insert(0);
-                    let shown = if *n == 0 { base.clone() } else { format!("{base}:{}", *n - 1) };
+                    let n = seen.entry(CiStr(base)).or_insert(0);
+                    let shown = if *n == 0 { base.to_string() } else { format!("{base}:{}", *n - 1) };
                     *n += 1;
                     // Told in the scripts' angles: the drawn rotation's inverse (`apply_value`).
                     let (z, y, x) = t.rotation.inverse().to_euler(EulerRot::ZYX);
@@ -1495,7 +1739,7 @@ fn mirror_game_impl(
                             (!materials.is_empty())
                                 .then(|| materials.get(&(r.0, view, shown.clone())))
                                 .flatten()
-                                .or_else(|| table.and_then(|t| t.get(&base)))
+                                .or_else(|| table.and_then(|t| t.get(base)))
                                 .copied()
                         };
                     let (alpha, stencil) = if let Some(attached) = attached {
@@ -1504,7 +1748,7 @@ fn mirror_game_impl(
                             attachment_stencil.get(&e).copied().or(attached.source.stencil),
                         )
                     } else {
-                        let (base_alpha, base_stencil) = prop_table.and_then(|p| p.get(&base)).copied().unwrap_or_default();
+                        let (base_alpha, base_stencil) = prop_table.and_then(|p| p.get(base)).copied().unwrap_or_default();
                         (
                             (!alpha_props.is_empty()).then(|| alpha_props.get(&(r.0, view, shown.clone())).copied()).flatten().or(base_alpha),
                             (!stencil_props.is_empty()).then(|| stencil_props.get(&(r.0, view, shown.clone())).copied()).flatten().or(base_stencil),
@@ -1513,11 +1757,11 @@ fn mirror_game_impl(
                     let emitter = if let Some(attached) = attached {
                         attached.emitter_owner
                             .and_then(|owner| attached_emitters.get(&owner))
-                            .and_then(|list| list.iter().find(|(n, o, _)| n.eq_ignore_ascii_case(&base) || o.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(&base))).map(|s| s.2))
+                            .and_then(|list| list.iter().find(|(n, o, _)| n.eq_ignore_ascii_case(base) || o.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(base))).map(|s| s.2))
                     } else {
-                        systems.iter().find(|(n, o, _)| n.eq_ignore_ascii_case(&base) || o.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(&base))).map(|s| s.2)
+                        systems.iter().find(|(n, o, _)| n.eq_ignore_ascii_case(base) || o.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(base))).map(|s| s.2)
                     };
-                    let info = NodeInfo { identity: Some(SceneIdentity { model: root.to_bits(), node: e.to_bits() }), bound: node_bound(k, &walked, &globals, &boxes), emitter, alpha, stencil };
+                    let info = NodeInfo { identity: Some(SceneIdentity { model: root.to_bits(), node: e.to_bits() }), bound: bounds[k], emitter, alpha, stencil };
                     Some(SceneNode {
                         name: shown,
                         parent,
@@ -1542,6 +1786,7 @@ fn mirror_game_impl(
                     if logged.insert(r.0 ^ 0x2000_0000) {
                         info!("nif mirror: {:08X} drawn without node names: told from its model file {model:?}, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
                     }
+                    published_models.remove(&(r.0, view));
                     game.scene.set_tree(r, tree);
                     continue;
                 }
@@ -1550,6 +1795,11 @@ fn mirror_game_impl(
                 info!("nif mirror: {:08X} told, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
             game.scene.set_identified_model_for(r, view, root.to_bits(), tree);
+            if has_placed_particles {
+                published_models.remove(&(r.0, view));
+            } else {
+                published_models.insert((r.0, view), publish_key);
+            }
         }
     }
     // The vertices of the shapes scripts asked about (SUP's NifBlockGetVerticles), in the
@@ -1575,6 +1825,10 @@ fn mirror_game_impl(
 #[cfg(test)]
 #[path = "nif_mirror/player_models_tests.rs"]
 mod player_models_tests;
+
+#[cfg(test)]
+#[path = "nif_mirror/bounds_and_cache_tests.rs"]
+mod bounds_and_cache_tests;
 
 #[cfg(test)]
 #[path = "nif_attachments/tests.rs"]
