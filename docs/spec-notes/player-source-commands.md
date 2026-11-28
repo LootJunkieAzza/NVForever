@@ -164,3 +164,7 @@ implementation evidence, not an original-game observation or native bytecode gol
 Other game-log warnings remain; zero errors here describes the query result.
 Optimized release and performance qualification, native parameter encoding, profile
 and whole-mod acceptance remain unmeasured.
+
+### Wave 6D-5 observation: `RemoveReputationExact` limits, `axis=2`, and explicit receivers
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe in `tools/capture/nvse/catalogs/wave6d5_promote_observed.json`; zero DLL, PDB, or third-party source consulted (JIP LN NVSE 57.30), `w6d5_25_player_source_remove_rep_exact_edges`] `RemoveReputationExact` subtracts fractional amounts (`5.5 -> 4.25`), treats `0` as no-op (`4.25`), adds on negative amounts (`-2.0 -> 6.25`), clamps floor at `0.00`, subtracts above scale (`20.0 - 1.5 -> 18.50`), aborts on invalid `axis=2` (`ax2=0`), and accepts explicit NPC/null receivers (`doc=1:5.00, null=1:4.00`): `PROBE|w6d5_25_player_source_remove_rep_exact_edges|vals(sub=4.25,z=4.25,neg=6.25,flr=0.00,abv=18.50)|ax2=0|rcvr(doc=1:5.00,null=1:4.00)`.

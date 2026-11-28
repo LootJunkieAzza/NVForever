@@ -93,3 +93,12 @@ weapon-data-fields.md §3; NVForever applies both.
   (issue #3219). Melee, unarmed, explosions, sneak attacks, limbs other than the head and
   perks on either side were not in the matrix; `hit` keeps its earlier rules for them, and
   `blast_hit` (explosions) is unchanged.
+- **Uncapped `GetAV` resistance stacking**: `GetAV` reports stacked resistance totals above 85 and 100 without clamping (`drHi=105,dt=100,rr=165,fr=142,el=120,emp=120`) — using `ModAV` on `DamageResist`, `DamageThreshold`, `ElectricResist`, and `EMPResist` (combined with `AddSpell`/`EquipItem` for `DamageResist` and `DamageThreshold`), and `AddSpell` + `EquipItem` (`RadX`, `AntNectar`, `AtomicCocktail`) for `RadResist` (`165`) and `FireResist` (`142`) — confirming combat caps apply during damage calculation rather than clamping the actor value itself [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_40_resistance_stacking_and_caps_dr_dt_rad_fire_poison_emp` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `base(end=5,pr=20,rr=8,dr0=0)|cap(drS=75,drHi=105,dt=100,rr=165,fr=142,pr=20,el=120,emp=120)`; no DLL or source consulted].
+
+### Wave 6D-6 `EnergyResist` + `DamageResist` multiplicative stacking [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6_01_energy_fire_emp_resist_and_dr`]: On Hard difficulty (`0.75x`), a Laser Rifle (`base=22`) hit deals `16.500`, `EnergyResist=50` halves it to `8.250`, `DamageResist=30` scales it to `11.550`, and both together multiply to `5.775 = 16.5 * 0.5 * 0.7`:
+
+```text
+PROBE|w6d6_01_energy_fire_emp_resist_and_dr|n=4|base=22.000|h(0,0)=16.500|h(er50,0)=8.250|h(0,dr30)=11.550|h(er50,dr30)=5.775
+```

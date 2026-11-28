@@ -43,7 +43,7 @@ script added has no conditions, and one from the record keeps its record's [hypo
 | RemoveScriptVariable, HasVariableAdded `"name" [quest]` | the added variable goes (its value too), whether it was added [documented] |
 | RemoveAllAddedVariables `[quest]` | every variable added to that script [documented] |
 | ClearJIPSavedData `scriptVars linkedRefs auxVars refMaps` | the added variables, SetLinkedReference's links, the calling mod's (1) or the public (2) permanent auxiliary variables and RefMaps [documented]. NVForever does not keep which mod added a variable or a link, so 1 clears them all [hypothesis] |
-| SetScriptDisabled, GetScriptDisabled `scriptOrList [disable]` | no block of the script runs; its variables still read and set [documented] |
+| SetScriptDisabled, GetScriptDisabled `scriptOrList [disable]` | no block of the script runs; its variables still read and set [documented; observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only probe; zero writes to game install or Saves), `w6d2_40_script_disabled_events_and_children` (`tools/capture/nvse/catalogs/wave6d2_jip_lutana_observed.json`): `PROBE\|w6d2_40_script_disabled_events_and_children\|sd=0->1\|ev=0->1,1\|ch=-1/-1\|mm=0,1,0\|wd=0->1,dr=0`; zero DLL, PDB, or third-party source consulted] |
 | SetScriptEventDisabled, GetScriptEventDisabled `formOrList "events" [disable]` | the event blocks named (space-separated) do not run, for a reference or every reference of a base form, or a list's forms [documented] |
 | FakeScriptEvent `"event" [filter]` | the reference's (or inventory reference's) block of that event runs with the filter as its object, a block switched off too; not OnActivate, not a quest's [documented]; 1 when a block ran |
 
@@ -90,3 +90,7 @@ The observer session ran set `jip10` on the probe save (nvfairport); lab `L5.ext
 Rows that read the save's own state (GetQuests, GetActiveObjectives, GetQuestObjectives on
 VMS01, the player's perks) cannot match a candidate that starts from the records alone; they
 show the elements are quest forms and objective indices as numbers, which NVForever gives.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Quest script variables fractional storage & case-insensitivity (`HasVariable` / `SetVariable`)** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_09_quest_script_variables_and_hasvariable`: `PROBE|w6d9_09_quest_script_variables_and_hasvariable|has(1,1,no=0,bad=0)|orig=0.00,set275=2.75,rest=0.00|missRef=0`]: confirms `HasVariable` is case-insensitive (`has(1,1,no=0,bad=0)`) and `SetVariable` stores fractional `2.75` verbatim even on a `short` quest variable.

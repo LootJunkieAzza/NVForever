@@ -296,3 +296,6 @@ them.
 - Thrown explosives that are hit going off: held explosives are not hit-tested.
 - Over-encumbered speed (the notes compare the legs with it): no carry weight rule
   slows the player yet.
+
+### Wave 6D-7 Live Observation (2026-11-25)
+- **Player head cripple & `PlayerConcussed`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging, catalog `tools/capture/nvse/catalogs/wave6d7_actors_avs_aid_slots_observed.json`, probe `w6d7_20_head_cripple_effect_and_player_concussed`]: crippling the player's head activates `PlayerConcussed` and drops `Perception` while `HeadCrippleEffect` stays absent on the player (`conc(0->0->0)|head(0->0->0)|pconc(0->1->1)|per(5.0->1.0->1.0)`).

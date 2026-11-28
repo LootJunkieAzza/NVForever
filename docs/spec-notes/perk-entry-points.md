@@ -503,3 +503,19 @@ condition, if any, is the record's (not looked at beyond its entry).
 
 Checks: `fnv-game` `aid::tests::better_healing_multiplies_restored_health_only` (the
 captured figures); smoke `perk-better-healing`.
+
+### Wave 6D-6 perk entry points, abilities, teammate alt-ranks, and weight perks [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6p2_03_dt_ammo_mod_and_perk_order`, `w6d6_12_perk_mod_ep0_weapon_target_tabs`, `w6d6_16_perk_mod_combat_utility_eps`, `w6d6p2_17_teammate_npc_and_alt_rank`, `w6d6_19_weight_perks_packrat_heavyweight_hoarder`, `w6d6p2_22_perk_abilities_settled`]:
+  - Hollow Point ammo (`x1.75` damage, `x3` DT) against `DT=5` yields `(38.5 - 15) * 0.75 = 17.625`.
+  - EP 0 weapon + target tab stacking: `ConfirmedBachelor` (`x1.1`) * `Cowboy` (`x1.25`) = `137.50`; omitted target returns base `100.00`.
+  - 13 combat/utility EPs (`6, 22, 36, 37, 38, 40, 43, 53, 54, 57, 59, 72, 73`), weight perks (`PackRat` `2.00 -> 0.50`, `Heavyweight` `12.00 -> 6.00`, `Hoarder` CarryWeight `200 -> 190`), settled abilities (`Finesse +5`, `BuiltToDestroy +3`, `SmallFrame +1 AGI`, `ActionBoy +15/+30 AP`, `Toughness` leaves DT AV `0`), and teammate alt-ranks (`alt=1, all1=1`; NPC `AddPerk` no-op `has=0, rk=0`):
+
+```text
+PROBE|w6d6p2_03_dt_ammo_mod_and_perk_order|std=12.750|hp=17.625|hpTgh=17.625|sgNoSrg=17.625|sgSrg=17.625
+PROBE|w6d6_12_perk_mod_ep0_weapon_target_tabs|noArg=100.00|rev=100.00|las=100.00|flm=100.00|10M=110.00|10F=110.00|revM=137.50
+PROBE|w6d6_16_perk_mod_combat_utility_eps|e6=100.00|e22=125.0|e36=100.0|e37=1.25|e38=1.50|e40=18.0|e43=1.30|e53=2.0|e54=1.0|e57=2.0|e59=1.50|e72=125.0|e73=6.0
+PROBE|w6d6p2_17_teammate_npc_and_alt_rank|p(alt=1,rk=0,all1=1)|tm(0=0.0,1=0.0,nAlt=0)|npcBm(pm=100.00,rk=0,has=0,all0=-1)
+PROBE|w6d6_19_weight_perks_packrat_heavyweight_hoarder|cw(0,hrd)=200.0,190.0|kn2(0,pr)=2.00,0.50|sl(0,hw)=12.00,6.00|sl+amr(hw)=16.00
+PROBE|w6d6p2_22_perk_abilities_settled|cc(0,fin+btd)=5.0,13.0|ag(0,sf)=5.0,6.0|ap(0,ab1,ab2)=80.0,98.0,113.0|dt(0,t1,t2)=0.0,0.0,0.0
+```

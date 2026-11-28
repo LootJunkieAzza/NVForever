@@ -46,3 +46,7 @@ Part of #2271.
   original engine immediately toggles an already-loaded door/container's live
   visual open state on `SetDefaultOpen`, and original-game behavior on non-door /
   non-container references remain uncaptured.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **`GetOpenState` / `SetOpenState` & `GetDefaultOpen` / `SetDefaultOpen`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_27_door_openstate_defaultopen_and_actor_openstate`: `PROBE|w6d9_27_door_openstate_defaultopen_and_actor_openstate|init(3,3,3,3,0)|def(0->1->0)|open(t0=2,t3=2,cls=2)`]: confirms initial `GetOpenState` is `3` (Closed) for doors, load doors, containers, and activators and `0` for actors (`init(3,3,3,3,0)`), `GetDefaultOpen`/`SetDefaultOpen` toggles `0 -> 1 -> 0`, and `SetOpenState 1` transitions a door into `2` (Opening).

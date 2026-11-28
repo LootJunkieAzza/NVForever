@@ -84,6 +84,17 @@ with cycle detection, invalid sector shifts are rejected, and `Book::parse` retu
 A file written this session only (no write root: a headless run) has its size but no
 times.
 
+### 3.1 Wave 6D-4 clean-room `[observed]` confirmations
+
+Confirmed `GetFileSize` (`gt0=1,miss=-1`), `GetFileTime` existing vs missing (`ok=5,miss=0`),
+`GetFileTimeSTR` 17-char format, and `JSONIsFileValid` error codes (`-6` non-`.json`, `-4`
+missing, `-5` outside game folder) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted, SUP NVSE 855 [observed: probes
+`w6d4_30_sup5_file_meta_and_env_readonly`:
+`PROBE|w6d4_30_sup5_file_meta_and_env_readonly|fsize(gt0=1,miss=-1)|ftime(ok=5,bad=5,miss=0,s0Len=17,s1Len=17)|proc(1,0)|langLen=5,fontsGt0=1`
+and `w6d4p5_25_sup_json_valid_and_array`:
+`PROBE|w6d4p5_25_sup_json_valid_and_array|c(A=-3/0,B=-3/0,len=0,cl0=-6/0,cl1=-6/0)|t(-4,-4,-4,-4,-4,-4,-4)|p(d=1,s=1)|va(a=1[none],o=1[Array],n=1[Array],s=1)|val(-6,-4,-5)`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`)].
+
 ## 4. Screenshots and QR codes
 
 | Function | NVForever |

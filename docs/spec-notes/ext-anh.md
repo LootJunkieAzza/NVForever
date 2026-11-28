@@ -14,6 +14,7 @@ deliberate crash-avoidance fallbacks are marked `[design]`.
 |---|---|
 | Ar_Max, Ar_Min, Ar_RangeMath `array` | the largest, the smallest and their difference of the array's numbers; other elements left out [documented: "*numeric*" values; observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 with the 10 official base masters, clean-room script probe `anh_01_ar_max_min_range_empty` (`Ar_Max`/`Ar_Min`/`Ar_RangeMath`): `[6,2,10,7]` -> `10.00, 2.00, 8.00`; empty or string-only arrays crash AnhNVSE 131 with `0xC0000005`; no DLL or source consulted]; NVForever safely returns 0 when the array has no numbers [design] |
 | DegToRad, RadToDeg `angle` | [documented] |
+| Sinh, Cosh, Tanh `x` | standard hyperbolic functions (`Sinh 1 = 1.1752`, `Cosh 1 = 1.5431`, `Tanh 1 = 0.7616`) [documented: Sinh; Cosh; Tanh; observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d11_41_log_exp_pow_sqrt_abs_and_anh_hyperbolic` (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`): `hyp(1.1752,1.5431,0.7616)`; no DLL or source consulted] |
 | GetAngleQuadrant `degrees` | 1-4 for an angle in **degrees**, truncated to integer degrees modulo 360 (`[0, 90) -> 1`, `[90, 180) -> 2`, `[180, 270) -> 3`, `[270, 360) -> 4`) [observed: 2026-11-23, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 with the 10 official base masters, clean-room script probe `anh_02_angle_quadrant_edges` (`GetAngleQuadrant`): `0=1, 45=1, 90=2, 135=2, 180=3, 225=3, 270=4, 315=4, -45=4` and radian controls `1.5708, 3.1416, 4.7124, -0.5 -> 1`; no DLL or source consulted] |
 | Sv_Capitalize `text` | the first character upper case [documented: "pepeglare snig" gives "P…"] |
 | Sv_PadStart, Sv_PadEnd `text length pad` | the pad repeated, cut to fit, before or after the text until it is `length` long; a text already as long, or an empty pad, unchanged [documented] |
@@ -52,7 +53,20 @@ xNVSE's own forms (QFromAxisAngle …) are different functions with observed con
 | GetZoneMinLevel, GetZoneMatchLevel, GetZoneOwner `zone` | the ECZN record's minimum level, "Match PC Below Minimum Level" flag and owner [documented] |
 | SetZoneMinLevel `zone level`, SetZoneOwner `zone owner` | round-trips through `GetZoneMinLevel` / `GetZoneOwner`, `GetZoneLevel` on an unentered zone stays `0` after `SetZoneMinLevel 15`, and `SetZoneOwner zone 0` leaves the current owner unchanged [documented: the pages' examples; observed: 2026-11-23 & 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + AnhNVSE 131 with the 10 official base masters, probes `anh_07_zone_level_min_owner` (`0,6,12`), `anh_11_zone_owner_readback` (`Vault11Zone` `000E9081`: `GetZoneOwner` `00000000 -> 000A46E7 -> 00104C6E -> 00104C6E`), and `w4d_29_anh_scancode_table_and_zone` (`tools/capture/nvse/catalogs/wave4d_extenders.json`, #3802): `zone(0->0,docZ=00000000)`; no DLL or source consulted]; session-only lifetime (carried across same-run loads via `WorldSession` / `Game::Session`, not saved) and keeping an already-entered zone's level remain [hypothesis] |
 
+### 3.1 Wave 6D-4 clean-room `[observed]` confirmation
+
+Confirmed `Get/SetArmorArmorRatingAlt` (`0 -> 12`), `GetQuestCompletedAlt` (`0`), and
+`GetZoneMatchLevel` / `GetZoneMinLevel` / `GetZoneOwner` (`0,6,00000000`) in Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (read-only `PrintToConsole` probes; zero writes to game install or Saves); zero DLL, PDB, or third-party source consulted,
+AnhNVSE 131 + JIP LN 57.30 [observed: probe `w6d4p2_40_anh_game_safe`
+(`tools/capture/nvse/catalogs/wave6d4_promote_observed.json`):
+`PROBE|w6d4p2_40_anh_game_safe|ar(0->12)|qc=0|z(m=0,min=6,own=00000000)|a2s(l=[1.0000002.000000],sm=[1.000000])`].
+(`ArrayToString` retains NVForever's documented `[decision]` formatting in `ext-small.md` §1.)
+
 ## 4. The last three (2026-11-01)
 
 ArrayToString (the VM), GetCameraFOV and UpdateTubeMesh (`nvse_small.rs`): ext-small.md
 §1.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **`CompleteQuest`, `FailQuest`, `GetQuestCompleted` vs `GetQuestCompletedAlt`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `AnhNVSE 131` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_01_quest_start_stop_complete_and_alt`: `PROBE|w6d9_01_quest_start_stop_complete_and_alt|init(0,0,0,0)|run=1|comp(1,1,1,0)|stop(0,1)|rst(0,0)|fail(1,1,0,1)`]: confirms `CompleteQuest` leaves `GetQuestRunning == 1` (`comp(1,1,1,0)`), `StopQuest` leaves `GetQuestCompleted == 1` (`stop(0,1)`), `ResetQuest` clears both (`rst(0,0)`), and `FailQuest` sets `GetQuestCompleted == 1` while `AnhNVSE` `GetQuestCompletedAlt` returns `0` (`fail(1,1,0,1)`).

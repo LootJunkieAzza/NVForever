@@ -318,3 +318,7 @@ identity, script key replacement without changing access or level, own-lock
 precedence, save restoration, prompts and navigation. Smoke
 `repconn-load-door-lock` exercises the reported tunnel door; it was written without
 running the game.
+
+## Wave 6D-9 Live Observations (2026-11-25)
+
+- **ActionRef, `SetLinkedReference`, `GetParentCell`/`GetInSameCell`/`IsInInterior`, and disabled actor `Activate`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probes `w6d9_31_activate_actionref_linkedref_parentcell_and_disabled`: `PROBE|w6d9_31_activate_actionref_linkedref_parentcell_and_disabled|act(0,0,hc=0)|lnk(1->0)|par=0|cell(pc=1,s1=1,s0=0,in=1)|disAct(3,1,3)` and `w6d9p2_31_disabled_actor_activate_ticks`: `PROBE|w6d9p2_31_disabled_actor_activate_ticks|dis=1->0|os(3->3->3)`]: confirms `GetActionRef`/`IsActionRef`/`HasActionRef` return `0` outside activation, `SetLinkedReference` sets and 0-arg clears `GetLinkedRef` (`lnk(1->0)`), `GetParentCell`/`GetInSameCell`/`IsInInterior` match, and once `Disable` takes effect (`dis=1` after ticks) a disabled actor cannot activate a door (`os(3->3->3)`).

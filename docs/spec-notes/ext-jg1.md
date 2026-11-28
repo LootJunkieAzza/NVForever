@@ -57,3 +57,7 @@ a 211-plugin mod list. These are his installation observations, separate from th
 eleven-row control above. He also identifies neighboring native registrations
 SetContainerOpenSound 0x2306 and SetContainerCloseSound 0x2308; those setters are outside
 the getter-only change and no setter behavior is inferred from registration alone.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Container respawns, sounds, base items & `Drop` / `DropAlt`** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `JohnnyGuitarNVSE 528`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_34_container_respawns_sounds_baseitems_and_drop`: `PROBE|w6d9_34_container_respawns_sounds_baseitems_and_drop|rsp(1,0->1)|snd(leg=1,set=1,bad=1,rst=1)|base(0->3->0)|drop(g=1,s=2,drpN=-1)`]: confirms `Get/SetContainerRespawns` (`rsp(1,0->1)`), `Get/SetContainerSound` & legacy `OpenSound` reject non-`SOUN` forms (`bad=1`), `BaseAddItem`/`BaseRemoveItem`/`BaseGetItemCount` round-trip `0 -> 3 -> 0`, and `Drop` drops 1 weapon from inventory (`g=1`).

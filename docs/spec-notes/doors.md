@@ -284,3 +284,7 @@ to the player.
   room after a `coc` started from this state: a disabled player [hypothesis: not checked
   against that run's log, which is not in hand]. A save from before this fix loads with
   the player enabled again.
+
+## Wave 6D-9 Live Observation (2026-11-25)
+
+- **Load door teleport getters & `SetDoorTeleport` degrees / omitted coords** [observed 2026-11-25, Fallout: New Vegas 1.4.0.525 (`040020D0`) + `xNVSE 6.4.9`, 10 official base masters, `GSDocMitchellHouse` (`0x00103DF9`), isolated clean-room staging (read-only `PrintToConsole`; zero writes to game install or Saves), catalog `tools/capture/nvse/catalogs/wave6d9_dialogue_quests_containers_barter.json`; no DLL, PDB, or third-party source consulted, probe `w6d9_28_load_door_teleport_coords_cell_and_setteleport`: `PROBE|w6d9_28_load_door_teleport_coords_cell_and_setteleport|ext(is=1,lk=1,c=0,r=72.8)|int(is=1,lk=1,c=1)|set(0->1,lk=1,c=1,xyz=100.5:200.2:300.0)|r=90.00|om(lk=1,x=2430.0)`]: confirms `GetTeleportCell` returns null (`0`) on an exterior-bound load door (`0x00103E61`) and the interior cell (`1`) on an interior-to-interior load door (`0x000840AC`), confirms `GetDoorTeleportRot` returns **degrees** (`r=90.00` after `SetDoorTeleport ... 90.0`), and confirms omitted coordinates default to the target reference's position (`om(lk=1,x=2430.0)`).

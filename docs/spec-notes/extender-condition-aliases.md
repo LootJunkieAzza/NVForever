@@ -66,7 +66,7 @@ hands any condition index the function registry has no entry for to the named
 extender dispatcher (`crate::nvse::call`), trying each name and alias the original's
 opcode table (`schemas/script/command_opcodes.json`) gives `0x1000 + index`. A name
 with no handler goes on to the ordinary unhandled path; a handler's error is reported
-as `CallFailed`; the null-form shortcut still comes first.
+as `CallFailed`; the null-form shortcut still comes first. `IsSpellTargetAlt` matches `IsSpellTarget` on active `SPEL` and `ALCH` effects (`1`), supports `FormList` targets (`fl(0,1)`), and returns `0` for null or inactive targets [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_02_isspelltarget_alt_list_hasmagiceffect_actorhaseffect` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `sp(1,1,1,1)|al(1,1,1,1)|en(0,0,0,0)|fl(0,1)|dres(0,0)|nul(0,0,0)`; no DLL or source consulted].
 
 [design] Parameters: `cond::ParamTypes` gives every extender function of the catalogue
 an entry at its opcode less 0x1000, read from the catalogue's parameter kinds: `int`

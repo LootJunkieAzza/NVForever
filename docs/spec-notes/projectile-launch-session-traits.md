@@ -247,3 +247,11 @@ separate).
   `ProjectileStats::explodes`) without mutating loaded `CombatForms`/`CombatFx` caches or
   touching `DATA/flags`. Engine call-site wiring into `nvf-play` remains a separate
   engine step.
+
+### Wave 6D-6 PROJ traits/flags clone isolation and `SetAmmoProjectile` [observed]
+
+- [observed: Fallout: New Vegas `1.4.0.525` (`040020D0`) + `xNVSE 6.4.9` + `JIP LN NVSE 57.30 (5730)` + `ShowOffNVSE Plugin 184` + `JohnnyGuitarNVSE 528`, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated clean-room staging copy (strictly read-only `PrintToConsole` probes; zero DLL, PDB, or third-party source consulted; `tools/capture/nvse/catalogs/wave6d6_promote_observed.json`), `w6d6_39_proj_traits_flags_and_ammo_proj_fallback`]: Cloned PROJ speed/gravity/flag edits remain isolated from stock (`stSp=27520.0`), out-of-bounds indices (`-1`, `19`) return `0.0`, and `SetAmmoProjectile` sets and clears (`00000000 -> 0008F20A -> 00000000`):
+
+```text
+PROBE|w6d6_39_proj_traits_flags_and_ammo_proj_fallback|tr(sp=27520.0->1234.0,gr=3.00->0.42,rg=10000.0,stSp=27520.0)|oob(-1=0.0,19=0.0)|fl0(1->0,oob=0)|ap(00000000->0008F20A->00000000)
+```

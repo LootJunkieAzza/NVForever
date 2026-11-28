@@ -118,7 +118,7 @@ at once), `fnv_game` (`Game::image_modifiers`, the three script functions),
   `Game::MAX_IMOD_STACK = 64` (evicting the oldest matching entry at capacity so repeated
   re-applies cannot grow unbounded), and draws **one instance per `IMAD` form** (the most
   recently applied entry) in `nvforever::imagespace::screen_effect` so unmodded visuals stay
-  unchanged [design].
+  unchanged [design]. Empty `GetActiveIMODs` returns `ar_Null` (`-1`), mixed animatable + non-animatable stacks preserve exact counts across `RemoveImageSpaceModifier`, and `IsImageSpaceActive` returns `1` while active and `0` for non-IMAD forms or after removal [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_22_imod_mixed_anim_nonanim_stack_and_inactive_remove` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `sz(n0=-1,n1=3,n2=2,n3=-1)|act(a=1,n1=1,n2=1,ca=0,aAfter=0)`; no DLL or source consulted].
 - **A modifier's time passes with the game outside menus and loading screens,
   conversations included** [hypothesis: `Game::tick` ages modifiers where it advances a
   conversation's lines]. Not known: whether an animated modifier goes on behind a
@@ -537,7 +537,7 @@ read as 0–1 alpha the whole screen turned cyan, and with 47–50 all read as 0
 looked correct.
 Fade RGB (51–53) divide by 255 like the getter; NAM3 alpha (54) keeps its normalized
 getter units (unobserved).
-Leave every unassigned component, other effect, sound, duration and track alone.
+Leave every unassigned component, other effect, sound, duration and track alone. `GetImageSpaceModTrait`/`SetImageSpaceModTrait` round-trip trait `0` (`1.00->4.50`) on `TempCloneForm` `IMAD` clones without mutating the original (`orig0=1.00`), while trait `67` stayed `0.00->0.00` and `-1`, `68`, and non-`IMAD` forms read `0.00` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528, 10 official base masters, read-only `PrintToConsole` probe `w6d12_20_imod_animatable_and_imad_traits_0_to_67` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `anim(conc=1,ftb=1,blk=0,cat=0,ca=0|cl=0->1->0,orig=0)|tr(t0=1.00->4.50,t1=0.50,t67=0.00->0.00,m1=0.00,t68=0.00->0.00,ca=0.00,orig0=1.00)`; no DLL or source consulted].
 [engine design choice] Read only bounded fields of active modifiers; do not clone the
 record cache, mutate the load order or scan unrelated forms each frame. Nonfinite values
 (and finite `f64` values that overflow `f32` to infinity) which cannot be represented as
@@ -555,3 +555,8 @@ actual ImageSpaceGrade and ScreenModifiers::hdr output, warm-cache updates, nonf
 and f32-overflow guards, removal, re-entry, lens isolation, missing runtime and fresh
 restore.
 No native, GPU or full installed-mod acceptance follows from CPU controls.
+
+## Wave 6D-10 Live Clean-Room ImageSpace Modifier Lifecycle & Trait Baselines
+
+- **`ApplyImageSpaceModifier` / `RemoveImageSpaceModifier` / `IsImageSpaceActive` / `GetActiveIMODs`:** applying `rIm1` (`054E13`) twice plus `rIm2` (`1736A8`) once yields `ar_Size (GetActiveIMODs) == 3` (`dup(a1=1,a2=1,sz=3)`); a single `RemoveImageSpaceModifier rIm1` removes all instances of `rIm1` at once while leaving `rIm2` active (`rem1(a1=0,a2=1,sz=1)`); removing `rIm2` clears the active list (`end(a1=0,sz=-1)`); applying a non-`IMAD` (`Stimpak`) in helper `nvseprobe_s_w6d10_22_badimad.gek` aborted before completion (`badSt=1`) [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_22_imod_apply_duplicate_remove_and_is_active` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_22_imod_apply_duplicate_remove_and_is_active|pre=0|dup(a1=1,a2=1,sz=3)|rem1(a1=0,a2=1,sz=1)|end(a1=0,sz=-1)|badSt=1`; zero DLL, PDB, or third-party source consulted].
+- **`GetImageSpaceModTrait` / `SetImageSpaceModTrait`:** on `FadeToBlack9sISFX` (`173904`), verified traits `0` (`9.0 -> 12.5`), `1` (`0.50 -> 0.25`), `47` (`255`), `50` (`0 -> 128.0`), `54` (`0.00`), OOB `68` (`0`), and slot `65` where `SetImageSpaceModTrait rIm 65 42.0` wrote `42.0` and read back `2.0` (`65=0.0->2.0`) [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only console probe `w6d10_23_imagespace_and_imad_trait_setters_and_clamps` (`tools/capture/nvse/catalogs/wave6d10_world_weather_water_map.json`): `PROBE|w6d10_23_imagespace_and_imad_trait_setters_and_clamps|is(0=0.90->2.75,14=1.00,32=0.00)|is21(53:128=128,300=300,neg=-10,oob=0)|im01(0=9.0->12.5,1=0.50->0.25,47=255)|im50(50=0->128.0,54=0.00,65=0.0->2.0,68=0)`; zero DLL, PDB, or third-party source consulted].

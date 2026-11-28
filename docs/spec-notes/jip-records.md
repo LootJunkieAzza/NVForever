@@ -77,7 +77,7 @@ session reader `Game::explosion_traits` and `Game::explosion_flag` [design]:
 - `SetExplosionTraitForm` and `SetExplosionFlag` require an `EXPL` form (or a
   `TempCloneForm` clone of one) so unrelated records are not mutated; `SetExplosionFlag`
   accepts flag IDs `1..32` (matching `GetExplosionFlag`, leaving bit 0 `Radius in BS
-  Units` unreachable) [design].
+  Units`, `-1`, and `32` rejected/0) and numeric traits `0..=7` round-trip on cloned `EXPL` records isolated from originals while trait `8` and non-`EXPL` forms return `0` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_25_explosion_flags_bit0_to_32_and_numeric_traits_all` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `fl(0=0->0,1=0->1,2=0,3=1,4=0,5=0,6=1,7=0->1,m1=0,b32=0)|kd(0,1,1,1,1)|num(250,100->0,192,768,0,0,0,t7=0->9->44,t8=0,o1=100,ca=0)`; no DLL or source consulted].
 - Omitting the 3rd argument (`SetExplosionTraitForm expl slot`) clears any slot `0..=6`
   (including slot `4`) to `0`, whereas passing an explicit null ref (`0`) is a no-op
   across all slots, reconciling `gaps7` (omitted 3rd arg clears slot `4`) and `w4d_27`
@@ -87,8 +87,7 @@ session reader `Game::explosion_traits` and `Game::explosion_flag` [design]:
   staging copy (read-only `PrintToConsole` probe; zero writes to game install or Saves),
   `w4h_02_explosion_slot4_reconcile` (`tools/capture/nvse/catalogs/wave4h_reconcile.json`,
   #3803): `PROBE|w4h_02_explosion_slot4_reconcile|esmPop4=0/223|s4(0=00000000,set=0000003B,null=0000003B,lit0(0)=0000003B,omit(1)=00000000)|s0(0=00014BFF,null=00014BFF,omit=00000000)|s5(0=001758E2,null=001758E2,omit=00000000)|s6(0=00019CED,null=00019CED,omit=00000000)`;
-  zero DLL, PDB, or third-party source consulted; hypothesis: slots `1`, `2`, `3` follow
-  the same omitted-clears / explicit-null-no-op rule]. For non-null replacement forms,
+  zero DLL, PDB, or third-party source consulted]. Slots `1`, `2`, and `3` confirm valid-set, explicit-null no-op, wrong-type-clears, and omitted-clears, while slots `5` and `6` confirm valid-set and wrong-type-clears (their explicit-null no-op and omitted-clears were already observed in `w4h_02`) [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters, read-only `PrintToConsole` probe `w6d12_26_explosion_trait_form_slots_1_2_3_5_6_matrix` (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`): `s1(0000012C,0000012C,00000000,00000000)|s2(0000012C,0000012C,00000000,00000000)|s3(00019083,00019083,00000000,00000000)|s5(0003A36B,00000000)|s6(00000164,00000000)`; no DLL or source consulted]. For non-null replacement forms,
   typed slots (`0` `LIGH`, `1`/`2` `SOUN`, `3` `IPDS`, `5` `ENCH`, `6` `IMAD`, following
   `TempCloneForm` originals) clear to `0` on a wrong-type form [observed: Fallout: New
   Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30, 2026-11-23, `GSDocMitchellHouse`
