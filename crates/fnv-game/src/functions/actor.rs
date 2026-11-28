@@ -1369,8 +1369,20 @@ pub fn remove_script_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 }
 
 /// `EvaluatePackage`: see [`Game::evaluate_package`].
+///
+/// It also drops a walk-up StartConversation of the actor still pending
+/// ([`Game::walk_up_greet`]): the actor does not come over [observed: the original, issue
+/// #4919, save nvftest: a Goodsprings settler (Sandbox, no Dialogue package) called
+/// `StartConversation player` from 1,200, 2,887 and 6,274 units walked up and talked each
+/// time; with `evp` after the call in the same script he stayed in his sandbox for 96 s;
+/// Nelson's explorers do so (nvNelsonExplorerBarkSCRIPT), which is why none came over in
+/// observer check 45]. Only the script's call does: the engine's own package choices keep
+/// the walk-up [hypothesis: not observed apart].
 pub fn evaluate_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if g.walk_up_greets.remove(&r).is_some() {
+        tracing::info!("dialogue: {r} EvaluatePackage drops its pending StartConversation walk-up (#4919)");
+    }
     g.evaluate_package(r);
     none()
 }

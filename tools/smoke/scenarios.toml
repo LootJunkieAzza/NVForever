@@ -29151,17 +29151,17 @@ forbid = [{ text = "pipelines not ready after", label = "the pipelines' cap" }]
 
 [[scenario]]
 name = "start-conversation-walks-up"
-source = "issue #1544 (owner): the Legion explorers about Nelson greeted the player halfway to Novac. Their script (nvNelsonExplorerBarkSCRIPT) calls StartConversation Player once its GameMode runs, and the conversation opened at once from 10,099 units off. With the AI running, StartConversation's speaker now walks up first (fnv_game Game::walk_up_greet, fnv_ai Ai::walk_up_step)"
-note = "the player stands near Ranger Milo's post at (42000, -38000), noon; explorer 01 (0x0014F408) is placed at (51986, -38898). It runs over and opens the conversation once within 150 units, about 18 game minutes later"
+source = "issue #1544 (owner): a script's StartConversation from far off opened the conversation at once. With the AI running, the speaker now walks up first (fnv_game Game::walk_up_greet, fnv_ai Ai::walk_up_step). First checked with Nelson's explorer 01; since #4919 the explorers do not come (their script's evp drops the walk-up, as in the original; smoke nelson-explorers-stay), so the case is the original's own from #4919: Goodsprings settler GSSettlerAM 0x00104F0A, called by a script from 1,200 units, walked over and talked in 13 s"
+note = "the player about 1,200 units east of the settler at noon (he is at (-71492, 4001)); a test-aid script calls StartConversation player at 3 s"
 areas = ["ai", "dialogue", "scripts"]
 paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/functions/misc.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
-args = ["--world", "WastelandNV", "--pos=42000,-38000,6500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:call:0x00104F0A:StartConversation:player" }
+args = ["--world", "WastelandNV", "--pos=-70300,4000,9000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 60
 order = [[
-  { re = 'nvNelsonExplorer01REF: walks up to the player for a script.s StartConversation: (?P<n>\d+) units away', range = [5000, 20000], label = "the explorer sets off from far away instead of talking from there" },
-  { re = 'nvNelsonExplorer01REF: has walked up to the player \((?P<n>\d+) units\) and starts the conversation, line', range = [0, 150], label = "it opens the conversation once near the player" },
-  { text = "conversation with nvNelsonExplorer01REF started (topic GREETING)", label = "then the conversation starts" },
+  { re = 'GoodspringsSettler03Ref: walks up to the player for a script.s StartConversation: (?P<n>\d+) units away', range = [800, 1500], label = "the settler sets off instead of talking from there" },
+  { re = 'GoodspringsSettler03Ref: has walked up to the player \((?P<n>\d+) units\) and starts the conversation, line', range = [0, 150], label = "it opens the conversation once near the player", known_failing = "#4935: the settler's walk-up gives up on its first step ('gets no nearer to the player') and the conversation opens from where he stands; the original's walked over in 13 s from 1,200 units" },
+  { text = "conversation with GoodspringsSettler03Ref started (topic GREETING)", label = "then the conversation starts" },
 ]]
 
 [[scenario]]
@@ -37711,4 +37711,18 @@ forbid = [
   { text = "panicked", label = "no panic" },
   { text = "co-op test guest: SmokeGuest failed to join", label = "the guest is not refused (the password matches)" },
   { text = "co-op: the lobby browser:", label = "the Browse request does not fail" },
+]
+
+[[scenario]]
+name = "nelson-explorers-stay"
+source = "#4919 (observer check 45 and its follow-up, 2026-11-28): Nelson's Legion explorers call StartConversation Player and then evp on their first GameMode (nvNelsonExplorerBarkSCRIPT); in the original the evp drops the walk-up, so with the player 1,200 units off nobody comes over. EvaluatePackage now drops a pending walk-up (crates/fnv-game/src/functions/actor.rs evaluate_package)"
+note = "a fresh game 1,200 units east of nvNelsonExplorer01REF (0x0014F408), VDeadSea below 10; before the change he walked over and stopped the player"
+areas = ["dialogue", "ai"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--world", "WastelandNV", "--pos=53186,-38898,5500", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { text = "dialogue: 0x0014F408 EvaluatePackage drops its pending StartConversation walk-up (#4919)", label = "explorer 01's evp drops his walk-up" },
+  { re = 'actors in the player.s way: .*the nearest, 0014F408 .* is (?P<n>[\d.]+) units from touching the player', range = [900, 1400], label = "he is still about 1,200 units off at the end (the original: nobody came in 200 s)" },
 ]

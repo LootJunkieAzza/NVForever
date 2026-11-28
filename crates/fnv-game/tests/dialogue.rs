@@ -2575,6 +2575,26 @@ fn a_speech_check_counts_a_success_or_a_failure() {
     assert_eq!((g.misc_stat(SPEECH_SUCCESSES), g.misc_stat(SPEECH_FAILURES)), (0.0, 0.0));
 }
 
+/// Issue #4919: a StartConversation from far off leaves the speaker to walk up to the
+/// player (`Game::walk_up_greet`); an EvaluatePackage on it after the call drops the
+/// walk-up (the original's settler stayed in his sandbox, and Nelson's explorers, which
+/// call both, never came). The fixture's actors have no cell, so the walk-up is set as the
+/// far call leaves it.
+#[test]
+fn evaluate_package_after_start_conversation_drops_the_walk_up() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.cfg.package_interval = Some(10.0);
+    g.walk_up_greets.insert(actor(), None);
+    call(&mut g, 0x105E, NPC2_REF, &[]);
+    assert_eq!(g.walk_up_pending(actor()), Some(None), "another actor's EvaluatePackage leaves it");
+    g.tick();
+    assert_eq!(g.walk_up_pending(actor()), Some(None), "the frame's own package choices leave it");
+    call(&mut g, 0x105E, NPC1_REF, &[]);
+    assert_eq!(g.walk_up_pending(actor()), None, "its own EvaluatePackage drops the walk-up");
+    assert!(g.dialogue.is_none(), "and no conversation starts");
+}
+
 #[test]
 fn start_conversation_and_the_dialogue_functions() {
     let f = fixture();

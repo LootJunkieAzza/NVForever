@@ -331,7 +331,10 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// conversation with the named topic, GREETING without one [documented: GECK wiki
 /// StartConversation, owner export: a "force greet"; nothing happens when either actor
 /// is disabled]. The speaker first walks up to the player when it is not near and the AI
-/// runs (`Game::walk_up_greet`); without the AI the conversation starts at once. A call while a
+/// runs (`Game::walk_up_greet`), from any distance [observed: a settler walked 6,274
+/// units across two cells and talked, issue #4919]; an `EvaluatePackage` on it before it
+/// arrives drops the walk-up (`functions::actor::evaluate_package`). Without the AI the
+/// conversation starts at once. A call while a
 /// conversation is running (except from the end script of the line that closes it:
 /// `Game::hold_force_greet`), or when the speaker has no line to say, does nothing
 /// [hypothesis]. With another actor as the target the two talk to each other and the

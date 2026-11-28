@@ -622,9 +622,24 @@ All of it is in `GameSnapshot`.
   walk-up to greet again after the conversation. Refused opens and greetings that
   do not open a conversation leave it pending; other speakers' walks are unchanged.
   [observed 2026-11-05] The Legion explorers about Nelson (nvNelsonExplorerBarkSCRIPT
-  calls StartConversation Player once its GameMode runs) greeted from 10,099 units off.
-  Now explorer 01 runs over and greets from 147 units (smoke
-  `start-conversation-walks-up`).
+  calls StartConversation Player once its GameMode runs) greeted from 10,099 units off;
+  with the walk-up explorer 01 ran over and greeted from 147 units.
+  **In the original the walk-up has no range limit, and an EvaluatePackage drops it**
+  [observed: issue #4919, save nvftest, observer follow-up 2026-11-28]:
+  - a Goodsprings settler (GSSettlerAM, Sandbox, no Dialogue package) called by a script
+    walked over from 1,200, 2,887 and 6,274 units (two exterior cells apart), and the
+    menu opened 13.0, 45.9 and 79.7 s later, 121 units off;
+  - with `evp` after the call in the same script he stayed in his sandbox for 96 s;
+  - the explorers' script calls both (`StartConversation Player`, then `evp` on all six),
+    which is why in the original none of them came from 1,224 units in 200 s (check 45);
+    explorer 01, whose Dialogue package (512 units, GREETING) was current, came within
+    about 430 units in 2.1 s of a later call with no evp.
+
+  Ours: the script's EvaluatePackage drops the actor's pending walk-up
+  (`functions::actor::evaluate_package`; the engine's own package choices keep it
+  [hypothesis]), so the explorers stay (smoke `nelson-explorers-stay`). The settler's
+  walk-up itself gives up on its first step in ours (#4935; smoke
+  `start-conversation-walks-up`, now on that settler, known failing).
 - **The rule above is for the player talking to the actor. When the actor starts the
   conversation** (a force greet: StartConversation with the player, or the actor's
   Dialogue package that is not Say To), a greeting with the Goodbye flag **opens a
