@@ -701,6 +701,36 @@ impl PadGlyphs {
         self.images[i].as_ref().map(|h| (h.clone(), self.aspects[i]))
     }
 
+    /// Stable fingerprint of loaded button glyph handles and aspect ratios so HUD draw
+    /// caches invalidate when button glyphs load or change [design].
+    pub fn state_key(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for (img, &aspect) in self.images.iter().zip(&self.aspects) {
+            h ^= u64::from(img.is_some());
+            h = h.wrapping_mul(0x0100_0000_01b3);
+            if let Some(handle) = img {
+                let bits = match handle.id() {
+                    bevy::asset::AssetId::Index { index, .. } => index.to_bits(),
+                    bevy::asset::AssetId::Uuid { uuid } => {
+                        let b = uuid.as_u128();
+                        (b as u64) ^ ((b >> 64) as u64)
+                    }
+                };
+                h ^= bits;
+                h = h.wrapping_mul(0x0100_0000_01b3);
+                h ^= u64::from(aspect.to_bits());
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        h
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_glyph(&mut self, index: usize, handle: Handle<Image>, aspect: f32) {
+        self.images[index] = Some(handle);
+        self.aspects[index] = aspect;
+    }
+
     /// Build the twelve pictures: the four face symbols and, from the HUD's font 7, the
     /// eight labelled buttons.
     fn load(data: &nvf_assets::GameData, images: &mut Assets<Image>, bc: bool) -> PadGlyphs {

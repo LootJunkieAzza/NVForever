@@ -90,9 +90,23 @@ pub struct RuntimeImages {
     /// The last revision given, over every name, so an entry removed and set again never
     /// gets a revision it had.
     revision: u64,
+    /// Monotonic revision bumped whenever an entry's presentation (`RecipientTurn`) changes,
+    /// without altering `entry.revision` or [`Self::stamp`] [design].
+    presentation_revision: u64,
 }
 
 impl RuntimeImages {
+    /// Monotonic revision bumped whenever any runtime image entry is added, updated, or removed [design].
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Monotonic revision bumped whenever any runtime image entry's presentation (`RecipientTurn`)
+    /// changes without altering texture revision or [`Self::stamp`] [design].
+    pub fn presentation_revision(&self) -> u64 {
+        self.presentation_revision
+    }
+
     fn next(&mut self) -> u64 {
         self.revision += 1;
         self.revision
@@ -121,7 +135,11 @@ impl RuntimeImages {
     fn set_recipient_turn(&mut self, name: &str, recipient: TileId, angle: f64) -> bool {
         if !angle.is_finite() || angle.abs() > std::f64::consts::TAU { return false; }
         let Some(entry) = self.entries.get_mut(&key(name)) else { return false };
-        entry.presentation = Some(RecipientTurn { recipient, angle });
+        let next = Some(RecipientTurn { recipient, angle });
+        if entry.presentation != next {
+            entry.presentation = next;
+            self.presentation_revision = self.presentation_revision.wrapping_add(1);
+        }
         true
     }
 
@@ -140,7 +158,12 @@ impl RuntimeImages {
 
     /// Take `name`'s entry away: its tiles draw nothing. False when there was none.
     pub fn remove(&mut self, name: &str) -> bool {
-        self.entries.remove(&key(name)).is_some()
+        if self.entries.remove(&key(name)).is_some() {
+            self.next();
+            true
+        } else {
+            false
+        }
     }
 
     /// The entry a tile's `filename` names.
