@@ -4667,6 +4667,8 @@ dependencies = [
  "fnv-world",
  "half",
  "naga",
+ "nvf-rtgi",
+ "texpresso",
 ]
 
 [[package]]

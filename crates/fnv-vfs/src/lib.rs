@@ -675,6 +675,51 @@ impl Vfs {
         }
     }
 
+    /// [`Self::read`] of a file of at most `stored` bytes where it lies and `contents` bytes
+    /// decoded. For an archived file the stored size is looked at before its buffer is made and
+    /// the size its contents declare before they are inflated (what inflates to more is an error
+    /// already). A loose file, which is both, is refused by the opened file's length before anything
+    /// is read, and when it gives more than that. A larger file is an error of kind
+    /// `FileTooLarge` that names the path and the size. In [`read_stats`] an archived file
+    /// counts once its stored bytes are read, a loose one when it is read whole.
+    pub fn read_at_most(&self, path: &str, stored: usize, contents: usize) -> Option<std::io::Result<Vec<u8>>> {
+        let key = normalize(path);
+        Some(match *self.index.get(&key)? {
+            Location::Loose => self.read_loose_at_most(&key, stored.min(contents)),
+            Location::Archive { archive, folder, file } => self.read_archived_at_most(&key, (archive, folder, file), stored, contents),
+        })
+    }
+
+    fn read_loose_at_most(&self, key: &str, most: usize) -> std::io::Result<Vec<u8>> {
+        let t = std::time::Instant::now();
+        let file = std::fs::File::open(&self.loose[key]).and_then(|f| Ok((f.metadata()?.len(), f)));
+        let bytes = file.and_then(|(len, f)| take_at_most(f, len, most)).map_err(|e| std::io::Error::new(e.kind(), format!("{key}: {e}")))?;
+        count_read(bytes.len(), std::time::Duration::ZERO, t.elapsed());
+        Ok(bytes)
+    }
+
+    fn read_archived_at_most(&self, key: &str, (archive, folder, file): (usize, usize, usize), stored: usize, contents: usize) -> std::io::Result<Vec<u8>> {
+        let broken = |e| std::io::Error::other(format!("{key}: {e}"));
+        // The lock as in `read_at`: for the seek and the read of the stored bytes alone.
+        let block = {
+            let asked = std::time::Instant::now();
+            let mut a = self.archives[archive].1.lock().unwrap_or_else(|p| p.into_inner());
+            let got = std::time::Instant::now();
+            let r = a.folders[folder].files[file].clone();
+            let size = r.stored_size() as usize;
+            if size > stored {
+                return Err(too_large(key, format_args!("{size} bytes stored, more than the {stored} allowed")));
+            }
+            let block = a.read_stored(&r);
+            count_read(size, got - asked, got.elapsed());
+            block.map_err(broken)?
+        };
+        if let Some(size) = block.contents_len().filter(|n| *n > contents) {
+            return Err(too_large(key, format_args!("{size} bytes decoded, more than the {contents} allowed")));
+        }
+        block.decode().map_err(broken)
+    }
+
     /// The loose files under a folder (lower case, `\` between parts, no leading `\`), as
     /// their whole normalized paths, sorted: every layer's (`Data` and the mods folders), from
     /// the index, so a folder made of several mods' files lists them all without walking the
@@ -700,6 +745,26 @@ impl Vfs {
         v.sort();
         v
     }
+}
+
+/// All of `from`, an opened file of `len` bytes, when that is at most `most`: nothing is read
+/// otherwise, and room is made for `len` and no more. One byte is asked for past them, so one
+/// that grew since is an error and is not read on.
+fn take_at_most(mut from: impl std::io::Read, len: u64, most: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::{Error, ErrorKind, Read as _};
+    let over = |size: u64| Error::new(ErrorKind::FileTooLarge, format!("{size} bytes, more than the {most} allowed"));
+    let room = usize::try_from(len).ok().filter(|n| *n <= most).ok_or_else(|| over(len))?;
+    let mut bytes = Vec::with_capacity(room);
+    from.by_ref().take(len).read_to_end(&mut bytes)?;
+    match from.take(1).read_to_end(&mut Vec::new())? {
+        0 => Ok(bytes),
+        _ if room == most => Err(over(len + 1)),
+        _ => Err(Error::other(format!("it grew past its {len} bytes while it was read"))),
+    }
+}
+
+fn too_large(key: &str, how: std::fmt::Arguments) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::FileTooLarge, format!("{key}: {how}"))
 }
 
 /// The `*.bsa` files directly in `dir` (a mod's archive lies at its root, not nested).
@@ -1267,5 +1332,7 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod at_most_tests;
 #[cfg(test)]
 mod own_loose_tests;

@@ -3,6 +3,7 @@
 //! linear data only (dds.md §6).
 
 mod filtering;
+pub mod levels;
 
 use crate::data::GameData;
 use bevy::asset::RenderAssetUsages;
