@@ -1907,6 +1907,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "first-person-rifle-walk-bob"
+source = "#4682 (crates/fnv-actor/src/player_clips.rs first_person_move_clips): with Weapon Inertia off, a rifle in first person walks, runs and side-steps on the 1hp movement clips, which bob the arms and the view, not on the unarmed mt ones, which keep them still; the body in third person keeps the rifle's own walk; docs/spec-notes/animation.md §9.5, observer check 4682-first-person-rifle-walk-bob"
+areas = ["player-body"]
+paths = ["crates/fnv-actor/src/player_clips.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_CONTROL = "4:weapon", NVF_PLAY_TEST_MOVE = "7:1:0:walk,10:1:0,12:0:1:walk,14:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--no-weapon-sway"]
+run_seconds = 16
+expect = [
+  { re = 'player First rig: Move\(Stand, false, false, Forward, Some\("2hr"\), false, false\) plays meshes.characters._1stperson.locomotion.1hpforward\.kf', label = "walking, the arms rig plays the pistol's walk and its bob" },
+  { re = 'player First rig: Move\(Stand, false, true, Forward, Some\("2hr"\), false, false\) plays meshes.characters._1stperson.locomotion.1hpfastforward\.kf', label = "running, the pistol's run" },
+  { re = 'player First rig: Move\(Stand, false, false, Right, Some\("2hr"\), false, false\) plays meshes.characters._1stperson.locomotion.1hpright\.kf', label = "side-stepping, the pistol's side-step" },
+  { re = 'player First rig: Move\(Stand, [^)]*Some\("2hr"\)[^)]*\) plays \S*locomotion.mt\w*\.kf', count = 0, label = "no rifle movement on the still unarmed clips" },
+  { re = 'player Third rig: Move\(Stand, false, false, Forward, Some\("2hr"\), false, false\) plays meshes.characters._male.locomotion.2hrforward\.kf', label = "the body in third person keeps the rifle's own walk" },
+]
+
+[[scenario]]
 name = "head-bob-first-person"
 source = "owner 2026-11-07 (engine/nvforever/src/head_bob.rs): a head bob in first person, none in third; running in first person the camera and arms dip at each footfall"
 areas = ["player-body"]

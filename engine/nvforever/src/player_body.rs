@@ -77,8 +77,8 @@ use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use fnv_actor::first_person::{self, is_first_person_shape, shape_shows, Show};
 use fnv_actor::player_clips::{
-    aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
-    limping_idle_clips, limping_move_clips, limping_turn_clips, move_clips, reload_clips, reload_open_clips, toddler_idle_clips, toddler_move_clips,
+    aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, first_person_move_clips, holster_clips,
+    idle_clips, jump_clips, limping_idle_clips, limping_move_clips, limping_turn_clips, move_clips, reload_clips, reload_open_clips, toddler_idle_clips, toddler_move_clips,
     toddler_turn_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
 };
 use fnv_actor::weapon::AnimType;
@@ -443,13 +443,15 @@ impl ClipKey {
         matches!(self, ClipKey::Idle(Stance::Stand, true, false) | ClipKey::Move(Stance::Stand, .., true, false) | ClipKey::Turn(Stance::Stand, .., true, false))
     }
 
-    fn candidates(self) -> Vec<String> {
+    /// The candidate files in order, for the rig of `view`.
+    fn candidates(self, view: View) -> Vec<String> {
         match self {
             ClipKey::Idle(Stance::Stand, _, true) => toddler_idle_clips(Stance::Stand),
             ClipKey::Idle(Stance::Stand, true, false) => limping_idle_clips(),
             ClipKey::Idle(s, _, _) => idle_clips(s),
             ClipKey::Move(Stance::Stand, female, fast, d, w, _, true) => toddler_move_clips(Stance::Stand, female, fast, d, w),
             ClipKey::Move(Stance::Stand, female, fast, d, w, true, false) => limping_move_clips(female, fast, d, w),
+            ClipKey::Move(Stance::Stand, female, fast, d, w, false, false) if view == View::First => first_person_move_clips(female, fast, d, w),
             ClipKey::Move(s, female, fast, d, w, _, _) => move_clips(s, female, fast, d, w),
             ClipKey::Aim(s, p, a, sights) => aim_clips(s, p, a, sights),
             ClipKey::Block(s, p) => block_clips(s, p),
@@ -1077,7 +1079,7 @@ impl Rig {
         // mtforward.kf`) beats one that only shares the file's name, so a folder with
         // `male` and `female` files gives each body its own; among equals the later file
         // (the stack's top) wins.
-        let replaced = key.candidates().into_iter().find_map(|c| {
+        let replaced = key.candidates(self.view).into_iter().find_map(|c| {
             let c = c.to_ascii_lowercase();
             let name = c.rsplit('\\').next().unwrap_or(&c);
             let found = self.overrides.get(name)?;
@@ -1086,7 +1088,7 @@ impl Rig {
             let pick = found.iter().rev().find(|p| p.to_ascii_lowercase().ends_with(&tail)).or_else(|| found.iter().rev().find(|p| !p.to_ascii_lowercase().contains(other_sex)));
             pick.map(|p| format!("meshes\\{p}"))
         });
-        let mut path = replaced.filter(|p| ctx.models.data.vfs.exists(p)).or_else(|| key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)));
+        let mut path = replaced.filter(|p| ctx.models.data.vfs.exists(p)).or_else(|| key.candidates(self.view).into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)));
         // A grip clip may carry the weapon's name after its number
         // (`2hrhandgrip3_combatshotgun.kf`): the folder's one for that prefix and number.
         if let (None, ClipKey::Grip(p, n)) = (&path, key) {
@@ -1102,9 +1104,9 @@ impl Rig {
             Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             // Without it the arm never comes up (#1330): said where a player's log shows it.
-            None if matches!(key, ClipKey::PipBoy(_)) => warn!("player {:?} rig: {key:?}: none of {:?} in {} could be read; the Pip-Boy cannot come up", self.view, key.candidates(), self.folder),
+            None if matches!(key, ClipKey::PipBoy(_)) => warn!("player {:?} rig: {key:?}: none of {:?} in {} could be read; the Pip-Boy cannot come up", self.view, key.candidates(self.view), self.folder),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
-            None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
+            None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(self.view), self.folder),
         }
         self.clips.insert(key, found.clone());
         found
@@ -4425,6 +4427,17 @@ fn drive_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_arms_rig_walks_a_rifle_on_the_pistol_clips() {
+        // #4682: standing, the first-person rig tries `1hp` after the rifle's own clip;
+        // the body keeps its own choice, and so does a limp.
+        let walk = ClipKey::Move(Stance::Stand, false, false, Dir::Forward, Some("2hr"), false, false);
+        assert_eq!(walk.candidates(View::First)[..2], [r"locomotion\2hrforward.kf".to_string(), r"locomotion\1hpforward.kf".to_string()]);
+        assert!(!walk.candidates(View::Third).iter().any(|c| c.contains("1hp")));
+        let limp = ClipKey::Move(Stance::Stand, false, false, Dir::Forward, Some("2hr"), true, false);
+        assert_eq!(limp.candidates(View::First), limp.candidates(View::Third));
+    }
 
     #[test]
     fn the_hand_over_sets_off_softly_and_ends_at_rest() {

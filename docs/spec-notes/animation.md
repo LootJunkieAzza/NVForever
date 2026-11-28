@@ -1104,6 +1104,30 @@ Sources: `fnvtool nif stats` over every mesh archive of the base game and the ad
   `1hpequip.kf` arms and `Camera1st` (55), `Attach` at 0.167 s as in third person;
   `1hpholster.kf` has `Prn: Bip01 Translate`; `2hraimis.kf` the arms at 54. No clip
   drives `Bip01 Looking`.
+- The walk's bob (#4682; translation ranges in units, the root left out). Every
+  `locomotion\1hp*` and `1hm*` movement clip moves `Bip01 Translate` and `Camera1st` and no
+  other node (priority 30): forward and back 0.88–0.90 side to side and 0.19 up and down
+  for the arms, 0.22 up and down for the view; running 0.58–0.74 and 0.35–0.61, the view
+  0.45–0.58; sideways 0.30 and 0, the view 0.22–0.23. No `locomotion\mt*` clip moves
+  anything but the root. Limping it is the other way: every `hurt\mt*_hurt.kf` moves
+  `Bip01 Translate` (0.86 and 0.18 forward and back, 0.30 and 0 sideways, 0.54–0.63 and
+  0.31–0.41 running) and no `hurt\1hp*` or `hurt\1hm*` moves anything. `sneakmt*` and
+  `sneak2hh*` move only `Camera1st` (0.09 walking, 0.40 running). The weapons' hold clips
+  key these nodes lower, at 25 (`2hraim.kf` in `Update.bsa` only `Bip01 NonAccum`), so a
+  movement clip's bob shows under them. Cycles: `1hp`/`1hm` forward 1.267 s, `mt` 1.200 s,
+  every run 0.800 s; in the third-person folder `2hr`/`2ha`/`2hh` walk forward in 1.200 s
+  and `1hp`/`1hm` in 1.267 s.
+- Readings [hypothesis]: one bob curve placed on some files and not others. Whether the
+  original walks a two-handed weapon on the `1hp`/`1hm` clips (ours since #4682,
+  `player_clips::first_person_move_clips`), bobs it by code or keeps it still is observer
+  check 4682-first-person-rifle-walk-bob.
+- In the original, first person (2026-11-28) [observed: two videos, the weapon tracked on
+  screen; observer check 4682-first-person-rifle-walk-bob has the figures]: the Varmint
+  Rifle bobs as the 9mm Pistol does, walking forward, sideways and back and running, one
+  dip per footstep and a sway per stride. Walking forward it steps 1.64–1.67 times a
+  second (ours with the fix 1.68), running about 2.56 (ours 2.20). With the left leg
+  crippled both still bob, the pistol too, although its `hurt\1hp*` clips move nothing;
+  ours keeps a limping pistol still.
 - Readings [hypothesis]: the game turns `Bip01 Looking` with the view's pitch (it is the
   only node at camera height between the root and the arms, and `Bip01 Translate` undoes
   its offset), so arms and weapon stay in front of the camera at `Camera1st`; crouching

@@ -6,7 +6,7 @@ use fnv_nif::anim::{Channel, Key, KeyKind, Keys, TransformTrack};
 #[test]
 fn direct_arm_times_really_pose_forward_reverse_and_settled_model_variants() {
     for (female, bone) in [(false, "OwnedMaleArm"), (true, "OwnedFemaleArm")] {
-        let candidates = ClipKey::PipBoy(female).candidates();
+        let candidates = ClipKey::PipBoy(female).candidates(View::First);
         assert_eq!(
             candidates.len(),
             if female { 2 } else { 1 },

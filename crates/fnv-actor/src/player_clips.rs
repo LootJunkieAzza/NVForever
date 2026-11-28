@@ -108,7 +108,8 @@ pub fn move_clips(stance: Stance, female: bool, fast: bool, dir: Dir, drawn: Opt
                 // with the body yawed right and the legs stepping back across, matches
                 // `h2hleft.kf` and `1hpleft.kf` and not `mtleft.kf`, 2026-10-23;
                 // hypothesis: which side-step the game takes]. The first-person folder has
-                // no `h2hleft.kf`, so the arms rig keeps `mtleft.kf`.
+                // no `h2hleft.kf`, so the arms rig keeps `mtleft.kf` (or the stand-in's of
+                // [`first_person_move_clips`]).
                 if dir == Dir::Left && !fast && p != "h2h" {
                     out.push(r"locomotion\h2hleft.kf".to_string());
                 }
@@ -130,6 +131,35 @@ pub fn move_clips(stance: Stance, female: bool, fast: bool, dir: Dir, drawn: Opt
                 out.push(format!("{s}mt{d}.kf"));
             }
         }
+    }
+    out
+}
+
+/// The weapon whose movement clips the first-person arms rig plays, standing, for a
+/// weapon of prefix `prefix` that has none of its own there: `1hp` for the two-handed
+/// guns, `1hm` for `2hm` [observed: `_1stperson\locomotion` has movement clips for `mt`,
+/// `1hp` and `1hm` only, animation.md §9.5; hypothesis: the pairs].
+pub fn first_person_move_stand_in(prefix: &str) -> Option<&'static str> {
+    match prefix {
+        "2hr" | "2ha" | "2hh" | "2hl" => Some("1hp"),
+        "2hm" => Some("1hm"),
+        _ => None,
+    }
+}
+
+/// [`move_clips`] standing, for the first-person arms rig: a weapon with a
+/// [`first_person_move_stand_in`] tries the stand-in's clip after its own, before the
+/// unarmed ones. The `1hp` and `1hm` clips bob the arms and the view (`Bip01 Translate`,
+/// `Camera1st`) and the `mt` ones keep them still, so without it a rifle walks with its
+/// arms still while a pistol's arms bob [observed: animation.md §9.5, #4682; hypothesis: the
+/// original plays the stand-in, observer check 4682-first-person-rifle-walk-bob].
+/// Limping is not changed: there it is `hurt\mt*` that bobs.
+pub fn first_person_move_clips(female: bool, fast: bool, dir: Dir, drawn: Option<&str>) -> Vec<String> {
+    let mut out = move_clips(Stance::Stand, female, fast, dir, drawn);
+    if let Some(s) = drawn.and_then(first_person_move_stand_in) {
+        let f = if fast { "fast" } else { "" };
+        // The weapon's own clip is the first.
+        out.insert(1, format!(r"locomotion\{s}{f}{}.kf", dir.name()));
     }
     out
 }
@@ -661,6 +691,20 @@ mod tests {
         assert_eq!(move_clips(Stance::Swim, false, true, Dir::Right, None), ["swimmtfastright.kf", "swimmtright.kf"]);
         assert_eq!(idle_clips(Stance::Sneak), ["sneakmtidle.kf", r"locomotion\mtidle.kf", "mtidle.kf"]);
         assert_eq!(idle_clips(Stance::Stand), [r"locomotion\mtidle.kf", "mtidle.kf"]);
+    }
+
+    #[test]
+    fn first_person_two_handed_weapons_walk_on_a_stand_in() {
+        assert_eq!(
+            first_person_move_clips(false, false, Dir::Forward, Some("2hr")),
+            [r"locomotion\2hrforward.kf", r"locomotion\1hpforward.kf", r"locomotion\male\mtforward.kf", r"locomotion\mtforward.kf"]
+        );
+        assert_eq!(first_person_move_clips(true, true, Dir::Left, Some("2hm"))[..2], [r"locomotion\2hmfastleft.kf", r"locomotion\1hmfastleft.kf"]);
+        assert_eq!(first_person_move_clips(false, false, Dir::Left, Some("2ha"))[..3], [r"locomotion\2haleft.kf", r"locomotion\1hpleft.kf", r"locomotion\h2hleft.kf"]);
+        // Weapons with their own clips there, the others, and none: as `move_clips`.
+        for w in [Some("1hp"), Some("1hm"), Some("h2h"), Some("1gt"), None] {
+            assert_eq!(first_person_move_clips(false, true, Dir::Backward, w), move_clips(Stance::Stand, false, true, Dir::Backward, w));
+        }
     }
 
     #[test]

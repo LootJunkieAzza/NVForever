@@ -107,11 +107,16 @@ exist. The draw/holster timing follows the clips of the rig in view.
 ### 1.4a Sway and bob of the arms (owner request 2026-10-20)
 
 The original's first-person arms and weapon lag behind a turn and bob as the player
-walks, but none of it is in the files: the first-person movement clips move only the
-root (`mt`) or have keyless tracks (`1hp`), there are no `2hr`/`2ha`/`2hh` movement
-clips in `_1stperson\locomotion`, and `Camera1st` hangs from `Bip01 Looking` beside the
-arms, so a clip moving that chain would move the view too [observed: `fnvtool nif
-decode` of the clips and `_1stperson\skeleton.nif`]. The executable names
+walks. The lag is in no file, and the bob only in some: the first-person movement clips
+of `1hp` and `1hm` move `Bip01 Translate` (the arms: about 0.9 units side to side and
+0.2 down walking) and `Camera1st` (the view: 0.2 walking, 0.5 running); the `mt` ones
+move only the root; there are no `2hr`/`2ha`/`2hh`/`2hl`/`2hm` ones in
+`_1stperson\locomotion`; and `Camera1st` hangs from `Bip01 Looking` beside the arms, so
+a clip moving that chain would move the view too [observed: `fnvtool nif decode` of the
+clips and `_1stperson\skeleton.nif`, animation.md §9.5]. Since #4682 a two-handed weapon
+walks on the `1hp` clips (`2hm` on the `1hm` ones) in first person, so with Weapon
+Inertia off it bobs as a pistol does (`player_clips::first_person_move_clips`)
+[hypothesis: observer check 4682-first-person-rifle-walk-bob]. The executable names
 `fFirstPersonHandFollowMult`, `fFirstPersonHandChaseSeconds` and
 `fFirstPersonHandChaseSecondsAttack` [observed: its strings], so the hands chase the
 view by code [hypothesis; the values are not known]. NVForever's sway
