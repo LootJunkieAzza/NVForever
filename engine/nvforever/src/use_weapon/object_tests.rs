@@ -242,7 +242,8 @@ fn undrawn_actor_target_gets_no_shots_and_leaves_the_fight_to_the_ordinary_attac
 
 /// [design, #3668] Real PACK records with target 1 object types 21, 22, 23, 0 and 12
 /// plus a WEAP ObjectId: `Game::package_weapon_use` maps 21 -> Unarmed, 22 -> Melee,
-/// 23 -> Ranged, other object types -> None, and a WEAP form -> explicit weapon.
+/// leaves 23 ("Weapons: None") and other object types unmapped (`None`) until confirmed
+/// in the original, and maps a WEAP form -> explicit weapon.
 #[test]
 fn package_weapon_use_reads_target1_weapon_type() {
     use fnv_game::use_weapon::WeaponType;
@@ -281,7 +282,7 @@ fn package_weapon_use_reads_target1_weapon_type() {
     };
     assert_eq!(check(0x830), (None, Some(WeaponType::Unarmed)));
     assert_eq!(check(0x831), (None, Some(WeaponType::Melee)));
-    assert_eq!(check(0x832), (None, Some(WeaponType::Ranged)));
+    assert_eq!(check(0x832), (None, None));
     assert_eq!(check(0x833), (None, None));
     assert_eq!(check(0x834), (None, None));
     assert_eq!(check(0x835), (Some(GUN), None));
@@ -292,17 +293,17 @@ fn package_weapon_use_reads_target1_weapon_type() {
 ///   throwing grenades; carrying an unarmed weapon uses that unarmed weapon.
 /// - Type 22 (Melee): picks a carried melee weapon over a held grenade/gun; with only a
 ///   gun/grenade carried, does nothing.
-/// - Type 23 (Ranged): picks a carried gun over a held melee weapon/grenade; with only a
-///   melee weapon or grenade carried, does nothing.
+/// - Unmapped (`None`, including type 23 "Weapons: None" until confirmed): keeps the
+///   held weapon (melee or gun) so actors carrying only melee weapons keep working.
 #[test]
-fn package_weapon_types_select_fists_melee_and_ranged_weapons() {
+fn package_weapon_types_select_fists_and_melee_weapons_and_keep_unmapped_fallback() {
     use fnv_game::use_weapon::WeaponType;
     const GRENADE: FormId = FormId(0x840);
     const MACHETE: FormId = FormId(0x841);
     const CRAM_OPENER: FormId = FormId(0x842);
     const RIFLE: FormId = FormId(0x843);
 
-    let setup = |carried: &[FormId], drawn: Option<FormId>, weapon_type: WeaponType| {
+    let setup = |carried: &[FormId], drawn: Option<FormId>, weapon_type: Option<WeaponType>| {
         let mut world = fixture(b"ACTI", None);
         // Place TARGET close enough (40 units ahead along +Y) for both melee blows and shots.
         world.resource_mut::<SimState>().world.get(TARGET).unwrap().pos = [0.0, 40.0, 0.0];
@@ -360,7 +361,7 @@ fn package_weapon_types_select_fists_melee_and_ranged_weapons() {
         }
         let mut use_ = WeaponUse::of_script(None, None, TARGET, 2, false, false, true, true, None);
         use_.source = Source::Package(FormId(0x809));
-        use_.weapon_type = Some(weapon_type);
+        use_.weapon_type = weapon_type;
         use_.in_place = true;
         use_.volleys = None;
         world.resource_mut::<ScriptState>().rt.as_mut().unwrap().game.give_weapon_use(SHOOTER, use_);
@@ -373,34 +374,30 @@ fn package_weapon_types_select_fists_melee_and_ranged_weapons() {
     };
 
     // Type 21 (Unarmed) while holding a frag grenade (Citadel Initiate 05): swings fists, throws no grenade.
-    let (shots, attacks) = setup(&[GRENADE], Some(GRENADE), WeaponType::Unarmed);
+    let (shots, attacks) = setup(&[GRENADE], Some(GRENADE), Some(WeaponType::Unarmed));
     assert!(shots.is_empty(), "type 21 must never throw a held grenade: {shots:?}");
     assert!(!attacks.is_empty(), "type 21 should swing fists");
     assert!(attacks.iter().all(|a| a.melee && a.weapon.is_none()), "fists only: {attacks:?}");
 
     // Type 21 (Unarmed) carrying an unarmed weapon (Little Buster control): swings the unarmed weapon.
-    let (shots, attacks) = setup(&[GRENADE, CRAM_OPENER], Some(GRENADE), WeaponType::Unarmed);
+    let (shots, attacks) = setup(&[GRENADE, CRAM_OPENER], Some(GRENADE), Some(WeaponType::Unarmed));
     assert!(shots.is_empty());
     assert!(!attacks.is_empty());
     assert!(attacks.iter().all(|a| a.melee && a.weapon == Some(CRAM_OPENER)), "unarmed weapon: {attacks:?}");
 
     // Type 22 (Melee) carrying a melee weapon alongside a grenade and rifle: swings the melee weapon.
-    let (shots, attacks) = setup(&[GRENADE, RIFLE, MACHETE], Some(RIFLE), WeaponType::Melee);
+    let (shots, attacks) = setup(&[GRENADE, RIFLE, MACHETE], Some(RIFLE), Some(WeaponType::Melee));
     assert!(shots.is_empty(), "type 22 must not shoot a held gun");
     assert!(!attacks.is_empty());
     assert!(attacks.iter().all(|a| a.melee && a.weapon == Some(MACHETE)), "melee weapon: {attacks:?}");
 
     // Type 22 (Melee) carrying only a rifle/grenade: does nothing (GECK wiki Use Weapon Package, Notes).
-    let (shots, attacks) = setup(&[GRENADE, RIFLE], Some(RIFLE), WeaponType::Melee);
+    let (shots, attacks) = setup(&[GRENADE, RIFLE], Some(RIFLE), Some(WeaponType::Melee));
     assert!(shots.is_empty() && attacks.is_empty(), "no melee weapon carried -> does nothing");
 
-    // Type 23 (Ranged) carrying a gun alongside a grenade and melee weapon: fires the gun.
-    let (shots, attacks) = setup(&[GRENADE, MACHETE, RIFLE], Some(MACHETE), WeaponType::Ranged);
-    assert!(!shots.is_empty(), "type 23 should fire the carried gun");
-    assert!(shots.iter().all(|s| s.weapon == RIFLE), "gun only: {shots:?}");
-    assert!(attacks.iter().all(|a| !a.melee && a.weapon == Some(RIFLE)), "gun attack anim: {attacks:?}");
-
-    // Type 23 (Ranged) carrying only a grenade or melee weapon: does nothing.
-    let (shots, attacks) = setup(&[GRENADE, MACHETE], Some(GRENADE), WeaponType::Ranged);
-    assert!(shots.is_empty() && attacks.is_empty(), "no gun carried -> does nothing");
+    // Unmapped (`None`, including type 23 "Weapons: None" until confirmed) with only a melee weapon: swings it.
+    let (shots, attacks) = setup(&[MACHETE], Some(MACHETE), None);
+    assert!(shots.is_empty());
+    assert!(!attacks.is_empty(), "unmapped type 23 must not stall melee-only actors");
+    assert!(attacks.iter().all(|a| a.melee && a.weapon == Some(MACHETE)), "held melee weapon: {attacks:?}");
 }

@@ -13,13 +13,14 @@
 //!   what "blocked" covers is not documented; walls are not looked at]. Between volleys
 //!   it waits its pause.
 //! - **The weapon**: the use's named weapon when it is a gun, else when a package asks
-//!   for a weapon type (`WeaponUse::weapon_type`: 21 unarmed, 22 melee, 23 ranged
-//!   [hypothesis: #3668]) a drawn or carried weapon of that class (fists / creature attack
-//!   for unarmed; nothing when the actor carries no melee weapon for 22 or no gun for 23
-//!   [documented: GECK wiki Use Weapon Package, Notes]), else the gun drawn on it; any
-//!   other weapon, or none, swings (**Melee** below) [design]. Its drawn model is the one
-//!   it was spawned with: a use naming another weapon fires that weapon's shots from the
-//!   model it holds (models are not swapped live yet).
+//!   for a weapon type (`WeaponUse::weapon_type`: 21 unarmed, 22 melee
+//!   [hypothesis: #3668]; 23 left on the held-weapon fallback until confirmed) a drawn or
+//!   carried weapon of that class (fists / creature attack for unarmed; nothing when the
+//!   actor carries no melee weapon for 22 [documented: GECK wiki Use Weapon Package,
+//!   Notes]), else the gun drawn on it; any other weapon, or none, swings (**Melee**
+//!   below) [design]. Its drawn model is the one it was spawned with: a use naming
+//!   another weapon fires that weapon's shots from the model it holds (models are not
+//!   swapped live yet).
 //! - **Always Hit**: no spread at all, aimed at the chest or object aim point [design: the
 //!   shot can still meet cover between them]. **Do No Damage**: the shots are harmless
 //!   (`nvf_play::combat::ActorFire::harmless`). **Crouch To Reload**: it crouches
@@ -285,12 +286,6 @@ enum Arm {
     Creature(f32, f32),
 }
 
-/// Whether `ws` is a ranged gun (has a projectile and is not a thrown/laid explosive
-/// such as a frag grenade or mine) [design, #3668].
-fn is_ranged_gun(c: &Combat, ws: &WeaponStats, id: FormId) -> bool {
-    is_gun(c, ws, id) && !ws.anim_type.as_deref().is_some_and(|a| fnv_sim::forms::THROWN_ANIM_TYPES.contains(&a))
-}
-
 /// Best weapon `me` carries that satisfies `pred`: an equipped match first, else the
 /// carried match with the highest base damage (ties broken by lowest FormId) [design, #3668].
 fn carried_weapon_matching(c: &Combat, g: &mut fnv_game::game::Game<'_>, me: FormId, pred: impl Fn(FormId, &WeaponStats) -> bool) -> Option<FormId> {
@@ -306,11 +301,10 @@ fn carried_weapon_matching(c: &Combat, g: &mut fnv_game::game::Game<'_>, me: For
         .map(|(id, _)| id)
 }
 
-/// What `me` carries out weapon use `w` with, or `None` when the package asks for a
-/// weapon class (`WeaponType::Melee` or `WeaponType::Ranged`) that the actor does not
-/// carry [documented: GECK wiki Use Weapon Package, Notes — a "Weapons: Melee" package
-/// on an actor with only a ranged weapon does nothing; hypothesis: #3668 for the 21/22/23
-/// class split].
+/// What `me` carries out weapon use `w` with, or `None` when the package asks for
+/// `WeaponType::Melee` (object type 22) and the actor does not carry a melee weapon
+/// [documented: GECK wiki Use Weapon Package, Notes — a "Weapons: Melee" package on an
+/// actor with only a ranged weapon does nothing; hypothesis: #3668 for the 21/22 split].
 fn pick_arm(
     c: &Combat,
     g: &mut fnv_game::game::Game<'_>,
@@ -344,13 +338,6 @@ fn pick_arm(
                 .filter(|f| c.forms.weapons.get(f).is_some_and(|ws| pred(*f, ws)))
                 .or_else(|| carried_weapon_matching(c, g, me, pred))
                 .map(|f| Arm::Melee(Some(f)))
-        }
-        Some(WeaponType::Ranged) => {
-            let pred = |f: FormId, ws: &WeaponStats| is_ranged_gun(c, ws, f);
-            drawn
-                .filter(|f| c.forms.weapons.get(f).is_some_and(|ws| pred(*f, ws)))
-                .or_else(|| carried_weapon_matching(c, g, me, pred))
-                .map(Arm::Gun)
         }
         None => Some(match drawn {
             Some(f) if c.forms.weapons.get(&f).is_some_and(|ws| is_gun(c, ws, f)) => Arm::Gun(f),

@@ -21,8 +21,9 @@
 //!   fight).
 //! - **The package** [documented: xEdit PACK PKW3 field names; the meanings below are
 //!   our reading of them]: location 1 is where to stand, target 1 the weapon (a weapon
-//!   form, or an object type: 21 unarmed, 22 melee, 23 ranged [hypothesis: #3668, from
-//!   Fallout3.esm and FalloutNV.esm package names], else what the actor holds), target 2
+//!   form, or an object type: 21 unarmed, 22 melee [hypothesis: #3668, from
+//!   Fallout3.esm and FalloutNV.esm package names]; 23 ("Weapons: None") and others stay
+//!   on whatever the actor holds until confirmed in the original), target 2
 //!   whom to shoot. Fire
 //!   count "Number of Bursts" fires that many volleys, "Repeat Fire" goes on for as
 //!   long as the package runs; each volley is a random number of shots between Shots
@@ -68,15 +69,14 @@ pub enum Source {
 /// Weapon class requested by a Use Weapon package's target 1 object type
 /// ([hypothesis: #3668, from the Fallout3.esm and FalloutNV.esm package names; xEdit's
 /// `wbObjectTypeEnum` labels 21-23 differently — `package::object_type_name` keeps
-/// xEdit's labels until confirmed in the original]).
+/// xEdit's labels and object type 23 ("Weapons: None", used by 32 of 52 vanilla Use
+/// Weapon packages) stays unmapped until confirmed in the original]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum WeaponType {
     /// Object type 21 (e.g. `CitInitiatePracticeMeleeB0x24`, `LittleBusterUnarmedPractice8x4`): fists or an unarmed weapon.
     Unarmed,
     /// Object type 22 (e.g. `FortLegionarySparringPackage`, `VRRCInitiation1PACKAGE`): a carried melee weapon.
     Melee,
-    /// Object type 23 (e.g. `CitInitiatePracticeRifleBASE`, `HVBrotherhoodTargetPractice1`): a carried ranged weapon.
-    Ranged,
 }
 
 /// One actor's weapon use (module notes).
@@ -87,8 +87,8 @@ pub struct WeaponUse {
     pub seq: u64,
     /// The weapon to use (a base form); `None`: chosen by [`Self::weapon_type`] or the one it holds.
     pub weapon: Option<FormId>,
-    /// Weapon class from a Use Weapon package's target 1 object type (21/22/23); `None`:
-    /// use [`Self::weapon`] or whatever the actor holds.
+    /// Weapon class from a Use Weapon package's target 1 object type (21/22); `None`:
+    /// use [`Self::weapon`] or whatever the actor holds (including type 23 until confirmed).
     pub weapon_type: Option<WeaponType>,
     /// Where to stand (a reference); `None`: where the package's location says, or
     /// where it is.
@@ -233,7 +233,6 @@ impl Game<'_> {
             Some(TargetKind::ObjectId(Some(w))) if self.data.sig(w).as_ref() == Some(b"WEAP") => (Some(w), None),
             Some(TargetKind::ObjectType(21)) => (None, Some(WeaponType::Unarmed)),
             Some(TargetKind::ObjectType(22)) => (None, Some(WeaponType::Melee)),
-            Some(TargetKind::ObjectType(23)) => (None, Some(WeaponType::Ranged)),
             _ => (None, None),
         };
         let p = def.use_weapon.unwrap_or_default();
