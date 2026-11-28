@@ -45,10 +45,7 @@ fn every_world_material_compiles_with_physical_pbr() {
         ("bevy_pbr/render/pbr.wesl", &[][..]),
     ] {
         for env_map in [false, true] {
-            // The ambient occlusion's hook into the physical light loop comes with #3828's
-            // split part 2 (#4287), which makes this a loop over `[false, true]` again.
-            #[allow(clippy::single_element_loop)]
-            for on in [false] {
+            for on in [false, true] {
                 let mut defs = extra.to_vec();
                 defs.push("DISTANCE_FOG");
                 if env_map {

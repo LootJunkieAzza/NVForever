@@ -4597,7 +4597,7 @@ and names its functions `vc_m2_*`); a run draws with it and nothing else.
 
 ### 3.25 Physical lighting (`physical-pbr`; off in every preset, #3827)
 
-**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion inside the physical light loop (part 2, #4287; until then the occlusion stays on the picture under this row, logged once), the canopy shading (part 3b, #4266), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
+**Carried over** from #3828's branch (its split, part 5, #4199): the light loop, lamps, fog, the sky and its image-based light, exposure and tone, bloom and the materials below. The rest of that branch's physical work comes in its own pull requests, each stacked on this one: the ambient occlusion's physical channels and its place inside the physical light loop (part 2, #4287, below), the canopy shading (part 3b, #4266), and skin, eyes and hair (part 6, #4262, §3.26). Not measured or pictured yet.
 
 **With the volumetric rows** [design: agreed with the volumetric work, 2026-11-26]: Volumetric
 clouds and Volumetric light run under Physical lighting. The clouds are lit as the physical
@@ -4702,6 +4702,33 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
 
   Still to come: canopy normals on placed plants, which need the foliage detection of
   §3.24 (#4193).
+- *Ambient occlusion* (with Ambient occlusion on, §3.1; part 2, #4287): under
+  this row the occlusion pass also writes a long-range sky visibility for architecture
+  (about 3 m, foliage counted only by its thickness so a crown does not act as a wall)
+  into its texture's blue channel, and a short screen-space contact shadow towards the
+  sun into its alpha (`ssao.wesl`; the texture is `Rgba16Float` under the row). The sky
+  visibility counts a quarter indoors; the contact shadow is off indoors and fades in as
+  the sun rises from 3 to 14 % above the horizon (ssao.rs `physical_occlusion_vectors`).
+  All three channels go through a two-stage denoise: a 4 × 4 core with a stride-2 ring,
+  then a 7 × 7 separable à-trous pass (`denoise_wide`), blurring more with distance (110 to
+  420 units) and over foliage [design]; without the row only the first stage runs, writing
+  the denoised texture itself, so the occlusion costs what it did before. The lighting reads them inside the physical light
+  loop (ssao_lighting/hook.rs `PHYSICAL_HOOK_EDITS`, ssao_lighting.wesl
+  `nvf_physical_occlusion`):
+  - a 3 × 3 depth-aware tent upsample of the texture, with a near and a soft depth
+    tolerance, the soft one taken over foliage and with distance;
+  - the sky's light and the fallback ambient take the local occlusion with the multi-bounce
+    fit times `mix(0.28, 1, sky visibility)`, and the sky's reflection Lagarde and de
+    Rousiers' specular occlusion of the same [documented: "Moving Frostbite to Physically
+    Based Rendering", SIGGRAPH 2014, §4.10.2];
+  - the first directional light (the sun or the moon, an interior's key light) takes the
+    contact shadow in a world view;
+  - lamps take the lamps' factor (a share of it where their shadow is looked up, as in the
+    display-value loop); their highlight takes the diffuse factor, as the physical loop adds
+    a lamp's diffuse light and highlight as one [design].
+
+  The bounce light volume (RTGI) still waits under the row: its hook is written for the
+  display-value sum. Without the row the occlusion looks as before.
 
 | Constant | Value | Tag and basis |
 |---|---|---|
@@ -4719,6 +4746,11 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
 | `PHYSICAL_LOW_REF`, `PHYSICAL_HIGH_REF` (eye_adapt.rs) | −6.0, −1.2 EV | [design] |
 | `PHYSICAL_LIFT_SLOPE`, `PHYSICAL_MAX_LIFT`, `PHYSICAL_DARKEN_SLOPE`, `PHYSICAL_MAX_DARKEN` | 0.68, 2.6, 0.45, 1.4 | [design] |
 | `PHYSICAL_METER_FILTER` | 10-98 % | [design] the display-value meter's 10-100 % (eye_adapt.rs `METER_FILTER`) less the brightest 2 % |
+| `MACRO_RADIUS`, `MACRO_STEPS` (ssao.wesl) | 220 units, 8 | [design] about 3 m of architecture |
+| `MACRO_HORIZON_BIAS`, `MACRO_FALLOFF_START`, `MACRO_THIN_RISE`, `MACRO_THIN_DECAY` | 0.04, 0.35, 0.22, 0.55 | [design] |
+| `MACRO_FADE_START`, `MACRO_FADE_END` | 3,200, 6,500 units | [design] |
+| `CONTACT_STEPS`, `CONTACT_LENGTH`, `CONTACT_FADE_START`, `CONTACT_FADE_END` | 12, 24 units (at most 24 px on screen), 160, 380 units | [design] |
+| sky visibility indoors (ssao.rs) | 0.25 | [design] |
 
 - **Cost**: not measured yet (to be measured as in §5, the Goodsprings and Prospector
   Saloon frames, with the row on and off).

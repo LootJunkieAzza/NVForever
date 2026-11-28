@@ -32,7 +32,7 @@ use bevy::shader::Shader;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub mod hook;
-pub(crate) use hook::hook_patched;
+pub(crate) use hook::{hook_patched, physical_hook_patched};
 
 /// ssao_lighting.wesl, imported by the patched `apply_pbr_lighting` as
 /// `nvforever::ssao_lighting`.
@@ -138,7 +138,8 @@ pub fn specular_visibility(g: f32, n_dot_v: f32, roughness: f32, weight: f32) ->
 pub struct AmbientOcclusionLightingUniform {
     /// Exponent, debug view (1 on), fade end (game units), distance tolerance.
     pub params: Vec4,
-    /// Strength, the lamps' weight (0..1), the multi-bounce fit (1 on); w unused.
+    /// Strength, the lamps' weight (0..1), the multi-bounce fit (1 on), and 1 when Physical
+    /// PBR's sky visibility (.b) and sun contact shadow (.a) are packed in `nvf_ao_texture`.
     pub extra: Vec4,
     /// The share of the lamps' factor on lamps whose shadow is looked up ([`SHADOWED_LAMPS`]),
     /// the weight of the factor on the lamps' highlights ([`HIGHLIGHTS`]); z, w unused.
@@ -146,6 +147,13 @@ pub struct AmbientOcclusionLightingUniform {
 }
 
 impl AmbientOcclusionLightingUniform {
+    /// Physical PBR's channels (sky visibility in .b, the sun's contact shadow in .a) are in
+    /// the occlusion texture (ssao.rs `physical_occlusion_vectors`).
+    pub fn with_physical(mut self, physical: bool) -> Self {
+        self.extra.w = if physical { 1.0 } else { 0.0 };
+        self
+    }
+
     /// The uniform for an occlusion raised to `exponent`, faded out at `fade_end` (game
     /// units), made with `strength`, on lamps without a shadow by `lamps` (held to 0..1), the
     /// ambient's factor with or without the multi-bounce fit ([`MULTIBOUNCE`]), with or

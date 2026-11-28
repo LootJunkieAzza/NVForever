@@ -6461,7 +6461,6 @@ forbid = [
   { re = 'pickpocket: open on 0x00104C79', label = "E opened the full pickpocket menu" },
 ]
 
-
 [[scenario]]
 name = "quick-loot-language"
 source = "[design] #2933 (the sixth look): Quick Loot's own words follow the Language row (lang/*.toml): its keys, column heads and Empty"
@@ -11619,7 +11618,6 @@ expect = [
   "menu pause: the picture runs again",
 ]
 
-
 [[scenario]]
 name = "photo-mode-lights"
 source = "[design] photo mode lights: Hue and Saturation sliders, brightness, range, point or spot, a direction and a width the player sets, shadows; a new light drops at the camera; the camera stands still while a light is edited and comes back exactly; the lights go when photo mode closes (docs/design/photo-mode.md)"
@@ -11646,7 +11644,6 @@ expect = [
   "photo mode: closed, the view is back on the player",
 ]
 
-
 [[scenario]]
 name = "photo-mode-options"
 source = "[design] photo mode's camera is free (not locked to the player) and it has the options photo modes commonly have: depth of field, warmth, vignette, grain, letterbox, grid, hide player (docs/design/photo-mode.md)"
@@ -11672,7 +11669,6 @@ expect = [
   "test aid NVF_PLAY_TEST_PHOTO: Camera Orbit",
   "photo mode: closed, the view is back on the player",
 ]
-
 
 [[scenario]]
 name = "console-toggles"
@@ -35752,7 +35748,6 @@ expect = [
   { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "one stay, one refusal" },
 ]
 
-
 [[scenario]]
 name = "use-weapon-silo-mainframe"
 source = "[design, #2652] Player activation and button 1 give ED-E its mainframe package; its Always Hit / Do No Damage shot must run OnHit ED-E and set NVDLC04MQ01a 55. Record chain: #2652; launch-code preparation: crates/fnv-game/walkthrough/lonesome-road.actions.json."
@@ -35931,7 +35926,6 @@ expect = [
 ]
 order = [["controller opened", "controller key 2 chosen", "slot 2 is Ammo Swap", "controller key 3 chosen", "hotkeys: slot 3 holds", "controller closed", "controller opened", "controller key 8 chosen", "controller closed", "hotkeys: slot 3: equipped"]]
 
-
 [[scenario]]
 name = "tiles-items-hotkey-pad"
 source = "[design, #2312] controller.md section 3: RB opens the existing ITEMS hotkey panel, D-pad steps all eight slots, A assigns, B cancels; provisional selection method pending observer check 211"
@@ -35993,7 +35987,6 @@ expect = [
 forbid = [
   { re = 'VHDRangerKimballGuard0[12]REF: cannot reach', label = "both guards reach their nearby stage markers" },
 ]
-
 
 [[scenario]]
 name = "scene-kimball-guard-natural-heading"
@@ -36228,7 +36221,6 @@ order = [[
 forbid = [
   { re = 'idle: Lucky38MrHouseREF plays MrHouseTalk', label = "the screen never plays the pod's talk idles" },
 ]
-
 
 [[scenario]]
 name = "quality-main-menu-measure"
@@ -36930,6 +36922,7 @@ forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error" },
 ]
 note = "The same start, spot search and poses as terrain-parallax-ground-pack (round 2, 2026-11-22), not yet checked by a run. The shots are saved as terrain-parallax-ground-pack-off-shots/terrain_parallax_ab_<seconds>s_<a|b|c>.png."
+
 [[scenario]]
 name = "light-shafts-msaa"
 source = "[design] docs/design/graphics-enhanced.md §3.7 (engine/nvforever/src/shafts.wesl `sky_depth_at`): with --graphics-only light-shafts and 4x multisampling (FSR off, so the INI's upscaler does not turn it off) at Goodsprings in the late afternoon, the shafts' pipelines (the source pass reading every sample of the multisampled depth) are made and used without a pipeline or validation error. Whether a silhouette's edge against the sun still leaks into the shafts is checked in pictures by hand"
@@ -37653,6 +37646,7 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-25 (the split of #3828); first run 2026-11-26 on vanilla data: PASS."
+
 [[scenario]]
 name = "physical-lighting-volumetric"
 source = "[design, agreed with the volumetric work 2026-11-26] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/sky.rs `physical_cloud_light`, volumetric_clouds.rs `compose_uniform`): started with --graphics-only physical-pbr,volumetric-clouds-high,volumetric-light at Goodsprings at 17:30, the volumetric rows run under Physical lighting: the graphics line names both, the light in the air is wanted, and nothing fails to compile"
@@ -37673,6 +37667,7 @@ forbid = [
   { text = "DeviceLost", label = "the GPU device was lost" },
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
+
 [[scenario]]
 name = "dawn-leaves-night-before-sunrise"
 source = "[hypothesis, fitted] docs/spec-notes/world.md §6 'Night key beyond sunrise and sunset' (#2916): the night key lies a third of the transition before sunrise begins (5:20 for the Mojave's 6:00-8:00), so at 06:00 the grade is already part of the way to the sunrise adapter (saturation under the night's and the day's 1.10), as the original's picture under Lake Mead is at 06:00 (observer job o35_uw_dawn)"
@@ -37712,3 +37707,57 @@ forbid = [
   { text = "co-op test guest: SmokeGuest failed to join", label = "the guest is not refused (the password matches)" },
   { text = "co-op: the lobby browser:", label = "the Browse request does not fail" },
 ]
+
+[[scenario]]
+name = "physical-lighting-occlusion"
+source = "[design, #3827 part 2] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/ssao_lighting/hook.rs `PHYSICAL_HOOK_EDITS`, ssao_lighting.wesl `nvf_physical_occlusion`): with --graphics-only physical-pbr,ambient-occlusion at Goodsprings at noon, the occlusion goes into the physical light loop (the local occlusion, the sky visibility and the sun's contact shadow), every material that reads it compiles and draws, and the RTGI hook says why it waits. Whether the look is right is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/ssao*", "engine/nvforever/src/ssao_lighting/**", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/nvf-shader-tests/**"]
+args = ["--cell", "Goodsprings", "--hour", "12", "--play", "--no-voice", "--no-messages", "--graphics-only", "physical-pbr,ambient-occlusion"]
+run_seconds = 16
+order = [[
+  { text = "lights: physical PBR linear lighting installed", label = "the physical light loop (Goodsprings)" },
+  { text = "lights: ambient occlusion hook installed", label = "the physical hook after it (Goodsprings)" },
+  { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera once the hook is in (Goodsprings)" },
+]]
+expect = [
+  { text = "physical PBR: on", count = 1, label = "the run's switch is on (Goodsprings)" },
+  { text = "ambient occlusion: on the ambient light in the lighting (main camera)", count = 1, label = "said once: it stays in the lighting (Goodsprings)" },
+  { text = "RTGI volume: not under physical PBR yet (its hook is written for the display-value sum)", count = 1, label = "the bounce light's hook waits, and says why (Goodsprings)" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the occlusion in the physical loop (Goodsprings)" },
+  { text = "Shader validation error", label = "a material shader with NVF_AMBIENT_OCCLUSION under Physical lighting does not compile (Goodsprings)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (Goodsprings)" },
+  { text = "hook's anchors not found", label = "the lighting hooks apply to the physical loop (Goodsprings)" },
+  { text = "lighting hook is not installed", label = "the occlusion goes into the lighting, not the fallback (Goodsprings)" },
+  { text = "DeviceLost", label = "the GPU device was lost (Goodsprings)" },
+]
+note = "Written 2026-11-26 (#4287, the occlusion's hook for the physical loop); first run 2026-11-26 on vanilla data: PASS."
+
+[[scenario]]
+name = "physical-lighting-occlusion-interior"
+source = "[design, #3827 part 2] docs/design/graphics-enhanced.md §3.25 (engine/nvforever/src/ssao_lighting/hook.rs `PHYSICAL_HOOK_EDITS`, ssao_lighting.wesl `nvf_physical_occlusion`): with --graphics-only physical-pbr,ambient-occlusion in the Prospector Saloon, lit by lamps, the occlusion goes into the physical light loop (the local occlusion, the sky visibility and the sun's contact shadow), every material that reads it compiles and draws, and the RTGI hook says why it waits. Whether the look is right is checked in pictures by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/ssao*", "engine/nvforever/src/ssao_lighting/**", "engine/nvforever/src/lights.rs", "engine/nvforever/src/lights/display_shader.rs", "engine/nvf-shader-tests/**"]
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--graphics-only", "physical-pbr,ambient-occlusion"]
+run_seconds = 16
+order = [[
+  { text = "lights: physical PBR linear lighting installed", label = "the physical light loop (the saloon)" },
+  { text = "lights: ambient occlusion hook installed", label = "the physical hook after it (the saloon)" },
+  { text = "ambient occlusion: on the ambient light in the lighting (main camera)", label = "the bindings on the main camera once the hook is in (the saloon)" },
+]]
+expect = [
+  { text = "physical PBR: on", count = 1, label = "the run's switch is on (the saloon)" },
+  { text = "ambient occlusion: on the ambient light in the lighting (main camera)", count = 1, label = "said once: it stays in the lighting (the saloon)" },
+  { text = "RTGI volume: not under physical PBR yet (its hook is written for the display-value sum)", count = 1, label = "the bounce light's hook waits, and says why (the saloon)" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the occlusion in the physical loop (the saloon)" },
+  { text = "Shader validation error", label = "a material shader with NVF_AMBIENT_OCCLUSION under Physical lighting does not compile (the saloon)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the saloon)" },
+  { text = "hook's anchors not found", label = "the lighting hooks apply to the physical loop (the saloon)" },
+  { text = "lighting hook is not installed", label = "the occlusion goes into the lighting, not the fallback (the saloon)" },
+  { text = "DeviceLost", label = "the GPU device was lost (the saloon)" },
+]
+note = "Written 2026-11-26 (#4287, the occlusion's hook for the physical loop); first run 2026-11-26 on vanilla data: PASS."
