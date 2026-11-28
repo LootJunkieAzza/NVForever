@@ -861,6 +861,7 @@ impl Rule {
         let Some(index) = Self::resolve_mod_index(g, name, mod_index) else {
             return Match::No;
         };
+        let orig_item = g.unclone(item);
         let matches = |v: &Json| {
             let Some(local) = parse_local_form(v) else {
                 return Match::Unknown;
@@ -868,16 +869,29 @@ impl Rule {
             if index > 255 {
                 return Match::Unknown;
             }
-            let list_id = FormId(((index as u32) << 24) | local);
-            match g.data.sig(list_id) {
+            let target = FormId(((index as u32) << 24) | local);
+            match g.data.sig(target) {
                 Some(sig) if &sig == b"FLST" => {
-                    if crate::functions::refs::list_members(g, list_id).contains(&item) {
+                    let members = crate::functions::refs::list_members(g, target);
+                    if members.contains(&item) || (orig_item != item && members.contains(&orig_item)) {
                         Match::Yes
                     } else {
                         Match::No
                     }
                 }
-                _ => Match::Unknown,
+                // Modded ySI patch packs (e.g. rules using `"formlist": 1` on direct item forms
+                // or optional plugin IDs) pass non-FLST forms or absent local IDs: evaluate live
+                // non-FLST targets by direct equality and absent local IDs as `Match::No`
+                // (matching `ysi_predicates::formlist_mode2`) so they do not poison lower-priority
+                // tag and category rules with `Match::Unknown` [design].
+                Some(_) => {
+                    if item == target || orig_item == target {
+                        Match::Yes
+                    } else {
+                        Match::No
+                    }
+                }
+                None => Match::No,
             }
         };
         match value {

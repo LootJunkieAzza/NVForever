@@ -1020,33 +1020,61 @@ fn formlist_predicate_supports_authored_and_live_flst_membership_and_refuses_unk
         XVal::Str("Owned/list-b.dds".into())
     );
 
-    // Unverified formlist mode (3) and non-FLST targets on mode 1 remain conservative Match::Unknown.
-    for extra in [
-        serde_json::json!({"priority": 30, "mod": "OwnedYsi.esm", "form": "00000840", "formlist": 3, "tag": "(mode3)"}),
-        serde_json::json!({"priority": 30, "mod": "OwnedYsi.esm", "form": "00000820", "formlist": 1, "tag": "(notFlst)"}),
-    ] {
-        files.write(
-            "ySI.json",
-            &config(
-                serde_json::json!([
-                    {"priority": 10, "formType": 31, "tag": "(base)"},
-                    extra
-                ]),
-                serde_json::json!([
-                    {"priority": 10, "tag": "(base)", "filename": "Owned/base.dds"}
-                ]),
-            ),
-        );
-        let mut fresh = game(&f);
-        assert_eq!(
-            success(&mut fresh, "SetFunctionValue (ySIGetTrait \"filename\" OwnYsiItem)"),
-            XVal::Str("interface\\icons\\Misc_Unknown.dds".into())
-        );
-        assert_eq!(
-            success(&mut fresh, "SetFunctionValue (ySIGetTrait \"tag\" OwnYsiItem)"),
-            XVal::Str(String::new())
-        );
-    }
+    // Unverified formlist mode (3) remains conservative Match::Unknown.
+    files.write(
+        "ySI.json",
+        &config(
+            serde_json::json!([
+                {"priority": 10, "formType": 31, "tag": "(base)"},
+                {"priority": 30, "mod": "OwnedYsi.esm", "form": "00000840", "formlist": 3, "tag": "(mode3)"}
+            ]),
+            serde_json::json!([
+                {"priority": 10, "tag": "(base)", "filename": "Owned/base.dds"}
+            ]),
+        ),
+    );
+    let mut fresh = game(&f);
+    assert_eq!(
+        success(&mut fresh, "SetFunctionValue (ySIGetTrait \"filename\" OwnYsiItem)"),
+        XVal::Str("interface\\icons\\Misc_Unknown.dds".into())
+    );
+    assert_eq!(
+        success(&mut fresh, "SetFunctionValue (ySIGetTrait \"tag\" OwnYsiItem)"),
+        XVal::Str(String::new())
+    );
+
+    // On formlist: 1, live non-FLST item targets match by direct equality and absent local IDs
+    // yield Match::No rather than poisoning lower-priority rules for every other item.
+    files.write(
+        "ySI.json",
+        &config(
+            serde_json::json!([
+                {"priority": 10, "formType": 31, "tag": "(base)"},
+                {"priority": 30, "mod": "OwnedYsi.esm", "form": ["00000820", "0000FFFF"], "formlist": 1, "tag": "(directViaList1)"}
+            ]),
+            serde_json::json!([
+                {"priority": 10, "tag": "(base)", "filename": "Owned/base.dds"},
+                {"priority": 10, "tag": "(directViaList1)", "filename": "Owned/direct-via-list1.dds"}
+            ]),
+        ),
+    );
+    let mut mixed = game(&f);
+    assert_eq!(
+        success(&mut mixed, "SetFunctionValue (ySIGetTrait \"tag\" OwnYsiItem)"),
+        XVal::Str("(directViaList1)".into())
+    );
+    assert_eq!(
+        success(&mut mixed, "SetFunctionValue (ySIGetTrait \"filename\" OwnYsiItem)"),
+        XVal::Str("Owned/direct-via-list1.dds".into())
+    );
+    assert_eq!(
+        success(&mut mixed, "SetFunctionValue (ySIGetTrait \"tag\" OwnYsiItemB)"),
+        XVal::Str("(base)".into())
+    );
+    assert_eq!(
+        success(&mut mixed, "SetFunctionValue (ySIGetTrait \"filename\" OwnYsiItemB)"),
+        XVal::Str("Owned/base.dds".into())
+    );
 }
 
 #[test]
@@ -1994,3 +2022,51 @@ fn ysi_get_and_set_trait_match_observed_yui140_string_metadata_fallback_and_worl
     assert_eq!(success(&mut g, "SetFunctionValue (IsPluginInstalled \"yUI\")"), XVal::Num(0.0));
     assert_eq!(success(&mut g, "SetFunctionValue (GetPluginVersion \"yUI\")"), XVal::Num(-1.0));
 }
+
+#[test]
+fn absent_weapon_vnam_defaults_to_loud_zero_without_poisoning_lower_rules() {
+    let files = Files::new();
+    files.write(
+        "ySI.json",
+        &config(
+            serde_json::json!([
+                {"priority": 10, "formType": 40, "tag": "(gun)"},
+                {"priority": 20, "weaponSoundLevel": 0, "tag": "(loud)"},
+                {"priority": 40, "weaponSoundLevel": 2, "tag": "(silent)"}
+            ]),
+            serde_json::json!([
+                {"priority": 10, "tag": "(gun)", "filename": "Owned/gun.dds"},
+                {"priority": 10, "tag": "(loud)", "filename": "Owned/loud.dds"},
+                {"priority": 10, "tag": "(silent)", "filename": "Owned/silent.dds"}
+            ]),
+        ),
+    );
+    let mut weap_data = vec![0u8; 15];
+    weap_data[0..4].copy_from_slice(&50i32.to_le_bytes());
+    let weap = record(b"WEAP", 0, 0x870, &[sub(b"EDID", z("OwnYsiNoVnamGun")), sub(b"DATA", weap_data)]);
+    let bytes = [
+        tes4(),
+        top(b"WEAP", &weap),
+        top(b"NPC_", &record(b"NPC_", 0, 7, &[sub(b"EDID", z("Player"))])),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "OwnedYsi.esm".into()).unwrap()];
+    let order = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let catalogue = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let forms = FormStore::build(&order, &schema);
+    let refs = RefTable::build(&order, &schema);
+    let data = GameData::build(&order, &schema, FunctionTable::load(&path).unwrap(), &catalogue, &refs);
+    let f = Fixture { data, forms, refs };
+    let mut g = game(&f);
+    assert_eq!(
+        success(&mut g, "SetFunctionValue (ySIGetTrait \"tag\" OwnYsiNoVnamGun)"),
+        XVal::Str("(loud)".into())
+    );
+    assert_eq!(
+        success(&mut g, "SetFunctionValue (ySIGetTrait \"filename\" OwnYsiNoVnamGun)"),
+        XVal::Str("Owned/loud.dds".into())
+    );
+}
+
