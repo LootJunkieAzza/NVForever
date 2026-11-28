@@ -18472,6 +18472,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "wind-tumbleweeds-storm"
+source = "#1401 (observer check 94, docs/spec-notes/wind.md §2.1): in a dust storm (HVDustStorm, WTHR DATA wind speed 127) the original's tumbleweeds rolled no faster than under the usual 50 (median 126, at most about 190 units a second); ours rolls them at the same 200 units a second in any weather with wind"
+areas = ["physics"]
+paths = ["engine/nvforever/src/tumble.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--weather", "HVDustStorm", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'wind summary: (?P<n>\d+) bodies respond to the wind', range = [1, 100], label = "the tumbleweeds near Goodsprings respond to the wind" },
+  { re = 'wind summary: .*the farthest went [0-9A-F]{8} (?P<n>\d+) units', range = [100, 1600], label = "one rolls away, no farther than a 3 s gust at 200 units a second and its settling allow (about 1,000; at 508 a second, as before, it went farther)" },
+]
+
+[[scenario]]
 name = "detection-pipboy-light"
 source = "Sneak audit (docs/design/detection.md §9): at night in Goodsprings the Pip-Boy light, switched on at 16 s, counts as the game's PipboyLight640 at the player's chest and lights the player near the top of the light term"
 note = "the light goes on after the add-ons' start-up scripts: their ResetPipboyManager turns it off (pipboy.rs reset_manager), at 5-10 s from the start"
