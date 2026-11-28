@@ -463,11 +463,11 @@ networking was ported onto that seam [design]:
 - The game side is on main's Co-op screens (`engine/nvforever/src/coop/connect.rs`,
   `engine/nvf-play/src/lobby.rs`: Let In / Turn Away, Kick, Ban) and the settings rows of
   the branch (Gameplay › Co-op, `coop/net_settings.rs`).
-- Not ported yet (a follow-up): the lobby browser (public and locked lobbies, the Browse
-  tab), a host's online code kept across a load's restart (`host_again`), split screen's
-  relay, the per-guest path and ping line, the join password, and the load order hash in
-  the host's listing. The birthday punch's socket side is in (`sockets.rs`, run by
-  `stack.rs`); its game-side test aids came with `online.rs` unchanged.
+- Not ported in #4901, then ported in §17: the lobby browser, a host's online code kept
+  across a load's restart (`host_again`), the per-guest path and ping line, the join
+  password, and the load order hash. Split screen's relay waits for split screen itself
+  (#4845). The birthday punch's socket side is in (`sockets.rs`, run by `stack.rs`); its
+  game-side test aids came with `online.rs` unchanged.
 
 What was run again on the port [observed, 2026-11-28, this PC only]: `cargo test -p
 nvf-coop` (the branch modules' own tests, and `stack.rs`'s: two games joining over Noise
@@ -482,4 +482,51 @@ the hosted relay, Direct only / LAN only, the birthday punch between a home netw
 mobile data). Those results are the branch's (build 1a8d04168 and a392fa875), not this
 port's, and the port needs one two-machine run through the service before co-op is
 called working over the internet on main.
+
+## 17. On main: the rest of the branch's networking (2026-11-28)
+
+The follow-ups §16 listed, ported onto main's seam and Co-op screens [design]:
+
+- **The lobby browser** (docs/design/coop-lobby-browser.md, its "On main" note): the host's
+  Visibility, Title and Password; the Join screen's Code and Browse tabs; favourites;
+  reports. Game side `engine/nvforever/src/coop/browse.rs`; screen `engine/nvf-play/src/lobby.rs`.
+- **The join password and the load order hash**: a host's online lobby is made with its
+  listing, its password (hashed, `nvf_coop::online`) and the load order's hash
+  (`coop/connect.rs` `set_load_order`, FNV-1a of the plugins' names in order); a guest's
+  join by online code sends its own hash and the password typed, and the service and the
+  checks refuse a mismatch before the host hears of it.
+- **The per-guest path and ping line**: `Session::paths` gives each guest's address and the
+  reliable stream's round trip (`rel.rs` measures it on items sent once, RFC 6298's
+  smoothing); the host's lobby list says "(direct, 25 ms)" and the like
+  (`stack::Path::of`, the words of §16's `Path`).
+- **A lobby kept across a load's restart** (`host_again`): a host's run that a load restarts
+  puts its lobby in the new run's environment (`NVF_COOP_HOST`, `NVF_COOP_CODE`,
+  `NVF_COOP_SECRET`, the host's choices; the secret and the password never go to a file)
+  and lets its link go without a goodbye (`connect::hand_over`, at the handoff's cover,
+  `crate::handoff::Handoff::leaving`). The new run hosts on the same port with the same key,
+  and takes its online code back from the service with the secret (`Stack::go_online_again`,
+  `Online::host_again`); an address code is kept as it was. The guests' sessions start again
+  by themselves: the host started again answers their data with the unknown-session hint
+  (`noise.rs`). A new run that fails leaves this run hosting again. `NVF_COOP_HOST=<port>`
+  set by hand opens a lobby on that port at start (the smoke scenario's way in).
+- **Test aids** (`coop/test_service.rs`): `NVF_COOP_SIGNAL=local` runs the matchmaking
+  service in the game (`nvf-signal-server`), and `NVF_COOP_TEST_GUEST=<name>` joins the
+  host's online code from a thread with a key of its own, so one launch checks the online
+  path offline (smoke `coop-online-local-duo-browse`).
+- **Not ported**: split screen's relay (split screen is not on main; #4845 brings it).
+
+What was run [observed, 2026-11-28, this PC only]: `cargo test -p nvf-coop` (153, the round
+trip's test with them), the nvforever co-op tests (79: the browser's rows and listing, the
+favourites file, the lobby's environment there and back, the load order hash), the nvf-play
+lobby tests (12: the host's choices, the Browse tab's sort, filters, row, Report and fit),
+the whole engine test suite, engine clippy, engine cargo deny, the smoke runner's tests, and
+the smoke scenarios the change calls for (35 pass, 8 skipped for want of `NVF_DLSS_DIR` or a
+lighting home), the new `coop-online-local-duo-browse` among them: the service in the game,
+a public locked lobby, the test guest let in with the password, the Browse tab listing,
+opening, sorting and reporting it. `physics-rate-fps` failed twice, the second time run
+alone: the game held 49 and then 57 fps before the scenario's frame hold began, with
+another session's build running on the machine, so Match FPS stepped down early; the
+change touches that run only by noting the load order [hypothesis: machine load; to run
+again on a quiet machine]. **Not run**: a load's restart with real guests in the lobby, and
+any two-machine run through coop.nv-forever.com.
 

@@ -5165,6 +5165,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-signal-server"
+version = "0.8.1"
+dependencies = [
+ "getrandom 0.3.4",
+ "nvf-signal",
+ "tungstenite",
+]
+
+[[package]]
 name = "nvf-viewer"
 version = "0.8.1"
 dependencies = [
@@ -5214,6 +5223,7 @@ dependencies = [
  "nvf-play",
  "nvf-rtgi",
  "nvf-signal",
+ "nvf-signal-server",
  "png",
  "rapier3d",
  "rayon",
