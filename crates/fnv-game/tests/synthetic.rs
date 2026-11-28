@@ -3721,6 +3721,34 @@ fn on_disable_and_on_enable_reentrancy_does_not_recurse_or_duplicate_events() {
 }
 
 #[test]
+fn get_explosion_hit_damage_returns_minus_one_outside_handler() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).unwrap()
+    };
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+    // SetExplosionHitDamage outside a handler is a no-op and does not change the -1.0 sentinel.
+    q(&mut g, "SetExplosionHitDamage 42");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+    // Inside a ShowOff:OnExplosionHit handler, GetExplosionHitDamage reads the live pre-armor
+    // damage (100.0) and SetExplosionHitDamage 30 returns 30.0; after exit it reverts to -1.0.
+    q(
+        &mut g,
+        "set TestGlobal to 0
+         SetEventHandler \"ShowOff:OnExplosionHit\" (Begin Function {ref target, ref source}
+           let TestGlobal := GetExplosionHitDamage
+           SetExplosionHitDamage 30
+         End)",
+    );
+    let out = g.explosion_hit(FormId::PLAYER_REF, 100.0);
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 100.0);
+    assert_eq!(out, 30.0);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetExplosionHitDamage)"), XVal::Num(-1.0));
+}
+
+#[test]
 fn dispatch_event_returns_one_and_overwrites_info_map_keys() {
     use fnv_script::vm::XVal;
     let f = udf_fixture();
