@@ -135,6 +135,12 @@ pub struct Ragdolls {
     templates: HashMap<String, Option<Arc<RagdollTemplate>>>,
     /// Bone poses (game space, in the ragdoll's body order) of corpses by reference.
     pub rest: HashMap<u32, Vec<Option<Iso>>>,
+    /// The [`Self::rest`] poses taken from a ragdoll still falling (its body taken away,
+    /// or the ground under it gone, before it came to rest): it goes on falling from
+    /// there when it is drawn again, not laid at rest in that pose (bodies drawn again
+    /// just after they died were set at rest knelt upright, "after 0.0 s of physics",
+    /// otherwise) [observed: buckallobill, in game, FNV 1.4.0.525].
+    pub falling: HashSet<u32>,
     pub started: usize,
     pub restored: usize,
     pub rested: usize,
@@ -328,7 +334,7 @@ impl Ragdolls {
         for (b, &n) in bones.iter().enumerate() {
             body_of[n] = Some(b);
         }
-        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, laid_out: false, ragdolled: false, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, woken: Woken::Fresh, settle: None, hits: 0, settle_contacts: None })
+        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, laid_out: false, ragdolled: false, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, woken: Woken::Fresh, settle: None, hits: 0, settle_contacts: None, fell_here: false })
     }
 }
 
@@ -367,6 +373,9 @@ pub struct Corpse {
     body_of: Vec<Option<usize>>,
     /// The ragdoll is in the physics world.
     pub live: bool,
+    /// It died in sight here and its ragdoll took the pose as it was (`deaths.rs`): a co-op
+    /// guest keeps its own fall, not the host's resting pose (`coop::replication`).
+    pub fell_here: bool,
     /// The velocity its bodies start with (game units a second, game space): a knockdown's
     /// shove (`knockouts.rs`); used once.
     pub velocity: [f32; 3],
@@ -841,6 +850,9 @@ pub(crate) fn pose(
         if !phys.ready_at(first) {
             // The ground under it is gone: keep the pose for when it is back.
             ragdolls.rest.insert(id, rest());
+            if !phys.world.ragdoll_asleep(id) {
+                ragdolls.falling.insert(id);
+            }
             phys.world.remove_ragdoll(id);
             c.live = false;
             continue;
@@ -1054,6 +1066,7 @@ pub(crate) fn pose(
         if asleep {
             ragdolls.rested += 1;
             ragdolls.rest.insert(id, rest());
+            ragdolls.falling.remove(&id);
             // How high its trunk lies over its lowest bone: a corpse lying down is low, one
             // set at rest standing (#1049) about a body's height.
             let trunk = phys.world.ragdoll_center(id).unwrap_or(first);
@@ -1072,6 +1085,11 @@ pub(crate) fn pose(
     for id in gone {
         if let Some(nodes) = phys.world.ragdoll_nodes(id) {
             ragdolls.rest.insert(id, nodes.iter().map(|b| b.as_ref().map(iso_of)).collect());
+            if phys.world.ragdoll_asleep(id) {
+                ragdolls.falling.remove(&id);
+            } else {
+                ragdolls.falling.insert(id);
+            }
         }
         phys.world.remove_ragdoll(id);
     }

@@ -1311,6 +1311,11 @@ pub struct PlayerBody {
     /// Line the gun's sights up with the eye while aiming (`iron_sights.rs`; off with
     /// `--no-true-iron-sights`, the settings page).
     pub true_iron_sights: bool,
+    /// A minigame's close camera wants the player's own body out of its view: the slot
+    /// machine's camera in on the reels (`slots_view.rs`), where the seated body's head
+    /// and arms came between it and the reels [observed 2026-11-11, test run]. The
+    /// body still casts its shadow.
+    pub out_of_view: bool,
     body: Option<Body>,
     /// The muzzle node of the weapon in hand in the rig in view, this frame.
     muzzle_entity: Option<Entity>,
@@ -3753,7 +3758,7 @@ fn drive_body(
         state.muzzle_entity = None;
         state.casing_entity = None;
         state.weapon_aim = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: true }, false, hidden);
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: (third_view || own_body) && !state.out_of_view, head: third_view, arms: true, weapon: true }, false, hidden);
         return;
     }
     if body.third.furniture.take().is_some() {
@@ -4385,6 +4390,7 @@ fn drive_body(
     // [observed: the owner's screenshots of the original's VATS, 2026-11-10, no arms or
     // weapon in the picture].
     let targeting = vats.is_some_and(|v| v.selected().is_some());
+    let seen = Seen { body: seen.body && !state.out_of_view, ..seen };
     show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !targeting, hidden);
 
     m.log_elapsed += dt;

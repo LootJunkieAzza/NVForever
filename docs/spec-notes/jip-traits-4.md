@@ -121,12 +121,22 @@ not decode yet.
 - 2 and 3 are the record's DATA flag bits 2 and 3 (repeated topics, repeated stages).
 - 4 (set running on reset) is DATA bit 0, Start Game Enabled [documented: the page's note,
   Start Game Enabled "equals flags 0 and 4"].
-- 5 (shown in the Pip-Boy) reads 1 for a named quest that runs or ran, or after a script
-  sets it [observed: jip4, 1 on VCG01 and VCG02, which the save has run, 0 on VMS01 and
-  VMS20, which it has not, and 0 on VDeadSea, which runs from the start with no name;
-  SetQuestFlag 5 1 reads back 1; Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30
-  with the 10 official base masters, clean-room script probe jip_27_quest_flag_5_shown
-  (GetQuestFlag): 0,0; no DLL or source consulted; hypothesis: the rule].
+- 5 (shown in the Pip-Boy) reads an explicit `SetQuestFlag q 5 0/1` override first,
+  otherwise record bit `0x20` or 1 for a named quest that has completed or has a
+  displayed/completed objective [observed: jip4, 1 on VCG01 and VCG02, which the save has
+  run, 0 on VMS01 and VMS20, which it has not, and 0 on VDeadSea, which runs from the
+  start with no name; SetQuestFlag 5 1 reads back 1; Fallout: New Vegas 1.4.0.525 + xNVSE
+  6.4.9 + JIP LN 57.30 with the 10 official base masters, clean-room script probe
+  jip_27_quest_flag_5_shown (GetQuestFlag): 0,0; Fallout: New Vegas 1.4.0.525 + xNVSE
+  6.4.9 + JIP LN 57.30, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base
+  masters, isolated clean-room staging copy (read-only probe; zero writes to game install
+  or Saves), `w6d2_26_quest_flag_5_clear_and_all_bits`
+  (`tools/capture/nvse/catalogs/wave6d2_set_quest_flag_5_clear.json`):
+  `PROBE|w6d2_26_quest_flag_5_clear_and_all_bits|vcg(0=1,4=1,5=0->on:1->off:0)|vms5=0->1|ds=1,0|f7=0->1,f8=0`
+  (running named `VCG01` starts with flag 5 = `0`, `SetQuestFlag 5 1` sets `1`,
+  `SetQuestFlag 5 0` clears back to `0`, `VMS01` `0->1`, unnamed running `VDeadSea` `1,0`,
+  flag 7 `0->1`, OOB flag 8 `0`); no DLL or source consulted; hypothesis: the
+  completed/displayed-objective fallback when flag 5 was not explicitly overridden].
 - 7 is unknown and reads as a script set it.
 
 ## 9. Factions, cells, waters, sounds
@@ -258,9 +268,20 @@ not decode yet.
   `PROBE|b3_jip4_02_session_time_and_start_angle|sess=5.31,docZ=22.92,dynZ=270.00`; zero
   DLL, PDB, or third-party source consulted; hypothesis: X/Y axes and persistence of
   `made_rot` across saves].
-- `GetIsPoisoned` [documented: "under the influence of a poison-type effect"]: an effect
-  on the actor whose source is an ingestible that GetIsPoison counts, all its effects
-  hostile and detrimental [hypothesis: the rule].
+- `GetIsPoisoned` [documented: "under the influence of a poison-type effect"]: returns `1`
+  for active `SPEL` type-5 poisons (`RadScorpion1Poison`, `BarkScorpionPoison`,
+  `CazadorPoison`; cleared to `0` by Antivenom dispel), `ALCH` poisons (`BleakVenom`),
+  and hostile+detrimental `SPEL` type-0 effects (`SpellFlamerEffect`), and `0` for clean
+  actors or beneficial ingestibles (`RadX`) [observed: 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730),
+  10 official base masters, read-only `PrintToConsole` probe
+  `w6d12_38_getispoisoned_all_sources_and_antivenom_clear`
+  (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`):
+  `clean=0|sp5(rad=1,bark=1,afterAnti=0,caz=1)|alchPois=1|sp0Flm=1|alchBen=0`; no DLL or
+  source consulted]. Ignoring inactive (`!e.inactive`) and permanent (`!e.permanent`, e.g.,
+  addictions) effects and scoping the non-`is_poison` Hostile+Detrimental check to `SPEL`
+  sources (leaving mixed `ALCH` items governed by `Game::is_poison`) are NVForever choices
+  [design].
 
 ## 11. Still open
 

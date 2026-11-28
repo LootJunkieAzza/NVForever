@@ -219,6 +219,25 @@ enum Leaving {
 #[derive(Resource, Default)]
 pub struct Handoff(Leaving, Option<String>);
 
+impl Handoff {
+    /// The screen is covered for a load or the main menu, and a new run takes over, or is
+    /// about to start: what this run holds for others (the co-op host's port, `crate::coop`)
+    /// goes now. False again when the new run failed and this one stays.
+    pub fn leaving(&self) -> bool {
+        match &self.0 {
+            Leaving::Covered(..) | Leaving::HandedOver => true,
+            #[cfg(not(target_os = "android"))]
+            Leaving::Waiting(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether what it is leaving for is a load (not the main menu).
+    pub fn loading(&self) -> bool {
+        matches!(&self.0, Leaving::Covered(Some(_), _) | Leaving::Asked(Some(_)))
+    }
+}
+
 /// The new run's arguments: this run's without those the save or the window decide
 /// (`keep`), and what to open.
 pub fn new_run_args(keep: &[String], what: Option<&LoadRequest>, placement: Option<Placement>, file: &Path) -> Vec<String> {
@@ -297,7 +316,7 @@ fn ready_file() -> PathBuf {
 #[allow(clippy::too_many_arguments)]
 pub fn leave(
     (mut asked, mut to_menu, mut refused): (MessageReader<LoadRequest>, MessageReader<nvf_play::pause::MainMenuRequest>, MessageReader<nvf_play::save::LoadRefused>),
-    writes: Res<SaveWrites>,
+    (writes, hold): (Res<SaveWrites>, Option<Res<crate::coop::HoldLeave>>),
     mut handoff: ResMut<Handoff>,
     (mut cover, mut uncover): (MessageWriter<CoverRequest>, MessageWriter<Uncover>),
     #[cfg(not(target_os = "android"))]
@@ -323,6 +342,9 @@ pub fn leave(
         Leaving::No => {}
         Leaving::HandedOver => *h = Leaving::HandedOver,
         Leaving::Asked(r) if writes.busy() => *h = Leaving::Asked(r),
+        // A co-op guest going to the main menu saves its own game first (`crate::coop`;
+        // only a guest in a host's world holds).
+        Leaving::Asked(None) if hold.as_deref().is_some_and(|h| h.holds()) => *h = Leaving::Asked(None),
         Leaving::Asked(r) => {
             cover.write(CoverRequest { to: r.as_ref().and_then(|r| destination_of(r, *location)) });
             *h = Leaving::Covered(r, 0);

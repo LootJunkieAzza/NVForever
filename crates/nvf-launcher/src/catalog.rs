@@ -327,6 +327,8 @@ pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
         ("difficulty", &["Very Easy", "Easy", "Normal", "Hard", "Very Hard", "Custom"][..]),
         ("kill-camera", &["Last enemy", "Every kill", "Off"][..]),
         ("vats-style", &["Classic", "Mark and Fire"][..]),
+        // nvf_coop::prefs::Connection::name.
+        ("coop-connection", &["Automatic", "Direct only", "LAN only"][..]),
         // As the INI keeps them (`Smoothing::stored`, #2676); the engine also reads its older 1/0.
         ("smooth-terrain", &["off", "2x2", "4x4", "4x4-near"][..]),
         // ssao.rs `AO_CHOICES` (2026-11-19); the engine also reads its older 1/0.

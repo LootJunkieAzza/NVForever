@@ -136,8 +136,13 @@ screen's height):
 
 **What the screenshots add** [observed]:
 
-- The words: "Repair Services", "Repair Skill  100", "Caps  18", "Repair All (285)  A)",
-  "Done  E)", "CND", "DAM", "+66 %" (the percent sign small), "+3", "Cost: 98 caps".
+- The words: the title; the skill and the caps, each with its figure two spaces after
+  it; Repair All with its total in brackets and its key hint; Done with its hint; the
+  condition and damage cards; the gains ("+66 %", the percent sign small; "+3"); the
+  cost with its figure. NVForever's hand-built page writes the settings the menu files
+  name for the title, skill, caps and buttons (`sRepairServicesTitle`, `sRepairSkill`,
+  `sInventoryCaps`, `sRepairAllItems`, `sDone`), and its own "Cost: N caps" [design,
+  #4495: in place of the words read from the screen].
 - The rows the player can have repaired come first and bright (Minigun, Sturdy Caravan
   Shotgun, Weathered 10mm Pistol, Mercenary's Grenade Rifle at 11, 11, ?, 1 caps), the
   others after them, dim at about two thirds (Straight Razor 32, Varmint Rifle 98, 9mm

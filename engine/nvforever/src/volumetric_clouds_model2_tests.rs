@@ -537,6 +537,65 @@ fn fair_banks_filter_by_projected_area_and_decks_by_projected_length() {
     assert_eq!(cloud_place_width(rel, dir, width, &u), long);
 }
 
+#[test]
+fn tiled_mixed_banks_recover_the_placement_of_their_reconstructed_texel() {
+    let mut u = lean_ground_with_puff(0.07, None, 1.0);
+    u.mix = Vec3::new(0.5, 0.5, 0.0).extend(0.0);
+    let dir = c1_dir(5.0, 60.0);
+    let rel = dir * 180_000.0;
+    let width = 900.0;
+    let untiled = cloud_place_width(rel, dir, width, &u);
+    let whole = (width * place_width(rel, dir, width, u.reach.y)).sqrt();
+    assert_eq!(untiled, whole);
+    for side in [2.0, 3.0] {
+        let mut tiled = u;
+        tiled.dshape.w = 1.0 / side;
+        let got = cloud_place_width(rel, dir, width, &tiled);
+        let reconstructed = cloud_place_width(rel, dir, width / side, &u);
+        assert!((got - reconstructed).abs() < 0.001 * reconstructed);
+    }
+    for (sheet, amount) in [(0.0, 0.29), (1.0, 0.07), (0.5, 0.73)] {
+        u.scale.w = amount;
+        u.mix = Vec3::new(sheet, 1.0 - sheet, 0.0).extend(0.0);
+        u.dshape.w = 1.0;
+        let baseline = cloud_place_width(rel, dir, width, &u);
+        u.dshape.w = 1.0 / 3.0;
+        assert_eq!(cloud_place_width(rel, dir, width, &u), baseline);
+    }
+}
+
+#[test]
+fn overhead_mixed_banks_and_sunlight_taps_keep_their_original_material_mix() {
+    use crate::volumetric_clouds_model2 as m2;
+    let mut u = lean_ground_with_puff(0.45, None, 1.0);
+    u.mix = Vec3::new(0.5, 0.5, 0.0).extend(0.0);
+    u.dshape.w = 1.0 / 3.0;
+    assert!((m2::mixed_sheet(&u) - 0.5).abs() < 1e-5);
+    let width = 900.0;
+    let cam_sample = m2::Sample { width, fw: width, eroded: true, ..Default::default() };
+    let sun_tap = m2::Sample { eroded: false, ..cam_sample };
+    let overhead = cloud_place_width(Vec3::Y * 20_000.0, Vec3::Y, width, &u);
+    let dir = c1_dir(5.0, 60.0);
+    let grazing = cloud_place_width(dir * 180_000.0, dir, width, &u);
+    assert!(overhead > 1.5 * width * u.dshape.w && grazing > 2.0 * overhead);
+    let at = |s: &m2::Sample, pwidth, blend| m2::mixed_material((1.0, 0.0), (1.0, 1.0), 0.5, blend, s, pwidth, &u).1;
+    let blend = 0.35;
+    assert_eq!(at(&cam_sample, overhead, blend), blend);
+    assert!(at(&cam_sample, grazing, blend) > blend + 0.1);
+    assert_eq!(at(&sun_tap, grazing, blend), blend, "near sunlight inherits the camera's projected footprint");
+    assert_eq!(at(&sun_tap, width, blend), blend, "a square world-light cell");
+    assert_eq!(at(&cam_sample, grazing, 0.0), 0.0);
+    assert!(at(&cam_sample, grazing, 1e-5) < 2e-5);
+    let bank = (0.80, 0.40);
+    let dry_puff = (0.01, 0.85);
+    for s in [&cam_sample, &sun_tap] {
+        for share in [0.0, 1e-5] {
+            let mixed = m2::mixed_material(bank, dry_puff, 0.05, share, s, grazing, &u);
+            assert!((mixed.0 - bank.0).abs() < 2e-5 && (mixed.1 - bank.1).abs() < 2e-5, "blend {share}: {mixed:?}");
+        }
+    }
+}
+
 /// Signed section and upper edge of the four contributing ellipsoids (march `vc_m2_lobe_field`).
 fn lean_lobe_field(uv: Vec2, h: f32, period: u32, lift: f32, shift: Vec2) -> Vec2 {
     let p = (uv - uv.floor()) * period as f32 + shift;
@@ -668,12 +727,13 @@ fn lean_lobes(xz: Vec2, col: &crate::volumetric_clouds_model2::Column, g: &crate
     let fragments = smoothstep(-0.10, 0.34, 0.70 * fine + 0.40 * coarse + erosion.dot(Vec3::new(0.58, 0.32, 0.18)));
     let fringe_water = 0.065 + 0.075 * smoothstep(0.32, 0.72, h) + 0.035 * exterior;
     let density = core.max(lean_open_bank_weight(u) * fringe_water * margin * fragments * erosion_strength.min(1.0));
-    let boundary = (1.0 - smoothstep(0.90, 1.0, developed_above / g.extent)) * smoothstep(0.0, 0.012, col.over);
+    let rim_width = 0.012 + (0.045 - 0.012) * crate::volumetric_clouds_model2::mixed_sheet(u);
+    let boundary = (1.0 - smoothstep(0.90, 1.0, developed_above / g.extent)) * smoothstep(0.0, rim_width, col.over);
     (smoothstep(0.02, 0.13, h) * density * boundary, (h / roof).clamp(0.0, 1.0))
 }
 
 fn lean_material(xz: Vec2, col: &crate::volumetric_clouds_model2::Column, g: &crate::volumetric_clouds_model2::Geometry,
-    s: &crate::volumetric_clouds_model2::Sample, u: &CloudVolumeUniform, reads: &mut crate::volumetric_clouds_model2::Reads) -> (f32, f32) {
+    s: &crate::volumetric_clouds_model2::Sample, pwidth: f32, u: &CloudVolumeUniform, reads: &mut crate::volumetric_clouds_model2::Reads) -> (f32, f32) {
     use crate::volumetric_clouds_model2 as m2;
     let blend = m2::lobe_weight(col.types, u);
     if blend <= 0.0 {
@@ -687,9 +747,7 @@ fn lean_material(xz: Vec2, col: &crate::volumetric_clouds_model2::Column, g: &cr
         return puff;
     }
     let bank = m2::density(g, col.types, s, u, reads);
-    let a = (1.0 - blend) * bank.0;
-    let b = blend * puff.0;
-    (a + b, (a * bank.1 + b * puff.1) / (a + b).max(1e-8))
+    m2::mixed_material(bank, puff, g.cover, blend, s, pwidth, u)
 }
 
 /// The wind-advected water concentration within a resolved fair bank (march `vc_m2_shape`).
@@ -734,13 +792,47 @@ fn water_content_varies_inside_fair_cloud_bases_and_wraps_with_wind() {
     assert!(range.0 < 0.95 && range.1 > 1.05, "water concentration range {range:?}");
 }
 
+/// Read the column material's base texture at the requested frequency and its own mip.
+fn lean_base_reader(xz: Vec2, above: f32, u: &CloudVolumeUniform) -> impl Fn(f32, f32, Vec3) -> f32 + '_ {
+    use crate::cloud_noise::{level_for, production, BASE_SIZE};
+    let uv = Vec3::new(xz.x, above, xz.y) * u.nscale.x + Vec3::new(u.nphase.x, 0.0, u.nphase.y);
+    let texture = &production().base;
+    move |width: f32, frequency: f32, offset: Vec3| {
+        let mip = level_for(width, BASE_SIZE, (u.nscale.x * frequency).recip(), 8);
+        texture.sample((uv * frequency + offset).to_array(), mip)[0]
+    }
+}
+
+#[test]
+fn the_deck_detail_samples_its_own_mip_and_wraps_with_the_wind() {
+    use crate::cloud_noise::{production, BASE_REPEAT, BASE_SIZE};
+    let mut u = lean_ground_with_puff(0.73, None, 1.0);
+    u.nphase.x = 0.25;
+    u.nphase.y = 0.375;
+    let mut wrapped = u;
+    wrapped.nphase.x -= 1.0;
+    wrapped.nphase.y += 1.0;
+    let xz = Vec2::new(26_000.0, -17_000.0);
+    let above = 385.0;
+    let offset = Vec3::new(0.44, 0.37, 0.192);
+    let read = lean_base_reader(xz, above, &u);
+    let wrapped_read = lean_base_reader(xz, above, &wrapped);
+    let uv = Vec3::new(xz.x, above, xz.y) / BASE_REPEAT + Vec3::new(u.nphase.x, 0.0, u.nphase.y);
+    for lod in [1.5_f32, 3.5] {
+        let width = BASE_REPEAT / (3.0 * BASE_SIZE as f32) * lod.exp2();
+        let expected = production().base.sample((3.0 * uv + offset).to_array(), lod)[0];
+        assert!((read(width, 3.0, offset) - expected).abs() < 1e-5);
+        assert!((wrapped_read(width, 3.0, offset) - expected).abs() < 1e-5);
+    }
+}
+
 /// The lean field at world (x, z) `xz`, bent height `yb`, cast width `width`, placement footprint `pw` and
 /// the view's step filter `fw` (march `vc_m2_support` and `vc_shape`, no drift): (the
 /// support, (the optical density per unit, the shape)); `eroded` false is the light's read (no wisps,
 /// its own filter). The view's erosion read is displaced and stretched by the wisps as the march does.
 #[allow(clippy::too_many_arguments)]
 fn lean_at(xz: Vec2, yb: f32, (width, pw, fw): (f32, f32, f32), a: f32, forced: Option<CloudType>, u: &CloudVolumeUniform, eroded: bool) -> (bool, (f32, f32)) {
-    use crate::cloud_noise::{level_for, BASE_REPEAT, BASE_SIZE, EROSION_REPEAT, EROSION_SIZE};
+    use crate::cloud_noise::{level_for, EROSION_REPEAT, EROSION_SIZE};
     use crate::volumetric_clouds_model2 as m2;
     if yb <= u.slab.x || yb >= u.slab.x + u.slab.y {
         return (false, (0.0, 0.0));
@@ -765,14 +857,14 @@ fn lean_at(xz: Vec2, yb: f32, (width, pw, fw): (f32, f32, f32), a: f32, forced: 
             epos = pos + Vec3::new(wp.d.x, 0.0, wp.d.y);
             wisp_g = wp.g;
         }
-        let mut base = |w: f32| noise.base.sample([pos.x * u.nscale.x + u.nphase.x, above * u.nscale.x, pos.z * u.nscale.x + u.nphase.y], level_for(w, BASE_SIZE, BASE_REPEAT, 8))[0];
+        let mut base = lean_base_reader(xz, above, u);
         let mut erode = |w: f32| {
             let c = m2::erode_coord(epos, yb, u);
             let e = noise.erosion.sample([c.x, c.y, c.z], level_for(w, EROSION_SIZE, EROSION_REPEAT / m2::ERODE_FREQ, 6));
             [e[0], e[1], e[2]]
         };
         let s = m2::Sample { above, width, fw, eroded, detail: true, wisp_g };
-        d = lean_material(xz, &col, &g, &s, u, &mut m2::Reads { base: &mut base, erode: &mut erode });
+        d = lean_material(xz, &col, &g, &s, pw, u, &mut m2::Reads { base: &mut base, erode: &mut erode });
     }
     let water_content = lean_water_content(xz, above, width, &col, d, u);
     let (shape, k, _) = m2::shape(&col, above, d, water_content, u);
@@ -1314,17 +1406,14 @@ fn lean_density_report() {
                     for s in 0..64 {
                         let above = (s as f32 + 0.5) * dy;
                         let pos = Vec3::new(xz.x, u.slab.x + above, xz.y);
-                        let mut base = |width: f32| {
-                            let mip = crate::cloud_noise::level_for(width, crate::cloud_noise::BASE_SIZE, crate::cloud_noise::BASE_REPEAT, 8);
-                            noise.base.sample([pos.x * u.nscale.x, above * u.nscale.x, pos.z * u.nscale.x], mip)[0]
-                        };
+                        let mut base = lean_base_reader(xz, above, &u);
                         let mut erode = |_w: f32| {
                             let c = m2::erode_coord(pos, pos.y, &u);
                             let e = noise.erosion.sample([c.x, c.y, c.z], 0.0);
                             [e[0], e[1], e[2]]
                         };
                         let smp = m2::Sample { above, width: 0.0, fw: dy, eroded: true, detail: true, wisp_g: 0.0 };
-                        let d = lean_material(xz, &col, &g, &smp, &u, &mut m2::Reads { base: &mut base, erode: &mut erode });
+                        let d = lean_material(xz, &col, &g, &smp, 0.0, &u, &mut m2::Reads { base: &mut base, erode: &mut erode });
                         let water_content = lean_water_content(xz, above, smp.width, &col, d, &u);
                         let (shape, kk, _) = m2::shape(&col, above, d, water_content, &u);
                         tau += shape * kk * dy;

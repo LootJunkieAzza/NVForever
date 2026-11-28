@@ -32,7 +32,8 @@ pub fn var_os(name: &str) -> Option<std::ffi::OsString> {
 
 #[cfg(test)]
 mod tests {
-    /// The volumetric medium's and its sources' aids come through this module alone.
+    /// The volumetric medium's and its sources' aids, and the made bounce light volume's, come
+    /// through this module alone.
     #[test]
     fn the_volumetric_aids_read_the_environment_here_only() {
         let read = ["env", "::var"].concat();
@@ -43,6 +44,7 @@ mod tests {
             ("medium_air_demand.rs", include_str!("medium_air_demand.rs")),
             ("medium_air_grid.rs", include_str!("medium_air_grid.rs")),
             ("medium_air_light.rs", include_str!("medium_air_light.rs")),
+            ("rtgi_volume/made.rs", include_str!("rtgi_volume/made.rs")),
             ("solid_cores.rs", include_str!("solid_cores.rs")),
             ("volumetric_clouds.rs", include_str!("volumetric_clouds.rs")),
             ("volumetric_clouds_light.rs", include_str!("volumetric_clouds_light.rs")),

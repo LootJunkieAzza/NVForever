@@ -638,6 +638,7 @@ mod tests {
             centre: None,
             waiting: default(),
             model_overrides: default(),
+            coop_areas: Vec::new(),
             travels: 0,
         });
         app.world_mut()

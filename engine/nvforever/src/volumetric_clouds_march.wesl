@@ -447,7 +447,10 @@ fn vc_place_width(rel: vec3<f32>, dir: vec3<f32>, width: f32, v: CloudVolume) ->
         // both axes by the longer projected axis erases distant groups. An isotropic
         // footprint of equal area preserves their spacing. A sheet uses the long axis.
         let deck = smoothstep(0.55, 0.72, v.scale.w);
-        return mix(sqrt(width * projected), projected, deck);
+        let footprint = sqrt(width * projected);
+        // Each mixed-bank shoulder occupies individual reconstructed texels along the skyline.
+        let texel = mix(1.0, v.dshape.w, vc_m2_mixed_sheet(v));
+        return mix(footprint * texel, projected, deck);
     }
     return projected;
 }
@@ -555,9 +558,9 @@ fn vc_spread_base(b: f32, v: CloudVolume) -> f32 {
 // [hypothesis] Fair-weather placement sets the horizontal span independently of the type's
 // shallow vertical extent. A level fair-weather base supports the rounded crown.
 // The carrier is cover times a height profile. Signed cellular relief displaces its sides
-// and crown about the mean Perlin-Worley surface. One base read and one three-band cellular
-// read suffice, and unresolved bands converge on zero displacement. The light samples the
-// same carrier at its own footprint.
+// and crown about the mean Perlin-Worley surface. The column also samples a finer band
+// of the base texture at the foot of a mixed deck. The light filters the same field at
+// its own footprint.
 
 // [hypothesis] Surface of four overlapping spherical caps. The farthest a cap can
 // reach on either axis is 0.24 + 0.75 cells, so four vertices suffice even across
@@ -618,6 +621,13 @@ fn vc_m2_pit_lift(tile: vec2<i32>, frac: vec2<f32>, corners: vec4<f32>, seed: u3
 // surrounding air before the fair and overcast placement fields crossfade.
 fn vc_m2_open_bank_weight(v: CloudVolume) -> f32 {
     return 1.0 - smoothstep(0.35, 0.55, v.scale.w);
+}
+
+// Where isolated banks carry both sheet and convective material, their shallow
+// column and the lobes above it share a taper at the ends of the cloud.
+fn vc_m2_mixed_sheet(v: CloudVolume) -> f32 {
+    let sheet = v.mix.x;
+    return 4.0 * sheet * (1.0 - sheet) * vc_m2_open_bank_weight(v);
 }
 
 // Moist updrafts alternate with longer dry lanes on the middle placement
@@ -1003,7 +1013,10 @@ fn vc_m2_density(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32, 
     }
     var lw = width;
     if eroded {
-        lw = max(width, fw);
+        let step_width = max(width, fw);
+        // Filter the sheet over the same view footprint as the lobes it connects.
+        let sample_area = sqrt(max(1.0, width * v.dshape.w) * step_width);
+        lw = mix(step_width, sample_area, vc_m2_mixed_sheet(v));
     } else {
         lw = 2.0 * max(width, vc_light_cell(v));
     }
@@ -1029,8 +1042,12 @@ fn vc_m2_density(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32, 
     // [hypothesis] A resolved tongue can extend past the dense isosurface.
     // Bound its reach before the empty-space rejection, including in the light field.
     let reach = 0.58 * g * amp * cells.x * (1.0 - smoothstep(0.55, 0.72, v.scale.w));
-    // [hypothesis] Thin parts of the storm bank have a raised base. Fair columns share one level.
-    let bed = 0.48 * parent * max(-column.deck_relief.x, 0.0);
+    // [hypothesis] Dry patches in a shallow mixed bank condense a little higher.
+    // Use the humidity the lobes above this column already sample.
+    let mixed_sheet = vc_m2_mixed_sheet(v);
+    let dry_base = 1.0 - smoothstep(0.25, 0.75, column.base_humidity);
+    let bed = 0.48 * parent * max(-column.deck_relief.x, 0.0)
+        + mixed_sheet * dry_base * min(0.16 * parent, 600.0);
     let soft = max(0.6 * v.profile.x, 1.0);
     // [hypothesis] Resolve a displaced lower surface inside the storm bank.
     // Pure sheets keep their continuous floor. Bound its highest possible bed
@@ -1038,19 +1055,34 @@ fn vc_m2_density(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32, 
     // [hypothesis] A common condensation altitude bounds a shallow turbulent
     // skin. It tapers inward, so the bank stays level when seen side-on.
     let fair_skin = fair * (0.32 + 0.68 * side) * min(0.34 * parent, 1150.0);
-    let skin = storm * (1.0 - w.x) * min(0.16 * parent, 840.0) + fair_skin;
-    if e - r - most + offset >= widest && above >= bed + 0.65 * skin + max(soft, 1.5 * skin) {
+    let storm_skin = storm * (1.0 - w.x) * min(0.25 * parent, 1350.0);
+    let skin = fair_skin + storm_skin;
+    // At zero noise the dry pocket reaches its highest edge. Only above its
+    // water ramp can the whole sample be accepted without a texture read.
+    let edge_lift = 0.12 * storm * storm_skin;
+    if e - r - most + offset >= widest && above >= bed + edge_lift + 0.65 * skin + max(soft, 1.5 * skin) {
         return vec2<f32>(1.0, hs);
     }
     // Filter individual base cells near the foot while retaining broader texture in the deck.
     let base_width = max(lw, mix(1600.0 * (1.0 - max(upper, side)), 240.0, storm));
-    let b = textureSampleLevel(nb, ns, vc_base_coord(pos, yb, v), vc_level(base_width, v.nlevel.x, v.nscale.x, v.nlevel.y)).r;
-    let n = vc_spread_base(b, v);
-    let lower_edge = max(0.0, bed + skin * (0.65 - n));
+    let uv = vc_base_coord(pos, yb, v);
+    let b = textureSampleLevel(nb, ns, uv, vc_level(base_width, v.nlevel.x, v.nscale.x, v.nlevel.y)).r;
+    var n = vc_spread_base(b, v);
+    // Break up the lower face of a mixed deck inside its existing support. Three
+    // whole repeats keep the detail attached as the wind phase wraps.
+    let deck_foot = storm * (1.0 - w.x) * (1.0 - smoothstep(0.30, 0.65, h));
+    if deck_foot > 0.0 {
+        let bend = vec3<f32>(column.deck_relief.y, n - 0.5, column.deck_relief.x);
+        let detail_uv = 3.0 * uv + vec3<f32>(0.41, 0.37, 0.18) + 0.10 * bend;
+        let local = vc_spread_base(textureSampleLevel(nb, ns, detail_uv,
+            vc_level(base_width, v.nlevel.x, 3.0 * v.nscale.x, v.nlevel.y)).r, v);
+        n = clamp(n + deck_foot * 0.90 * (local - 0.5), 0.0, 1.0);
+    }
+    let lower_edge = max(0.0, bed + edge_lift + skin * (0.65 - n));
     // Thin pockets contain less water just above the displaced edge. Keep
     // this local optical contrast under the broad deck, including from below.
     let height_in_bank = above - lower_edge;
-    let pocket = storm * (1.0 - w.x) * (1.0 - smoothstep(0.20, 0.65, n));
+    let pocket = max(storm * (1.0 - w.x), 0.45 * mixed_sheet) * (1.0 - smoothstep(0.20, 0.65, n));
     let water = 1.0 - 0.76 * pocket * (1.0 - smoothstep(0.0, max(1.5 * skin, 1.0), height_in_bank));
     let bottom = water * smoothstep(0.0, soft, height_in_bank);
     let cut = r * (1.0 - mix(n, 0.5, core));
@@ -1226,11 +1258,12 @@ fn vc_m2_lobes(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32, wi
     let fragments = smoothstep(-0.10, 0.34, 0.70 * fine + 0.40 * coarse + dot(erosion, vec3<f32>(0.58, 0.32, 0.18)));
     let fringe_water = 0.065 + 0.075 * smoothstep(0.32, 0.72, h) + 0.035 * exterior;
     let density = max(core, vc_m2_open_bank_weight(v) * fringe_water * margin * fragments * min(erosion_strength, 1.0));
-    let boundary = (1.0 - smoothstep(0.90, 1.0, developed_above / column.m2.y)) * smoothstep(0.0, 0.012, column.col.over);
+    let rim_width = mix(0.012, 0.045, vc_m2_mixed_sheet(v));
+    let boundary = (1.0 - smoothstep(0.90, 1.0, developed_above / column.m2.y)) * smoothstep(0.0, rim_width, column.col.over);
     return vec2<f32>(foot * density * boundary, clamp(h / roof, 0.0, 1.0));
 }
 
-fn vc_m2_material(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32, width: f32, fw: f32, eroded: bool, detail: bool, nb: texture_3d<f32>, ns: sampler, ne: texture_3d<f32>, v: CloudVolume) -> vec2<f32> {
+fn vc_m2_material(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32, width: f32, pwidth: f32, fw: f32, eroded: bool, detail: bool, nb: texture_3d<f32>, ns: sampler, ne: texture_3d<f32>, v: CloudVolume) -> vec2<f32> {
     let blend = vc_m2_lobe_weight(column.col.types, v);
     if blend <= 0.0 {
         return vc_m2_density(column, above, pos, yb, width, fw, eroded, detail, nb, ns, ne, v);
@@ -1248,7 +1281,26 @@ fn vc_m2_material(column: VcPreparedColumn, above: f32, pos: vec3<f32>, yb: f32,
         return puff;
     }
     let bank = vc_m2_density(column, above, pos, yb, width, fw, eroded, detail, nb, ns, ne, v);
-    let shares = vec2<f32>((1.0 - blend) * bank.x, blend * puff.x);
+    // The shallow sheet connects wet lobes through the center of a bank.
+    // Away from them, let the sheet thin as the column approaches its edge.
+    let condensed = smoothstep(0.025, 0.48, puff.x);
+    let shallow_water = mix(0.015 + 0.40 * column.m2.x, 1.0, condensed);
+    let mixed_sheet = vc_m2_mixed_sheet(v);
+    let attached = smoothstep(0.0, 0.25, blend);
+    let bank_water = mix(1.0, shallow_water, mixed_sheet * attached);
+    var lobe_share = blend;
+    if eroded {
+        // Recover the projected area's aspect from like placement widths, including
+        // during weather transitions. Estimate the gaps crossed by the view texel.
+        // Sun taps and the world light grid both integrate the physical sheet.
+        let shoulder = 1.0 / max(32.0 * v.nscale.x, 1e-8);
+        let placement_across = max(width * mix(1.0, v.dshape.w, mixed_sheet), 1.0);
+        let aspect = pwidth / placement_across;
+        let extra_span = across * max(aspect * aspect - 1.0, 0.0);
+        let clustered = 0.90 * mixed_sheet * attached * smoothstep(0.09 * shoulder, 0.31 * shoulder, extra_span);
+        lobe_share = mix(blend, 1.0, clustered);
+    }
+    let shares = vec2<f32>((1.0 - lobe_share) * bank_water * bank.x, lobe_share * puff.x);
     let total = shares.x + shares.y;
     return vec2<f32>(total, dot(shares, vec2<f32>(bank.y, puff.y)) / max(total, 1e-8));
 }
@@ -1266,7 +1318,7 @@ fn vc_m2_sigma(w: vec3<f32>, v: CloudVolume) -> f32 {
 // share (`profile.y`) one sheet tall, the types' profile over it, at the weather table's extinction over a
 // sheet, never carved: the two optical densities mixed by `res`, the extinction mixed by `res` (so
 // res 1 is the resolved sample exactly), the height share weighted by the optical densities.
-fn vc_m2_shape(pos: vec3<f32>, yb: f32, above: f32, column: VcPreparedColumn, width: f32, nb: texture_3d<f32>, ns: sampler, ne: texture_3d<f32>, eroded: bool, detail: bool, fw: f32, v: CloudVolume) -> vec4<f32> {
+fn vc_m2_shape(pos: vec3<f32>, yb: f32, above: f32, column: VcPreparedColumn, width: f32, pwidth: f32, nb: texture_3d<f32>, ns: sampler, ne: texture_3d<f32>, eroded: bool, detail: bool, fw: f32, v: CloudVolume) -> vec4<f32> {
     let col = column.col;
     let fade = smoothstep(0.0, max(v.profile.x, 1.0), above);
     let amount = clamp(v.scale.w, 0.0, 1.0);
@@ -1285,7 +1337,7 @@ fn vc_m2_shape(pos: vec3<f32>, yb: f32, above: f32, column: VcPreparedColumn, wi
     var shape = 0.0;
     var h = 0.0;
     if col.edge > 0.0 {
-        let m2 = vc_m2_material(column, above, pos, yb, width, fw, eroded, detail, nb, ns, ne, v);
+        let m2 = vc_m2_material(column, above, pos, yb, width, pwidth, fw, eroded, detail, nb, ns, ne, v);
         shape = m2.x;
         h = m2.y;
     }
@@ -1383,7 +1435,14 @@ fn vc_prepare_column(pos: vec3<f32>, pwidth: f32, col: VcColumn, v: CloudVolume)
         return VcPreparedColumn(col, vec4<f32>(cover, height, 1.0, 0.0), cover, height, vec2<f32>(0.0), 0.0, 0.5);
     }
     let m2 = vc_m2_geometry(col, v);
-    var crown_cover = smoothstep(0.0, VC_M2_COVER, col.over + 0.18 * col.head);
+    // Lobe headroom extends the sampling interval even at an open bank's edge.
+    // Only the part anchored in the footprint can supply density to the crown.
+    var crown_head = col.head;
+    let attachment_width = 0.045 * vc_m2_mixed_sheet(v);
+    if attachment_width > 0.0 {
+        crown_head *= smoothstep(0.0, attachment_width, col.over);
+    }
+    var crown_cover = smoothstep(0.0, VC_M2_COVER, col.over + 0.18 * crown_head);
     // [hypothesis] Leave density saddles between upper heads in the middle
     // of a bank, even where the parent cover has reached one.
     crown_cover *= 1.0 - 0.44 * smoothstep(0.50, 1.0, m2.x) * smoothstep(0.0, 0.28, -col.head);
@@ -1422,7 +1481,7 @@ fn vc_shape_with_column(pos: vec3<f32>, yb: f32, col: VcColumn, width: f32, pwid
             * clamp(v.nscale.z, 0.0, 1.0);
     }
     *column_out = column;
-    return vc_m2_shape(pos, yb, above, column, width, nb, ns, ne, eroded, detail, fw, v);
+    return vc_m2_shape(pos, yb, above, column, width, pwidth, nb, ns, ne, eroded, detail, fw, v);
 }
 
 // 1 up to 0.75 of the horizon distance, 0 at it, by the distance where the ray enters the

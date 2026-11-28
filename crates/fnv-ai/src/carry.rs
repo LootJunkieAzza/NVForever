@@ -689,6 +689,10 @@ pub struct Agent {
     /// What it does in a combat state (`crate::alert`): its package's own doings wait
     /// meanwhile.
     pub search: Option<crate::alert::Search>,
+    /// A target it found no way to (`Ai::close_in`), when it may look for one again and
+    /// how long it waited this time: until then it holds its ground without a new search
+    /// (#3785).
+    pub(crate) no_way_to: Option<(FormId, f64, f64)>,
     /// It cannot walk (a creature without movement animations, a raven): it stays where
     /// it is, whatever its packages say ([`Ai::root`]).
     pub rooted: bool,
@@ -1211,7 +1215,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0, calm_at: None, held: false });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, no_way_to: None, face_to: None, following: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0, calm_at: None, held: false });
         Ok(())
     }
 
@@ -1244,6 +1248,21 @@ impl Ai {
         game.unblock_packages_of(actor);
         let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
         self.script_moved.insert(actor, game.time);
+        // Keep a low-process actor from firing a far update in the brief window while a
+        // multi-frame script batch is still moving actors and updating quest flags (issue
+        // #3041: VERStalkersSouth01 moves 18 stalkers at 0.1 s intervals before clearing
+        // StalkersOn 1.8 s later) [design: matches `SCRIPT_MOVE_HOLD`].
+        if !self.coming.contains(&actor) {
+            let every = if self.far.contains(&actor) {
+                crate::process::FAR_PROCESS_SECONDS
+            } else {
+                crate::process::LOW_PROCESS_SECONDS
+            };
+            let cap = (every - crate::arrive::SCRIPT_MOVE_HOLD as f32).max(0.0);
+            if let Some(Some(owed)) = self.low.get_mut(&actor) {
+                *owed = owed.min(cap);
+            }
+        }
         self.set_using(game, actor, None);
         let Some(a) = self.agents.get_mut(&actor) else { return };
         let w = &mut a.walker;
@@ -2710,10 +2729,14 @@ impl Ai {
         }
         let params = self.path_params(game, actor);
         let to = choice.target.expect("checked");
-        let speed = self.calm_speeds(actor).walk;
+        // A sandbox with Always Run runs between its spots, as the package's other walks
+        // do (`Ai::plan`): Freeside's chased rat (VFSChasedRatEscapingPackage, Sandbox,
+        // Always Run) walked at 56 units/s with the child running after it (#4487).
+        let running = self.agents[&actor].package.and_then(|p| game.package_def(&p)).is_some_and(|d| d.has(flags::ALWAYS_RUN));
+        let speed = if running { self.pace(game, actor, true) } else { self.calm_speeds(actor).walk };
         let a = self.agents.get_mut(&actor).expect("listed");
-        // A package's walk: [`Ai::repace_walk`] gives it the drawn walk.
-        (a.walker.speed, a.walk_pace) = (speed, Some((1.0, speed)));
+        // A package's walk: [`Ai::repace_walk`] gives it the drawn walk; a run is not one.
+        (a.walker.speed, a.walk_pace) = (speed, (!running).then_some((1.0, speed)));
         match a.walker.go_to(nav, to, &params) {
             Ok(path) => {
                 let walk = path.length;
