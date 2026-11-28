@@ -200,7 +200,7 @@ impl Plugin for TonePresetsPlugin {
                 key: "tonemap-preset",
                 group: "Graphics",
                 label: "Tonemapping preset",
-                note: "A look laid on the tonemapper: exposure, contrast and highlight roll-off. Default keeps the shipped look. Presets are files in the Tonemapping folder of NVForever's home.",
+                note: "A look on the tonemapper: exposure, contrast, highlight roll-off. Default is the shipped look. Presets are files in NVForever's Tonemapping folder.",
                 switches: "",
                 get: |_| false,
                 set: |_, _| {},

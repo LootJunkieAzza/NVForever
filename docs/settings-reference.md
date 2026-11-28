@@ -1313,8 +1313,7 @@ below cover them all.
 ### `physical-pbr`: Physical lighting (experimental)
 
 - On the page: On: light, sky, fog and exposure follow physical rules instead of the
-  original's display values. Still being tuned. Takes effect at the next start. Not in the
-  original.
+  original's display values. Takes effect at the next start. Not in the original.
 - In full: The world is lit with Oren-Nayar diffuse and Cook-Torrance GGX specular with
   Schlick Fresnel, lamps fall off with the square of the distance, the sky lights everything
   as image-based light, the game's fog fades into the physical sky's horizon, the picture
@@ -1329,9 +1328,9 @@ below cover them all.
 
 ### `tonemap-preset`: Tonemapping preset
 
-- On the page: A look laid on the tonemapper: exposure, contrast and highlight roll-off.
-  Default keeps the shipped look. Presets are files in the Tonemapping folder of
-  NVForever's home. Not in the original.
+- On the page: A look on the tonemapper: exposure, contrast, highlight roll-off. Default is
+  the shipped look. Presets are files in NVForever's Tonemapping folder. Not in the
+  original.
 - In full: Default and the presets found in `<NVForever home>\Tonemapping\` at the start,
   one TOML file each (docs/design/tonemapping-presets.md has the format). The pick takes
   effect at once, in either lighting mode and with HDR output, and is kept by its name; a

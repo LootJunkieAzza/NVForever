@@ -1479,7 +1479,7 @@ pub(crate) fn authored_after_ini(command_line: bool, given: Option<&nvf_play::se
 }
 
 /// The Physical lighting row's note (graphics-enhanced.md §3.25).
-const PHYSICAL_PBR_NOTE: &str = "On: light, sky, fog and exposure follow physical rules instead of the original's display values. Still being tuned. Takes effect at the next start. Not in the original.";
+const PHYSICAL_PBR_NOTE: &str = "On: light, sky, fog and exposure follow physical rules instead of the original's display values. Takes effect at the next start. Not in the original.";
 
 /// The run's Physical PBR lighting state, decided before the first shader hook and material
 /// by [`authored_after_ini`]'s rule: the command line's (`--graphics-only physical-pbr`),
