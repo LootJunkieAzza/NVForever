@@ -1210,7 +1210,7 @@ macro_rules! amount {
 /// A list row of the Tweaks tab choosing a sound by Editor ID ([`sound_names`]) for the
 /// `String` field `$f` of [`TweakSettings`] (empty: the game's own).
 macro_rules! sound_list {
-    ($app:expr, $key:literal, $label:literal, $note:literal, $f:ident) => {
+    ($app:expr, $key:literal, $label:literal, $note:literal, $f:ident) => {{
         crate::settings::add_choice_list(
             $app,
             Setting { key: concat!("tweak-", $key), group: GROUP, label: $label, note: $note, switches: "", get: |_| false, set: |_, _| {}, slider: None },
@@ -1222,8 +1222,14 @@ macro_rules! sound_list {
                 load: |w, name| w.get_resource_mut::<TweakSettings>().map(|mut t| t.$f = sound_kept(name)).is_some(),
                 ask_keep: false,
             },
-        )
-    };
+        );
+        // Strip the redundant `UI` prefix when displaying sound choices so vanilla Editor
+        // IDs such as `UILockpickingCylinderSqueakA` fit the value box without truncation,
+        // while keeping full Editor IDs in storage and INI files [design].
+        crate::settings::set_choice_labels($app, concat!("tweak-", $key), |_, name| {
+            name.strip_prefix("UI").filter(|s| !s.is_empty()).unwrap_or(name).to_string()
+        });
+    }};
 }
 
 /// A slider row of the Tweaks tab for a part (0 to 100% in fives) in the field
@@ -1366,7 +1372,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "console-timestamps", "Console Times", "Console lines start with the time since the game started. (Stewie's Tweaks bConsolePrintsIncludeTimestamp)", console_timestamps);
         switch!(app, "living-anatomy-dr", "Living Anatomy Shows DR", "With Living Anatomy the target's line shows its Damage Resistance as well. (Stewie's Tweaks bLivingAnatomyShowDR)", living_anatomy_dr);
         switch!(app, "sync-categories", "Matching Categories", "In containers and barter both lists change category together. (Stewie's Tweaks bSynchronizeContainerCategories)", game.sync_categories);
-        switch!(app, "sync-categories-keep-empty", "Matching Categories: Keep Emptied Category", "Stay on an emptied synchronized category after moving its last item instead of switching to All. (Stewie's Tweaks bPreventSwitchWhenEmptyingCategory)", game.prevent_switch_when_emptying_category);
+        switch!(app, "sync-categories-keep-empty", "Matching Categories: Keep Empty", "Stay on an emptied synchronized category after moving its last item instead of switching to All. (Stewie's Tweaks bPreventSwitchWhenEmptyingCategory)", game.prevent_switch_when_emptying_category);
         // ---- batch 6: gameplay ----
         add_choice_list(
             app,
@@ -1456,9 +1462,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "companions-location-font", "Companions in the Locations' Font", "The World Map writes companions' names in the font it names locations in. (Stewie's Tweaks bCompanionsUseLocationFontOnMap)", game.companions_location_font);
         switch!(app, "map-door-kinds", "Exterior and Interior Door Icons", "Local map doors out look unlike doors in (Stewie's Tweaks' pictures if installed, else dimmer). (Stewie's Tweaks bInteriorExteriorMapDoorIcon)", game.map_door_kinds);
         switch!(app, "hostiles-prefer-player", "Hostiles Prioritize Player", "An enemy about to fight one of the player's companions may fight the player instead. (Stewie's Tweaks bHostilesPrioritizePlayer)", game.hostiles_prefer_player);
-        part!(app, "prefer-player-start", "Hostiles Prioritize Player: Chance at the Start", "The chance an enemy turns to the player as its fight begins. (Stewie's Tweaks bHostilesPrioritizePlayer, fSwapToPlayerChanceStartCombat)", game.prefer_player_start);
-        part!(app, "prefer-player-mid", "Hostiles Prioritize Player: Chance Mid-Fight", "The chance an enemy turns to the player when it picks a companion later in the fight. (Stewie's Tweaks bHostilesPrioritizePlayer, fSwapToPlayerChanceMidCombat)", game.prefer_player_mid);
-        amount!(app, "prefer-player-detection", "Hostiles Prioritize Player: Detection Needed", "How well the enemy must detect the player to turn to them. (Stewie's Tweaks bHostilesPrioritizePlayer, iPlayerDetectionThreshold)", 100.0, f32, game.prefer_player_detection);
+        part!(app, "prefer-player-start", "Hostiles Prioritize Player: At Start", "The chance an enemy turns to the player as its fight begins. (Stewie's Tweaks bHostilesPrioritizePlayer, fSwapToPlayerChanceStartCombat)", game.prefer_player_start);
+        part!(app, "prefer-player-mid", "Hostiles Prioritize Player: Mid-Fight", "The chance an enemy turns to the player when it picks a companion later in the fight. (Stewie's Tweaks bHostilesPrioritizePlayer, fSwapToPlayerChanceMidCombat)", game.prefer_player_mid);
+        amount!(app, "prefer-player-detection", "Hostiles Prioritize Player: Detection", "How well the enemy must detect the player to turn to them. (Stewie's Tweaks bHostilesPrioritizePlayer, iPlayerDetectionThreshold)", 100.0, f32, game.prefer_player_detection);
         switch!(app, "equip-broken-items", "Equip Broken Items", "A broken weapon can be equipped, to repair it with a repair kit; it does not fire or swing until repaired. (Stewie's Tweaks bEquipBrokenItems)", game.equip_broken_items);
         switch!(app, "keep-broken-equipped", "Keep Broken Items Equipped", "A weapon that breaks stays in the hand, with no message; it does not fire or swing until repaired. (Stewie's Tweaks bKeepBrokenItemsEquipped)", game.keep_broken_equipped);
         switch!(app, "hardcore-tweaks", "Hardcore Rules One by One", "Three of Hardcore's rules are set below on their own, whatever the Hardcore setting. (Stewie's Tweaks bHardcoreTweaks)", game.hardcore_tweaks);
@@ -1472,7 +1478,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "kill-reward-ap", "Action Points per Kill", "Action Points a kill by the player gives back; 0 changes nothing. (Stewie's Tweaks bKillsRewardAP)", 50.0, f64, game.kill_reward_ap);
         amount!(app, "jump-ap-cost", "Action Points per Jump", "Action Points a jump costs; with too few the player cannot jump. 0 changes nothing. (Stewie's Tweaks bJumpingCostsAP)", 50.0, f32, jump_ap_cost);
         switch!(app, "jump-ap-danger-only", "Action Points per Jump: Only in Danger", "With Action Points per Jump above 0, jumps only cost AP while in danger. (Stewie's Tweaks bCombatOnly)", jump_ap_danger_only);
-        switch!(app, "jump-without-enough-ap", "Action Points per Jump: Jump Without Enough AP", "With Action Points per Jump above 0, still jump with too little AP, draining what is left. (Stewie's Tweaks bJumpWithoutEnoughAP)", jump_without_enough_ap);
+        switch!(app, "jump-without-enough-ap", "Action Points per Jump: Allow Low AP", "With Action Points per Jump above 0, still jump with too little AP, draining what is left. (Stewie's Tweaks bJumpWithoutEnoughAP)", jump_without_enough_ap);
         amount!(app, "run-ap-cost", "Action Points per Second Running", "Action Points running costs each second; with none left the player walks. 0 changes nothing. (Stewie's Tweaks bRunningCostsAP)", 20.0, f32, run_ap_per_second);
         amount!(app, "sneak-run-ap-cost", "Action Points per Second Sneak-Running", "Sneak-running costs this many AP a second; with none left the player walks. 0 changes nothing. (Stewie's Tweaks bRunningCostsAP, fSneakAPDrainCostBase)", 20.0, f32, sneak_run_ap_base);
         add_setting(
@@ -1995,7 +2001,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "repair-kits-in-list", "Repair Kits in the Repair List", "A weapon's Pip-Boy repair list also offers Weapon Repair Kits, working as a kit does. (Stewie's Tweaks bUseWeaponRepairKitsInRepairMenu)", game.repair_kits_in_list);
         switch!(app, "repair-preview", "Repair Items Preview", "Alt with R in the Pip-Boy's items previews what could repair the item, even at full; nothing is used. (Stewie's Tweaks bRepairItemsPreview)", game.repair_preview);
         amount!(app, "crippled-fall-pain", "Crippled Legs: Pain When Falling", "Falls this high on a crippled leg make you cry out; 0 is off. (Stewie's Tweaks bCrippledLimbsPlayPainSoundWhenFalling, fHeightThreshold)", 1000.0, f32, game.crippled_fall_pain);
-        switch!(app, "quantity-companion-cap", "Quantity Menu Respects Companion Carry Cap", "Giving a stack to a companion, the quantity menu goes no higher than what they can still carry. (Stewie's Tweaks bQuantityMenuRespectsCompanionCarryCap)", game.quantity_companion_cap);
+        switch!(app, "quantity-companion-cap", "Quantity Menu: Companion Carry Cap", "Giving a stack to a companion, the quantity menu goes no higher than what they can still carry. (Stewie's Tweaks bQuantityMenuRespectsCompanionCarryCap)", game.quantity_companion_cap);
         switch!(app, "armor-blocks-blood", "Armor Prevents Blood Decals", "A shot whose damage does not get through the target's Damage Threshold leaves no blood on them. (Stewie's Tweaks bArmorPreventsBloodDecals)", game.armor_blocks_blood);
         switch!(app, "embolden-tags", "Tag Skills in Bold", "The Pip-Boy's Skills list shows your tag skills in bold. (Stewie's Tweaks bEmboldenTagSkills)", game.embolden_tags);
         switch!(app, "pickpocket-overhaul", "Pickpocket Overhaul", "Pickpocket odds count item weight, the target's Perception and sight, your Agility, Luck and Sneak. (Stewie's Tweaks bPickpocketOverhaul)", game.pickpocket_overhaul);
@@ -2239,7 +2245,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-turn-clip", "No Turning Animation", "Your character's body does not step round when you turn on the spot, so it does not slide on after you stop. (Stewie's Tweaks bNoTurningAnim)", no_turn_clip);
         switch!(app, "no-land-clip", "No Landing Animation", "Your character does not play a landing movement after a jump or a fall. (Stewie's Tweaks bRemoveLandingAnim)", no_land_clip);
         switch!(app, "hide-unmapped-places", "Compass: Only Mapped Places", "A place you have not found yet shows on the compass only if it is already marked on your map. (Stewie's Tweaks bHideInvisibleUndiscoveredLocations)", hide_unmapped_places);
-        switch!(app, "vigor-review-first", "S.P.E.C.I.A.L. Machine: Straight to the Summary", "The machine that sets your S.P.E.C.I.A.L. opens on its last page, all seven at once, instead of one page each. (Stewie's Tweaks bSkipVigorTesterSpecialPages)", vigor_review_first);
+        switch!(app, "vigor-review-first", "S.P.E.C.I.A.L. Machine: Start on Summary", "The machine that sets your S.P.E.C.I.A.L. opens on its last page, all seven at once, instead of one page each. (Stewie's Tweaks bSkipVigorTesterSpecialPages)", vigor_review_first);
         amount!(app, "scope-delay", "Scope Delay (ms)", "Milliseconds (to 1000) a scope waits once zoomed before covering the screen; 0 shows it at once. (Stewie's Tweaks bScopeVisibilityDelay)", 1000.0, f32, scope_delay_ms);
         switch!(app, "no-pointer-message-box", "No Pointer Over Message Boxes", "The mouse pointer is hidden while a message box is up; choose with the keys or the controller. (Stewie's Tweaks bHideCursorInMessageMenu)", no_pointer_in_message_box);
         switch!(app, "no-pointer-dialogue", "No Pointer in Conversations", "The mouse pointer is hidden over a conversation's choices; choose with keys, the wheel or the controller. (Stewie's Tweaks bHideCursorInDialog)", no_pointer_in_dialogue);
@@ -3990,5 +3996,24 @@ mod tests {
         assert_eq!(t.marker_name_units, 0, "invalid value keeps default");
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sound_list_choice_labels_strip_ui_prefix_and_keep_full_edid_storage() {
+        let mut app = App::new();
+        app.add_plugins(TweaksPlugin);
+
+        let settings = app.world().resource::<crate::settings::Settings>();
+        for key in ["tweak-discovered-sound", "tweak-level-sound-a", "tweak-level-sound-b"] {
+            let idx = settings.index(key).unwrap_or_else(|| panic!("missing {key}"));
+            assert_eq!(settings.choice_label(app.world(), idx, "UILockpickingCylinderSqueakA"), "LockpickingCylinderSqueakA");
+            assert_eq!(settings.choice_label(app.world(), idx, "UILockpickingCylinderSqueakB"), "LockpickingCylinderSqueakB");
+            assert_eq!(settings.choice_label(app.world(), idx, GAME_SOUND), GAME_SOUND);
+            assert_eq!(settings.choice_label(app.world(), idx, "UI"), "UI");
+        }
+
+        let idx = app.world().resource::<crate::settings::Settings>().index("tweak-discovered-sound").unwrap();
+        assert!(crate::settings::pick(app.world_mut(), idx, "UILockpickingCylinderSqueakA"));
+        assert_eq!(app.world().resource::<TweakSettings>().discovered_sound, "UILockpickingCylinderSqueakA");
     }
 }
