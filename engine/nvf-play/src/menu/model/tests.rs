@@ -88,6 +88,15 @@ const KEY_VALUED: u32 = 0x186; // KEYM "Valued Key", non-quest, value 50
 const CELL: u32 = 0x200;
 const BOX_REF: u32 = 0x300;
 const CAN_REF: u32 = 0x301;
+const CHIP_LOOSE_REF: u32 = 0x302; // CHIP lying loose, persistent, owned by CAN (#3350)
+const BOOK_LOOSE_REF: u32 = 0x303; // PLAIN_BOOK lying loose, not persistent, owned by CAN
+const BOOK_LOOSE_REF2: u32 = 0x304; // another PLAIN_BOOK, owned by CAN
+const CAN_LOOSE_REF: u32 = 0x305; // CAN lying loose, owned by no one
+
+fn owned_refr(fid: u32, base: u32, owner: u32) -> Vec<u8> {
+    let data: Vec<u8> = [0f32; 6].iter().flat_map(|f| f.to_le_bytes()).collect();
+    record(b"REFR", 0, fid, &[sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"XOWN", owner.to_le_bytes().to_vec()), sub(b"DATA", data)])
+}
 
 fn plugin_bytes() -> Vec<u8> {
     let tes4 = record(b"TES4", 1, 0, &[sub(b"HEDR", cat(&[&1.34f32.to_le_bytes(), &0i32.to_le_bytes(), &0x800u32.to_le_bytes()]))]);
@@ -150,7 +159,9 @@ fn plugin_bytes() -> Vec<u8> {
     let vest = record(b"ARMO", 0, VEST, &[e, f, sub(b"BMDT", cat(&[&0x4u32.to_le_bytes(), &[0u8, 0, 0, 0]])), sub(b"DATA", cat(&[&10i32.to_le_bytes(), &50i32.to_le_bytes(), &3f32.to_le_bytes()]))]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let label = CELL.to_le_bytes();
-    let children = group(label, 6, &group(label, 9, &cat(&[&refr(BOX_REF, BOX), &refr(CAN_REF, CAN)])));
+    let persistent = group(label, 8, &owned_refr(CHIP_LOOSE_REF, CHIP, CAN));
+    let temporary = group(label, 9, &cat(&[&refr(BOX_REF, BOX), &refr(CAN_REF, CAN), &owned_refr(BOOK_LOOSE_REF, PLAIN_BOOK, CAN), &owned_refr(BOOK_LOOSE_REF2, PLAIN_BOOK, CAN), &refr(CAN_LOOSE_REF, CAN)]));
+    let children = group(label, 6, &cat(&[&persistent, &temporary]));
     let cells = top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cat(&[&cell, &children]))));
     cat(&[
         &tes4,
@@ -625,6 +636,44 @@ fn barter_lists_prices_without_caps_or_quest_items() {
     assert_eq!(own(m.list(Side::Container)), vec![s("Varmint Rifle", 1, "330"), s("anvil", 1, "1"), s("tin can", 2, "2")]);
     let t = m.trade.as_ref().unwrap();
     assert_eq!((t.purse, t.balance), ([200, 5], 0));
+}
+
+/// A merchant's barter menu offers the items it owns lying loose in its cell, persistent
+/// or not, quest items too, one row per item; buying takes the references out of the
+/// world into the player's inventory [observed: observer check 256 and its follow-up,
+/// Blake's two books and his eight beers, #3350]. A loose item it does not own is not
+/// offered.
+#[test]
+fn barter_offers_the_merchants_owned_loose_items() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(PLAYER, FormId(CAPS), 100).unwrap();
+    // The tin can stands in for a merchant owning them (the cash box its stock).
+    let merchant = |w: &mut World<'_>| MenuModel::open_barter(w, FormId(CAN_REF), FormId(BOX_REF), FormId(CAPS), 100.0, 0).unwrap();
+    assert_eq!(owned_loose(&w, FormId(CAN_REF)), vec![FormId(CHIP_LOOSE_REF), FormId(BOOK_LOOSE_REF), FormId(BOOK_LOOSE_REF2)]);
+    assert!(owned_loose(&w, FormId(BOX_REF)).is_empty());
+    let mut m = merchant(&mut w);
+    let rows = names(m.list(Side::Container));
+    assert!(rows.contains(&("Platinum Chip", 1)), "a quest item too: {rows:?}");
+    assert!(rows.contains(&("Paradise Lost", 2)), "two references, one row: {rows:?}");
+    // The stock's two cans; the loose can is no one's.
+    assert!(rows.contains(&("tin can", 2)), "{rows:?}");
+    select(&mut m, Side::Container, "Platinum Chip");
+    m.apply(&mut w, Command::One);
+    select(&mut m, Side::Container, "Paradise Lost");
+    m.apply(&mut w, Command::One);
+    m.apply(&mut w, Command::One);
+    m.apply(&mut w, Command::Accept);
+    assert!(m.status.as_deref().is_some_and(|s| s.starts_with("Traded")), "{:?}", m.status);
+    assert_eq!((count(&mut w, 0x14, CHIP), count(&mut w, 0x14, PLAIN_BOOK)), (1, 2));
+    assert_eq!((count(&mut w, BOX_REF, CHIP), count(&mut w, BOX_REF, PLAIN_BOOK)), (0, 0));
+    for r in [CHIP_LOOSE_REF, BOOK_LOOSE_REF, BOOK_LOOSE_REF2] {
+        assert!(w.peek(FormId(r)).is_some_and(|s| s.deleted()), "{r:#x} left the world");
+    }
+    assert!(w.peek(FormId(CAN_LOOSE_REF)).is_none_or(|s| !s.deleted()));
+    let m = merchant(&mut w);
+    let rows = names(m.list(Side::Container));
+    assert!(!rows.iter().any(|(n, _)| *n == "Platinum Chip" || *n == "Paradise Lost"), "{rows:?}");
 }
 
 #[test]

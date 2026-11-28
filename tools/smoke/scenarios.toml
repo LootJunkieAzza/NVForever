@@ -37684,3 +37684,17 @@ expect = [
   { re = 'sky: 06:0\d  climate NVDefaultClimate  weather NVWastelandClear .*grade: saturation 1\.0[0-5]', label = "at 06:00 the grade is well on to the sunrise's (1.01 here; the old keys gave 1.09-1.10 at 06:02)" },
 ]
 forbid = ["Caught rendering error"]
+[[scenario]]
+name = "barter-owned-loose-items"
+source = "#3350 (observer check 256 and its follow-up, 2026-11-28; docs/spec-notes/barter-menu.md §5.1): a merchant's barter menu offers the items it owns lying loose in its cell, as well as its stock; Blake at the Crimson Caravan sells the two medical books Bitter Springs Infirmary Blues asks for, which lie owned by him on the ground and are in no container"
+note = "Fresh game beside Blake (NVBlakeREF 0x000F1866); ShowBarterMenu at 4 s. With the change: 23 owned loose items, the two books among them (2026-11-28); on main the line does not exist and the books are not offered."
+areas = ["barter", "menus"]
+paths = ["engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "4:call:NVBlakeREF:ShowBarterMenu" }
+args = ["--world", "WastelandNV", "--pos=13316,17266,9939", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { text = "a script opens the barter menu with 0x000F1866", label = "Blake's barter menu opens" },
+  { re = 'barter: 0x000F1866 also offers (?P<n>\d+) owned loose item', range = [23, 23], label = "his 23 owned loose items in his cell are offered (Purified Water x7, Whiskey x4, ...)" },
+  { re = 'barter: 0x000F1866 also offers .*Pediatric Medicine.*Modern Refugee', label = "the two books of Bitter Springs Infirmary Blues among them" },
+]
