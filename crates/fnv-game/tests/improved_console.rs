@@ -137,8 +137,9 @@ fn persistent_console_locals_span_all_types_and_transparently_print_results() {
     assert_eq!(run(&mut g, "ar_List 7, 8"), Some("[0: 7, 1: 8]".into()));
     assert_eq!(g.ext.arrays.len(), arrays_before + 1, "temporary array swept after printing");
 
-    // Releasing the bound array_var frees it cleanly.
-    assert_eq!(run(&mut g, "let a := ar_Null"), Some("0".into()));
+    // Releasing the bound array_var frees it cleanly; Ar_Null is XVal::Array(0), which
+    // console::expression_result renders as "(no array)" [design].
+    assert_eq!(run(&mut g, "let a := ar_Null"), Some("(no array)".into()));
     assert_eq!(g.ext.arrays.len(), arrays_before);
 }
 

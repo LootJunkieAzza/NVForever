@@ -1,0 +1,60 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_printf_negzero",
+  "description": "Wave 6D-5 read-only probe verifying negative-zero formatting across %f/%g/%G/%e/%E plus width/flag/threshold parity.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d5_printf_negzero",
+      "title": "printf_number negative zero, flags, and %g thresholds",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d5_01_printf_negzero_flags_width",
+          "bucket": "vm_formatting",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-format.md",
+          "spec_line": 43,
+          "functions_tested": [
+            "sv_Construct",
+            "PrintToConsole"
+          ],
+          "claim": "SD-02: Verify printf_number formatting of -0.0 across %f/%g/%G/%.2e/%.2E, width/sign/pad flags (+, space, -, 0), and %g scientific threshold (1e-4 vs 9.99e-5, %.0g, %.1g).",
+          "expected": "NVForever vm.rs:1354 suppresses the '-' sign on -0.0 for %g/%G/%e/%E (keeping it only for %f) and is unprobed for flag/width combinations.",
+          "script_lines": [
+            "float fNegZ = -1.0 * 0.0",
+            "string_var svNz = sv_Construct \"f=%.2f|g=%g|G=%G|e=%.2e|E=%.2E\" fNegZ fNegZ fNegZ fNegZ fNegZ",
+            "string_var svFl = sv_Construct \"p=[%+5.1f]|s=[% 5.1f]|l=[%-5.1f]|z=[%05.1f]|pg=[%+g]|zg=[%06g]\" 3.5 3.5 3.5 3.5 42 42",
+            "string_var svTh = sv_Construct \"g0=[%.0g]|g1=[%.1g]|e4=[%g]|e5=[%g]\" 123.4 123.4 0.0001 0.0000999",
+            "PrintToConsole \"PROBE|w6d5_01_printf_negzero_flags_width|nz(%z)|flags(%z)|thresh(%z)\" svNz svFl svTh"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

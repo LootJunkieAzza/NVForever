@@ -164,3 +164,23 @@ What a string_var holds under vanilla `set`; an unset string_var read as text; i
 string↔number conversion; `$` of floats and arrays; truth of a string or array under
 `eval`; case of string `==`; mixed-kind comparisons; the result of a line that raised an
 error.
+
+### Wave 6D-5 observation: `TestExpr` on string expressions
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_11_testexpr_strings_arrays_sideeffects` (`tools/capture/nvse/catalogs/wave6d5_testexpr_strings.json`); zero DLL, PDB, or third-party source consulted] `TestExpr` returns `1` for valid string literals (`"abc"`, `""`), initialized/empty/uninitialized `string_var`s, string-valued map lookups (`aMap["strKey"]`), side-effect string assignments (`svAssign = "after"`), arrays, and past-end list appends (`aList[5] = 99`), and returns `0` for missing map keys (`aMap["missing"]`), division by zero (`10 / 0`), and out-of-bounds list reads (`aList[99]`): `PROBE|w6d5_11_testexpr_strings_arrays_sideeffects|str(lit=1,litE=1,sv=1,svE=1,svU=1)|map(s=1,n=1,m=0)|asgn(1:[after])|arr=1|err(div0=0,oob=0,past=1,sz=3)`.
+
+### Wave 6D-5 observation: `$` and `ToString` float formatting
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_tostring_dollar_float_g` (`tools/capture/nvse/catalogs/wave6d5_number_text_g.json`); zero DLL, PDB, or third-party source consulted] Both unary `$` and `ToString` format numbers with C `%g` (`42` -> `"42"`, `-0.0` -> `"-0"`, `3.14159265` -> `"3.14159"`, `0.0000001` -> `"1e-07"`, `1234567.89` -> `"1.23457e+06"`): `PROBE|w6d5p4_tostring_dollar_float_g|42=[42/42]|nz=[-0/-0]|pi=[3.14159/3.14159]|tiny=[1e-07/1e-07]|big=[1.23457e+06/1.23457e+06]`.
+
+### Wave 6D-5 observation: `ToNumber` `reportError` and `#`
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_06_tonumber_hash_report_error` (`tools/capture/nvse/catalogs/wave6d5_tonumber_report_error.json`); zero DLL, PDB, or third-party source consulted] `#` and `ToNumber` return `0` for `""`, `"   "`, `"abc"`, `"0x"`, and `"zz"` (hex), `-12.5` for `"  -12.5abc"`, and `31` for `"0x1F"`, `"0X1f"`, and hex `"1F"`; passing `reportError = 1` raises a catchable extender error on unreadable or empty strings (`TestExpr` returns `0` for `"abc"` and `""`, `1` for `"12.5"`, and `1` for `"abc"` when `reportError = 0`): `PROBE|w6d5_06_tonumber_hash_report_error|h(emp=0,spc=0,bad=0,mix=-12.5,hx1=31,hx2=31,hx0=0)|hex(1F=31,0x1F=31,zz=0)|repErr(bad0=1,bad1=0,ok1=1,emp1=0)`.
+- [hypothesis] `ToNumber s 1 1` (`hex=1, reportError=1`) raises the same catchable error when no leading hex digits are present, and partial-prefix strings (such as `"12abc"`) succeed under `reportError=1` because a leading numeric prefix was consumed.
+- [design] `parse_text_number` rejects non-finite `f64` parses (`!v.is_finite()`, e.g., `"NaN"`/`"inf"`) as unreadable rather than returning non-finite values.
+
+### Wave 6D-5 observation: `TypeOf` on uninitialized `array_var` and `Ar_Null`
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_typeof_bad_array` (`tools/capture/nvse/catalogs/wave6d5_typeof_bad_array.json`); zero DLL, PDB, or third-party source consulted] Both an uninitialized `array_var` and `Ar_Null` return `"<Bad Array>"` from `TypeOf`, while valid arrays return `"Array"`, `"Map"`, or `"StringMap"`, and a missing map key returns `"NULL"`: `PROBE|w6d5p4_typeof_bad_array|aU=<Bad Array>|aN=<Bad Array>|aL=Array|aM=Map|aS=StringMap|miss=NULL`.
+- [hypothesis] Returning `XVal::Array(0)` from `Ar_Null` also routes `ToString Ar_Null` (`"NULL"`) and `$Ar_Null` through the `XVal::Array(0)` path rather than `XVal::Num(0.0)`; neither expression was directly probed in `w6d5p4_typeof_bad_array`.
+- [design] In the interactive developer console (`crates/fnv-game/src/functions/console.rs`), `expression_result` renders `XVal::Array(0)` (including `let a := ar_Null`) as `"(no array)"`.

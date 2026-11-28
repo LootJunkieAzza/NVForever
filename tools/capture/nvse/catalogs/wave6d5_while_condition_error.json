@@ -1,0 +1,113 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_while_condition_error",
+  "description": "Wave 6D-5 read-only probe verifying while condition OOB error recovery and Return inside while/foreach loops.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "JIP LN NVSE": "57.30 (5730)"
+  },
+  "batches": [
+    {
+      "id": "w6d5_while_condition_error",
+      "title": "While condition error recovery and Return in loops",
+      "extender": "xNVSE / JIP LN NVSE",
+      "required_plugins": [
+        "jip_nvse.dll"
+      ],
+      "probes": [
+        {
+          "id": "w6d5_19_while_error_and_return_in_loops",
+          "bucket": "vm_control_flow",
+          "extender": "xNVSE / JIP LN NVSE",
+          "required_plugins": [
+            "jip_nvse.dll"
+          ],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/script-compiler.md",
+          "spec_line": 738,
+          "functions_tested": [
+            "CompileScript",
+            "Call",
+            "SetFunctionValue",
+            "PrintToConsole"
+          ],
+          "claim": "SD-05 & SD-09: Verify (a) whether an OOB array read error inside a while condition treats the condition as false and continues past loop (vs aborting script), and (b) whether Return inside while and foreach compiles and returns cleanly preserving SetFunctionValue.",
+          "expected": "CONFIRMED STATIC BUG (vm.rs:725): NVForever while propagates xeval_truthy error directly and aborts the script, contradicting script-compiler.md:738; ext-syntax.md:178 flags Return inside loops as open.",
+          "script_lines": [
+            "Player.AuxVarSetFlt \"*w6d5_19_werr_cnt\" -1",
+            "Player.AuxVarSetFlt \"*w6d5_19_werr_after\" 0",
+            "ref fWErr = CompileScript \"w6d5_19_while_err.gek\"",
+            "if fWErr",
+            "  Call fWErr",
+            "endif",
+            "int wCnt = Player.AuxVarGetFlt \"*w6d5_19_werr_cnt\"",
+            "int wAfter = Player.AuxVarGetFlt \"*w6d5_19_werr_after\"",
+            "ref fRetW = CompileScript \"w6d5_19_ret_while.gek\"",
+            "int rRetW = -9",
+            "if fRetW",
+            "  let rRetW := Call fRetW",
+            "endif",
+            "ref fRetF = CompileScript \"w6d5_19_ret_foreach.gek\"",
+            "int rRetF = -9",
+            "if fRetF",
+            "  let rRetF := Call fRetF",
+            "endif",
+            "PrintToConsole \"PROBE|w6d5_19_while_error_and_return_in_loops|wErr(cmp=%g,cnt=%g,after=%g)|retW(cmp=%g,val=%g)|retF(cmp=%g,val=%g)\" (fWErr != 0) wCnt wAfter (fRetW != 0) rRetW (fRetF != 0) rRetF"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": [],
+          "helper_scripts": {
+            "w6d5_19_while_err.gek": [
+              "array_var aL = ar_List 10, 20",
+              "int iIdx = 0",
+              "while iIdx < 5 && aL[iIdx] > 0",
+              "  let iIdx += 1",
+              "loop",
+              "Player.AuxVarSetFlt \"*w6d5_19_werr_cnt\" iIdx",
+              "Player.AuxVarSetFlt \"*w6d5_19_werr_after\" 1"
+            ],
+            "w6d5_19_ret_while.gek": [
+              "int iIdx = 0",
+              "while iIdx < 5",
+              "  let iIdx += 1",
+              "  if iIdx == 3",
+              "    SetFunctionValue 33",
+              "    return",
+              "  endif",
+              "loop",
+              "SetFunctionValue 99"
+            ],
+            "w6d5_19_ret_foreach.gek": [
+              "array_var aL = ar_List 10, 20, 30",
+              "array_var it",
+              "foreach it <- aL",
+              "  if eval (*it == 20)",
+              "    SetFunctionValue 44",
+              "    return",
+              "  endif",
+              "loop",
+              "SetFunctionValue 99"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

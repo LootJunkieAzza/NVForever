@@ -1,0 +1,79 @@
+{
+  "schema": "nvf.nvse.probe.catalog/1",
+  "catalog_id": "wave6d5_tonumber_report_error",
+  "description": "Wave 6D-5 read-only probe verifying ToNumber reportError=1 error raising and # string-to-number edges.",
+  "game_version": "Fallout: New Vegas 1.4.0.525 (040020D0)",
+  "xnvse_version": "6.4.9",
+  "official_masters": [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm"
+  ],
+  "extender_versions": {
+    "xNVSE": "6.4.9"
+  },
+  "batches": [
+    {
+      "id": "w6d5_tonumber_report_error",
+      "title": "ToNumber reportError and # conversion edges",
+      "extender": "xNVSE",
+      "required_plugins": [],
+      "probes": [
+        {
+          "id": "w6d5_06_tonumber_hash_report_error",
+          "bucket": "vm_values",
+          "extender": "xNVSE",
+          "required_plugins": [],
+          "optional_extender": false,
+          "requires_world": true,
+          "mutates_state": false,
+          "requires_fixture": null,
+          "requires_isolated_staging": false,
+          "spec_file": "docs/spec-notes/ext-values.md",
+          "spec_line": 61,
+          "functions_tested": [
+            "ToNumber",
+            "TestExpr",
+            "PrintToConsole"
+          ],
+          "claim": "SD-06: Verify # and ToNumber on empty/whitespace/unreadable/prefix/hex strings AND verify whether ToNumber arg3 (reportError=1) raises a catchable extender error under TestExpr.",
+          "expected": "NVForever vm.rs:3312-3318 ignores ToNumber's 3rd reportError argument completely, so TestExpr (ToNumber 'abc' 0 1) falsely returns 1.",
+          "script_lines": [
+            "string_var svEmp = \"\"",
+            "string_var svSpc = \"   \"",
+            "string_var svBad = \"abc\"",
+            "string_var svMix = \"  -12.5abc\"",
+            "string_var svHx1 = \"0x1F\"",
+            "string_var svHx2 = \"0X1f\"",
+            "string_var svHx0 = \"0x\"",
+            "string_var svHexBare = \"1F\"",
+            "float nEmp = #svEmp",
+            "float nSpc = #svSpc",
+            "float nBad = #svBad",
+            "float nMix = #svMix",
+            "float nHx1 = #svHx1",
+            "float nHx2 = #svHx2",
+            "float nHx0 = #svHx0",
+            "float nTh1 = ToNumber svHexBare 1",
+            "float nTh2 = ToNumber svHx1 1",
+            "float nThBad = ToNumber \"zz\" 1",
+            "int teBad0 = TestExpr (ToNumber svBad 0 0)",
+            "int teBad1 = TestExpr (ToNumber svBad 0 1)",
+            "int teOk1 = TestExpr (ToNumber \"12.5\" 0 1)",
+            "int teEmp1 = TestExpr (ToNumber svEmp 0 1)",
+            "PrintToConsole \"PROBE|w6d5_06_tonumber_hash_report_error|h(emp=%g,spc=%g,bad=%g,mix=%g,hx1=%g,hx2=%g,hx0=%g)|hex(1F=%g,0x1F=%g,zz=%g)|repErr(bad0=%g,bad1=%g,ok1=%g,emp1=%g)\" nEmp nSpc nBad nMix nHx1 nHx2 nHx0 nTh1 nTh2 nThBad teBad0 teBad1 teOk1 teEmp1"
+          ],
+          "wait_ticks_after": 0,
+          "extra_steps": []
+        }
+      ]
+    }
+  ]
+}

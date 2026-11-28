@@ -722,7 +722,14 @@ impl<'t, 'h> Vm<'t, 'h> {
                 // observed, extender-core-tasks.md B4].
                 Stmt::While { cond, body } => loop {
                     self.step()?;
-                    let go = self.xeval_truthy(cond)?.1;
+                    let go = match self.xeval_truthy(cond) {
+                        Ok((_, truthy)) => truthy,
+                        Err(err @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                            self.skip(&err);
+                            false
+                        }
+                        Err(err) => return Err(err),
+                    };
                     if self.host.take_return() {
                         return Ok(Flow::Return);
                     }
@@ -1270,9 +1277,11 @@ fn deep_equal_in(store: &ExtStore, a: &XVal, b: &XVal, seen: &mut std::collectio
             (None, None) => true,
             (Some(_), Some(_)) if !seen.insert((*x, *y)) => true,
             (Some(p), Some(q)) => {
-                p.kind == q.kind
-                    && p.entries.len() == q.entries.len()
-                    && p.entries.iter().zip(&q.entries).all(|(e, f)| e.0 == f.0 && deep_equal_in(store, &e.1, &f.1, seen))
+                p.entries.len() == q.entries.len()
+                    && p.entries
+                        .iter()
+                        .zip(&q.entries)
+                        .all(|(e, f)| e.0.cmp(&f.0) == std::cmp::Ordering::Equal && deep_equal_in(store, &e.1, &f.1, seen))
             }
             _ => false,
         },
@@ -1281,40 +1290,50 @@ fn deep_equal_in(store: &ExtStore, a: &XVal, b: &XVal, seen: &mut std::collectio
     }
 }
 
-/// A number as `$` and ToString write it: whole numbers without decimals, others with up
-/// to six [hypothesis: ext-values.md §2 leaves `$` of a float open; probes G3 strings].
+/// A number as `$` and ToString write it: C `%g` formatting (6 significant digits,
+/// scientific below `1e-4` or from `1e6`, `-0.0` as `"-0"`) [observed:
+/// `w6d5p4_tostring_dollar_float_g`, 42 -> "42", -0.0 -> "-0", 3.14159265 -> "3.14159",
+/// 1e-7 -> "1e-07", 1234567.89 -> "1.23457e+06"].
 pub fn number_text(x: f64) -> String {
-    if x.fract() == 0.0 && x.abs() < 1e15 {
-        format!("{}", x as i64)
-    } else {
-        let s = format!("{x:.6}");
-        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    if x == 0.0 && x.is_sign_negative() {
+        return "-0".to_string();
     }
+    printf_number("", 'g', x)
 }
 
 /// A string read as a number, as `#` and ToNumber read it: surrounding spaces ignored,
 /// `0x…` as hex, anything unreadable 0 [documented: ToNumber; the unreadable case
 /// hypothesis].
-pub fn text_number(s: &str) -> f64 {
+fn parse_text_number(s: &str) -> Option<f64> {
     let t = s.trim();
     if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        return hex_prefix(h);
+        return parse_hex_prefix(h);
     }
     // The number the text starts with: "12abc" is 12 [observed: probe strings/04].
+    // Rejecting non-finite floats ("NaN"/"inf") is [design].
     let mut end = t.len();
     while end > 0 {
         if let Ok(v) = t[..end].parse::<f64>() {
-            return v;
+            if v.is_finite() {
+                return Some(v);
+            }
         }
         end = t[..end].char_indices().last().map_or(0, |(i, _)| i);
     }
-    0.0
+    None
+}
+
+pub fn text_number(s: &str) -> f64 {
+    parse_text_number(s).unwrap_or(0.0)
 }
 
 /// The hex digits a text starts with, as a number.
-fn hex_prefix(h: &str) -> f64 {
+fn parse_hex_prefix(h: &str) -> Option<f64> {
     let n = h.chars().take_while(|c| c.is_ascii_hexdigit()).count();
-    i64::from_str_radix(&h[..n], 16).map_or(0.0, |v| v as f64)
+    if n == 0 {
+        return None;
+    }
+    i64::from_str_radix(&h[..n], 16).ok().map(|v| v as f64)
 }
 
 /// The widest field and the most digits a format code writes; a larger width or precision
@@ -1351,7 +1370,7 @@ fn printf_number(spec: &str, code: char, x: f64) -> String {
     };
     let width: usize = w.parse::<usize>().unwrap_or(0).min(MAX_FORMAT_FIELD);
     let upper = code.is_ascii_uppercase();
-    let negative = x < 0.0 || (x == 0.0 && x.is_sign_negative() && code.eq_ignore_ascii_case(&'f'));
+    let negative = x < 0.0 || (x == 0.0 && x.is_sign_negative());
     let a = x.abs();
     // The C library's scientific form of a value at or above 0: the mantissa, then e (or
     // E), a sign and at least two digits.
@@ -1471,8 +1490,11 @@ pub fn form_type_code(sig: &[u8; 4]) -> Option<u16> {
         b"ARMA", b"ECZN", b"MESG", b"RGDL", b"DOBJ", b"LGTM", b"MUSC", b"IMOD", b"REPU", b"PCBE", b"RCPE", b"RCCT", b"CHIP", b"CSNO", b"LSCT", b"MSET",
         b"ALOC", b"CHAL", b"AMEF", b"CCRD", b"CMNY", b"CDCK", b"DEHY", b"HUNG", b"SLPD",
     ];
-    // The table lists ARMA as 96 and ARMO as "armor (armor addons too)": the code table
-    // is followed here [documented: Form Type IDs; which an addon reports is open].
+    // Armor addons (`ARMA`) report `ARMO` (24), not 96 [documented: Form Type IDs;
+    // observed: w6d5p4_gettype_arma, GetType/GetObjectType on ARMA 0x1649DF -> 24/24].
+    if sig == b"ARMA" {
+        return Some(24);
+    }
     CODES.iter().position(|c| *c == sig).map(|i| i as u16)
 }
 
@@ -1633,7 +1655,10 @@ impl Vm<'_, '_> {
                 match op {
                     XUnary::Neg => XVal::Num(-v.num()?),
                     XUnary::Not => unreachable!(),
-                    XUnary::Stringize => XVal::Str(self.text_of(&v)?),
+                    XUnary::Stringize => XVal::Str(match v {
+                        XVal::Array(id) => self.stringize_array(id)?,
+                        other => self.text_of(&other)?,
+                    }),
                     XUnary::Numericize => match v {
                         XVal::Str(s) => XVal::Num(text_number(&s)),
                         other => XVal::Num(other.num()?),
@@ -1689,19 +1714,27 @@ impl Vm<'_, '_> {
                 // Expressions, Slice]; `s[i]`: one character [documented: Subscript].
                 if let XExpr::Binary { op: XOp::Slice, l: lo, r: hi } = r.as_ref() {
                     let (a, b) = (self.xeval(lo)?.num()?, self.xeval(hi)?.num()?);
-                    // An end past the string stops at its last character [observed: probe
-                    // strings/02, "abcdef"[4:10] is "ef"].
-                    let last = chars.len().saturating_sub(1) as f64;
-                    let b = if b > last { last } else { b };
-                    match (position(a, chars.len()), position(b, chars.len())) {
-                        (Some(a), Some(b)) if a <= b => XVal::Str(chars[a..=b].iter().collect()),
-                        _ => XVal::Str(String::new()),
+                    // Both ends clamp to string bounds after negative indexing [observed:
+                    // probe strings/02 ("abcdef"[4:10] == "ef") and w6d5p4_string_subscript_oob
+                    // ("abcde"[-99:2] == "abc", "abcde"[-3:-1] == "cde")].
+                    let n = chars.len() as i64;
+                    let resolve = |x: f64| {
+                        let idx = x.trunc() as i64;
+                        if idx < 0 { n + idx } else { idx }
+                    };
+                    let (a, b) = (resolve(a), resolve(b));
+                    if n == 0 || b < 0 || a >= n {
+                        XVal::Str(String::new())
+                    } else {
+                        let a = a.max(0) as usize;
+                        let b = b.min(n - 1) as usize;
+                        if a <= b { XVal::Str(chars[a..=b].iter().collect()) } else { XVal::Str(String::new()) }
                     }
                 } else {
                     let i = self.xeval(r)?.num()?;
                     match position(i, chars.len()) {
                         Some(p) => XVal::Str(chars[p].to_string()),
-                        None => return Err(VmError::Type(format!("position {i} is outside the string"))),
+                        None => XVal::Str(String::new()),
                     }
                 }
             }
@@ -1710,7 +1743,18 @@ impl Vm<'_, '_> {
                 // Arrays compare by their top-level elements [documented: NVSE Expressions].
                 if let (XOp::Eq | XOp::Ne, XVal::Array(x), XVal::Array(y)) = (op, &a, &b) {
                     let store = self.store()?;
-                    let same = x == y || store.array(*x).map(|a| &a.entries) == store.array(*y).map(|b| &b.entries);
+                    let same = x == y
+                        || match (store.array(*x), store.array(*y)) {
+                            (None, None) => true,
+                            (Some(p), Some(q)) => {
+                                p.entries.len() == q.entries.len()
+                                    && p.entries
+                                        .iter()
+                                        .zip(&q.entries)
+                                        .all(|(e, f)| e.0.cmp(&f.0) == std::cmp::Ordering::Equal && e.1 == f.1)
+                            }
+                            _ => false,
+                        };
                     return Ok(XVal::Num(if same == (*op == XOp::Eq) { 1.0 } else { 0.0 }));
                 }
                 xbinary(*op, a, b)?
@@ -1753,6 +1797,39 @@ impl Vm<'_, '_> {
 
     /// A value as text (`$`, ToString): a number's text, a form's name or, without one, its
     /// FormID in hex [documented: ToString].
+    /// Format an array for unary `$` (`[1, 2]`, `[1.000000: 10]`, `["k": 5]`, or
+    /// `array ID 0 (invalid)`) [observed: `w6d5p4_dollar_array_format`].
+    /// Unprobed edges: `format!("{s:?}")` quoting/escaping on string keys/values, recursive
+    /// nested-array expansion, and `array ID {id} (invalid)` for non-zero invalid IDs are
+    /// `[hypothesis]`; cycle detection (`path.contains(inner)` -> `"array #{inner}"`) is
+    /// `[design]`.
+    fn stringize_array(&mut self, id: u32) -> Result<String, VmError> {
+        self.stringize_array_in(id, &mut Vec::new())
+    }
+
+    fn stringize_array_in(&mut self, id: u32, path: &mut Vec<u32>) -> Result<String, VmError> {
+        let Some(arr) = self.store()?.array(id).cloned() else {
+            return Ok(format!("array ID {id} (invalid)"));
+        };
+        path.push(id);
+        let mut parts = Vec::new();
+        for (k, v) in &arr.entries {
+            let vt = match v {
+                XVal::Array(inner) if path.contains(inner) => format!("array #{inner}"),
+                XVal::Array(inner) => self.stringize_array_in(*inner, path)?,
+                XVal::Str(s) => format!("{s:?}"),
+                other => self.text_of(other)?,
+            };
+            parts.push(match (arr.kind, k) {
+                (ArrayKind::List, _) => vt,
+                (_, XKey::Num(x)) => format!("{x:.6}: {vt}"),
+                (_, XKey::Str(s)) => format!("{s:?}: {vt}"),
+            });
+        }
+        path.pop();
+        Ok(format!("[{}]", parts.join(", ")))
+    }
+
     /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`. An
     /// array already being written further out is written `array #n`, as Ar_Dump writes a
     /// nested one, so an array holding itself ends (#1089).
@@ -2092,7 +2169,7 @@ impl Vm<'_, '_> {
                 }
                 Ok(XVal::Array(self.store()?.new_array(kind.unwrap_or(ArrayKind::Map), es)))
             }
-            "ar_null" => num(0.0),
+            "ar_null" => Ok(XVal::Array(0)),
             "ar_badnumericindex" => num(BAD_NUMERIC_INDEX),
             "ar_badstringindex" => Ok(XVal::Str(String::new())),
             "ar_size" => {
@@ -2250,7 +2327,13 @@ impl Vm<'_, '_> {
                 let (a, i, b) = (val(self, 0)?, val(self, 1)?.num()?, val(self, 2)?);
                 let (Some(id), Some(other)) = (array_of(&a), array_of(&b)) else { return num(0.0) };
                 let store = self.store()?;
-                let vals: Vec<XVal> = store.array(other).map(|o| o.entries.iter().map(|e| e.1.clone()).collect()).unwrap_or_default();
+                let Some(vals): Option<Vec<XVal>> = store
+                    .array(other)
+                    .filter(|o| o.kind == ArrayKind::List)
+                    .map(|o| o.entries.iter().map(|e| e.1.clone()).collect())
+                else {
+                    return num(0.0);
+                };
                 let ok = store.array(id).is_some_and(|arr| arr.kind == ArrayKind::List && i >= 0.0 && i as usize <= arr.entries.len());
                 if ok {
                     for v in &vals {
@@ -2312,24 +2395,21 @@ impl Vm<'_, '_> {
                 // Ar_Sort keeps the elements of the first element's type and drops the rest
                 // ([3, "x"] → [3], ["x", 3] → ["x"]) [observed: the original game, which beats
                 // the page's "empty array"; with more elements of each type, hypothesis].
-                let vals: Vec<XVal> = if alpha {
-                    vals
-                } else {
-                    let first = vals.first().map(std::mem::discriminant);
-                    vals.into_iter().filter(|v| Some(std::mem::discriminant(v)) == first).collect()
-                };
-                let same_kind = true;
-                if alpha || same_kind {
-                    for v in vals {
-                        let is_num = matches!(v, XVal::Num(_));
-                        let t = if !is_num && (alpha || matches!(v, XVal::Str(_))) { self.text_of(&v)?.to_lowercase() } else { String::new() };
-                        let x = if is_num || !alpha { v.num().unwrap_or(0.0) } else { 0.0 };
-                        keyed.push((u8::from(!is_num), t, x, v));
-                    }
-                    keyed.sort_by(|p, q| p.0.cmp(&q.0).then(p.1.cmp(&q.1)).then(p.2.partial_cmp(&q.2).unwrap_or(std::cmp::Ordering::Equal)));
-                    if desc {
-                        keyed.reverse();
-                    }
+                // Ar_SortAlpha does the same on number-first mixed arrays
+                // [observed: w6d5p3_18b_alpha_find_unique_any_all, [10, 2, "b", "a", rDocBase]
+                // -> [2, 10] (size 2); generalizing to string-first / form-first arrays is
+                // hypothesis].
+                let first = vals.first().map(std::mem::discriminant);
+                let vals: Vec<XVal> = vals.into_iter().filter(|v| Some(std::mem::discriminant(v)) == first).collect();
+                for v in vals {
+                    let is_num = matches!(v, XVal::Num(_));
+                    let t = if !is_num && (alpha || matches!(v, XVal::Str(_))) { self.text_of(&v)?.to_lowercase() } else { String::new() };
+                    let x = if is_num || !alpha { v.num().unwrap_or(0.0) } else { 0.0 };
+                    keyed.push((u8::from(!is_num), t, x, v));
+                }
+                keyed.sort_by(|p, q| p.0.cmp(&q.0).then(p.1.cmp(&q.1)).then(p.2.partial_cmp(&q.2).unwrap_or(std::cmp::Ordering::Equal)));
+                if desc {
+                    keyed.reverse();
                 }
                 let es = keyed.into_iter().enumerate().map(|(i, (_, _, _, v))| (XKey::Num(i as f64), v)).collect();
                 Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
@@ -2410,9 +2490,10 @@ impl Vm<'_, '_> {
                     XVal::Ref(_) => "Form",
                     XVal::Str(_) => "String",
                     XVal::Array(id) => match self.store()?.array(*id).map(|a| a.kind) {
+                        Some(ArrayKind::List) => "Array",
                         Some(ArrayKind::Map) => "Map",
                         Some(ArrayKind::StringMap) => "StringMap",
-                        _ => "Array",
+                        None => "<Bad Array>",
                     },
                 };
                 Ok(XVal::Str(t.into()))
@@ -2578,8 +2659,17 @@ impl Vm<'_, '_> {
                     self.host.form_text(f).unwrap_or_default()
                 }
                 'v' => {
-                    let code = next("actor value")?.num()? as u16;
-                    self.table.enum_name("actor_value", code).unwrap_or_default().to_string()
+                    // Reject non-finite values ([design]) and negative/out-of-range codes
+                    // ([observed: w6d5p2_02b_format_v_k_edges]) as "unknown".
+                    let n = next("actor value")?.num()?;
+                    let name = if n.is_finite() {
+                        u16::try_from(n.trunc() as i64)
+                            .ok()
+                            .and_then(|code| self.table.enum_name("actor_value", code))
+                    } else {
+                        None
+                    };
+                    name.unwrap_or("unknown").to_string()
                 }
                 'x' => {
                     // `%x4`: the digit after the code is the width [documented].
@@ -2681,11 +2771,18 @@ impl Vm<'_, '_> {
             "sv_count" => {
                 let (needle, k) = self.format_arg(c, 0)?;
                 let hay = text(val(self, k)?).unwrap_or_default();
-                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let start_raw = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                if start_raw < 0.0 {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
+                let start = start_raw as usize;
                 let len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let chars: Vec<char> = hay.chars().collect();
-                let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
+                let end = match len {
+                    Some(l) if l >= 0.0 => start.saturating_add(l as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 let region: String = chars.get(start..end).map(|s| s.iter().collect()).unwrap_or_default();
                 if needle.is_empty() {
                     return Ok(Some(XVal::Num(0.0)));
@@ -2714,11 +2811,18 @@ impl Vm<'_, '_> {
             "sv_find" => {
                 let (needle, k) = self.format_arg(c, 0)?;
                 let hay = text(val(self, k)?).unwrap_or_default();
-                let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let start_raw = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                if start_raw < 0.0 {
+                    return Ok(Some(XVal::Num(-1.0)));
+                }
+                let start = start_raw as usize;
                 let len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let chars: Vec<char> = hay.chars().collect();
-                let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
+                let end = match len {
+                    Some(l) if l >= 0.0 => start.saturating_add(l as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 let region = chars.get(start..end).unwrap_or_default();
                 let needle: Vec<char> = needle.chars().collect();
                 let found = find_chars(region, &needle, 0, case);
@@ -2732,6 +2836,7 @@ impl Vm<'_, '_> {
                 let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let search_len = opt(self, k + 2)?.map(|v| v.num()).transpose()?;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let max = opt(self, k + 4)?.map(|v| v.num()).transpose()?.map(|m| m as usize);
                 let (old, new) = pair.split_once('|').unwrap_or((pair.as_str(), ""));
@@ -2744,9 +2849,16 @@ impl Vm<'_, '_> {
                 let chars: Vec<char> = s.chars().collect();
                 let old: Vec<char> = old.chars().collect();
                 let from = start.min(chars.len());
+                // [observed: `w6d11_24_sv_replace_searchlen_maxcount_and_sv_set`,
+                // `len1(3:[XXXaaa])|len2(3:[aaXXXa])`] non-negative `searchLen` bounds the
+                // scan window; omitted or negative `searchLen` searches to end [design].
+                let limit = match search_len {
+                    Some(l) if l >= 0.0 => from.saturating_add(l as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 let (mut out, mut count, mut at): (String, usize, usize) = (chars[..from].iter().collect(), 0, from);
                 while max.is_none_or(|m| count < m) {
-                    let Some(i) = find_chars(&chars, &old, at, case) else { break };
+                    let Some(i) = find_chars(&chars[..limit], &old, at, case) else { break };
                     out.extend(&chars[at..i]);
                     out.push_str(new);
                     at = i + old.len();
@@ -2780,11 +2892,18 @@ impl Vm<'_, '_> {
                 let Some(var) = self.string_var_arg(c.args.first())? else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
                 let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
-                let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let at_raw = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                if at_raw < 0.0 {
+                    return Ok(Some(XVal::Num(0.0)));
+                }
+                let at = at_raw as usize;
                 let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
                 let chars: Vec<char> = s.chars().collect();
                 let at = at.min(chars.len());
-                let end = n.map_or(chars.len(), |n| (at + n.max(0.0) as usize).min(chars.len()));
+                let end = match n {
+                    Some(n) if n >= 0.0 => at.saturating_add(n as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 let out: String = chars[..at].iter().chain(&chars[end..]).collect();
                 self.write_var(var, XVal::Str(out))?;
                 XVal::Num(0.0)
@@ -2792,11 +2911,18 @@ impl Vm<'_, '_> {
             // [documented: Sv SubString] `count` characters from the position.
             "sv_substring" => {
                 let s = text(val(self, 0)?).unwrap_or_default();
-                let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                let at_raw = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
+                if at_raw < 0.0 {
+                    return Ok(Some(XVal::Str(String::new())));
+                }
+                let at = at_raw as usize;
                 let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
                 let chars: Vec<char> = s.chars().collect();
                 let at = at.min(chars.len());
-                let end = n.map_or(chars.len(), |n| (at + n.max(0.0) as usize).min(chars.len()));
+                let end = match n {
+                    Some(n) if n >= 0.0 => at.saturating_add(n as usize).min(chars.len()),
+                    _ => chars.len(),
+                };
                 XVal::Str(chars[at..end].iter().collect())
             }
             // [documented: Sv ToUpper; Sv ToLower] a new string; the source is kept.
@@ -2809,6 +2935,14 @@ impl Vm<'_, '_> {
             // the flag is set.
             "sv_compare" => {
                 let (a, k) = self.format_arg(c, 0)?;
+                if let Some(XExpr::Var { var, .. }) = c.args.get(k) {
+                    if self.host.var_kind(var) == VarKind::String {
+                        let id = self.host.get_var(var).map_err(VmError::Host)?.num() as u32;
+                        if self.store()?.text(id).is_none() {
+                            return Ok(Some(XVal::Num(-2.0)));
+                        }
+                    }
+                }
                 let b = text(val(self, k)?).unwrap_or_default();
                 let case = opt(self, k + 1)?.is_some_and(|v| v.truthy());
                 let ord = if case { a.cmp(&b) } else { a.to_lowercase().cmp(&b.to_lowercase()) };
@@ -2840,6 +2974,10 @@ impl Vm<'_, '_> {
             "sv_tonumeric" => {
                 let s = text(val(self, 0)?).unwrap_or_default();
                 let t = s.trim_start();
+                // [observed: `w6d11_29_sv_tonumeric_and_sv_getchar_edges`, `num(...,5=31,...)`].
+                if let Some(h) = t.strip_prefix("0x") {
+                    return Ok(Some(XVal::Num(parse_hex_prefix(h).unwrap_or(0.0))));
+                }
                 let mut end = 0;
                 for (i, ch) in t.char_indices() {
                     let ok = ch.is_ascii_digit() || ch == '.' || ((ch == '-' || ch == '+') && (i == 0 || t[..i].ends_with(['e', 'E']))) || ((ch == 'e' || ch == 'E') && i > 0);
@@ -2858,7 +2996,8 @@ impl Vm<'_, '_> {
             "sv_getchar" => {
                 let s = text(val(self, 0)?).unwrap_or_default();
                 let p = val(self, 1)?.num()?;
-                XVal::Num(position(p, s.chars().count()).and_then(|p| s.chars().nth(p)).map_or(-1.0, |ch| ch as u32 as f64))
+                let ch = if p < 0.0 || !p.is_finite() { None } else { s.chars().nth(p as usize) };
+                XVal::Num(ch.map_or(-1.0, |ch| ch as u32 as f64))
             }
             // [documented: NumToHex] upper-case hex, zero-padded to the width (default 8, at
             // most 8), `0x` with the flag.
@@ -3046,16 +3185,19 @@ impl Vm<'_, '_> {
                 let x = val(self, 0)?.num()?;
                 let d = x.to_radians();
                 XVal::Num(match n {
-                    "sin" => d.sin(),
-                    "cos" => d.cos(),
-                    "tan" => d.tan(),
+                    "sin" => if opt(self, 1)?.is_some_and(|v| v.truthy()) { x.asin().to_degrees() } else { d.sin() },
+                    "cos" => if opt(self, 1)?.is_some_and(|v| v.truthy()) { x.acos().to_degrees() } else { d.cos() },
+                    "tan" => if opt(self, 1)?.is_some_and(|v| v.truthy()) { x.atan().to_degrees() } else { d.tan() },
                     "asin" => x.asin().to_degrees(),
                     "acos" => x.acos().to_degrees(),
                     "atan" => x.atan().to_degrees(),
                     "sinh" => x.sinh(),
                     "cosh" => x.cosh(),
                     "tanh" => x.tanh(),
-                    "log" => x.ln(),
+                    "log" => match opt(self, 1)? {
+                        Some(b) => x.log(b.num()?),
+                        None => x.ln(),
+                    },
                     "log10" => x.log10(),
                     "exp" => x.exp(),
                     // A whole number as a 32-bit integer: out of its range (or not a
@@ -3084,11 +3226,20 @@ impl Vm<'_, '_> {
                 let (a, b) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
                 XVal::Num(a.powf(b))
             }
-            // [documented: fmod] x modulo n, plus the offset.
+            // [documented: fmod; observed: `w6d11_42_fmod_floor_ceil_and_sup_round_edges`,
+            // `fm(1.0,2.0,-2.0,-1.0,359.0,10.0,170.0,1.5)|fm0(st=2,v=-nan(ind))`] floored
+            // modulo (result shares divisor sign) plus offset; divisor 0 returns NaN.
             "fmod" => {
                 let (x, m) = (val(self, 0)?.num()?, val(self, 1)?.num()?);
                 let off = opt(self, 2)?.map(|v| v.num()).transpose()?.unwrap_or(0.0);
-                XVal::Num(if m == 0.0 { 0.0 } else { (x - off).rem_euclid(m) + off })
+                let r = if m == 0.0 {
+                    f64::NAN
+                } else {
+                    let rem = (x - off) % m;
+                    let floored = if (rem > 0.0 && m < 0.0) || (rem < 0.0 && m > 0.0) { rem + m } else { rem };
+                    floored + off
+                };
+                XVal::Num(r)
             }
             // [documented: Rand] a number from the minimum up to the maximum [observed: Rand 5,
             // 5 gives 5].
@@ -3308,14 +3459,27 @@ impl Vm<'_, '_> {
                 }))
             }
             // With the hexadecimal flag the text is read as hex [documented: ToNumber;
-            // observed: "1F" gives 31].
+            // observed: "1F" gives 31; reportError=1 on decimal bad/empty observed in
+            // w6d5_06_tonumber_hash_report_error; hex=1 with reportError=1 and
+            // partial-prefix strings under reportError=1 are [hypothesis]].
             "tonumber" => {
                 let hex = c.args.get(1).map(|a| self.xeval(a)).transpose()?.is_some_and(|v| v.truthy());
-                Ok(match arg(self, 0)? {
-                    XVal::Str(s) if hex => XVal::Num(hex_prefix(s.trim().trim_start_matches("0x").trim_start_matches("0X"))),
-                    XVal::Str(s) => XVal::Num(text_number(&s)),
-                    other => XVal::Num(other.num()?),
-                })
+                let report_error = c.args.get(2).map(|a| self.xeval(a)).transpose()?.is_some_and(|v| v.truthy());
+                match arg(self, 0)? {
+                    XVal::Str(s) => {
+                        let parsed = if hex {
+                            parse_hex_prefix(s.trim().trim_start_matches("0x").trim_start_matches("0X"))
+                        } else {
+                            parse_text_number(&s)
+                        };
+                        match parsed {
+                            Some(v) => Ok(XVal::Num(v)),
+                            None if report_error => Err(VmError::Type(format!("ToNumber could not convert {s:?}"))),
+                            None => Ok(XVal::Num(0.0)),
+                        }
+                    }
+                    other => Ok(XVal::Num(other.num()?)),
+                }
             }
             n if n.starts_with("ar_") || n == "typeof" => self.array_function(n, c),
             // `[ref.]Call udf args…` [documented: Call; User Defined Function].
@@ -3419,24 +3583,28 @@ impl Vm<'_, '_> {
                 })
             }
             "chartoascii" => Ok(XVal::Num(match arg(self, 0)? {
-                XVal::Str(s) => s.bytes().next().map_or(-1.0, f64::from),
+                XVal::Str(s) if s.len() == 1 => f64::from(s.as_bytes()[0]),
                 _ => -1.0,
             })),
             "asciitochar" => {
                 let code = arg(self, 0)?.num()? as i64;
                 Ok(XVal::Str(u8::try_from(code).ok().filter(|c| *c > 0).map(|c| char::from(c).to_string()).unwrap_or_default()))
             }
-            // Bits of 32-bit integers [documented: GetBit; SetBit; ClearBit; LeftShift;
-            // RightShift; LogicalAnd; LogicalOr; LogicalXor; LogicalNot]; the shifts are on
-            // the unsigned value [hypothesis].
+            // Bits of unsigned 32-bit integers [documented: GetBit; SetBit; ClearBit;
+            // LeftShift; RightShift; LogicalAnd; LogicalOr; LogicalXor; LogicalNot;
+            // observed: `w6d5p2_10b_bitshift_exact` & `w6d11_45_bitwise_logical_ops_setbit_3arg_and_oob`,
+            // unsigned u32 returns across all bitwise ops (`2147483648` / `4294967295`,
+            // `rs1=1073741824,rs31=1`) and `GetBit` bit-index masking modulo 32 (`GetBit 5 32 = 1`,
+            // `GetBit 5 -1 = 0`, `GetBit -1 -1 = 1`)].
             "getbit" | "setbit" | "clearbit" | "leftshift" | "rightshift" | "logicaland" | "logicalor" | "logicalxor" => {
                 let a = arg(self, 0)?.num()? as i64 as u32;
                 let b = arg(self, 1)?.num()? as i64;
                 let bit = if (0..32).contains(&b) { 1u32 << b } else { 0 };
+                let get_bit = 1u32 << ((b as u32) & 31);
                 let sh = u32::try_from(b).unwrap_or(32);
                 let on = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_none_or(|v| v.truthy());
                 let r: u32 = match name.to_ascii_lowercase().as_str() {
-                    "getbit" => u32::from(a & bit != 0),
+                    "getbit" => u32::from(a & get_bit != 0),
                     "setbit" if on => a | bit,
                     "setbit" | "clearbit" => a & !bit,
                     "leftshift" => a.checked_shl(sh).unwrap_or(0),
@@ -3445,9 +3613,9 @@ impl Vm<'_, '_> {
                     "logicalor" => a | b as u32,
                     _ => a ^ b as u32,
                 };
-                Ok(XVal::Num(f64::from(r as i32)))
+                Ok(XVal::Num(f64::from(r)))
             }
-            "logicalnot" => Ok(XVal::Num(f64::from(!(arg(self, 0)?.num()? as i64 as u32) as i32))),
+            "logicalnot" => Ok(XVal::Num(f64::from(!(arg(self, 0)?.num()? as i64 as u32)))),
             // [documented: IntToBin] padded to the width; the prefix is "0b" [hypothesis:
             // the page names the option without showing it].
             "inttobin" => {
@@ -3464,7 +3632,7 @@ impl Vm<'_, '_> {
             // 1 when the expression evaluates without an error.
             "testexpr" => {
                 let ok = match c.args.first() {
-                    Some(e) => self.xeval(e).and_then(|v| v.value().map(|_| ())).is_ok(),
+                    Some(e) => self.xeval(e).is_ok(),
                     None => false,
                 };
                 Ok(XVal::Num(f64::from(u8::from(ok))))
@@ -3786,8 +3954,11 @@ fn xbinary(op: XOp, a: XVal, b: XVal) -> Result<XVal, VmError> {
 }
 
 /// A binary operator [hypothesis unless tagged: comparisons give 1 or 0, `&&` and `||`
-/// test for non-zero, arithmetic is in double precision; division by zero gives 0 and
-/// `%` is the remainder of the operands truncated to integers (0 for a zero divisor)].
+/// test for non-zero, arithmetic is in double precision; vanilla `/` and `%` by zero
+/// return the dividend (`10 / 0 -> 10.0`, `10 % 0 -> 10.0`)
+/// [observed: w6d5_17_operators_div0_pow_mod_hex_bin_comments]; `%` truncates operands
+/// to integers and returns `x.trunc()` whenever `y.trunc() == 0` (fractional dividend
+/// or `0 < |y| < 1` divisor behavior is [hypothesis]/[design])].
 fn binary(op: Op, a: Value, b: Value) -> Value {
     let (x, y) = (a.num(), b.num());
     match op {
@@ -3802,11 +3973,15 @@ fn binary(op: Op, a: Value, b: Value) -> Value {
         Op::Add => Value::Num(x + y),
         Op::Sub => Value::Num(x - y),
         Op::Mul => Value::Num(x * y),
-        Op::Div => Value::Num(if y == 0.0 { 0.0 } else { x / y }),
+        Op::Div => Value::Num(if y == 0.0 { x } else { x / y }),
         Op::Mod => {
             let (p, q) = (x.trunc() as i64, y.trunc() as i64);
-            // checked_rem: also 0 for i64::MIN % -1, which overflows (a huge operand).
-            Value::Num(p.checked_rem(q).unwrap_or(0) as f64)
+            if q == 0 {
+                Value::Num(p as f64)
+            } else {
+                // checked_rem: 0 for i64::MIN % -1, which overflows (a huge operand).
+                Value::Num(p.checked_rem(q).unwrap_or(0) as f64)
+            }
         }
         Op::Neg => Value::Num(-y),
     }
@@ -3826,7 +4001,8 @@ mod tests {
     #[test]
     fn remainder_never_overflows() {
         assert_eq!(binary(Op::Mod, Value::Num(-1e300), Value::Num(-1.0)), Value::Num(0.0));
-        assert_eq!(binary(Op::Mod, Value::Num(7.0), Value::Num(0.0)), Value::Num(0.0));
+        assert_eq!(binary(Op::Mod, Value::Num(7.0), Value::Num(0.0)), Value::Num(7.0));
+        assert_eq!(binary(Op::Div, Value::Num(10.0), Value::Num(0.0)), Value::Num(10.0));
         assert_eq!(binary(Op::Mod, Value::Num(7.5), Value::Num(2.0)), Value::Num(1.0));
     }
 }

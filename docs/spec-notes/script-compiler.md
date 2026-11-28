@@ -832,3 +832,30 @@ parity; parsing this caller does not establish B42 Optics compatibility.
   scripts, recompiled in the editor).
 - What the compiler does with a line it can't read in the middle of a block: ours writes
   nothing for that line and goes on.
+
+### Wave 6D-5 observation: `while` condition error recovery & `return` inside loops
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_19_while_error_and_return_in_loops` (`tools/capture/nvse/catalogs/wave6d5_while_condition_error.json`); zero DLL, PDB, or third-party source consulted] An out-of-bounds array read inside a `while` condition (`while iIdx < 5 && aL[iIdx] > 0`) logs an error, exits the loop as `false`, and continues executing statements after `loop` (`cnt=2,after=1`); `return` inside both `while` and `foreach` compiles and preserves `SetFunctionValue` (`33`, `44`): `PROBE|w6d5_19_while_error_and_return_in_loops|wErr(cmp=1,cnt=2,after=1)|retW(cmp=1,val=33)|retF(cmp=1,val=44)`.
+
+### Wave 6D-5 observation: array `==` and `Ar_DeepEquals` key case & List/Map equivalence
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5_13_array_eq_kind_and_stringmap_case` (`tools/capture/nvse/catalogs/wave6d5_array_eq_case.json`); zero DLL, PDB, or third-party source consulted] Both `==` and `Ar_DeepEquals` return `1` for `ar_List 1, 2` vs `ar_Map 0::1, 1::2` and for `ar_Map "A"::1` vs `ar_Map "a"::1`, and StringMap folds case-variant duplicate keys keeping the first-inserted casing (`first=[A], last=[b], A=3, a=3`): `PROBE|w6d5_13_array_eq_kind_and_stringmap_case|lm(eq=1,deq=1)|case(eq=1,deq=1)|fold(sz=2,first=[A],last=[b],A=3,a=3)`.
+
+### Wave 6D-5 observation: string subscript OOB & clamped negative-start slices
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_string_subscript_oob` (`tools/capture/nvse/catalogs/wave6d5_string_subscript_oob.json`); zero DLL, PDB, or third-party source consulted] Single-character string subscripting supports negative indices (`"abcde"[-1] == "e"`, `"abcde"[-5] == "a"`), returns `""` without erroring on out-of-bounds indices (`"abcde"[99] == ""`, `"abcde"[-99] == ""`, `TestExpr == 1`), and clamps negative slice start indices below `0` to `0` (`"abcde"[-99:2] == "abc"`, `"abcde"[-3:-1] == "cde"`): `PROBE|w6d5p4_string_subscript_oob|n1=[e]|n5=[a]|hi=[]:1|lo=[]:1|slNeg=[cde]|slCl=[abc]`.
+
+### Wave 6D-5 observation: `CharToAscii` single-character requirement
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_chartoascii_single_char` (`tools/capture/nvse/catalogs/wave6d5_chartoascii.json`); zero DLL, PDB, or third-party source consulted] `CharToAscii` returns the ASCII code for a 1-character string (`"A" -> 65`) and `-1` for multi-character (`"AB" -> -1`) or empty (`"" -> -1`) strings: `PROBE|w6d5p4_chartoascii_single_char|A=65|AB=-1|emp=-1`.
+
+### Wave 6D-5 observation: unary `$` vs `ToString` on arrays
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p4_dollar_array_format` (`tools/capture/nvse/catalogs/wave6d5_dollar_array_format.json`); zero DLL, PDB, or third-party source consulted] `ToString` returns `"NULL"` for all arrays, while unary `$` formats lists as `[1, 2]`, numeric maps with 6-decimal keys (`[1.000000: 10]`), stringmaps with quoted keys (`["k": 5]`), and uninitialized array ID `0` as `array ID 0 (invalid)`: `PROBE|w6d5p4_dollar_array_format|list=[[1, 2]/NULL]|nmap=[[1.000000: 10]/NULL]|smap=[["k": 5]/NULL]|anull=[array ID 0 (invalid)/NULL]`.
+- [hypothesis] In unary `$` on arrays (`stringize_array_in`), Rust debug-style quoting/escaping (`format!("{s:?}")`) for string keys/values, recursive expansion of nested arrays, and formatting non-zero missing array IDs as `array ID {id} (invalid)` are unprobed extensions of the observed cases above.
+- [design] Cycle detection in `stringize_array_in` (`path.contains(inner)` -> `"array #{inner}"`) prevents infinite recursion on self-referential arrays.
+
+### Wave 6D-5 observation: `Ar_SortAlpha` mixed-type filtering, `Ar_Find`/`Ar_Unique` case, and `ar_Any`/`ar_All`
+
+- [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), fresh New Game, Fallout: New Vegas 1.4.0.525 (`040020D0`) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (`5730`) with the 10 official base masters, isolated clean-room staging copy, strictly read-only `PrintToConsole` probe `w6d5p3_18b_alpha_find_unique_any_all` (`tools/capture/nvse/catalogs/wave6d5_ar_sortalpha.json`); zero DLL, PDB, or third-party source consulted] `Ar_SortAlpha` on `[10, 2, "b", "a", rDocBase]` keeps only elements matching element 0's numeric type (`[2, 10]`, size `2`); `Ar_Find` and `Ar_Unique` compare strings case-insensitively (`find=0, uniq=2`); `ar_Any` and `ar_All` short-circuit (`any=1:2`, `all=0:2`): `PROBE|w6d5p3_18b_alpha_find_unique_any_all|alpha(sz=2,0=[2],1=[10])|case(find=0,uniq=2)|sc(any=1:2,all=0:2)`.
+- [hypothesis] Generalizing `Ar_SortAlpha`'s first-element type filter to string-first and form-first mixed arrays is unprobed (`w6d5p3_18b_alpha_find_unique_any_all` probed a number-first mixed array).

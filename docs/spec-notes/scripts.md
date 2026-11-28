@@ -505,8 +505,11 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
   SetStage / SetObjectiveDisplayed never run in the original either. That the in-game
   compiler makes the same bytes as the GECK for this text is a [hypothesis].
 - Comparisons give 1 or 0; `&&` and `||` test for non-zero; arithmetic is in double
-  precision; `/` by 0 gives 0; `%` is the remainder of both operands truncated to
-  integers, 0 for a zero divisor [hypothesis, all of this line].
+  precision [hypothesis]; vanilla `/` by 0 and `%` by 0 return the left-hand dividend
+  (`10 / 0 -> 10.0`, `10 % 0 -> 10.0`) and `%` truncates operands to integers
+  [observed: `w6d5_17_operators_div0_pow_mod_hex_bin_comments` in `ext-syntax.md`];
+  returning `x.trunc()` for fractional dividends or `0 < |y| < 1` divisors where
+  `y.trunc() == 0` is [hypothesis]/[design].
 - **`&&` and `||` do not short-circuit**: both operands are evaluated, calls included
   [observed: o5_01, 2026-10-31, issue #1112: `if 0 && player.ModAV Variable09 10`,
   `if 1 || …`, `if 0 == 1 && … == 0` and five more forms all ran the ModAV;

@@ -111,7 +111,14 @@ from 0 throughout [documented: Sv Length; Sv Find].
   string; **-1** when it sorts after; **-2** when the comparison fails.
 - **Edge cases**: case is ignored unless the flag is set. `==` under `eval` is the
   newer way to compare [documented: Sv Compare]. What makes it fail: open.
-- **Evidence**: [documented: Sv Compare].
+- **Evidence**: [documented: Sv Compare]; comparing against a destructed `string_var`
+  returns `-2`, and `"apple"` vs `"banana"` returns `-1` while `"banana"` vs `"apple"`
+  returns `1` [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New
+  Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base masters,
+  read-only `PrintToConsole` probe `w6d11_27_sv_compare_sign_case_format_and_invalid`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `ord(ab=-1,ba=1,eq=0)|cs(0=0,1=1,eq1=0)|etc(fmt=0,eEq=0,eLt=-1)|destr(st=2,rv=-2)`;
+  no DLL or source consulted].
 
 ### Sv_Find
 
@@ -133,7 +140,14 @@ from 0 throughout [documented: Sv Length; Sv Find].
 - **Result**: int, how many times the text occurs; 0 when it does not.
 - **Edge cases**: ignores case unless the flag is set; a match inside a longer word
   counts. Overlapping matches: open.
-- **Evidence**: [documented: Sv Count].
+- **Evidence**: [documented: Sv Count]; for both `Sv_Find` and `Sv_Count`, a negative
+  `startPos` returns not-found (`-1` / `0`), while a negative `numChars` (`-1`) searches
+  to the end of the string [observed: 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters, read-only
+  `PrintToConsole` probe `w6d11_25_sv_find_and_sv_count_bounds_neg_and_empty`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `find(0=0,cs=2,win=2,fmt=6,emp=0,nS=-1,nL=0,oob=-1)|cnt(0=3,cs=1,win=2,emp=0,nS=0,nL=3,ov=1)`;
+  no DLL or source consulted].
 
 ### Sv_Replace
 
@@ -145,7 +159,17 @@ from 0 throughout [documented: Sv Length; Sv Find].
   string is returned.
 - **Edge cases**: by default every occurrence in the whole string, ignoring case. An
   empty old text, or a `|` inside the new text: open.
-- **Evidence**: [documented: Sv Replace].
+- **Evidence**: [documented: Sv Replace]; non-negative `searchLen` bounds the replacement
+  window (`start=0, len=3` yields `"XXXaaa"`, `start=2, len=3` yields `"aaXXXa"`),
+  `maxReplacements=0` replaces `0` occurrences, and extra `|` characters stay in the
+  replacement text (`"o|x|y"` on `"foo"` yields `"fx|yx|y"`) [observed: 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10
+  official base masters, read-only `PrintToConsole` probe
+  `w6d11_24_sv_replace_searchlen_maxcount_and_sv_set`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `len1(3:[XXXaaa])|len2(3:[aaXXXa])|max0(0:[aaaaaa])|max2(2:[XXaaaa])|cs(3:[XAXAXA])|pipe(2:[fx|yx|y])`;
+  no DLL or source consulted]. Omitted or negative `searchLen` searches through the end of
+  the string [design].
 
 ### Sv_Insert
 
@@ -174,7 +198,15 @@ from 0 throughout [documented: Sv Length; Sv Find].
   number is a count, not an end position).
 - **Edge cases**: kept for old scripts; a slice is the newer form. Both arguments left
   out: open.
-- **Evidence**: [documented: Sv SubString].
+- **Evidence**: [documented: Sv SubString]; for both `Sv_SubString` and `Sv_Erase`,
+  a negative `startPos` returns `""` / leaves the string unchanged, while a negative
+  `howMany` (`-1`) extends to the end of the string (and omitting both args on
+  `Sv_SubString` returns the full string) [observed: 2026-11-25, `GSDocMitchellHouse`
+  (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10 official base masters,
+  read-only `PrintToConsole` probe `w6d11_26_sv_substring_and_sv_erase_neg_and_bounds`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `sub(all=[abcdef],ns=[],nl=[cdef],ns2=[],oob=[],z=[])|er(ns=[abcdef],nl=[ab],ns2=[abcdef],oob=[abcdef],z=[abcdef])`;
+  no DLL or source consulted].
 
 ### Sv_GetChar
 
@@ -183,7 +215,13 @@ from 0 throughout [documented: Sv Length; Sv Find].
 - **Result**: int, the ASCII code (0–127) of that character.
 - **Edge cases**: a subscript `s[i]` is the newer way to read one character (as a
   string, not a code). A position outside the string, or a character above 127: open.
-- **Evidence**: [documented: Sv GetChar].
+- **Evidence**: [documented: Sv GetChar]; negative indices (`-1`, `-10`), out-of-range
+  indices (`99`), and empty strings all return `-1` [observed: 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10
+  official base masters, read-only `PrintToConsole` probe
+  `w6d11_29_sv_tonumeric_and_sv_getchar_edges`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `gc(0=65,2=67,m1=-1,m10=-1,99=-1,e=-1)`; no DLL or source consulted].
 
 ### Sv_Split
 
@@ -220,7 +258,14 @@ from 0 throughout [documented: Sv Length; Sv Find].
 - **Result**: float. Digits, a leading sign and an `e` exponent are read; reading stops
   at the first character that is none of those.
 - **Edge cases**: no number at the start at all: open (0 is likely but not stated).
-- **Evidence**: [documented: Sv ToNumeric].
+- **Evidence**: [documented: Sv ToNumeric]; parses unsigned `"0x"` hexadecimal (`"0x1F"` -> `31`)
+  and leading-dot decimals (`".5"` -> `0.5`) just like `ToNumber` [observed: 2026-11-25,
+  `GSDocMitchellHouse` (`0x00103DF9`), Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 10
+  official base masters, read-only `PrintToConsole` probe
+  `w6d11_29_sv_tonumeric_and_sv_getchar_edges`
+  (`tools/capture/nvse/catalogs/wave6d11_lists_arrays_strings_aux_math.json`):
+  `num(1=42,2=3.25,3=-150,4=0.50,5=31,6=0,7=0,8=0)|tn(4=0.50,5=31)`; no DLL or source
+  consulted].
 
 ### ToString (`$`)
 
