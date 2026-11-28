@@ -142,6 +142,8 @@ mod light_shadow_detail;
 mod light_shadows;
 mod lights;
 mod photo_lights;
+mod physical_ibl;
+mod tone_presets;
 mod limbs;
 mod lips;
 mod memory_budget;
@@ -1922,6 +1924,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // never mix the two; the page's row changes the next start's.
     let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::authored::set_enabled(authored);
+    // Physical PBR lighting (graphics-enhanced.md §3.25): the run's state by the same rule,
+    // fixed before the first shader hook and material; the page's row changes the next start's.
+    let physical_pbr = settings::physical_pbr_after_ini(graphics.physical_pbr, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::authored::set_physical_pbr(physical_pbr);
+    app.add_systems(Startup, move || info!("physical PBR: {}", if physical_pbr { "on" } else { "off" }));
     app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
     // Reflections on authored materials (#2981): the run's state by the same rule, fixed
     // before the first NIF pipeline (the opt-in def and the metallic factor); the world
@@ -1929,6 +1936,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // (reflection_sky.rs).
     let reflections = settings::reflections_after_ini(graphics.authored_reflections, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::reflection_cube::set_enabled(reflections && authored);
+    if physical_pbr && reflections && authored {
+        app.add_systems(Startup, || info!("physical PBR: authored reflections keep the view's environment map; the sky's image-based light is off and other surfaces take flat ambient"));
+    }
     app.add_systems(Startup, move || {
         info!(
             "authored reflections: {}",
@@ -2040,6 +2050,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // Its solid cores of blended shapes (only while the light is drawn).
     .add_plugins(solid_cores::SolidCoresPlugin)
     // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
+    // Physical lighting's image-based light from the sky (graphics-enhanced.md §3.25); idle
+    // without the row.
+    .add_plugins(physical_ibl::PhysicalIblPlugin)
+    .add_plugins(tone_presets::TonePresetsPlugin)
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)

@@ -627,6 +627,11 @@ impl MaterialExtension for TerrainLayers {
         if key.bind_group_data.anti_tiling {
             nvf_assets::terrain_sampling::anti_tiling_defs(descriptor, false);
         }
+        if nvf_assets::authored::physical_pbr() && !descriptor.vertex.shader_defs.contains(&bevy::shader::ShaderDefVal::from("PREPASS_PIPELINE")) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.push("NVF_PHYSICAL_PBR".into());
+            }
+        }
         Ok(())
     }
 }

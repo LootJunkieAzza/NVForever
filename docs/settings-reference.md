@@ -1034,9 +1034,8 @@ below cover them all.
 
 ### `quality`: Quality preset
 
-- On the page: Sets the rows the original's quality presets cover to the game folder's
-  low.ini to VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: those rows
-  match none of them.
+- On the page: Sets the rows the quality presets cover to the game folder's low.ini to
+  VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: none match.
 - In full: Sets the rows the original's quality presets cover to the values of the game
   folder's low.ini, medium.ini, high.ini or VeryHigh.ini: Sun shadows, Shadow filtering,
   Light glow, Mirrored reflections and the object, actor, item, shadow and grass
@@ -1145,32 +1144,41 @@ below cover them all.
   shadows off too.
 - Command-line switches: `--graphics`, `--graphics-only`
 - More: docs/design/terrain-shadows.md, docs/design/sun-visibility.md
-### `light-shadows`: ALC shadows
+### `light-shadows`: ALCS (experimental)
 
-- On the page: ALC (All Lights Cast): lamps, fires and spot lights cast shadows within the
-  shadow distance, so walls stop their light. Performance redraws less often. Costs frame
-  rate. Not in the original.
-- In full: ALC stands for All Lights Cast; the row was called Lamp shadows until 2026-11-19.
-  The INI key `light-shadows`, the switch `--light-shadows` and the log lines starting
-  `light shadows:` keep the old name, so saved settings, scripts and the smoke scenarios go
-  on working. Off (the default), Performance or Quality, as Sun shadows. Every drawn placed
-  light whose light reaches within the sun's shadow distance (the Shadow distance and
-  Longer sun shadows rows) casts, nearest first, up to 32 lights on Quality and 16 on
-  Performance; grass fires' lights and lights a script attached count among them. Muzzle
-  flashes and explosions cast too, apart from them: the nearest whose light reaches within
-  3,000 units (about 43 m) and into view, 2 at once on Quality and 1 on Performance, each
-  drawn in the frame it appears. A light's maps are drawn when it starts casting and then
-  kept; a part of them is drawn again only when something there moved more than about 6 cm,
-  appeared or vanished, all of them once the light itself moved about 11 cm. At most 3 lights redraw in a frame on Quality, 1 on Performance, nearer ones
-  every frame (every 2nd on Performance), farther ones every 2nd (every 4th), so a moving
-  thing's shadow from a lamp can lag a frame. The world and your body cast, the first-person arms
-  do not; what lies within 8 units of a light casts nothing from it, and lamp housings,
-  shades and bulbs cast none from their own light. Quality also gives the shadows soft edges (sharp
-  where a thing touches the surface, softer away from it) and, while TAA, FSR or DLSS is
-  on, small contact shadows where things touch. A point light's maps
-  are 512² with Shadow resolution 2048, 1024² with 4096. Under a loading screen every
-  casting light's maps are drawn before play, those in view first, within 3 seconds. The
-  flashlight casts as before.
+- On the page: ALCS (All Lights Cast Shadows): lamps, fires and spot lights cast shadows
+  in the shadow distance; Performance casts fewer. Costs frame rate. Not in the original.
+- In full: ALCS stands for All Lights Cast Shadows; the row was called ALC shadows until
+  2026-11-24 and Lamp shadows until 2026-11-19. The INI key `light-shadows`, the switch
+  `--light-shadows` and the log lines starting `light shadows:` keep the old name, so saved
+  settings, scripts and the smoke scenarios go on working. Off (the default), Performance
+  or Quality, as Sun shadows. Every drawn placed light whose light reaches within the sun's
+  shadow distance (the Shadow distance and Longer sun shadows rows) casts, nearest first,
+  up to 32 lights on Quality and 16 on Performance; grass fires' lights and lights a script
+  attached count among them. Muzzle flashes and explosions cast too, apart from them: the
+  nearest whose light reaches within 3,000 units (about 43 m) and into view, 2 at once on
+  Quality and 1 on Performance, each drawn in the frame it appears. A light's maps are
+  drawn when it starts casting and then kept; a part of them is drawn again in the frame
+  something there moved more than about 7 mm (a shape, or any joint of an actor), appeared
+  or vanished, all of them once the light itself moved that far. Up to 8 lights redraw in
+  a frame on Quality, 3 on Performance, those that waited longest first, so a moving
+  thing's shadow moves with it. The world and your body cast, the first-person arms do
+  not; what lies within 8 units of a light casts nothing from it, and lamp housings, shades
+  and bulbs cast none from their own light. Quality also gives the point lights' shadows
+  soft edges (sharp where a thing touches the surface, a little softer away from it, by the
+  lamp's size: a candle's or a bare bulb's crisper than a shade's or a chandelier's; never
+  so wide that a shadow loses its shape) and, while TAA,
+  FSR or DLSS is on, small contact shadows where things touch; Performance smooths the
+  edges by a fixed width. A point light's maps are in two sizes on Quality: the 8 lights
+  nearest the camera take 1024², the rest 512²; a light changes size as you move, drawn anew
+  in that frame. On Performance all are 512² (1024² with Shadow resolution 4096). The video
+  memory is logged at the start (`light shadows: … cast`): about 0.7 GB with 28 lights on
+  Quality. Under a loading screen every casting
+  light's maps are drawn before play, those in view first, within 3 seconds. The flashlight
+  casts as before.
+  A lamp's shadow weighs 1.1: where a lamp is blocked in full the place loses that lamp's
+  light and a tenth of it more, off the cell's ambient light and the other lamps there
+  (light_shadows.rs `SHADOW_STRENGTH`).
   The original's placed lights cast none [design].
 - A list kept in the INI by name (`Off`, `Performance`, `Quality`).
 - Command-line switches: `--light-shadows`
@@ -1199,8 +1207,8 @@ below cover them all.
 
 ### `volumetric-clouds`: Volumetric clouds (experimental)
 
-- On the page: The weather's clouds drawn with depth, lit by the sun: Off, or Performance,
-  Normal or High, each finer and dearer than the last. A prototype. Not in the original.
+- On the page: The weather's clouds drawn with depth and lit by the sun: Off, or
+  Performance, Normal or High. A prototype. Not in the original.
 - In full: The weather's own cloud layers, as Cloud shadows composes them, become a
   layer of cloud with thickness above the world, worked out per pixel: lit by the weather's
   sunlight (by night its night light, from the moon), bright toward the sun, darker
@@ -1286,11 +1294,11 @@ below cover them all.
 ### `volumetric-light`: Volumetric light (experimental)
 
 - On the page: On: sunlight and moonlight show in the air as rays and a glow toward a low
-  sun, shaded by hills and clouds. Best with Cloud shadows and Terrain shadows on. An
-  addition of NVForever's.
+  sun. An addition of NVForever's.
 - While it is on at a strength above 0, Sun shafts are greyed on the game's page (they give way to it where
   it draws). A prototype. Outdoors only, by the sun by day and by
-  the moon at night (nothing at night in a climate without one), in the main view only. Off in every preset; not in the original.
+  the moon at night (nothing at night in a climate without one), in the main view only. Best
+  with Cloud shadows and Terrain shadows on. Off in every preset; not in the original.
 - Command-line switches: `--graphics-only`
 - More: docs/design/volumetric-medium.md
 - Registered in `engine/nvforever/src/settings.rs`
@@ -1302,6 +1310,35 @@ below cover them all.
 - 0 % to 200 % in steps of 10 %, 100 % by default; greyed while Volumetric light is off.
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `physical-pbr`: Physical lighting (experimental)
+
+- On the page: On: light, sky, fog and exposure follow physical rules instead of the
+  original's display values. Still being tuned. Takes effect at the next start. Not in the
+  original.
+- In full: The world is lit with Oren-Nayar diffuse and Cook-Torrance GGX specular with
+  Schlick Fresnel, lamps fall off with the square of the distance, the sky lights everything
+  as image-based light, the game's fog fades into the physical sky's horizon, the picture
+  tonemaps with Tony McMapface, and exposure and bloom are tuned for linear light. Read at the
+  start: the row changes the next start's lighting. Off by default and in every preset;
+  the original's display-value lighting stays the default look. The volumetric clouds and
+  Volumetric light run with it, lit by the same sun and sky. With a material pack and
+  Reflections on authored materials, the pack's materials keep their reflections and other
+  surfaces take flat ambient light in place of the sky's.
+- Command-line switches: `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.25
+
+### `tonemap-preset`: Tonemapping preset
+
+- On the page: A look laid on the tonemapper: exposure, contrast and highlight roll-off.
+  Default keeps the shipped look. Presets are files in the Tonemapping folder of
+  NVForever's home. Not in the original.
+- In full: Default and the presets found in `<NVForever home>\Tonemapping\` at the start,
+  one TOML file each (docs/design/tonemapping-presets.md has the format). The pick takes
+  effect at once, in either lighting mode and with HDR output, and is kept by its name; a
+  name no longer on disk falls back to Default. The eye adaptation still applies on top.
+  HDR output's calibration stays the display's own.
+- Command-line switches: none
+- More: docs/design/tonemapping-presets.md (#4690)
 ### `bloom`: Bloom
 
 - On the page: On: light brighter than a sunlit white wall (the sun, lamps, windows) glows
@@ -1438,9 +1475,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `authored-materials`: Authored materials
 
-- On the page: On: surfaces whose textures a texture pack gives material maps for
-  (textures\pbr\) are shaded from them. Off: every surface uses the game's own values.
-  Takes effect at the next start.
+- On the page: On: a material pack's maps (textures\pbr\) shade its surfaces. Off: the
+  game's own values. Takes effect at the next start.
 - In full: [design, #2981] A texture pack may give a game texture a set of material maps
   under `textures\pbr\` (occlusion, roughness and metallic in `_orm`, a normal map in `_n`,
   scalars in a `.toml`); the shapes drawn with that texture then take their roughness,
@@ -1461,9 +1497,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `authored-reflections`: Reflections on authored materials
 
-- On the page: On: pack materials reflect the sky outdoors and an approximation of the
-  room and nearby lights indoors. Needs a material pack and Authored materials on.
-  Takes effect at the next start.
+- On the page: On: pack materials reflect the sky outside and nearby lights inside. Needs
+  Authored materials on. Takes effect at the next start.
 - In full: [design, #2981] Surfaces shaded from an authored set reflect a small cube of the
   world camera's surroundings, blurred by their roughness, and the `_orm`'s metallic channel
   takes effect. Outdoors it reflects the sky, ground and a broad glow toward the sun or
@@ -1548,8 +1583,7 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 ### `occlusion-culling`: Occlusion culling
 
 - On the page: On: hidden objects are skipped before drawing. Helps when the GPU limits
-  the frame rate (high resolutions, dense towns); costs some CPU. Takes effect at the next
-  start.
+  the frame rate; costs some CPU. Takes effect at the next start.
 - In full: [design] Bevy's two-phase GPU occlusion culling on the main camera: meshes
   hidden behind nearer ones (by last frame's depth, then this frame's) are not drawn.
   First-person shapes are never culled. [observed 2026-11-24, 4K DLSS Quality, maxed
@@ -1562,9 +1596,8 @@ stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
 
 ### `smooth-terrain`: Smooth terrain
 
-- On the page: Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 squares
-  per landscape square, or 4 x 4 near you and 2 x 2 further. Drawing and collision share it.
-  Applies at the next start.
+- On the page: Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 per
+  landscape square, or 4 x 4 near and 2 x 2 further. Applies at the next start.
 - In full: [design, #2149, #2676] A list: Off, 2 x 2, 4 x 4 and 4 x 4 near; 4 x 4 by
   default (smoothing on by the maintainer's decision of 2026-11-13; 4 × 4 and the recipe,
   detail, bound 8 units and thresholds 2:6, are the contributor's pick from in-game
