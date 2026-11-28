@@ -678,7 +678,21 @@ impl Game<'_> {
         if self.is_dead(target) || self.is_immune(target) {
             let health = actor::actor_value(self, target, HEALTH).unwrap_or(0.0);
             let corpse = self.is_dead(target);
-            return HitResult { health, max_health, immune: true, corpse, overkill: if corpse { damage.max(0.0) } else { 0.0 }, ..HitResult::default() };
+            // Limb hits on a corpse still wear that limb's condition down so corpse
+            // dismemberment requires depleting the limb instead of rolling on every stray
+            // bullet or extra shotgun pellet (no live hit events or stats fire) [design;
+            // docs/spec-notes/dismemberment.md §4.2 notes corpse odds are unmeasured].
+            let (limb, crippled) = if corpse {
+                if let Some(l) = info.limb {
+                    let (condition, crippled) = self.damage_limb(target, l, max_health);
+                    (Some((l.condition, condition)), crippled)
+                } else {
+                    (None, false)
+                }
+            } else {
+                (None, false)
+            };
+            return HitResult { health, max_health, immune: true, corpse, overkill: if corpse { damage.max(0.0) } else { 0.0 }, limb, crippled, ..HitResult::default() };
         }
         // Every hit the difficulty changes, so a run shows what each level does to real hits
         // (weapons, blows, blasts, falls), not only to the test aid's. Debug, under its own
