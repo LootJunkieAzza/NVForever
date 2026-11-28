@@ -5173,16 +5173,16 @@ mod tests {
         for tab in [LOCAL, WORLD] {
             assert_eq!(shown(tab, &all), [hint("Place Marker", false)], "tab {tab}");
         }
-        assert_eq!(shown(QUESTS, &all), [hint("Show Location X)", false)]);
-        assert_eq!(shown(NOTES, &all), [hint("Active Notes X)", false), hint("Challenges R)", false)]);
-        assert_eq!(shown(NOTES, &HintFacts { notes_of_active: true, ..all }), [hint("All Notes X)", false), hint("Challenges R)", false)]);
-        assert_eq!(shown(NOTES, &HintFacts { challenges: true, ..all }), [hint("Next Challenge X)", true), hint("Challenges R)", false)]);
+        assert_eq!(shown(QUESTS, &all), [hint("Show Location [X]", false)]);
+        assert_eq!(shown(NOTES, &all), [hint("Active Notes [X]", false), hint("Challenges [R]", false)]);
+        assert_eq!(shown(NOTES, &HintFacts { notes_of_active: true, ..all }), [hint("All Notes [X]", false), hint("Challenges [R]", false)]);
+        assert_eq!(shown(NOTES, &HintFacts { challenges: true, ..all }), [hint("Next Challenge [X]", true), hint("Challenges [R]", false)]);
         // An audio note's Play is the controller's only.
         assert_eq!(shown(NOTES, &HintFacts { audio: Some(false), ..all }), shown(NOTES, &all));
         // No quest: nothing on Quests; no note: only the challenges toggle.
         assert!(shown(QUESTS, &none).is_empty());
-        assert_eq!(shown(NOTES, &none), [hint("Challenges R)", false)]);
-        assert_eq!(shown(NOTES, &HintFacts { challenges: true, ..none }), [hint("Challenges R)", false)]);
+        assert_eq!(shown(NOTES, &none), [hint("Challenges [R]", false)]);
+        assert_eq!(shown(NOTES, &HintFacts { challenges: true, ..none }), [hint("Challenges [R]", false)]);
     }
 
     /// With a controller the original's column (#1897, the issue's screenshots): Local
@@ -5212,18 +5212,18 @@ mod tests {
         ];
         crate::pad::set_labels(crate::pad::Labels::Keys);
         let want: [Vec<(String, bool)>; 13] = [
-            vec![hint("Place Marker X)", false)],
-            vec![hint("Travel A)", false), hint("Place Marker X)", false)],
-            vec![hint("Travel A)", true), hint("Place Marker X)", false)],
-            vec![hint("Set Active A)", false), hint("Show Location X)", false)],
-            vec![hint("Set Active A)", true), hint("Show Location X)", false)],
+            vec![hint("Place Marker [X]", false)],
+            vec![hint("Travel [A]", false), hint("Place Marker [X]", false)],
+            vec![hint("Travel [A]", true), hint("Place Marker [X]", false)],
+            vec![hint("Set Active [A]", false), hint("Show Location [X]", false)],
+            vec![hint("Set Active [A]", true), hint("Show Location [X]", false)],
             vec![],
-            vec![hint("Active Notes X)", false), hint("Challenges Y)", false)],
-            vec![hint("Play A)", false), hint("Active Notes X)", false), hint("Challenges Y)", false)],
-            vec![hint("Stop A)", false), hint("All Notes X)", false), hint("Challenges Y)", false)],
-            vec![hint("Next Challenge X)", true), hint("Challenges Y)", false)],
-            vec![hint("Challenges Y)", false)],
-            vec![hint("Tune In A)", false)],
+            vec![hint("Active Notes [X]", false), hint("Challenges [Y]", false)],
+            vec![hint("Play [A]", false), hint("Active Notes [X]", false), hint("Challenges [Y]", false)],
+            vec![hint("Stop [A]", false), hint("All Notes [X]", false), hint("Challenges [Y]", false)],
+            vec![hint("Next Challenge [X]", true), hint("Challenges [Y]", false)],
+            vec![hint("Challenges [Y]", false)],
+            vec![hint("Tune In [A]", false)],
             vec![],
         ];
         for (k, (g, w)) in got.iter().zip(&want).enumerate() {
@@ -5809,10 +5809,15 @@ mod tests {
                         assert!(r.max.x < super::super::SCREEN_CROP.x, "{labels:?} {:?} ends at {}", b.hint, r.max.x);
                         assert!(r.min.x > MAIN.min.x + LIST.max.x, "{labels:?} {:?} starts at {}", b.hint, r.min.x);
                     }
-                    // The keyboard's keys and the Xbox names fit: the words end at the
-                    // heading's right end.
+                    // The keyboard's keys and the Xbox names: the words end at the heading's
+                    // right end, or as far left of it as the widest key needs to stay in its
+                    // room (a bracketed "[Enter]", #4495; the rule of #1896).
                     if labels != crate::pad::Labels::PlayStation {
-                        assert!(ends.iter().all(|e| (e - MAIN.max.x).abs() < 1e-3), "{labels:?} tab {tab}: {ends:?}");
+                        let face = c.kit.face(2);
+                        let keys = list.iter().map(|b| crate::pad::hint_width(face, &b.hint.text(), c.glyphs) - crate::pad::hint_width(face, b.hint.word, c.glyphs));
+                        let right = super::super::frame::hint_words_right(MAIN.max.x, MAIN.max.x + super::super::frame::HINT_KEY_ROOM, keys);
+                        assert!(right > MAIN.max.x - 10.0, "{labels:?} tab {tab}: a key moves the column {} left", MAIN.max.x - right);
+                        assert!(ends.iter().all(|e| (e - right).abs() < 1e-3), "{labels:?} tab {tab}: {ends:?}");
                     }
                     let boxes = button_boxes(&c, &list);
                     for w in boxes.windows(2) {

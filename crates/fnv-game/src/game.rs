@@ -1437,7 +1437,7 @@ pub struct Game<'a> {
     pub input: crate::script_input::ScriptInput,
     /// Record fields xNVSE's setters changed this session (`crate::nvse`), by form and
     /// "SUB/path", and the names SetName gave.
-    pub(crate) field_overrides: std::collections::HashMap<(FormId, String), fnv_script::vm::XVal>,
+    pub(crate) field_overrides: crate::nvse::FieldOverrides,
     /// Transient instance identity + monotonic revision for live interior cell-lighting
     /// session edits (`SetCellLightingTemplate`, `SetCellFlag` 8..=16,
     /// `SetLightingTemplateTraitNumeric`, `SetInteriorLightingTraitNumeric`); never saved.
@@ -2150,7 +2150,8 @@ pub struct Game<'a> {
     /// Living template-scripted actors of the loaded cells whose OnLoad runs at the first
     /// frame after a restore (`Game::queue_template_onloads`, #3228); each is checked again
     /// (present, loaded, alive) when its turn comes and dropped if a cell load ran its
-    /// OnLoad first. Not saved: a restore builds it again.
+    /// OnLoad first. Saved while waiting (`GameSnapshot::restored_onload`); a restore of a
+    /// save from before #3228 builds it (`Game::queue_template_onloads`).
     pub restored_onload: Vec<FormId>,
     /// OnLoad blocks of reference scripts entered so far (each block run, where the
     /// script runs it); not saved. A count for the engine's game digest test aid
@@ -2349,6 +2350,17 @@ pub struct GameSnapshot {
     pub time: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_onload: Vec<FormId>,
+    /// Template-scripted actors' OnLoad still waiting for the first frame after a load
+    /// (`Game::restored_onload`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restored_onload: Vec<FormId>,
+    /// Saved by a build that runs template-scripted actors' OnLoad when their cell loads
+    /// (#3228 on), so their OnLoad has run. Absent in older saves, whose living
+    /// placeholders may never have run it: a load of one queues them all
+    /// (`Game::queue_template_onloads`); a load of a newer save runs none again, as for
+    /// references scripted by their own base (#4820).
+    #[serde(default)]
+    pub template_onloads_run: bool,
     pub rng_word_pos: String,
     #[serde(default)]
     pub forms: FormChanges,
@@ -2710,7 +2722,7 @@ struct LambdaDef<'a> {
     handle: u32,
     unit: Option<&'a Compiled>,
     key: String,
-    lambda: fnv_script::ir::XExpr,
+    lambda: std::sync::Arc<fnv_script::ir::XExpr>,
     inst: Option<InstKey>,
     /// The variables of a maker that has no instance (a function script, a result
     /// script) when the lambda was made: the lambda reads them [observed: jip-events
@@ -2901,7 +2913,7 @@ impl<'a> Game<'a> {
             list_edits: std::collections::HashMap::new(),
             delayed: Vec::new(),
             ref_walk: Vec::new(),
-            field_overrides: std::collections::HashMap::new(),
+            field_overrides: crate::nvse::FieldOverrides::new(),
             lighting_instance: {
                 static NEXT_LIGHTING_INSTANCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
                 NEXT_LIGHTING_INSTANCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -3358,15 +3370,18 @@ impl<'a> Game<'a> {
             s.running = true;
             s.since_run = 0.0;
             s.since_menu_run = 0.0;
-            // Its script's clock starts again: GetSecondsPassed in the first run after the
-            // start is 0, not the time since the run before it stopped [hypothesis: a
-            // stopped quest's script does not run, so that time is not "since it last
-            // ran"; #3465: VMS49's helper quest 0x00168A86, stopped since an earlier event,
-            // was started with a 20 s time-out that ran out on its first run, and Veronica
-            // dropped her confront-the-elder package 0.2 s after the trigger gave it].
+            // Its script's clock starts again at the start: GetSecondsPassed in the first
+            // run after it is the time since StartQuest, not the time since the run before
+            // it stopped [observed: VMS40Timer's first run came about 3.9 s after
+            // StartQuest with a drop of 3.95 s, layer5-captures.md §5.4; #3465: VMS49's
+            // helper quest 0x00168A86, stopped since an earlier event, was started with a
+            // 20 s time-out that ran out on its first run]. Not 0 either: Lucky 38's pod
+            // timer (L38TimerQuest, 15 s at the quest delay of 5 s) then took a run more
+            // than its time (#4851).
             if let Some(inst) = self.instances.get_mut(&InstKey::Quest { quest: q }) {
-                if let Some(last) = inst.run_last.take() {
-                    tracing::info!("quest: {q} started again; its script's GetSecondsPassed counts from its next run, not from its last run at {last:.2} s");
+                let now = functions::clock_now(self.time);
+                if let Some(last) = inst.run_last.replace(now) {
+                    tracing::info!("quest: {q} started again; its script's GetSecondsPassed counts from the start at {now:.2} s, not from its last run at {last:.2} s");
                 }
                 (inst.run_prev, inst.page_last, inst.page_prev) = (None, None, None);
             }
@@ -4354,16 +4369,22 @@ impl<'a> Game<'a> {
             Some(value) => Some(FormId(value.as_form().ok_or_else(|| VmError::NoReference("call".into()).to_string())?)),
             None => ctx.self_ref,
         };
+        enum CallableBody<'a> {
+            Script(&'a fnv_script::ir::Block),
+            Lambda(std::sync::Arc<fnv_script::ir::XExpr>),
+        }
         let lambda = self.lambda_slots.get(&id).copied();
-        let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if let Some(index) = lambda {
-            let d = self.lambdas[index].clone();
-            let (unit, l, inst) = (d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?, d.lambda, d.inst);
-            let fnv_script::ir::XExpr::Lambda { params, body, value, .. } = l else { return Err("an unknown lambda".into()) };
-            let locals = match inst {
+        let (unit, callable, locals): (&Compiled, CallableBody<'_>, Locals) = if let Some(index) = lambda {
+            let d = &self.lambdas[index];
+            let unit = d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?;
+            if !matches!(&*d.lambda, fnv_script::ir::XExpr::Lambda { .. }) {
+                return Err("an unknown lambda".into());
+            }
+            let locals = match d.inst {
                 Some(k) => Locals::Instance(k),
-                None => Locals::Temp(d.captured.unwrap_or_default()),
+                None => Locals::Temp(d.captured.clone().unwrap_or_default()),
             };
-            (unit, params, body, value.map(|v| *v), locals)
+            (unit, CallableBody::Lambda(std::sync::Arc::clone(&d.lambda)), locals)
         } else {
             let unit = self.callable_script(id).ok_or_else(|| {
                 // Preserve unresolved-handle diagnostics and their reporting frequency;
@@ -4372,8 +4393,7 @@ impl<'a> Game<'a> {
                 else { format!("{}{NOT_A_FUNCTION}", data.name(FormId(id))) }
             })?;
             let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{}{NO_FUNCTION_BLOCK}", data.name(FormId(id))))?;
-            let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
-            (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
+            (unit, CallableBody::Script(block), Locals::Temp(BTreeMap::new()))
         };
         self.udf.push(UdfFrame { value: None, caller });
         self.open_run();
@@ -4381,22 +4401,41 @@ impl<'a> Game<'a> {
         let mut ex = Exec { game: self, unit, locals, ctx, seconds };
         let mut vm = Vm::new(&data.table, &mut ex, opts);
         let mut result = Ok(());
-        for (p, a) in params.iter().zip(args) {
-            if let Err(e) = vm.bind(p, a) {
-                result = Err(e.to_string());
-                break;
-            }
-        }
         let mut lambda_value = None;
-        if result.is_ok() {
-            match &value {
-                Some(v) => match vm.xeval(v) {
-                    Ok(x) => lambda_value = Some(x),
-                    Err(e) => result = Err(e.to_string()),
-                },
-                None => {
-                    if let Err(e) = vm.run(&body) {
+        match &callable {
+            CallableBody::Script(block) => {
+                for (p, a) in block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(v) } else { None }).zip(args) {
+                    if let Err(e) = vm.bind(p, a) {
                         result = Err(e.to_string());
+                        break;
+                    }
+                }
+                if result.is_ok() {
+                    if let Err(e) = vm.run(&block.body) {
+                        result = Err(e.to_string());
+                    }
+                }
+            }
+            CallableBody::Lambda(expr) => {
+                if let fnv_script::ir::XExpr::Lambda { params, body, value, .. } = &**expr {
+                    for (p, a) in params.iter().zip(args) {
+                        if let Err(e) = vm.bind(p, a) {
+                            result = Err(e.to_string());
+                            break;
+                        }
+                    }
+                    if result.is_ok() {
+                        match value.as_deref() {
+                            Some(v) => match vm.xeval(v) {
+                                Ok(x) => lambda_value = Some(x),
+                                Err(e) => result = Err(e.to_string()),
+                            },
+                            None => {
+                                if let Err(e) = vm.run(body) {
+                                    result = Err(e.to_string());
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -4623,7 +4662,7 @@ impl<'a> Game<'a> {
         };
         if let Some(&index) = self.lambda_slots.get(&id) {
             let d = &self.lambdas[index];
-            let fnv_script::ir::XExpr::Lambda { params, .. } = &d.lambda else { return None };
+            let fnv_script::ir::XExpr::Lambda { params, .. } = &*d.lambda else { return None };
             return Some(params.len());
         }
         let unit = self.callable_script(id)?;
@@ -7922,7 +7961,7 @@ impl<'a> Game<'a> {
             retired_scene_bases,
             clone_sequence_floor,
             ext: self.ext.clone(),
-            lambdas: self.lambdas.iter().map(|d| SavedLambda { handle: Some(d.handle), unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
+            lambdas: self.lambdas.iter().map(|d| SavedLambda { handle: Some(d.handle), unit: d.key.clone(), lambda: (*d.lambda).clone(), inst: d.inst }).collect(),
             // A created reference deleted since keeps no variables: its FormID is not
             // used again, so they could never be read.
             nx: crate::nvse_nx::NxVars(self.nx.0.iter().filter(|(id, _)| !sim.deleted_created.contains_key(id)).map(|(k, v)| (*k, v.clone())).collect()),
@@ -7948,6 +7987,8 @@ impl<'a> Game<'a> {
             frame: self.frame,
             time: self.time,
             pending_onload: self.pending_onload.clone(),
+            restored_onload: self.restored_onload.clone(),
+            template_onloads_run: true,
             rng_word_pos: self.rng.get_word_pos().to_string(),
             forms,
             effects: self.effects.clone(),
@@ -8020,7 +8061,7 @@ impl<'a> Game<'a> {
             if let Some(u) = unit.filter(|u| unit_lambda(u, &l.lambda).is_some_and(|now| now == l.lambda)) {
                 g.lambda_ids.entry(lambda_key(u, &l.lambda, l.inst)).or_insert(handle);
             }
-            g.lambdas.push(LambdaDef { handle, unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
+            g.lambdas.push(LambdaDef { handle, unit, key: l.unit.clone(), lambda: std::sync::Arc::new(l.lambda.clone()), inst: l.inst, captured: None });
         }
         g.nx = s.nx.clone();
         g.quests = s.quests.clone();
@@ -8067,6 +8108,7 @@ impl<'a> Game<'a> {
         g.frame = s.frame;
         g.time = s.time;
         g.pending_onload = s.pending_onload.clone();
+        g.restored_onload = s.restored_onload.clone();
         g.forms = s.forms.clone();
         g.refresh_actor_inventory_sources(true);
         g.effects = s.effects.clone();
@@ -8127,8 +8169,11 @@ impl<'a> Game<'a> {
         g.renew_regenerations();
         // Crime enmities an older save holds undated start their cooldown now (#2467).
         g.date_crimes();
-        // Template-scripted actors' OnLoad after a load (#3228).
-        g.queue_template_onloads();
+        // Template-scripted actors' OnLoad after a load of a save from before #3228; a
+        // newer save's ran at their cell load and run no second time (#4820).
+        if !s.template_onloads_run {
+            g.queue_template_onloads();
+        }
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)
@@ -8601,7 +8646,7 @@ impl Host for Exec<'_, '_> {
             Locals::Instance(_) => None,
         };
         self.game.lambda_slots.insert(id, self.game.lambdas.len());
-        self.game.lambdas.push(LambdaDef { handle: id, unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.2, captured });
+        self.game.lambdas.push(LambdaDef { handle: id, unit: Some(self.unit), key: self.unit.key(), lambda: std::sync::Arc::new(l.clone()), inst: key.2, captured });
         self.game.lambda_ids.insert(key, id);
         Ok(fnv_script::vm::XVal::Ref(id))
     }
@@ -8929,3 +8974,7 @@ mod effect_lookup_tests {
 #[cfg(test)]
 #[path = "game/callable_allocation_tests.rs"]
 mod callable_allocation_tests;
+
+#[cfg(test)]
+#[path = "game/udf_hot_path_tests.rs"]
+mod udf_hot_path_tests;

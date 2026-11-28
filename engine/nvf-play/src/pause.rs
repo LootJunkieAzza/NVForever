@@ -2468,10 +2468,9 @@ fn heading_links(root: &mut ChildSpawnerCommands, f: &Faces, lb: ListBox, glyphs
     // box, the box 20 wider than the words.
     let mut left = lb.left + 10.0 - (20.0 - ENTRY_BOX_PAD);
     for (k, key) in [(0, KeyCode::PageUp), (1, KeyCode::PageDown)] {
-        // The keyboard's keys by their short names ("PgUp)"): the original's "R)" shape
-        // reads broken after two words [design: the menu overhaul].
+        // The keyboard's keys by their short names ("[PgUp]") [design: the menu overhaul].
         let hint = match crate::pad::labels() {
-            crate::pad::Labels::Keys => format!("{})", if key == KeyCode::PageUp { "PgUp" } else { "PgDn" }),
+            crate::pad::Labels::Keys => format!("[{}]", if key == KeyCode::PageUp { "PgUp" } else { "PgDn" }),
             _ => crate::pad::hint(&[key], crate::pad::PAUSE_AT),
         };
         let label = format!("{}  {hint}", tr(HEADING_LINKS[k]));
@@ -6098,8 +6097,8 @@ mod tests {
     fn back_names_its_key_and_button() {
         use crate::pad::Labels;
         assert_eq!(back_label_as(Labels::Keys), tr("Back"), "the keyboard's Back alone (owner, third test)");
-        assert_eq!(back_label_as(Labels::Xbox), format!("{}  B)", tr("Back")));
-        assert_eq!(back_label_as(Labels::PlayStation), format!("{}  Circle)", tr("Back")));
+        assert_eq!(back_label_as(Labels::Xbox), format!("{}  [B]", tr("Back")));
+        assert_eq!(back_label_as(Labels::PlayStation), format!("{}  [Circle]", tr("Back")));
     }
 
     fn resume_app() -> App {
@@ -6477,7 +6476,7 @@ mod tests {
             ("Light glow (HDR)", "Light Glow (HDR)"),
             ("V.A.T.S. time slowdown", "V.A.T.S. Time Slowdown"),
             ("Use Pip-Boy", "Use Pip-Boy"),
-            ("ALC shadows", "ALC Shadows"),
+            ("ALCS (experimental)", "ALCS (Experimental)"),
             ("Close In on the Speaker", "Close In on the Speaker"),
             ("Sky follows the game clock", "Sky Follows the Game Clock"),
             ("Aim lock-on", "Aim Lock-On"),

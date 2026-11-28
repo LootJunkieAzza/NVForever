@@ -4667,6 +4667,8 @@ dependencies = [
  "fnv-world",
  "half",
  "naga",
+ "nvf-rtgi",
+ "texpresso",
 ]
 
 [[package]]
@@ -4745,7 +4747,14 @@ version = "0.8.1"
 name = "nvf-rtgi-live"
 version = "0.8.1"
 dependencies = [
+ "bytemuck",
+ "log",
+ "naga",
  "nvf-rtgi",
+ "serde",
+ "serde_json",
+ "texpresso",
+ "wgpu",
 ]
 
 [[package]]
@@ -4813,6 +4822,7 @@ dependencies = [
  "nvf-coop",
  "nvf-dlss-files",
  "nvf-play",
+ "nvf-rtgi",
  "png",
  "rapier3d",
  "rayon",
@@ -4821,6 +4831,7 @@ dependencies = [
  "sysinfo",
  "texpresso",
  "tiny-skia",
+ "toml",
  "tracy-client",
  "ureq",
  "uuid",

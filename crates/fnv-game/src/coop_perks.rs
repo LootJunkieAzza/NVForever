@@ -8,8 +8,14 @@
 //!   written as the masters write a requirement (GetPermanentActorValue ≥ n on the
 //!   subject) [observed: Rapid Reload's two conditions, Guns 30 and Agility 5, at level
 //!   2: the one perk of the masters with a 30 skill and a 5 S.P.E.C.I.A.L., so the same
-//!   level here]. Their names, descriptions and pictures are NVForever's words and
-//!   drawings (LEGAL.md: nothing transcribed).
+//!   level here]. Their names and descriptions are NVForever's own words (LEGAL.md:
+//!   nothing transcribed), shown in the chosen language through `fnv_util::words::tr`
+//!   (a line in every `lang/*.toml`). Their pictures are the base game's own perk
+//!   pictures (owner, 2026-11-28): Healing Hands shows Better Healing's, Quack Surgeon
+//!   Living Anatomy's ([`HEALING_HANDS_ICON`], [`QUACK_SURGEON_ICON`]).
+//! - **To revisit** (owner, 2026-11-28): these two perks may need to become ESM data, a
+//!   PERK record each in an NVForever plugin, instead of records added in code here. Left
+//!   as they are for now; to be revisited at a later date.
 //! - **Only in co-op**: out of a session they are not offered at all, so a single player
 //!   game's level-up list is the original's (`crate::levelup::PerkSheet::of_player`,
 //!   [`Game::coop_session`]) [design].
@@ -56,15 +62,18 @@ pub const LEVEL: u8 = 2;
 pub use crate::unconscious::STIMPAK;
 /// GetPermanentActorValue's condition index [observed: the masters' requirements, 495].
 const GET_PERMANENT_ACTOR_VALUE: u16 = 0x1EF;
-/// The pictures: NVForever's own, in its texture folder (installed beside the engine's
-/// other pictures, `Interface\Icons\NVForever`) [design].
-pub const HEALING_HANDS_ICON: &str = r"Interface\Icons\NVForever\perk_healing_hands.dds";
-pub const QUACK_SURGEON_ICON: &str = r"Interface\Icons\NVForever\perk_quack_surgeon.dds";
+/// The pictures: the base game's own perk pictures from its archives, so nothing new is
+/// shipped (owner, 2026-11-28) [observed: FalloutNV.esm's PERK records BetterHealing
+/// 0015C60B and LivingAnatomy 00146099 name these two icons].
+pub const HEALING_HANDS_ICON: &str = r"interface\icons\pipboyimages\perks\perk_better_healing.dds";
+pub const QUACK_SURGEON_ICON: &str = r"interface\icons\pipboyimages\perks\perk_living_anatomy.dds";
 
 fn at_least(code: u16, n: f64) -> Condition {
     Condition { cmp: Cmp::Ge, or: false, run_on: RunOn::Subject, function: GET_PERMANENT_ACTOR_VALUE, params: vec![ArgValue::Enum(code)], rhs: Operand::Value(n) }
 }
 
+/// A co-op perk; `name` and `description` come already in the chosen language (`tr`). The
+/// perks are built with the game's data, after the start has chosen the language.
 fn perk(name: &str, description: &str, icon: &str) -> PerkDef {
     use crate::actor_values::{CHARISMA, MEDICINE};
     PerkDef {
@@ -83,19 +92,20 @@ fn perk(name: &str, description: &str, icon: &str) -> PerkDef {
 
 /// Put the co-op perks into `data` (once, as it is built).
 pub fn add(data: &mut GameData) {
+    use fnv_util::words::tr;
     data.perks.insert(
         HEALING_HANDS,
         perk(
-            "Healing Hands",
-            "Co-op only. Your touch does more than patch a friend up: anyone you revive gets back on their feet with every rad flushed out of their system.",
+            tr("Healing Hands"),
+            tr("Co-op only. Your touch does more than patch a friend up: anyone you revive gets back on their feet with every rad flushed out of their system."),
             HEALING_HANDS_ICON,
         ),
     );
     data.perks.insert(
         QUACK_SURGEON,
         perk(
-            "Quack Surgeon",
-            "Co-op only. Who needs a Stimpak? You can revive a downed friend with a bottle of liquor instead. A Stimpak is used only when you have nothing to drink.",
+            tr("Quack Surgeon"),
+            tr("Co-op only. Who needs a Stimpak? You can revive a downed friend with a bottle of liquor instead. A Stimpak is used only when you have nothing to drink."),
             QUACK_SURGEON_ICON,
         ),
     );

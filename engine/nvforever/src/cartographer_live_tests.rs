@@ -393,7 +393,7 @@ fn runtime(
     )
 }
 
-fn test_streamer(interior: Option<u32>) -> Streamer {
+pub(crate) fn test_streamer(interior: Option<u32>) -> Streamer {
     Streamer {
         radius: 2,
         loaded: default(),
