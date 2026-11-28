@@ -78,6 +78,11 @@ pub struct PathParams {
     pub door_cost: f32,
     /// A* gives up after expanding this many triangles (per leg).
     pub max_expanded: usize,
+    /// Optional exact A* f-score upper bound (`g + h`): any candidate whose admissible
+    /// lower-bound total cost exceeds this is pruned immediately without expanding the
+    /// rest of the world (e.g. combat tactical posts whose detour cap is already known)
+    /// [design].
+    pub max_cost: Option<f32>,
     /// Locked doors may be used (the actor can open them).
     pub open_locked: bool,
     /// Triangles steeper than this (degrees) are closed: for a mover that cannot climb
@@ -124,6 +129,7 @@ impl Default for PathParams {
             water: true,
             door_cost: 256.0,
             max_expanded: 400_000,
+            max_cost: None,
             open_locked: false,
             max_slope_deg: None,
             keys: Vec::new(),
@@ -706,7 +712,12 @@ impl NavGraph {
         open.push(Open(h(start, s_at), start));
         let mut expanded = 0usize;
         let mut found = false;
-        while let Some(Open(_, t)) = open.pop() {
+        while let Some(Open(f, t)) = open.pop() {
+            if let Some(limit) = p.max_cost {
+                if f > limit {
+                    return Err(PathError::TooFar { expanded });
+                }
+            }
             let node = nodes[&t];
             if node.closed {
                 continue;
@@ -723,10 +734,16 @@ impl NavGraph {
             let factor = self.cost_factor(t, p);
             let mut relax = |n: u32, via: Via, at: [f32; 3], step: f32, nodes: &mut HashMap<u32, Node>| {
                 let g = node.g + step;
+                let f = g + h(n, at);
+                if let Some(limit) = p.max_cost {
+                    if f > limit {
+                        return;
+                    }
+                }
                 let better = nodes.get(&n).is_none_or(|o| !o.closed && g < o.g);
                 if better {
                     nodes.insert(n, Node { g, via, at, closed: false });
-                    open.push(Open(g + h(n, at), n));
+                    open.push(Open(f, n));
                 }
             };
             for e in 0..3 {
@@ -1280,5 +1297,55 @@ mod tests {
     fn empty_corridor() {
         assert_eq!(funnel([0.0; 3], [1.0, 1.0, 1.0], &[]), vec![[0.0; 3], [1.0, 1.0, 1.0]]);
         assert_eq!(funnel([1.0; 3], [1.0; 3], &[]), vec![[1.0; 3], [1.0; 3]]);
+    }
+
+    #[test]
+    fn max_cost_prunes_search_above_admissible_bound_and_allows_within_bound() {
+        let mut g = NavGraph::default();
+        let space = Space::Interior(1);
+        g.meshes.push(crate::graph::NavMesh {
+            form_id: 1,
+            cell: Some(1),
+            space: Some(space),
+            first_tri: 0,
+            tri_count: 2,
+            first_vertex: 0,
+            enabled: true,
+            initially_enabled: true,
+        });
+        g.vertices = vec![
+            [0.0, 0.0, 0.0],
+            [1000.0, 0.0, 0.0],
+            [1000.0, 100.0, 0.0],
+            [0.0, 100.0, 0.0],
+        ];
+        g.boundary_vertex = vec![true; 4];
+        g.tris = vec![
+            crate::graph::NavTri {
+                mesh: 0,
+                v: [0, 1, 2],
+                next: [NONE, NONE, 1],
+                kind: [EdgeKind::Boundary, EdgeKind::Boundary, EdgeKind::Internal],
+                flags: 0,
+                cover: false,
+            },
+            crate::graph::NavTri {
+                mesh: 0,
+                v: [0, 2, 3],
+                next: [0, NONE, NONE],
+                kind: [EdgeKind::Internal, EdgeKind::Boundary, EdgeKind::Boundary],
+                flags: 0,
+                cover: false,
+            },
+        ];
+        g.up = vec![1.0, 1.0];
+        g.area = vec![0, 0];
+        g.area_space = vec![space];
+        let mut p = PathParams { max_cost: Some(100.0), ..Default::default() };
+        let res = g.search(0, [10.0, 10.0, 0.0], 1, [990.0, 90.0, 0.0], space, &p, false, &[]);
+        assert!(matches!(res, Err(PathError::TooFar { expanded: 0 })), "admissible f-score > max_cost must prune immediately");
+        p.max_cost = Some(2000.0);
+        let ok = g.search(0, [10.0, 10.0, 0.0], 1, [990.0, 90.0, 0.0], space, &p, false, &[]);
+        assert!(ok.is_ok(), "bound above actual path cost must find the path");
     }
 }

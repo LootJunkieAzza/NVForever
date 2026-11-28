@@ -645,7 +645,10 @@ impl Ai {
     /// without a way there the actor looks about where it stands.
     #[allow(clippy::too_many_arguments)]
     fn search_at(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, to: [f32; 3], centre: [f32; 3], alarm: [f32; 3], points: u32, about: FormId) {
-        let params = self.path_params(game, actor);
+        let mut params = self.path_params(game, actor);
+        // Bound alert search expansions so unreachable points in dense exteriors do not
+        // exhaust the entire loaded navmesh graph on the main thread [design].
+        params.max_expanded = params.max_expanded.min(12_000);
         let speed = self.alert_speeds(actor).walk;
         let now = game.time;
         let a = self.agents.get_mut(&actor).expect("listed");
@@ -679,7 +682,11 @@ impl Ai {
     /// Without a way there the actor holds its ground.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_in(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, target: FormId, at: [f32; 3], away: f32, stop: f32) {
-        let params = self.path_params(game, actor);
+        let mut params = self.path_params(game, actor);
+        // Bound combat close-in pathfinding so multi-actor fights across rubble/barriers
+        // do not exhaust 400k triangles searching long wasteland detours [design].
+        params.max_expanded = params.max_expanded.min(12_000);
+        params.max_cost = Some((away * 6.0).max(4096.0));
         let aiming = game.awareness.aiming.contains(&actor);
         let own = self.alert_speeds(actor);
         let speed = if aiming { own.walk } else { own.run * game.awareness.pace_of(actor) };
@@ -790,13 +797,24 @@ impl Ai {
             }
             _ => {}
         }
-        let params = self.path_params(game, actor);
+        let mut params = self.path_params(game, actor);
         let speed = self.post_speed(game, actor, post);
         let a = self.agents.get_mut(&actor).expect("listed");
         let from = a.walker.feet;
         let point = nav.nearest(space, post.at, 256.0).map(|(_, p)| p);
         (a.walker.speed, a.walk_pace) = (speed, None);
-        let path = point.and_then(|p| a.walker.go_to(nav, Place { space, pos: p }, &params).ok()).map(|path| path.length);
+        let path = point.and_then(|p| {
+            // Prune A* once the admissible f-score exceeds a bounded detour multiple
+            // (scaled by max terrain cost factor so valid water/avoid detours still pass)
+            // and cap triangle expansions so unreachable tactical posts reject quickly
+            // instead of exhausting all loaded exterior cells [design].
+            let straight = goal::dist(from, p);
+            let max_len = (straight * 3.0).max(512.0);
+            let cost_scale = params.water_cost.max(params.avoid_cost).max(1.0);
+            params.max_cost = Some(max_len * cost_scale);
+            params.max_expanded = params.max_expanded.min(6_000);
+            a.walker.go_to(nav, Place { space, pos: p }, &params).ok()
+        }).map(|path| path.length);
         match (point, path) {
             (Some(p), Some(length)) => {
                 a.activity = Activity::Travelling;
