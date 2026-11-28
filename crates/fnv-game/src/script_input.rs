@@ -59,6 +59,7 @@ pub struct ScriptInput {
     pub rebinds: Vec<(usize, bool, Option<u16>)>,
 }
 
+
 impl ScriptInput {
     /// Control events include disabled inputs. This snapshot precedes callbacks and
     /// deliberately does not apply getter/gameplay blocking policy.
@@ -155,6 +156,11 @@ impl ScriptInput {
     }
 }
 
+
+#[cfg(test)]
+#[path = "w6d13_controls_biped_parity_tests.rs"]
+mod w6d13_controls_biped_parity_tests;
+
 fn int(args: &[XVal], k: usize, dflt: i64) -> i64 {
     match args.get(k) {
         Some(XVal::Num(x)) => *x as i64,
@@ -180,7 +186,11 @@ pub(crate) fn call(input: &mut ScriptInput, name: &str, args: &[XVal]) -> Option
         // GetAltControl the bare button n [documented; observed: nvse-controls].
         "getcontrol" => {
             let (k, m) = input.binding(int(args, 0, -1));
-            let v = if int(args, 1, 0) == 1 { m } else { k };
+            let v = match int(args, 1, 0) {
+                0 => k,
+                1 => m,
+                _ => None,
+            };
             XVal::Num(v.map_or(UNBOUND, f64::from))
         }
         "getaltcontrol" => {
@@ -218,7 +228,12 @@ pub(crate) fn call(input: &mut ScriptInput, name: &str, args: &[XVal]) -> Option
             }
             XVal::Num(0.0)
         }
-        "iscontroldisabled" => yes(u8::try_from(int(args, 0, -1)).is_ok_and(|c| input.disabled_controls.contains(&c))),
+        "iscontroldisabled" => yes(usize::try_from(int(args, 0, -1)).ok().filter(|&c| c < CONTROLS).is_some_and(|c| {
+            let (k, m) = input.binding(c as i64);
+            input.disabled_controls.contains(&(c as u8))
+                || k.is_some_and(|code| input.disabled_keys.contains(&code))
+                || m.is_some_and(|code| input.disabled_keys.contains(&code))
+        })),
         "tapkey" => {
             input.taps.extend(code);
             XVal::Num(0.0)

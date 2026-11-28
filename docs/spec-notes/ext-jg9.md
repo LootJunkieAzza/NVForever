@@ -89,7 +89,7 @@ session, as the other batches' state). Without the engine (fnvtool) no marker is
 | Function | NVForever |
 |---|---|
 | Jump | the actor jumps [documented]: the player as with its Jump key, another actor as for a ledge hop, both only from the ground |
-| SetAutoMove `0/1` | the player's Auto Move [documented] |
+| SetAutoMove `0/1` | the player's Auto Move [documented]; returns `1` and updates `GetAutoMove` in the same frame [observed: Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN 57.30 + JohnnyGuitarNVSE 528 + ShowOffNVSE Plugin 184, 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated staging copy, read-only, `w6d13_30_movement_flags_moving_turning_air_swim_automove_fall` (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`): `am(0,r=1,1,0)`; no DLL or source consulted] |
 | SetPlayerMovementFlags `flags` | the player moves as the flags say in the next frame: 1 forward, 2 back, 4 left, 8 right, 256 walking, 512 running, 1024 sneaking, 4096 jumping [documented: the flags; hypothesis: one frame, as the keys would] |
 | SetVelEx `x y z` | the three axes of SetVel at once [documented]: a character goes up or down at z and is pushed along the ground at (x, y) as the console's SetVel pushes it; a loose object's bodies take all three |
 | GetLinearVelocity `node xOut yOut zOut` | "in units of 0.1 Meter/sec, or 7 game Units/sec" [documented]: the reference's velocity as GetActorVelocity follows it (`nvse_jip2`), over 7; the node's own body is not told apart [hypothesis] |

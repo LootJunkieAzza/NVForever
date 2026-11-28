@@ -132,6 +132,7 @@ pub struct GapsState {
     pub equipped_model_reloads: BTreeMap<FormId, u32>,
 }
 
+
 impl GapsState {
     pub(crate) fn queue_equipped_model_reload(&mut self, actor: FormId, mask: u32) {
         if mask == 0 {
@@ -1767,7 +1768,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `slot [toggle]`: the slot's visibility, 1 shown [observed: gaps3, slot 2 reads 1].
         "togglebipedslotvisibility" => {
-            let slot = num(args, 0, -1.0).max(0.0) as u32;
+            let Some(slot) = u32::try_from(num(args, 0, -1.0) as i64).ok().filter(|&s| s < 20) else {
+                return Some(Ok(zero));
+            };
             if let Some(XVal::Num(t)) = args.get(1) {
                 if *t == 0.0 {
                     g.gaps.hidden_slots.insert(slot);

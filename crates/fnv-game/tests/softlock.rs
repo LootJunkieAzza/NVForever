@@ -60,7 +60,7 @@ fn controls_held_with_nothing_going_on_is_found_once() {
     assert_eq!(frames(&mut dog, &g, 29.0), [], "under the limit");
     let found = (0..30).find_map(|_| dog.step(&g, 0.1, Outside::default())).expect("found at 30 s");
     assert_eq!(found.kind, Kind::ControlsHeld);
-    assert!(found.text.contains("scripts hold the controls (movement, Pip-Boy, fighting, POV)"), "{}", found.text);
+    assert!(found.text.contains("scripts hold the controls (movement, Pip-Boy, fighting)"), "{}", found.text);
     assert_eq!(frames(&mut dog, &g, 120.0), [], "once per hold");
     run(&mut g, "EnablePlayerControls");
     assert_eq!(frames(&mut dog, &g, 0.1), [], "a frame with the controls back");

@@ -166,7 +166,7 @@ pub fn add_achievement(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
 }
 
 /// The seven control groups: movement, Pip-Boy, fighting, POV, looking, rollover text,
-/// sneaking. With no parameters `DisablePlayerControls` disables the first four and
+/// sneaking. With no parameters `DisablePlayerControls` disables the first three and
 /// `EnablePlayerControls` enables all seven [documented: GECK wiki pages of both].
 /// A parameter left out of a short list takes `missing` (docs/spec-notes/controls.md §5.2).
 fn controls(a: &Args, default: [bool; 7], missing: bool) -> [bool; 7] {
@@ -181,9 +181,17 @@ fn controls(a: &Args, default: [bool; 7], missing: bool) -> [bool; 7] {
 }
 
 pub fn disable_player_controls(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    // A left-out parameter is 0: the group is left as it is [hypothesis; §5.2 has a
-    // capture that does not fit any simple rule].
-    let which = controls(a, [true, true, true, true, false, false, false], false);
+    // Omitted arguments in both 0-arg and short-arg calls take per-slot default
+    // [movement, Pip-Boy, fighting] = 1, [POV, looking, rollover, sneaking] = 0
+    // [observed: w6d13_13_disable_enable_player_controls_short_arg_matrix,
+    // d0=1110000|d11=1110000].
+    const DEFAULT: [bool; 7] = [true, true, true, false, false, false, false];
+    let mut which = DEFAULT;
+    for (i, o) in which.iter_mut().enumerate() {
+        if i < a.len() {
+            *o = a.num_or(i, 0.0) != 0.0;
+        }
+    }
     // A co-op guest runs no world scripts but what it sets off itself (a door's
     // OnActivate): their locks would never be taken off here, where the script that does
     // so runs only in the host's world. A guest is held only by the host's scenes
