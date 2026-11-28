@@ -4725,6 +4725,43 @@ The display-value lighting sum (world.md §8) is replaced by linear lighting:
 - **Screenshots**: before and after, for the owner, still to be taken.
 
 
+### 3.27 Screen-space bounce light (`ssgi`; experimental, off in every preset, #3827)
+
+**Carried over** from #3828's branch (its split, part 4, #4264, stacked on §3.25's part 5).
+Not measured or pictured yet.
+
+[design, #3827] An addition of NVForever's own, as §3.25: not a fact about the original,
+never a parity item. **Screen-space bounce light** (`ssgi`, Graphics > Lighting and
+Effects, after Physical lighting; a live switch; in a build with the developer aids
+`NVF_SSGI=1` / `0` / `debug` overrides the row) adds one bounce of diffuse light from the
+lit picture onto nearby surfaces (`ssgi.rs`, `ssgi.wesl`), on the world camera after any
+temporal upscaler and before bloom and tonemapping:
+
+1. a multisampled depth is resolved once (its first sample);
+2. a half-resolution horizon march gathers the light of nearby lit surfaces [documented:
+   the horizon-based form of Jimenez et al. 2016, "Practical Real-Time Strategies for
+   Accurate Indirect Occlusion", as in §3.1.1], leaving out the sky, first-person shapes
+   and the Pip-Boy's screen;
+3. a half-resolution plane-aware bilateral denoise, as the ambient occlusion's;
+4. a depth-aware upsample weighted by the surface's estimated diffuse colour, added to the
+   linear picture.
+
+The view is HDR while the row is on. Only what is on the screen bounces, and less indoors.
+Whether it should need Physical lighting (it was tuned under it) is open, and it is not to
+run together with the interior bounce light of #3009 (whichever lands second adds the
+exclusion).
+
+| Constant | Value | Tag and basis |
+|---|---|---|
+| `SSGI_RADIUS`, `SSGI_MAX_SCREEN_RADIUS` (ssgi.rs) | 900 units, 260 px | [design] |
+| `SSGI_FADE_START`, `SSGI_FADE_END` | 3,500, 6,500 units | [design] |
+| `SSGI_STRENGTH_OUTDOORS`, `SSGI_STRENGTH_INDOORS` | 2.40, 0.75 | [design] |
+| ssgi.wesl: slices, steps, horizon bias, denoise tolerances, plane weights, sparse limits, soft pull | 4, 8, 0.04, 0.03 / 0.05, 1.0 / 2.0, 3 / 8, 0.4 / 0.65 | [design] |
+
+- **Cost**: not measured yet (as in §5, Goodsprings by day and the Prospector Saloon, the
+  row alone and with Physical lighting).
+- **Screenshots**: before and after, for the owner, still to be taken.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on

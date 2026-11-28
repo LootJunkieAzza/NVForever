@@ -37674,6 +37674,24 @@ forbid = [
 ]
 note = "Written 2026-11-26 (the volumetric rows under Physical lighting), replacing physical-lighting-no-volumetric; first run 2026-11-26 on vanilla data: PASS."
 [[scenario]]
+name = "ssgi"
+source = "[design, #3827 part 4] engine/nvforever/src/ssgi.rs: with --graphics-only ssgi at Goodsprings at noon, the graphics line names the screen-space global illumination and its pipelines are made, without a pipeline or rendering error. The look and the cost are checked in pictures and GPU spans by hand"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/ssgi.rs", "engine/nvforever/src/ssgi.wesl"]
+env = { NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "ssgi"]
+run_seconds = 20
+expect = [
+  { re = 'graphics: .*screen-space global illumination', label = "the graphics line names the SSGI" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (the SSGI shader does not compile)" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+]
+note = "Written 2026-11-25 without a run (the split of #3828; smoke runs to follow)."
+
+[[scenario]]
 name = "dawn-leaves-night-before-sunrise"
 source = "[hypothesis, fitted] docs/spec-notes/world.md §6 'Night key beyond sunrise and sunset' (#2916): the night key lies a third of the transition before sunrise begins (5:20 for the Mojave's 6:00-8:00), so at 06:00 the grade is already part of the way to the sunrise adapter (saturation under the night's and the day's 1.10), as the original's picture under Lake Mead is at 06:00 (observer job o35_uw_dawn)"
 areas = ["renderer", "sky"]
