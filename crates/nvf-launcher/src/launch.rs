@@ -69,9 +69,15 @@ pub fn find_game(configured: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// Start `exe` with `start`'s arguments, in its own folder (it finds `schemas/` beside itself).
-pub fn spawn(exe: &Path, start: &Start) -> std::io::Result<Child> {
+/// `mod_layers` are the enabled mod folders, lowest priority first. The game does not
+/// read `mod-order.txt`; these arguments are that list.
+pub fn spawn(exe: &Path, start: &Start, mod_layers: &[PathBuf]) -> std::io::Result<Child> {
     let mut c = Command::new(exe);
     c.args(start.args());
+    for layer in mod_layers {
+        c.arg("--mod-layer");
+        c.arg(layer);
+    }
     if let Some(dir) = exe.parent() {
         c.current_dir(dir);
     }

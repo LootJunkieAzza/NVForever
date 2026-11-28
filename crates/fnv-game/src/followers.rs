@@ -70,6 +70,10 @@ impl Game<'_> {
     /// player's current Charisma within 1 to 10 [hypothesis: current, not permanent, as
     /// the other derived statistics here, docs/spec-notes/actor-values.md §1].
     pub fn companion_nerve(&mut self, actor: FormId) -> f64 {
+        // In co-op the player is the other players' companion (`crate::coop_perks`).
+        if actor == FormId::PLAYER_REF {
+            return self.coop_from_others.nerve;
+        }
         if !self.is_teammate(actor) {
             return 0.0;
         }
@@ -99,12 +103,15 @@ impl Game<'_> {
             .extra
             .iter()
             .filter_map(|(&actor, e)| {
-                if actor == leader || actor == FormId::PLAYER_REF || e.dead || !self.present(actor) {
+                if actor == leader || actor == FormId::PLAYER_REF || e.dead {
                     return None;
                 }
                 let pkg = e.current_package?;
                 let def = self.package_def(&pkg)?;
-                (matches!(def.ty, PackageType::Follow | PackageType::Accompany) && self.package_target(actor, def) == Some(leader)).then_some(actor)
+                if !matches!(def.ty, PackageType::Follow | PackageType::Accompany) {
+                    return None;
+                }
+                (self.present(actor) && self.package_target(actor, def) == Some(leader)).then_some(actor)
             })
             .collect();
         out.sort_unstable();

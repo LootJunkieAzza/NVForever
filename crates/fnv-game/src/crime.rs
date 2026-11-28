@@ -729,8 +729,17 @@ impl Game<'_> {
     /// its alignment, and murder when it is a non-Evil NPC that was not fighting the
     /// player of its own accord (§3.4, §4).
     pub fn player_kills(&mut self, victim: FormId) {
+        self.player_kills_karma(victim, true);
+    }
+
+    /// [`Game::player_kills`], giving back the karma change the kill earns. With
+    /// `apply_karma` false (a co-op guest's kill) the host's player keeps its karma: the
+    /// change is the guest's, for its own character (`crate::coop_kills`); murder, infamy
+    /// and the witnesses stay the host world's, as for the player's own kill (coop-shared-progress.md §4.2)
+    /// [design].
+    pub(crate) fn player_kills_karma(&mut self, victim: FormId, apply_karma: bool) -> f64 {
         if victim == FormId::PLAYER_REF || self.is_dead(victim) {
-            return;
+            return 0.0;
         }
         // Its Evil faction's members in the area turn on the player (`crate::provocation`).
         if !self.provocations.holds(victim, FormId::PLAYER_REF) && !self.would_attack(victim, FormId::PLAYER_REF) {
@@ -751,7 +760,7 @@ impl Game<'_> {
         // as scripts read it (GetIsAlignment) [design].
         let judged = self.kill_alignment(victim);
         let change = kill_karma(judged, murder, npc, &s);
-        if change != 0.0 {
+        if change != 0.0 && apply_karma {
             self.change_karma(change, format!("killing {name} ({})", judged.name()));
         }
         // Any kill of a reputation's people while someone (the victim too) sees the
@@ -760,7 +769,7 @@ impl Game<'_> {
         let seen = !self.crime_witnesses().is_empty();
         self.crime_infamy(Kind::Murder, victim, seen);
         if !murder {
-            return;
+            return change;
         }
         self.player.murderer = true;
         self.count_crime(victim, Kind::Murder);
@@ -795,6 +804,7 @@ impl Game<'_> {
             }
         }
         self.crimes.notes.push(Note::Crime { kind: Kind::Murder, victim: Some(victim), seen_by, hostile });
+        change
     }
 
     /// The player is an enemy of `faction` from now on (a crime against it it tracks,

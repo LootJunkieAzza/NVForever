@@ -708,17 +708,22 @@ fn system_colour(v: &Value) -> Option<[f32; 3]> {
 }
 
 /// A tile's base colour [hypothesis: the order is NVForever's, menu-xml.md §3.1.2]: its own
-/// `systemcolor`; else its own `red`/`green`/`blue` when it sets any; else the nearest
-/// tile above's `systemcolor`; else system colour 1, the HUD's [documented: GECK wiki
-/// Color UI directives, "Systemcolor is by default 1 and always assign"; observed: the
-/// ammo type's label, a menu child with no `systemcolor` above it, drew white before
-/// T12c where the hand-built HUD and the original draw the HUD's texts amber].
+/// `systemcolor`; else its own non-black `red`/`green`/`blue` when it sets any; else the
+/// nearest tile above's `systemcolor` (so child prefabs that copy `red`/`green`/`blue` from
+/// a parent without RGB traits — evaluating to 0/0/0 — still inherit an enclosing menu's
+/// `systemcolor`, while `&nosystemcolor;` / `&uselocalcolor;` / `0` on the tile or ancestor
+/// yields local RGB); else its own `red`/`green`/`blue` when no ancestor sets `systemcolor`;
+/// else system colour 1, the HUD's [documented: GECK wiki Color UI directives, "Systemcolor
+/// is by default 1 and always assign"; observed: the ammo type's label, a menu child with no
+/// `systemcolor` above it, drew white before T12c where the hand-built HUD and the original
+/// draw the HUD's texts amber].
 pub(super) fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
     let tile = ui.tile(id);
     if let Some(v) = tile.get("systemcolor") {
         return system_colour(v).unwrap_or(own);
     }
-    if ["red", "green", "blue"].iter().any(|n| tile.get(n).is_some()) {
+    let has_rgb = ["red", "green", "blue"].iter().any(|n| tile.get(n).is_some());
+    if has_rgb && own != [0.0, 0.0, 0.0] {
         return own;
     }
     let mut at = tile.parent;
@@ -728,8 +733,14 @@ pub(super) fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
         }
         at = ui.tile(p).parent;
     }
+    if has_rgb {
+        return own;
+    }
     system_colour(&Value::Num(1.0)).unwrap_or(own)
 }
+
+#[cfg(test)]
+mod systemcolor_inheritance_tests;
 
 /// How an image fills its box, by its `tile` and `zoom` ([`Fit`]).
 pub fn fit(tile: &fnv_ui::Tile) -> Fit {

@@ -439,6 +439,29 @@ pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_
     }
 }
 
+fn push_canopy_def(descriptor: &mut RenderPipelineDescriptor, name: &'static str) {
+    let def = ShaderDefVal::from(name);
+    if !descriptor.vertex.shader_defs.contains(&def) {
+        descriptor.vertex.shader_defs.push(def.clone());
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        if !fragment.shader_defs.contains(&def) {
+            fragment.shader_defs.push(def);
+        }
+    }
+}
+
+/// Canopy shading (part 3b of #3828's split, graphics-enhanced.md §3.25) on the game's own
+/// foliage materials (grass, SpeedTree leaf cards and billboards) outside prepass pipelines:
+/// `NVF_CANOPY` and `NVF_PHYSICAL_PBR`, under Physical lighting only.
+pub fn enable_foliage_canopy(descriptor: &mut RenderPipelineDescriptor) {
+    if descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) || !crate::authored::physical_pbr() {
+        return;
+    }
+    push_canopy_def(descriptor, "NVF_CANOPY");
+    push_canopy_def(descriptor, "NVF_PHYSICAL_PBR");
+}
+
 /// The shader def under which the lighting takes the bounce light of a probe volume
 /// (nvforever rtgi_volume.rs, #3009). Nothing in bevy_pbr pushes it: a NIF surface's pipeline
 /// takes it by [`reads_rtgi_volume`].
