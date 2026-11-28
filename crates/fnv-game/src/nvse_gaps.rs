@@ -18,7 +18,7 @@ pub const WEAPON_SOUND_SLOTS: usize = 14;
 /// ([`Game::weapon_sound_changes`]), indexed by JIP `soundID` `0..=13`.
 ///
 /// - `None`: script left this slot at its authored record value.
-/// - `Some(None)`: script cleared this slot (`SetWeaponSound weap id` / null).
+/// - `Some(None)`: script cleared this slot by omitting `newSound` (`SetWeaponSound weap id`; explicit `0` is a no-op).
 /// - `Some(Some(sound))`: script replaced this slot with `sound` (a `SOUN` or cloned `SOUN`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WeaponSoundChange {
@@ -232,14 +232,14 @@ fn parse_weapon_sound_slot(args: &[XVal], k: usize) -> Option<u8> {
 }
 
 /// Parses `SetWeaponSound`'s optional `newSound` argument:
-/// - `Some(None)` when omitted or explicitly null (`0`) -> clear slot.
+/// - `Some(None)` when omitted -> clear slot.
 /// - `Some(Some(id))` when a non-zero form/integer ID is supplied -> validate as `SOUN`.
-/// - `None` when a malformed non-null argument (string, negative/fractional number, etc.) is
-///   supplied -> reject without mutating state.
+/// - `None` when explicit null (`0`) or a malformed argument is supplied -> no-op
+///   [observed: `w6d2_03_weapon_sound_slots_and_clone`].
 fn parse_weapon_sound_arg(args: &[XVal], k: usize) -> Option<Option<FormId>> {
     match args.get(k) {
-        None | Some(XVal::Ref(0)) => Some(None),
-        Some(XVal::Num(x)) if *x == 0.0 => Some(None),
+        None => Some(None),
+        Some(XVal::Ref(0)) => None,
         Some(XVal::Ref(r)) => Some(Some(FormId(*r))),
         Some(XVal::Num(x)) if x.is_finite() && *x >= 1.0 && *x <= u32::MAX as f64 && x.fract() == 0.0 => Some(Some(FormId(*x as u32))),
         _ => None,
@@ -450,7 +450,10 @@ fn weapon_mod_bonuses(g: &Game, w: FormId, mods: u8) -> (f64, f64) {
 fn weapon_damage(g: &mut Game, actor: FormId, w: FormId, condition: Option<f32>, mods: u8) -> (f64, f64) {
     use crate::actor_values::{MELEE_DAMAGE, MELEE_WEAPONS, UNARMED, UNARMED_DAMAGE};
     let (mod_damage, _) = weapon_mod_bonuses(g, w, mods);
-    let mut damage = crate::nvse::record_value(g, w, "DATA", "base_damage").and_then(|v| v.num().ok()).unwrap_or(0.0) + mod_damage;
+    let weap_mult = crate::combat::setting(g, "fDamageWeaponMult", 1.0);
+    let skill_base = crate::combat::setting(g, "fDamageSkillBase", 0.5);
+    let skill_mult = crate::combat::setting(g, "fDamageSkillMult", 0.5);
+    let mut damage = (crate::nvse::record_value(g, w, "DATA", "base_damage").and_then(|v| v.num().ok()).unwrap_or(0.0) + mod_damage) * weap_mult;
     if let Some(c) = condition {
         if !g.tweaks.no_condition_damage_penalty {
             let threshold = if g.tweaks.no_condition_damage_buffer { 1.0 } else { f64::from(fnv_sim::inventory::CONDITION_DAMAGE_THRESHOLD) };
@@ -459,14 +462,16 @@ fn weapon_damage(g: &mut Game, actor: FormId, w: FormId, condition: Option<f32>,
             damage *= factor;
         }
     }
-    let skill_code = g.data.weapon_skills.get(&w).map(|&s| s as u16);
+    let base_w = g.unclone(w);
+    let skill_code = g.data.weapon_skills.get(&base_w).map(|&s| s as u16);
     let skill = skill_code.and_then(|s| crate::functions::actor::actor_value(g, actor, s).ok()).unwrap_or(0.0);
-    let scaled = damage * (0.5 + skill.clamp(0.0, 100.0) / 200.0);
-    let hit = match skill_code {
+    let scaled = damage * (skill_base + skill_mult * skill.clamp(0.0, 100.0) / 100.0);
+    let raw_hit = match skill_code {
         Some(MELEE_WEAPONS) => scaled + crate::functions::actor::actor_value(g, actor, MELEE_DAMAGE).unwrap_or(0.0),
         Some(UNARMED) => damage + crate::functions::actor::actor_value(g, actor, UNARMED_DAMAGE).unwrap_or(0.0),
         _ => scaled,
     };
+    let (hit, _) = g.entry_point_with(actor, crate::perks::CALCULATE_WEAPON_DAMAGE, &[Some(w)], raw_hit);
     (scaled, hit)
 }
 
@@ -692,7 +697,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // MGEF DATA [observed: gaps3, RestoreHealth archetype 0, actor value 16, flags
         // 112 so bits 0–3 read 0].
-        "getbaseeffectarchetype" => XVal::Num(form(args, 0).and_then(|f| g.magic_effect_def(f)).map_or(0, |m| m.archetype) as f64),
+        "getbaseeffectarchetype" => XVal::Num(form(args, 0).and_then(|f| g.magic_effect_def(f)).map_or(-1.0, |m| m.archetype as f64)),
         "getbaseeffectav" => XVal::Num(form(args, 0).and_then(|f| g.magic_effect_def(f)).and_then(|m| m.actor_value).map_or(-1.0, f64::from)),
         "getbaseeffectflag" => {
             // SetBaseEffectFlag's change first (`crate::nvse_jip8`).
@@ -819,8 +824,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             })
         }
         // `av [type]`: the modifiers, not the damage [observed: gaps5, Health reads 0 on
-        // every filter before and after DamageAV 30]; 0 the permanent one, 1 the
-        // temporary one, none both [hypothesis: the filters' meanings].
+        // every filter before and after DamageAV 30]; JIP filter codes [observed 2026-11-25:
+        // w6d7_02 & w6d7p3_02]: 0 = 0.0, 1 = temporary/effect modifier, 2 = permanent
+        // ModAV modifier, 3 or omitted = perm + temp.
         "getactorvaluemodifier" => {
             let a = subject.unwrap_or(FormId::PLAYER_REF);
             let code = match args.first() {
@@ -831,13 +837,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 },
                 _ => return Some(Ok(zero)),
             };
-            let parts = crate::functions::actor::actor_value_parts(g, a, code).map(|p| p[1]).unwrap_or(0.0);
+            // JIP filter codes [observed 2026-11-25: w6d7_02 & w6d7p3_02]:
+            // 0 = 0.0, 1 = temp/effect modifier, 2 = permanent ModAV modifier, 3 or omitted = perm + temp.
+            let perm = crate::functions::actor::actor_value_parts(g, a, code).map(|p| p[1]).unwrap_or(0.0);
             let temp = crate::functions::actor::temporary(g, a, code);
             XVal::Num(match args.get(1) {
-                Some(XVal::Num(t)) if *t == 0.0 => parts,
+                Some(XVal::Num(t)) if *t == 0.0 => 0.0,
                 Some(XVal::Num(t)) if *t == 1.0 => temp,
+                Some(XVal::Num(t)) if *t == 2.0 => perm,
+                Some(XVal::Num(t)) if *t == 3.0 => perm + temp,
                 Some(XVal::Num(_)) => 0.0,
-                _ => parts + temp,
+                _ => perm + temp,
             })
         }
         // ---- base forms ----
@@ -937,10 +947,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getcalculatedweapondps" => {
             let (a, w, cond, mods) = weapon_target(g, subject, args);
             let (_, rate_mult) = weapon_mod_bonuses(g, w, mods);
-            let shots = json_num(g.data.record_field(w, "DNAM", "attack_shots_per_sec")) * rate_mult;
+            let flags1 = crate::nvse::record_value(g, w, "DNAM", "flags1").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
+            let automatic = flags1 & (1 << 1) != 0;
+            let fire_rate = crate::nvse::record_value(g, w, "DNAM", "fire_rate").and_then(|v| v.num().ok()).unwrap_or(0.0);
+            let shots = if automatic && fire_rate > 0.0 {
+                fire_rate * rate_mult
+            } else {
+                crate::nvse::record_value(g, w, "DNAM", "attack_shots_per_sec").and_then(|v| v.num().ok()).unwrap_or(0.0) * rate_mult
+            };
             let chance = crate::functions::actor::actor_value(g, a, crate::actor_values::CRITICAL_CHANCE).unwrap_or(0.0).max(0.0) / 100.0;
+            let raw_mult = crate::nvse::record_value(g, w, "CRDT", "crit_percent_mult").and_then(|v| v.num().ok()).unwrap_or(0.0);
+            let crit_mult = if automatic && fire_rate > 0.0 && !g.tweaks.crit_ignores_fire_rate {
+                raw_mult / fire_rate
+            } else {
+                raw_mult
+            };
             let crit = crate::nvse::record_value(g, w, "CRDT", "critical_damage").and_then(|v| v.num().ok()).unwrap_or(0.0)
-                * crate::nvse::record_value(g, w, "CRDT", "crit_percent_mult").and_then(|v| v.num().ok()).unwrap_or(0.0)
+                * crit_mult
                 * g.tweaks.crit_damage_scale;
             XVal::Num((weapon_damage(g, a, w, cond, mods).0 + chance * crit) * shots)
         }
@@ -951,11 +974,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.field_overrides.insert((f, "DESC/".into()), XVal::Str(text(args, 1)));
             XVal::Num(1.0)
         }
-        // The value GetValue reads (DATA value); returns 0 [observed: gaps6, 999 reads
-        // back].
+        // Writes ENIT/value for ALCH ingestibles and DATA/value for other forms so
+        // GetValueAlt reads back the updated value on Stimpaks/aid items too [observed:
+        // gaps6, 999 reads back; 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+        // w6d9_39_item_value_setitemvalue_getvaluealt_setvaluealt:
+        // weap(750:750->888:888)|armo(160:160->444:444)|misc(1:1)|stim(0:75->0:123)].
         "setvaluealt" => {
             if let Some(f) = form(args, 0) {
-                g.field_overrides.insert((f, "DATA/value".into()), XVal::Num(num(args, 1, 0.0)));
+                let key = if g.data.sig(g.unclone(f)) == Some(*b"ALCH") { "ENIT/value" } else { "DATA/value" };
+                g.field_overrides.insert((f, key.into()), XVal::Num(num(args, 1, 0.0)));
             }
             zero
         }
@@ -998,9 +1025,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "getprojectileexplosion" => XVal::Ref(form(args, 0).and_then(|f| g.projectile_traits(f)).and_then(|t| t.explosion).map_or(0, |e| e.0)),
         "setprojectileexplosion" => {
-            if let (Some(f), Some(e)) = (form(args, 0), form(args, 1)) {
-                if g.data.sig(g.unclone(f)) == Some(*b"PROJ") && g.data.sig(g.unclone(e)) == Some(*b"EXPL") {
-                    g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(e.0));
+            if let Some(f) = form(args, 0).filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"PROJ")) {
+                if args.len() < 2 {
+                    g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(0));
+                } else if let Some(e) = form(args, 1) {
+                    let next = if g.data.sig(g.unclone(e)) == Some(*b"EXPL") { e.0 } else { 0 };
+                    g.field_overrides.insert((f, "DATA/explosion".into()), XVal::Ref(next));
                 }
             }
             zero
@@ -1039,10 +1069,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // order of the condition values].
         "cripplelimb" => {
             let a = subject.unwrap_or(FormId(0));
-            // Perception, Endurance, Left/Right Attack, Left/Right Mobility Condition
-            // (25–30).
+            // Perception, Endurance, Left/Right Attack, Left/Right Mobility, Brain Condition
+            // (25–31) [observed: w6d6p2_40_cripple_limb_all_indices].
             let code = match num(args, 0, -1.0) as i64 {
-                k @ 0..=5 => 25 + k as u16,
+                k @ 0..=6 => 25 + k as u16,
                 _ => return Some(Ok(zero)),
             };
             let now = crate::functions::actor::actor_value(g, a, code).unwrap_or(0.0);
@@ -1217,7 +1247,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let refs = refs.into_iter().map(|r| XVal::Ref(r.0)).collect();
             list(g, refs)
         }
-        "isincombatwith" => yes(subject.zip(form(args, 0)).is_some_and(|(a, t)| g.combat_target_of(a) == Some(t))),
+        // True for any active combat target of `a`, not only its primary target
+        // [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30,
+        // w6d8p2_19_combat_multi_target_active: wB=1 wC=1 priB=1 priC=0 tgtSz=2].
+        "isincombatwith" => yes(subject.zip(form(args, 0)).is_some_and(|(a, t)| {
+            g.combat_target_of(a) == Some(t)
+                || g.awareness.get(a).is_some_and(|x| x.state.in_combat() && x.targets.contains_key(&t))
+        })),
         "setactorgravitymult" => {
             if let Some(r) = subject {
                 g.gaps.gravity.insert(r, num(args, 0, 1.0));
@@ -1285,11 +1321,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // All its effects hostile and detrimental (MGEF flags 1 and 4) [documented:
         // GetIsPoison; observed: gaps7, Silver Sting 1, the stimpak 0].
-        "getispoison" => {
-            let f = form(args, 0).unwrap_or(FormId(0));
-            let effects = g.data.effect_items.get(&g.unclone(f)).map(Vec::as_slice).unwrap_or_default();
-            yes(!effects.is_empty() && effects.iter().all(|e| g.magic_effect_def(e.effect).is_some_and(|m| m.flags & 0x5 == 0x5)))
-        }
+        "getispoison" => yes(form(args, 0).is_some_and(|f| g.is_poison(f))),
         "isarmoraddon" => yes(form(args, 0).is_some_and(|f| g.data.sig(f) == Some(*b"ARMA"))),
         // A form type an inventory holds [documented: GetIsItem].
         "getisitem" => {
@@ -1584,7 +1616,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let f = form(args, 0).unwrap_or(FormId(0));
             let Some(m) = IMPACT_MATERIALS.get(num(args, 1, -1.0).max(-1.0) as usize).filter(|_| num(args, 1, -1.0) >= 0.0) else { return Some(Ok(XVal::Ref(0))) };
             if name == "setimpactdatasetform" {
-                g.field_overrides.insert((f, format!("DATA/{m}")), XVal::Ref(form(args, 2).map_or(0, |x| x.0)));
+                if g.data.sig(g.unclone(f)) == Some(*b"IPDS") {
+                    if args.len() < 3 {
+                        g.field_overrides.insert((f, format!("DATA/{m}")), XVal::Ref(0));
+                    } else if let Some(x) = form(args, 2).filter(|&x| g.data.sig(g.unclone(x)) == Some(*b"IPCT")) {
+                        g.field_overrides.insert((f, format!("DATA/{m}")), XVal::Ref(x.0));
+                    }
+                }
                 return Some(Ok(zero));
             }
             match crate::nvse::record_value(g, f, "DATA", m) {
@@ -1654,7 +1692,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let ok = g.world.inventory_mut(c).is_ok_and(|inv| {
                 let Some((_, e, _)) = inv.groups().find(|(i, _, _)| *i == it) else { return false };
                 if name == "setweaponrefmodflags" {
-                    inv.set_mods_one(it, e, v.clamp(0.0, 255.0) as u8)
+                    // Valid mod bitmask is 0..=7; out-of-range values (< 0 or > 7) return 0
+                    // without mutating existing flags [observed: 2026-11-25, Fallout: New
+                    // Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN 57.30,
+                    // `w6d4_01_weapon_ref_mod_flags_edges` & `w6d4p3_01b_weapon_ref_mod_flags_disambig`
+                    // (`wave6d4_weapon_ref_mod_flags.json`): `r0=1|0->8(r=0,v=0)|5->8(r=0,v=5)|0->255(r=0,v=0)|0->-1(r=0,v=0)|5->-1(r=0,v=5)`;
+                    // hypothesis: fractional inputs truncate toward zero before range check;
+                    // design: non-finite floats return 0 without mutating].
+                    if !v.is_finite() {
+                        return false;
+                    }
+                    let flags = v.trunc() as i64;
+                    if !(0..=7).contains(&flags) {
+                        return false;
+                    }
+                    inv.set_mods_one(it, e, flags as u8)
                 } else {
                     let cond = if num(args, 1, 0.0) != 0.0 { v } else if full > 0.0 { v / full } else { 1.0 };
                     inv.set_condition_one(it, e, cond as f32)
@@ -1839,10 +1891,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Radio and the three add-ons' broadcasts; not the radius stations nor the
         // everywhere stations off the Pip-Boy (Gomorrah's lounge music, EDE's frequency);
         // hypothesis: the order, which was not FormID order].
+        // Works both as Player.GetAvailableRadios and as a bare call without a calling
+        // reference [observed: 2026-11-25, FNV 1.4.0.525 + JIP LN 57.30 + JG 528,
+        // w6d9_20_radio_broadcast_state_and_station_lists: isRad(1,0)|bcast(rnv=0->0->0,emg=0)|all=29|avail(pl=1,bare=1)].
         "getavailableradios" => {
-            if subject.is_none() {
-                return Some(Ok(zero));
-            }
             let mut found: Vec<u32> = g
                 .gaps
                 .radio_sites
@@ -2086,3 +2138,7 @@ mod tests {
         assert_eq!(gaps.take_player_equipped_model_reload(), EQUIP_SLOT_WEAPON_BIT);
     }
 }
+
+#[cfg(test)]
+#[path = "w6d_nvse_gaps_parity_tests.rs"]
+mod w6d_nvse_gaps_parity_tests;

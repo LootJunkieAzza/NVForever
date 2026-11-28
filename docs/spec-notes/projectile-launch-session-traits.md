@@ -220,9 +220,15 @@ canonical helpers `fnv_game::Game::projectile_traits`,
 separate).
 
 - **Validation** [design; observed: `gaps6` null explosion leaves existing explosion;
-  `jip7`/`jip7b` type and VNAM ranges]: `SetProjectileExplosion` requires a `PROJ`
-  target and an `EXPL` form (including `TempCloneForm` aliases) and leaves the explosion
-  unchanged on null; `SetProjectileLight` clears on omitted/null and requires a `LIGH`
+  `jip7`/`jip7b` type and VNAM ranges; 2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`),
+  Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730), 10 official base
+  masters, read-only `PrintToConsole` probe `w6d12_24_projectile_explosion_light_muzzle_clear_and_validation`
+  (`tools/capture/nvse/catalogs/wave6d12_magic_effects_explosions_proj.json`):
+  `ex(0=00000000,1=000001F5,bad=00000000,nul=000001F5,om=00000000,o=00000000)|lg(0=00000000,1=000031D9,om=00000000,o=00000000)|mz(len0=46,eq=1,empLen=6,origEq=1,caLen=0)`;
+  no DLL or source consulted]: `SetProjectileExplosion` requires a `PROJ` target,
+  sets an `EXPL` form (including `TempCloneForm` aliases), leaves the explosion
+  unchanged on explicit null (`0`), and clears it to `0` when omitted or given a
+  non-null non-`EXPL` form; `SetProjectileLight` clears on omitted/null and requires a `LIGH`
   (or cloned `LIGH`) otherwise; `SetProjectileSound` accepts `PROJ`/`SOUN` (including
   `TempCloneForm` aliases) for slots `1..=3`; `SetProjectileTraitNumeric` rejects
   non-integer/out-of-range trait IDs without mutating state.

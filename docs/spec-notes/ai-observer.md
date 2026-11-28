@@ -423,6 +423,8 @@ SunnyRef outside as she heads to the fight; `tgm`; the player follows SunnyRef w
 
 ## 9. Fast sampling for fights (from 2026-10-17)
 
+- **Multi-target `IsInCombatWith`** [observed: 2026-11-25, Fallout: New Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JIP LN NVSE 57.30 (5730) + JohnnyGuitarNVSE 528 + ShowOffNVSE 184, 10 official base masters, GSDocMitchellHouse (0x00103DF9), isolated clean-room staging (read-only PrintToConsole; zero writes to game install or Saves), committed catalog `tools/capture/nvse/catalogs/wave6d8_ai_crime_followers_pickpocket.json`, `w6d8p2_19_combat_multi_target_active`: `PROBE|w6d8p2_19_combat_multi_target_active|inC=1 pcC=0 wB=1 wC=1 priB=1 priC=0 isTB=1 isTC=1 tgtSz=2 alySz=-1 grpM=1 grpT=2`; no DLL, PDB, or third-party source consulted]: when an actor fights two targets (`priB=1 priC=0`, `tgtSz=2`), `IsInCombatWith` returns `1` for both the primary target (`wB=1`) and secondary combat targets (`wC=1`), matching `IsCombatTarget`.
+
 Melee spacing needs positions at frame rate: a swing lasts well under a second. The
 plugin already samples every game loop with `every: 1`; what makes that affordable is a
 smaller probe. The **fight field set** (`"fields": "fight"`, `observe.FIGHT_PARTS`) is
