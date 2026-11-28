@@ -232,7 +232,8 @@ impl DoorGraph {
         if from == to {
             return None;
         }
-        let mut seen = std::collections::BTreeSet::from([from]);
+        let mut seen = std::collections::HashSet::new();
+        seen.insert(from);
         let mut frontier: Vec<(Place, FormId)> = Vec::new();
         for &(d, next) in self.edges.get(&from).into_iter().flatten() {
             if open(d) && seen.insert(next) {
