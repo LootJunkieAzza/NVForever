@@ -37712,6 +37712,7 @@ forbid = [
   { text = "panicked", label = "no panic" },
   { text = "co-op test guest: SmokeGuest failed to join", label = "the guest is not refused (the password matches)" },
   { text = "co-op: the lobby browser:", label = "the Browse request does not fail" },
+]
 [[scenario]]
 name = "barter-owned-loose-items"
 source = "#3350 (observer check 256 and its follow-up, 2026-11-28; docs/spec-notes/barter-menu.md §5.1): a merchant's barter menu offers the items it owns lying loose in its cell, as well as its stock; Blake at the Crimson Caravan sells the two medical books Bitter Springs Infirmary Blues asks for, which lie owned by him on the ground and are in no container"
