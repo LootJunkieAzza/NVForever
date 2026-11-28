@@ -124,3 +124,28 @@ fn damage_object_runs_the_stage_block() {
     g.run_query("Begin Function { }\nTestWreckRef.DamageObject 1000\nEnd\n", Default::default()).unwrap();
     assert_eq!(counts(&g), (1.0, 1.0, 0.0));
 }
+
+/// A destroyed object that still has post-destruction `self_damage_per_second` (like
+/// vanilla cars at stage 4 `CAP_DAMAGE | DESTROY` with `self_dps = 1`, or this wreck at
+/// stage 1 with `self_dps = 4`) rejects external `damage_object` hits while still letting
+/// `destruction_tick` burn it down to its final stage.
+#[test]
+fn destroyed_burning_object_rejects_external_damage_but_burns_to_final_stage() {
+    let f = fixture();
+    let mut g = game(&f);
+    let wreck = FormId(WRECK);
+    let c = g.damage_object(wreck, 1000.0).unwrap();
+    assert_eq!((c.before, c.after, c.destroyed), (-1, 1, true));
+    assert_eq!(g.extra[&wreck].burning, Some(4.0));
+    // External hits cannot push a destroyed burning object to its final stage.
+    assert!(g.damage_object(wreck, 1000.0).is_none());
+    assert_eq!(counts(&g), (1.0, 1.0, 0.0));
+    // Its own self-damage still advances stage 1 -> stage 2.
+    let mut changes = Vec::new();
+    for _ in 0..95 {
+        changes.extend(g.destruction_tick(1.0));
+    }
+    assert_eq!(changes.len(), 1);
+    assert_eq!((changes[0].1.before, changes[0].1.after, changes[0].1.disabled), (1, 2, true));
+    assert_eq!(counts(&g), (2.0, 1.0, 1.0));
+}

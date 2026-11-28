@@ -417,6 +417,7 @@ fn explosion_falloff_reaches_get_hit_base_weapon_damage() {
         cause: None,
         normal: Some([0.0, 0.0, 1.0]),
         source: None,
+        emitter: None,
     });
     let close_hits = tick(&mut a);
     assert_eq!(close_hits.len(), 1, "point-blank blast must hit target");
@@ -437,6 +438,7 @@ fn explosion_falloff_reaches_get_hit_base_weapon_damage() {
         cause: None,
         normal: Some([0.0, 0.0, 1.0]),
         source: None,
+        emitter: None,
     });
     let far_hits = tick(&mut a);
     assert_eq!(far_hits.len(), 1, "distant blast within radius must hit target");

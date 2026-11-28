@@ -156,6 +156,8 @@ mod weapon_sound_bridge_tests;
 mod bullet_snap_tests;
 #[cfg(test)]
 mod showoff_combat_tests;
+#[cfg(test)]
+mod destruction_blast_tests;
 
 /// The shooter's id for projectiles (the player has no hit volume).
 const PLAYER: ActorId = u64::MAX;
@@ -1578,7 +1580,7 @@ impl Combat {
         f.p.alive = false;
         let (explosion, at) = (f.p.explosion, f.p.pos);
         if let Some(x) = explosion {
-            self.boom.push(QueuedBlast { id: x, at, cause: Some(Cause { actor: by.0, weapon: by.1 }), normal: None, source: None });
+            self.boom.push(QueuedBlast { id: x, at, cause: Some(Cause { actor: by.0, weapon: by.1 }), normal: None, source: None, emitter: None });
         }
         Some(explosion.is_some())
     }
@@ -1602,7 +1604,7 @@ impl Combat {
     /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
     /// `by` (the actor who put it down and that weapon), when someone did.
     pub(crate) fn mine_explodes(&mut self, explosion: FormId, at: V3, by: Option<(FormId, FormId)>) {
-        self.boom.push(QueuedBlast { id: explosion, at, cause: by.map(|(actor, weapon)| Cause { actor, weapon }), normal: None, source: None });
+        self.boom.push(QueuedBlast { id: explosion, at, cause: by.map(|(actor, weapon)| Cause { actor, weapon }), normal: None, source: None, emitter: None });
     }
 }
 
@@ -1614,6 +1616,10 @@ struct QueuedBlast {
     cause: Option<Cause>,
     normal: Option<V3>,
     source: Option<FormId>,
+    /// The destructible reference whose stage change emitted this explosion, excluded
+    /// from its own blast damage so an intermediate stage blast does not self-nuke it
+    /// into later stages [design].
+    emitter: Option<FormId>,
 }
 
 /// A thrown weapon whose projectile ended (`crate::thrown`): the weapon it was, its PROJ,
@@ -5494,7 +5500,7 @@ fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &Destruction
         if ch.explosions.is_empty() { String::new() } else { format!(", {} explosion(s)", ch.explosions.len()) }
     );
     if let Some(at) = at {
-        c.boom.extend(ch.explosions.iter().map(|&id| QueuedBlast { id, at, cause, normal: None, source: None }));
+        c.boom.extend(ch.explosions.iter().map(|&id| QueuedBlast { id, at, cause, normal: None, source: None, emitter: Some(r) }));
         // Its stages' debris, thrown by the engine (nvforever `dismember.rs`).
         c.debris.extend(ch.debris.iter().map(|&(d, n)| ObjectDebris { reference: r, at, debris: d, count: n }));
     }
@@ -6031,7 +6037,7 @@ fn fly(
                     continue;
                 }
                 CombatRequest::Explode { explosion, at, source } => {
-                    c.boom.push(QueuedBlast { id: explosion, at, cause: None, normal: None, source });
+                    c.boom.push(QueuedBlast { id: explosion, at, cause: None, normal: None, source, emitter: None });
                     continue;
                 }
                 CombatRequest::Dismember { actor, location, by, explode } => {
@@ -6046,7 +6052,7 @@ fn fly(
             let mut n = 0;
             for f in c.flying.iter_mut().filter(|f| f.p.shooter == shooter) {
                 if let Some(ProjEvent::Explode { explosion, point, normal }) = f.p.detonate() {
-                    c.boom.push(QueuedBlast { id: explosion, at: point, cause: Some(Cause::of(&f.by)), normal, source: None });
+                    c.boom.push(QueuedBlast { id: explosion, at: point, cause: Some(Cause::of(&f.by)), normal, source: None, emitter: None });
                     n += 1;
                 }
             }
@@ -6058,7 +6064,7 @@ fn fly(
                     continue;
                 }
                 effects.5.write(crate::RefChanged::new(id.0));
-                c.boom.push(QueuedBlast { id: explosion, at: pos, cause: Some(Cause { actor, weapon }), normal: None, source: None });
+                c.boom.push(QueuedBlast { id: explosion, at: pos, cause: Some(Cause { actor, weapon }), normal: None, source: None, emitter: None });
                 n += 1;
             }
             info!("combat: {actor} detonates placed explosives: {n}");
@@ -6322,7 +6328,7 @@ fn fly(
                     }
                     // A harmless shot sets nothing off [design].
                     ProjEvent::Explode { explosion, point, normal } if !f.by.harmless => {
-                        c.boom.push(QueuedBlast { id: explosion, at: point, cause: Some(Cause::of(&f.by)), normal, source: None });
+                        c.boom.push(QueuedBlast { id: explosion, at: point, cause: Some(Cause::of(&f.by)), normal, source: None, emitter: None });
                     }
                     ProjEvent::Explode { .. } => {}
                     ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
@@ -6466,7 +6472,7 @@ fn fly(
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
     while let Some(blast_req) = c.boom.pop() {
-        let QueuedBlast { id, at, cause, normal, source } = blast_req;
+        let QueuedBlast { id, at, cause, normal, source, emitter } = blast_req;
         n += 1;
         if n > MAX_EXPLOSIONS_PER_FRAME {
             warn!("combat: more than {MAX_EXPLOSIONS_PER_FRAME} explosions in one frame; {} left for the next", c.boom.len() + 1);
@@ -6664,7 +6670,14 @@ fn fly(
         }
         // Not one gone from the world this frame: a mine that went off is disabled
         // before its explosion, so its blast does not set off its destruction stage too.
-        for (r, d) in destructibles_near(&mut phys, &sim, script.as_deref(), at, x.radius).into_iter().filter(|(r, _)| sim.present(r.0)).collect::<Vec<_>>() {
+        // Not the destructible that emitted this stage explosion either [design]: a car's
+        // intermediate stage blast (e.g. stage 2 MediumExplosion) must not self-damage it
+        // into later stages and skip its burning countdown.
+        for (r, d) in destructibles_near(&mut phys, &sim, script.as_deref(), at, x.radius)
+            .into_iter()
+            .filter(|(r, _)| Some(*r) != emitter && sim.present(r.0))
+            .collect::<Vec<_>>()
+        {
             let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
             damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg, cause);
         }
