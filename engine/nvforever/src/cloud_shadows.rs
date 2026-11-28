@@ -873,21 +873,40 @@ pub fn compose_transmission(layers: &[ComposeLayer]) -> Vec<f32> {
             continue;
         }
         // Texel x samples the layer at texel coordinate x + s (centres at integers).
+        // Precompute the 4 bilinear weights (with `weight / 255.0` folded in) and split
+        // each row into two wrap-free contiguous spans so the inner loop has no `% n`
+        // or division and auto-vectorizes cleanly [design].
         let split = |s: f64| {
             let s = s.rem_euclid(1.0) * n as f64;
             let f = s.floor();
             ((f as usize) % n, (s - f) as f32)
         };
         let ((ix, fx), (iy, fy)) = (split(l.shift[0]), split(l.shift[1]));
+        let scale = weight * (1.0f32 / 255.0);
+        let w00 = (1.0 - fx) * (1.0 - fy) * scale;
+        let w01 = fx * (1.0 - fy) * scale;
+        let w10 = (1.0 - fx) * fy * scale;
+        let w11 = fx * fy * scale;
+        let first_len = n - ix - 1;
         for y in 0..n {
-            let (r0, r1) = (((y + iy) % n) * n, ((y + iy + 1) % n) * n);
-            let row = &mut t[y * n..(y + 1) * n];
-            for (x, v) in row.iter_mut().enumerate() {
-                let (c0, c1) = ((x + ix) % n, (x + ix + 1) % n);
-                let top = f32::from(a[r0 + c0]) + (f32::from(a[r0 + c1]) - f32::from(a[r0 + c0])) * fx;
-                let bottom = f32::from(a[r1 + c0]) + (f32::from(a[r1 + c1]) - f32::from(a[r1 + c0])) * fx;
-                let alpha = (top + (bottom - top) * fy) / 255.0;
-                *v *= 1.0 - alpha * weight;
+            let y0 = if y + iy < n { y + iy } else { y + iy - n };
+            let y1 = if y0 + 1 < n { y0 + 1 } else { 0 };
+            let r0 = &a[y0 * n..(y0 + 1) * n];
+            let r1 = &a[y1 * n..(y1 + 1) * n];
+            let dst = &mut t[y * n..(y + 1) * n];
+            for (x, out_val) in dst[..first_len].iter_mut().enumerate() {
+                let c = ix + x;
+                let aw = f32::from(r0[c]) * w00 + f32::from(r0[c + 1]) * w01 + f32::from(r1[c]) * w10 + f32::from(r1[c + 1]) * w11;
+                *out_val *= 1.0 - aw;
+            }
+            // Boundary texel wrapping c = n - 1 -> 0.
+            {
+                let aw = f32::from(r0[n - 1]) * w00 + f32::from(r0[0]) * w01 + f32::from(r1[n - 1]) * w10 + f32::from(r1[0]) * w11;
+                dst[first_len] *= 1.0 - aw;
+            }
+            for (c, out_val) in dst[(first_len + 1)..n].iter_mut().enumerate() {
+                let aw = f32::from(r0[c]) * w00 + f32::from(r0[c + 1]) * w01 + f32::from(r1[c]) * w10 + f32::from(r1[c + 1]) * w11;
+                *out_val *= 1.0 - aw;
             }
         }
     }
@@ -901,10 +920,15 @@ pub fn percentile(t: &[f32], pct: f32) -> f32 {
     if t.is_empty() {
         return 0.0;
     }
-    let bin = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as usize;
     let mut hist = [0usize; 256];
+    let mut bin_max = [0.0f32; 256];
     for &v in t {
-        hist[bin(v)] += 1;
+        let clamped = v.clamp(0.0, 1.0);
+        let b = (clamped * 255.0 + 0.5) as usize;
+        hist[b] += 1;
+        if clamped > bin_max[b] {
+            bin_max[b] = clamped;
+        }
     }
     let need = ((pct.clamp(0.0, 100.0) / 100.0 * t.len() as f32).ceil() as usize).clamp(1, t.len());
     let mut count = 0;
@@ -916,7 +940,7 @@ pub fn percentile(t: &[f32], pct: f32) -> f32 {
             break;
         }
     }
-    t.iter().filter(|&&v| bin(v) == at).fold(0.0f32, |m, &v| m.max(v.clamp(0.0, 1.0)))
+    bin_max[at]
 }
 
 /// The reference a composition uses: the map's own, `raw`, approached from the previous
@@ -937,11 +961,12 @@ pub fn relative(t: &[f32], reference: f32) -> Vec<u8> {
     if reference <= 0.0 {
         return vec![255; t.len()];
     }
+    let inv_ref = 1.0 / reference;
     let depth = (reference / REFERENCE_FLOOR).min(1.0);
     t.iter()
         .map(|&k| {
-            let r = (k / reference).min(1.0);
-            ((1.0 - (1.0 - r) * depth).clamp(0.0, 1.0) * 255.0).round() as u8
+            let r = (k * inv_ref).min(1.0);
+            ((1.0 - (1.0 - r) * depth).clamp(0.0, 1.0) * 255.0 + 0.5) as u8
         })
         .collect()
 }
@@ -1061,14 +1086,26 @@ fn sampled_alpha(l: &ComposeLayer) -> Option<Vec<f32>> {
         ((f as usize) % n, (s - f) as f32)
     };
     let ((ix, fx), (iy, fy)) = (split(l.shift[0]), split(l.shift[1]));
+    let inv255 = 1.0f32 / 255.0;
+    let w00 = (1.0 - fx) * (1.0 - fy) * inv255;
+    let w01 = fx * (1.0 - fy) * inv255;
+    let w10 = (1.0 - fx) * fy * inv255;
+    let w11 = fx * fy * inv255;
+    let first_len = n - ix - 1;
     let mut out = vec![0.0f32; n * n];
     for y in 0..n {
-        let (r0, r1) = (((y + iy) % n) * n, ((y + iy + 1) % n) * n);
-        for (x, v) in out[y * n..(y + 1) * n].iter_mut().enumerate() {
-            let (c0, c1) = ((x + ix) % n, (x + ix + 1) % n);
-            let top = f32::from(a[r0 + c0]) + (f32::from(a[r0 + c1]) - f32::from(a[r0 + c0])) * fx;
-            let bottom = f32::from(a[r1 + c0]) + (f32::from(a[r1 + c1]) - f32::from(a[r1 + c0])) * fx;
-            *v = (top + (bottom - top) * fy) / 255.0;
+        let y0 = if y + iy < n { y + iy } else { y + iy - n };
+        let y1 = if y0 + 1 < n { y0 + 1 } else { 0 };
+        let row0 = &a[y0 * n..(y0 + 1) * n];
+        let row1 = &a[y1 * n..(y1 + 1) * n];
+        let dst = &mut out[y * n..(y + 1) * n];
+        for (x, out_val) in dst[..first_len].iter_mut().enumerate() {
+            let c = ix + x;
+            *out_val = f32::from(row0[c]) * w00 + f32::from(row0[c + 1]) * w01 + f32::from(row1[c]) * w10 + f32::from(row1[c + 1]) * w11;
+        }
+        dst[first_len] = f32::from(row0[n - 1]) * w00 + f32::from(row0[0]) * w01 + f32::from(row1[n - 1]) * w10 + f32::from(row1[0]) * w11;
+        for (c, out_val) in dst[(first_len + 1)..n].iter_mut().enumerate() {
+            *out_val = f32::from(row0[c]) * w00 + f32::from(row0[c + 1]) * w01 + f32::from(row1[c]) * w10 + f32::from(row1[c + 1]) * w11;
         }
     }
     Some(out)

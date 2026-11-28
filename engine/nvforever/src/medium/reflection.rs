@@ -42,6 +42,7 @@ struct MirrorPass {
     distance: CachedTexture,
     pipeline: RenderPipeline,
     group: BindGroup,
+    depth_group: BindGroup,
 }
 
 #[derive(Default)]
@@ -49,6 +50,17 @@ struct MirrorBuffers {
     trace: UniformBuffer<MediumTraceUniform>,
     clouds: UniformBuffer<CloudVolumeUniform>,
     group: Option<(MirrorGroupKey, BindGroup)>,
+    depth_group: Option<BindGroup>,
+}
+
+#[derive(Clone, Copy)]
+struct MirrorLastTrace {
+    image: AssetId<Image>,
+    frame: u32,
+    pos: Vec3,
+    fwd: Vec3,
+    up: Vec3,
+    clouds: CloudVolumeUniform,
 }
 
 #[derive(Resource, Default)]
@@ -57,6 +69,9 @@ struct MirrorGpu {
     // The regular reference pipeline is shared with the main view. This variant
     // adds the read-only fronts published for this frame to that same layout.
     volume: Option<(BindGroupLayoutDescriptor, CachedRenderPipelineId)>,
+    /// Last traced mirror cloud camera state so steady water reflections re-trace at
+    /// 1/3 rate while moving/turning updates immediately [design].
+    last_trace: Option<MirrorLastTrace>,
 }
 
 fn mirror_trace_matrices(pose: &GlobalTransform, projection: &PerspectiveProjection) -> (Mat4, Mat4) {
@@ -104,7 +119,7 @@ fn extract(
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn prepare(
     mut commands: Commands,
-    frame: Res<MirrorFrame>,
+    mut frame: ResMut<MirrorFrame>,
     main_frame: Res<MediumFrame>,
     main_gpu: Res<MediumGpu>,
     mut mirror: ResMut<MirrorGpu>,
@@ -113,10 +128,12 @@ fn prepare(
     (images, materials, specialized): (Res<RenderAssets<GpuImage>>, Option<Res<ErasedRenderAssets<PreparedMaterial>>>, Option<Res<SpecializedMaterialPipelineCache>>),
     reader: Option<Res<LightVolumeReader>>,
     mut textures: ResMut<TextureCache>,
+    frame_count: Res<FrameCount>,
     views: Query<&ExtractedView>,
 ) {
     let (Some(target), Some(source)) = (&frame.target, &main_frame.0) else {
         mirror.buffers = None;
+        mirror.last_trace = None;
         return;
     };
     let Ok(view) = views.get(target.view) else { return };
@@ -171,6 +188,22 @@ fn prepare(
     if !prepared || proxy_pipeline.and_then(|id| cache.get_render_pipeline(id)).is_none() {
         return;
     }
+    let pos = target.world_from_view.w_axis.truncate();
+    let fwd = target.world_from_view.z_axis.truncate().normalize_or_zero();
+    let up = target.world_from_view.y_axis.truncate().normalize_or_zero();
+    let now = frame_count.0;
+    let can_reuse = mirror.last_trace.is_some_and(|last| {
+        last.image == target.image
+            && now.wrapping_sub(last.frame) < 3
+            && pos.distance_squared(last.pos) <= 64.0 * 64.0
+            && fwd.dot(last.fwd) >= 0.9996
+            && up.dot(last.up) >= 0.9996
+            && !needs_write(&last.clouds, &u)
+    });
+    if can_reuse {
+        frame.written = Some(target.image);
+        return;
+    }
     let extent = image.texture_descriptor.size;
     let size = UVec2::new(extent.width, extent.height);
     // A fixed dither phase avoids swimming while stationary. Angular material
@@ -195,12 +228,21 @@ fn prepare(
         };
         buf.group = Some((key, group));
     }
+    let depth_group = buf
+        .depth_group
+        .get_or_insert_with(|| {
+            let layout = cache.get_bind_group_layout(&pl.depth_layout);
+            device.create_bind_group("mirror_cloud_depth_dummy", &layout, &BindGroupEntries::sequential((&pl.dummy_depth,)))
+        })
+        .clone();
     let distance = textures.get(&device, TextureDescriptor {
         label: Some("mirror_cloud_distance"), size: extent, mip_level_count: 1, sample_count: 1, dimension: TextureDimension::D2,
         format: DISTANCE_FORMAT, usage: TextureUsages::RENDER_ATTACHMENT, view_formats: &[],
     });
+    let group = buf.group.as_ref().unwrap().1.clone();
+    mirror.last_trace = Some(MirrorLastTrace { image: target.image, frame: now, pos, fwd, up, clouds: u });
     commands.entity(target.view).insert(MirrorPass {
-        image: target.image, far: image.texture_view.clone(), distance, pipeline, group: buf.group.as_ref().unwrap().1.clone(),
+        image: target.image, far: image.texture_view.clone(), distance, pipeline, group, depth_group,
     });
 }
 
@@ -209,7 +251,7 @@ fn draw(view: ViewQuery<&MirrorPass>, mut frame: ResMut<MirrorFrame>, mut ctx: R
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_mirror_clouds");
-    fullscreen_pass(&mut ctx, "mirror_cloud_trace", &[(&p.far, CLEAR_LIGHT), (&p.distance.default_view, CLEAR_DISTANCE)], Some((&p.pipeline, &p.group)));
+    fullscreen_pass(&mut ctx, "mirror_cloud_trace", &[(&p.far, CLEAR_LIGHT), (&p.distance.default_view, CLEAR_DISTANCE)], Some((&p.pipeline, &p.group)), Some(&p.depth_group));
     span.end(ctx.command_encoder());
     frame.written = Some(p.image);
 }
