@@ -651,7 +651,7 @@ fn gather(
         quest_door_cache.sync_serial((sim.world.lock_serial(), sim.world.presence_serial()));
         for c in st.marked_targets() {
             let graph = graph.get_or_insert_with(|| DoorGraph::build(sim.refs));
-            let Some((pos, door)) = quest_mark_at_cached(&sim, loc, graph, &mut quest_door_cache.routes, c.target, c.ignores_locks) else { continue };
+            let Some((pos, door)) = quest_mark_at(&sim, loc, graph, &mut quest_door_cache.routes, c.target, c.ignores_locks) else { continue };
             let itself = door.is_none();
             // The player's tweak: quest targets past this far are left off [design: docs/design/tweaks.md].
             if quest_reach > 0.0 && (pos[0] - feet[0]).hypot(pos[1] - feet[1]) > quest_reach {
@@ -770,11 +770,6 @@ fn place_moved(logged: &mut PlacesLogged, key: (u32, i32, usize), door: Option<F
     moved
 }
 
-/// Where the compass marks quest target `target` for a player at `loc` (see the module
-/// notes): the target itself in the player's cell or worldspace, else the door of the
-/// player's place that starts the way to it (`fnv_game::quest_targets::DoorGraph`);
-/// `None` when no way through doors is known. With the door, or `None` for the target
-/// itself.
 /// Cached `DoorGraph::first_door` routes invalidated strictly by `World::lock_serial` and
 /// `World::presence_serial` so 10 Hz `compass::gather` polls in interiors do not re-run
 /// whole-world door BFS every 100 ms when no door lock or presence changed [design].
@@ -793,7 +788,12 @@ impl QuestDoorCache {
     }
 }
 
-fn quest_mark_at_cached(
+/// Where the compass marks quest target `target` for a player at `loc` (see the module
+/// notes): the target itself in the player's cell or worldspace, else the door of the
+/// player's place that starts the way to it (`fnv_game::quest_targets::DoorGraph`);
+/// `None` when no way through doors is known. With the door, or `None` for the target
+/// itself.
+fn quest_mark_at(
     sim: &SimState,
     loc: &Location,
     graph: &DoorGraph,
@@ -820,28 +820,6 @@ fn quest_mark_at_cached(
     let door = (*routes
         .entry((here, there, ignores_locks))
         .or_insert_with(|| graph.first_door(&sim.world, here, there, ignores_locks)))?;
-    sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos)).map(|p| (p, Some(door)))
-}
-
-#[allow(dead_code)]
-fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: FormId, ignores_locks: bool) -> Option<([f32; 3], Option<FormId>)> {
-    let refs = sim.refs;
-    let (cell, pos) = match sim.world.peek(target) {
-        Some(s) => (s.cell?, s.pos),
-        None => {
-            let p = refs.get(target)?;
-            (p.cell?, p.pos)
-        }
-    };
-    let here = match loc.interior {
-        Some(c) => QuestPlace::Interior(FormId(c)),
-        None => QuestPlace::World(FormId(loc.world)),
-    };
-    let there = QuestPlace::of_cell(refs, cell);
-    if here == there {
-        return Some((pos, None));
-    }
-    let door = graph.first_door(&sim.world, here, there, ignores_locks)?;
     sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos)).map(|p| (p, Some(door)))
 }
 
