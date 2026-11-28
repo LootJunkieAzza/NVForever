@@ -56,24 +56,58 @@ Holorifle.
 
 ## 3. The picture (MOD3)
 
-Every vanilla scope file has one layout [observed: `fnvtool nif decode` of
-`mildotscope.nif`, `varmitscope.nif`, `duplexscope.nif`, `scope3.nif`,
-`binoculars.nif`]: under `keepScope01`, in the model's X (right) and Z (up) plane,
+Base-game four-shape scopes share one layout [observed: `fnvtool nif decode` of
+`mildotscope.nif`, `varmitscope.nif`, `duplexscope.nif`, `biggamescope.nif`,
+`germanscope.nif`, `laserscope.nif`, `scope3.nif`, `binoculars.nif` in
+`Fallout - Meshes.bsa`]: under `keepScope01`, in the model's X (right) and Z (up) plane,
 looked at along +Y:
 
 | Shape | What | Extent |
 |---|---|---|
-| `keepAdditive03:0` | the reticle (`textures\weapons\scope\*_o.dds`), alpha tested, emissive white | ±372 × ±348 |
+| `keepAdditive03:0` | the reticle (`textures\weapons\scope\*_o.dds`), alpha tested / blended (`NiAlphaProperty` flags 4333, threshold 40), emissive white | ±372 × ±348 |
 | `keepScope01:0` | the black mask: a ring from a circle of radius ~361 out to a rectangle | ±740 × ±460 |
-| `TintRing:0` | a faint coloured ring of vertex colours (alpha 0–0.05) | ±373 |
-| `Additive01:5` | the lens glare (`scope01.dds`), additive | ±435 |
+| `TintRing:0` | a faint coloured ring of vertex colours (additive, flags 4109; alpha 0–0.05 in `mildotscope.nif`, up to 0.60 in `laserscope.nif`) | ±373 |
+| `Additive01:5` | the lens glare (`scope01.dds`), additive (flags 4109) | ±435 |
 
-- **Drawn** [design: how the original draws it is not documented beyond "overlay"]: by an
-  orthographic camera of its own looking along +Y, on a render layer of its own, into a
-  picture shown full-screen under the HUD. The mask's rectangle is 1480 × 920, a 16:10
-  frame: the camera shows **920 model units of height** across the screen's height
-  [hypothesis: the mask's rectangle is the screen at 16:10], so the circle is 0.78 of the
-  screen's height. Wider screens get black beyond the mask's sides [design].
+Other base-game and add-on scope models in the six masters (`FalloutNV.esm`,
+`DeadMoney.esm`, `HonestHearts.esm`, `OldWorldBlues.esm`, `LonesomeRoad.esm`,
+`GunRunnersArsenal.esm`; Dead Money, Honest Hearts and GRA add no new scope NIFs and reuse
+the base files) use different layouts, including multiply-blended and untextured
+full-window tint/vignette shapes [observed: `fnvtool bsa list` and `fnvtool nif decode`
+across `Fallout - Meshes.bsa`, `OldWorldBlues - Main.bsa`, `LonesomeRoad - Main.bsa`]:
+
+| File (archive) | Weapons | Layout & notable multiply / untextured full-window shapes |
+|---|---|---|
+| `interface\hud\scope01.nif` (`Fallout - Meshes.bsa`) | Boone's scoped rifle, That Gun / 5.56mm pistol, Van Graff laser rifle | 6 shapes: opaque ring mask `Scope01:0` (±740 × ±460), opaque `crosshair_new:0`, blended `MaskRing:4`, additive `Additive:5` & `TintRing:0`, and **multiply** untextured `Inner Lens Shading:3` (`NiAlphaProperty` flags 4323, `ZERO`/`INV_SRC_ALPHA`, vertex alpha 0–1) |
+| `dlcanch\interface\hud\dlcanchgaussscope01.nif` (`Fallout - Meshes.bsa`) | Gauss Rifle, YCS/186, Elijah's Gauss Rifle, Faderator | 9 shapes: opaque ring mask `DLCAnchGaussScope01:0` (±779 × ±485), opaque `Red Dot:0`, blended `MaskRing:4`, additive `Additive:5` & `TintRing:0`, and four **multiply** shapes: untextured `Inner Lens Shading:3` (flags 4323) plus textured reticle `Reticule:2`, `RtNumbers:2`, `RtNumbers01:2` (`DLCAnchGaussScope01.dds`, flags 4163 `ZERO`/`SRC_COLOR`) |
+| `nvdlc03\interface\hud\nvdlc03circletechscope.nif` (`OldWorldBlues - Main.bsa`) | unused untinted variant | 6 shapes: rectangular frame mask `Scope:0` (±674.5 × ±461.7, opaque, rectangular window), blended `Plane01:0` (`NVDLC03CircleTechScope.dds`, flags 4333), blended `MaskRing01:4`, additive `Additive:5` & `TintRing:0`, and **multiply** untextured vignette `Edge:0` (flags 4163) |
+| `nvdlc03\interface\hud\nvdlc03circletechscopegreen.nif` (`OldWorldBlues - Main.bsa`) | K9000 Cyberdog Gun (`NVDLC03WeapCyberdogGun`) | 7 shapes: as `nvdlc03circletechscope.nif`, with **multiply** untextured `BlueEdge:0` (flags 4163) and **additive** untextured full-window quad `GreenFilter:0` (flags 4097 `ONE`/`ONE`, vertex colour (0, 0.16, 0.12, 1.0)) |
+| `nvdlc03\interface\hud\nvdlc03circletechscopered.nif` (`OldWorldBlues - Main.bsa`) | FIDO (`NVDLC03WeapCyberdogGunFido`) | 7 shapes: as `nvdlc03circletechscope.nif`, with **multiply** untextured `RedEdge:0` (flags 4163) and **additive** untextured full-window quad `RedFilter:0` (flags 4097 `ONE`/`ONE`, vertex colour (0.16, 0, 0, 1.0)) |
+| `nvdlc04\interface\hud\nvdlc04redglarescope.nif` (`LonesomeRoad - Main.bsa`) | Red Glare (`NVDLC04WeapRedGlare`) | 5 shapes: rectangular frame mask `Scope:0` (±674.5 × ±461.7, opaque, inner window ±359.4 × ±359.7), blended reticle `Plane01:0` (`Laserscope_o.dds`, flags 4333), additive `Additive:5` & `TintRing:0`, and **multiply** untextured full-window quad `SuperRedFilter:0` (±498.9 × ±378.7, flags 4163 `ZERO`/`SRC_COLOR`, vertex colours R 0.73–1.00, G 0.33–0.63, B 0.24–0.41, alpha 1.0) |
+
+- **Drawn** [design: how the original draws it is not documented beyond "overlay"; #3225]:
+  the base mask's rectangle is 1480 × 920, a 16:10 frame; orthographic cameras looking
+  along +Y show **920 model units of height** across the screen's height [hypothesis: the
+  mask's rectangle is the screen at 16:10], so the base circle is 0.78 of the screen's
+  height. Shapes are partitioned by `AlphaMode` onto dedicated render layers:
+  - `SCOPE_LAYER` (`over`, cleared to transparent black): opaque masks (`keepScope01:0`,
+    `Scope:0`, `DLCAnchGaussScope01:0`), alpha-tested/alpha-blended reticles and rings
+    (`keepAdditive03:0`, `Plane01:0`, `MaskRing*:4`), plus opaque black side bars placed at
+    the model's horizontal mask extent (±740 for base scopes, ±674.5 for Red Glare / OWB,
+    ±779 for Gauss Rifle) so wider screens stay black without gaps [design].
+  - `SCOPE_MULTIPLY_LAYER` (`multiply`, cleared to opaque white, spawned only when the
+    model contains `AlphaMode::Multiply` shapes): `SuperRedFilter:0`, `Edge:0`/`BlueEdge:0`/
+    `RedEdge:0`, `Reticule:2`/`RtNumbers*:2`, `Inner Lens Shading:3`. Rendering multiply
+    shapes onto white preserves their exact per-channel tint factor instead of multiplying
+    against transparent black `(0, 0, 0, 0)` and turning the window opaque black (#3225).
+  - `SCOPE_ADD_LAYER` (`add`, cleared to black, spawned only when the model contains
+    `AlphaMode::Add` shapes, with `add_linear = true` on private material copies):
+    `Additive*:5`, `TintRing:0`, `GreenFilter:0`, `RedFilter:0`.
+  - A full-screen post-process pass (`scope_composite_pass` / `scope_composite.wesl`) runs
+    after `ImageSpaceGrade` and before Bevy's UI pass (`ui_pass`), computing
+    `over.rgb + (max(world.rgb, 0) * mul + add) * (1 - over.a)` so multiply filters tint
+    the zoomed world, additive glare/filters add cleanly, opaque masks cover everything
+    outside the window, and the HUD stays on top [design].
 - The materials are the loader's (the NIF's own shaders, alpha and vertex colours).
 
 ## 4. Night vision
