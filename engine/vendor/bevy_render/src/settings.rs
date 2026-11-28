@@ -77,6 +77,9 @@ impl Default for WgpuSettings {
             Backends::GL
         } else if cfg!(all(feature = "webgpu", target_arch = "wasm32")) {
             Backends::BROWSER_WEBGPU
+        } else if cfg!(target_os = "macos") {
+            // Do not prefer raw Vulkan initialization over the native Metal device.
+            Backends::METAL
         } else {
             Backends::all()
         };
