@@ -400,6 +400,17 @@ fn script_weapon_critical_damage(game: Option<&fnv_game::Game<'_>>, weapon: Form
     }
 }
 
+/// JIP LN `SetWeaponOnHitSetting` (`DNAM/on_hit`): the same On Hit override that scripts
+/// set must reach every dismemberment check (shots, melee, blasts, test aid).
+pub(crate) fn script_weapon_on_hit(game: Option<&fnv_game::Game<'_>>, weapon: FormId, stats: &mut WeaponStats) {
+    if let Some(code) = game.and_then(|game| game.weapon_on_hit_override(weapon)) {
+        stats.on_hit = Some(fnv_combat::dismember::OnHit::from_code(code).label().to_string());
+    }
+}
+
+#[cfg(test)]
+mod dismember_on_hit_tests;
+
 fn armour_lines(script: Option<&mut ScriptState>, attacker: Option<FormId>, target: FormId, d: &damage::Damage, floor: f32) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
         rt.game.armour_lines(attacker, target, f64::from(d.raw), f64::from(d.dt), f64::from(d.dealt), f64::from(floor));
@@ -5117,7 +5128,9 @@ fn melee(
         return;
     }
     let mut w = c.player_stats(id).expect("weapon present");
-    script_weapon_critical_damage(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), id, &mut w);
+    let game_ref = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    script_weapon_critical_damage(game_ref, id, &mut w);
+    script_weapon_on_hit(game_ref, id, &mut w);
     // The clip the body timed for the swing playing; a new swing runs on the weapon's
     // own timing until the body has read its clip (the next frame).
     // The Modify Attack Speed perks (Slayer, Melee Hacker …) speed the swing as the
@@ -5721,7 +5734,9 @@ fn actor_attacks(
         // unmodded NPC weapons (`mods == 0`) stay identical to base weapon stats.
         let mods = if b.creature_damage.is_none() { sim.world.peek(b.attacker).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(id)) } else { 0 };
         let Some(mut w) = c.forms.weapons.get(&id).map(|w| if mods != 0 { w.modded(mods) } else { w.clone() }) else { continue };
-        script_weapon_critical_damage(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), id, &mut w);
+        let game_ref = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+        script_weapon_critical_damage(game_ref, id, &mut w);
+        script_weapon_on_hit(game_ref, id, &mut w);
         if let Some(d) = b.creature_damage {
             w.base_damage = d.round() as i32;
         }
@@ -6585,7 +6600,11 @@ fn fly(
             // No Dismember/Explode; launchers, the Fat Man and dynamite are not. A blast with
             // no source weapon (a placed explosion, a mine without an actor owner) rolls none.
             if let Some(rr) = r.as_ref().filter(|r| r.died || r.corpse) {
-                let w = cause.and_then(|k| c.forms.weapons.get(&k.weapon)).cloned();
+                let w = cause.and_then(|k| {
+                    let mut w = c.forms.weapons.get(&k.weapon)?.clone();
+                    script_weapon_on_hit(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), k.weapon, &mut w);
+                    Some(w)
+                });
                 let (facing, check) = match w.as_ref() {
                     Some(_) => blast_gore(&view(&mut phys, script.as_deref(), Some(&sim)), target, b.actor, at, x.radius, w.as_ref(), rr, info.attacker, b.push),
                     None => (None, None),
@@ -6749,7 +6768,9 @@ fn fly(
             c.forms.weapons.get(&id).map(|w| if mods != 0 { w.modded(mods) } else { w.clone() })
         };
         let Some(mut w) = w else { continue };
-        script_weapon_critical_damage(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), id, &mut w);
+        let game_ref = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+        script_weapon_critical_damage(game_ref, id, &mut w);
+        script_weapon_on_hit(game_ref, id, &mut w);
         if let Some(s) = &shot {
             w.base_damage = s.damage.round() as i32;
         }
