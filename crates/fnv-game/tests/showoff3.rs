@@ -320,7 +320,7 @@ fn calculated_equipped_weight_honors_weightless_tweaks_and_perks() {
     use fnv_sim::inventory::{WeightRules, WEIGHTLESS_ARMOR, WEIGHTLESS_WEAPONS};
     let f = fixture();
     let mut g = game(&f);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 960.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 970.0);
 
     // Equip gun (6.0), power armor (20.0), and hat (1.0).
     let inv = g.world.inventory_mut(FormId::PLAYER_REF).unwrap();
@@ -370,7 +370,7 @@ fn calculated_equipped_weight_honors_weightless_tweaks_and_perks() {
 fn weapon_flag_overrides_sync_getters_playability_and_equipment() {
     let f = fixture();
     let mut g = game(&f);
-    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 960.0);
+    assert_eq!(n(&mut g, "GetPluginVersion \"lStewieAl's Tweaks\""), 970.0);
     dressed(&mut g);
 
     let gun = FormId(GUN);
