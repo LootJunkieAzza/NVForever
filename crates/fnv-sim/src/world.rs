@@ -2152,29 +2152,54 @@ impl<'a> World<'a> {
             }
         };
         let start = own(self, id).ok_or(SimError::UnknownRef(id))?;
+        let first_parent = if !self.own_enable.is_empty() && self.own_enable.contains(&id) {
+            None
+        } else {
+            self.enable_parent(id)
+        };
+        let Some(mut ep) = first_parent else {
+            return Ok(start);
+        };
         let mut invert = false;
-        let mut cur = id;
-        let mut seen = vec![id];
+        let mut seen_inline = [FormId(0); 8];
+        seen_inline[0] = id;
+        let mut seen_len = 1usize;
+        let mut seen_overflow: Vec<FormId> = Vec::new();
         loop {
-            let parent = if self.own_enable.contains(&cur) { None } else { self.enable_parent(cur) };
-            let Some(ep) = parent else {
-                return Ok(own(self, cur).unwrap_or(start) ^ invert);
-            };
-            if seen.contains(&ep.reference) || own(self, ep.reference).is_none() {
+            let already_seen = seen_inline[..seen_len].contains(&ep.reference)
+                || (!seen_overflow.is_empty() && seen_overflow.contains(&ep.reference));
+            if already_seen || own(self, ep.reference).is_none() {
                 return Ok(start);
             }
             invert ^= ep.opposite;
-            seen.push(ep.reference);
-            cur = ep.reference;
+            if seen_len < seen_inline.len() {
+                seen_inline[seen_len] = ep.reference;
+                seen_len += 1;
+            } else {
+                seen_overflow.push(ep.reference);
+            }
+            let cur = ep.reference;
+            let parent = if !self.own_enable.is_empty() && self.own_enable.contains(&cur) {
+                None
+            } else {
+                self.enable_parent(cur)
+            };
+            match parent {
+                Some(next) => ep = next,
+                None => return Ok(own(self, cur).unwrap_or(start) ^ invert),
+            }
         }
     }
 
     /// A reference's enable parent: SetEnableParent's for the session, else its XESP.
+    #[inline]
     pub fn enable_parent(&self, id: FormId) -> Option<crate::refs::EnableParent> {
-        match self.enable_parent_edits.get(&id) {
-            Some(e) => *e,
-            None => self.placed.get(id).and_then(|p| p.enable_parent),
+        if !self.enable_parent_edits.is_empty() {
+            if let Some(e) = self.enable_parent_edits.get(&id) {
+                return *e;
+            }
         }
+        self.placed.get(id).and_then(|p| p.enable_parent)
     }
 
     /// SetEnableParent: `parent` (none: no parent) in place of the record's, not
