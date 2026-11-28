@@ -10,8 +10,15 @@ Plain-language notes for `crates/fnv-game/src/nvse_hud.rs` and the control funct
 - `GetHUDVisibilityOverride` (JohnnyGuitar) returns a bit mask, one bit per HUD element,
   bits 0-16 from Action Points to Hardcore Mode [documented: the page's flag list]. At rest
   it reads 131071, all 17 bits [observed: hud1].
-- `SetHUDVisibilityOverride n` stores the mask; it reads back in the same frame and the next
-  [observed: hud1, 3]. Whether the engine's HUD hides the elements is not built yet.
+- `SetHUDVisibilityOverride n` stores the mask as an unsigned 32-bit value (so `-1` wraps
+  to `4294967295` / `0xFFFFFFFF`, and `Get/SetHUDVisibilityFlags` share the same mask); it
+  reads back in the same frame and the next [observed: hud1, 3; observed: Fallout: New
+  Vegas 1.4.0.525 (040020D0) + xNVSE 6.4.9 + JohnnyGuitarNVSE 528 + SUP NVSE Plugin 855,
+  2026-11-25, `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, isolated
+  staging copy, read-only, `w6d13_08_hud_visibility_override_vs_flags_and_shudder_stub`
+  (`tools/capture/nvse/catalogs/wave6d13_ui_controls_camera_anim.json`):
+  `init(jg=131071,sup=131071)|setJG15(15,15)|setSUP31(31,31)|neg=4294967295|hi=1048575|rest=131071`;
+  no DLL or source consulted]. Whether the engine's HUD hides the elements is not built yet.
 - `GetHUDShudderPower` reads 0 at rest [observed: hud1]. Nothing in NVForever shakes the HUD,
   so it always reads 0 [hypothesis].
 

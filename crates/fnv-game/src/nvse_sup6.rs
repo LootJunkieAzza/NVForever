@@ -357,7 +357,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Get/SetHUDVisibilityOverride (`crate::nvse_hud`).
         "gethudvisibilityflags" => XVal::Num(f64::from(g.hud.visibility)),
         "sethudvisibilityflags" => {
-            g.hud.visibility = (num(args, 0, 0.0) as i64).clamp(0, i64::from(u32::MAX)) as u32;
+            g.hud.visibility = (num(args, 0, 0.0) as i64) as u32;
             zero
         }
         // ---- the screen ----

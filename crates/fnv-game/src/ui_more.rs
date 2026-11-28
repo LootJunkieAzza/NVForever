@@ -22,6 +22,7 @@ pub type Measure = Box<dyn Fn(f64, &str, f64) -> (f64, f64, f64) + Send + Sync>;
 /// The measure borrowed, as `string_dimensions` takes it.
 pub type MeasureRef<'a> = dyn Fn(f64, &str, f64) -> (f64, f64, f64) + 'a;
 
+
 /// A component AttachUIXML or AttachUIComponent made: injected into `HUDMainMenu`'s root
 /// [documented: AttachUIXML, "Internally, the components are injected into HUDMainMenu
 /// menu root"], to follow the named NiNode of the reference's model. The engine finds the
@@ -47,6 +48,11 @@ pub struct Placement {
     pub rect: String,
     pub at: Option<(f64, f64)>,
 }
+
+
+#[cfg(test)]
+#[path = "w6d13_ui_hud_parity_tests.rs"]
+mod w6d13_ui_hud_parity_tests;
 
 /// The tile functions' session state beyond the tree (not saved).
 #[derive(Default)]
@@ -294,6 +300,7 @@ pub fn bare_item_name(name: &str) -> String {
         }
     }
 }
+
 
 /// SortUIListBox: `"key[,key…][$destination[$increment]]"`, each key `[-][#][@]path`;
 /// `-` reverses it, `#` sorts numerically (else alphabetically), `@` by the item name
@@ -665,18 +672,16 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
             }
             None => zero,
         },
-        // `path trait value [type]`: every tile in the one named, of the type when given
-        // [documented: SetUIFloatMultiple] (see docs/spec-notes/menu-xml.md §9). Only tiles that have the trait
-        // (as SetUIFloat makes none), not the named tile itself; the count changed is
-        // returned [design: no return value is documented].
+        // `path trait value [type]`: the named tile itself and every descendant, of the
+        // type when given, that already has the trait; returns 0 [observed:
+        // w6d13_04_setuifloatmultiple_scope_filter_and_dumptileinfotoarray].
         // A non-finite value writes 0 [design: `finite`].
         "setuifloatmultiple" => match g.ui_tree.find_tile(&path) {
             Some(root) => {
                 let trait_ = text(args, 1);
                 let v = finite(args, 2);
                 let filter = opt(args, 3).map(|t| t as i64).filter(|&t| t != 0);
-                let mut stack: Vec<TileId> = g.ui_tree.tile(root).children.clone();
-                let mut n = 0;
+                let mut stack: Vec<TileId> = vec![root];
                 while let Some(t) = stack.pop() {
                     stack.extend(g.ui_tree.tile(t).children.iter().copied());
                     let tile = g.ui_tree.tile(t);
@@ -686,10 +691,9 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
                     if let Some(k) = tile.trait_index(&trait_) {
                         let name = trait_name(&g.ui_tree, t, k);
                         g.ui_tree.set_trait(t, &name, Value::Num(v));
-                        n += 1;
                     }
                 }
-                XVal::Num(f64::from(n))
+                zero
             }
             None => zero,
         },
@@ -718,8 +722,9 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
         // -1 when no value is there [documented: GetUIValueType notes].
         "getuivaluetype" => XVal::Num(g.ui_tree.find_trait(&path).map_or(-1.0, |(t, k)| value_type(&g.ui_tree, t, k) as f64)),
         // Missing or nonexistent path falls back to the live highlighted tile
-        // [documented: GetUIElementType]. No tile returns -1 [design].
-        "getuielementtype" => XVal::Num(inspected.map_or(-1.0, |t| element_type(&g.ui_tree.tile(t).kind) as f64)),
+        // [documented: GetUIElementType]. No tile returns 0 [observed:
+        // w6d13_03_ui_inject_xml_loaded_valuetype_and_elementtype, et(m=5,r=1,t=3,i=2,x=0)].
+        "getuielementtype" => XVal::Num(inspected.map_or(0.0, |t| element_type(&g.ui_tree.tile(t).kind) as f64)),
         "sortuilistbox" => yes(sort_list_box(&mut g.ui_tree, &path, &text(args, 1))),
         // `text font wrap` and three output variables, which the VM takes off
         // (`fnv_script::vm`'s out_call): the answer is [0, width, height, lines].
@@ -748,12 +753,13 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
             zero
         }
         // A string map of `Tilename` and every trait [documented: DumpTileInfoToArray];
-        // numbers as numbers, strings as strings [hypothesis]; empty when the path names
-        // no tile.
-        "dumptileinfotoarray" => {
-            let mut entries = Vec::new();
-            if let Some(t) = g.ui_tree.find_tile(&path) {
+        // numbers as numbers, strings as strings [hypothesis]; ar_Null when the path names
+        // no tile [observed: w6d13_04_setuifloatmultiple_scope_filter_and_dumptileinfotoarray,
+        // dump(sz=10,ht=1,tn=[T1],msz=-1)].
+        "dumptileinfotoarray" => match g.ui_tree.find_tile(&path) {
+            Some(t) => {
                 let tile = g.ui_tree.tile(t);
+                let mut entries = Vec::with_capacity(tile.traits.len() + 1);
                 entries.push((XKey::Str("Tilename".into()), XVal::Str(tile.name.clone())));
                 for tr in &tile.traits {
                     let v = match &tr.value {
@@ -762,9 +768,10 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
                     };
                     entries.push((XKey::Str(tr.name.clone()), v));
                 }
+                XVal::Array(g.ext.new_array(ArrayKind::StringMap, entries))
             }
-            XVal::Array(g.ext.new_array(ArrayKind::StringMap, entries))
-        }
+            None => XVal::Array(0),
+        },
         _ => return None,
     }))
 }

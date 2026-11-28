@@ -6,6 +6,7 @@ use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+
 /// xNVSE's outer list contains one path array per current objective target; each
 /// path ends with the target (GECK wiki GetCurrentQuestObjectiveTeleportLinks).
 /// SUP's Alt interface instead returns the first visible marker of each path.
@@ -870,6 +871,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     return Some(Err("model replacement after temporary scene placement is not supported yet".into()));
                 }
                 g.field_overrides.insert((f, format!("{sub}/")), XVal::Str(path));
+                if name == "setmodelpath" {
+                    return Some(Ok(XVal::Num(1.0)));
+                }
             }
             zero
         }

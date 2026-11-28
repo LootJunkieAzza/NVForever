@@ -196,14 +196,15 @@ fn string_reveal_letter_by_letter() {
 fn float_multiple_sets_the_tiles_inside_of_a_type() {
     let f = fixture();
     let mut g = game(&f);
-    // Images only (type 2): Pic and Pic2, not the text or the rect.
-    assert_eq!(n(run(&mut g, "SetUIFloatMultiple", &[s("TestMenu/Box"), s("alpha"), x(33.0), x(2.0)])), 2.0);
+    // Images only (type 2): Pic and Pic2, not the text or the rect; returns 0 [observed: w6d13_04].
+    assert_eq!(n(run(&mut g, "SetUIFloatMultiple", &[s("TestMenu/Box"), s("alpha"), x(33.0), x(2.0)])), 0.0);
     assert_eq!(float(&g, "TestMenu/Box/Pic/alpha"), 33.0);
     assert_eq!(float(&g, "TestMenu/Box/Inner/Pic2/alpha"), 33.0);
     assert_eq!(float(&g, "TestMenu/Box/Words/alpha"), 10.0);
-    assert_eq!(float(&g, "TestMenu/Box/alpha"), 255.0, "not the named tile itself");
-    // No type: every tile inside that has the trait.
-    assert_eq!(n(run(&mut g, "SetUIFloatMultiple", &[s("TestMenu/Box"), s("alpha"), x(1.0)])), 3.0);
+    assert_eq!(float(&g, "TestMenu/Box/alpha"), 255.0, "rect filtered out by type 2");
+    // No type: the named tile itself and every descendant that has the trait.
+    assert_eq!(n(run(&mut g, "SetUIFloatMultiple", &[s("TestMenu/Box"), s("alpha"), x(1.0)])), 0.0);
+    assert_eq!(float(&g, "TestMenu/Box/alpha"), 1.0, "includes the named tile itself");
     assert_eq!(float(&g, "TestMenu/Box/Words/alpha"), 1.0);
     assert_eq!(n(run(&mut g, "SetUIFloatMultiple", &[s("TestMenu/Nope"), s("alpha"), x(1.0)])), 0.0);
 }
@@ -402,12 +403,12 @@ fn traits_added_and_value_and_element_types() {
     assert_eq!(n(run(&mut g, "GetUIValueType", &[s("TestMenu/Box/Words/string")])), 2.0);
     assert_eq!(n(run(&mut g, "GetUIValueType", &[s("TestMenu/Box/Inner/Pic2/width")])), 3.0);
     assert_eq!(n(run(&mut g, "GetUIValueType", &[s("TestMenu/Box/nope")])), -1.0);
-    // 1 rect, 2 image, 3 text, 5 menu, -1 none.
+    // 1 rect, 2 image, 3 text, 5 menu, 0 none [observed: w6d13_03].
     assert_eq!(n(run(&mut g, "GetUIElementType", &[s("TestMenu/Box")])), 1.0);
     assert_eq!(n(run(&mut g, "GetUIElementType", &[s("TestMenu/Box/Pic")])), 2.0);
     assert_eq!(n(run(&mut g, "GetUIElementType", &[s("TestMenu/Box/Words")])), 3.0);
     assert_eq!(n(run(&mut g, "GetUIElementType", &[s("TestMenu")])), 5.0);
-    assert_eq!(n(run(&mut g, "GetUIElementType", &[s("")])), -1.0);
+    assert_eq!(n(run(&mut g, "GetUIElementType", &[s("")])), 0.0);
 }
 
 #[test]
@@ -415,7 +416,7 @@ fn cursor_inspection_resolves_missing_and_invalid_paths_and_rejects_unloaded_til
     let f = fixture();
     let mut g = game(&f);
     for args in [vec![], vec![s("Missing/Tile")]] {
-        assert_eq!(run(&mut g, "GetUIElementType", &args), x(-1.0));
+        assert_eq!(run(&mut g, "GetUIElementType", &args), x(0.0));
     }
     run(&mut g, "DumpTileInfo", &[]);
     run(&mut g, "DumpTileInfo", &[x(0.0), s("Missing/Tile")]);
@@ -435,8 +436,8 @@ fn cursor_inspection_resolves_missing_and_invalid_paths_and_rejects_unloaded_til
     g.console_out.clear();
     let tile = g.ui_pointer.over.unwrap();
     g.ui_tree.unload_tile(tile);
-    assert_eq!(run(&mut g, "GetUIElementType", &[]), x(-1.0));
-    assert_eq!(run(&mut g, "GetUIElementType", &[s("TestMenu/Box/Words")]), x(-1.0));
+    assert_eq!(run(&mut g, "GetUIElementType", &[]), x(0.0));
+    assert_eq!(run(&mut g, "GetUIElementType", &[s("TestMenu/Box/Words")]), x(0.0));
     run(&mut g, "DumpTileInfo", &[]);
     assert!(g.console_out.is_empty());
 }
@@ -501,7 +502,7 @@ fn dump_tile_info_to_the_console_and_an_array() {
     assert!(entries.contains(&(XKey::Str("alpha".into()), x(10.0))));
     assert!(entries.contains(&(XKey::Str("string".into()), s("abc"))));
     let none = run(&mut g, "DumpTileInfoToArray", &[s("TestMenu/Nope")]);
-    assert!(array(&g, &none).is_empty());
+    assert_eq!(none, XVal::Array(0), "missing tile returns ar_Null [observed: w6d13_04]");
 }
 
 #[test]

@@ -20,6 +20,7 @@ use crate::game::Game;
 use fnv_script::vm::XVal;
 use fnv_ui::{MemSource, Source, Value};
 
+
 /// GetUIFloat's answer for a path that names no trait [documented: GetUIFloat, "Returns
 /// -999 if UI trait was not found"].
 pub const NOT_FOUND: f64 = -999.0;
@@ -226,7 +227,10 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         "getuifloat" => XVal::Num(g.ui_tree.get_counted(&path, fnv_ui::Count::FromFirst).map_or(NOT_FOUND, Value::num)),
         "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
         "getuifloatinherited" => XVal::Num(inherited(&g.ui_tree, &path, num(args, 1) != 0.0).unwrap_or(NOT_FOUND)),
-        "getuistring" => XVal::Str(g.ui_tree.get_string(&path).unwrap_or_default()),
+        "getuistring" => XVal::Str(match g.ui_tree.get(&path) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => String::new(),
+        }),
         "setuifloat" => yes(g.ui_tree.set_counted(&path, fnv_ui::Count::FromFirst, Value::Num(num(args, 1)))),
         "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
         "setuistring" | "setuistringex" => yes(g.ui_tree.set_counted(&path, fnv_ui::Count::FromFirst, Value::Str(text(args, 1)))),

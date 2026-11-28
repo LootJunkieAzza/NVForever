@@ -8,6 +8,7 @@ use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, BTreeSet};
 
+
 /// Every HUD visibility flag, bits 0-16 [documented: GetHUDVisibilityOverride's flag
 /// list; observed: hud1 reads 131071].
 pub const HUD_ALL: u32 = 0x1FFFF;
@@ -200,7 +201,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "gethudvisibilityoverride" => XVal::Num(f64::from(g.hud.visibility)),
         // [observed: hud1, 3 reads back in its frame and the next]
         "sethudvisibilityoverride" => {
-            g.hud.visibility = (num(args, 0, f64::from(HUD_ALL)) as i64).clamp(0, i64::from(u32::MAX)) as u32;
+            g.hud.visibility = (num(args, 0, f64::from(HUD_ALL)) as i64) as u32;
             XVal::Num(0.0)
         }
         // Nothing shakes the HUD yet [observed: hud1 reads 0 at rest].

@@ -21,6 +21,7 @@ use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_ui::{MemSource, Source, TileId, Value};
 use std::collections::BTreeMap;
 
+
 /// The menu the bars are made in [design: SUP's page names the HUD; its tiles are not
 /// documented].
 pub const HUD: &str = "HUDMainMenu";
@@ -57,10 +58,9 @@ pub struct Element {
 }
 
 impl Element {
-    /// [hypothesis] Alpha 255; the system colour 1, the interface's own (HudBarSetColor
-    /// needs it set to 0 first, so it is not 0 by default [documented]); the Meter and
-    /// the Text shown, the Frame and ImageEx hidden (the category page's examples call
-    /// HudBarSetVisible for the Frame only).
+    /// Alpha 255; system colour 1 [hypothesis]; default element visibility is Meter (0),
+    /// Frame (1) and ImageEx (3) visible (1) and Text (2) hidden (0) [observed:
+    /// w6d13_07_sup_hudbar_element_defaults_traits_and_getpos, vis(1,1,0,1,all=0)].
     fn new(k: usize) -> Element {
         Element {
             x: 0.0,
@@ -73,7 +73,7 @@ impl Element {
             rotate: [0.0; 3],
             rgb: None,
             systemcolor: 1.0,
-            visible: k == 0 || k == 2,
+            visible: k != 2,
             texture: String::new(),
             indent: 0.0,
             alt: (0.0, 0.0),
