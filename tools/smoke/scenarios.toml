@@ -19398,6 +19398,20 @@ expect = [
 forbid = [{ text = "grab: picked up loose object White Horse Nettle", label = "the plant comes off the ground" }]
 
 [[scenario]]
+name = "plant-walked-through-stays-rooted"
+source = "#4917 (player report: harvested White Horse Nettles were knocked over when walked into and clinked like glass); observer check 278: nothing moved the original's nettles, and its body met nothing (fnv_phys world.rs `rooted`) [design]"
+note = "the nettle 0016AF22 south of Goodsprings (placed at -68223, -3810, 8109.7, upright); the player starts 110 north of it, faces south and runs through it for 2.5 s, then the console reads its place and tilt"
+areas = ["physics"]
+paths = ["crates/fnv-phys/src/world.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NEAR = "0016AF22", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "6:180:0", NVF_PLAY_TEST_MOVE = "7:1:0,9.5:0:0", NVF_PLAY_TEST_CONSOLE = "11:0016AF22.getpos z;11.2:0016AF22.getangle x;11.4:0016AF22.getangle y;11.6:close" }
+args = ["--play", "--pos=-68223,-3700,8110", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'console: GetPos on 0x0016AF22 >> 8109\.', label = "the nettle is where it was placed" },
+  { re = 'console: GetAngle on 0x0016AF22 >> -?0(\.0+)?$', min = 2, label = "it still stands upright (tilt 0 about x and y)" },
+]
+
+[[scenario]]
 name = "grab-skull"
 source = "docs/spec-notes/grab.md §5: the tutorial's brahmin skull in Doc Mitchell's house picked up with Grab (Z) and put back, then held with Activate (E) and carried while the view turns 120°, dropped clear of the top it lay on and was carried along (at 90° it was let go on that top's edge and tumbled off it spinning, a roll on the floor that passed 300 units in about one run in three on the physics-tickrate branch, 2026-11-15); its OnGrab and OnRelease blocks run"
 areas = ["grab", "physics"]

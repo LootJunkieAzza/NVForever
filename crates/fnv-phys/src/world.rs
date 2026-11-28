@@ -244,6 +244,9 @@ struct PreparedObject {
     index: u16,
     layer: u8,
     motion: Motion,
+    /// A loose body on the Non Collidable layer, placed fixed and touching nothing
+    /// ([`rooted`]).
+    rooted: bool,
     material: Material,
     /// Body pose in the world, rapier units.
     pose: Pose,
@@ -254,6 +257,20 @@ struct PreparedObject {
     shell: f32,
     /// The node the object hangs on (`CollisionObject::node`).
     node: Option<String>,
+}
+
+/// A dynamic body on the Non Collidable layer: the pickable plants White Horse Nettle and
+/// Broc Flower carry one, a 45 kg box standing on its end (grab.md §3). In the original
+/// nothing moved them: walking into them (the players' report, #4917), shots or a frag
+/// grenade's blast beside them (observer check 278 [observed]); a nettle held with the
+/// grab key and let go was read 170 units under the ground, so its body met nothing
+/// there, terrain included. Placed as a dynamic body here it was knocked over when the
+/// player walked into it and clinked on landing (#4917). It is placed as a fixed body that
+/// has no contacts with any other (queries still see it, as they see the plants'
+/// non-collidable statics) [design: the observed stillness; the grab the original allows
+/// stays off, #3389].
+fn rooted(o: &CollisionObject) -> bool {
+    o.layer == crate::layers::NON_COLLIDABLE && o.motion == Motion::Dynamic
 }
 
 /// The surface and mass properties of a collision object.
@@ -302,10 +319,12 @@ impl PreparedRef {
             if leaves.is_empty() {
                 continue;
             }
+            let rooted = rooted(o);
             out.objects.push(PreparedObject {
                 index: i as u16,
                 layer: o.layer,
-                motion: o.motion,
+                motion: if rooted { Motion::Static } else { o.motion },
+                rooted,
                 material: Material { friction: o.friction, restitution: o.restitution, mass: o.mass, code: o.material },
                 pose: body_pose,
                 wind: o.wind,
@@ -651,6 +670,12 @@ impl PhysWorld {
                 self.wind.entry(p.form_id).or_default().push(body);
             }
             report.colliders += self.attach(body, owner, &o.material, o.leaves, o.shell);
+            if o.rooted {
+                for c in self.w.bodies[body].colliders().to_vec() {
+                    self.w.colliders[c].set_collision_groups(crate::actors::NO_CONTACTS);
+                    self.w.colliders[c].set_solver_groups(crate::actors::NO_CONTACTS);
+                }
+            }
             if o.motion == Motion::Dynamic {
                 self.set_mass(body, o.material.mass);
                 self.heavy_unpushed(body);
