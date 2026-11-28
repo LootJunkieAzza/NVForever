@@ -50,6 +50,7 @@ enum Place {
 }
 
 /// The meshes by cell ([`CELL`]) and those listed for every light.
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct CasterGrid {
     cells: HashMap<IVec3, Vec<Entity>>,
@@ -65,9 +66,9 @@ pub fn cell_of(p: Vec3) -> IVec3 {
     (p / CELL).floor().as_ivec3()
 }
 
+#[allow(dead_code)]
 impl CasterGrid {
     /// Monotonic generation bumped whenever any bucket's membership changes [design].
-    #[allow(dead_code)]
     pub fn generation(&self) -> u64 {
         self.gen
     }
