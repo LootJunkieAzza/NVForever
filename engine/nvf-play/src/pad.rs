@@ -1997,4 +1997,43 @@ mod tests {
             assert!(!fields.iter().any(|f| f.ends_with(":a2") || f.ends_with(":a5")), "{guid} unexpectedly maps a2/a5: {line}");
         }
     }
+
+    #[test]
+    fn bundled_gilrs_db_maps_nacon_3285_0607_on_linux() {
+        let db = include_str!("../../vendor/gilrs/SDL_GameControllerDB/gamecontrollerdb.txt");
+        let guid = "03000000853200000706000012010000";
+        let line = db
+            .lines()
+            .find(|l| l.starts_with(guid) && l.contains("platform:Linux"))
+            .unwrap_or_else(|| panic!("missing Linux mapping for Nacon GC100 ({guid})"));
+        let fields: Vec<&str> = line.split(',').collect();
+        assert_eq!(fields[0], guid);
+        assert_eq!(fields[1], "Nacon GC100");
+        for required in [
+            "a:b0",
+            "b:b1",
+            "x:b2",
+            "y:b3",
+            "leftshoulder:b4",
+            "rightshoulder:b5",
+            "back:b6",
+            "start:b7",
+            "guide:b8",
+            "leftstick:b9",
+            "rightstick:b10",
+            "leftx:a0",
+            "lefty:a1",
+            "lefttrigger:a2",
+            "rightx:a3",
+            "righty:a4",
+            "righttrigger:a5",
+            "dpup:h0.1",
+            "dpright:h0.2",
+            "dpdown:h0.4",
+            "dpleft:h0.8",
+            "platform:Linux",
+        ] {
+            assert!(fields.contains(&required), "{guid} missing {required} in {line}");
+        }
+    }
 }

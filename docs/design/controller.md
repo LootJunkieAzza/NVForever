@@ -18,6 +18,21 @@ the console's key keep working with a controller chosen, so a player is never lo
 out. Any connected controller counts (Bevy's gilrs backend, on by default); its arrival
 and departure are logged (`controller: … connected`).
 
+### 1a. Controller mappings (#4858)
+
+[design, #4858] Vendored `gilrs` (`engine/vendor/gilrs/src/mapping/mod.rs`) resolves SDL
+controller mappings from its bundled `SDL_GameControllerDB/gamecontrollerdb.txt` using a
+3-tier GUID lookup: exact 16-byte UUID first, then CRC-masked (`bytes[2..4]` zeroed for
+SDL 2.26+ CRC16-tagged entries), then firmware-version-masked `(bus, vid, pid)`
+(`bytes[12..14]` zeroed, preferring wildcard version `0` else nearest firmware revision)
+for standard hardware VID/PID GUIDs (non-zero VID/PID, zero reserved and driver-signature
+bytes). Players can override or add mappings without rebuilding by placing a
+`gamecontrollerdb.txt` file in NVForever's home directory (`NVFOREVER_HOME`, beside
+`NVForever.ini`), or via the standard `SDL_GAMECONTROLLERCONFIG_FILE` and
+`SDL_GAMECONTROLLERCONFIG` environment variables (precedence: bundled DB < home
+`gamecontrollerdb.txt` < `SDL_GAMECONTROLLERCONFIG_FILE` < `SDL_GAMECONTROLLERCONFIG`;
+user overrides win across all 3 tiers).
+
 [design, #2200] **Automatic Input Switching**, immediately after Input Device on the
 Controls tab, defaults to ON (`bindings::AUTOMATIC_INPUT_SWITCHING`). It is saved as
 `Automatic Input Switching=1` in `[Controls]`; `0` keeps device selection manual. Old

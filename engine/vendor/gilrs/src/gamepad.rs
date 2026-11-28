@@ -1032,9 +1032,21 @@ impl GamepadData {
         let uuid = Uuid::from_bytes(gamepad.uuid());
         let mapping = db
             .get(uuid)
-            .map(
-                |s| match Mapping::parse_sdl_mapping(s, gamepad.buttons(), gamepad.axes()) {
-                    Ok(result) => result,
+            .map(|s| {
+                match Mapping::parse_sdl_mapping(s, gamepad.buttons(), gamepad.axes()) {
+                    Ok(result) => {
+                        if let Some(matched_uuid) =
+                            s.split(',').next().and_then(|u| Uuid::parse_str(u).ok())
+                        {
+                            if matched_uuid != uuid {
+                                debug!(
+                                    "Using fallback SDL mapping '{}' ({matched_uuid}) for UUID {uuid}",
+                                    result.name()
+                                );
+                            }
+                        }
+                        result
+                    }
                     Err(e) => {
                         warn!(
                             "Unable to parse SDL mapping for UUID {uuid}\n\t{e:?}\n\tDefault \
@@ -1042,8 +1054,8 @@ impl GamepadData {
                         );
                         Mapping::default(gamepad)
                     }
-                },
-            )
+                }
+            })
             .unwrap_or_else(|| {
                 warn!("No mapping found for UUID {uuid}\n\tDefault mapping will be used.");
                 Mapping::default(gamepad)
