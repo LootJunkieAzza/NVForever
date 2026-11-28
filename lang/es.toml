@@ -843,3 +843,8 @@ name = "Español"
 "Down with nobody near, and no save to go back to: respawn by another player" = "Caído sin nadie cerca y sin partida a la que volver: reaparece junto a otro jugador"
 "Waiting for {names} to come near" = "Esperando a que {names} se acerque"
 "From co-op: {name}" = "Del cooperativo: {name}"
+# [design; crates/fnv-game/src/coop_perks.rs] Co-op perks: the names and descriptions of Healing Hands and Quack Surgeon, NVForever's own words.
+"Healing Hands" = "Manos sanadoras"
+"Co-op only. Your touch does more than patch a friend up: anyone you revive gets back on their feet with every rad flushed out of their system." = "Solo en cooperativo. Tu toque hace más que remendar a un amigo: quien reanimes se levanta con todos los rads eliminados de su cuerpo."
+"Quack Surgeon" = "Cirujano matasanos"
+"Co-op only. Who needs a Stimpak? You can revive a downed friend with a bottle of liquor instead. A Stimpak is used only when you have nothing to drink." = "Solo en cooperativo. ¿Quién necesita un Estimulante? Puedes reanimar a un amigo caído con una botella de licor. Solo se usa un Estimulante cuando no tienes nada que beber."

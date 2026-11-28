@@ -2076,3 +2076,8 @@ name = "简体中文"
 "Down with nobody near, and no save to go back to: respawn by another player" = "倒下、附近没有人且没有可返回的存档：请在其他玩家身边复活"
 "Waiting for {names} to come near" = "正在等待 {names} 靠近"
 "From co-op: {name}" = "来自联机：{name}"
+# [design; crates/fnv-game/src/coop_perks.rs] Co-op perks: the names and descriptions of Healing Hands and Quack Surgeon, NVForever's own words.
+"Healing Hands" = "妙手回春"
+"Co-op only. Your touch does more than patch a friend up: anyone you revive gets back on their feet with every rad flushed out of their system." = "仅限联机。你的妙手不只是替朋友包扎：被你救起的人站起来时，体内的辐射也被全部清除。"
+"Quack Surgeon" = "江湖郎中"
+"Co-op only. Who needs a Stimpak? You can revive a downed friend with a bottle of liquor instead. A Stimpak is used only when you have nothing to drink." = "仅限联机。谁还需要治疗针？你可以用一瓶烈酒救起倒地的朋友。只有身上没有酒时才会用掉治疗针。"

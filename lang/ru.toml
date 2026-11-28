@@ -864,3 +864,8 @@ name = "Русский"
 "Down with nobody near, and no save to go back to: respawn by another player" = "Вы повержены, рядом никого и нет сохранения для возврата: возродитесь рядом с другим игроком"
 "Waiting for {names} to come near" = "Ожидание: {names} должны подойти ближе"
 "From co-op: {name}" = "Из кооператива: {name}"
+# [design; crates/fnv-game/src/coop_perks.rs] Co-op perks: the names and descriptions of Healing Hands and Quack Surgeon, NVForever's own words.
+"Healing Hands" = "Целительные руки"
+"Co-op only. Your touch does more than patch a friend up: anyone you revive gets back on their feet with every rad flushed out of their system." = "Только в кооперативе. Ваше прикосновение не просто подлатывает друга: каждый, кого вы поднимете, встаёт на ноги, а вся радиация выводится из его организма."
+"Quack Surgeon" = "Знахарь-хирург"
+"Co-op only. Who needs a Stimpak? You can revive a downed friend with a bottle of liquor instead. A Stimpak is used only when you have nothing to drink." = "Только в кооперативе. Кому нужен Стимпак? Поднять упавшего друга можно и бутылкой спиртного. Стимпак тратится, только когда выпить нечего."
