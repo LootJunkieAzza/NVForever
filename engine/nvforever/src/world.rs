@@ -2199,6 +2199,13 @@ pub fn spawn_model(
         if scenery {
             commands.entity(e).insert(nvf_play::DrawOnly);
         }
+        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+        if s.external_emittance && !scenery && !billboard && posed.is_none()
+            && crate::room_beam_census::enabled()
+            && !models.cache.morphs.ids().any(|id| id == s.mesh.id())
+        {
+            commands.entity(e).insert(crate::room_beam_census::RaySource::new(r, p.emittance, &path, s.block, rt * shape));
+        }
         if let Some((tracked, original)) = blend {
             if tracked.reasons == 0 {
                 commands.entity(e).insert(crate::mesh_terrain_blend::BlendShape::new(original));

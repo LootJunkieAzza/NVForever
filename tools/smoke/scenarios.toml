@@ -37684,3 +37684,32 @@ expect = [
   { re = 'sky: 06:0\d  climate NVDefaultClimate  weather NVWastelandClear .*grade: saturation 1\.0[0-5]', label = "at 06:00 the grade is well on to the sunrise's (1.01 here; the old keys gave 1.09-1.10 at 06:02)" },
 ]
 forbid = ["Caught rendering error"]
+
+[[scenario]]
+name = "room-beams-census"
+source = "[design, #4698] docs/design/room-beams.md: the Saloon's placed daylight rays give beam candidates without changing their rendering"
+areas = ["rendering"]
+paths = ["engine/nvf-assets/src/room_rays.rs", "engine/nvforever/src/room_beam_census.rs"]
+requires = ["NVF_SMOKE_DEV_AIDS"]
+env = { NVF_PLAY_DEBUG_ROOM_BEAM_CENSUS = "1" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'room beam census: cell GSProspectorSaloonInterior 0x[0-9A-F]+: [1-9]\d* candidates, [1-9]\d* shafts', label = "the census finds Saloon daylight beam candidates" },
+]
+
+[[scenario]]
+name = "room-beams-census-off"
+source = "[design, #4698] docs/design/room-beams.md: the Saloon does not run the candidate census without the opt-in"
+areas = ["rendering"]
+paths = ["engine/nvf-assets/src/room_rays.rs", "engine/nvforever/src/room_beam_census.rs"]
+requires = ["NVF_SMOKE_DEV_AIDS"]
+env = { NVF_PLAY_DEBUG_ROOM_BEAM_CENSUS = "0" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'loading screen down after .*the start: cells, actors and scripts ready', label = "the interior loaded with the aid off" },
+]
+forbid = [
+  { re = 'room beam census:', label = "the census is idle" },
+]
