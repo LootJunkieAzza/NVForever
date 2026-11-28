@@ -502,6 +502,7 @@ mod tests {
                 external_emittance: false,
                 look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
                 missing_diffuse: None,
+                block: 0,
             }],
             bounds: None,
             ..Default::default()

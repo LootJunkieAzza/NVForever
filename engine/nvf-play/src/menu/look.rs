@@ -870,9 +870,9 @@ mod tests {
         use crate::pad::Labels;
         use fnv_sim::FormId;
         for mode in [Mode::Container(FormId(0x105658)), Mode::Barter(FormId(0x104C0C))] {
-            assert_eq!(pick_hint(mode, Side::Player, Labels::Xbox).as_deref(), Some("LT)"));
-            assert_eq!(pick_hint(mode, Side::Container, Labels::Xbox).as_deref(), Some("RT)"));
-            assert_eq!(pick_hint(mode, Side::Player, Labels::PlayStation).as_deref(), Some("L2)"));
+            assert_eq!(pick_hint(mode, Side::Player, Labels::Xbox).as_deref(), Some("[LT]"));
+            assert_eq!(pick_hint(mode, Side::Container, Labels::Xbox).as_deref(), Some("[RT]"));
+            assert_eq!(pick_hint(mode, Side::Player, Labels::PlayStation).as_deref(), Some("[L2]"));
             assert_eq!(pick_hint(mode, Side::Player, Labels::Keys), None);
         }
         assert_eq!(pick_hint(Mode::Inventory, Side::Player, Labels::Xbox), None);

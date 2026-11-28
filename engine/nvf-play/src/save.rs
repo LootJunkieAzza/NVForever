@@ -589,7 +589,7 @@ fn player_dead(world: &World) -> bool {
 }
 
 /// Why saving is not allowed now, if it is not.
-fn not_now(world: &World) -> Option<String> {
+pub fn not_now(world: &World) -> Option<String> {
     let st = world.get_resource::<ScriptState>()?;
     let Some(rt) = st.rt.as_ref() else { return Some("the scripts are not running yet".into()) };
     if world.resource::<crate::loading::Loading>().active() {
@@ -691,14 +691,16 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         SaveKind::Manual => r.name.as_str(),
     };
     let path = cfg.path_of(name)?;
-    let mut game = world.resource_scope(|world, mut sim: Mut<SimState>| {
+    let (mut game, story) = world.resource_scope(|world, mut sim: Mut<SimState>| {
         let mut st = world.resource_mut::<ScriptState>();
         let rt = st.rt.as_mut().ok_or("the scripts are not running")?;
         // The extender's SaveGame event, with the save's name [documented: NVSE Event
         // Handling], before the state is taken.
         crate::script::with_world(rt, &mut sim, |rt| {
             rt.game.dispatch_event("SaveGame", vec![fnv_script::vm::XVal::Str(name.to_string())], None);
-            rt.game.checked_snapshot()
+            // The story to undo keeps the unique rewards of claimed quests
+            // (coop-shared-progress.md §4.1).
+            rt.game.checked_snapshot().map(|g| (g, rt.game.coop_story_to_undo()))
         })
     })?;
     // Test aid: this save reads as one from a later version (smoke `save-refused-load`).
@@ -716,7 +718,15 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
             (header.place, header.location, header.weather) = (h.place.clone(), h.location.clone(), h.weather.clone());
             (header.game_year, header.game_month, header.game_day, header.game_hour) = (h.game_year, h.game_month, h.game_day, h.game_hour);
             info!("save: a co-op guest's save: its own game at {} with the character as it is now", h.location);
-            (solo.game.clone().with_character_of(&game), e)
+            // What the host's story gave or took is not part of the character: taken off,
+            // but for the unique rewards of the stages this character claimed
+            // (docs/design/coop-save.md §5).
+            let mut now = game;
+            let undone = story.undo_on(&mut now);
+            if !undone.is_empty() {
+                info!("save: the host's story taken off the guest's save: {}", undone.join(", "));
+            }
+            (solo.game.clone().with_character_of(&now), e)
         }
         None => (game, engine),
     };
@@ -1311,6 +1321,7 @@ fn apply_engine(world: &mut World) {
         return;
     }
     let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
+    replay_claims(world);
     // The player's tweak: a load turns god mode off [design: docs/design/tweaks.md].
     if world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.game.god_mode_off_on_load) && crate::combat::god_mode() {
         crate::combat::set_god_mode(false);
@@ -1448,6 +1459,38 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
         eprintln!("load: {}", missing_content_text(&missing));
     }
     Ok((f.header, body, Some(OrderChange { remap, missing })))
+}
+
+/// Joint progression's replay (`fnv_game::coop_joint`, coop-shared-progress.md §3.5): when this character's
+/// own world loads, the quest stages it claimed in another player's world are applied
+/// before the first frame. Not for a load that joins a co-op session (that world is the
+/// host's: the claims wait in the character for its own next load) [design].
+fn replay_claims(world: &mut World) {
+    use crate::coop_progress::{REJOIN_ENV, SYNC_ENV};
+    if std::env::var_os(SYNC_ENV).is_some() || std::env::var_os(REJOIN_ENV).is_some() {
+        return;
+    }
+    if world.get_resource::<crate::coop_progress::CoopProgress>().is_some_and(|p| p.role == crate::coop_progress::Role::Guest) {
+        return;
+    }
+    let lines = match world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+        Some(rt) => rt.game.replay_claims(),
+        None => return,
+    };
+    if let Some(mut corner) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
+        for l in lines {
+            corner.push(l.into());
+        }
+    }
+    // The map markers found in another player's world (coop-shared-progress.md §2):
+    // found here too, as a save's own are (no notice, no XP).
+    let markers = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()).map(|rt| std::mem::take(&mut rt.game.player.claims.markers)).unwrap_or_default();
+    if !markers.is_empty() {
+        info!("co-op: {} map marker(s) found in co-op are found here too", markers.len());
+        let mut found = world.get_resource::<crate::pipboy::data::DataState>().map(|s| s.discovered().clone()).unwrap_or_default();
+        found.extend(markers.iter().map(|m| m.0));
+        crate::pipboy::data::DataState::restore_discovered(world, found);
+    }
 }
 
 #[cfg(test)]

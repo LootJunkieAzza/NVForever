@@ -22,7 +22,7 @@
 
 use crate::cond::{CondResult, Operand, RunOn};
 use crate::data::{info_flag, InfoDef};
-use crate::game::{Game, LineKind, LineLook, RunCtx, Speech};
+use crate::game::{Game, LineKind, LineLook, Speech};
 use crate::trace::EventKind;
 use fnv_sim::{clock, FormId};
 use rand_core::RngCore;
@@ -686,7 +686,20 @@ impl<'a> Game<'a> {
     /// A conversation started from a GameMode block holds the rest of that frame's
     /// GameMode scripts, as any menu does. [`Game::menu`] stays as it is: the
     /// conversation is the menu ([`Game::in_menu`], dialogue.md §6).
+    ///
+    /// A co-op host's talk with a story NPC waits for the other players to come near it
+    /// ([`Game::story_gate`]).
     pub fn start_dialogue(&mut self, actor: FormId, topic: Option<FormId>) -> Result<FormId, String> {
+        if self.story_gate(actor) {
+            return Err(format!("{} waits until every player is near", self.data.name(actor)));
+        }
+        self.open_dialogue(actor, topic, false)
+    }
+
+    /// A script's activation of a talker with the player as the activator opens the
+    /// conversation as [`Game::start_dialogue`] does, except that the co-op story gate
+    /// does not hold it: it is the script's scene ([`Game::script_talks`]).
+    pub fn start_script_dialogue(&mut self, actor: FormId, topic: Option<FormId>) -> Result<FormId, String> {
         self.open_dialogue(actor, topic, false)
     }
 
@@ -811,9 +824,9 @@ impl<'a> Game<'a> {
         // The line is up, whether or not a script of it runs: whoever started it reads it next.
         self.dialogue_transition();
         self.emit_response(actor, def, info, 0);
-        self.run_line_result(actor, def, false);
+        self.run_line_result(actor, def, info, false);
         if def.has(info_flag::RUN_IMMEDIATELY) {
-            self.run_line_result(actor, def, true);
+            self.run_line_result(actor, def, info, true);
         }
         self.jip_dialog_topic(actor, topic, info);
     }
@@ -829,7 +842,7 @@ impl<'a> Game<'a> {
         self.ask_response_idles(actor, Some(FormId::PLAYER_REF), info, r);
     }
 
-    fn run_line_result(&mut self, actor: FormId, def: &InfoDef, end: bool) {
+    fn run_line_result(&mut self, actor: FormId, def: &InfoDef, info: FormId, end: bool) {
         let data = self.data;
         if let Some(u) = if end { def.end } else { def.begin } {
             // An end script runs as the line goes: what it reads is up by then. A begin script
@@ -838,7 +851,11 @@ impl<'a> Game<'a> {
                 self.dialogue_transition();
             }
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
-            self.run_result(u, RunCtx { self_ref: Some(actor), action_ref: None, quest: def.quest });
+            // The stages it sets name this line, for joint progression's replay
+            // (`crate::coop_joint::Line`).
+            let outer = self.coop_line.replace((info, end));
+            self.run_info_result(actor, u, def.quest);
+            self.coop_line = outer;
         }
     }
 
@@ -943,7 +960,7 @@ impl<'a> Game<'a> {
         }
         self.emit(EventKind::LineEnded { speaker: actor, info, cut: false });
         if !def.has(info_flag::RUN_IMMEDIATELY) {
-            self.run_line_result(actor, def, true);
+            self.run_line_result(actor, def, info, true);
         }
         for t in self.player.topics.learn(&def.add_topics) {
             self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
