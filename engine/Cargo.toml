@@ -81,6 +81,7 @@ winit = { path = "vendor/winit" }
 rapier3d = { path = "../vendor/rapier3d" }
 bevy_winit = { path = "vendor/bevy_winit" }
 gpu-allocator = { path = "vendor/gpu-allocator" }
+bevy_camera = { path = "vendor/bevy_camera" }
 bevy_light = { path = "vendor/bevy_light" }
 gilrs = { path = "vendor/gilrs" }
 bevy_pbr = { path = "vendor/bevy_pbr" }

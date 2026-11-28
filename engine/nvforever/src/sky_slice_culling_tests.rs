@@ -63,7 +63,10 @@ fn sun_casters_over_slice_skips_shared_mirror_and_held_cascades() {
     let config = CascadeShadowConfig { bounds: vec![100.0, 400.0], overlap_proportion: 0.2, minimum_distance: 5.0 };
     let sun = world.spawn((Sun, visible, cascades, config, GlobalTransform::IDENTITY)).id();
 
-    world.insert_resource(crate::shadow_rate::MirrorShadowShare(Some((main_cam, mirror_cam))));
+    world.insert_resource(crate::shadow_rate::MirrorShadowShare {
+        donor: Some(main_cam),
+        targets: [Some(mirror_cam), None, None, None],
+    });
     // Hold cascade 1, leave cascade 0 active.
     world.insert_resource(bevy::pbr::HoldDirectionalShadowMaps(1u32 << 1));
 

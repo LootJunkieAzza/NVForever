@@ -23,7 +23,8 @@
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::{NoFrustumCulling, VisibilitySystems};
 use bevy::ecs::entity::{EntityHashMap, EntityHashSet};
-use bevy::light::{NvfShadowCasterCandidates, SimulationLightSystems};
+use bevy::light::{NvfShadowCasterCandidates, NvfSpatialMeshGrid, SimulationLightSystems};
+use bevy::math::Vec3A;
 use bevy::pbr::HoldLightShadowMaps;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -49,11 +50,15 @@ enum Place {
 }
 
 /// The meshes by cell ([`CELL`]) and those listed for every light.
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct CasterGrid {
     cells: HashMap<IVec3, Vec<Entity>>,
     everywhere: EntityHashSet,
     at: EntityHashMap<Place>,
+    /// Bumped only when a mesh enters, leaves, or changes cell/Everywhere (moving within
+    /// the same 1024-unit cell leaves `gen` unchanged) [design].
+    gen: u64,
 }
 
 /// The cell a point lies in.
@@ -61,7 +66,13 @@ pub fn cell_of(p: Vec3) -> IVec3 {
     (p / CELL).floor().as_ivec3()
 }
 
+#[allow(dead_code)]
 impl CasterGrid {
+    /// Monotonic generation bumped whenever any bucket's membership changes [design].
+    pub fn generation(&self) -> u64 {
+        self.gen
+    }
+
     /// File a mesh by its bounds' centre and bounding radius; `bounded` false (no bounds, or
     /// not culled) lists it for every light. Moving within its cell costs a lookup.
     pub fn place(&mut self, e: Entity, centre: Vec3, radius: f32, bounded: bool) {
@@ -77,6 +88,7 @@ impl CasterGrid {
             }
         }
         self.at.insert(e, place);
+        self.gen = self.gen.wrapping_add(1);
     }
 
     /// Take a mesh out.
@@ -91,9 +103,11 @@ impl CasterGrid {
                         self.cells.remove(&c);
                     }
                 }
+                self.gen = self.gen.wrapping_add(1);
             }
             Some(Place::Everywhere) => {
                 self.everywhere.remove(&e);
+                self.gen = self.gen.wrapping_add(1);
             }
             None => {}
         }
@@ -148,27 +162,123 @@ pub fn take_grid_counts() -> (u64, u64, u64, u64) {
     (SERVED.swap(0, Relaxed), CANDIDATES.swap(0, Relaxed), FILED.load(Relaxed), EVERYWHERE.load(Relaxed))
 }
 
+/// O(1) incremental index backing [`NvfSpatialMeshGrid`] so both point/spot lamp
+/// candidate queries and directional sun cascade culling share one zero-copy spatial grid
+/// [design].
+#[derive(Debug, Default)]
+struct SpatialIndex {
+    cell_slots: HashMap<IVec3, usize>,
+    everywhere_slots: EntityHashMap<usize>,
+    at: EntityHashMap<Place>,
+    gen: u64,
+}
+
+impl SpatialIndex {
+    fn generation(&self) -> u64 {
+        self.gen
+    }
+
+    fn place(&mut self, grid: &mut NvfSpatialMeshGrid, e: Entity, centre: Vec3, radius: f32, bounded: bool) {
+        let place = if bounded && radius <= MARGIN { Place::Cell(cell_of(centre)) } else { Place::Everywhere };
+        if self.at.get(&e) == Some(&place) {
+            return;
+        }
+        self.remove(grid, e);
+        match place {
+            Place::Cell(c) => {
+                if let Some(&slot) = self.cell_slots.get(&c) {
+                    grid.cells[slot].2.push(e);
+                } else {
+                    let slot = grid.cells.len();
+                    let world_center = (c.as_vec3a() + Vec3A::splat(0.5)) * CELL;
+                    grid.cells.push((c, world_center, vec![e]));
+                    self.cell_slots.insert(c, slot);
+                }
+            }
+            Place::Everywhere => {
+                let slot = grid.everywhere.len();
+                grid.everywhere.push(e);
+                self.everywhere_slots.insert(e, slot);
+            }
+        }
+        self.at.insert(e, place);
+        self.gen = self.gen.wrapping_add(1);
+    }
+
+    fn remove(&mut self, grid: &mut NvfSpatialMeshGrid, e: Entity) {
+        match self.at.remove(&e) {
+            Some(Place::Cell(c)) => {
+                if let Some(&slot) = self.cell_slots.get(&c) {
+                    let v = &mut grid.cells[slot].2;
+                    if let Some(i) = v.iter().position(|x| *x == e) {
+                        v.swap_remove(i);
+                    }
+                    if v.is_empty() {
+                        grid.cells.swap_remove(slot);
+                        self.cell_slots.remove(&c);
+                        if slot < grid.cells.len() {
+                            let moved_coord = grid.cells[slot].0;
+                            self.cell_slots.insert(moved_coord, slot);
+                        }
+                    }
+                }
+                self.gen = self.gen.wrapping_add(1);
+            }
+            Some(Place::Everywhere) => {
+                if let Some(slot) = self.everywhere_slots.remove(&e) {
+                    grid.everywhere.swap_remove(slot);
+                    if slot < grid.everywhere.len() {
+                        let moved = grid.everywhere[slot];
+                        self.everywhere_slots.insert(moved, slot);
+                    }
+                }
+                self.gen = self.gen.wrapping_add(1);
+            }
+            None => {}
+        }
+    }
+
+    fn candidates(&self, grid: &NvfSpatialMeshGrid, centre: Vec3, range: f32, out: &mut Vec<Entity>) {
+        out.extend_from_slice(&grid.everywhere);
+        let reach = range + MARGIN;
+        let (lo, hi) = (cell_of(centre - reach), cell_of(centre + reach));
+        for x in lo.x..=hi.x {
+            for y in lo.y..=hi.y {
+                for z in lo.z..=hi.z {
+                    if let Some(&slot) = self.cell_slots.get(&IVec3::new(x, y, z)) {
+                        out.extend_from_slice(&grid.cells[slot].2);
+                    }
+                }
+            }
+        }
+    }
+
+    fn counts(&self) -> (usize, usize) {
+        (self.at.len(), self.everywhere_slots.len())
+    }
+}
+
 pub struct LightShadowCastersPlugin;
 
 impl Plugin for LightShadowCastersPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<NvfShadowCasterCandidates>().add_systems(
-            PostUpdate,
-            caster_candidates
-                .after(crate::light_shadows::ChooseLamps)
-                .after(TransformSystems::Propagate)
-                .after(VisibilitySystems::CalculateBounds)
-                .before(SimulationLightSystems::CheckLightVisibility)
-                // With the row Off it does not run (after it is switched off, it empties
-                // the candidates once: bevy_light then culls as upstream).
-                .run_if(crate::light_shadows::live),
-        );
+        app.init_resource::<NvfShadowCasterCandidates>()
+            .init_resource::<NvfSpatialMeshGrid>()
+            .add_systems(
+                PostUpdate,
+                caster_candidates
+                    .after(crate::light_shadows::ChooseLamps)
+                    .after(TransformSystems::Propagate)
+                    .after(VisibilitySystems::CalculateBounds)
+                    .before(VisibilitySystems::CheckVisibility)
+                    .before(SimulationLightSystems::CheckLightVisibility),
+            );
     }
 }
 
 type Meshes<'a> = (Entity, &'a GlobalTransform, Option<&'a Aabb>, Has<NoFrustumCulling>);
 
-type ChangedMeshes = (With<Mesh3d>, Or<(Changed<GlobalTransform>, Changed<Aabb>, Added<NoFrustumCulling>)>);
+type ChangedMeshes = (With<Mesh3d>, Or<(Added<Mesh3d>, Changed<GlobalTransform>, Changed<Aabb>, Added<NoFrustumCulling>)>);
 
 /// A mesh's bounds' centre and bounding radius in the world, and whether it is bounded
 /// (culled by its bounds).
@@ -183,21 +293,30 @@ fn bounds(t: &GlobalTransform, aabb: Option<&Aabb>, no_culling: bool) -> (Vec3, 
     }
 }
 
-/// Keep the grid up to date and give each drawing lamp its candidates.
+/// Keep the shared spatial grid up to date for directional sun cascades and point/spot
+/// lamps, and give each drawing lamp its cached candidates [design].
 #[allow(clippy::too_many_arguments)]
 fn caster_candidates(
-    settings: Res<LightShadows>,
-    hold: Res<HoldLightShadowMaps>,
+    settings: Option<Res<LightShadows>>,
+    hold: Option<Res<HoldLightShadowMaps>>,
     mut out: ResMut<NvfShadowCasterCandidates>,
-    mut grid: Local<Option<CasterGrid>>,
+    mut spatial: ResMut<NvfSpatialMeshGrid>,
+    mut index: Local<Option<SpatialIndex>>,
+    mut cache: Local<EntityHashMap<([u32; 3], u32, u64)>>,
+    mut active: Local<EntityHashSet>,
     all: Query<Meshes, With<Mesh3d>>,
     changed: Query<Meshes, ChangedMeshes>,
     (mut gone, mut unbounded, mut culled): (RemovedComponents<Mesh3d>, RemovedComponents<Aabb>, RemovedComponents<NoFrustumCulling>),
     lights: Query<(&GlobalTransform, Option<&PointLight>, Option<&SpotLight>)>,
 ) {
-    if settings.choice == 0 || !grid_on() {
-        // Off: no grid; switched on again it is built anew.
-        *grid = None;
+    if !grid_on() {
+        *index = None;
+        if spatial.ready {
+            spatial.cells.clear();
+            spatial.everywhere.clear();
+            spatial.ready = false;
+        }
+        cache.clear();
         if !out.lights.is_empty() {
             out.lights.clear();
         }
@@ -206,40 +325,58 @@ fn caster_candidates(
         culled.clear();
         return;
     }
-    if let Some(g) = grid.as_mut() {
+    let spatial = &mut *spatial;
+    if let Some(idx) = index.as_mut() {
         for e in gone.read() {
-            g.remove(e);
+            idx.remove(spatial, e);
         }
         for (e, t, aabb, no_culling) in &changed {
             let (c, r, b) = bounds(t, aabb, no_culling);
-            g.place(e, c, r, b);
+            idx.place(spatial, e, c, r, b);
         }
         // Bounds or culling taken away: filed again by what is left.
         for e in unbounded.read().chain(culled.read()) {
             if let Ok((e, t, aabb, no_culling)) = all.get(e) {
                 let (c, r, b) = bounds(t, aabb, no_culling);
-                g.place(e, c, r, b);
+                idx.place(spatial, e, c, r, b);
             }
         }
     } else {
         gone.clear();
         unbounded.clear();
         culled.clear();
-        let mut g = CasterGrid::default();
+        cache.clear();
+        spatial.cells.clear();
+        spatial.everywhere.clear();
+        spatial.cell_half_extent = CELL * 0.5 + MARGIN;
+        let mut idx = SpatialIndex::default();
         for (e, t, aabb, no_culling) in &all {
             let (c, r, b) = bounds(t, aabb, no_culling);
-            g.place(e, c, r, b);
+            idx.place(spatial, e, c, r, b);
         }
-        *grid = Some(g);
+        spatial.ready = true;
+        *index = Some(idx);
     }
-    let Some(grid) = grid.as_ref() else { return };
-    let (filed, everywhere) = grid.counts();
+    let Some(idx) = index.as_ref() else { return };
+    let (filed, everywhere) = idx.counts();
     FILED.store(filed as u64, Relaxed);
     EVERYWHERE.store(everywhere as u64, Relaxed);
+
+    let lamps_live = settings.as_deref().is_some_and(|s| s.choice != 0);
+    let Some(hold) = hold.as_deref().filter(|_| lamps_live) else {
+        if !out.lights.is_empty() {
+            out.lights.clear();
+        }
+        cache.clear();
+        return;
+    };
     // The lamps drawing this frame (shadows switched on, a slot of the game's): looked up by
-    // the slots (a few dozen), not by going over every entity with a place.
+    // the slots (a few dozen), not by going over every entity with a place. Reuse cached
+    // candidate `Vec`s whenever the grid's cell membership and the lamp's sphere are
+    // unchanged [design].
     let out = &mut *out;
-    out.lights.clear();
+    let grid_gen = idx.generation();
+    active.clear();
     // (The far texture's lamps too: left out until 2026-11-25, they fell back to the search
     // of every caster on each draw.)
     for &e in hold.slots.keys().chain(hold.far_slots.keys()).chain(hold.spot_slots.keys()) {
@@ -252,12 +389,23 @@ fn caster_candidates(
         if !on {
             continue;
         }
-        let mut list = Vec::new();
-        grid.candidates(t.translation(), range, &mut list);
+        active.insert(e);
+        let pos = t.translation();
+        let key = ([pos.x.to_bits(), pos.y.to_bits(), pos.z.to_bits()], range.to_bits(), grid_gen);
+        let len = if cache.get(&e) == Some(&key) && out.lights.contains_key(&e) {
+            out.lights[&e].len()
+        } else {
+            let list = out.lights.entry(e).or_default();
+            list.clear();
+            idx.candidates(spatial, pos, range, list);
+            cache.insert(e, key);
+            list.len()
+        };
         SERVED.fetch_add(1, Relaxed);
-        CANDIDATES.fetch_add(list.len() as u64, Relaxed);
-        out.lights.insert(e, list);
+        CANDIDATES.fetch_add(len as u64, Relaxed);
     }
+    out.lights.retain(|e, _| active.contains(e));
+    cache.retain(|e, _| active.contains(e));
 }
 
 #[cfg(test)]
@@ -333,5 +481,33 @@ mod tests {
         assert!((c - Vec3::new(102.0, 0.0, 0.0)).length() < 1e-4 && (r - 2.0 * 6f32.sqrt()).abs() < 1e-4 && b);
         assert!(!bounds(&t, Some(&aabb), true).2, "NoFrustumCulling");
         assert!(!bounds(&t, None, false).2, "no bounds");
+    }
+
+    #[test]
+    fn spatial_index_keeps_nvf_spatial_mesh_grid_consistent_across_moves_and_removals() {
+        let mut grid = NvfSpatialMeshGrid { cell_half_extent: CELL * 0.5 + MARGIN, ready: true, ..default() };
+        let mut idx = SpatialIndex::default();
+        idx.place(&mut grid, e(1), Vec3::new(100.0, 0.0, 100.0), 50.0, true);
+        idx.place(&mut grid, e(2), Vec3::new(2500.0, 0.0, 100.0), 50.0, true);
+        idx.place(&mut grid, e(3), Vec3::new(5000.0, 0.0, 100.0), MARGIN + 10.0, true);
+        assert_eq!(grid.cells.len(), 2);
+        assert_eq!(grid.everywhere, vec![e(3)]);
+
+        // Move e(1) into e(2)'s cell -> cell 0 swap-removed cleanly, slot map updated.
+        idx.place(&mut grid, e(1), Vec3::new(2600.0, 0.0, 100.0), 50.0, true);
+        assert_eq!(grid.cells.len(), 1);
+        assert_eq!(grid.cells[0].2.len(), 2);
+
+        // Candidate query near (2500, 0, 100) returns both cell entities + everywhere e(3).
+        let mut out = Vec::new();
+        idx.candidates(&grid, Vec3::new(2500.0, 0.0, 100.0), 300.0, &mut out);
+        assert!(out.contains(&e(1)) && out.contains(&e(2)) && out.contains(&e(3)));
+
+        // Remove all -> grid empties cleanly.
+        idx.remove(&mut grid, e(1));
+        idx.remove(&mut grid, e(2));
+        idx.remove(&mut grid, e(3));
+        assert!(grid.cells.is_empty() && grid.everywhere.is_empty());
+        assert_eq!(idx.counts(), (0, 0));
     }
 }

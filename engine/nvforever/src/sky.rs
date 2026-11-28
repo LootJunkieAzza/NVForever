@@ -2226,6 +2226,59 @@ pub fn reach_toward_sun(mut suns: Query<&mut bevy::light::Cascades, With<Sun>>) 
     }
 }
 
+/// Precompute each active sun cascade's 2D light-space frustum-slice convex hull before
+/// `SimulationLightSystems::CheckLightVisibility` so `check_dir_light_mesh_visibility`
+/// rejects out-of-slice casters *before* marking them `ViewVisibility::VISIBLE` (preventing
+/// trimmed meshes from flip-flopping visibility between drawn and held cascade frames) [design].
+#[allow(clippy::type_complexity)]
+pub fn prepare_sun_slice_hulls(
+    suns: Query<(Entity, &bevy::light::Cascades, &CascadeShadowConfig, &GlobalTransform), With<Sun>>,
+    views: Query<(&GlobalTransform, &Projection)>,
+    share: Option<Res<crate::shadow_rate::MirrorShadowShare>>,
+    skip: Option<Res<bevy::light::NvfSkipDirLightShadowView>>,
+    slice_hulls: Option<ResMut<bevy::light::NvfDirLightSliceHulls>>,
+) {
+    let Some(mut slice_hulls) = slice_hulls else { return };
+    slice_hulls.entries.clear();
+    let share = share.as_deref();
+    let held_mask = skip.as_ref().map_or(0, |s| s.held_mask);
+    for (light_entity, cascades, config, light) in &suns {
+        let light_from_world = Mat3::from_quat(light.rotation()).transpose();
+        let lx = bevy::math::Vec3A::from(light_from_world.row(0));
+        let ly = bevy::math::Vec3A::from(light_from_world.row(1));
+        let lx3 = light_from_world.row(0);
+        let ly3 = light_from_world.row(1);
+        let near_bounds = std::iter::once(config.minimum_distance).chain(config.bounds.iter().map(|b| b * (1.0 - config.overlap_proportion)));
+        let bounds: Vec<(f32, f32)> = near_bounds.zip(config.bounds.iter().copied()).collect();
+        for (view, cs) in &cascades.cascades {
+            if share.is_some_and(|s| s.contains_target(*view)) {
+                continue;
+            }
+            let Ok((at, projection)) = views.get(*view) else { continue };
+            let world_from_view = at.affine();
+            let mut per_cascade = Vec::with_capacity(cs.len());
+            for (cascade_idx, (c, &(near, far))) in cs.iter().zip(&bounds).enumerate() {
+                if cascade_idx < 32 && (held_mask & (1u32 << cascade_idx)) != 0 {
+                    per_cascade.push(None);
+                    continue;
+                }
+                let outline = hull(projection.get_frustum_corners(-near, -far).map(|p| {
+                    let wp = Vec3::from(world_from_view.transform_point3a(p));
+                    Vec2::new(lx3.dot(wp), ly3.dot(wp))
+                }));
+                let edges = outline_edges(&outline);
+                per_cascade.push(Some(bevy::light::NvfDirLightSliceHull {
+                    lx,
+                    ly,
+                    margin: SLICE_MARGIN_TEXELS * c.texel_size,
+                    edges,
+                }));
+            }
+            slice_hulls.entries.push((light_entity, *view, per_cascade));
+        }
+    }
+}
+
 /// Drop the sun's casters that cannot shade anything a cascade covers. Seen from the sun,
 /// a caster shades a receiver only if it covers it, and a cascade's receivers all lie in
 /// the slice of the camera's view it was fitted to; Bevy draws everything in the square
@@ -2234,15 +2287,18 @@ pub fn reach_toward_sun(mut suns: Query<&mut bevy::light::Cascades, With<Sun>>) 
 /// outline, for the shadow filter's reach.
 #[allow(clippy::type_complexity)]
 pub fn sun_casters_over_slice(
-    mut suns: Query<(&mut bevy::camera::visibility::CascadesVisibleEntities, &bevy::light::Cascades, &CascadeShadowConfig, &GlobalTransform), With<Sun>>,
+    mut suns: Query<(Entity, &mut bevy::camera::visibility::CascadesVisibleEntities, &bevy::light::Cascades, &CascadeShadowConfig, &GlobalTransform), With<Sun>>,
     views: Query<(&GlobalTransform, &Projection)>,
     casters: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
     share: Option<Res<crate::shadow_rate::MirrorShadowShare>>,
     hold: Option<Res<bevy::pbr::HoldDirectionalShadowMaps>>,
+    skip: Option<Res<bevy::light::NvfSkipDirLightShadowView>>,
+    slice_hulls: Option<Res<bevy::light::NvfDirLightSliceHulls>>,
 ) {
-    let shared_mirror = share.as_ref().and_then(|s| s.0).map(|(_, mirror)| mirror);
-    let held_mask = hold.as_ref().map_or(0, |h| h.0);
-    for (mut visible, cascades, config, light) in &mut suns {
+    let share = share.as_deref();
+    let held_mask = hold.as_ref().map_or(0, |h| h.0) | skip.as_ref().map_or(0, |s| s.held_mask);
+    let slice_hulls = slice_hulls.as_deref();
+    for (light_entity, mut visible, cascades, config, light) in &mut suns {
         let light_from_world = Mat3::from_quat(light.rotation()).transpose();
         let lx = light_from_world.row(0);
         let ly = light_from_world.row(1);
@@ -2250,15 +2306,22 @@ pub fn sun_casters_over_slice(
         let bounds: Vec<(f32, f32)> = near_bounds.zip(config.bounds.iter().copied()).collect();
         for (view, lists) in visible.entities.iter_mut() {
             // `shadow_rate::share_mirror_casters` runs right after this system and replaces
-            // the shared mirror's caster lists with the main camera's lists [design].
-            if shared_mirror == Some(*view) {
+            // every shared secondary camera's caster lists with the main camera's lists [design].
+            if share.is_some_and(|s| s.contains_target(*view)) {
                 continue;
             }
+            let pre_culled = slice_hulls.and_then(|h| {
+                h.entries.iter().find(|(l, v, _)| *l == light_entity && *v == *view).map(|(_, _, list)| list.as_slice())
+            });
             let (Ok((at, projection)), Some(cs)) = (views.get(*view), cascades.cascades.get(view)) else { continue };
             let world_from_view = at.affine();
             for (cascade_idx, ((list, c), (near, far))) in lists.iter_mut().zip(cs).zip(&bounds).enumerate() {
-                // Held cascades are not redrawn this frame (`HoldDirectionalShadowMaps`) [design].
+                // Held cascades are not redrawn this frame (`HoldDirectionalShadowMaps` / `NvfSkipDirLightShadowView`) [design].
                 if cascade_idx < 32 && (held_mask & (1u32 << cascade_idx)) != 0 {
+                    continue;
+                }
+                // Already slice-culled inline during `check_dir_light_mesh_visibility` [design].
+                if pre_culled.and_then(|p| p.get(cascade_idx)).is_some_and(Option::is_some) {
                     continue;
                 }
                 let outline = hull(projection.get_frustum_corners(-near, -far).map(|p| {

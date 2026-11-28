@@ -799,6 +799,34 @@ Graphics pass 2026-11-23, four more changes:
   then only each batch set's own workgroups do work. [observed 2026-11-24, Novac 12:00,
   4K DLSS Quality, maxed settings] `uniform_allocation` 0.21 and `bin_unpacking` 0.20 ms
   a frame → both under 0.05; process CPU time 27.3 → 23.6 ms a frame.
+- Shared directional shadow maps, parked ALCS point/spot shadow views, and hosted shadow
+  encoder batching (`src/render/light.rs`, `[design]`):
+  - `NvfReuseDirectionalShadowMaps`: when an earlier-order camera (water mirror or extra
+    scope camera) already draws identical directional shadow cascades into the shared
+    directional shadow array layers, subsequent views listed in `skip_views` reuse those
+    layers and skip duplicate extraction and rasterization.
+  - `NvfParkedView` / `NvfLightShadowRecord::parked_lights`: parks point/spot shadow view
+    entities while their lamp temporarily disables shadows so specialization, queueing, and
+    view-counting skip them without despawning/respawning entities.
+  - `extract_lights`: skips re-extracting held directional cascades (`HoldDirectionalShadowMaps`),
+    marking their `RenderExtractedVisibleEntities::skip_if_unchanged` flag.
+  - `per_view_shadow_pass`: batches hosted point/spot shadow views into at most 8 parallel
+    command encoders instead of splitting every 2 views.
+
+## bevy_camera 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Vendored 2026-11-27 from crates.io (`bevy_camera` 0.20.1; upstream `LICENSE-APACHE` and
+`LICENSE-MIT` retained), unchanged except for one patch in `src/visibility/mod.rs`
+(`[design]`, `NvfSpatialMeshGrid`):
+
+- Adds the `NvfSpatialMeshGrid` resource (3D spatial cell grid plus `everywhere` fallback
+  list for unbounded/large/`NoFrustumCulling` meshes, updated incrementally by
+  `nvforever::light_shadow_casters::LightShadowCastersPlugin`).
+- In `check_visibility_with_frustum`, when `NvfSpatialMeshGrid` is ready and the filter
+  targets `Mesh3d` entities, tests cell AABBs against the view frustum first and only
+  visits entities inside overlapping cells (plus `everywhere`) instead of scanning all
+  meshes linearly. When `NvfSpatialMeshGrid` is absent or not ready, upstream's full-world
+  query runs unchanged. Drop this patch if upstream Bevy adds a spatial visibility index.
 
 ## bevy_light 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
@@ -913,6 +941,16 @@ The third (graphics pass 2026-11-23), marked `NVForever small casters`, in
 diagonal times the largest scale) is below `nvf_small_caster_texels()` texels of a
 cascade's map (`Cascade::texel_size`) is left out of that cascade; `NVF_SMALL_CASTER_TEXELS`
 (default 1, 0 off). Meshes with `NoFrustumCulling` are never left out.
+
+Extended (`#4720`, `[design]`, marked `NVForever small casters` / `NVForever fast ortho X/Y
+pre-reject`): compares squared bounding radius (`radius_sq < min_radius_sq[cascade]`) to avoid
+4 `sqrt` calls per mesh, hoists `transform.affine()` out of the cascade loop, extracts
+light-space orthographic X/Y rows from `Cascade::clip_from_world` (when row 3 is `(0, 0, 0, 1)`)
+to project once across cascades and union pre-reject far meshes before running `Frustum::intersects_obb`,
+hoists default `RenderLayers` checks out of the 40k-mesh visibility loops, skips views/held
+cascades listed in `NvfSkipDirLightShadowView`, evaluates precomputed `NvfDirLightSliceHulls`
+inline, and consumes `bevy_camera::visibility::NvfSpatialMeshGrid` to reject entire 3D spatial
+cells against directional cascade bounds and slice hulls before visiting individual entities.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
@@ -1235,6 +1273,12 @@ Upstream prefers an sRGB format. `SurfaceData` keeps the SDR format and whether 
 offered; `nvf_hdr_changed` compares the asked-for output with the configured format each
 frame, and a change reconfigures the surface at once (no restart). Test aid
 `NVF_PLAY_TEST_SDR_SURFACE=1`: the surface counts as offering no `Rgba16Float`.
+
+Held subview visibility skip (`src/view/visibility/mod.rs`, `[design]`): adds
+`RenderExtractedVisibleEntities::skip_if_unchanged`; when true (set by `bevy_pbr` for held
+directional shadow cascades), `collect_visible_cpu_culled_entities_for_subview` clears only
+per-frame added/removed deltas and keeps the previously sorted entity list intact without
+re-sorting or diffing.
 
 ## bevy_shader 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
