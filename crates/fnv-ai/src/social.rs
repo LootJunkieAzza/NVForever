@@ -317,7 +317,6 @@ fn foe_near(resident: Option<Place>, seen: Option<Place>, p: Place) -> bool {
 }
 
 /// Whether an actor is in the world and alive.
-
 fn here(game: &Game, actor: FormId) -> bool {
     game.present(actor) && !game.extra.get(&actor).is_some_and(|e| e.dead)
 }
