@@ -50,6 +50,23 @@ next to StartCombat, and ResetAI is used to end it.
   specific reference; target 1 is an object type in 52 ("Weapons: None" 32, "None" 10,
   melee 7, …) [observed: `fnvtool ai survey`, packages.md §2]. The type's own page (Use
   Weapon Package) is not in the owner's export; the offline GECK wiki copy has it.
+- **Target 1 weapon-type codes (21, 22; 23 left open)** (#3668): `package::object_type_name`
+  labels 21 "Weapons: Ranged", 22 "Weapons: Melee", and 23 "Weapons: None"
+  [documented: xEdit `wbObjectTypeEnum`]. The packages in Fallout3.esm and FalloutNV.esm
+  use 21 on unarmed/boxing practice (`CitInitiatePracticeMeleeA0x24`,
+  `CitInitiatePracticeMeleeB0x24`, `LittleBusterUnarmedPractice8x4` 0x000FE9EF) and 22 on
+  melee sparring (`FortLegionarySparringPackage` 0x00127170, `VRRCInitiation1PACKAGE`–`4`,
+  `VHDLegionLegateCampAttackTargetDummyPackage`) [hypothesis: from the package names in
+  #3668; the offline wiki lists no numeric codes, so `object_type_name` keeps xEdit's
+  labels until confirmed in the original]. Code 23 ("Weapons: None") is used by 32 of the
+  52 vanilla Use Weapon packages (including shooting practice such as
+  `CitInitiatePracticeRifleBASE`, `HVBrotherhoodTargetPractice1`, and general packages);
+  NVForever limits `WeaponUse::weapon_type` to 21 and 22 and leaves 23 on the unchanged
+  held-weapon fallback so actors carrying only melee weapons on those 32 packages keep
+  working until an original-game observer check confirms 23 [open]. For a missing weapon
+  of the requested type, the wiki notes that a "Weapons: Melee" package on an actor
+  carrying only a ranged weapon equips it and does nothing [documented: GECK wiki Use
+  Weapon Package, Notes].
 - "Continue During Combat: Actor will continue to fire and stand at the designated
   position, even during Combat. Great for setting up immobile enemies." [documented: GECK
   wiki page "Use Weapon Package", section Flags, revision 35491 of 2024-08-04,

@@ -21,7 +21,10 @@
 //!   fight).
 //! - **The package** [documented: xEdit PACK PKW3 field names; the meanings below are
 //!   our reading of them]: location 1 is where to stand, target 1 the weapon (a weapon
-//!   form, or an object type: then what the actor holds), target 2 whom to shoot. Fire
+//!   form, or an object type: 21 unarmed, 22 melee [hypothesis: #3668, from
+//!   Fallout3.esm and FalloutNV.esm package names]; 23 ("Weapons: None") and others stay
+//!   on whatever the actor holds until confirmed in the original), target 2
+//!   whom to shoot. Fire
 //!   count "Number of Bursts" fires that many volleys, "Repeat Fire" goes on for as
 //!   long as the package runs; each volley is a random number of shots between Shots
 //!   Per Volley min and max, and between volleys "Volley Fire" waits a random time
@@ -63,14 +66,30 @@ pub enum Source {
     Package(FormId),
 }
 
+/// Weapon class requested by a Use Weapon package's target 1 object type
+/// ([hypothesis: #3668, from the Fallout3.esm and FalloutNV.esm package names; xEdit's
+/// `wbObjectTypeEnum` labels 21-23 differently — `package::object_type_name` keeps
+/// xEdit's labels and object type 23 ("Weapons: None", used by 32 of 52 vanilla Use
+/// Weapon packages) stays unmapped until confirmed in the original]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum WeaponType {
+    /// Object type 21 (e.g. `CitInitiatePracticeMeleeB0x24`, `LittleBusterUnarmedPractice8x4`): fists or an unarmed weapon.
+    Unarmed,
+    /// Object type 22 (e.g. `FortLegionarySparringPackage`, `VRRCInitiation1PACKAGE`): a carried melee weapon.
+    Melee,
+}
+
 /// One actor's weapon use (module notes).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WeaponUse {
     pub source: Source,
     /// A number of its own, so that a use given again is seen as new.
     pub seq: u64,
-    /// The weapon to use (a base form); `None`: the one it holds.
+    /// The weapon to use (a base form); `None`: chosen by [`Self::weapon_type`] or the one it holds.
     pub weapon: Option<FormId>,
+    /// Weapon class from a Use Weapon package's target 1 object type (21/22); `None`:
+    /// use [`Self::weapon`] or whatever the actor holds (including type 23 until confirmed).
+    pub weapon_type: Option<WeaponType>,
     /// Where to stand (a reference); `None`: where the package's location says, or
     /// where it is.
     pub stand: Option<FormId>,
@@ -136,6 +155,7 @@ impl WeaponUse {
             source: Source::Script,
             seq: 0,
             weapon,
+            weapon_type: None,
             stand,
             target,
             target_here,
@@ -209,9 +229,11 @@ impl Game<'_> {
             Some(TargetKind::LinkedReference) => linked()?,
             _ => return None,
         };
-        let weapon = match def.target.map(|t| t.kind) {
-            Some(TargetKind::ObjectId(Some(w))) if self.data.sig(w).as_ref() == Some(b"WEAP") => Some(w),
-            _ => None,
+        let (weapon, weapon_type) = match def.target.map(|t| t.kind) {
+            Some(TargetKind::ObjectId(Some(w))) if self.data.sig(w).as_ref() == Some(b"WEAP") => (Some(w), None),
+            Some(TargetKind::ObjectType(21)) => (None, Some(WeaponType::Unarmed)),
+            Some(TargetKind::ObjectType(22)) => (None, Some(WeaponType::Melee)),
+            _ => (None, None),
         };
         let p = def.use_weapon.unwrap_or_default();
         let lo = u32::from(p.shots_per_volley[0]).max(1);
@@ -219,6 +241,7 @@ impl Game<'_> {
             source: Source::Package(package),
             seq: 0,
             weapon,
+            weapon_type,
             stand: None,
             target,
             target_here: None,
