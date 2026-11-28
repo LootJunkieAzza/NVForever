@@ -134,21 +134,20 @@ impl Command {
         })
     }
 
-    /// The button's words: what it does now [observed: "Use Stimpak" on the owner's
-    /// screenshot of 2026-10-19 (the masters' sCWheelUseStimPack reads "Use StimPak");
-    /// hypothesis: the others, named as the menu file's comments name the buttons].
+    /// The button's words: what it does now [design: NVForever's own short words for each
+    /// command, #2984; a plugin's sCWheelUseStimPack is not read here].
     pub fn label(self, alt: bool) -> &'static str {
         match (self, alt) {
             (Command::AggressivePassive, false) => "Aggressive",
             (Command::AggressivePassive, true) => "Passive",
-            (Command::UseStimpak, _) => "Use Stimpak",
+            (Command::UseStimpak, _) => "Heal",
             (Command::StayFollow, false) => "Wait",
             (Command::StayFollow, true) => "Follow",
             (Command::Talk, _) => "Talk",
-            (Command::BackUp, _) => "Back Up",
+            (Command::BackUp, _) => "Step Back",
             (Command::NearFar, false) => "Far",
             (Command::NearFar, true) => "Near",
-            (Command::OpenInventory, _) => "Open Inventory",
+            (Command::OpenInventory, _) => "Inventory",
             (Command::RangedMelee, false) => "Ranged",
             (Command::RangedMelee, true) => "Melee",
         }
@@ -169,12 +168,11 @@ pub struct State {
     /// hurt [hypothesis for both].
     pub enabled: bool,
     pub label: &'static str,
-    /// The lines under the wheel (the file's `CWM_ButtonContextText`): Use Stimpak's are
-    /// the companion's health and the stimpaks carried, "HP 94/285" and "Stimpak 84"
-    /// [observed: the owner's screenshot of 2026-10-19]; Open Inventory's the companion's
-    /// carry weight, "WG 95/100" [observed: the owner's word of 2026-10-19 for the
-    /// figures; hypothesis: the "WG" before them, as the Pip-Boy's]; the others have none
-    /// [hypothesis].
+    /// The lines under the wheel (the file's `CWM_ButtonContextText`): Heal's are the
+    /// companion's health and the stimpaks carried, "HP 94/285" and "Stimpak 84" (HP as the
+    /// built-in label of `sHitPointsShort`, Stimpak the item's own name); Inventory's the
+    /// companion's carry weight, "Weight 95/100" [design: our own words, #2984; the figures
+    /// what the owner asked for on 2026-10-19]; the others have none [hypothesis].
     pub context: Option<String>,
 }
 
@@ -332,7 +330,7 @@ impl Game<'_> {
                 Command::Talk | Command::BackUp => true,
                 Command::OpenInventory => {
                     if let Ok(e) = self.world.encumbrance(companion) {
-                        context = Some(format!("WG {:.0}/{:.0}", e.weight.floor(), e.capacity));
+                        context = Some(format!("Weight {:.0}/{:.0}", e.weight.floor(), e.capacity));
                     }
                     c.topic(alt).is_some_and(|t| self.can_say_topic(companion, t))
                 }

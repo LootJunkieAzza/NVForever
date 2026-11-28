@@ -107,6 +107,11 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::Instant;
 
+/// Frames a new game's or a load's Script Runner files wait at most for the player's
+/// models [engineering choice: about 5 s at 60 FPS; the models are usually in place within
+/// a few frames] (#4491).
+const NEW_GAME_FILES_WAIT: u32 = 300;
+
 /// MenuMode code while a message box is open (`fnv_game::game::menus::MESSAGE`): shipped
 /// scripts read the chosen button in `Begin MenuMode 1001` blocks [observed: FalloutNV
 /// SCPT 0x00105236, the Goodsprings chemistry set] as well as in GameMode (SCPT
@@ -307,6 +312,10 @@ pub struct Runtime {
     /// another run that never runs them (#1548) [hypothesis: the original runs them when
     /// a new game starts, docs/spec-notes/ext-script-runner.md §2].
     new_game_files: bool,
+    /// Frames the new game's files have waited for the player's models.
+    new_game_files_waited: u32,
+    /// A save's Script Runner files (`Moment::Load`) wait for the player's models too.
+    load_files: bool,
     /// An actor the player woke by talking to it, and when (`Game::time`): the
     /// conversation starts once it is off its bed ([`Runtime::talk_when_awake`]).
     wake_talk: Option<(FormId, f64)>,
@@ -564,6 +573,8 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
                 }
                 // The game INI text the extender's INI functions read (`--mo2`'s profile).
                 data.ini_texts = ini_texts();
+                // The co-op perks (fnv_game::coop_perks): NVForever's own records.
+                fnv_game::coop_perks::add(&mut data);
                 data
             }));
             info!("script build: the whole thread: {:.0} ms", t.elapsed().as_secs_f64() * 1e3);
@@ -723,6 +734,8 @@ impl Runtime {
             session_epoch: 0,
             opening_pending: new_game,
             new_game_files: false,
+            new_game_files_waited: 0,
+            load_files: false,
             wake_talk: None,
             start: GameStart::default(),
             opening_notice: None,
@@ -792,6 +805,7 @@ impl Runtime {
         sim.world.set_inventory_sources(inventory_sources(data, sim, &self.game));
         self.opening_pending = false;
         self.new_game_files = false;
+        self.load_files = false;
         self.player_cell = None;
         self.restored_from_save = true;
         self.session_epoch = self.session_epoch.saturating_add(1);
@@ -928,6 +942,7 @@ impl Runtime {
         if cell.is_some() && cell != self.player_cell {
             self.player_cell = cell;
             self.game.player_entered(cell);
+            self.triggers.prune_unloaded_projectile_zones(&self.game);
             debug!("script: player in cell {:?}; {} cells loaded for scripts", cell, self.game.loaded_cells.len());
             self.log_level_news();
         }
@@ -1003,6 +1018,62 @@ impl Runtime {
         true
     }
 
+    /// A living creature shown by name only (`Action::Name`, #3669): if its script has an
+    /// OnActivate block, run that block through [`Game::activate`] (`ActMode::Hand`). The
+    /// default activation behind it stays "nothing": any `Outcome::Talk` on `target`
+    /// emitted by the block's own plain `Activate` is skipped so it neither opens a
+    /// conversation nor posts a "has nothing to say" message. Returns `None` when
+    /// `target`'s script has no OnActivate block.
+    fn script_only(&mut self, target: FormId) -> Option<Result<ByHand, String>> {
+        let has_block = self.game.ref_script(target).and_then(|s| self.game.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
+        if !has_block {
+            return None;
+        }
+        if self.game.activation_refused(target) {
+            return Some(Ok(ByHand::Refused));
+        }
+        if self.game.parent_activate_only(target) {
+            info!("activate: {} is set off by its activate parents only", self.game.data.name(target));
+            return Some(Ok(ByHand::Refused));
+        }
+        self.observe_inventory();
+        let player = FormId::PLAYER_REF;
+        let from = self.game.events.len();
+        info!("script: activating {target} runs its OnActivate block instead of the default action");
+        let r = self.game.activate(player, target, ActMode::Hand).map(|done| {
+            if matches!(done["result"].as_str(), Some("prevented" | "destroyed")) { ByHand::Refused } else { ByHand::Script }
+        });
+        // A name-only creature has no Talk default action (#3669): suppress any
+        // Outcome::Talk on `target` emitted by the block's own `Activate` (e.g.
+        // CRBrahminScript calling plain `Activate` when standing or weapon-out).
+        let self_talks: Vec<usize> = self
+            .game
+            .events
+            .iter()
+            .enumerate()
+            .skip(from)
+            .filter_map(|(i, e)| match &e.kind {
+                EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
+                    Outcome::Talk { actor } if actor == target => Some(i),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        self.skip.extend(self_talks);
+        let r = match r {
+            Ok(done) => Ok(self.talk_after_except(from, Some(target)).unwrap_or(done)),
+            r => r,
+        };
+        self.snapshot_inventory();
+        Some(r)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_event_skipped(&self, index: usize) -> bool {
+        self.skip.contains(&index)
+    }
+
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
         // A destroyed door or activator cannot be activated (`Game::activation_refused`).
         if self.game.activation_refused(target) {
@@ -1050,6 +1121,10 @@ impl Runtime {
         };
         // An actor whose default action ran (no OnActivate block, or its block called
         // `Activate`) is talked to, if it has a greeting.
+        // The target's own OnActivate passing the activation on (`Activate`) is still the
+        // player's hand: held by the co-op story gate like any talk.
+        let talker = self.game.talker(target).0;
+        self.game.script_talks.retain(|t| *t != target && *t != talker);
         let r = match r {
             Ok(done) => Ok(self.talk_after(from).unwrap_or(done)),
             r => r,
@@ -1090,6 +1165,10 @@ impl Runtime {
     /// shown like a SayTo line and the player stays free. Returns [`ByHand::Talk`] when a
     /// conversation started, else [`ByHand::Greeted`] when a greeting was said.
     fn talk_after(&mut self, from: usize) -> Option<ByHand> {
+        self.talk_after_except(from, None)
+    }
+
+    fn talk_after_except(&mut self, from: usize, skip_actor: Option<FormId>) -> Option<ByHand> {
         let player = FormId::PLAYER_REF;
         let wanted: Vec<(usize, FormId)> = self
             .game
@@ -1099,7 +1178,7 @@ impl Runtime {
             .skip(from)
             .filter_map(|(i, e)| match &e.kind {
                 EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
-                    Outcome::Talk { actor } => Some((i, actor)),
+                    Outcome::Talk { actor } if skip_actor != Some(actor) => Some((i, actor)),
                     _ => None,
                 },
                 _ => None,
@@ -1108,6 +1187,16 @@ impl Runtime {
         let mut done = None;
         for (i, actor) in wanted {
             let g = &mut self.game;
+            // Still saying its Goodbye greeting at the player: the line plays to its end and
+            // the activation does nothing, neither cutting it nor saying another
+            // [player report #4683: "New phrase should trigger only after previous phrase
+            // has ended"; dialogue.md §5].
+            if g.greets_player(actor) {
+                self.skip.insert(i);
+                info!("dialogue: the player talks to {}, still saying its greeting: it says it to the end", g.data.name(actor));
+                done = done.or(Some(ByHand::Greeted));
+                continue;
+            }
             // A teammate: the companion wheel opens instead (`crate::companion_wheel`).
             if g.has_companion_wheel(actor) {
                 if g.open_companion_wheel(actor) {
@@ -1128,7 +1217,11 @@ impl Runtime {
                 done = Some(ByHand::Woken);
                 continue;
             }
-            match g.start_dialogue(actor, None) {
+            // A script's `Activate Player` on it: the script's scene, not held by the
+            // co-op story gate (`Game::script_talks`).
+            let scripted = g.script_talks.iter().position(|t| *t == actor).map(|k| g.script_talks.remove(k)).is_some();
+            let started = if scripted { g.start_script_dialogue(actor, None) } else { g.start_dialogue(actor, None) };
+            match started {
                 Ok(info) => {
                     // The activation's own effect (the "nothing to say" line) is void.
                     self.skip.insert(i);
@@ -1146,10 +1239,17 @@ impl Runtime {
                     if g.is_out_cold(actor) {
                         self.skip.insert(i);
                     }
+                    // A co-op host's story NPC waiting for the other players
+                    // (`Game::story_gate`): the host's corner says so instead (`coop_progress::story_wait_notice`).
+                    if g.coop_story_wait.as_ref().is_some_and(|w| w.actor == g.talker(actor).0) {
+                        self.skip.insert(i);
+                    }
                     info!("dialogue: no conversation: {e}");
                 }
             }
         }
+        // None carried to a later activation by hand.
+        self.game.script_talks.clear();
         done
     }
 
@@ -1499,6 +1599,14 @@ pub fn talk_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target
 /// opened.
 pub fn choices_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> bool {
     script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.choices_only(FormId(target))))
+}
+
+/// A living creature shown by name only whose script has an OnActivate block
+/// (`Runtime::script_only`, #3669): runs its OnActivate block while keeping the default
+/// activation behind it "nothing". `None` when scripts are off or `target` has no
+/// OnActivate block.
+pub fn script_activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Option<Result<ByHand, String>> {
+    script.and_then(|s| s.rt.as_mut()).and_then(|rt| with_world(rt, sim, |rt| rt.script_only(FormId(target))))
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -2021,15 +2129,20 @@ fn time_multiplier(
         player_scale.0 = exempt;
     }
     // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
-    let vats_scale = kill_cam.and_then(|k| k.time_scale()).unwrap_or_else(|| vats.map_or(1.0, |v| v.time_scale()));
-    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
+    let kill_scale = kill_cam.and_then(|k| k.time_scale());
+    let vats_scale = kill_scale.unwrap_or_else(|| vats.as_deref().map_or(1.0, |v| v.time_scale()));
+    // Sounds follow VATS's own sound scale: while targets are chosen, no slower than firing
+    // (`VatsMode::sound_scale`, #3784).
+    let vats_sound = kill_scale.unwrap_or_else(|| vats.as_deref().map_or(1.0, |v| v.sound_scale()));
+    let others = scale.map_or(1.0, |s| s.0.max(0.0)) * wheel.map_or(1.0, |w| w.time_scale()) * turbo;
+    let engine = others * vats_scale;
     let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);
     }
     if let Some(mut sound) = sound {
         let script_sound = if rt.game.ui.time_keeps_sound { 1.0 } else { asked };
-        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(engine) * script_sound));
+        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(others * vats_sound) * script_sound));
     }
 }
 
@@ -2135,6 +2248,8 @@ type UsesAndLoads<'w> = (
     Option<ResMut<'w, crate::doors::Doors>>,
     MessageWriter<'w, crate::save::LoadRefused>,
     Option<Res<'w, crate::save::PendingEngine>>,
+    // A co-op guest's join in progress: its triggers are not fired (`crate::save::KeepSolo`).
+    Option<Res<'w, crate::save::KeepSolo>>,
     Option<Res<'w, crate::tweaks::TweakSettings>>,
 );
 
@@ -2199,7 +2314,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
-    (mut sit, mut terminals, mut doors, mut refused, pending_engine, tweak_settings): UsesAndLoads,
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine, joining, tweak_settings): UsesAndLoads,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
@@ -2286,7 +2401,7 @@ pub(crate) fn run_scripts(
                             rt.frozen_frames = 2;
                             // The drawn world follows the restored simulation.
                             for id in changed_refs {
-                                changed.write(RefChanged { form_id: id.0, restored: true });
+                                changed.write(RefChanged::restored(id.0));
                             }
                         }
                         Err(e) => {
@@ -2307,6 +2422,9 @@ pub(crate) fn run_scripts(
                     script_runner(&mut rt, &mut sim, Moment::Restart);
                     // The new game's files wait for its first frame (`new_game_files`).
                     rt.new_game_files = true;
+                    // The player's trees are told from the start, so a new-game file's
+                    // first question about the player's model finds them.
+                    rt.game.scene.watch(FormId::PLAYER_REF);
                 }
                 let from_source = data.issues.count("script_compiled_from_source");
                 let failed = data.issues.count("script_source_does_not_compile");
@@ -2375,9 +2493,10 @@ pub(crate) fn run_scripts(
     }
     if mods_ticks.frames > 0 {
         info!("scripts: the Mods page closed after {} MenuMode frames", mods_ticks.frames);
-        mods_ticks.frames = 0;
         if let Some(rt) = st.rt.as_mut() {
-            with_world(rt, &mut sim, |rt| rt.game.page_menu_event(fnv_game::game::menus::START, false));
+            with_world(rt, &mut sim, |rt| crate::tiles::mods::close(&mut rt.game, &mut mods_ticks));
+        } else {
+            *mods_ticks = Default::default();
         }
     }
     if paused.0 || screen.active() {
@@ -2486,7 +2605,9 @@ pub(crate) fn run_scripts(
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let n = rt.game.dispatch_event("LoadGame", vec![fnv_script::vm::XVal::Str(name)], None) + rt.game.dispatch_event("PostLoadGame", vec![fnv_script::vm::XVal::Num(1.0)], None);
                 info!("scripts: LoadGame and PostLoadGame after the start menu's frames ({n} handlers ran)");
-                log_script_runner(rt.game.run_script_runner(Moment::Load), Moment::Load);
+                // Its Script Runner files wait for the player's models, as a new game's do.
+                rt.load_files = true;
+                rt.game.scene.watch(FormId::PLAYER_REF);
             }
         }
         rt.observe_inventory();
@@ -2506,8 +2627,29 @@ pub(crate) fn run_scripts(
             info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }
         rt.follow_player();
-        if std::mem::take(&mut rt.new_game_files) {
-            log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
+        // The new game's files run once the player's models are in place, as in the
+        // original, where a new game's scripts start with the player loaded [observed: B42
+        // Inertia's `ln_B42Inertia.txt` asks `Player.GetNifScale "NeckController" 2` one
+        // frame after it runs; on NVForever's first frame the first-person tree was not yet
+        // told, the answer was 0 and its "Install latest Compatibility Skeleton" box showed,
+        // log nvforever-20261125-152502-11852.log; from a save the same question reads 1,
+        // log nvforever-20261125-153358-7876.log]. At most NEW_GAME_FILES_WAIT frames.
+        if rt.new_game_files || rt.load_files {
+            let ready = !rt.game.scene.uses_separate_player_models()
+                || rt.game.scene.has_tree(FormId::PLAYER_REF, fnv_game::nif_blocks::ModelView::FirstPerson);
+            rt.new_game_files_waited += 1;
+            if ready || rt.new_game_files_waited > NEW_GAME_FILES_WAIT {
+                if !ready {
+                    info!("script runner: new game files run without the player's first-person model after {NEW_GAME_FILES_WAIT} frames");
+                }
+                rt.new_game_files_waited = 0;
+                if std::mem::take(&mut rt.load_files) {
+                    log_script_runner(rt.game.run_script_runner(Moment::Load), Moment::Load);
+                }
+                if std::mem::take(&mut rt.new_game_files) {
+                    log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
+                }
+            }
         }
         if std::mem::take(&mut rt.opening_pending) {
             // The extender's NewGame event as the new game begins; a `--cell` start is
@@ -2563,7 +2705,7 @@ pub(crate) fn run_scripts(
         // `script_trigger::update`, #2571).
         rt.game.loading = loading;
         if !rt.game.paused() {
-            crate::script_trigger::update(rt, &play, &phys, player_capsule);
+            crate::script_trigger::update(rt, &play, &phys, player_capsule, joining.is_some());
         }
         rt.game.cfg.frame_seconds = dt;
         // Scripts' GetFallTimeElapsed (`fnv_game::nvse_gaps`).
@@ -2676,14 +2818,32 @@ pub(crate) fn run_scripts(
         info!("script: EnableLoadingMenu with no move of the player: no loading screen (a screen without travel is not built)");
     }
     let mut sent = BTreeSet::new();
+    // References a script had an actor other than the player pick up this frame (Ringo
+    // taking his own ammo at the start of Ghost Town Gunfight, #3918): not the player's
+    // deed. A pick-up by the player in the same frame wins.
+    let mut takers: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
+    for e in &events {
+        if let EventKind::Activated { reference, by, outcome: Some(v) } = &e.kind {
+            if v["result"] == "picked_up" {
+                let other = (*by != FormId::PLAYER_REF).then_some(by.0);
+                let t = takers.entry(reference.0).or_insert(other);
+                if other.is_none() {
+                    *t = None;
+                }
+            }
+        }
+    }
     let feet = phys.player.as_ref().map(|c| c.feet);
+    // A co-op guest's quests are the host's: the guest's game shows those messages
+    // (nvforever `coop`), not its own.
+    let guest = rt.game.coop_guest;
     for e in effects {
         // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
         let door = matches!(e, ScriptEffect::DoorTravel(_));
         match e {
             ScriptEffect::RefChanged(id) => {
                 if sent.insert(id) {
-                    changed.write(RefChanged::new(id));
+                    changed.write(RefChanged { taker: takers.get(&id).copied().flatten(), ..RefChanged::new(id) });
                 }
             }
             ScriptEffect::Fade { form_id, fade_in } => {
@@ -2733,6 +2893,9 @@ pub(crate) fn run_scripts(
                 }
                 info!("on screen: {}", note.text.trim().replace('\n', " / "));
                 corner.push(note);
+            }
+            ScriptEffect::Quest(n) if guest && !matches!(n, crate::script_events::QuestNotice::Discovered(_)) => {
+                debug!("quest message (this game's own, not shown to a co-op guest): {}", crate::quest_messages::describe(&n));
             }
             // ShowOff's ToggleQuestMessages 0: no quest line is shown (`UiRequests::quest_messages_off`).
             ScriptEffect::Quest(n) if rt.game.ui.quest_messages_off => info!("quest message dropped (ToggleQuestMessages 0): {}", crate::quest_messages::describe(&n)),
@@ -3031,6 +3194,8 @@ impl ScriptState {
             session_epoch: 0,
             opening_pending: false,
             new_game_files: false,
+            new_game_files_waited: 0,
+            load_files: false,
             wake_talk: None,
             start: GameStart::default(),
             opening_notice: None,

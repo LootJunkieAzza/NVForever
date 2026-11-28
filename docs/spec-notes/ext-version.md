@@ -31,9 +31,12 @@ from a cited document or from compiling our own test scripts with xNVSE,
 - **A version check only works in a script that uses nothing else from the extender**:
   without the extender, a script using any extender feature fails before the check runs
   [documented: GetNVSEVersion, "Usage Warning"].
-- How xNVSE 6.4.9 splits into these three numbers (6 / 4 / 9?): open [hypothesis: the
-  three getters map to the three parts of the dotted version]. A probe printing the three
-  under the owner's xNVSE settles it.
+- xNVSE 6.4.9 splits into `6 / 4 / 9` across `GetNVSEVersion`, `GetNVSERevision`, and
+  `GetNVSEBeta` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9, 2026-11-23,
+  `GSDocMitchellHouse` (`0x00103DF9`), 10 official base masters, read-only `PrintToConsole`
+  probe `core_01_nvse_version_parts` (`tools/capture/nvse/catalogs/wave4a_extenders.json`,
+  #3679, printing `GetNVSEVersion`, `GetNVSERevision`, `GetNVSEBeta`):
+  `PROBE|core_01_nvse_version_parts|6,4,9`; no DLL or source consulted].
 
 ## 2. Extender plugins
 
@@ -203,6 +206,12 @@ low.
     (`int`/`float`/`ref`/`string_var`/`array_var`) and transparent expression/statement
     result printing directly in the interactive console (`docs/design/console.md`,
     `Game::run_console_line`).
+  - `"Engine Optimizations"` at `100` and `"HighResLocalMaps"` at `12` (2026-11-25,
+    #4491) [observed in FadedLight's Nuclear Sunset fork: an installed copy's `nvse.log`
+    registered names and versions]. Neither has script functions; their work (engine
+    speed-ups, a sharper local map) is the engine's own here, as UIO's lists are. Nuclear
+    Sunset's start-up Script Runner check shows "Outdated xNVSE plugins detected!" without
+    them.
   - Still not reported: `"yUI"` (its two ySI trait functions are built, its menus are
     not; a mod that finds it goes on to read its tiles [observed: JustAssortedMods.esp
     4.6 asks `IsPluginInstalled "yUI"` and then reads `HUDMainMenu/ySI/_ySI`]), and the
@@ -213,7 +222,8 @@ low.
   showed "4GB patch missing"].
 - Left as it is: TTW's `GetNumericIniSetting "bBackgroundLoadLipFiles:BackgroundLoad"`
   check reads the game's INI as NVForever reads it; its message ("bad INI") shows only
-  when that setting is off or missing there.
+  when that setting is off or missing there. A Mod Organizer 2 profile's
+  `FalloutCustom.ini` counts (mod-organizer-profile.md, #4491).
 - **GetNVSEVersionFull**: a JIP function; answer only once JIP's module exists.
 - **GetLNVersion**: 0, as documented.
 
@@ -261,12 +271,14 @@ gate numbers and the function/key names they call are kept] The "Mods gated" col
 open (`3`) semantics in `nvse_jip2.rs`. [design] Reporting `970` is an engine design
 choice (the engine is not the plugin and has no version of its own; requires owner
 approval per #3665/#3810); higher versions (`#3193`) remain unpromoted until a gated
-feature requires and verifies them; `GetPipBoyMode` opening/closing animation transition
-modes `1`/`2`/`4`/`5` are not built, `bAutoReadNotes` is skipped (requires Book Menu
-Restored), and unrepresented switches (`bScaleCriticalDamage`, `bWeightlessItems`) retain
-INI fallback. [hypothesis] Live-game execution of the third-party Pip-Boy UI Tweaks,
-Quality of Life ESPless, and Barter Categories Icons mod files against retail game data
-remains separate acceptance testing beyond the synthetic clean-room E2E suite.
+feature requires and verifies them; `nvf-play` syncs `GetPipBoyMode` opening (`2`,
+`Phase::Raising`) and closing (`4`, `Phase::Lowering`) via `Game::ui.pipboy_mode` (while
+animation sub-phases `1`/`5` remain not built and headless `fnv-game` retains the `3`/`0`
+fallback), `bAutoReadNotes` is skipped (requires Book Menu Restored), and unrepresented
+switches (`bScaleCriticalDamage`, `bWeightlessItems`) retain INI fallback. [hypothesis]
+Live-game execution of the third-party Pip-Boy UI Tweaks, Quality of Life ESPless, and
+Barter Categories Icons mod files against retail game data remains separate acceptance
+testing beyond the synthetic clean-room E2E suite.
 
 ## 6. Open (to observe)
 

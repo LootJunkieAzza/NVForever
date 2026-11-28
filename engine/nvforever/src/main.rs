@@ -42,6 +42,7 @@ mod fos_start;
 mod reports;
 mod native_crash;
 mod exit_watch;
+mod run_end;
 #[cfg(target_os = "linux")]
 mod native_crash_unix;
 mod camera_overlay;
@@ -67,9 +68,24 @@ mod attack_anims;
 mod authored_pose;
 mod cell_buffer;
 mod cell_resets;
+mod cloud_noise;
 mod cloud_shadows;
+mod medium;
+mod medium_air;
+mod medium_air_compose;
+mod medium_air_grid;
+mod medium_air_light;
+mod volumetric_clouds;
+mod volumetric_clouds_light;
+mod volumetric_clouds_lightvol;
+mod volumetric_clouds_model2;
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+mod volumetric_clouds_tune;
+mod volumetric_clouds_wisp;
+mod medium_air_demand;
 mod alert;
 mod anim_sounds;
+mod dev_aids;
 mod cpu_placement;
 mod crash;
 mod events_log;
@@ -82,6 +98,7 @@ mod decals;
 mod dismember;
 mod distant_lights;
 mod knockouts;
+mod coop;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -102,6 +119,7 @@ mod hdr_calibrate;
 mod aerial;
 mod fly;
 mod foot_ik;
+mod upright;
 mod anti_lag;
 mod dlss;
 mod dlss_download;
@@ -124,9 +142,13 @@ mod light_shadow_casters;
 mod light_shadow_detail;
 mod light_shadows;
 mod lights;
+mod photo_lights;
+mod physical_ibl;
+mod tone_presets;
 mod limbs;
 mod lips;
 mod memory_budget;
+mod wine;
 mod gpu_poll;
 mod pilot;
 mod pipeline_gate;
@@ -142,6 +164,11 @@ mod terminal_view;
 mod scope_lens;
 mod scope_view;
 mod poker_view;
+mod slots_view;
+mod caravan_pot;
+mod caravan_view;
+mod card_shape;
+mod slots_seat;
 mod lod;
 mod locomotion;
 mod combat_face;
@@ -180,6 +207,7 @@ mod talk_clips;
 mod readahead;
 mod reflection;
 mod reflection_sky;
+mod rtgi_volume;
 mod minimap_render;
 mod refraction;
 mod residents;
@@ -202,13 +230,17 @@ mod shadow_thin;
 mod shafts;
 mod heat_haze;
 mod sun_heightfield;
+mod bokeh;
 mod imagespace;
 mod imposters;
 mod sky;
+mod solid_cores;
 mod night_sky;
 mod start_times;
 mod sun_visibility;
 mod weather_fx;
+#[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+mod weather_preview;
 mod limping;
 mod sneaking;
 mod swimming;
@@ -249,8 +281,10 @@ mod vigor_view;
 mod walk_probe;
 mod water;
 mod weapon_models;
+mod wind_dust;
 mod window_icon;
 mod window_mode;
+mod keep_awake;
 mod world;
 mod worldspace;
 mod zones;
@@ -308,6 +342,11 @@ struct Args {
     /// The profile in that instance (default: the instance's selected_profile).
     #[arg(long, value_name = "NAME")]
     profile: Option<String>,
+    /// An enabled mod folder, lowest priority first. Repeat for each folder. The launcher
+    /// passes these. The game does not read `mod-order.txt`. With none, every mod folder
+    /// is a layer in name order, and folder on/off is not applied.
+    #[arg(long = "mod-layer")]
+    mod_layers: Vec<PathBuf>,
     /// Record schema directory.
     #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv"))]
     esm_schema: PathBuf,
@@ -340,6 +379,11 @@ struct Args {
     /// weather system's rolls, docs/spec-notes/world.md §6; the parity lab's frames pin it).
     #[arg(long)]
     weather: Option<String>,
+    /// During play, fade to this weather Editor ID, hold it briefly, then fade back to --weather
+    /// (a developer aid, dev_aids.rs: a release build does not know the option).
+    #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+    #[arg(long, requires_all = ["play", "weather"], conflicts_with = "still_sky")]
+    preview_weather: Option<String>,
     /// Seed of the weather rolls (default: a fixed one, so every run rolls the same).
     #[arg(long)]
     weather_seed: Option<u64>,
@@ -616,10 +660,11 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, aerial-perspective, night-sky-detail, distant-lights, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, terrain-parallax, cloud-shadows, terrain-shadows, heat-haze, desert-haze, volumetric-clouds, volumetric-light, aerial-perspective, night-sky-detail, distant-lights, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal; full-detail-7x7 or full-detail-9x9;
-    /// distant-objects-8 or distant-objects-12), for comparing them one at a time.
+    /// distant-objects-8 or distant-objects-12; volumetric-clouds-performance or
+    /// volumetric-clouds-high instead of volumetric-clouds, which is Normal), for comparing them one at a time.
     /// The switches on in vanilla are left on unless named off: no-glow, no-eye-adaptation,
     /// no-neon-glow, no-water-mirror, no-authored-materials, no-authored-reflections.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
@@ -1355,9 +1400,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    // A mods folder's copy of a plugin is opened instead of Data's (fnv_install::plugins):
-    // NVForever's own mods folder, or an MO2 profile's mods from the highest priority down
-    // with its overwrite folder first (#1526).
+    // The mods folders: with --mo2, an MO2 profile's mods from the highest priority down
+    // with its overwrite folder first (#1526), as on main; otherwise NVForever's own mods
+    // folder, whose enabled folders are the layers below.
     let mods: Vec<PathBuf> = match &mo2 {
         Some(l) => {
             let mut roots = l.mod_roots();
@@ -1384,15 +1429,41 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     } else {
         None
     };
-    let opened = world::open_plugins(args.data(), &mods, &args.plugins);
+    // Without --mo2, the enabled mod folders are layers over Data, lowest priority first: the
+    // launcher passes them as --mod-layer (it reads mod-order.txt; the game does not). With
+    // none, every mod folder is a layer in name order. Plugins come from the same layers,
+    // highest first, then one left loose at the top of the mods folder, then Data, so a
+    // turned-off folder's plugin is not opened and the list order picks between two copies.
+    let mods_dir = mods.first().cloned().unwrap_or_default();
+    let launcher_layers: Vec<PathBuf> = if mo2.is_some() {
+        Vec::new()
+    } else if !args.mod_layers.is_empty() {
+        args.mod_layers.clone()
+    } else if mods_dir.is_dir() {
+        fnv_install::plugins::mod_folder_layers(&mods_dir)
+    } else {
+        Vec::new()
+    };
+    let opened = if mo2.is_some() {
+        world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_in(args.data(), &mods, n))
+    } else {
+        let layered = fnv_install::plugins::layered_plugin_files(&launcher_layers, mods_dir.is_dir().then_some(mods_dir.as_path()));
+        let link_into = mods_dir.is_dir().then_some(mods_dir.as_path());
+        world::open_plugins(&args.plugins, |n| fnv_install::plugins::plugin_path_layered(args.data(), &layered, link_into, n))
+    };
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
-    // No setting names the code page: the plugins' own text says it (#1443).
-    if !code_page_named {
-        setup::guess_code_page(&opened.plugins);
+    // No setting names the code page: the plugins' own text says it, else the language
+    // Steam installed the game in (a translation mod on an English install keeps its
+    // Cyrillic text) (#1443).
+    let steam = setup::steam_language(args.data());
+    if !code_page_named && !setup::guess_code_page(&opened.plugins) {
+        if let Some((page, _)) = steam {
+            setup::use_code_page(page);
+        }
     }
-    // NVForever's own words in the language of the game's text, when the code page names
-    // one and a file of it was read (#1948); a `language=` in NVForever.ini still wins.
-    setup::follow_text_language();
+    // NVForever's own words in the language Steam installed the game in or of the game's
+    // text, when a file of it was read (#1948); a `language=` in NVForever.ini still wins.
+    setup::follow_text_language(steam);
     // `--load`: the save's place decides where the world starts (its worldspace before
     // the world is opened); its body waits for the scripts (nvf_play::save). It is read
     // in full now, remapped to the plugins opened and checked as the restore will
@@ -1468,10 +1539,15 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // NVFOREVER_HOME, every file created new, then mounted over every other loose layer for
     // this run only (nvf_assets pbr_field/ground.rs `seed_ground_pack`, terrain.rs
     // `ground_pack_diffuses`). No mods folder is written.
-    let ground_pack: Option<PathBuf> = if nvf_assets::ground_pack_requested() {
-        match terrain::ground_pack_diffuses(&opened.plugins, &args.esm_schema).and_then(|d| nvf_assets::seed_ground_pack(&d)) {
+    let ground_pack: Option<PathBuf> = if let Some(kind) = nvf_assets::ground_pack_requested() {
+        match terrain::ground_pack_diffuses(&opened.plugins, &args.esm_schema).and_then(|d| nvf_assets::seed_ground_pack(kind, &d)) {
             Ok((dir, sets, files)) => {
                 eprintln!("pbr ground pack: {sets} height-only sets for the landscape textures ({files} generated files, depth {}) written under {} (this run's own folder, mounted over every other loose layer)", nvf_assets::GROUND_DEPTH, dir.display());
+                match kind {
+                    nvf_assets::GroundPack::Heights => {}
+                    nvf_assets::GroundPack::Alpha => eprintln!("pbr ground pack: and a diffuse for each, one flat colour with a checkerboard alpha, and a flat normal map"),
+                    nvf_assets::GroundPack::AlphaHeight => eprintln!("pbr ground pack: no sets; a diffuse for each landscape texture with the height map in its alpha, and a flat normal map"),
+                }
                 Some(dir)
             }
             Err(e) => {
@@ -1484,9 +1560,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     };
     // The test aids' folders, the last highest.
     let overs: Vec<PathBuf> = mount_pack.into_iter().chain(ground_pack).collect();
-    // The archives beside a plugin in the mods folder are mounted with it. The VFS takes
-    // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
-    // above, which wants the overwrite folder first.
+    // `--mo2` is unchanged: that instance's folders, read only. Otherwise the enabled
+    // mod folders are layers over Data. Loose files and archives in Data are still read.
+    // The test aids' folders (the reflection mount pack, the ground pack), when asked for,
+    // are the highest loose layers.
     let game = match &mo2 {
         Some(l) => {
             // The test aids' folders as the highest layers, for this run only.
@@ -1494,7 +1571,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             roots.extend(overs.iter().cloned());
             GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
         }
-        None => GameData::open_for_plugins_in_over(args.data(), mods.first().map(|p| p.as_path()), &overs, &args.plugins, &args.nif_schema),
+        None => {
+            let mut layers = launcher_layers.clone();
+            layers.extend(overs.iter().cloned());
+            GameData::open_launcher_mods(args.data(), &mods_dir, &layers, &args.plugins, &args.nif_schema)
+        }
     };
     let game = match game {
         Ok(g) => g,
@@ -1875,6 +1956,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // never mix the two; the page's row changes the next start's.
     let authored = settings::authored_after_ini(graphics.authored_materials, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::authored::set_enabled(authored);
+    // Physical PBR lighting (graphics-enhanced.md §3.25): the run's state by the same rule,
+    // fixed before the first shader hook and material; the page's row changes the next start's.
+    let physical_pbr = settings::physical_pbr_after_ini(graphics.physical_pbr, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
+    nvf_assets::authored::set_physical_pbr(physical_pbr);
+    app.add_systems(Startup, move || info!("physical PBR: {}", if physical_pbr { "on" } else { "off" }));
     app.add_systems(Startup, move || info!("authored materials: {}", if authored { "on (sets under textures\\pbr\\ are used where a pack has them)" } else { "off (setting)" }));
     // Reflections on authored materials (#2981): the run's state by the same rule, fixed
     // before the first NIF pipeline (the opt-in def and the metallic factor); the world
@@ -1882,6 +1968,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     // (reflection_sky.rs).
     let reflections = settings::reflections_after_ini(graphics.authored_reflections, play.is_some().then(|| settings::given_switches(&args, &command_line())).as_ref());
     nvf_assets::reflection_cube::set_enabled(reflections && authored);
+    if physical_pbr && reflections && authored {
+        app.add_systems(Startup, || info!("physical PBR: authored reflections keep the view's environment map; the sky's image-based light is off and other surfaces take flat ambient"));
+    }
     app.add_systems(Startup, move || {
         info!(
             "authored reflections: {}",
@@ -1901,6 +1990,10 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     let startup = upscaler::UpscalerStartup::new(start_upscaler, std::env::var_os(upscaler::PRELOAD_ENV).as_deref(), upscaler::platform_supports_dlss(), dlss::bundle_present);
     app.insert_resource(startup);
     app.add_systems(Startup, move || info!("upscaler: {}", startup.describe()));
+    // A Windows build under Wine or Proton says so (#3493).
+    if let Some(v) = wine::version() {
+        app.add_systems(Startup, move || info!("{}", wine::describe(&v)));
+    }
     // The Frame generation choice this run starts with, by the row's rule (command line, then the
     // INI): DLSS Frame Generation stays loaded from the start only for a DLSS choice (dlss/).
     let start_frame_generation = {
@@ -1979,15 +2072,25 @@ fn run_with_args(line: Vec<String>) -> AppExit {
     #[cfg(target_os = "android")]
     let default_plugins = default_plugins.disable::<bevy::gilrs::GilrsPlugin>();
     app.add_plugins(default_plugins)
-    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, hdr::HdrPlugin))
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, keep_awake::KeepAwakePlugin, hdr::HdrPlugin, photo_lights::PhotoLightsPlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, aerial::AerialPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins(night_sky::NightSkyPlugin)
-    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
+    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, volumetric_clouds::VolumetricCloudsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
+    // The volumetric medium's light in the air (#3032 stage 3; off unless its row or its debug aid asks).
+    .add_plugins((medium_air_grid::MediumAirPlugin, medium_air_light::AirLightPlugin))
+    // Its solid cores of blended shapes (only while the light is drawn).
+    .add_plugins(solid_cores::SolidCoresPlugin)
     // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
+    // Physical lighting's image-based light from the sky (graphics-enhanced.md §3.25); idle
+    // without the row.
+    .add_plugins(physical_ibl::PhysicalIblPlugin)
+    .add_plugins(tone_presets::TonePresetsPlugin)
     .add_plugins(sun_visibility::SunVisibilityPlugin)
     // The ambient occlusion's shader for the lighting (imported only under its def).
     .add_plugins(ssao_lighting::SsaoLightingPlugin)
+    // The bounce light volume: its shader for the lighting (imported only under its def), its bindings (only on request).
+    .add_plugins(rtgi_volume::RtgiVolumePlugin)
     // Shadows of placed lights, the ALC shadows row (off by default).
     .add_plugins(light_shadows::LightShadowsPlugin(args.light_shadows.unwrap_or(light_shadows::LightShadowMode::Off)))
     .add_plugins(light_shadow_detail::LightShadowDetailPlugin)
@@ -2078,6 +2181,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         centre: None,
         waiting: Vec::new(),
         model_overrides: Default::default(),
+        coop_areas: Vec::new(),
         travels: 0,
     })
     .insert_resource(world)
@@ -2251,6 +2355,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(roulette_view::RouletteViewPlugin);
         // The blackjack table (blackjack_view.rs).
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // The reels turning on the placed slot machine, its arm and spin camera (slots_view.rs).
+        app.add_plugins(slots_view::SlotsViewPlugin);
         // Test aid NVF_PLAY_TEST_TERRAIN_PARALLAX_AB: the terrain parallax's readback (#3322).
         terrain_parallax_ab::install(&mut app);
         // The terminal's monitor (terminal_view.rs).
@@ -2260,6 +2366,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(scope_view::ScopeViewPlugin);
         // The poker table (poker_view.rs).
         app.add_plugins(poker_view::PokerViewPlugin);
+        // The Caravan table in 3D (caravan_view.rs).
+        app.add_plugins(caravan_view::CaravanViewPlugin);
     }
     if let Some(a) = actor_world {
         if let Some(c) = creator_data.take() {
@@ -2277,6 +2385,7 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         app.add_plugins(turret_aim::TurretAimPlugin);
         // Also with --no-foot-ik: the settings page can switch it on.
         app.add_plugins(foot_ik::FootIkPlugin { enabled: !args.no_foot_ik });
+        app.add_plugins(upright::UprightPlugin);
         // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the
         // --npc-travel walkers' too, without --play.
         app.add_plugins(actor_jumps::ActorJumpsPlugin { physics: play.is_some() });
@@ -2299,6 +2408,8 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.insert_resource(inertia);
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
+            // Co-op: idle until a lobby is opened or joined.
+            app.add_plugins(coop::CoopPlugin(coop::Config { host: None, join: None, name: "Courier".to_string() }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
@@ -2358,6 +2469,9 @@ fn run_with_args(line: Vec<String>) -> AppExit {
             app.add_plugins(npc_combat::NpcCombatPlugin);
             // NPCs heal with the stimpaks they carry (npc_stimpaks.rs).
             app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
+            // A slot machine played in the world: the body's idles and win celebration
+            // (slots_seat.rs).
+            app.add_plugins(slots_seat::SlotsSeatPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
@@ -2378,7 +2492,11 @@ fn run_with_args(line: Vec<String>) -> AppExit {
         }
     }
     if play.is_some() {
-        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game, sky::sync_weather_fog, sky::sync_weather_visuals).chain().before(sky::update_sky));
+        app.add_systems(Update, (script_weather, worldspace::script_sky, sky::fade_cadence, sky_follows_game, sky::sync_weather_fog, sky::sync_weather_visuals).chain().before(sky::update_sky));
+        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+        if let Some(target) = &args.preview_weather {
+            weather_preview::install(&mut app, target);
+        }
         app.add_systems(Update, settings::script_fov.before(nvf_play::PlaySet::Scripts));
         // The weather's sounds, precipitation and lightning (weather_fx.rs).
         app.add_plugins(weather_fx::WeatherFxPlugin);
@@ -2670,7 +2788,12 @@ fn start_days(day: Option<f32>, sky_day: Option<f32>, plugins: Option<f32>) -> (
 /// values, in both the `--flag value` and `--flag=value` forms), for the run that takes
 /// over a load (handoff.rs).
 fn restart_args(args: &[String]) -> Vec<String> {
-    const VALUED: [&str; 13] = ["--load", "--load-refused", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather", "--world", "--eye-height", "--size", "--window-at", "--handoff"];
+    const VALUED: &[&str] = &[
+        "--load", "--load-refused", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather",
+        #[cfg(any(test, debug_assertions, feature = "dev-aids"))]
+        "--preview-weather",
+        "--world", "--eye-height", "--size", "--window-at", "--handoff",
+    ];
     let mut out = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -2739,8 +2862,9 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         bevy::core_pipeline::prepass::DepthPrepass,
         // The world, the water (which the reflection camera leaves out), the player's
         // first-person arms and seen body, the impact decals (which need this
-        // camera's prepass), and JohnnyGuitar PreIS 3D camera overlays.
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, sky::BODY_LAYER, decals::DECAL_LAYER, camera_overlay::OVERLAY_PRE_IS_LAYER]),
+        // camera's prepass), JohnnyGuitar PreIS 3D camera overlays, and the volumetric clouds
+        // (this camera alone marches them, #2991).
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, sky::BODY_LAYER, decals::DECAL_LAYER, camera_overlay::OVERLAY_PRE_IS_LAYER, volumetric_clouds::VOLUME_LAYER]),
     )).id();
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
@@ -3189,7 +3313,7 @@ mod tests {
 
     #[test]
     fn a_restart_for_a_load_drops_what_the_save_decides() {
-        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old", "--load-refused=old: why", "--size", "1600x900", "--window-at=-8,0", "--window-maximized", "--handoff", "f"].map(String::from).to_vec();
+        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--preview-weather=Rain", "--no-music", "--load", "old", "--load-refused=old: why", "--size", "1600x900", "--window-at=-8,0", "--window-maximized", "--handoff", "f"].map(String::from).to_vec();
         assert_eq!(restart_args(&a), ["--data", "D", "--play", "--no-music"]);
     }
 

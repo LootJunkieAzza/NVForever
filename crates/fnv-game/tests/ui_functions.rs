@@ -261,7 +261,7 @@ fn mcm_functions_stand_for_start_menu_traits() {
     let f = fixture();
     let mut g = game(&f);
     // MCM's child and grandchild count from 1 in file order, 0 stopping at the level
-    // above (menu-xml.md §10 [hypothesis, from MCM's files]): `1 1` is the first child's
+    // above (see docs/spec-notes/menu-xml.md §10): `1 1` is the first child's
     // first child, `0 0` the MCM rect.
     let src = MemSource::default().with(
         "menus\\start.xml",

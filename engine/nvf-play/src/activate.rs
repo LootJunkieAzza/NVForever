@@ -412,10 +412,16 @@ impl TargetPicker<'_,'_,'_>{
     let furniture_seen = hit.and_then(|h| h.form_id).into_iter().chain(bounds.iter().map(|b| b.0)).any(is_furniture);
     // Beds among the boxes (FURN marker flags with Sleep, bit 31, furniture.md §1) may
     // yield to what lies in them (`pick::set_aside_enclosing`, #3323).
-    // The containers among the boxes: only they give way to what lies inside them
-    // (`pick::choose_inside`, #3351).
-    let containers: std::collections::HashSet<u32> =
-        bounds.iter().map(|b| b.0).filter(|&id| sim.base_of(id).and_then(|b| sim.forms.get(b)).is_some_and(|f| matches!(f.data, BaseData::Container(_)))).collect();
+    // The containers among the boxes give way to what lies inside them (#3351), activators
+    // to an item lying in their box (the note on a radio, #3937), nothing else
+    // (`pick::choose_inside`).
+    let of_kind = |kind: fn(&BaseData) -> bool| -> std::collections::HashSet<u32> {
+        bounds.iter().map(|b| b.0).chain(hit.and_then(|h| h.form_id)).filter(|&id| sim.base_of(id).and_then(|b| sim.forms.get(b)).is_some_and(|f| kind(&f.data))).collect()
+    };
+    let containers = of_kind(|d| matches!(d, BaseData::Container(_)));
+    let activators = of_kind(|d| matches!(d, BaseData::Activator));
+    let items = of_kind(|d| matches!(d, BaseData::Item(_)));
+    let yields = |outer: u32, inner: u32| containers.contains(&outer) || (activators.contains(&outer) && items.contains(&inner));
     let beds: std::collections::HashSet<u32> = match script.as_deref().and_then(|s| s.rt.as_ref()) {
         Some(rt) if furniture_seen => {
             let bed = |id: u32| sim.base_of(id).and_then(|b| rt.game.data.furniture.get(&b)).is_some_and(|f| f & fnv_game::package::furniture::SLEEP != 0);
@@ -501,10 +507,23 @@ impl TargetPicker<'_,'_,'_>{
     });
     let raw_hit = hit;
     let hit = pick::door_behind(hit, behind, |id| describe_once(id).is_some());
-    // What is inside a container wins over it (an open locker's shelves, #3351), among the
-    // boxes the bed rule kept.
+    // What is inside a container wins over it (an open locker's shelves, #3351), an item
+    // over the activator it lies on (#3937), among the boxes the bed rule kept. When only
+    // rough actor boxes remain, prefer the actor whose posed body segments are nearest the
+    // crosshair ray (#3664).
     let kept: Vec<pick::BoxSpan> = bounds.iter().filter(|b| kept.iter().any(|k| k.0 == b.0)).copied().collect();
-    let picked = pick::choose_inside(hit, raw_hit, kept, REACH, |id| containers.contains(&id), |id| describe_once(id).is_some());
+    let rough_limit = hit.map_or(REACH, |h| (h.distance + pick::SURFACE_SLACK).min(REACH));
+    let ray_origin = Vec3::from_array(eye);
+    let ray_dir = Vec3::from_array(dir);
+    let body_ray_distance = |actor: u32| {
+        let posed = parts.and_then(|p| p.by_ref.get(&actor)).filter(|p| !p.segments.is_empty())?;
+        posed
+            .segments
+            .iter()
+            .map(|s| pick::ray_segment_distance(ray_origin, ray_dir, rough_limit, Vec3::from_array(s.a), Vec3::from_array(s.b)))
+            .reduce(f32::min)
+    };
+    let picked = pick::choose_inside_with_body(hit, raw_hit, kept, REACH, yields, body_ray_distance, |id| describe_once(id).is_some());
     // How far the sleeper's body is from the eye: its posed bones (`crate::hitvol::ActorParts`,
     // which follow the lying body), else its render boxes (rough: the bind pose).
     let body_distance = |actor: u32| {
@@ -581,17 +600,40 @@ fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks
 
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let r = FormId(id);
+    // Another player of a co-op game: only its name (there is no one to talk to).
+    if g.is_coop_actor(r) {
+        return Action::Name;
+    }
     // The player's tweak: a knocked-out companion is revived [design: docs/design/tweaks.md].
     if g.can_revive(r) {
-        return Action::Revive;
+        return Action::ReviveCompanion;
     }
     // The player's tweak lets an unconscious actor be searched as a dead one is [design: docs/design/tweaks.md].
     if g.is_dead(r) || (g.tweaks.loot_unconscious && g.knockout(r).is_some()) {
         return Action::Search;
     }
     let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
-    if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
+    // On a co-op guest, the host's word too (`Game::coop_hostile`, as the compass reads
+    // it): the host's quest stages turn people hostile (VMS16 stage 70's SetEnemy) in its
+    // world, which the guest's own factions don't know [observed: buckallobill, in game,
+    // NVForever co-op: the Powder Gangers fighting in Goodsprings offered Talk on the
+    // guest]. Empty outside co-op.
+    if fighting_player || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Hostile;
+    }
+    // A co-op guest talks only to trade, to play and to change chips at a cashier
+    // (`fnv_game::Game::guest_lines`); the host's world runs the rest [design].
+    if g.coop_guest {
+        let now = g.time;
+        let talks = match talkers.get(&id) {
+            Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
+            _ => {
+                let t = g.guest_can_talk(r);
+                talkers.insert(id, (t, now));
+                t
+            }
+        };
+        return if talks { Action::Talk } else { Action::Name };
     }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.
@@ -867,12 +909,51 @@ pub(crate) fn activate(
             return;
         }
     }
+    // A downed co-op player: the revive takes E (`nvforever`'s `coop.rs`).
+    if matches!(t.action, Action::Revive { .. }) {
+        return;
+    }
     // An actor shown by name only (hostile, or a creature with nothing to say): E does
-    // nothing (playtest list 4, item 19) but open the perks' choices, if they offer any on
-    // it now (Robotics Expert's, #3479).
+    // nothing (playtest list 4, item 19) except:
+    // - open the perks' choices, if they offer any on it now (Robotics Expert's, #3479);
+    // - for a non-hostile creature shown by name only (`Action::Name`) whose script has
+    //   an OnActivate block (e.g. CRBrahminScript brahmin pushing, #3669), run its
+    //   OnActivate block while keeping the default activation behind it "nothing".
+    // Hostile actors keep #2536's rule.
     if matches!(t.action, Action::Name | Action::Hostile) {
         if crate::script::choices_by_hand(script.as_deref_mut(), &mut sim, t.form_id) {
             return;
+        }
+        if t.action == Action::Name {
+            if let Some(done) = crate::script::script_activate_by_hand(script.as_deref_mut(), &mut sim, t.form_id) {
+                match done {
+                    Ok(crate::script::ByHand::Script) => {
+                        sounds.write(crate::world_sounds::Activated { reference: t.form_id });
+                        info!("activate 0x{:08X} {} ({}): its script's OnActivate ran", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(crate::script::ByHand::Refused) => {
+                        info!("activate 0x{:08X} {}: destroyed or prevented, it cannot be activated", t.form_id, t.name);
+                    }
+                    Ok(crate::script::ByHand::Talk) => {
+                        info!("activate 0x{:08X} {} ({}): a conversation started", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(crate::script::ByHand::Greeted) => {
+                        info!("activate 0x{:08X} {} ({}): it said its greeting, no conversation", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(crate::script::ByHand::Woken) => {
+                        info!("activate 0x{:08X} {} ({}): asleep, it wakes and gets up before talking", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(crate::script::ByHand::Wheel) => {
+                        info!("activate 0x{:08X} {} ({}): the companion wheel opened", t.form_id, t.name, t.action.label());
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!("activate 0x{:08X} {}: {e}", t.form_id, t.name);
+                        hud.show(format!("{}: {e}", t.name));
+                    }
+                }
+                return;
+            }
         }
         info!("activate 0x{:08X} {}: nothing to do ({})", t.form_id, t.name, if t.action == Action::Hostile { "hostile" } else { "name only" });
         return;
@@ -898,7 +979,7 @@ pub(crate) fn activate(
         return;
     }
     // The player's tweak: a Stimpak gets a knocked-out companion up [design: docs/design/tweaks.md].
-    if t.action == Action::Revive {
+    if t.action == Action::ReviveCompanion {
         let done = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.revive(FormId(t.form_id))));
         match done {
             Some(Ok(())) => info!("activate 0x{:08X} {} (Revive): a Stimpak used, they get up (tweak)", t.form_id, t.name),
@@ -1102,6 +1183,15 @@ pub(crate) fn drawn(sim: &SimState, script: Option<&crate::script::ScriptState>,
     sim.present(id) && !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.culled(FormId(id)))
 }
 
+/// Whether a `RefChanged` entry should emit its own `info!` line: always for live
+/// changes (`!all_restored`) and for any restored reference that actually updated drawn
+/// render entities (`updated > 0`). Restored references in unloaded cells (`updated == 0`)
+/// are counted into a single summary `info!` line so loading a mature save does not flood
+/// the log with tens of thousands of no-op lines.
+fn log_ref_change_individually(all_restored: bool, updated: usize) -> bool {
+    !all_restored || updated > 0
+}
+
 /// Hide or show `RefVisual` entities from the simulation's state ([`drawn`]): every entity
 /// of a reference named by `RefChanged`, and new entities as cells stream in (a taken item
 /// must not come back when its cell reloads).
@@ -1118,17 +1208,24 @@ pub fn sync_visuals(
             v.set_if_neq(Visibility::Hidden);
         }
     }
-    let mut changed: HashMap<u32, usize> = changes.read().map(|m| (m.form_id, 0)).collect();
+    let mut changed: HashMap<u32, (usize, bool)> = HashMap::new();
+    for m in changes.read() {
+        changed
+            .entry(m.form_id)
+            .and_modify(|(_, all_restored)| *all_restored &= m.restored)
+            .or_insert((0, m.restored));
+    }
     if changed.is_empty() {
         return;
     }
     for (r, mut v) in &mut visuals.p1() {
-        if let Some(n) = changed.get_mut(&r.0) {
+        if let Some((n, _)) = changed.get_mut(&r.0) {
             v.set_if_neq(if drawn(&sim, script, r.0) { Visibility::Inherited } else { Visibility::Hidden });
             *n += 1;
         }
     }
-    for (id, n) in changed {
+    let mut restored_unloaded = 0usize;
+    for (id, (n, all_restored)) in changed {
         let how = if !sim.present(id) {
             "gone"
         } else if drawn(&sim, script, id) {
@@ -1136,6 +1233,14 @@ pub fn sync_visuals(
         } else {
             "culled (critical stage)"
         };
-        info!("reference 0x{id:08X} {how}: {n} render entities updated");
+        if log_ref_change_individually(all_restored, n) {
+            info!("reference 0x{id:08X} {how}: {n} render entities updated");
+        } else {
+            restored_unloaded += 1;
+            debug!("reference 0x{id:08X} {how}: 0 render entities updated");
+        }
+    }
+    if restored_unloaded > 0 {
+        info!("references restored from save: {restored_unloaded} not drawn (0 render entities updated)");
     }
 }

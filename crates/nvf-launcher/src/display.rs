@@ -119,6 +119,9 @@ pub fn steps(key: &str) -> Option<Vec<String>> {
         // Degrees in steps of 5 (engine settings.rs FOV_MIN..FOV_MAX, VIEWMODEL_FOV_*).
         "field-of-view" => Some((0..13).map(|i| format!("{}°", 50 + 5 * i)).collect()),
         "viewmodel-field-of-view" => Some((0..13).map(|i| format!("{}°", 30 + 5 * i)).collect()),
+        // The light in the air's strength, 0 % to 200 % in steps of 10 (engine
+        // settings.rs `air_strength_slider`: the stored part is strength / 2).
+        "volumetric-light-strength" => Some((0..21).map(|i| format!("{}%", 10 * i)).collect()),
         // The Custom difficulty's three: 50-300% in steps of 5 (nvf-play difficulty.rs).
         "difficulty-player-damage" | "difficulty-npc-damage" | "difficulty-kill-xp" => Some((0..51).map(|i| format!("{}%", 50 + 5 * i)).collect()),
         k if colour_of_part(k).is_some() => Some((0..=255).map(|i: u32| i.to_string()).collect()),
@@ -272,6 +275,8 @@ pub fn chosen(key: &str, choices: &[Choice], value: &str) -> Option<usize> {
 /// (EnumDisplayDevicesW / EnumDisplaySettingsW, user32): the device names are the ones winit
 /// gives the game, so `monitor=` matches.
 #[cfg(all(windows, feature = "desktop"))]
+// The Win32 calls (#4592): the crate denies unsafe code everywhere else.
+#[allow(unsafe_code)]
 pub fn monitors() -> Vec<Monitor> {
     use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, EnumDisplaySettingsW, DEVMODEW, DISPLAY_DEVICEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE, ENUM_CURRENT_SETTINGS};
     let wide = |w: &[u16]| String::from_utf16_lossy(&w[..w.iter().position(|c| *c == 0).unwrap_or(w.len())]);
@@ -379,6 +384,10 @@ mod tests {
         assert_eq!(steps("viewmodel-field-of-view").unwrap()[5], "55°");
         assert_eq!(steps("ui-scale").unwrap()[10], "100%");
         assert_eq!(steps("menu-scale").unwrap().last().unwrap(), "100%");
+        // A stored 0.75 reads 150 %, as the game's page and its exported menu show it.
+        let strength = steps("volumetric-light-strength").unwrap();
+        assert_eq!((strength.len(), strength[0].as_str(), strength[15].as_str(), strength[20].as_str()), (21, "0%", "150%", "200%"));
+        assert_eq!(strength[(0.75f64 * 20.0).round() as usize], "150%");
         assert_eq!(steps("pipboy-blue").unwrap().len(), 256);
         assert_eq!(colour_of_part("hud-green"), Some("hud-colour"));
         assert_eq!(preset_rgb("blue"), Some([46, 207, 255]));

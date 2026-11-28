@@ -296,9 +296,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // unpoisoned [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
         // JohnnyGuitarNVSE 528 + JIP LN 57.30, 2026-11-24, `GSDocMitchellHouse`,
         // `w4h_09_apply_weapon_poison_stimpak` (`wave4h_reconcile.json`, #3803):
-        // `PROBE|w4h_09_apply_weapon_poison_stimpak|eq=00004326|isPois(b=1,s=1,st=0)|init=00000000|bleak(1:001613D0)|clr1(1:00000000)|stim(0:00000000)|silver(1:00167475)|clr2(1:00000000)`].
-        // Rejecting a non-ALCH form or leaving an already-applied poison unchanged on
-        // rejection and returning 0 without an equipped WEAP [hypothesis].
+        // `PROBE|w4h_09_apply_weapon_poison_stimpak|eq=00004326|isPois(b=1,s=1,st=0)|init=00000000|bleak(1:001613D0)|clr1(1:00000000)|stim(0:00000000)|silver(1:00167475)|clr2(1:00000000)`],
+        // and `w6t2p2_27_jg10_apply_poison_and_muzzle_hex`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `unarm=0,ok=1,bad=0,kept=1,clr=1` confirming unarmed returns `0`, non-`ALCH`
+        // (`Weap10mmPistol 0x434F`) returns `0` while keeping the already-applied poison,
+        // and omitted argument clears returning `1`].
         "applyweaponpoison" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let key = match g.temp_item(r) {
@@ -332,12 +335,18 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             zero
         }
         // `[mode]`: 0 on again, 1 off for all, 2 the player's, 3 NPCs' [documented]; a
-        // mode outside 0–3 leaves the setting unchanged and returns a value formatting as
-        // `4.29497e+09` under `%g` [observed: Fallout: New Vegas 1.4.0.525 + xNVSE 6.4.9 +
-        // JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`), 10 official
-        // base masters, `w4c_b3_10_jg10_safe_edges`: `dm(4.29497e+09,0)`]; exact `u32::MAX`
-        // (`0xFFFFFFFF`, `4_294_967_295`) is [hypothesis: `%g` rounds `4294967295` to
-        // `4.29497e+09`; exact integer value not printed with `%x` or `%i`].
+        // mode outside 0–3 leaves the setting unchanged and returns exact `u32::MAX`
+        // (`4_294_967_295`, `0xFFFFFFFF`, printed as `FFFFFFFF` under `%x` and
+        // `4.29497e+09` under `%g`) [observed: Fallout: New Vegas 1.4.0.525 + xNVSE
+        // 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, `GSDocMitchellHouse` (`0x00103DF9`),
+        // 10 official base masters, `w4c_b3_10_jg10_safe_edges` (`dm(4.29497e+09,0)`),
+        // `w4h_06_disable_muzzle_flash_hex`
+        // (`tools/capture/nvse/catalogs/wave4h_reconcile.json`, #3803):
+        // `PROBE|w4h_06_disable_muzzle_flash_hex|dm99(hex=FFFFFFFF,i=00000000,g=4.29497e+09)|dm1(1,1)|dm0(0,0)|dt(c1=1,ex1=1,c2=-1,ex2=1,ex3=0)|getOps(0,0,0)`,
+        // and `w6t2p2_27_jg10_apply_poison_and_muzzle_hex`
+        // (`tools/capture/nvse/catalogs/wave6_t2_observed_matches.json`):
+        // `muz=4294967295,neg=4.29497e+09`; zero DLL, PDB, or third-party source
+        // consulted].
         "disablemuzzleflashlights" => {
             let m = num(args, 0, 0.0);
             if (0.0..=3.0).contains(&m) && m.fract() == 0.0 {
@@ -387,7 +396,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // ---- FaceGen ----
         // `base type n`: the base's nth value of the list (FACEGEN) [documented: the
-        // arguments; hypothesis: the types]; 0 out of range.
+        // arguments; hypothesis: the types; observed: Fallout: New Vegas 1.4.0.525 +
+        // xNVSE 6.4.9 + JohnnyGuitarNVSE 528, 2026-11-24, GSDocMitchellHouse
+        // (0x00103DF9), 10 official base masters, w4d_31_jg_facegen_bounds
+        // (tools/capture/nvse/catalogs/wave4d_extenders.json):
+        // t0(0=-0.2281,49=0.0000)|t1(0=0.0000) on Doc Mitchell (0x00104C0C); no DLL or
+        // source consulted]. Returning 0.0 for out-of-range indices (>= 50 / >= 30 /
+        // < 0) or invalid types (>= 3) is [design: crash-safety guard avoiding
+        // out-of-bounds reads, which crash/hang JohnnyGuitarNVSE 528].
         "facegengetnthproperty" => {
             let (Some(b), Ok(k), Ok(i)) = (form(args, 0), usize::try_from(num(args, 1, -1.0) as i64), usize::try_from(num(args, 2, -1.0) as i64)) else { return Some(Ok(zero)) };
             if k >= FACEGEN.len() {
