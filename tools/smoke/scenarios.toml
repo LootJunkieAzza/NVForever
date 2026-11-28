@@ -4432,6 +4432,43 @@ expect = [
 ]
 
 [[scenario]]
+name = "pilot-ai-due"
+source = "issue #2365 (spooknik's coverage review): the quest pilot's steps left to the AI (`patrol_point`, an actor entering a trigger) succeeded at once and nothing looked whether the actor did it. They are checked afterwards: done once the actor is within 256 units of the point, an `ai_not_done` finding after 180 s or when the chain ends first"
+note = "A tiny chain kept beside the smoke tests (tools/smoke/pilot/ai-due.actions.json)"
+areas = ["quests", "ai"]
+paths = ["engine/nvforever/src/pilot.rs", "tools/smoke/pilot/ai-due.actions.json"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "900", NVF_PLAY_TEST_UNATTENDED = "1" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-music", "--pilot", "{repo}/tools/smoke/pilot/ai-due.actions.json"]
+run_seconds = 90
+ends = "pilot: done:"
+order = [[
+  { re = 'pilot: step \d+: the AI did what step 1 left to it: SunnyRef reaching SunnyRef', label = "a step the AI has done is said done" },
+  { re = 'pilot: finding ai_not_done: .*step 2 left to the AI: SunnyRef reaching VERGSCoyote6REF, the chain ended first', label = "one it never did is a finding at the chain's end" },
+  { re = 'pilot: done: 1 chain\(s\), 4 steps \(0 failed\)', label = "the run ends with no failed step" },
+]]
+
+[[scenario]]
+name = "pilot-sshq-stairs"
+source = "issue #2365 (from #3473): in the Sunset Sarsaparilla HQ the prize room, its corridor and stairs are a navmesh of their own (0x0010489C) that no link joins to the cell's main navmesh; the original's followers do not cross there (observer check 279), a player walks the stairs. The quest pilot walks to the near end of the gap and steps across on its own movement, down to Allen Marks' holotape and back up to Festus, instead of an unreachable finding"
+note = "A tiny chain kept beside the smoke tests (tools/smoke/pilot/sshq-stairs.actions.json): VMS09a 10 is set and the two doors on the way are unlocked by script"
+areas = ["quests", "ai"]
+paths = ["engine/nvforever/src/pilot.rs", "crates/fnv-nav/src/graph.rs", "tools/smoke/pilot/sshq-stairs.actions.json"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "900", NVF_PLAY_TEST_UNATTENDED = "1" }
+args = ["--cell", "SSHQ01", "--play", "--hour", "12", "--no-voice", "--no-music", "--pilot", "{repo}/tools/smoke/pilot/sshq-stairs.actions.json"]
+run_seconds = 180
+ends = "pilot: done:"
+order = [[
+  { re = 'pilot: step 5: no navmesh link joins the player.s part of Interior', label = "the walk down finds the two navmeshes unjoined" },
+  { re = 'pilot: step 5: stepped across in ', label = "the player steps down onto the prize room's navmesh" },
+  { re = 'pilot: step 7: stepped across in ', label = "and back up the stairs onto the main navmesh" },
+  { re = 'pilot: done: 1 chain\(s\), 8 steps \(0 failed\)', label = "the run ends with no failed step" },
+]]
+expect = [
+  { text = "pilot: finding unreachable", count = 0, label = "no unreachable finding" },
+  { text = "pilot: finding no_navmesh_way", count = 0, label = "no fast-travel stand-in across the gap" },
+]
+
+[[scenario]]
 name = "crucified-stay"
 source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
 areas = ["ai", "furniture"]
