@@ -78,8 +78,12 @@ pub struct Dressed {
     pub weapon: Option<FormId>,
     /// The held weapon's mod flags (`Appearance::weapon_mods`).
     pub weapon_mods: u8,
-    /// Each drawn part's key ([`part_key`]) and its shape entities.
+    /// Each drawn part's key ([`part_key`]) and its mesh shape entities.
     pub parts: Vec<(String, Vec<Entity>)>,
+    /// Each drawn part's key ([`part_key`]) and its top-level spawned rigid `NiNode` roots
+    /// (`SpawnedActor::rigid_roots`), tracked separately from [`Self::parts`] so `parts`
+    /// holds strictly mesh shapes while removed rigid subtrees are torn down cleanly.
+    pub rigid_roots: Vec<(String, Vec<Entity>)>,
 }
 
 /// The simulation's drawable equipment, shared by spawning, prefetch and reconciliation.
@@ -191,11 +195,18 @@ impl Dressed {
     /// The record of an actor just spawned from `a`: `drawn` and `part_of` as
     /// `spawn_actor` gave them, `part_index` the index in `a.parts` of each part spawned.
     pub fn new(world: &ActorWorld, a: &Appearance, part_index: &[usize], spawned: &SpawnedActor) -> Dressed {
-        Dressed { worn: a.worn.clone(), weapon: a.weapon, weapon_mods: a.weapon_mods, parts: grouped(a, part_index, spawned, pipboy_of(world, a)) }
+        let pipboy = pipboy_of(world, a);
+        Dressed {
+            worn: a.worn.clone(),
+            weapon: a.weapon,
+            weapon_mods: a.weapon_mods,
+            parts: grouped(a, part_index, spawned, pipboy),
+            rigid_roots: grouped_rigid_roots(a, part_index, spawned, pipboy),
+        }
     }
 }
 
-/// The drawn shapes of `spawned` grouped by part (`part_index`: the index in `a.parts`
+/// The drawn mesh shapes of `spawned` grouped by part (`part_index`: the index in `a.parts`
 /// of each part given to the spawn).
 fn grouped(a: &Appearance, part_index: &[usize], spawned: &SpawnedActor, pipboy: bool) -> Vec<(String, Vec<Entity>)> {
     let mut out: Vec<(String, Vec<Entity>)> = Vec::new();
@@ -204,6 +215,20 @@ fn grouped(a: &Appearance, part_index: &[usize], spawned: &SpawnedActor, pipboy:
         match out.iter_mut().find(|(n, _)| *n == key) {
             Some((_, v)) => v.push(*e),
             None => out.push((key, vec![*e])),
+        }
+    }
+    out
+}
+
+/// Top-level rigid `NiNode` roots of `spawned` grouped by part key so outfit replacement
+/// despawns removed subtrees without mixing non-mesh nodes into [`Dressed::parts`].
+fn grouped_rigid_roots(a: &Appearance, part_index: &[usize], spawned: &SpawnedActor, pipboy: bool) -> Vec<(String, Vec<Entity>)> {
+    let mut out: Vec<(String, Vec<Entity>)> = Vec::new();
+    for &(pi, e) in &spawned.rigid_roots {
+        let key = part_key(a, &a.parts[part_index[pi]], pipboy);
+        match out.iter_mut().find(|(n, _)| *n == key) {
+            Some((_, v)) => v.push(e),
+            None => out.push((key, vec![e])),
         }
     }
     out
@@ -324,7 +349,7 @@ fn follow_inventory(
             }
         };
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
+        let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new(), rigid_roots: Vec::new() };
         if !same_weapon {
             // The old hold goes, the weapon's or the fists' (`actors::arm`).
             for (e, _) in held.iter().filter(|(_, h)| h.reference == rig.reference) {
@@ -378,6 +403,18 @@ fn follow_inventory(
                 }
             }
         }
+        // Despawn removed rigid NiNode subtrees after their leaf shapes so no empty
+        // NiNode entities remain under the bone and no entity is despawned twice.
+        let mut kept_roots = Vec::new();
+        for (key, roots) in std::mem::take(&mut dressed.rigid_roots) {
+            if !force_worn && new_keys.contains(&key) {
+                kept_roots.push((key, roots));
+            } else {
+                for e in roots {
+                    commands.entity(e).despawn();
+                }
+            }
+        }
         // Parts drawn now that were not: on the same skeleton.
         let have: Vec<String> = kept.iter().map(|(k, _)| k.clone()).collect();
         let mut put_on = new.clone();
@@ -389,9 +426,12 @@ fn follow_inventory(
             commands.entity(*e).insert(RefVisual(rig.reference));
         }
         let added = grouped(&put_on, &part_index, &spawned, pipboy);
+        let added_roots = grouped_rigid_roots(&put_on, &part_index, &spawned, pipboy);
         stats.parts_on += added.len();
         kept.extend(added);
+        kept_roots.extend(added_roots);
         dressed.parts = kept;
+        dressed.rigid_roots = kept_roots;
         let off: Vec<FormId> = dressed.worn.iter().copied().filter(|a| !worn.contains(a)).collect();
         let on: Vec<FormId> = worn.iter().copied().filter(|a| !dressed.worn.contains(a)).collect();
         stats.armour_off += off.len();
@@ -479,7 +519,7 @@ fn arm_creatures(
         let Some(w) = weapon else { continue };
         let mods = sim.world.peek(FormId(rig.reference)).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.mods_in_use(w));
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        let spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
+        let spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new(), rigid_roots: Vec::new() };
         let mut st = ActorStats::default();
         let name = world.actors.weapons.get(&w).and_then(|x| x.edid.clone()).unwrap_or_default();
         let kind = world.actors.weapons.get(&w).and_then(|x| x.anim_type.clone()).unwrap_or_default();
@@ -642,12 +682,12 @@ pub(crate) mod tests {
         assert_eq!((a.weapon, a.weapon_mods), (Some(WEAPON), 5));
     }
 
-    fn words(out: &mut Vec<u8>, values: &[u32]) { out.extend(values.iter().flat_map(|v| v.to_le_bytes())); }
+    pub(super) fn words(out: &mut Vec<u8>, values: &[u32]) { out.extend(values.iter().flat_map(|v| v.to_le_bytes())); }
     fn floats(out: &mut Vec<u8>, values: &[f32]) { out.extend(values.iter().flat_map(|v| v.to_le_bytes())); }
 
     /// Synthetic NIF/KF containers using `schemas/nif` and the layout in
     /// `crates/fnv-nif/tests/synthetic.rs`; no game data or original binaries.
-    fn nif(blocks: &[(&str, Vec<u8>)], strings: &[&str]) -> Vec<u8> {
+    pub(super) fn nif(blocks: &[(&str, Vec<u8>)], strings: &[&str]) -> Vec<u8> {
         fn string(out: &mut Vec<u8>, s: &str) { words(out, &[s.len() as u32]); out.extend(s.as_bytes()); }
         let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
         words(&mut out, &[0x1402_0007]);
@@ -668,7 +708,7 @@ pub(crate) mod tests {
         out
     }
 
-    fn av_object(name: u32) -> Vec<u8> {
+    pub(super) fn av_object(name: u32) -> Vec<u8> {
         let mut out = vec![];
         words(&mut out, &[name, 0, u32::MAX, 14]); // name, extras, controller, flags
         floats(&mut out, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
@@ -919,14 +959,14 @@ pub(crate) mod tests {
     }
 
     /// The shapes `actor`'s record has now.
-    fn dressed_shapes(app: &App, actor: Entity) -> Vec<Entity> {
+    pub(super) fn dressed_shapes(app: &App, actor: Entity) -> Vec<Entity> {
         app.world().get::<Dressed>(actor).unwrap().parts.iter().flat_map(|(_, shapes)| shapes.iter().copied()).collect()
     }
 
     /// `actor`'s shapes not in `before`, each of which must have `reference`'s `RefVisual`
     /// and the mark: read on the entities themselves, so a shape left without a `RefVisual`
     /// fails here, where [`drawn_all_marked`]'s query would not find it. How many there are.
-    fn new_shapes_refer_to(app: &App, actor: Entity, reference: u32, before: &[Entity]) -> usize {
+    pub(super) fn new_shapes_refer_to(app: &App, actor: Entity, reference: u32, before: &[Entity]) -> usize {
         let new: Vec<Entity> = dressed_shapes(app, actor).into_iter().filter(|e| !before.contains(e)).collect();
         for &e in &new {
             assert_eq!(app.world().get::<RefVisual>(e).map(|r| r.0), Some(reference), "{e}");
@@ -1355,3 +1395,7 @@ pub(crate) mod tests {
         assert_eq!(app.world().resource::<OutfitStats>().replacements, N, "no extra reloads on frame 3");
     }
 }
+
+#[cfg(test)]
+#[path = "outfits_rigid_roots_tests.rs"]
+mod rigid_roots_tests;

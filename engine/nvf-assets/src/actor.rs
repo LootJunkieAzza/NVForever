@@ -164,6 +164,8 @@ pub struct PreparedPart {
     pub shapes: Vec<PartShape>,
     /// `Prn`: the bone rigid shapes hang from.
     pub prn: Option<String>,
+    /// The root node's name, when the NIF gives it one (e.g. `"PipBoyArm"`).
+    pub root_name: Option<String>,
     /// The root node's own transform (NIF space).
     pub root: Affine3A,
     /// The part's `ProjectileNode…` nodes (where a creature's body weapon fires from)
@@ -940,6 +942,7 @@ fn prepare_part_into(sink: &mut impl ModelSink, path: &str, nif: Nif, failures: 
     // `Prn` on the root node (actors.md §1.2).
     if let Some(r) = objects.iter().find(|o| o.parent.is_none()) {
         out.root = affine(&r.transform);
+        out.root_name = r.name.clone().filter(|n| !n.is_empty());
     }
     if let Some(root) = objects.iter().find(|o| o.parent.is_none()).and_then(|o| dec.blocks[o.block].as_ref().ok()) {
         for &e in root.refs("extra_data").unwrap_or_default() {
@@ -1276,6 +1279,55 @@ pub fn creature_rigid_chain(skel: &PreparedSkeleton, part: &PreparedPart, s: &Pa
     (bone, chain, shape_local.unwrap_or(acc))
 }
 
+/// The named node chain and shape-local transform for a rigid (non-creature) part shape
+/// under its attachment bone, preserving the NIF's root and intermediate named `NiNode`s
+/// so `GetChildBlocks` and scripted `SetNifBlock*` transforms on the part root (such as
+/// `"PipBoyArm"` under `"Bip01 L ForeTwist"`) move the entire part together rather than
+/// detaching the first leaf shape (`PipBoyArm:0`) from its siblings [observed: `fnvtool
+/// nif decode` on `Fallout - Meshes.bsa`, `pipboy3000\pipboyarm.nif` has identity root
+/// `PipBoyArm`, direct leaves `PipBoyArm:0` / `PipBoyArm:1`, and named child `NiNode`s
+/// `pipboyscreen`, `RadNeedle`, `TabKnob`, `ScrollKnob`, `StatsGlow`, `ItemsGlow`,
+/// `DataGlow` (`docs/spec-notes/actors.md` §1.2); design: unnamed intermediate nodes fold
+/// into the child node or leaf below them, and parts with no `root_name` and no named
+/// ancestors keep an empty chain].
+///
+/// The product of `chain` transforms followed by the returned shape-local transform equals
+/// `frame * s.transform`.
+pub fn rigid_part_chain(part: &PreparedPart, frame: Affine3A, s: &PartShape) -> (Vec<(Option<String>, Affine3A)>, Affine3A) {
+    let mut named: Vec<(String, Affine3A)> = Vec::new();
+    let mut acc = if s.ancestors.is_empty() { s.transform } else { s.own };
+    let mut shape_local = None;
+    for (name, t) in &s.ancestors {
+        match name.as_ref().filter(|n| !n.is_empty()) {
+            Some(n) => {
+                match named.last_mut() {
+                    Some(last) => last.1 = acc,
+                    None => shape_local = Some(acc),
+                }
+                named.push((n.clone(), Affine3A::IDENTITY));
+                acc = *t;
+            }
+            None => acc = *t * acc,
+        }
+    }
+    if let Some(root_name) = part.root_name.as_ref().filter(|n| !n.is_empty()).cloned() {
+        match named.last_mut() {
+            Some(last) => last.1 = acc,
+            None => shape_local = Some(acc),
+        }
+        let mut chain: Vec<(Option<String>, Affine3A)> = Vec::with_capacity(1 + named.len());
+        chain.push((Some(root_name), frame));
+        chain.extend(named.into_iter().rev().map(|(n, t)| (Some(n), t)));
+        (chain, shape_local.unwrap_or(acc))
+    } else if let Some(last) = named.last_mut() {
+        last.1 = frame * acc;
+        let chain = named.into_iter().rev().map(|(n, t)| (Some(n), t)).collect();
+        (chain, shape_local.unwrap_or(acc))
+    } else {
+        (Vec::new(), frame * acc)
+    }
+}
+
 /// Make a skinned shape that is drawn rigidly (a weapon's or a held object's shape hung
 /// from a bone, or a part whose bones the skeleton lacks) a valid skinned draw: a skin of
 /// `joints` joints that are all the shape's own entity `e`, with identity inverse bind
@@ -1314,6 +1366,10 @@ pub struct SpawnedActor {
     /// name, entity and local transform, for the actor's clips to drive
     /// (`BlendPlayer::add_part_node`).
     pub part_nodes: Vec<(String, Entity, Transform)>,
+    /// Top-level named rigid part root entities spawned directly under a skeleton bone
+    /// ([`rigid_part_chain`]), paired with their part index so outfit replacement can
+    /// despawn removed rigid part subtrees without leaving empty `NiNode` entities behind.
+    pub rigid_roots: Vec<(usize, Entity)>,
 }
 
 /// Spawn an actor under `parent`: the skeleton's nodes (root at `transform`), then every
@@ -1330,7 +1386,7 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
     for (i, p) in skel.parents.iter().enumerate().skip(1) {
         commands.entity(nodes[p.unwrap_or(0)]).add_child(nodes[i]);
     }
-    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
+    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new(), rigid_roots: Vec::new() };
     spawn_parts(commands, skel, parts, &mut out);
     out
 }
@@ -1519,7 +1575,26 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                                 }
                                 (at, local)
                             }
-                            Some(b) => (nodes[b], rigid_frame.unwrap() * s.transform),
+                            Some(b) => {
+                                let (chain, local) = rigid_part_chain(&u.part, rigid_frame.unwrap(), s);
+                                let mut at = nodes[b];
+                                let mut path: Vec<Option<String>> = Vec::with_capacity(chain.len());
+                                for (depth, (name, t)) in chain.into_iter().enumerate() {
+                                    path.push(name.clone());
+                                    at = *chains.entry((pi, path.clone())).or_insert_with(|| {
+                                        let local = Transform::from_matrix(Mat4::from(t));
+                                        let e = match name {
+                                            Some(n) => commands.spawn((Name::new(n), local, Visibility::Inherited, ChildOf(at))).id(),
+                                            None => commands.spawn((local, Visibility::Inherited, ChildOf(at))).id(),
+                                        };
+                                        if depth == 0 {
+                                            out.rigid_roots.push((pi, e));
+                                        }
+                                        e
+                                    });
+                                }
+                                (at, local)
+                            }
                             None => (nodes[0], s.transform),
                         };
                         let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(local)))).id();
@@ -1575,6 +1650,10 @@ pub fn blend_player(actor: &SpawnedActor, skel: &PreparedSkeleton) -> BlendPlaye
 pub fn probe_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, String> {
     prepare_skeleton(decode(data, &fnv_vfs::normalize(path)))
 }
+
+#[cfg(test)]
+#[path = "actor_rigid_hierarchy_tests.rs"]
+mod rigid_hierarchy_tests;
 
 #[cfg(test)]
 mod tests {
