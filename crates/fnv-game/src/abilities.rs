@@ -28,11 +28,12 @@
 //!   abilities'; docs/spec-notes/crippled-limbs.md §2].
 
 use crate::game::Game;
-use fnv_sim::FormId;
-use std::collections::{BTreeSet, HashMap};
+use fnv_sim::form::{FormId, FormMap};
+use std::collections::BTreeSet;
 
-type ActiveAbilitiesMap = HashMap<FormId, Vec<FormId>>;
-type ActiveWornMap = HashMap<FormId, Vec<(FormId, FormId)>>;
+type ActiveAbilitiesMap = FormMap<Vec<FormId>>;
+type ActiveWornMap = FormMap<Vec<(FormId, FormId)>>;
+type IndexedEffects<'a> = (&'a ActiveAbilitiesMap, &'a ActiveWornMap);
 
 /// Incremental cache for [`Game::effects_actors`]: authored placements in loaded cells,
 /// placed actors whose `RefState.cell` differs from their placement, live created actors,
@@ -415,8 +416,8 @@ impl Game<'_> {
         // Single-pass index of active permanent ability sources and worn enchantments per
         // actor so steady-state frames avoid O(actors * spells * effects) scans and
         // per-actor Vec allocations [design].
-        let mut active_abilities: ActiveAbilitiesMap = std::collections::HashMap::new();
-        let mut active_worn: ActiveWornMap = std::collections::HashMap::new();
+        let mut active_abilities: ActiveAbilitiesMap = FormMap::default();
+        let mut active_worn: ActiveWornMap = FormMap::default();
         for e in &self.effects {
             if let Some(item) = e.worn {
                 let list = active_worn.entry(e.target).or_default();
@@ -512,7 +513,7 @@ impl Game<'_> {
 
     fn effects_actors_inner(
         &mut self,
-        indexed: Option<(&ActiveAbilitiesMap, &ActiveWornMap)>,
+        indexed: Option<IndexedEffects<'_>>,
     ) -> BTreeSet<FormId> {
         // The loaded part of `package_actors`, built without scanning every `RefExtra` or
         // created reference each frame: authored actors in loaded cells, placed actors
