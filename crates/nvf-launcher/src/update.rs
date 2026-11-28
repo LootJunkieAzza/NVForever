@@ -573,19 +573,32 @@ fn commit(install: &Path, journal: &Journal, game: Option<&GameInstall>) -> Resu
 
 /// Carry out `plan` on `install` from `payload`: [`stage`] (nothing the install runs from
 /// changes; a failure leaves it as it was), then [`commit`] (renames only). Afterwards only
-/// `plan.backup` is kept under `update/previous/`. Nothing is written inside the game folder
-/// (`game`, the one the INI names) or the original game's user folder.
+/// `plan.backup` is kept under `update/previous/`; an older one that cannot be removed is
+/// said and left there, without failing the update (#4593). Nothing is written inside the
+/// game folder (`game`, the one the INI names) or the original game's user folder.
 pub fn apply(install: &Path, payload: &Path, plan: &Plan, game: Option<&GameInstall>) -> Result<(), String> {
     guard_plan(install, plan, game)?;
     let journal = stage(install, payload, plan)?;
     commit(install, &journal, game).map_err(|e| format!("the update stopped part-way ({e}); start the launcher again and it finishes it"))?;
     // One previous version is kept: the one just set aside (a roll back's source goes too).
-    if let Ok(rd) = fs::read_dir(previous_dir(install)) {
-        for e in rd.flatten().filter(|e| e.path() != plan.backup) {
-            let _ = fs::remove_dir_all(e.path());
-        }
+    // One that cannot be removed is left in place and said, rather than dropped (#4593).
+    for (path, e) in remove_older_versions(&previous_dir(install), &plan.backup) {
+        eprintln!("warning: the older version {} could not be removed: {e}", path.display());
     }
     Ok(())
+}
+
+/// Remove the kept versions under `previous` except `keep`; one that cannot be removed (a
+/// file in use on Windows, permissions) is returned with its error and stays on disk, so the
+/// caller can say so. The update itself has already finished by then (the swap is committed),
+/// so a failure here must not fail it.
+fn remove_older_versions(previous: &Path, keep: &Path) -> Vec<(PathBuf, std::io::Error)> {
+    let Ok(rd) = fs::read_dir(previous) else { return Vec::new() };
+    rd.flatten()
+        // Versions are folders; anything else beside them was never ours to remove.
+        .filter(|e| e.path() != keep && e.path().is_dir())
+        .filter_map(|e| fs::remove_dir_all(e.path()).err().map(|err| (e.path(), err)))
+        .collect()
 }
 
 /// The journal of a swap cut short, read and checked: every path a plain one below the
@@ -1333,6 +1346,44 @@ mod tests {
         assert!(resume_interrupted(&install, None).unwrap().unwrap_err().contains("neither staged nor in place"));
         assert_eq!(read(&install.join(launcher_exe())), format!("{} 0.7.0", launcher_exe()));
         let _ = fs::remove_dir_all(&d);
+    }
+
+    /// The kept version stays and every other one goes; a version that could not be removed
+    /// (the test below) is reported rather than dropped silently (#4593).
+    #[test]
+    fn older_versions_are_removed_and_the_kept_one_stays() {
+        let d = tmp("older-removal");
+        let previous = d.join("previous");
+        let (keep, old) = (previous.join("v0.8.0"), previous.join("v0.7.0"));
+        put(&keep.join(launcher_exe()), "kept");
+        put(&old.join(launcher_exe()), "old");
+        put(&previous.join("a stray file"), "not a version, never ours");
+        assert!(remove_older_versions(&previous, &keep).is_empty(), "nothing failed");
+        assert!(keep.join(launcher_exe()).is_file(), "the kept one is not touched");
+        assert!(!old.exists(), "the older one is gone");
+        assert!(previous.join("a stray file").is_file(), "only version folders are removed");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// A version held open (a file in use, as on Windows) cannot be removed: the failure names
+    /// its folder and leaves it on disk, so the message the update prints points at it.
+    #[cfg(windows)]
+    #[test]
+    fn a_version_that_cannot_be_removed_is_reported_and_kept() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let d = tmp("older-removal-stuck");
+        let previous = d.join("previous");
+        let (keep, stuck) = (previous.join("v0.8.0"), previous.join("v0.7.0"));
+        put(&keep.join(launcher_exe()), "kept");
+        put(&stuck.join(launcher_exe()), "stuck");
+        let held = fs::OpenOptions::new().read(true).share_mode(0).open(stuck.join(launcher_exe())).unwrap();
+        let failed = remove_older_versions(&previous, &keep);
+        assert_eq!(failed.len(), 1, "one version could not be removed");
+        assert_eq!(failed[0].0, stuck);
+        assert!(stuck.is_dir(), "it stays on disk, for the message to point at");
+        assert!(keep.join(launcher_exe()).is_file(), "the kept one is not touched");
+        drop(held);
+        fs::remove_dir_all(&d).unwrap();
     }
 
     /// [`install`] and [`roll_back`] without [`check_install`] (a test folder under the
